@@ -32,10 +32,12 @@
 namespace doris::vectorized {
 Status FunctionAIClassify::build_prompt(const Block& block, const ColumnNumbers& arguments,
                                         size_t row_num, std::string& prompt) const {
+    LOG(INFO) << "[AI_CHECK]: Building FunctionAIClassify prompt for row " << row_num;
     // Get the text column
     const ColumnWithTypeAndName& text_column = block.get_by_position(arguments[1]);
     StringRef text = text_column.column->get_data_at(row_num);
     std::string text_str = std::string(text.data, text.size);
+    LOG(INFO) << "[AI_CHECK]: Extracted text with length " << text_str.length();
 
     // Get the labels array column
     const ColumnWithTypeAndName& labels_column = block.get_by_position(arguments[2]);
@@ -43,6 +45,7 @@ Status FunctionAIClassify::build_prompt(const Block& block, const ColumnNumbers&
             check_column_const_set_readability(*labels_column.column, row_num);
     const auto* col_array = check_and_get_column<ColumnArray>(*array_column);
     if (col_array == nullptr) {
+        LOG(ERROR) << "[AI_CHECK]: Invalid labels column type for FunctionAIClassify";
         return Status::InternalError(
                 "labels argument for {} must be Array(String) or Array(Varchar)", name);
     }
@@ -57,6 +60,7 @@ Status FunctionAIClassify::build_prompt(const Block& block, const ColumnNumbers&
         data.get(i, field);
         label_values.emplace_back(field.get<String>());
     }
+    LOG(INFO) << "[AI_CHECK]: Extracted " << label_values.size() << " labels";
 
     std::string labels_str = "[";
     for (size_t i = 0; i < label_values.size(); ++i) {
@@ -68,16 +72,19 @@ Status FunctionAIClassify::build_prompt(const Block& block, const ColumnNumbers&
     labels_str += "]";
 
     prompt = "Labels: " + labels_str + "\nText: " + text_str;
+    LOG(INFO) << "[AI_CHECK]: Built FunctionAIClassify prompt with length " << prompt.length();
 
     return Status::OK();
 }
 
 Status FunctionAIExtract::build_prompt(const Block& block, const ColumnNumbers& arguments,
                                        size_t row_num, std::string& prompt) const {
+    LOG(INFO) << "[AI_CHECK]: Building FunctionAIExtract prompt for row " << row_num;
     // Get the text column
     const ColumnWithTypeAndName& text_column = block.get_by_position(arguments[1]);
     StringRef text = text_column.column->get_data_at(row_num);
     std::string text_str = std::string(text.data, text.size);
+    LOG(INFO) << "[AI_CHECK]: Extracted text with length " << text_str.length();
 
     // Get the labels array column
     const ColumnWithTypeAndName& labels_column = block.get_by_position(arguments[2]);
@@ -85,6 +92,7 @@ Status FunctionAIExtract::build_prompt(const Block& block, const ColumnNumbers& 
             check_column_const_set_readability(*labels_column.column, row_num);
     const auto* col_array = check_and_get_column<ColumnArray>(*array_column);
     if (col_array == nullptr) {
+        LOG(ERROR) << "[AI_CHECK]: Invalid labels column type for FunctionAIExtract";
         return Status::InternalError(
                 "labels argument for {} must be Array(String) or Array(Varchar)", name);
     }
@@ -99,6 +107,7 @@ Status FunctionAIExtract::build_prompt(const Block& block, const ColumnNumbers& 
         data.get(i, field);
         label_values.emplace_back(field.get<String>());
     }
+    LOG(INFO) << "[AI_CHECK]: Extracted " << label_values.size() << " labels";
 
     std::string labels_str = "[";
     for (size_t i = 0; i < label_values.size(); ++i) {
@@ -110,25 +119,30 @@ Status FunctionAIExtract::build_prompt(const Block& block, const ColumnNumbers& 
     labels_str += "]";
 
     prompt = "Labels: " + labels_str + "\nText: " + text_str;
+    LOG(INFO) << "[AI_CHECK]: Built FunctionAIExtract prompt with length " << prompt.length();
 
     return Status::OK();
 }
 
 Status FunctionAIGenerate::build_prompt(const Block& block, const ColumnNumbers& arguments,
                                         size_t row_num, std::string& prompt) const {
+    LOG(INFO) << "[AI_CHECK]: Building FunctionAIGenerate prompt for row " << row_num;
     const ColumnWithTypeAndName& text_column = block.get_by_position(arguments[1]);
     StringRef text_ref = text_column.column->get_data_at(row_num);
     prompt = std::string(text_ref.data, text_ref.size);
+    LOG(INFO) << "[AI_CHECK]: Built FunctionAIGenerate prompt with length " << prompt.length();
 
     return Status::OK();
 }
 
 Status FunctionAIMask::build_prompt(const Block& block, const ColumnNumbers& arguments,
                                     size_t row_num, std::string& prompt) const {
+    LOG(INFO) << "[AI_CHECK]: Building FunctionAIMask prompt for row " << row_num;
     // Get the text column
     const ColumnWithTypeAndName& text_column = block.get_by_position(arguments[1]);
     StringRef text = text_column.column->get_data_at(row_num);
     std::string text_str = std::string(text.data, text.size);
+    LOG(INFO) << "[AI_CHECK]: Extracted text with length " << text_str.length();
 
     // Get the labels array column
     const ColumnWithTypeAndName& labels_column = block.get_by_position(arguments[2]);
@@ -136,6 +150,7 @@ Status FunctionAIMask::build_prompt(const Block& block, const ColumnNumbers& arg
             check_column_const_set_readability(*labels_column.column, row_num);
     const auto* col_array = check_and_get_column<ColumnArray>(*array_column);
     if (col_array == nullptr) {
+        LOG(ERROR) << "[AI_CHECK]: Invalid labels column type for FunctionAIMask";
         return Status::InternalError(
                 "labels argument for {} must be Array(String) or Array(Varchar)", name);
     }
@@ -150,6 +165,7 @@ Status FunctionAIMask::build_prompt(const Block& block, const ColumnNumbers& arg
         data.get(i, field);
         label_values.emplace_back(field.get<String>());
     }
+    LOG(INFO) << "[AI_CHECK]: Extracted " << label_values.size() << " labels";
 
     std::string labels_str = "[";
     for (size_t i = 0; i < label_values.size(); ++i) {
@@ -161,40 +177,49 @@ Status FunctionAIMask::build_prompt(const Block& block, const ColumnNumbers& arg
     labels_str += "]";
 
     prompt = "Labels: " + labels_str + "\nText: " + text_str;
+    LOG(INFO) << "[AI_CHECK]: Built FunctionAIMask prompt with length " << prompt.length();
 
     return Status::OK();
 }
 
 Status FunctionAISimilarity::build_prompt(const Block& block, const ColumnNumbers& arguments,
                                           size_t row_num, std::string& prompt) const {
+    LOG(INFO) << "[AI_CHECK]: Building FunctionAISimilarity prompt for row " << row_num;
     // text1
     const ColumnWithTypeAndName& text_column_1 = block.get_by_position(arguments[1]);
     StringRef text_1 = text_column_1.column.get()->get_data_at(row_num);
     std::string text_str_1 = std::string(text_1.data, text_1.size);
+    LOG(INFO) << "[AI_CHECK]: Extracted text1 with length " << text_str_1.length();
 
     // text2
     const ColumnWithTypeAndName& text_column_2 = block.get_by_position(arguments[2]);
     StringRef text_2 = text_column_2.column.get()->get_data_at(row_num);
     std::string text_str_2 = std::string(text_2.data, text_2.size);
+    LOG(INFO) << "[AI_CHECK]: Extracted text2 with length " << text_str_2.length();
 
     prompt = "Text 1: " + text_str_1 + "\nText 2: " + text_str_2;
+    LOG(INFO) << "[AI_CHECK]: Built FunctionAISimilarity prompt with length " << prompt.length();
 
     return Status::OK();
 }
 
 Status FunctionAITranslate::build_prompt(const Block& block, const ColumnNumbers& arguments,
                                          size_t row_num, std::string& prompt) const {
+    LOG(INFO) << "[AI_CHECK]: Building FunctionAITranslate prompt for row " << row_num;
     // text
     const ColumnWithTypeAndName& text_column = block.get_by_position(arguments[1]);
     StringRef text = text_column.column.get()->get_data_at(row_num);
     std::string text_str = std::string(text.data, text.size);
+    LOG(INFO) << "[AI_CHECK]: Extracted text with length " << text_str.length();
 
     // target language
     const ColumnWithTypeAndName& lang_column = block.get_by_position(arguments[2]);
     StringRef lang = lang_column.column.get()->get_data_at(row_num);
     std::string target_lang = std::string(lang.data, lang.size);
+    LOG(INFO) << "[AI_CHECK]: Target language: " << target_lang;
 
     prompt = "Translate the following text to " + target_lang + ".\nText: " + text_str;
+    LOG(INFO) << "[AI_CHECK]: Built FunctionAITranslate prompt with length " << prompt.length();
 
     return Status::OK();
 }

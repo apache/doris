@@ -29,6 +29,7 @@
 #include <vector>
 
 #include "common/config.h"
+#include "common/logging.h"
 #include "common/status.h"
 #include "http/http_client.h"
 #include "runtime/define_primitive_type.h"
@@ -65,15 +66,18 @@ public:
 
     virtual Status build_prompt(const Block& block, const ColumnNumbers& arguments, size_t row_num,
                                 std::string& prompt) const {
+        LOG(INFO) << "[AI_CHECK]: Building prompt for row " << row_num;
         const ColumnWithTypeAndName& text_column = block.get_by_position(arguments[1]);
         StringRef text_ref = text_column.column->get_data_at(row_num);
         prompt = std::string(text_ref.data, text_ref.size);
+        LOG(INFO) << "[AI_CHECK]: Built prompt with length " << prompt.length();
 
         return Status::OK();
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
+        LOG(INFO) << "[AI_CHECK]: Executing AI function: " << get_name();
         DataTypePtr return_type_impl =
                 assert_cast<const Derived&>(*this).get_return_type_impl(DataTypes());
         MutableColumnPtr col_result = return_type_impl->create_column();
@@ -87,6 +91,7 @@ public:
         }
 
         for (size_t i = 0; i < input_rows_count; ++i) {
+            LOG(INFO) << "[AI_CHECK]: Processing row " << i << " of " << input_rows_count;
             // Build AI prompt text
             std::string prompt;
             RETURN_IF_ERROR(
@@ -94,6 +99,7 @@ public:
 
             // Execute a single AI request and get the result
             if (return_type_impl->get_primitive_type() == PrimitiveType::TYPE_ARRAY) {
+                LOG(INFO) << "[AI_CHECK]: Executing array type request (embeddings)";
                 // Array(Float) for AI_EMBED
                 std::vector<float> float_result;
                 RETURN_IF_ERROR(
@@ -112,13 +118,18 @@ public:
                 offsets.push_back(current_offset + float_result.size());
                 auto& null_map = nested_nullable_col.get_null_map_column();
                 null_map.insert_many_vals(0, float_result.size());
+                LOG(INFO) << "[AI_CHECK]: Successfully inserted embedding result into column";
             } else {
+                LOG(INFO) << "[AI_CHECK]: Executing string type request";
                 std::string string_result;
                 RETURN_IF_ERROR(
                         execute_single_request(prompt, string_result, config, adapter, context));
+                LOG(INFO) << "[AI_CHECK]: Received string result with length "
+                          << string_result.length();
 
                 switch (return_type_impl->get_primitive_type()) {
                 case PrimitiveType::TYPE_STRING: { // string
+                    LOG(INFO) << "[AI_CHECK]: Inserting string result into column";
                     assert_cast<ColumnString&>(*col_result)
                             .insert_data(string_result.data(), string_result.size());
                     break;
@@ -133,15 +144,18 @@ public:
                     }
 #endif
                     trim_string(string_result);
+                    LOG(INFO) << "[AI_CHECK]: Parsing boolean result: " << string_result;
                     if (string_result != "1" && string_result != "0") {
                         return Status::RuntimeError("Failed to parse boolean value: " +
                                                     string_result);
                     }
                     assert_cast<ColumnUInt8&>(*col_result)
                             .insert_value(static_cast<UInt8>(string_result == "1"));
+                    LOG(INFO) << "[AI_CHECK]: Successfully inserted boolean result";
                     break;
                 }
                 case PrimitiveType::TYPE_FLOAT: { // float for AI_SIMILARITY
+                    LOG(INFO) << "[AI_CHECK]: Parsing float result: " << string_result;
 #ifdef BE_TEST
                     const char* test_result = std::getenv("AI_TEST_RESULT");
                     if (test_result != nullptr) {
@@ -158,6 +172,7 @@ public:
                         return Status::RuntimeError("Failed to parse float value: " +
                                                     string_result);
                     }
+                    LOG(INFO) << "[AI_CHECK]: Successfully inserted float result";
                     break;
                 }
                 default:
@@ -167,6 +182,7 @@ public:
         }
 
         block.replace_by_position(result, std::move(col_result));
+        LOG(INFO) << "[AI_CHECK]: AI function execution completed successfully";
         return Status::OK();
     }
 
@@ -185,6 +201,7 @@ private:
     Status _init_from_resource(FunctionContext* context, const Block& block,
                                const ColumnNumbers& arguments, TAIResource& config,
                                std::shared_ptr<AIAdapter>& adapter) const {
+        LOG(INFO) << "[AI_CHECK]: Initializing AI resource for function: " << get_name();
         // 1. Initialize config
         const ColumnWithTypeAndName& resource_column = block.get_by_position(arguments[0]);
         StringRef resource_name_ref = resource_column.column->get_data_at(0);
@@ -194,13 +211,16 @@ private:
                 context->state()->get_query_ctx()->get_ai_resources();
         auto it = ai_resources.find(resource_name);
         if (it == ai_resources.end()) {
+            LOG(INFO) << "[AI_CHECK]: AI resource not found: " << resource_name;
             return Status::InvalidArgument("AI resource not found: " + resource_name);
         }
         config = it->second;
 
         // 2. Create an adapter based on provider_type
+        LOG(INFO) << "[AI_CHECK]: Creating AI adapter for provider type: " << config.provider_type;
         adapter = AIAdapterFactory::create_adapter(config.provider_type);
         if (!adapter) {
+            LOG(INFO) << "[AI_CHECK]: Unsupported AI provider type: " << config.provider_type;
             return Status::InvalidArgument("Unsupported AI provider type: " + config.provider_type);
         }
         adapter->init(config);
@@ -212,10 +232,12 @@ private:
     Status do_send_request(HttpClient* client, const std::string& request_body,
                            std::string& response, const TAIResource& config,
                            std::shared_ptr<AIAdapter>& adapter, FunctionContext* context) const {
+        LOG(INFO) << "[AI_CHECK]: Initializing HTTP client for endpoint: " << config.endpoint;
         RETURN_IF_ERROR(client->init(config.endpoint));
 
         QueryContext* query_ctx = context->state()->get_query_ctx();
         int64_t remaining_query_time = query_ctx->get_remaining_query_time_seconds();
+        LOG(INFO) << "[AI_CHECK]: Remaining query time: " << remaining_query_time << " seconds";
         if (remaining_query_time <= 0) {
             return Status::TimedOut("Query timeout exceeded before AI request");
         }
@@ -223,9 +245,11 @@ private:
         client->set_timeout_ms(remaining_query_time * 1000);
 
         if (!config.api_key.empty()) {
+            LOG(INFO) << "[AI_CHECK]: Setting authentication for AI request";
             RETURN_IF_ERROR(adapter->set_authentication(client));
         }
 
+        LOG(INFO) << "[AI_CHECK]: Executing POST request to AI service";
         return client->execute_post_request(request_body, &response);
     }
 
@@ -233,6 +257,8 @@ private:
     Status send_request_to_llm(const std::string& request_body, std::string& response,
                                const TAIResource& config, std::shared_ptr<AIAdapter>& adapter,
                                FunctionContext* context) const {
+        LOG(INFO) << "[AI_CHECK]: Sending request to LLM with max retries: " << config.max_retries
+                  << ", retry delay: " << config.retry_delay_second << " seconds";
         return HttpClient::execute_with_retry(config.max_retries, config.retry_delay_second,
                                               [this, &request_body, &response, &config, &adapter,
                                                context](HttpClient* client) -> Status {
@@ -246,10 +272,13 @@ private:
     Status execute_single_request(const std::string& input, std::string& result,
                                   const TAIResource& config, std::shared_ptr<AIAdapter>& adapter,
                                   FunctionContext* context) const {
+        LOG(INFO) << "[AI_CHECK]: Executing single LLM request with input length: "
+                  << input.length();
         std::vector<std::string> inputs = {input};
         std::vector<std::string> results;
 
         std::string request_body;
+        LOG(INFO) << "[AI_CHECK]: Building request payload for LLM";
         RETURN_IF_ERROR(adapter->build_request_payload(
                 inputs, assert_cast<const Derived&>(*this).system_prompt, request_body));
 
@@ -260,23 +289,30 @@ private:
         } else {
             RETURN_IF_ERROR(send_request_to_llm(request_body, response, config, adapter, context));
         }
+        LOG(INFO) << "[AI_CHECK]: Received response with length: " << response.length();
 
+        LOG(INFO) << "[AI_CHECK]: Parsing LLM response";
         RETURN_IF_ERROR(adapter->parse_response(response, results));
         if (results.empty()) {
             return Status::InternalError("AI returned empty result");
         }
 
         result = std::move(results[0]);
+        LOG(INFO) << "[AI_CHECK]: Successfully executed LLM request, result length: "
+                  << result.length();
         return Status::OK();
     }
 
     Status execute_single_request(const std::string& input, std::vector<float>& result,
                                   const TAIResource& config, std::shared_ptr<AIAdapter>& adapter,
                                   FunctionContext* context) const {
+        LOG(INFO) << "[AI_CHECK]: Executing single embedding request with input length: "
+                  << input.length();
         std::vector<std::string> inputs = {input};
         std::vector<std::vector<float>> results;
 
         std::string request_body;
+        LOG(INFO) << "[AI_CHECK]: Building embedding request payload";
         RETURN_IF_ERROR(adapter->build_embedding_request(inputs, request_body));
 
         std::string response;
@@ -286,13 +322,17 @@ private:
         } else {
             RETURN_IF_ERROR(send_request_to_llm(request_body, response, config, adapter, context));
         }
+        LOG(INFO) << "[AI_CHECK]: Received embedding response with length: " << response.length();
 
+        LOG(INFO) << "[AI_CHECK]: Parsing embedding response";
         RETURN_IF_ERROR(adapter->parse_embedding_response(response, results));
         if (results.empty()) {
             return Status::InternalError("AI returned empty result");
         }
 
         result = std::move(results[0]);
+        LOG(INFO) << "[AI_CHECK]: Successfully executed embedding request, result dimensions: "
+                  << result.size();
         return Status::OK();
     }
 };

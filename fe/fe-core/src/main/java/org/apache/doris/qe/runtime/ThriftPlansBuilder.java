@@ -326,6 +326,8 @@ public class ThriftPlansBuilder {
             Map<Integer, TFileScanRangeParams> fileScanRangeParamsMap,
             Multiset<DistributedPlanWorker> workerProcessInstanceNum,
             CoordinatorContext coordinatorContext) {
+        LOG.info("[AI_CHECK]: Start FragmentToThriftIfAbsent for fragment {}, assignedJob {}",
+                fragmentPlan.getFragmentJob().getFragment().getFragmentId(), assignedJob.instanceId());
         DistributedPlanWorker worker = assignedJob.getAssignedWorker();
         return workerToFragmentParams.computeIfAbsent(worker, w -> {
             PlanFragment fragment = fragmentPlan.getFragmentJob().getFragment();
@@ -400,9 +402,13 @@ public class ThriftPlansBuilder {
             params.setShuffleIdxToInstanceIdx(computeDestIdToInstanceId(fragmentPlan, w, instanceToIndex));
 
             // Only used for AI Functions
+            LOG.info("[AI_CHECK]: Start set AI resources for fragment {}, assignedJob {}",
+                    fragmentPlan.getFragmentJob().getFragment().getFragmentId(),
+                    assignedJob.instanceId());
             Map<String, TAIResource> aiResourceMap = Maps.newLinkedHashMap();
             for (Resource resource : Env.getCurrentEnv().getResourceMgr().getResource(Resource.ResourceType.AI)) {
                 if (resource instanceof AIResource) {
+                    LOG.info("[AI_CHECK]: Add AI resource {}", resource.getName(), assignedJob.instanceId());
                     aiResourceMap.put(resource.getName(), ((AIResource) resource).toThrift());
                 }
             }
