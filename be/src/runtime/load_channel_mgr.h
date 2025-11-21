@@ -91,7 +91,7 @@ private:
 
         LoadStateChannelCache(size_t capacity)
                 : LRUCachePolicy(CachePolicy::CacheType::LOAD_STATE_CHANNEL_CACHE, capacity,
-                                 LRUCacheType::SIZE, -1, DEFAULT_LRU_CACHE_NUM_SHARDS,
+                                 LRUCacheType::NUMBER, -1, DEFAULT_LRU_CACHE_NUM_SHARDS,
                                  DEFAULT_LRU_CACHE_ELEMENT_COUNT_CAPACITY, false) {}
     };
 

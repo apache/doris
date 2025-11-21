@@ -19,50 +19,96 @@ import org.apache.doris.regression.suite.ClusterOptions
 
 suite('test_insert_rpc_order_problem', 'docker') {
     def options = new ClusterOptions()
-    options.cloudMode = true
+    options.feConfigs += [
+        'enable_debug_points = true',
+        'min_bytes_per_broker_scanner = 100',
+        'parallel_pipeline_task_num = 2'
+    ]
+    options.beConfigs += [
+        'enable_debug_points = true',
+    ]
     options.beNum = 3
 
-
     docker(options) {
-        def sourceTable = "test_src_table"
-        def tableName = "test_dst_table"
-
-        sql "DROP TABLE IF EXISTS ${sourceTable}"
-        sql "DROP TABLE IF EXISTS ${tableName}"
-
-
+        def tableName = "test_insert_rpc_order_problem"
+        sql """drop table if exists ${tableName}"""
         sql """
-            CREATE TABLE ${sourceTable} (
-                `date` DATE NOT NULL,
-                `id` INT,
-                `value` VARCHAR(100)
+            CREATE TABLE IF NOT EXISTS ${tableName} (
+                L_ORDERKEY    INTEGER NOT NULL,
+                L_PARTKEY     INTEGER NOT NULL,
+                L_SUPPKEY     INTEGER NOT NULL,
+                L_LINENUMBER  INTEGER NOT NULL,
+                L_QUANTITY    DECIMAL(15,2) NOT NULL,
+                L_EXTENDEDPRICE  DECIMAL(15,2) NOT NULL,
+                L_DISCOUNT    DECIMAL(15,2) NOT NULL,
+                L_TAX         DECIMAL(15,2) NOT NULL,
+
+                L_RETURNFLAG  CHAR(1) NOT NULL,
+                L_LINESTATUS  CHAR(1) NOT NULL,
+                L_SHIPDATE    DATE NOT NULL,
+                L_COMMITDATE  DATE NOT NULL,
+                L_RECEIPTDATE DATE NOT NULL,
+                L_SHIPINSTRUCT CHAR(25) NOT NULL,
+                L_SHIPMODE     CHAR(10) NOT NULL,
+                L_COMMENT      VARCHAR(44) NOT NULL
             )
-            DISTRIBUTED BY HASH(`date`) BUCKETS 2
+            UNIQUE KEY(L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER)
+            PARTITION BY RANGE(L_ORDERKEY) (
+                PARTITION p2023 VALUES LESS THAN ("6000010") 
+            )
+            DISTRIBUTED BY HASH(L_ORDERKEY) BUCKETS 3
             PROPERTIES (
                 "replication_num" = "3"
             );
         """
 
-        sql """
-            CREATE TABLE ${tableName} (
-                `date` DATE NOT NULL,
-                `id` INT
+        // Disable LoadStream to use old LoadChannel mechanism
+        sql """ set enable_memtable_on_sink_node = false; """
+        sql """ set parallel_pipeline_task_num = 2; """
+
+        try {
+            GetDebugPoint().enableDebugPointForAllBEs(
+                'FragmentMgr::coordinator_callback.report_delay'
             )
-            DISTRIBUTED BY HASH(id) BUCKETS 10
-            PROPERTIES (
-                "replication_num" = "3"
-            );
-        """
-        
-        sql """ INSERT INTO ${sourceTable} VALUES ("2025-11-04", 1, "test1"); """
-        sql """ INSERT INTO ${sourceTable} SELECT "2025-11-04", number, "test" FROM numbers("number" = "20000"); """
-        
-        // 期望收到 unknown load_id的错误
-        sql """ INSERT INTO ${tableName} SELECT * FROM ${sourceTable}; """
+            def label = "test_insert_rpc_order_problem"
 
+            sql """
+            LOAD LABEL ${label} (
+                DATA INFILE("s3://${getS3BucketName()}/regression/tpch/sf1/{lineitem,lineitem2}.csv.split01.gz")
+                INTO TABLE ${tableName}
+                COLUMNS TERMINATED BY "|"
+                FORMAT AS "CSV"
+            )
+            WITH S3 (
+                "AWS_ACCESS_KEY" = "${getS3AK()}",
+                "AWS_SECRET_KEY" = "${getS3SK()}",
+                "AWS_ENDPOINT" = "${getS3Endpoint()}",
+                "AWS_REGION" = "${getS3Region()}",
+                "provider" = "${getS3Provider()}"
+            ) 
+            """
 
-
-
+            def max_try_milli_secs = 600000
+            while (max_try_milli_secs > 0) {
+                String[][] result = sql """ show load where label="$label" order by createtime desc limit 1; """
+                logger.info("Load result: " + result[0])
+                if (result[0][2].equals("FINISHED")) {
+                    logger.info("SHOW LOAD : $result")
+                    assertTrue(1 == 2, "should not finished")
+                }
+                if (result[0][2].equals("CANCELLED")) {
+                    def reason = result[0][7]
+                    assertFalse(reason.contains("unknown load_id"), "should not have unknown load_id : $reason")
+                    break
+                }
+                Thread.sleep(1000)
+                max_try_milli_secs -= 1000
+                if(max_try_milli_secs <= 0) {
+                    assertTrue(1 == 2, "load Timeout: $label")
+                }
+            }
+        } finally {
+            GetDebugPoint().disableDebugPointForAllBEs("FragmentMgr::coordinator_callback.report_delay")
+        }
     }
-
 }
