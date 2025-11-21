@@ -101,6 +101,8 @@ public class OracleJdbcExecutor extends BaseJdbcExecutor {
             case VARCHAR:
             case STRING:
                 return resultSet.getObject(columnIndex + 1);
+            case VARBINARY:
+                return resultSet.getObject(columnIndex + 1, byte[].class);
             default:
                 throw new IllegalArgumentException("Unsupported column type: " + type.getType());
         }
@@ -142,6 +144,9 @@ public class OracleJdbcExecutor extends BaseJdbcExecutor {
             case STRING:
                 Object stringVal = resultSet.getObject(columnIndex + 1);
                 return resultSet.wasNull() ? null : stringVal;
+            case VARBINARY:
+                byte[] bytesVal = resultSet.getBytes(columnIndex + 1);
+                return resultSet.wasNull() ? null : bytesVal;
             default:
                 throw new IllegalArgumentException("Unsupported column type: " + type.getType());
         }

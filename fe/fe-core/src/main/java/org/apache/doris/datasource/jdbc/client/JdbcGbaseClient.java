@@ -147,6 +147,10 @@ public class JdbcGbaseClient extends JdbcClient {
             case Types.VARCHAR:
             case Types.LONGVARCHAR:
                 return ScalarType.createStringType();
+            case Types.BINARY:
+            case Types.VARBINARY:
+                return enableMappingVarbinary ? ScalarType.createVarbinaryType(fieldSchema.requiredColumnSize())
+                        : ScalarType.createStringType();
             default:
                 return Type.UNSUPPORTED;
         }
