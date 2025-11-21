@@ -326,7 +326,7 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
     }
 
     private Plan skipPruneThisAndFirstLevelChildren(Plan plan) {
-        return pruneChildren(plan, plan.getChildrenOutputExprIdBitSet());
+        return pruneChildren(plan, plan.getOutputExprIdBitSet());
     }
 
     // some rules want to match the aggregate which contains all the group by keys and aggregate functions
