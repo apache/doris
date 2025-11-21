@@ -56,7 +56,6 @@ public class VariablePersistTest extends ExpressionRewriteTestHelper {
         boolean matches = SessionVarGuardRewriter.checkSessionVariablesMatch(
                 currentSessionVars, persistSessionVars);
         Assertions.assertFalse(matches, "Should return false when sessionVars differ");
-        
         SessionVarGuardRewriter.AddSessionVarGuardRewriter rewriter =
                 new SessionVarGuardRewriter.AddSessionVarGuardRewriter(persistSessionVars);
         Expression expr = PARSER.parseExpression("a * b");
@@ -77,7 +76,7 @@ public class VariablePersistTest extends ExpressionRewriteTestHelper {
         boolean matches = SessionVarGuardRewriter.checkSessionVariablesMatch(
                 currentSessionVars, persistSessionVars);
         Assertions.assertTrue(matches, "Should return true when sessionVars match");
-        SessionVarGuardRewriter.AddSessionVarGuardRewriter rewriter = 
+        SessionVarGuardRewriter.AddSessionVarGuardRewriter rewriter =
                 new SessionVarGuardRewriter.AddSessionVarGuardRewriter(null);
         Expression expr = PARSER.parseExpression("a * b");
         expr = ExpressionRewriteTestHelper.replaceUnboundSlot(expr, new HashMap<>());
@@ -192,8 +191,7 @@ public class VariablePersistTest extends ExpressionRewriteTestHelper {
         SessionVarGuardExpr innerGuard = new SessionVarGuardExpr(child, sessionVars2);
         SessionVarGuardExpr outerGuard = new SessionVarGuardExpr(innerGuard, sessionVars1);
         AnalysisException exception = Assertions.assertThrows(AnalysisException.class, () ->
-            outerGuard.accept(MergeGuardExpr.INSTANCE, null)
-        );
+                outerGuard.accept(MergeGuardExpr.INSTANCE, null));
         Assertions.assertTrue(exception.getMessage().contains("Conflicting session variable guards"));
     }
 
