@@ -283,7 +283,7 @@ public class BindExpression implements AnalysisRuleFactory {
             if (!(boundGenerator instanceof TableGeneratingFunction)) {
                 throw new AnalysisException(boundGenerator.toSql() + " is not a TableGeneratingFunction");
             }
-            Function generator = (Function) boundGenerator;
+            Function generator = ExpressionUtils.convertUnnest((Function) boundGenerator);
             boundGenerators.add(generator);
 
             Slot boundSlot = new SlotReference(slot.getNameParts().get(1), generator.getDataType(),
@@ -312,18 +312,61 @@ public class BindExpression implements AnalysisRuleFactory {
                 }
             }
         }
-        LogicalGenerate<Plan> ret = new LogicalGenerate<>(
-                boundGenerators.build(), outputSlots.build(), generate.child());
-        if (!expandAlias.isEmpty()) {
-            // we need a project to deal with explode(map) to struct with field alias
-            // project should contains: generator.child slot + expandAlias
-            List<NamedExpression> allProjectSlots = generate.child().getOutput().stream()
-                    .map(NamedExpression.class::cast)
-                    .collect(Collectors.toList());
-            allProjectSlots.addAll(expandAlias);
-            return new LogicalProject<>(allProjectSlots, ret);
+        /*
+         * SELECT
+         *     id,
+         *     tags
+         * FROM
+         *     items
+         *     LEFT JOIN lateral unnest(tags) AS t(tag) ON t.tag = name;
+         *
+         * t.tag is unnest's output, so the conjunct t.tag = name may reference slot from child and its own output
+         *
+         */
+        int conjunctSize = generate.getConjuncts().size();
+        List<Expression> newConjuncts = new ArrayList<>(conjunctSize);
+        if (conjunctSize > 0) {
+            List<Slot> childOutputs = generate.child().getOutput();
+            List<Slot> conjunctsScopeSlots = new ArrayList<>(expandAlias.size() + childOutputs.size());
+            for (Alias alias : expandAlias) {
+                conjunctsScopeSlots.add(alias.toSlot());
+            }
+
+            conjunctsScopeSlots.addAll(childOutputs);
+            Scope conjunctsScope = toScope(cascadesContext, conjunctsScopeSlots);
+            ExpressionAnalyzer conjunctsAnalyzer = new ExpressionAnalyzer(
+                    generate, conjunctsScope, cascadesContext, true, false);
+            Map<Slot, Expression> replaceMap = ExpressionUtils.generateReplaceMap(expandAlias);
+            for (Expression expression : generate.getConjuncts()) {
+                expression = conjunctsAnalyzer.analyze(expression);
+                Expression newExpression = expression.rewriteDownShortCircuit(
+                        e -> replaceMap.getOrDefault(e, e));
+                newConjuncts.add(newExpression);
+            }
         }
-        return ret;
+
+        LogicalGenerate<Plan> logicalGenerate = new LogicalGenerate<>(
+                boundGenerators.build(), outputSlots.build(), ImmutableList.of(), newConjuncts, generate.child());
+        if (!expandAlias.isEmpty()) {
+            // project should contain: generator.child slot + expandAlias
+            List<NamedExpression> allProjectSlots = new ArrayList<>(generate.child().getOutput().size()
+                    + expandAlias.size());
+            if (!(generate.child() instanceof LogicalOneRowRelation)) {
+                // project should contain: generator.child slot + expandAlias except:
+                allProjectSlots.addAll(generate.child().getOutput().stream()
+                        .map(NamedExpression.class::cast)
+                        .collect(Collectors.toList()));
+            } else {
+                // unnest with literal argument as unnest([1,2,3])
+                // we should not add LogicalOneRowRelation's output slot in this case
+                // so do nothing
+            }
+            // we need a project to deal with explode(map) to struct with field alias
+            allProjectSlots.addAll(expandAlias);
+            return new LogicalProject<>(allProjectSlots, logicalGenerate);
+        } else {
+            return logicalGenerate;
+        }
     }
 
     private LogicalSetOperation bindSetOperation(LogicalSetOperation setOperation) {
