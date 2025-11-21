@@ -191,10 +191,12 @@ public class LogicalGenerate<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD
                 .append(" AS ")
                 .append(
                         expandColumnAlias.get(0).stream().collect(Collectors.joining(", "))
-                )
-                .append(" WHERE ")
-                .append(!conjuncts.isEmpty() ? conjuncts.stream().map(Expression::toDigest)
-                        .collect(Collectors.joining(" AND ")) : "TRUE");
+                );
+        if (!conjuncts.isEmpty()) {
+            sb.append(" WHERE ")
+                    .append(conjuncts.stream().map(Expression::toDigest).collect(Collectors.joining(" AND ")));
+        }
+
         return sb.toString();
     }
 
