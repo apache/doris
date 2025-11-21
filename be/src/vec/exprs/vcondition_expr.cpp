@@ -533,4 +533,205 @@ Status VectorizedIfNullExpr::execute_column(VExprContext* context, const Block* 
     return Status::OK();
 }
 
+template <typename ColumnType>
+void insert_result_data(MutableColumnPtr& result_column, ColumnPtr& argument_column,
+                        const UInt8* __restrict null_map_data, UInt8* __restrict filled_flag,
+                        const size_t input_rows_count) {
+    if (result_column->size() == 0 && input_rows_count) {
+        result_column->resize(input_rows_count);
+        auto* __restrict result_raw_data =
+                assert_cast<ColumnType*>(result_column.get())->get_data().data();
+        for (int i = 0; i < input_rows_count; i++) {
+            result_raw_data[i] = {};
+        }
+    }
+    auto* __restrict result_raw_data =
+            assert_cast<ColumnType*>(result_column.get())->get_data().data();
+    auto* __restrict column_raw_data =
+            assert_cast<const ColumnType*>(argument_column.get())->get_data().data();
+
+    // Here it's SIMD thought the compiler automatically also
+    // true: null_map_data[row]==0 && filled_idx[row]==0
+    // if true, could filled current row data into result column
+    for (size_t row = 0; row < input_rows_count; ++row) {
+        result_raw_data[row] +=
+                column_raw_data[row] *
+                typename ColumnType::value_type(!(null_map_data[row] | filled_flag[row]));
+        filled_flag[row] += (!(null_map_data[row] | filled_flag[row]));
+    }
+}
+
+Status insert_result_data_bitmap(MutableColumnPtr& result_column, ColumnPtr& argument_column,
+                                 const UInt8* __restrict null_map_data,
+                                 UInt8* __restrict filled_flag, const size_t input_rows_count) {
+    if (result_column->size() == 0 && input_rows_count) {
+        result_column->resize(input_rows_count);
+    }
+
+    auto* __restrict result_raw_data =
+            reinterpret_cast<ColumnBitmap*>(result_column.get())->get_data().data();
+    auto* __restrict column_raw_data =
+            reinterpret_cast<const ColumnBitmap*>(argument_column.get())->get_data().data();
+
+    // Here it's SIMD thought the compiler automatically also
+    // true: null_map_data[row]==0 && filled_idx[row]==0
+    // if true, could filled current row data into result column
+    for (size_t row = 0; row < input_rows_count; ++row) {
+        if (!(null_map_data[row] | filled_flag[row])) {
+            result_raw_data[row] = column_raw_data[row];
+        }
+        filled_flag[row] += (!(null_map_data[row] | filled_flag[row]));
+    }
+    return Status::OK();
+}
+
+Status filled_result_column(const DataTypePtr& data_type, MutableColumnPtr& result_column,
+                            ColumnPtr& argument_column, UInt8* __restrict null_map_data,
+                            UInt8* __restrict filled_flag, const size_t input_rows_count) {
+    if (data_type->get_primitive_type() == TYPE_BITMAP) {
+        return insert_result_data_bitmap(result_column, argument_column, null_map_data, filled_flag,
+                                         input_rows_count);
+    }
+
+    auto call = [&](const auto& type) -> bool {
+        using DispatchType = std::decay_t<decltype(type)>;
+        insert_result_data<typename DispatchType::ColumnType>(
+                result_column, argument_column, null_map_data, filled_flag, input_rows_count);
+        return true;
+    };
+
+    if (!dispatch_switch_scalar(data_type->get_primitive_type(), call)) {
+        return Status::InternalError("not support type {} in coalesce", data_type->get_name());
+    }
+    return Status::OK();
+}
+
+Status VectorizedCoalesceExpr::execute_column(VExprContext* context, const Block* block,
+                                              ColumnPtr& return_column) const {
+    DataTypePtr result_type = _data_type;
+    const auto input_rows_count = block->rows();
+
+    size_t remaining_rows = input_rows_count;
+    std::vector<uint32_t> record_idx(
+            input_rows_count,
+            0); //used to save column idx, record the result data of each row from which column
+    std::vector<uint8_t> filled_flags(
+            input_rows_count,
+            0); //used to save filled flag, in order to check current row whether have filled data
+
+    MutableColumnPtr result_column;
+    if (!result_type->is_nullable()) {
+        result_column = result_type->create_column();
+    } else {
+        result_column = remove_nullable(result_type)->create_column();
+    }
+
+    // because now follow below types does not support random position writing,
+    // so insert into result data have two methods, one is for these types, one is for others type remaining
+    bool cannot_random_write = result_column->is_column_string() ||
+                               result_type->get_primitive_type() == PrimitiveType::TYPE_MAP ||
+                               result_type->get_primitive_type() == PrimitiveType::TYPE_STRUCT ||
+                               result_type->get_primitive_type() == PrimitiveType::TYPE_ARRAY ||
+                               result_type->get_primitive_type() == PrimitiveType::TYPE_JSONB;
+    if (cannot_random_write) {
+        result_column->reserve(input_rows_count);
+    }
+
+    auto return_type = std::make_shared<DataTypeUInt8>();
+    auto null_map = ColumnUInt8::create(input_rows_count,
+                                        1); //if null_map_data==1, the current row should be null
+    auto* __restrict null_map_data = null_map->get_data().data();
+
+    auto is_not_null = [](const ColumnPtr& column, size_t size) -> ColumnUInt8::MutablePtr {
+        if (const auto* nullable = check_and_get_column<ColumnNullable>(*column)) {
+            /// Return the negated null map.
+            auto res_column = ColumnUInt8::create(size);
+            const auto* __restrict src_data = nullable->get_null_map_data().data();
+            auto* __restrict res_data = assert_cast<ColumnUInt8&>(*res_column).get_data().data();
+
+            for (size_t i = 0; i < size; ++i) {
+                res_data[i] = !src_data[i];
+            }
+            return res_column;
+        } else {
+            /// Since no element is nullable, return a constant one.
+            return ColumnUInt8::create(size, 1);
+        }
+    };
+
+    std::vector<ColumnPtr> original_columns(_children.size());
+    std::vector<ColumnPtr> argument_not_null_columns(_children.size());
+
+    for (size_t i = 0; i < _children.size() && remaining_rows; ++i) {
+        // Execute child expression to get the argument column.
+        RETURN_IF_ERROR(_children[i]->execute_column(context, block, original_columns[i]));
+        original_columns[i] = original_columns[i]->convert_to_full_column_if_const();
+        argument_not_null_columns[i] = original_columns[i];
+        if (const auto* nullable =
+                    check_and_get_column<const ColumnNullable>(*argument_not_null_columns[i])) {
+            argument_not_null_columns[i] = nullable->get_nested_column_ptr();
+        }
+
+        auto res_column = is_not_null(original_columns[i], input_rows_count);
+
+        auto& res_map = res_column->get_data();
+        auto* __restrict res = res_map.data();
+
+        // Here it's SIMD thought the compiler automatically
+        // true: res[j]==1 && null_map_data[j]==1, false: others
+        // if true: remaining_rows--; record_idx[j]=column_idx; null_map_data[j]=0, so the current row could fill result
+        for (size_t j = 0; j < input_rows_count; ++j) {
+            remaining_rows -= (res[j] & null_map_data[j]);
+            record_idx[j] += (res[j] & null_map_data[j]) * i;
+            null_map_data[j] -= (res[j] & null_map_data[j]);
+        }
+
+        if (remaining_rows == 0) {
+            //check whether all result data from the same column
+            size_t is_same_column_count = 0;
+            const auto data = record_idx[0];
+            for (size_t row = 0; row < input_rows_count; ++row) {
+                is_same_column_count += (record_idx[row] == data);
+            }
+
+            if (is_same_column_count == input_rows_count) {
+                if (result_type->is_nullable()) {
+                    return_column = make_nullable(argument_not_null_columns[i]);
+                } else {
+                    return_column = argument_not_null_columns[i];
+                }
+                return Status::OK();
+            }
+        }
+
+        if (!cannot_random_write) {
+            //if not string type, could check one column firstly,
+            //and then fill the not null value in result column,
+            //this method may result in higher CPU cache
+            RETURN_IF_ERROR(filled_result_column(result_type, result_column,
+                                                 argument_not_null_columns[i], null_map_data,
+                                                 filled_flags.data(), input_rows_count));
+        }
+    }
+
+    if (cannot_random_write) {
+        //if string type,  should according to the record results, fill in result one by one,
+        for (size_t row = 0; row < input_rows_count; ++row) {
+            if (null_map_data[row]) { //should be null
+                result_column->insert_default();
+            } else {
+                result_column->insert_from(*argument_not_null_columns[record_idx[row]].get(), row);
+            }
+        }
+    }
+
+    if (result_type->is_nullable()) {
+        return_column = ColumnNullable::create(std::move(result_column), std::move(null_map));
+    } else {
+        return_column = std::move(result_column);
+    }
+
+    return Status::OK();
+}
+
 } // namespace doris::vectorized

@@ -495,6 +495,9 @@ Status VExpr::create_expr(const TExprNode& expr_node, VExprSPtr& expr) {
             } else if (expr_node.fn.name.function_name == "ifnull") {
                 expr = VectorizedIfNullExpr::create_shared(expr_node);
                 break;
+            } else if (expr_node.fn.name.function_name == "coalesce") {
+                expr = VectorizedCoalesceExpr::create_shared(expr_node);
+                break;
             }
             expr = VectorizedFnCall::create_shared(expr_node);
             break;

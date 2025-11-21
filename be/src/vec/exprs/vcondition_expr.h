@@ -129,4 +129,15 @@ public:
                           ColumnPtr& result_column) const override;
 };
 
+class VectorizedCoalesceExpr : public VConditionExpr {
+    ENABLE_FACTORY_CREATOR(VectorizedCoalesceExpr);
+
+public:
+    Status execute_column(VExprContext* context, const Block* block,
+                          ColumnPtr& result_column) const override;
+    VectorizedCoalesceExpr(const TExprNode& node) : VConditionExpr(node) {}
+    const std::string& expr_name() const override { return NAME; }
+    inline static const std::string NAME = "coalesce";
+};
+
 } // namespace doris::vectorized
