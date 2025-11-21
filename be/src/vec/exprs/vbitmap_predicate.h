@@ -49,7 +49,7 @@ public:
 
     ~VBitmapPredicate() override = default;
 
-    Status execute_column(VExprContext* context, const Block* block,
+    Status execute_column(VExprContext* context, const Block* block, size_t count,
                           ColumnPtr& result_column) const override;
 
     Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override;

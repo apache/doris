@@ -171,7 +171,7 @@ TEST_F(VirtualSlotRefTest, EqualsFunction_WithDifferentTypes) {
         Status execute(VExprContext* context, Block* block, int* result_column_id) const override {
             return Status::OK();
         }
-        Status execute_column(VExprContext* context, const Block* block,
+        Status execute_column(VExprContext* context, const Block* block, size_t count,
                               ColumnPtr& result_column) const override {
             return Status::OK();
         }
@@ -292,7 +292,7 @@ TEST_F(VirtualSlotRefTest, EqualsFunction_TestAllBranches) {
             return Status::OK();
         }
 
-        Status execute_column(VExprContext* context, const Block* block,
+        Status execute_column(VExprContext* context, const Block* block, size_t count,
                               ColumnPtr& result_column) const override {
             return Status::OK();
         }
@@ -317,7 +317,7 @@ TEST_F(VirtualSlotRefTest, EqualsFunction_TestAllBranches) {
         Status execute(VExprContext* context, Block* block, int* result_column_id) const override {
             return Status::OK();
         }
-        Status execute_column(VExprContext* context, const Block* block,
+        Status execute_column(VExprContext* context, const Block* block, size_t count,
                               ColumnPtr& result_column) const override {
             return Status::OK();
         }
