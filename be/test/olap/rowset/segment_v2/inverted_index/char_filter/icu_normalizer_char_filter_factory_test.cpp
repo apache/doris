@@ -242,7 +242,7 @@ TEST_F(ICUNormalizerCharFilterFactoryTest, EmptyInput) {
 
 TEST_F(ICUNormalizerCharFilterFactoryTest, NullNormalizerInFilterThrows) {
     auto reader = make_reader("test");
-    const icu::Normalizer2* normalizer = nullptr;
+    std::shared_ptr<const icu::Normalizer2> normalizer = nullptr;
     EXPECT_THROW(ICUNormalizerCharFilter(reader, normalizer), Exception);
 }
 

@@ -258,7 +258,7 @@ TEST_F(ICUNormalizerFilterFactoryTest, CreateWithoutInitializeThrows) {
 
 TEST_F(ICUNormalizerFilterFactoryTest, NullNormalizerInFilterThrows) {
     auto tokenizer = create_tokenizer("keyword", "test");
-    const icu::Normalizer2* normalizer = nullptr;
+    std::shared_ptr<const icu::Normalizer2> normalizer = nullptr;
 
     EXPECT_THROW(ICUNormalizerFilter(tokenizer, normalizer), Exception);
 }
