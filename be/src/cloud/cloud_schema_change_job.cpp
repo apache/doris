@@ -223,7 +223,7 @@ Status CloudSchemaChangeJob::process_alter_tablet(const TAlterTabletReqV2& reque
     rowsets.resize(rs_splits.size());
     std::transform(rs_splits.begin(), rs_splits.end(), rowsets.begin(),
                    [](RowSetSplits& split) { return split.rs_reader->rowset(); });
-    sc_params.output_to_file_cache = CloudSchemaChangeJob::_should_cache_sc_output(rowsets);
+    sc_params.output_to_file_cache = _should_cache_sc_output(rowsets);
 
     RETURN_IF_ERROR(DescriptorTbl::create(&sc_params.pool, request.desc_tbl, &sc_params.desc_tbl));
     sc_params.ref_rowset_readers.reserve(rs_splits.size());
@@ -618,6 +618,14 @@ bool CloudSchemaChangeJob::_should_cache_sc_output(
     }
 
     double input_hit_rate = static_cast<double>(cached_index_size + cached_data_size) / total_size;
+
+    LOG(INFO) << "CloudSchemaChangeJob check cache sc output strategy. "
+              << "job_id=" << _job_id << ", input_rowsets_count=" << input_rowsets.size()
+              << ", total_size=" << total_size << ", cached_index_size=" << cached_index_size
+              << ", cached_data_size=" << cached_data_size << ", input_hit_rate=" << input_hit_rate
+              << ", min_hit_ratio_threshold="
+              << config::file_cache_keep_schema_change_output_min_hit_ratio << ", should_cache="
+              << (input_hit_rate > config::file_cache_keep_schema_change_output_min_hit_ratio);
 
     if (input_hit_rate > config::file_cache_keep_schema_change_output_min_hit_ratio) {
         return true;
