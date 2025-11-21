@@ -39,41 +39,31 @@ class QueryHandle;
 class QueryHandle {
 public:
     QueryHandle(TUniqueId query_id, TQueryOptions query_options,
-                std::weak_ptr<QueryContext> query_ctx)
-            : _query_id(std::move(query_id)),
-              _query_options(std::move(query_options)),
-              _query_ctx(std::move(query_ctx)) {}
-    ~QueryHandle() = default;
+                std::weak_ptr<QueryContext> query_ctx);
+    ~QueryHandle();
 
-    std::string debug_string() const {
-        return fmt::format(
-                "QueryHandle(query_id={}): {}", print_id(_query_id),
-                _merge_controller_handler ? _merge_controller_handler->debug_string() : "null");
-    }
+    std::string debug_string() const;
 
-    void set_merge_controller_handler(
-            std::shared_ptr<RuntimeFilterMergeControllerEntity>& handler) {
-        _merge_controller_handler = handler;
-    }
-    std::shared_ptr<RuntimeFilterMergeControllerEntity> get_merge_controller_handler() const {
-        return _merge_controller_handler;
-    }
+    void set_merge_controller_handler(std::shared_ptr<RuntimeFilterMergeControllerEntity>& handler);
+    std::shared_ptr<RuntimeFilterMergeControllerEntity> get_merge_controller_handler() const;
 
-    const TQueryOptions& query_options() const { return _query_options; }
+    const TQueryOptions& query_options() const;
 
-    std::weak_ptr<QueryContext> weak_query_ctx() const { return _query_ctx; }
+    std::weak_ptr<QueryContext> weak_query_ctx() const;
 
-    int execution_timeout() const {
-        return _query_options.__isset.execution_timeout ? _query_options.execution_timeout
-                                                        : _query_options.query_timeout;
-    }
+    int execution_timeout() const;
 
-    TUniqueId query_id() const { return _query_id; }
+    TUniqueId query_id() const;
+
+    std::shared_ptr<ResourceContext> resource_ctx() const;
 
 private:
     TUniqueId _query_id;
     TQueryOptions _query_options;
     std::weak_ptr<QueryContext> _query_ctx;
+
+    std::shared_ptr<ResourceContext> _resource_ctx;
+
     // This shared ptr is never used. It is just a reference to hold the object.
     // There is a weak ptr in runtime filter manager to reference this object.
     std::shared_ptr<RuntimeFilterMergeControllerEntity> _merge_controller_handler;

@@ -1355,6 +1355,7 @@ Status FragmentMgr::merge_filter(const PMergeFilterRequest* request,
     query_id.__set_hi(queryid.hi);
     query_id.__set_lo(queryid.lo);
     if (auto q_handle = _query_handle_map.find(query_id); q_handle != nullptr) {
+        SCOPED_ATTACH_TASK(q_handle->resource_ctx());
         if (!q_handle->get_merge_controller_handler()) {
             return Status::InternalError("Merge filter failed: Merge controller handler is null");
         }

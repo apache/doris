@@ -290,6 +290,7 @@ public:
 
 private:
     friend class QueryTaskController;
+    friend class QueryHandle;
 
     int _timeout_second;
     TUniqueId _query_id;
