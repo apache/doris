@@ -18,6 +18,7 @@
 #include "olap/rowset/segment_v2/column_reader.h"
 
 #include <assert.h>
+#include <bvar/latency_recorder.h>
 #include <gen_cpp/segment_v2.pb.h>
 
 #include <algorithm>
@@ -85,6 +86,8 @@
 #include "vec/runtime/vdatetime_value.h" //for VecDateTime
 
 namespace doris::segment_v2 {
+
+bvar::Adder<int64_t> g_column_reader_read_page_active("column_reader", "read_page_active");
 
 inline bool read_as_string(PrimitiveType type) {
     return type == PrimitiveType::TYPE_STRING || type == PrimitiveType::INVALID_TYPE ||
@@ -386,6 +389,8 @@ Status ColumnReader::new_inverted_index_iterator(
 Status ColumnReader::read_page(const ColumnIteratorOptions& iter_opts, const PagePointer& pp,
                                PageHandle* handle, Slice* page_body, PageFooterPB* footer,
                                BlockCompressionCodec* codec) const {
+    g_column_reader_read_page_active << 1;
+    Defer _ = [&]() { g_column_reader_read_page_active << -1; };
     iter_opts.sanity_check();
     PageReadOptions opts(iter_opts.io_ctx);
     opts.verify_checksum = _opts.verify_checksum;

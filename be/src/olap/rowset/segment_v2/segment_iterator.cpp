@@ -18,6 +18,7 @@
 #include "olap/rowset/segment_v2/segment_iterator.h"
 
 #include <assert.h>
+#include <bvar/bvar.h>
 #include <gen_cpp/Exprs_types.h>
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/olap_file.pb.h>
@@ -99,6 +100,9 @@
 
 namespace doris {
 using namespace ErrorCode;
+
+bvar::Adder<int64_t> g_segment_iterator_next_batch_active_num("segment_iterator",
+                                                              "next_batch_active_num");
 namespace segment_v2 {
 
 SegmentIterator::~SegmentIterator() = default;
@@ -2058,6 +2062,9 @@ void SegmentIterator::_clear_iterators() {
 }
 
 Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
+    g_segment_iterator_next_batch_active_num << 1;
+    Defer _ = [&]() { g_segment_iterator_next_batch_active_num << -1; };
+
     bool is_mem_reuse = block->mem_reuse();
     DCHECK(is_mem_reuse);
     // Clear the sparse column cache before processing a new batch

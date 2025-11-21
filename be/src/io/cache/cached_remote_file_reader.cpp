@@ -67,6 +67,8 @@ bvar::LatencyRecorder g_read_at_wait_block_download(
         "cached_remote_reader_read_at_wait_block_download");
 bvar::LatencyRecorder g_read_at_impl_cost("cached_remote_reader_read_at_impl_cost");
 
+bvar::Adder<int64_t> g_cached_remote_reader_read_active("cached_remote_reader", "read_active");
+
 CachedRemoteFileReader::CachedRemoteFileReader(FileReaderSPtr remote_file_reader,
                                                const FileReaderOptions& opts)
         : _remote_file_reader(std::move(remote_file_reader)) {
@@ -153,6 +155,9 @@ std::pair<size_t, size_t> CachedRemoteFileReader::s_align_size(size_t offset, si
 
 Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_read,
                                             const IOContext* io_ctx) {
+    g_cached_remote_reader_read_active << 1;
+    Defer _ = [&]() { g_cached_remote_reader_read_active << -1; };
+
     g_read_at_req_bytes << result.size;
     const bool is_dryrun = io_ctx->is_dryrun;
     DCHECK(!closed());
@@ -678,7 +683,7 @@ Status CachedRemoteFileReader::_submit_prefetch_task(size_t offset, size_t size,
 }
 
 Status CachedRemoteFileReader::prefetch_blocks_in_parallel(size_t start_offset, size_t end_offset,
-                                                            const IOContext* io_ctx) {
+                                                           const IOContext* io_ctx) {
     if (!_cache) {
         VLOG_DEBUG << "prefetch_blocks_in_parallel: No cache available, skipping";
         return Status::OK();
@@ -686,8 +691,8 @@ Status CachedRemoteFileReader::prefetch_blocks_in_parallel(size_t start_offset, 
 
     if (start_offset >= size() || end_offset > size() || start_offset >= end_offset) {
         VLOG_DEBUG << fmt::format(
-                "prefetch_blocks_in_parallel: Invalid range [{}, {}) for file size {}", start_offset,
-                end_offset, size());
+                "prefetch_blocks_in_parallel: Invalid range [{}, {}) for file size {}",
+                start_offset, end_offset, size());
         return Status::OK();
     }
 
@@ -751,7 +756,8 @@ Status CachedRemoteFileReader::prefetch_blocks_in_parallel(size_t start_offset, 
                         block_start, read_size, reader->path().native());
             } else {
                 VLOG(1) << fmt::format(
-                        "prefetch_blocks_in_parallel: Failed to prefetch block at offset {} size {} "
+                        "prefetch_blocks_in_parallel: Failed to prefetch block at offset {} size "
+                        "{} "
                         "for file {}: {}",
                         block_start, read_size, reader->path().native(), st.to_string());
             }
