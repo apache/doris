@@ -157,8 +157,8 @@ static void read_orc_line(int64_t line, std::string block_dump) {
     bool eof = false;
     size_t read_row = 0;
     static_cast<void>(reader->get_next_block(block.get(), &read_row, &eof));
-    auto row_id_string_column =
-            static_cast<const ColumnString&>(*block->get_by_name("row_id").column.get());
+    auto row_id_string_column = static_cast<const ColumnString&>(
+            *block->get_by_position(block->get_position_by_name("row_id")).column.get());
     for (auto i = 0; i < row_id_string_column.size(); i++) {
         GlobalRowLoacationV2 info =
                 *((GlobalRowLoacationV2*)row_id_string_column.get_data_at(i).data);

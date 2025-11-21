@@ -1850,10 +1850,8 @@ public class MetadataGenerator {
                     "column " + colNames + " does not match partition columns of table " + tbl.getName());
         }
 
-        HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
-                .getMetaStoreCache((HMSExternalCatalog) tbl.getCatalog());
-        HiveMetaStoreCache.HivePartitionValues hivePartitionValues = cache.getPartitionValues(
-                tbl, tbl.getPartitionColumnTypes(MvccUtil.getSnapshotFromContext(tbl)));
+        HiveMetaStoreCache.HivePartitionValues hivePartitionValues = tbl.getHivePartitionValues(
+                MvccUtil.getSnapshotFromContext(tbl));
         Map<Long, List<String>> valuesMap = hivePartitionValues.getPartitionValuesMap();
         List<TRow> dataBatch = Lists.newArrayList();
         for (Map.Entry<Long, List<String>> entry : valuesMap.entrySet()) {
