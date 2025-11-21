@@ -124,7 +124,9 @@ Status LoadChannelMgr::_get_load_channel(std::shared_ptr<LoadChannel>& channel, 
                 const auto& cancel_reason = reinterpret_cast<CacheValue*>(value)->_cancel_reason;
                 _load_state_channels->release(handle);
                 if (!cancel_reason.empty()) {
-                    LOG(INFO) << fmt::format("The channel has been cancelled, load_id = {}, error = {}", print_id(load_id), cancel_reason);
+                    LOG(INFO) << fmt::format(
+                            "The channel has been cancelled, load_id = {}, error = {}",
+                            print_id(load_id), cancel_reason);
                     return Status::Cancelled(
                             "Load channel has been cancelled previously: {}, reason: {}",
                             load_id.to_string(), cancel_reason);
@@ -223,12 +225,12 @@ Status LoadChannelMgr::cancel(const PTabletWriterCancelRequest& params) {
                 std::unique_ptr<CacheValue> cancel_reason_ptr = std::make_unique<CacheValue>();
                 cancel_reason_ptr->_cancel_reason = params.cancel_reason();
                 size_t cache_capacity = cancel_reason_ptr->_cancel_reason.capacity();
-                auto* handle =
-                        _load_state_channels->insert(load_id.to_string(), cancel_reason_ptr.get(),
-                                                     1, cache_capacity);
+                auto* handle = _load_state_channels->insert(
+                        load_id.to_string(), cancel_reason_ptr.get(), 1, cache_capacity);
                 cancel_reason_ptr.release();
                 _load_state_channels->release(handle);
-                LOG(INFO) << fmt::format("load_id = {}, record_error reason = {}", print_id(load_id), params.cancel_reason());
+                LOG(INFO) << fmt::format("load_id = {}, record_error reason = {}",
+                                         print_id(load_id), params.cancel_reason());
             } else {
                 return Status::RpcError(
                         "cancel_reason should not be empty or not set during load: {}",
