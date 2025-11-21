@@ -803,6 +803,9 @@ Status AnalyticSinkOperatorX::_add_input_block(doris::RuntimeState* state,
             RETURN_IF_ERROR(
                     _insert_range_column(input_block, local_state._partition_by_eq_expr_ctxs[i],
                                          local_state._partition_by_columns[i].get(), block_rows));
+            local_state._partition_by_columns[i] = local_state._partition_by_columns[i]
+                                                           ->convert_column_if_overflow()
+                                                           ->assume_mutable();
         }
     }
     {
@@ -811,6 +814,9 @@ Status AnalyticSinkOperatorX::_add_input_block(doris::RuntimeState* state,
             RETURN_IF_ERROR(_insert_range_column(input_block, local_state._order_by_eq_expr_ctxs[i],
                                                  local_state._order_by_columns[i].get(),
                                                  block_rows));
+            local_state._order_by_columns[i] = local_state._order_by_columns[i]
+                                                       ->convert_column_if_overflow()
+                                                       ->assume_mutable();
         }
     }
     {
@@ -829,6 +835,7 @@ Status AnalyticSinkOperatorX::_add_input_block(doris::RuntimeState* state,
 }
 
 void AnalyticSinkLocalState::_remove_unused_rows() {
+    return;
     // test column overflow 4G
     DBUG_EXECUTE_IF("AnalyticSinkLocalState._remove_unused_rows", { return; });
 #ifdef BE_TEST
