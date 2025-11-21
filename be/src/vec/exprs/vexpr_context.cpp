@@ -438,11 +438,9 @@ Status VExprContext::get_output_block_after_execute_exprs(
     _reset_memory_usage(output_vexpr_ctxs);
 
     for (const auto& vexpr_ctx : output_vexpr_ctxs) {
-        int result_column_id = -1;
-
         ColumnPtr result_column;
         RETURN_IF_ERROR(vexpr_ctx->execute(&input_block, result_column));
-        DCHECK(result_column_id != -1);
+
         auto type = vexpr_ctx->execute_type(&input_block);
         const auto& name = vexpr_ctx->expr_name();
 
