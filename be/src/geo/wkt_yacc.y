@@ -65,9 +65,10 @@ wkt_::parser::symbol_type wkt_lex(WktParseContext* ctx, yyscan_t scanner);
 #include "common/exception.h"
 
 namespace wkt_ {
-    // If there is a parsing error, the status will be set correctly
-    // And the caller should check the status and handle it properly.
-    // Therefore, no operation is needed for parser::error here.
+    // For syntax errors(e.g., `POIN(1 2)`, `POINT(1, 2)`), parser::error() does nothing.
+    // The parse_wkt() function will set ctx.parse_status to GEO_PARSE_WKT_SYNTAX_ERROR.
+    // For semantic errors (e.g., invalid coordinates), ctx.parse_status is set
+    // in the grammar rules before calling YYABORT.
     void parser::error(const std::string& msg) {}
 
 } // namespace wkt_

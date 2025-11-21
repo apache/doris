@@ -32,19 +32,14 @@ namespace doris {
 GeoParseStatus WktParse::parse_wkt(const char* str, size_t len, std::unique_ptr<GeoShape>& shape) {
     WktParseContext ctx;
 
-    // parse
-    int st = wkt_parse(str, len, ctx);
-
-    if (st == GEO_PARSE_OK) {
-        if (ctx.shape != nullptr) {
-            shape = std::move(ctx.shape);
-        } else [[unlikely]] {
-            ctx.parse_status = GEO_PARSE_WKT_SYNTAX_ERROR;
-        }
-    } else {
-        if (ctx.parse_status == GEO_PARSE_OK) {
-            ctx.parse_status = GEO_PARSE_WKT_SYNTAX_ERROR;
-        }
+    if (wkt_parse(str, len, ctx) == GEO_PARSE_OK) {
+        shape = std::move(ctx.shape);
+    } else if (ctx.parse_status == GEO_PARSE_OK) {
+        /// For Syntax errors(e.g., `POIN(1 2)`, `POINT(1, 2)`)
+        /// wkt_parse won't set parse_status, so we need to set it here.
+        /// For semantic errors (e.g., invalid coordinates)
+        /// wkt_parse will be set to GEO_PARSE_COORD_INVALID
+        ctx.parse_status = GEO_PARSE_WKT_SYNTAX_ERROR;
     }
     return ctx.parse_status;
 }
