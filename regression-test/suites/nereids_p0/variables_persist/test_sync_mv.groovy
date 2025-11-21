@@ -16,7 +16,7 @@
 // under the License.
 
 suite("test_sync_mv") {
-    // =============case1: 历史数据转换===================
+    // =============case1: history data to mv===================
     multi_sql """
     drop table if exists test_decimal_mul_overflow_for_sync_mv;
     CREATE TABLE `test_decimal_mul_overflow_for_sync_mv` (
@@ -33,12 +33,12 @@ suite("test_sync_mv") {
     createMV("""create materialized view mv_var_sync_1
             as select f1 as c1, f2 as c2, f1*f2 multi_col from test_decimal_mul_overflow_for_sync_mv;""")
 
-    // 测试刷新
+    // test refresh
     sql "set enable_decimal256=true;"
-    // 预期查询出来的有11个scale
+    // expect scale is 11
     qt_history_data_mv "select f1, f2, f1*f2 multi_col from test_decimal_mul_overflow_for_sync_mv;"
 
-    // 测试改写
+    // test rewrite
     sql "set enable_decimal256=true;"
     explain {
         sql "select f1, f2, f1*f2 multi_col from test_decimal_mul_overflow_for_sync_mv;"
@@ -50,14 +50,13 @@ suite("test_sync_mv") {
         contains "mv_var_sync_1 not chose"
     }
 
-    // 新写入数据的转换
+    // new insert data refresh
     sql "insert into test_decimal_mul_overflow_for_sync_mv values(999999999999999.12345,999999999999999.123456);"
-    // 测试新写入数据的刷新
     sql "set enable_decimal256=true;"
-    // 预期查询出来的有11个scale
+    // expect scale is 11
     qt_insert_refresh_mv "select f1, f2, f1*f2 multi_col from test_decimal_mul_overflow_for_sync_mv;"
 
-    // =============case2: 增量数据转换和物化视图的where条件也需要被guard===================
+    // =============case2: new insert data add to mv and mv where condition also need guard===================
     multi_sql """
     drop table if exists test_decimal_mul_overflow_for_sync_mv;
     CREATE TABLE `test_decimal_mul_overflow_for_sync_mv` (
@@ -73,14 +72,14 @@ suite("test_sync_mv") {
     createMV("""create materialized view mv_var_sync_1
             as select f1 as c1, f2 as c2, f1*f2 multi_col from test_decimal_mul_overflow_for_sync_mv
             where f1*f2==999999999999998246906000000000.76833464320;""")
-    //关闭256的时候插入数据，预期应该能把这一行插入到mv中
-    //因为如果没有把where条件中的expr加guard，那么这一行不会插入到mv中
-    // 因为在128的情况下f1*f2==999999999999998246906000000000.76833464320返回false，
-    // 但是在256的情况下f1*f2==999999999999998246906000000000.76833464320返回true.
+    // turn off 256 and insert，expect can insert this row
+    // because if not guard where, this row will not be inserted into mv
+    // because in 128 mode f1*f2==999999999999998246906000000000.76833464320 return false
+    // in 256 mode f1*f2==999999999999998246906000000000.76833464320 return true
     sql "set enable_decimal256=false;"
     sql "insert into test_decimal_mul_overflow_for_sync_mv values(999999999999999.12345,999999999999999.123456);"
 
-    // 查询 预期结果为2行。
+    // expect 2 rows
     sql "set enable_decimal256=true;"
     qt_where_mv "select f1 as c1, f2 as c2, f1*f2 multi_col from test_decimal_mul_overflow_for_sync_mv where f1*f2==999999999999998246906000000000.76833464320;"
     explain {
@@ -88,7 +87,7 @@ suite("test_sync_mv") {
         contains "mv_var_sync_1 chose"
     }
 
-    // ===================case3: 测试创建物化视图时为128，测试物化视图历史刷新和增量刷新（256打开进行增量刷新）=====================
+    // ===================case3: create mv with 128 mode,test history refresh mv and insert into refresh mv=====================
     sql """drop table if exists test_decimal_mul_overflow_for_sync_mv;
     CREATE TABLE `test_decimal_mul_overflow_for_sync_mv` (
     `f1` decimal(20,5) NULL,
@@ -103,10 +102,9 @@ suite("test_sync_mv") {
     createMV("""create materialized view mv_var_sync_1
             as select f1 as c1, f2 as c2, f1*f2 multi_col from test_decimal_mul_overflow_for_sync_mv;""")
     sql "set enable_decimal256=true;"
-    // 新写入数据的转换
     sql "insert into test_decimal_mul_overflow_for_sync_mv values(999999999999999.12345,999999999999999.123456);"
+
     sql "set enable_decimal256=false;"
-    // 预期查询出来的有8个scale
     qt_expect_8_scale "select f1, f2, f1*f2 multi_col from test_decimal_mul_overflow_for_sync_mv;"
     explain {
         sql "select f1, f2, f1*f2 multi_col from test_decimal_mul_overflow_for_sync_mv;"

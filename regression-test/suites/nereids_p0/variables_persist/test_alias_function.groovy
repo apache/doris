@@ -23,8 +23,7 @@ suite("test_alias_function") {
         CREATE ALIAS FUNCTION multiply_plus_1(decimalv3(20,5), decimalv3(20,6)) WITH PARAMETER(a,b) AS add(multiply(a,b),1);
         set enable_decimal256=false;
     """
-    // 预期为256精度计算的结果：999999999999998246906000000001.76833464320
-    // 打开/关闭256结果应该一样才对,下同
+    // turn on/off 256, the result should be same
     qt_multiply_add "select multiply_plus_1(f1,f2) from test_decimal_mul_overflow1;"
     sql "set enable_decimal256=true;"
     qt_multiply_add "select multiply_plus_1(f1,f2) from test_decimal_mul_overflow1;"

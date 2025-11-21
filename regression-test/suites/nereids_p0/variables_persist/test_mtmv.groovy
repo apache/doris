@@ -27,7 +27,7 @@ suite("test_mtmv") {
 
     def query_sql = """select f1, f2, f1*f2 multi_col from test_decimal_mul_overflow_for_mv"""
 
-    //打开256创建物化视图
+    // turn on and create
     multi_sql """
     set enable_decimal256=true;
     drop materialized view  if exists mv_var_1;
@@ -37,7 +37,7 @@ suite("test_mtmv") {
     ON COMMIT
     PROPERTIES ('replication_num' = '1')
     as select f1, f2, f1*f2 multi_col from test_decimal_mul_overflow_for_mv;"""
-    // 关闭256进行刷新
+    // turn off and refresh
     sql """set enable_decimal256=false;
     insert into test_decimal_mul_overflow_for_mv values(1.12345,1.234567);"""
 
@@ -46,10 +46,9 @@ suite("test_mtmv") {
     waitingMTMVTaskFinished(job_name)
     sql """sync;"""
 
-    // 预期multi_col的scale是11
+    // expect scale is 11
     qt_refresh "select f1,f2,multi_col from mv_var_1 order by 1,2,3;"
 
-    // 测试改写
     sql "set enable_decimal256=true;"
     explain {
         sql query_sql

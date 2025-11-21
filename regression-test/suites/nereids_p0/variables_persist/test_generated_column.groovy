@@ -16,8 +16,8 @@
 // under the License.
 
 suite("test_generated_column") {
-    // ========== 测试1: 乘法运算 ==========
-    // 打开enable_decimal256建表
+    // ========== case1:multiply ==========
+    // turn on enable_decimal256 create table
     multi_sql """
         set enable_decimal256=true;
         drop table if exists t_gen_col_multi_decimalv3;
@@ -25,14 +25,14 @@ suite("test_generated_column") {
         DISTRIBUTED BY HASH(a)
         PROPERTIES("replication_num" = "1");
     """
-    // 关闭enable_decimal256，插入数据
+    // turn off enable_decimal256，insert
     sql "set enable_decimal256=false;"
     sql "insert into t_gen_col_multi_decimalv3 values(1.12343,1.123457,default);"
 
-    // 查询数据,预期column c的scale为11
+    // expect the scale of generated column c is 11
     qt_c_scale_is_11 "select * from t_gen_col_multi_decimalv3;"
 
-    // ========== 测试4: 除法运算 ==========
+    // ========== case2: divide ==========
     multi_sql """
         set enable_decimal256=true;
         drop table if exists t_gen_col_divide_decimalv3;
@@ -44,7 +44,7 @@ suite("test_generated_column") {
     sql "insert into t_gen_col_divide_decimalv3 values(100.123456789012345678,2.123456789012345678,default);"
     qt_divide_scale "select * from t_gen_col_divide_decimalv3;"
 
-    // ========== 测试2: 加法运算 ==========
+    // ========== case3:add ==========
     multi_sql """
         set enable_decimal256=true;
         drop table if exists t_gen_col_add_sub_mod_decimalv3;
@@ -58,7 +58,7 @@ suite("test_generated_column") {
     qt_add_sub_mod "select * from t_gen_col_add_sub_mod_decimalv3;"
 
 
-    // ========== 测试7: 嵌套生成列（生成列引用其他生成列） ==========
+    // ========== case4: nested gen col ==========
     multi_sql """
         set enable_decimal256=true;
         drop table if exists t_gen_col_nested;
@@ -75,7 +75,7 @@ suite("test_generated_column") {
     sql "insert into t_gen_col_nested values(1.12343,1.123457,default,default);"
     qt_nested_cols "select * from t_gen_col_nested;"
 
-    // ========== 测试8: 复杂表达式组合 ==========
+    // ========== case5: complex gen col ==========
     multi_sql """
         set enable_decimal256=true;
         drop table if exists t_gen_col_complex;
@@ -93,7 +93,7 @@ suite("test_generated_column") {
     sql "insert into t_gen_col_complex values(1.12343,1.123457,default,default,default);"
     qt_complex_expr "select * from t_gen_col_complex;"
 
-    // ========== 测试18: 生成列在CASE WHEN中使用 ==========
+    // ========== case6: case when ==========
     multi_sql """
         set enable_decimal256=true;
         drop table if exists t_gen_col_case;
@@ -110,7 +110,7 @@ suite("test_generated_column") {
     sql "insert into t_gen_col_case values(1.12343,1.123457,default,default);"
     qt_gen_col_case "select * from t_gen_col_case;"
 
-    // ========== 测试19: 生成列在IF函数中使用 ==========
+    // ========== case 7: if ==========
     multi_sql """
         set enable_decimal256=true;
         drop table if exists t_gen_col_if;
@@ -126,7 +126,7 @@ suite("test_generated_column") {
     sql "insert into t_gen_col_if values(1.12343,1.123457,default);"
     qt_gen_col_if "select * from t_gen_col_if;"
 
-    // ========== 测试20: 生成列在COALESCE/GREATEST/LEAST等函数中使用 ==========
+    // ========== case8:COALESCE/GREATEST/LEAST ==========
     multi_sql """
         set enable_decimal256=true;
         drop table if exists t_gen_col_funcs;

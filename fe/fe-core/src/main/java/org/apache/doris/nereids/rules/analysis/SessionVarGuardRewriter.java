@@ -104,10 +104,7 @@ public class SessionVarGuardRewriter extends ExpressionRewrite {
         @Override
         public Expression visit(Expression expr, Boolean insideGuard) {
             Expression rewritten = rewriteChildren(this, expr, Boolean.FALSE);
-            if (expr instanceof NeedSessionVarGuard && !Boolean.TRUE.equals(insideGuard)) {
-                if (rewritten instanceof SessionVarGuardExpr) {
-                    return rewritten;
-                }
+            if (rewritten instanceof NeedSessionVarGuard && !Boolean.TRUE.equals(insideGuard)) {
                 if (sessionVar == null) {
                     return expr;
                 }
