@@ -104,7 +104,7 @@ public:
         uint32_t num_columns_without_result = block->columns();
         block->insert({nullptr, _data_type, _expr_name});
         RETURN_IF_ERROR(_function->execute(nullptr, *block, arguments, num_columns_without_result,
-                                           block->rows(), false));
+                                           block->rows()));
         *result_column_id = num_columns_without_result;
 
         if (is_nullable() && _predicate->nulls_first()) {
