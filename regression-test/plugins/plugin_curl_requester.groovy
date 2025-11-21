@@ -170,6 +170,8 @@ Suite.metaClass.curl = { String method, String url, String body = null, Integer 
         logger.error("Command curl failed after " + maxRetries + " attempts. code: "  + code + ", err: " + err)
     }
 
+    logger.info("Command response: " + out + ", err: " + err + ", code: " + code)
+
     return [code, out, err]
 }
 logger.info("Added 'curl' function to Suite")
