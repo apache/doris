@@ -236,6 +236,14 @@ public:
                                  _cancel_st.to_string_no_stack());
     }
 
+    int64_t get_and_reset_load_back_pressure_version_wait_time_ms() {
+        return _load_back_pressure_version_wait_time_ms.exchange(0);
+    }
+
+    void _refresh_back_pressure_version_wait_time(
+            const ::google::protobuf::RepeatedPtrField<::doris::PTabletLoadRowsetInfo>&
+                    tablet_load_infos);
+
 private:
     Status _encode_and_send(PStreamHeader& header, std::span<const Slice> data = {});
     Status _send_with_buffer(butil::IOBuf& buf, bool sync = false);
@@ -278,6 +286,8 @@ protected:
 
     bthread::Mutex _write_mutex;
     size_t _bytes_written = 0;
+
+    std::atomic<int64_t> _load_back_pressure_version_wait_time_ms {0};
 };
 
 // a collection of LoadStreams connect to the same node

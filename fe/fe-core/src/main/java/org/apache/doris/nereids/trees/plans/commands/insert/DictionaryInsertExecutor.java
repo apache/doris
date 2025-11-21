@@ -28,7 +28,6 @@ import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 
-import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -79,12 +78,14 @@ public class DictionaryInsertExecutor extends AbstractInsertExecutor {
         errMsg = t.getMessage() == null ? "unknown reason" : ddlException.getMessage();
         String queryId = DebugUtil.printId(ctx.queryId());
         LOG.warn("dictionary insert [{}] with query id {} failed", labelName, queryId, ddlException);
-        StringBuilder sb = new StringBuilder(errMsg);
-        if (!Strings.isNullOrEmpty(coordinator.getTrackingUrl())) {
-            sb.append(". url: ").append(coordinator.getTrackingUrl());
-        }
+
+        String finalErrorMsg = InsertUtils.getFinalErrorMsg(
+                errMsg,
+                "",
+                coordinator.getTrackingUrl()
+        );
         // we should set the context to make the caller know the command failed
-        ctx.getState().setError(ddlException.getMysqlErrorCode(), sb.toString());
+        ctx.getState().setError(ddlException.getMysqlErrorCode(), finalErrorMsg);
     }
 
     @Override
