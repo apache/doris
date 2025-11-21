@@ -641,7 +641,9 @@ public class CloudTabletRebalancer extends MasterDaemon {
                     // primary backend is alive or dead not long
                     Backend be = replica.getPrimaryBackend(cluster, false);
                     if (be != null && (be.isQueryAvailable()
-                            || (!be.isQueryDisabled() && be.getLastUpdateMs() > needRehashDeadTime))) {
+                            || (!be.isQueryDisabled()
+                            // Compatible with older version upgrades, see https://github.com/apache/doris/pull/42986
+                            && (be.getLastUpdateMs() <= 0 || be.getLastUpdateMs() > needRehashDeadTime)))) {
                         beIds.add(be.getId());
                         tabletIds.add(tablet.getId());
                         continue;
