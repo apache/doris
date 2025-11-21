@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.plans.algebra;
 
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.rules.implementation.SplitAggWithoutDistinct.SplitContext;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SessionVarGuardExpr;
@@ -69,11 +68,11 @@ public interface Aggregate<CHILD_TYPE extends Plan> extends UnaryPlan<CHILD_TYPE
     default Map<AggregateFunction, Expression> getAggregateFunctionWithGuardExpr() {
         Map<AggregateFunction, Expression> aggFunctionWithGuardExpr = new HashMap<>();
         for (Expression expr : getOutputExpressions()) {
-            expr.accept(new DefaultExpressionVisitor<Void, SplitContext>() {
+            expr.accept(new DefaultExpressionVisitor<Void, Map<String, String>>() {
                 @Override
-                public Void visitAggregateFunction(AggregateFunction expr, SplitContext context) {
-                    if (context.sessionVars != null) {
-                        aggFunctionWithGuardExpr.put(expr, new SessionVarGuardExpr(expr, context.sessionVars));
+                public Void visitAggregateFunction(AggregateFunction expr, Map<String, String> sessionVars) {
+                    if (sessionVars != null) {
+                        aggFunctionWithGuardExpr.put(expr, new SessionVarGuardExpr(expr, sessionVars));
                     } else {
                         aggFunctionWithGuardExpr.put(expr, expr);
                     }
@@ -81,14 +80,11 @@ public interface Aggregate<CHILD_TYPE extends Plan> extends UnaryPlan<CHILD_TYPE
                 }
 
                 @Override
-                public Void visitSessionVarGuardExpr(SessionVarGuardExpr expr, SplitContext context) {
-                    Map<String, String> originVar = context.sessionVars;
-                    context.sessionVars = expr.getSessionVars();
-                    super.visit(expr, context);
-                    context.sessionVars = originVar;
+                public Void visitSessionVarGuardExpr(SessionVarGuardExpr expr, Map<String, String> sessionVars) {
+                    super.visit(expr, expr.getSessionVars());
                     return null;
                 }
-            }, new SplitContext());
+            }, null);
         }
         return aggFunctionWithGuardExpr;
     }

@@ -166,12 +166,10 @@ public class MergeAggregate implements RewriteRuleFactory {
             ExprId childExprId = ((SlotReference) outerFunc.child(0)).getExprId();
             if (innerAggExprIdToAggFunc.containsKey(childExprId)) {
                 Expression expr = innerAggExprIdToAggFunc.get(childExprId);
-                AggregateFunction innerFunc;
                 if (expr instanceof SessionVarGuardExpr) {
-                    innerFunc = (AggregateFunction) expr.child(0);
-                } else {
-                    innerFunc = (AggregateFunction) expr;
+                    return false;
                 }
+                AggregateFunction innerFunc = (AggregateFunction) SessionVarGuardExpr.getSessionVarGuardChild(expr);
                 if (innerFunc.isDistinct() && !sameGroupBy) {
                     return false;
                 }
@@ -231,9 +229,7 @@ public class MergeAggregate implements RewriteRuleFactory {
             }
             Alias alias = (Alias) expr;
             // Alias(aggFunc) or Alias(guardExpr(aggFunc))
-            if (alias.child(0) instanceof AggregateFunction
-                    || (alias.child(0) instanceof SessionVarGuardExpr
-                    && alias.child(0).child(0) instanceof AggregateFunction)) {
+            if (SessionVarGuardExpr.getSessionVarGuardChild(alias.child()) instanceof AggregateFunction) {
                 innerAggExprIdToAggFunc.put(alias.getExprId(), alias.child(0));
             }
         }

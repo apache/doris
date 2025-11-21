@@ -112,6 +112,17 @@ public class SessionVarGuardExpr extends Expression implements UnaryExpression {
             return "svGuard:" + child().toString();
         }
     }
+
+    /**
+     * input: guard(guard(guard(child))) -> return child
+     * input: child -> return child
+     * */
+    public static Expression getSessionVarGuardChild(Expression expr) {
+        while (expr instanceof SessionVarGuardExpr) {
+            expr = expr.child(0);
+        }
+        return expr;
+    }
 }
 
 

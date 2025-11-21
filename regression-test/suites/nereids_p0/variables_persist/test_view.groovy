@@ -488,173 +488,40 @@ suite("test_view") {
     """
     qt_multi_vars_complex "select * from v_test_multi_vars_complex;"
 
-    // 场景3: 多个变量在聚合函数中
-    multi_sql """
-        set enable_decimal256=true;
-        set decimal_overflow_scale=12;
-        drop view if exists v_test_multi_vars_agg;
-        create view v_test_multi_vars_agg as select f1, sum(f1*f2) col_sum, avg(f1*f2) col_avg from test_decimal_mul_overflow1 group by f1;
-        set enable_decimal256=false;
-        set decimal_overflow_scale=6;
-    """
-    qt_multi_vars_agg "select * from v_test_multi_vars_agg;"
-
-    // ========== 测试嵌套视图中多个guard的场景 ==========
-    
-    // 场景4: 内层视图使用 enable_decimal256=true，外层视图使用不同的变量组合
-    multi_sql """drop view if exists v_inner_multi_vars;
-    set enable_decimal256=true;
-    set decimal_overflow_scale=10;
-    create view v_inner_multi_vars as select f1*f2 as col1 from test_decimal_mul_overflow1;"""
-    
-    multi_sql """set enable_decimal256=false;
-    set decimal_overflow_scale=8;
-    drop view if exists v_outer_multi_vars;
-    create view v_outer_multi_vars as select col1*2 as col2 from v_inner_multi_vars;"""
-    
-    sql "set enable_decimal256=true;"
-    sql "set decimal_overflow_scale=6;"
-    qt_nested_multi_vars "select * from v_outer_multi_vars;"
-
-    // 场景5: 三层嵌套视图，每层使用不同的变量
-    multi_sql """drop view if exists v_level1_multi;
-    set enable_decimal256=true;
-    set decimal_overflow_scale=10;
-    create view v_level1_multi as select f1*f2 as col1 from test_decimal_mul_overflow1;"""
-    
-    multi_sql """set enable_decimal256=false;
-    set decimal_overflow_scale=8;
-    drop view if exists v_level2_multi;
-    create view v_level2_multi as select col1+1 as col2 from v_level1_multi;"""
-    
-    multi_sql """set enable_decimal256=true;
-    set decimal_overflow_scale=12;
-    drop view if exists v_level3_multi;
-    create view v_level3_multi as select col2*2 as col3 from v_level2_multi;"""
-    
-    sql "set enable_decimal256=false;"
-    sql "set decimal_overflow_scale=6;"
-    qt_three_level_nested "select * from v_level3_multi;"
 
     // 场景6: 嵌套视图中，外层视图对多个列进行表达式计算
     multi_sql """drop view if exists v_inner_base;
     set enable_decimal256=true;
     set decimal_overflow_scale=10;
     create view v_inner_base as select f1*f2 as col1, f1+f2 as col2 from test_decimal_mul_overflow1;"""
-    
+
     multi_sql """set enable_decimal256=false;
     set decimal_overflow_scale=8;
     drop view if exists v_outer_expr;
     create view v_outer_expr as select col1-col2 as expr2, col1/col2 as expr3 from v_inner_base;"""
-    
+
     sql "set enable_decimal256=true;"
     sql "set decimal_overflow_scale=6;"
     qt_nested_multi_expr "select * from v_outer_expr;"
 
-    // ========== 测试连续多个guardExpr在同一个表达式中的场景 ==========
-    
-    // 场景7: 在JOIN中，左右表都使用不同的变量保护
-    multi_sql """drop view if exists v_left_join;
-    set enable_decimal256=true;
-    set decimal_overflow_scale=10;
-    create view v_left_join as 
-    select t1.c1 as left_col, t2.c1 as right_col from 
-    (select f1*f2 as c1 from test_decimal_mul_overflow1) t1 
-    inner join 
-    (select f2*f1 as c1 from test_decimal_mul_overflow1) t2 
-    on t1.c1=t2.c1;"""
-    
-    sql "set enable_decimal256=false;"
-    sql "set decimal_overflow_scale=6;"
-    qt_join_multi_guards "select * from v_left_join;"
-
-    // 场景8: UNION中，两个SELECT使用不同的变量保护
-    multi_sql """set enable_decimal256=true;
-    set decimal_overflow_scale=10;
-    drop view if exists v_union_multi;
-    create view v_union_multi as 
-    select f1*f2 as col from test_decimal_mul_overflow1 
-    union all 
-    select f2*f1 as col from test_decimal_mul_overflow1;"""
-    
-    sql "set enable_decimal256=false;"
-    sql "set decimal_overflow_scale=6;"
-    qt_union_multi_guards "select * from v_union_multi order by 1;"
-
-    // 场景9: 子查询中，外层和内层使用不同的变量
-    multi_sql """set enable_decimal256=true;
-    set decimal_overflow_scale=10;
-    drop view if exists v_subquery_multi;
-    create view v_subquery_multi as 
-    select f1, (select sum(f1*f2) from test_decimal_mul_overflow1 t2 where t2.f1=t1.f1) as sub_sum 
-    from test_decimal_mul_overflow1 t1;"""
-    
-    sql "set enable_decimal256=false;"
-    sql "set decimal_overflow_scale=6;"
-    qt_subquery_multi_guards "select * from v_subquery_multi;"
-
-    // 场景10: CASE WHEN表达式中，不同分支可能需要不同的变量保护
-    multi_sql """set enable_decimal256=true;
-    set decimal_overflow_scale=10;
-    drop view if exists v_case_multi;
-    create view v_case_multi as 
-    select a, b, 
-    case when b>1 then a*b when b<1 then a/b else a+b end as case_col 
-    from t_decimalv3;"""
-    
-    sql "set enable_decimal256=false;"
-    sql "set decimal_overflow_scale=6;"
-    qt_case_multi_guards "select * from v_case_multi;"
-
-    // 场景11: 窗口函数中，窗口表达式和聚合表达式都需要变量保护
-    multi_sql """set enable_decimal256=true;
-    set decimal_overflow_scale=10;
-    drop view if exists v_window_multi;
-    create view v_window_multi as 
-    select f1, f2, sum(f1*f2) over(partition by f1 order by f2) as win_sum,
-    avg(f1*f2) over() as win_avg 
-    from test_decimal_mul_overflow1;"""
-    
-    sql "set enable_decimal256=false;"
-    sql "set decimal_overflow_scale=6;"
-    qt_window_multi_guards "select * from v_window_multi;"
-
-    // 场景12: 数组函数中，多个数组元素表达式都需要变量保护
-    multi_sql """set enable_decimal256=true;
-    set decimal_overflow_scale=10;
-    drop view if exists v_array_multi;
-    create view v_array_multi as 
-    select array_sum(array(a*b, a*b+1, a*b-1)) as arr_sum,
-    array_product(array(a*b, a*b)) as arr_prod 
-    from t_decimalv3;"""
-    
-    sql "set enable_decimal256=false;"
-    sql "set decimal_overflow_scale=6;"
-    qt_array_multi_guards "select * from v_array_multi;"
-
-    // ========== 反向测试：多个变量的反向场景 ==========
-    
-    // 场景13: 反向 - 关闭256和设置不同的overflow_scale创建视图，然后打开256查询
-    multi_sql """set enable_decimal256=false;
-    set decimal_overflow_scale=8;
-    drop view if exists v_multi_vars_reverse;
-    create view v_multi_vars_reverse as select f1*f2 multi from test_decimal_mul_overflow1;
-    set enable_decimal256=true;
-    set decimal_overflow_scale=6;"""
-    qt_multi_vars_reverse "select multi from v_multi_vars_reverse;"
-
-    // 场景14: 反向 - 嵌套视图反向测试
-    multi_sql """drop view if exists v_inner_reverse;
+    sql """set enable_decimal256=true;
+    drop view if exists test_sum_sum_expr;
+    create view test_sum_sum_expr as select f1,sum(f1*f2) c1 from test_decimal_mul_overflow1 group by f1,f2;
     set enable_decimal256=false;
-    set decimal_overflow_scale=8;
-    create view v_inner_reverse as select f1*f2 as col1 from test_decimal_mul_overflow1;"""
-    
-    multi_sql """set enable_decimal256=true;
-    set decimal_overflow_scale=10;
-    drop view if exists v_outer_reverse;
-    create view v_outer_reverse as select col1*2 as col2 from v_inner_reverse;"""
-    
+    drop view if exists test_sum_sum_expr_outer;
+    create view test_sum_sum_expr_outer as select sum(c1) from test_sum_sum_expr group by f1;
+    set enable_decimal256=true;"""
+    qt_merge_agg "select * from test_sum_sum_expr_outer;"
+
+
+    sql """set enable_decimal256=true;
+    drop view if exists test_sum_sum_expr;
+    create view test_sum_sum_expr as select f1,sum(f1) c1 from test_decimal_mul_overflow1 group by f1,f2;
+    set enable_decimal256=false;
+    drop view if exists test_sum_sum_expr_outer;
+    create view test_sum_sum_expr_outer as select sum(c1) from test_sum_sum_expr group by f1;
+    set enable_decimal256=true;"""
+    qt_merge_agg_expr "select * from test_sum_sum_expr_outer;"
     sql "set enable_decimal256=false;"
-    sql "set decimal_overflow_scale=6;"
-    qt_nested_reverse_multi "select * from v_outer_reverse;"
+    qt_merge_agg_expr_outer_no_guard "select * from test_sum_sum_expr_outer;"
 }

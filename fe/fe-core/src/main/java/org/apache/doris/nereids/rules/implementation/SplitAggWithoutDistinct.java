@@ -115,13 +115,12 @@ public class SplitAggWithoutDistinct extends OneImplementationRuleFactory {
         AggregateParam inputToBufferParam = new AggregateParam(AggPhase.LOCAL, AggMode.INPUT_TO_BUFFER);
         Map<AggregateFunction, Alias> aggFunctionToAlias = new HashMap<>();
         for (Expression expr : aggregate.getOutputExpressions()) {
-            expr.accept(new DefaultExpressionVisitor<Void, SplitContext>() {
+            expr.accept(new DefaultExpressionVisitor<Void, Map<String, String>>() {
                 @Override
-                public Void visitAggregateFunction(AggregateFunction expr, SplitContext context) {
+                public Void visitAggregateFunction(AggregateFunction expr, Map<String, String> sessionVars) {
                     AggregateExpression localAggFunc = new AggregateExpression(expr, inputToBufferParam);
-                    if (context.sessionVars != null) {
-                        aggFunctionToAlias.put(expr, new Alias(
-                                new SessionVarGuardExpr(localAggFunc, context.sessionVars)));
+                    if (sessionVars != null) {
+                        aggFunctionToAlias.put(expr, new Alias(new SessionVarGuardExpr(localAggFunc, sessionVars)));
                     } else {
                         aggFunctionToAlias.put(expr, new Alias(localAggFunc));
                     }
@@ -129,11 +128,11 @@ public class SplitAggWithoutDistinct extends OneImplementationRuleFactory {
                 }
 
                 @Override
-                public Void visitSessionVarGuardExpr(SessionVarGuardExpr expr, SplitContext context) {
-                    super.visit(expr, new SplitContext(expr.getSessionVars()));
+                public Void visitSessionVarGuardExpr(SessionVarGuardExpr expr, Map<String, String> sessionVars) {
+                    super.visit(expr, expr.getSessionVars());
                     return null;
                 }
-            }, new SplitContext());
+            }, null);
         }
         List<NamedExpression> localAggOutput = ImmutableList.<NamedExpression>builder()
                 .addAll((List) aggregate.getGroupByExpressions())
@@ -181,17 +180,5 @@ public class SplitAggWithoutDistinct extends OneImplementationRuleFactory {
             }
         }
         return false;
-    }
-
-    /**SplitContext*/
-    public static class SplitContext {
-        public Map<String, String> sessionVars = null;
-
-        public SplitContext() {
-        }
-
-        public SplitContext(Map<String, String> sessionVars) {
-            this.sessionVars = sessionVars;
-        }
     }
 }

@@ -1166,7 +1166,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                                         aggregateExpression.getAggregateParam().aggMode.productAggregateBuffer);
                             }
                         }
-                        return;
+                        // no need to traverse children, because AggregateExpression
+                        // should not have a AggregateExpression child
+                        return true;
                     }
                     if (c instanceof AggregateExpression) {
                         AggregateExpression aggregateExpression = (AggregateExpression) c;
@@ -1177,7 +1179,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                             hasPartialInAggFunc.set(
                                     aggregateExpression.getAggregateParam().aggMode.productAggregateBuffer);
                         }
+                        return true;
                     }
+                    return false;
                 });
             }
         }
