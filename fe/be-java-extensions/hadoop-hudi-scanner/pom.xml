@@ -109,13 +109,6 @@ under the License.
             <version>${hudi.version}</version>
         </dependency>
 
-        <!-- https://mvnrepository.com/artifact/org.apache.parquet/parquet-hadoop -->
-        <dependency>
-            <groupId>org.apache.parquet</groupId>
-            <artifactId>parquet-hadoop-bundle</artifactId>
-            <version>${parquet.version}</version>
-        </dependency>
-
         <dependency>
             <groupId>io.airlift</groupId>
             <artifactId>concurrent</artifactId>

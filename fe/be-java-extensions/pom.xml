@@ -48,7 +48,6 @@ under the License.
     <properties>
         <doris.home>${basedir}/../../</doris.home>
         <fe_ut_parallel>1</fe_ut_parallel>
-        <parquet.version>1.15.2</parquet.version>
     </properties>
 
 </project>
