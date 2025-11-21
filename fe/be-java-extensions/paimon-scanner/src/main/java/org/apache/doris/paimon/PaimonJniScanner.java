@@ -36,6 +36,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -164,8 +165,9 @@ public class PaimonJniScanner extends JniScanner {
         }
     }
 
-    private int readAndProcessNextBatch() throws IOException {
-        int rows = 0;
+    private List<InternalRow> readNextBatch() throws IOException {
+        List<InternalRow> records = new ArrayList<>();
+
         try {
             if (recordIterator == null) {
                 recordIterator = reader.readBatch();
@@ -174,16 +176,9 @@ public class PaimonJniScanner extends JniScanner {
             while (recordIterator != null) {
                 InternalRow record;
                 while ((record = recordIterator.next()) != null) {
-                    columnValue.setOffsetRow(record);
-                    for (int i = 0; i < fields.length; i++) {
-                        columnValue.setIdx(i, types[i], paimonDataTypeList.get(i));
-                        long l = System.nanoTime();
-                        appendData(i, columnValue);
-                        appendDataTime += System.nanoTime() - l;
-                    }
-                    rows++;
-                    if (rows >= batchSize) {
-                        return rows;
+                    records.add(record);
+                    if (records.size() >= batchSize) {
+                        return records;
                     }
                 }
                 recordIterator.releaseBatch();
@@ -196,7 +191,24 @@ public class PaimonJniScanner extends JniScanner {
                     getSplit(), params.get("required_fields"), paimonAllFieldNames, paimonDataTypeList, e);
             throw new IOException(e);
         }
-        return rows;
+        return records;
+    }
+
+    private int readAndProcessNextBatch() throws IOException {
+
+        List<InternalRow> records = readNextBatch();
+
+        long startTime = System.nanoTime();
+        for (InternalRow record : records) {
+            columnValue.setOffsetRow(record);
+            for (int i = 0; i < fields.length; i++) {
+                columnValue.setIdx(i, types[i], paimonDataTypeList.get(i));
+                appendData(i, columnValue);
+            }
+        }
+        appendDataTime += System.nanoTime() - startTime;
+
+        return records.size();
     }
 
     @Override

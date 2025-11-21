@@ -39,8 +39,10 @@ import org.apache.log4j.LogManager;
 import org.apache.log4j.Logger;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Properties;
@@ -193,14 +195,36 @@ public class AvroJNIScanner extends JniScanner {
         }
     }
 
-    @Override
-    protected int getNext() throws IOException {
-        int numRows = 0;
-        for (; numRows < getBatchSize(); numRows++) {
+    private List<GenericRecord> readNextBatch() throws IOException {
+        List<GenericRecord> records = new ArrayList<>();
+
+        for (int numRows = 0; numRows < getBatchSize(); numRows++) {
             if (!avroReader.hasNext(inputPair, ignore)) {
                 break;
             }
             GenericRecord rowRecord = (GenericRecord) avroReader.getNext();
+            records.add(rowRecord);
+
+            // for (int i = 0; i < requiredFields.length; i++) {
+            //     Object fieldData = rowRecord.get(requiredFields[i]);
+            //     if (fieldData == null) {
+            //         appendData(i, null);
+            //     } else {
+            //         AvroColumnValue fieldValue = new AvroColumnValue(fieldInspectors[i], fieldData);
+            //         appendData(i, fieldValue);
+            //     }
+            // }
+        }
+        return records;
+    }
+
+
+    @Override
+    protected int getNext() throws IOException {
+        List<GenericRecord> records = readNextBatch();
+
+        long startTime = System.nanoTime();
+        for (GenericRecord rowRecord : records) {
             for (int i = 0; i < requiredFields.length; i++) {
                 Object fieldData = rowRecord.get(requiredFields[i]);
                 if (fieldData == null) {
@@ -211,7 +235,9 @@ public class AvroJNIScanner extends JniScanner {
                 }
             }
         }
-        return numRows;
+        appendDataTime += System.nanoTime() - startTime;
+
+        return records.size();
     }
 
     @Override

@@ -105,24 +105,29 @@ public class IcebergSysTableJniScanner extends JniScanner {
     @Override
     protected int getNext() throws IOException {
         try (ThreadClassLoaderContext ignored = new ThreadClassLoaderContext(classLoader)) {
-            int rows = 0;
-            while (rows < getBatchSize()) {
+
+            List<StructLike> records = new ArrayList<>();
+            while (records.size() < getBatchSize()) {
                 while (!reader.hasNext() && scanTasks.hasNext()) {
                     nextScanTask();
                 }
                 if (!reader.hasNext()) {
                     break;
                 }
-                StructLike row = reader.next();
+                records.add(reader.next());
+            }
+            long startTime = System.nanoTime();
+            for (StructLike row : records) {
                 for (int i = 0; i < fields.size(); i++) {
                     NestedField field = fields.get(i);
                     Object value = row.get(i, field.type().typeId().javaClass());
                     ColumnValue columnValue = new IcebergSysTableColumnValue(value, timezone);
                     appendData(i, columnValue);
                 }
-                rows++;
             }
-            return rows;
+            appendDataTime += System.nanoTime() - startTime;
+
+            return records.size();
         }
     }
 
