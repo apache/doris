@@ -312,6 +312,7 @@ public:
                     std::pair<size_t, size_t> not_null_range = {range_split, range_end};
                     if (!null_first) {
                         std::swap(is_null_range, not_null_range);
+                        extremum_range.second = 0;
                     } else {
                         DCHECK_EQ(extremum_range.first, 0);
                         extremum_range.second =

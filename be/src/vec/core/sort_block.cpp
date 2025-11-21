@@ -67,8 +67,8 @@ Status sort_block(Block& src_block, Block& dest_block, const SortDescription& de
         }
         size_t columns = src_block.columns();
         for (size_t i = 0; i < columns; ++i) {
-            dest_block.replace_by_position(i, src_block.get_by_position(i).column->permute(
-                                                      perm, reach_limit ? op_limit : limit));
+            dest_block.replace_by_position(
+                    i, src_block.get_by_position(i).column->permute(perm, limit));
         }
     } else {
         size_t size = src_block.rows();
@@ -109,8 +109,8 @@ Status sort_block(Block& src_block, Block& dest_block, const SortDescription& de
 
         size_t columns = src_block.columns();
         for (size_t i = 0; i < columns; ++i) {
-            dest_block.replace_by_position(i, src_block.get_by_position(i).column->permute(
-                                                      perm, reach_limit ? op_limit : limit));
+            dest_block.replace_by_position(
+                    i, src_block.get_by_position(i).column->permute(perm, limit));
         }
     }
     return reach_limit ? Status::EndOfFile("") : Status::OK();
