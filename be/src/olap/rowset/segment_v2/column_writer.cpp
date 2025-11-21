@@ -600,14 +600,29 @@ uint64_t ScalarColumnWriter::estimate_buffer_size() {
     if (is_nullable()) {
         size += _null_bitmap_builder->size();
     }
-    size += _ordinal_index_builder->size();
-    if (_opts.need_zone_map) {
+    size += estimate_index_size();
+    return size;
+}
+
+uint64_t ScalarColumnWriter::estimate_index_size() {
+    uint64_t size = 0;
+    if (_ordinal_index_builder != nullptr) {
+        size += _ordinal_index_builder->size();
+    }
+    if (_opts.need_zone_map && _zone_map_index_builder != nullptr) {
         size += _zone_map_index_builder->size();
     }
-    if (_opts.need_bitmap_index) {
+    if (_opts.need_bitmap_index && _bitmap_index_builder != nullptr) {
         size += _bitmap_index_builder->size();
     }
-    if (_opts.need_bloom_filter) {
+    if (_opts.need_inverted_index) {
+        for (const auto& builder : _inverted_index_builders) {
+            if (builder != nullptr) {
+                size += builder->size();
+            }
+        }
+    }
+    if (_opts.need_bloom_filter && _bloom_filter_index_builder != nullptr) {
         size += _bloom_filter_index_builder->size();
     }
     return size;
@@ -869,6 +884,15 @@ uint64_t StructColumnWriter::estimate_buffer_size() {
     return size;
 }
 
+uint64_t StructColumnWriter::estimate_index_size() {
+    uint64_t size = 0;
+    for (auto& column_writer : _sub_column_writers) {
+        size += column_writer->estimate_index_size();
+    }
+    size += is_nullable() ? _null_writer->estimate_index_size() : 0;
+    return size;
+}
+
 Status StructColumnWriter::finish() {
     for (auto& column_writer : _sub_column_writers) {
         RETURN_IF_ERROR(column_writer->finish());
@@ -1020,6 +1044,21 @@ uint64_t ArrayColumnWriter::estimate_buffer_size() {
            _item_writer->estimate_buffer_size();
 }
 
+uint64_t ArrayColumnWriter::estimate_index_size() {
+    uint64_t size = _offset_writer->estimate_index_size();
+    if (is_nullable()) {
+        size += _null_writer->estimate_index_size();
+    }
+    size += _item_writer->estimate_index_size();
+    if (_opts.need_inverted_index && _inverted_index_builder != nullptr) {
+        size += _inverted_index_builder->size();
+    }
+    if (_opts.need_ann_index && _ann_index_writer != nullptr) {
+        size += _ann_index_writer->size();
+    }
+    return size;
+}
+
 Status ArrayColumnWriter::append_nullable(const uint8_t* null_map, const uint8_t** ptr,
                                           size_t num_rows) {
     RETURN_IF_ERROR(append_data(ptr, num_rows));
@@ -1127,6 +1166,21 @@ uint64_t MapColumnWriter::estimate_buffer_size() {
         estimate += _null_writer->estimate_buffer_size();
     }
     return estimate;
+}
+
+uint64_t MapColumnWriter::estimate_index_size() {
+    uint64_t size = 0;
+    for (auto& sub_writer : _kv_writers) {
+        size += sub_writer->estimate_index_size();
+    }
+    size += _offsets_writer->estimate_index_size();
+    if (is_nullable()) {
+        size += _null_writer->estimate_index_size();
+    }
+    if (_index_builder != nullptr) {
+        size += _index_builder->size();
+    }
+    return size;
 }
 
 Status MapColumnWriter::finish() {

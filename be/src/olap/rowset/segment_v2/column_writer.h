@@ -161,6 +161,8 @@ public:
 
     virtual uint64_t estimate_buffer_size() = 0;
 
+    virtual uint64_t estimate_index_size() { return 0; }
+
     // finish append data
     virtual Status finish() = 0;
 
@@ -225,6 +227,8 @@ public:
     Status finish_current_page() override;
 
     uint64_t estimate_buffer_size() override;
+
+    uint64_t estimate_index_size() override;
 
     // finish append data
     Status finish() override;
@@ -358,6 +362,8 @@ public:
 
     uint64_t estimate_buffer_size() override;
 
+    uint64_t estimate_index_size() override;
+
     Status finish() override;
     Status write_data() override;
     Status write_ordinal_index() override;
@@ -429,6 +435,8 @@ public:
     Status append_data(const uint8_t** ptr, size_t num_rows) override;
 
     uint64_t estimate_buffer_size() override;
+
+    uint64_t estimate_index_size() override;
 
     Status finish() override;
     Status write_data() override;
@@ -510,6 +518,7 @@ public:
     Status append_data(const uint8_t** ptr, size_t num_rows) override;
     Status append_nullable(const uint8_t* null_map, const uint8_t** ptr, size_t num_rows) override;
     uint64_t estimate_buffer_size() override;
+    uint64_t estimate_index_size() override;
 
     Status finish() override;
     Status write_data() override;
