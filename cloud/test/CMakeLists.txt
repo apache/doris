@@ -68,6 +68,8 @@ add_executable(fdb_injection_test fdb_injection_test.cpp)
 
 add_executable(s3_accessor_test s3_accessor_test.cpp)
 
+add_executable(s3_accessor_client_test s3_accessor_client_test.cpp)
+
 add_executable(s3_accessor_mock_test s3_accessor_mock_test.cpp)
 
 option(ENABLE_HDFS_STORAGE_VAULT "Enable HDFS storage support" ON)
@@ -124,6 +126,8 @@ target_link_libraries(rpc_kv_bvar_test ${TEST_LINK_LIBS})
 target_link_libraries(http_encode_key_test ${TEST_LINK_LIBS})
 
 target_link_libraries(s3_accessor_test ${TEST_LINK_LIBS})
+
+target_link_libraries(s3_accessor_client_test ${TEST_LINK_LIBS})
 
 target_link_libraries(s3_accessor_mock_test ${TEST_LINK_LIBS})
 
