@@ -126,14 +126,14 @@ public class PaimonScanNodeTest {
         // Test valid parameter combinations
 
         // 1. Only startSnapshotId
-        Map<String, String> params = new HashMap<>();
-        params.put("startSnapshotId", "5");
+        Map<String, String> params1 = new HashMap<>();
+        params1.put("startSnapshotId", "5");
         ExceptionChecker.expectThrowsWithMsg(UserException.class,
                 "endSnapshotId is required when using snapshot-based incremental read",
-                () -> PaimonScanNode.validateIncrementalReadParams(params));
+                () -> PaimonScanNode.validateIncrementalReadParams(params1));
 
         // 2. Both startSnapshotId and endSnapshotId
-        params.clear();
+        Map<String, String> params = new HashMap<>();
         params.put("startSnapshotId", "1");
         params.put("endSnapshotId", "5");
         Map<String, String> result = PaimonScanNode.validateIncrementalReadParams(params);
