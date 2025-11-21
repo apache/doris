@@ -30,6 +30,8 @@
 
 namespace doris::vectorized {
 
+bvar::Adder<int64_t> g_vscanner_get_block_active("vscanner", "get_block_active");
+
 VScanner::VScanner(RuntimeState* state, pipeline::ScanLocalStateBase* local_state, int64_t limit,
                    RuntimeProfile* profile)
         : _state(state),
@@ -75,6 +77,9 @@ Status VScanner::prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts
 
 Status VScanner::get_block_after_projects(RuntimeState* state, vectorized::Block* block,
                                           bool* eos) {
+    g_vscanner_get_block_active << 1;
+    Defer _ = [&]() { g_vscanner_get_block_active << -1; };
+
     auto& row_descriptor = _local_state->_parent->row_descriptor();
     if (_output_row_descriptor) {
         _origin_block.clear_column_data(row_descriptor.num_materialized_slots());

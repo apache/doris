@@ -49,6 +49,9 @@
 namespace doris {
 namespace segment_v2 {
 
+bvar::Adder<int64_t> g_page_io_decompress_active("page_io", "decompress_active");
+bvar::Adder<int64_t> g_page_io_insert_page_cache_active("page_io", "insert_page_cache_active");
+
 using strings::Substitute;
 
 Status PageIO::compress_page_body(BlockCompressionCodec* codec, double min_space_saving,
@@ -255,6 +258,8 @@ Status PageIO::read_and_decompress_page_(const PageReadOptions& opts, PageHandle
                     "Bad page: page is compressed but codec is NO_COMPRESSION, file={}",
                     opts.file_reader->path().native());
         }
+        g_page_io_decompress_active << 1;
+        Defer _ = [&]() { g_page_io_decompress_active << -1; };
         SCOPED_RAW_TIMER(&opts.stats->decompress_ns);
         std::unique_ptr<DataPage> decompressed_page = std::make_unique<DataPage>(
                 footer->uncompressed_size() + footer_size + 4, opts.use_page_cache, opts.type);
@@ -310,9 +315,11 @@ Status PageIO::read_and_decompress_page_(const PageReadOptions& opts, PageHandle
         break;
     }
     if (opts.use_page_cache && cache) {
+        g_page_io_insert_page_cache_active << 1;
         // insert this page into cache and return the cache handle
         cache->insert(cache_key, page.get(), &cache_handle, opts.type, opts.kept_in_memory);
         *handle = PageHandle(std::move(cache_handle));
+        g_page_io_insert_page_cache_active << -1;
     } else {
         *handle = PageHandle(page.get());
     }
