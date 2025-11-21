@@ -803,7 +803,6 @@ Status VExpr::check_constant(const Block& block, ColumnNumbers arguments) const 
     return Status::OK();
 }
 
-
 ColumnPtr VExpr::get_result_from_const(const Block* block) const {
     return ColumnConst::create(_constant_col->column_ptr, block->rows());
 }
