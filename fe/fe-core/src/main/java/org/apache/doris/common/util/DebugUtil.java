@@ -165,9 +165,9 @@ public class DebugUtil {
     }
 
     public static String printId(final UUID id) {
-        TUniqueId tUniqueId = new TUniqueId(id.getMostSignificantBits(), id.getLeastSignificantBits());
         StringBuilder builder = new StringBuilder();
-        builder.append(Long.toHexString(tUniqueId.hi)).append("-").append(Long.toHexString(tUniqueId.lo));
+        builder.append(Long.toHexString(id.getMostSignificantBits())).append("-");
+        builder.append(Long.toHexString(id.getLeastSignificantBits()));
         return builder.toString();
     }
 

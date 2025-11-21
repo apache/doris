@@ -25,6 +25,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.common.util.UUIDUtil;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.LoadJobRowResult;
 import org.apache.doris.load.loadv2.LoadManager;
@@ -224,7 +225,7 @@ public class MysqlLoadCommand extends Command implements NoForward {
                         + " to load client local file.");
                 return;
             }
-            String loadId = UUID.randomUUID().toString();
+            String loadId = UUIDUtil.genUUID().toString();
             LoadJobRowResult submitResult = loadManager.getMysqlLoadManager()
                     .executeMySqlLoadJob(ctx, mysqlDataDescription, loadId);
             ctx.getState().setOk(submitResult.getRecords(), submitResult.getWarnings(),

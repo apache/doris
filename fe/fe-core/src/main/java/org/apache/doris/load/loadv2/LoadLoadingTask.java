@@ -31,6 +31,7 @@ import org.apache.doris.common.profile.Profile;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
+import org.apache.doris.common.util.UUIDUtil;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.FailMsg;
 import org.apache.doris.nereids.load.NereidsBrokerFileGroup;
@@ -51,7 +52,6 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.UUID;
 import java.util.stream.Collectors;
 
 public class LoadLoadingTask extends LoadTask {
@@ -231,8 +231,7 @@ public class LoadLoadingTask extends LoadTask {
     @Override
     public void updateRetryInfo() {
         super.updateRetryInfo();
-        UUID uuid = UUID.randomUUID();
-        this.loadId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
+        this.loadId = UUIDUtil.genTUniqueId();
         planner.updateLoadId(this.loadId);
         // reset progress on each retry, otherwise the finished/total num will be incorrect
         Env.getCurrentProgressManager().registerProgressSimple(String.valueOf(callback.getCallbackId()));
