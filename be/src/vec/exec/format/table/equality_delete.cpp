@@ -45,7 +45,12 @@ Status SimpleEqualityDelete::_build_set() {
 
 Status SimpleEqualityDelete::filter_data_block(Block* data_block) {
     SCOPED_TIMER(equality_delete_time);
-    auto column_and_type = data_block->get_by_name(_delete_column_name);
+    int pos = data_block->get_position_by_name(_delete_column_name);
+    if (pos == -1) {
+        return Status::InternalError("Column '{}' not found in data block: {}", _delete_column_name,
+                                     data_block->dump_structure());
+    }
+    auto column_and_type = data_block->get_by_position(pos);
     if (column_and_type.type->get_primitive_type() != _delete_column_type) {
         return Status::InternalError(
                 "Not support type change in column '{}', src type: {}, target type: {}",
@@ -104,20 +109,22 @@ Status MultiEqualityDelete::_build_set() {
 Status MultiEqualityDelete::filter_data_block(Block* data_block) {
     SCOPED_TIMER(equality_delete_time);
     size_t column_index = 0;
-    for (std::string column_name : _delete_block->get_names()) {
-        auto column_and_type = data_block->get_by_name(column_name);
-        if (!_delete_block->get_by_name(column_name).type->equals(*column_and_type.type)) {
-            return Status::InternalError(
-                    "Not support type change in column '{}', src type: {}, target type: {}",
-                    column_name, _delete_block->get_by_name(column_name).type->get_name(),
-                    column_and_type.type->get_name());
-        }
-        int pos = data_block->get_position_by_name(column_name);
-        if (pos == -1) {
+
+    // todo: maybe do not need to build name to index map every time
+    auto name_to_pos_map = data_block->get_name_to_pos_map();
+    for (auto delete_col : _delete_block->get_columns_with_type_and_name()) {
+        const std::string& column_name = delete_col.name;
+        auto column_and_type = data_block->safe_get_by_position(name_to_pos_map[column_name]);
+        if (name_to_pos_map.contains(column_name) == false) {
             return Status::InternalError("Column '{}' not found in data block: {}", column_name,
                                          data_block->dump_structure());
         }
-        _data_column_index[column_index++] = pos;
+        if (!delete_col.type->equals(*column_and_type.type)) {
+            return Status::InternalError(
+                    "Not support type change in column '{}', src type: {}, target type: {}",
+                    column_name, delete_col.type->get_name(), column_and_type.type->get_name());
+        }
+        _data_column_index[column_index++] = name_to_pos_map[column_name];
     }
     size_t rows = data_block->rows();
     _data_hashes.clear();
