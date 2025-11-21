@@ -123,6 +123,9 @@ public:
         }
         return name_to_index_map;
     }
+    // Use this method only when you are certain index_by_name will not be used
+    // This is a temporary compromise; index_by_name may be removed in the future
+    void simple_insert(const ColumnWithTypeAndName& elem) { data.emplace_back(elem); }
 
     /// References are invalidated after calling functions above.
     ColumnWithTypeAndName& get_by_position(size_t position) {
