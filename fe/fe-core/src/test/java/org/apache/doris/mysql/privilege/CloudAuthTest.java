@@ -499,8 +499,7 @@ public class CloudAuthTest {
                 PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER));
         Assert.assertFalse(accessManager.checkCloudPriv(new UserIdentity("testUser", "%"), "cg",
                 PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER));
-        ShowGrantsCommand sg = new ShowGrantsCommand(new UserIdentity("testUser", "%"), false);
-        ShowResultSet showResultSet = sg.doRun(connectContext, null);
+        ShowResultSet showResultSet = testShowGrants(userIdentity);
         // cluster field
         Assert.assertEquals("vcg: Cluster_usage_priv", showResultSet.getResultRows().get(0).get(10));
         // compute group field
