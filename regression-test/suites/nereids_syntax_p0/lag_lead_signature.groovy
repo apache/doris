@@ -33,12 +33,12 @@ suite("lag_lead_signature") {
 
     sql "select lag(k, 1, 0) over(), lead(k, 1, 0) over() from lag_lead_signature_t;"
 
-    qt_sql1 "select lag(k, 1 + 1, 0) over() from lag_lead_signature_t;"
-    qt_sql2 "select lag(k, abs(1), 0) over() from lag_lead_signature_t;"
-    qt_sql3 "select lag(k, abs(1) + 1, 0) over() from lag_lead_signature_t;"
-    qt_sql4 "select lead(k, 1 + 1, 0) over() from lag_lead_signature_t;"
-    qt_sql5 "select lead(k, abs(1), 0) over() from lag_lead_signature_t;"
-    qt_sql6 "select lead(k, abs(1) + 1, 0) over() from lag_lead_signature_t;"
+    qt_sql1 "select lag(k, 1 + 1, 0) over(order by id) from lag_lead_signature_t order by 1;"
+    qt_sql2 "select lag(k, abs(1), 0) over(order by id) from lag_lead_signature_t order by 1;"
+    qt_sql3 "select lag(k, abs(1) + 1, 0) over(order by id) from lag_lead_signature_t order by 1;"
+    qt_sql4 "select lead(k, 1 + 1, 0) over(order by id) from lag_lead_signature_t order by 1;"
+    qt_sql5 "select lead(k, abs(1), 0) over(order by id) from lag_lead_signature_t order by 1;"
+    qt_sql6 "select lead(k, abs(1) + 1, 0) over(order by id) from lag_lead_signature_t order by 1;"
 
     test {
         sql "select lag(k, -100, 0) over() from lag_lead_signature_t;"
