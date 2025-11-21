@@ -1213,6 +1213,10 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = CLOUD_ENABLE_MULTI_CLUSTER_SYNC_LOAD, needForward = true)
     public static boolean cloudEnableMultiClusterSyncLoad = false;
 
+    public static final String ENABLE_PKFK_OPTIMIZATION = "enable_pkfk_optimization";
+    @VariableMgr.VarAttr(name = ENABLE_PKFK_OPTIMIZATION, needForward = true, fuzzy = false)
+    public boolean enablePkFkOptimization = false;
+
     /*
      * the parallel exec instance num for one Fragment in one BE
      * 1 means disable this feature

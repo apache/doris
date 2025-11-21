@@ -33,6 +33,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.JoinUtils;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -87,6 +88,9 @@ public class PushDownAggThroughJoinOnPkFk implements RewriteRuleFactory {
     }
 
     private @Nullable Plan pushAgg(LogicalAggregate<?> agg, LogicalJoin<?, ?> join) {
+        if (ConnectContext.get() != null && !ConnectContext.get().getSessionVariable().enablePkFkOptimization) {
+            return null;
+        }
         InnerJoinCluster innerJoinCluster = new InnerJoinCluster();
         innerJoinCluster.collectContiguousInnerJoins(join);
         if (!innerJoinCluster.isValid()) {
