@@ -41,7 +41,6 @@ public class HttpStreamTableValuedFunction extends ExternalFileTableValuedFuncti
         super.parseCommonProperties(properties);
 
         if (fileFormatProperties.getFileFormatType() == TFileFormatType.FORMAT_PARQUET
-                || fileFormatProperties.getFileFormatType() == TFileFormatType.FORMAT_AVRO
                 || fileFormatProperties.getFileFormatType() == TFileFormatType.FORMAT_ORC) {
             throw new AnalysisException("http_stream does not yet support parquet, avro and orc");
         }

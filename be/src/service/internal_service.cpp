@@ -118,7 +118,6 @@
 #include "util/uid_util.h"
 #include "vec/common/schema_util.h"
 #include "vec/core/block.h"
-#include "vec/exec/format/avro//avro_jni_reader.h"
 #include "vec/exec/format/csv/csv_reader.h"
 #include "vec/exec/format/generic_reader.h"
 #include "vec/exec/format/json/new_json_reader.h"
@@ -850,11 +849,6 @@ void PInternalService::fetch_table_schema(google::protobuf::RpcController* contr
         case TFileFormatType::FORMAT_JSON: {
             reader = vectorized::NewJsonReader::create_unique(profile.get(), params, range,
                                                               file_slots, &io_ctx);
-            break;
-        }
-        case TFileFormatType::FORMAT_AVRO: {
-            reader = vectorized::AvroJNIReader::create_unique(profile.get(), params, range,
-                                                              file_slots);
             break;
         }
         default:
