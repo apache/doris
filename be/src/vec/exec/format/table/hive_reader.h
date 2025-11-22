@@ -60,8 +60,6 @@ public:
 
     Status init_reader(
             const std::vector<std::string>& read_table_col_names,
-            const std::unordered_map<std::string, ColumnValueRangeType>*
-                    table_col_name_to_value_range,
             const VExprContextSPtrs& conjuncts, const TupleDescriptor* tuple_descriptor,
             const RowDescriptor* row_descriptor,
             const VExprContextSPtrs* not_single_slot_filter_conjuncts,
@@ -81,8 +79,6 @@ public:
 
     Status init_reader(
             const std::vector<std::string>& read_table_col_names,
-            const std::unordered_map<std::string, ColumnValueRangeType>*
-                    table_col_name_to_value_range,
             const VExprContextSPtrs& conjuncts, const TupleDescriptor* tuple_descriptor,
             const RowDescriptor* row_descriptor,
             const std::unordered_map<std::string, int>* colname_to_slot_id,

@@ -133,8 +133,8 @@ static void read_orc_line(int64_t line, std::string block_dump) {
                            tuple_desc->slots().size());
     reader->set_row_id_column_iterator(iterator_pair);
 
-    auto status = reader->init_reader(&column_names, nullptr, {}, false, tuple_desc, &row_desc,
-                                      nullptr, nullptr);
+    auto status =
+            reader->init_reader(&column_names, {}, false, tuple_desc, &row_desc, nullptr, nullptr);
 
     EXPECT_TRUE(status.ok());
 

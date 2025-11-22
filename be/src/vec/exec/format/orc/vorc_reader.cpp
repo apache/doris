@@ -349,15 +349,12 @@ Status OrcReader::_create_file_reader() {
 }
 
 Status OrcReader::init_reader(
-        const std::vector<std::string>* column_names,
-        const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
-        const VExprContextSPtrs& conjuncts, bool is_acid, const TupleDescriptor* tuple_descriptor,
-        const RowDescriptor* row_descriptor,
+        const std::vector<std::string>* column_names, const VExprContextSPtrs& conjuncts,
+        bool is_acid, const TupleDescriptor* tuple_descriptor, const RowDescriptor* row_descriptor,
         const VExprContextSPtrs* not_single_slot_filter_conjuncts,
         const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts,
         std::shared_ptr<TableSchemaChangeHelper::Node> table_info_node_ptr) {
     _table_column_names = column_names;
-    _colname_to_value_range = colname_to_value_range;
     _lazy_read_ctx.conjuncts = conjuncts;
     _is_acid = is_acid;
     _tuple_descriptor = tuple_descriptor;
@@ -1367,12 +1364,6 @@ Status OrcReader::_fill_row_id_columns(Block* block) {
     }
 
     return Status::OK();
-}
-
-void OrcReader::_init_bloom_filter(
-        std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range) {
-    // generate bloom filter
-    // _reader->getBloomFilters()
 }
 
 void OrcReader::_init_system_properties() {
