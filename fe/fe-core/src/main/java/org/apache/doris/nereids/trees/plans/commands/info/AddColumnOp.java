@@ -161,7 +161,11 @@ public class AddColumnOp extends AlterTableOp {
             }
             if (keysType == KeysType.AGG_KEYS) {
                 if (aggregateType == null) {
-                    columnDef.setIsKey(true);
+                    if (!columnDef.isKey()) {
+                        throw new AnalysisException(
+                                String.format("Please specify `key` as keyword for adding key column"
+                                        + " on AGG_KEYS table: %s", columnDef.getName()));
+                    }
                 } else {
                     if (aggregateType == AggregateType.NONE) {
                         throw new AnalysisException(

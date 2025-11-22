@@ -74,7 +74,7 @@ suite ("test_agg_keys_schema_change") {
 
         // add key column case 1, not light schema change
         sql """
-            ALTER table ${tableName} ADD COLUMN new_key_column INT default "2"
+            ALTER table ${tableName} ADD COLUMN new_key_column INT key default "2"
             """
 
         int max_try_time = 3000
@@ -108,12 +108,12 @@ suite ("test_agg_keys_schema_change") {
 
         // test add double or float key column
         test {
-            sql "ALTER table ${tableName} ADD COLUMN new_key_column_double DOUBLE"
+            sql "ALTER table ${tableName} ADD COLUMN new_key_column_double DOUBLE key"
             exception "Float or double can not used as a key, use decimal instead."
         }
 
         test {
-            sql "ALTER table ${tableName} ADD COLUMN new_key_column_float FLOAT"
+            sql "ALTER table ${tableName} ADD COLUMN new_key_column_float FLOAT key"
             exception "Float or double can not used as a key, use decimal instead."
         }
 

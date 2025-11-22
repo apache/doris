@@ -56,7 +56,7 @@ suite("test_agg_keys_schema_change_decimalv3") {
     sql """ insert into ${tbName} values(0.111111111111111111111111111111111,11111111111111111111111111111.11,0.111111111111111111111111111111111,11111111111111111111111111111.11);"""
     qt_sql """select * from ${tbName} ORDER BY `decimalv3k1`;"""
 
-    sql """ alter table ${tbName} add column `decimalv3v3` DECIMALV3(38,4) """
+    sql """ alter table ${tbName} add column `decimalv3v3` DECIMALV3(38,4) key """
     int max_try_secs = 300
     Awaitility.await().atMost(max_try_secs, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).await().until(() -> {
         String result = getJobState(tbName)

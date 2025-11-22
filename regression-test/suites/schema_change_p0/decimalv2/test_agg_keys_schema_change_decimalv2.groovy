@@ -72,7 +72,7 @@ suite("test_agg_keys_schema_change_decimalv2", "nonConcurrent") {
     """
     qt_sql1 """select * from ${tbName} ORDER BY 1,2,3,4;"""
 
-    sql """ alter table ${tbName} add column `decimalv2v3` decimalv2(27,9) """
+    sql """ alter table ${tbName} add column `decimalv2v3` decimalv2(27,9) key """
     int max_try_secs = 300
     Awaitility.await().atMost(max_try_secs, TimeUnit.SECONDS).with().pollDelay(500, TimeUnit.MILLISECONDS).await().until(() -> {
         String result = getJobState(tbName)

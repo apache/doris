@@ -57,7 +57,7 @@ suite("docs/table-design/schema-change.md") {
             DISTRIBUTED BY HASH(col1) BUCKETS 10
         """
         sql """
-            ALTER TABLE example_db.my_table ADD COLUMN key_col INT DEFAULT "0" AFTER col1;
+            ALTER TABLE example_db.my_table ADD COLUMN key_col INT key DEFAULT "0" AFTER col1;
         """
         waitUntilSchemaChangeDone("my_table")
         sql """
@@ -77,7 +77,7 @@ suite("docs/table-design/schema-change.md") {
             DISTRIBUTED BY HASH(col1) BUCKETS 10
         """
         sql """
-            ALTER TABLE example_db.my_table ADD COLUMN (c1 INT DEFAULT "1", c2 FLOAT SUM DEFAULT "0");
+            ALTER TABLE example_db.my_table ADD COLUMN (c1 INT key DEFAULT "1", c2 FLOAT SUM DEFAULT "0");
         """
         waitUntilSchemaChangeDone("my_table")
 
@@ -161,9 +161,9 @@ suite("docs/table-design/schema-change.md") {
         """
         sql """
             ALTER TABLE tbl1
-            ADD COLUMN k4 INT default "1" to rollup1,
-            ADD COLUMN k4 INT default "1" to rollup2,
-            ADD COLUMN k5 INT default "1" to rollup2
+            ADD COLUMN k4 INT key default "1" to rollup1,
+            ADD COLUMN k4 INT key default "1" to rollup2,
+            ADD COLUMN k5 INT key default "1" to rollup2
         """
         waitUntilSchemaChangeDone("tbl1")
 

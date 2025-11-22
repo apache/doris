@@ -301,7 +301,7 @@ suite("test_multi_partition_key", "p0") {
             """,
             false
     )
-    sql "ALTER TABLE test_multi_col_test_partition_key_add_col ADD COLUMN add_key int NOT NULL DEFAULT '0' AFTER k1"
+    sql "ALTER TABLE test_multi_col_test_partition_key_add_col ADD COLUMN add_key int key NOT NULL DEFAULT '0' AFTER k1"
     assertEquals("FINISHED", getAlterColumnFinalState("test_multi_col_test_partition_key_add_col"))
     sql "insert into test_multi_col_test_partition_key_add_col " +
             "values(0, 100, 0, 0, 0, 0, '2000-01-01 00:00:00', '2000-01-01', 'a', 'a', 0.001, -0.001, 0.001)"
