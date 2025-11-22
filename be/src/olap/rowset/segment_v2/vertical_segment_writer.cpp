@@ -911,6 +911,31 @@ Status VerticalSegmentWriter::batch_block(const vectorized::Block* block, size_t
 }
 
 Status VerticalSegmentWriter::write_batch() {
+    auto log_column_writer_mem_usage = [&](const std::string& stage, int64_t cid) {
+
+        uint64_t total_size = 0;
+        uint64_t total_index_size = 0;
+        uint64_t current_index_size = 0;
+        for (size_t i = 0; i < _column_writers.size(); ++i) {
+            const auto& writer = _column_writers[i];
+            if (writer == nullptr) {
+                continue;
+            }
+            total_size += writer->estimate_buffer_size();
+            const auto idx_size = writer->estimate_index_size();
+            total_index_size += idx_size;
+            if (cid >= 0 && static_cast<int64_t>(i) == cid) {
+                current_index_size = idx_size;
+            }
+        }
+        LOG(INFO) << fmt::format(
+                "segment {} write_batch stage={} cid={} column_writers_mem_bytes={} "
+                "column_writers_index_bytes={}{}",
+                _segment_id, stage, cid >= 0 ? std::to_string(cid) : "all", total_size,
+                total_index_size,
+                cid >= 0 ? fmt::format(" writer_index_mem_bytes={}", current_index_size) : "");
+    };
+
     if (_opts.rowset_ctx->partial_update_info &&
         _opts.rowset_ctx->partial_update_info->is_partial_update() &&
         _opts.write_type == DataWriteType::TYPE_DIRECT &&
@@ -921,6 +946,7 @@ Status VerticalSegmentWriter::write_batch() {
             RETURN_IF_ERROR(
                     _create_column_writer(cid, _tablet_schema->column(cid), _tablet_schema));
         }
+        log_column_writer_mem_usage("partial_update_after_create_column_writers", -1);
         vectorized::Block full_block;
         for (auto& data : _batched_blocks) {
             if (is_flexible_partial_update) {
@@ -929,9 +955,13 @@ Status VerticalSegmentWriter::write_batch() {
                 RETURN_IF_ERROR(_append_block_with_partial_content(data, full_block));
             }
         }
-        for (auto& column_writer : _column_writers) {
+        log_column_writer_mem_usage("partial_update_after_append_blocks", -1);
+        for (size_t cid = 0; cid < _column_writers.size(); ++cid) {
+            auto& column_writer = _column_writers[cid];
             RETURN_IF_ERROR(column_writer->finish());
+            log_column_writer_mem_usage("partial_update_after_finish_column_writer", cid);
             RETURN_IF_ERROR(column_writer->write_data());
+            log_column_writer_mem_usage("partial_update_after_write_data", cid);
 
             auto* column_meta = column_writer->get_column_meta();
             column_meta->set_compressed_data_bytes(
@@ -958,6 +988,7 @@ Status VerticalSegmentWriter::write_batch() {
     std::map<uint32_t, vectorized::IOlapColumnDataAccessor*> cid_to_column;
     for (uint32_t cid = 0; cid < _tablet_schema->num_columns(); ++cid) {
         RETURN_IF_ERROR(_create_column_writer(cid, _tablet_schema->column(cid), _tablet_schema));
+        log_column_writer_mem_usage("after_create_column_writer", cid);
         for (auto& data : _batched_blocks) {
             RETURN_IF_ERROR(_olap_data_convertor->set_source_content_with_specifid_columns(
                     data.block, data.row_pos, data.num_rows, std::vector<uint32_t> {cid}));
@@ -984,13 +1015,16 @@ Status VerticalSegmentWriter::write_batch() {
                                                          data.num_rows));
             _olap_data_convertor->clear_source_content();
         }
+        log_column_writer_mem_usage("after_append_column_data", cid);
         if (_data_dir != nullptr &&
             _data_dir->reach_capacity_limit(_column_writers[cid]->estimate_buffer_size())) {
             return Status::Error<DISK_REACH_CAPACITY_LIMIT>("disk {} exceed capacity limit.",
                                                             _data_dir->path_hash());
         }
         RETURN_IF_ERROR(_column_writers[cid]->finish());
+        log_column_writer_mem_usage("after_finish_column_writer", cid);
         RETURN_IF_ERROR(_column_writers[cid]->write_data());
+        log_column_writer_mem_usage("after_write_data", cid);
 
         auto* column_meta = _column_writers[cid]->get_column_meta();
         column_meta->set_compressed_data_bytes(
