@@ -1046,16 +1046,16 @@ uint64_t ArrayColumnWriter::estimate_buffer_size() {
 
 uint64_t ArrayColumnWriter::estimate_index_size() {
     uint64_t size = _offset_writer->estimate_index_size();
-    if (is_nullable()) {
-        size += _null_writer->estimate_index_size();
-    }
-    size += _item_writer->estimate_index_size();
-    if (_opts.need_inverted_index && _inverted_index_builder != nullptr) {
-        size += _inverted_index_builder->size();
-    }
-    if (_opts.need_ann_index && _ann_index_writer != nullptr) {
-        size += _ann_index_writer->size();
-    }
+    // if (is_nullable()) {
+    //     size += _null_writer->estimate_index_size();
+    // }
+    // size += _item_writer->estimate_index_size();
+    // if (_opts.need_inverted_index && _inverted_index_builder != nullptr) {
+    //     size += _inverted_index_builder->size();
+    // }
+    // if (_opts.need_ann_index && _ann_index_writer != nullptr) {
+    //     size += _ann_index_writer->size();
+    // }
     return size;
 }
 
