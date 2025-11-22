@@ -43,6 +43,63 @@ std::string IColumn::dump_structure() const {
     return res.str();
 }
 
+int IColumn::count_const_column() const {
+    int count = is_column_const(*this) ? 1 : 0;
+    ColumnCallback callback = [&](ColumnPtr& subcolumn) {
+        count += subcolumn->count_const_column();
+    };
+    // simply read using for_each_subcolumn without modification; const_cast can be used.
+    const_cast<IColumn*>(this)->for_each_subcolumn(callback);
+    return count;
+}
+
+bool IColumn::const_nested_check() const {
+    auto const_cnt = count_const_column();
+    if (const_cnt == 0) {
+        return true;
+    }
+    // A const column is not allowed to be nested; it may only appear as the outermost (top-level) column.
+    return const_cnt == 1 && is_column_const(*this);
+}
+
+bool IColumn::null_map_check() const {
+    auto check_null_map_is_zero_or_one = [&](const IColumn& subcolumn) {
+        if (is_column_nullable(subcolumn)) {
+            const auto& nullable_col = assert_cast<const ColumnNullable&>(subcolumn);
+            const auto& null_map = nullable_col.get_null_map_data();
+            for (size_t i = 0; i < null_map.size(); ++i) {
+                if (null_map[i] != 0 && null_map[i] != 1) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    };
+
+    bool is_valid = check_null_map_is_zero_or_one(*this);
+    ColumnCallback callback = [&](ColumnPtr& subcolumn) {
+        if (!subcolumn->null_map_check()) {
+            is_valid = false;
+        }
+    };
+    // simply read using for_each_subcolumn without modification; const_cast can be used.
+    const_cast<IColumn*>(this)->for_each_subcolumn(callback);
+    return is_valid;
+}
+
+Status IColumn::column_self_check() const {
+    // check const nested
+    if (!const_nested_check()) {
+        return Status::InternalError("const nested check failed for column: {} , {}", get_name(),
+                                     dump_structure());
+    }
+    // check null map
+    if (!null_map_check()) {
+        return Status::InternalError("null map check failed for column: {}", get_name());
+    }
+    return Status::OK();
+}
+
 void IColumn::insert_from(const IColumn& src, size_t n) {
     insert(src[n]);
 }
