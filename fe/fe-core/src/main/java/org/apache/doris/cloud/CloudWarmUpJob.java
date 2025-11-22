@@ -56,6 +56,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -539,20 +540,42 @@ public class CloudWarmUpJob implements Writable {
     private final void clearJobOnBEs() {
         try {
             initClients();
-            for (Map.Entry<Long, Client> entry : beToClient.entrySet()) {
+            // Iterate with explicit iterator so we can remove invalidated clients during iteration.
+            Iterator<Map.Entry<Long, Client>> iter = beToClient.entrySet().iterator();
+            while (iter.hasNext()) {
+                Map.Entry<Long, Client> entry = iter.next();
+                long beId = entry.getKey();
+                Client client = entry.getValue();
                 TWarmUpTabletsRequest request = new TWarmUpTabletsRequest();
                 request.setType(TWarmUpTabletsRequestType.CLEAR_JOB);
                 request.setJobId(jobId);
                 if (this.isEventDriven()) {
                     TWarmUpEventType event = getTWarmUpEventType();
                     if (event == null) {
-                        throw new IllegalArgumentException("Unknown SyncEvent " + syncEvent);
+                        // If event type is unknown, skip this BE but continue others.
+                        LOG.warn("Unknown SyncEvent {}, skip CLEAR_JOB for BE {}", syncEvent, beId);
+                        continue;
                     }
                     request.setEvent(event);
                 }
-                LOG.info("send warm up request to BE {}. job_id={}, request_type=CLEAR_JOB",
-                        entry.getKey(), jobId);
-                entry.getValue().warmUpTablets(request);
+                LOG.info("send warm up request to BE {}. job_id={}, request_type=CLEAR_JOB", beId, jobId);
+                try {
+                    client.warmUpTablets(request);
+                } catch (Exception e) {
+                    // If RPC to this BE fails, invalidate this client and remove it from map,
+                    // then continue to next BE so that one bad BE won't block others.
+                    LOG.warn("send warm up request to BE {} failed: {}", beId, e.getMessage());
+                    try {
+                        TNetworkAddress addr = beToAddr == null ? null : beToAddr.get(beId);
+                        if (addr != null) {
+                            ClientPool.backendPool.invalidateObject(addr, client);
+                        }
+                    } catch (Exception ie) {
+                        LOG.warn("invalidate client for BE {} failed: {}", beId, ie.getMessage());
+                    }
+                    // remove from local map so releaseClients won't try to return an invalidated client
+                    iter.remove();
+                }
             }
         } catch (Exception e) {
             LOG.warn("send warm up request failed. job_id={}, request_type=CLEAR_JOB, exception={}",
