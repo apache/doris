@@ -125,7 +125,7 @@ AnalyzerPtr InvertedIndexAnalyzer::create_builtin_analyzer(InvertedIndexParserTy
 
 std::shared_ptr<lucene::analysis::Analyzer> InvertedIndexAnalyzer::create_analyzer(
         const InvertedIndexCtx* inverted_index_ctx) {
-    const std::string& analyzer_name = inverted_index_ctx->custom_analyzer;
+    const std::string& analyzer_name = inverted_index_ctx->analyzer_name;
     if (analyzer_name.empty()) {
         return create_builtin_analyzer(
                 inverted_index_ctx->parser_type, inverted_index_ctx->parser_mode,
@@ -177,7 +177,7 @@ std::vector<TermInfo> InvertedIndexAnalyzer::get_analyse_result(
 std::vector<TermInfo> InvertedIndexAnalyzer::get_analyse_result(
         const std::string& search_str, const std::map<std::string, std::string>& properties) {
     InvertedIndexCtxSPtr inverted_index_ctx = std::make_shared<InvertedIndexCtx>(
-            get_custom_analyzer_string_from_properties(properties),
+            get_analyzer_name_from_properties(properties),
             get_inverted_index_parser_type_from_string(
                     get_parser_string_from_properties(properties)),
             get_parser_mode_string_from_properties(properties),
@@ -195,7 +195,7 @@ std::vector<TermInfo> InvertedIndexAnalyzer::get_analyse_result(
 bool InvertedIndexAnalyzer::should_analyzer(const std::map<std::string, std::string>& properties) {
     auto parser_type = get_inverted_index_parser_type_from_string(
             get_parser_string_from_properties(properties));
-    auto analyzer_name = get_custom_analyzer_string_from_properties(properties);
+    auto analyzer_name = get_analyzer_name_from_properties(properties);
     if (!analyzer_name.empty()) {
         return true;
     }

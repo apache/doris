@@ -171,7 +171,7 @@ struct TMatchPredicate {
   3: optional map<string, string> char_filter_map;
   4: optional bool parser_lowercase = true;
   5: optional string parser_stopwords = "";
-  6: optional string custom_analyzer = "";
+  6: optional string analyzer_name = "";
 }
 
 struct TLiteralPredicate {
