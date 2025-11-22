@@ -18,6 +18,8 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("rollback1") {
+    String db = context.config.getDbNameByFile(context.file)
+    sql "use ${db}"
     // this mv rewrite would not be rewritten in RBO, so set NOT_IN_RBO explicitly
     sql "set pre_materialized_view_rewrite_strategy = NOT_IN_RBO"
     sql """ DROP TABLE IF EXISTS rollback1; """
@@ -38,9 +40,7 @@ suite ("rollback1") {
     sql "insert into rollback1 select 2,2,2,'b';"
     sql "insert into rollback1 select 3,-3,null,'c';"
 
-    createMV("create materialized view k123p as select k1 as a1,k2+k3 from rollback1;")
-
-    sleep(3000)
+    create_sync_mv(db, "rollback1", "k123p_2", "select k1 as a1,k2+k3 from rollback1;")
 
     sql "insert into rollback1 select -4,-4,-4,'d';"
     sql "SET experimental_enable_nereids_planner=true"

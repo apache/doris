@@ -18,6 +18,8 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("subQuery") {
+    String db = context.config.getDbNameByFile(context.file)
+    sql "use ${db}"
     sql "SET experimental_enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
     sql """ DROP TABLE IF EXISTS subQuery; """
@@ -39,9 +41,7 @@ suite ("subQuery") {
     sql """insert into subQuery values("2020-01-02",2,"b",2,2,2);"""
     sql """insert into subQuery values("2020-01-03",3,"c",3,3,3);"""
 
-    createMV("create materialized view subQuery_mv as select deptno as a1, empid as a2 from subQuery;")
-
-    sleep(3000)
+    create_sync_mv(db, "subQuery", "subQuery_mv", "select deptno as a1, empid as a2 from subQuery order by deptno;")
 
     sql """insert into subQuery values("2020-01-01",1,"a",1,1,1);"""
 

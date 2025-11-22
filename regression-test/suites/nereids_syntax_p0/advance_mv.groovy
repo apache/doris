@@ -21,10 +21,9 @@ suite("advance_mv") {
     def tbName2 = "test_advance_mv_dup_table"
     def tbName3 = "schema_change_dup_mv_regression_test"
 
-    def getJobState = { tableName ->
-        def jobStateResult = sql """  SHOW ALTER TABLE MATERIALIZED VIEW WHERE TableName='${tableName}' ORDER BY CreateTime DESC LIMIT 1; """
-        return jobStateResult[0][8]
-    }
+    String db = context.config.getDbNameByFile(context.file)
+    sql "use ${db}"
+
     sql "DROP TABLE IF EXISTS ${tbName1} FORCE"
     sql """
             CREATE TABLE IF NOT EXISTS ${tbName1}(
@@ -93,7 +92,7 @@ suite("advance_mv") {
     sql "analyze table ${tbName3} with sync;"
     sql """set enable_stats=false;"""
 
-    createMV("CREATE materialized VIEW mv1 AS SELECT k1 as a1, sum(v2) as a2 FROM ${tbName1} GROUP BY k1;")
+    create_sync_mv(db, tbName1, "mv1", "SELECT k1 as a1, sum(v2) as a2 FROM ${tbName1} GROUP BY k1;")
 
     explain {
         sql("select k1, sum(v2) from ${tbName1} group by k1 order by k1;")
@@ -107,7 +106,7 @@ suite("advance_mv") {
     }
     order_qt_select_star "select k1 from ${tbName1} order by k1;"
 
-    createMV("CREATE materialized VIEW mv2 AS SELECT abs(k1)+k2+1 as a4, sum(abs(k2+2)+k3+3) as a3 FROM ${tbName2} GROUP BY a4;")
+    create_sync_mv(db, tbName2, "mv2", "SELECT abs(k1)+k2+1 as a4, sum(abs(k2+2)+k3+3) as a3 FROM ${tbName2} GROUP BY a4;")
 
     explain {
         sql("SELECT abs(k1)+k2+1 tmp, sum(abs(k2+2)+k3+3) FROM ${tbName2} GROUP BY tmp;")
@@ -120,22 +119,8 @@ suite("advance_mv") {
     }
     order_qt_select_star "SELECT abs(k1)+k2+1 tmp, sum(abs(k2+2)+k3+3) FROM ${tbName2} GROUP BY tmp;"
 
-    sql "CREATE materialized VIEW mv3 AS SELECT abs(k1)+k2+1 as a5, abs(k2+2)+k3+3 as a6 FROM ${tbName2};"
-    int max_try_secs2 = 60
-    while (max_try_secs2--) {
-        String res = getJobState(tbName2)
-        if (res == "FINISHED" || res == "CANCELLED") {
-            assertEquals("FINISHED", res)
-            sleep(3000)
-            break
-        } else {
-            Thread.sleep(2000)
-            if (max_try_secs2 < 1) {
-                println "test timeout," + "state:" + res
-                assertEquals("FINISHED",res)
-            }
-        }
-    }
+    create_sync_mv(db, tbName2, "mv3", "SELECT abs(k1)+k2+1 as a5, abs(k2+2)+k3+3 as a6 FROM ${tbName2};")
+
     explain {
         sql("SELECT abs(k1)+k2+1 tmp, abs(k2+2)+k3+3 FROM ${tbName2};")
         contains "(mv3)"
@@ -148,23 +133,8 @@ suite("advance_mv") {
         contains "(mv3)"
     }
 
+    create_sync_mv(db, tbName3, "mv4", "select date as b1, user_id as b2, city as b3, sum(age) from ${tbName3} group by date, user_id, city;")
 
-    sql "create materialized view mv4 as select date as b1, user_id as b2, city as b3, sum(age) from ${tbName3} group by date, user_id, city;"
-    int max_try_secs3 = 60
-    while (max_try_secs3--) {
-        String res = getJobState(tbName3)
-        if (res == "FINISHED" || res == "CANCELLED") {
-            assertEquals("FINISHED", res)
-            sleep(3000)
-            break
-        } else {
-            Thread.sleep(2000)
-            if (max_try_secs2 < 1) {
-                println "test timeout," + "state:" + res
-                assertEquals("FINISHED",res)
-            }
-        }
-    }
     explain {
         sql("select sum(age) from ${tbName3};")
         contains "(mv4)"
