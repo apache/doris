@@ -87,11 +87,17 @@ public class GlobalTransactionMgr implements GlobalTransactionMgrIface {
 
     private Env env;
 
+    private final AutoPartitionCacheManager autoPartitionCacheManager = new AutoPartitionCacheManager();
+
     public GlobalTransactionMgr(Env env) {
         this.env = env;
         this.dbIdToDatabaseTransactionMgrs = Maps.newConcurrentMap();
         this.idGenerator = new TransactionIdGenerator();
         this.callbackFactory = new TxnStateCallbackFactory();
+    }
+
+    public AutoPartitionCacheManager getAutoPartitionCacheMgr() {
+        return autoPartitionCacheManager;
     }
 
     @Override
@@ -395,6 +401,7 @@ public class GlobalTransactionMgr implements GlobalTransactionMgrIface {
             dbTransactionMgr.abortTransaction(txnId, reason, txnCommitAttachment);
         } finally {
             MetaLockUtils.writeUnlockTables(tableList);
+            autoPartitionCacheManager.clearAutoPartitionInfo(txnId);
         }
     }
 
@@ -419,6 +426,7 @@ public class GlobalTransactionMgr implements GlobalTransactionMgrIface {
             dbTransactionMgr.abortTransaction2PC(transactionId);
         } finally {
             MetaLockUtils.writeUnlockTables(tableList);
+            autoPartitionCacheManager.clearAutoPartitionInfo(transactionId);
         }
     }
 
@@ -529,6 +537,7 @@ public class GlobalTransactionMgr implements GlobalTransactionMgrIface {
             Map<Long, Set<Long>> backendPartitions) throws UserException {
         DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(dbId);
         dbTransactionMgr.finishTransaction(transactionId, partitionVisibleVersions, backendPartitions);
+        autoPartitionCacheManager.clearAutoPartitionInfo(transactionId);
     }
 
     /**

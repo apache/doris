@@ -1360,6 +1360,8 @@ struct TCreatePartitionRequest {
     // be_endpoint = <ip>:<heartbeat_port> to distinguish a particular BE
     5: optional string be_endpoint
     6: optional bool write_single_replica = false
+    // query_id to identify the coordinator, if coordinator exists, it means this is a multi-instance load
+    7: optional Types.TUniqueId query_id
 }
 
 struct TCreatePartitionResult {
