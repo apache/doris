@@ -385,6 +385,11 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                             new CollectFilterAboveConsumer(),
                                             new CollectCteConsumerOutput())
                             ),
+                            topic("eliminate join according unique or foreign key",
+                                    cascadesContext -> cascadesContext.rewritePlanContainsTypes(LogicalJoin.class),
+                                    bottomUp(new EliminateJoinByFK()),
+                                    topDown(new EliminateJoinByUnique())
+                            ),
                             topic("Table/Physical optimization",
                                     topDown(
                                             new PruneOlapScanPartition(),
