@@ -64,8 +64,10 @@ import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
 import java.nio.channels.OverlappingFileLockException;
 import java.nio.file.StandardOpenOption;
+import java.security.SecureRandom;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Random;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -553,7 +555,7 @@ public class DorisFE {
             releaseFileLockAndCloseFileChannel();
             throw new RuntimeException("Try to lock process failed", e);
         }
-        throw new RuntimeException("FE process has been started，please do not start multiple FE processes at the "
+        throw new RuntimeException("FE process has been started, please do not start multiple FE processes at the "
                 + "same time");
     }
 
@@ -585,6 +587,10 @@ public class DorisFE {
         if (!Config.use_fuzzy_conf) {
             return;
         }
+
+        Random random = new SecureRandom();
+        Config.random_use_v3_storage_format = random.nextBoolean();
+        LOG.info("fuzzy set random_use_v3_storage_format={}", Config.random_use_v3_storage_format);
         if (Config.fuzzy_test_type.equalsIgnoreCase("daily") || Config.fuzzy_test_type.equalsIgnoreCase("rqg")) {
             Config.random_add_cluster_keys_for_mow = (LocalDate.now().getDayOfMonth() % 2 == 0);
             LOG.info("fuzzy set random_add_cluster_keys_for_mow={}", Config.random_add_cluster_keys_for_mow);

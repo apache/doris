@@ -489,6 +489,15 @@ public class CreateTableInfo {
         if (engineName.equalsIgnoreCase(ENGINE_OLAP)) {
             boolean enableDuplicateWithoutKeysByDefault = false;
             properties = PropertyAnalyzer.getInstance().rewriteOlapProperties(ctlName, dbName, properties);
+            // In fuzzy tests, randomly set storage_format=V3 (ext_meta) for some tables.
+            // This behavior is controlled by FE config `random_use_v3_storage_format` and only
+            // takes effect when user does not explicitly specify storage_format.
+            if (Config.random_use_v3_storage_format
+                    && properties != null
+                    && !properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_FORMAT)) {
+                properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_FORMAT, "V3");
+                LOG.info("Randomly set storage_format=V3 for table {}.{} in fuzzy mode", dbName, tableName);
+            }
             try {
                 if (properties != null) {
                     enableDuplicateWithoutKeysByDefault =

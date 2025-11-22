@@ -210,6 +210,10 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_normal) {
 
     // 2. create tablet
     TabletMetaSharedPtr tablet_meta(new TabletMeta(_tablet_schema));
+    bool external_segment_meta_used_default = rand() % 2 == 0;
+    std::cout << "external_segment_meta_used_default: " << external_segment_meta_used_default
+              << std::endl;
+    _tablet_schema->set_external_segment_meta_used_default(external_segment_meta_used_default);
     tablet_meta->_tablet_id = 10000;
     _tablet = std::make_shared<Tablet>(*_engine_ref, tablet_meta, _data_dir.get());
 
@@ -757,6 +761,10 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_advanced) {
 
     // 2. create tablet
     TabletMetaSharedPtr tablet_meta(new TabletMeta(_tablet_schema));
+    bool external_segment_meta_used_default = rand() % 2 == 0;
+    std::cout << "external_segment_meta_used_default: " << external_segment_meta_used_default
+              << std::endl;
+    _tablet_schema->set_external_segment_meta_used_default(external_segment_meta_used_default);
     tablet_meta->_tablet_id = 10000;
     _tablet = std::make_shared<Tablet>(*_engine_ref, tablet_meta, _data_dir.get());
     EXPECT_TRUE(_tablet->init().ok());
@@ -953,6 +961,10 @@ TEST_F(VariantColumnWriterReaderTest, test_write_sub_index) {
 
     // 2. create tablet
     TabletMetaSharedPtr tablet_meta(new TabletMeta(_tablet_schema));
+    bool external_segment_meta_used_default = rand() % 2 == 0;
+    std::cout << "external_segment_meta_used_default: " << external_segment_meta_used_default
+              << std::endl;
+    _tablet_schema->set_external_segment_meta_used_default(external_segment_meta_used_default);
     tablet_meta->_tablet_id = 10000;
     _tablet = std::make_shared<Tablet>(*_engine_ref, tablet_meta, _data_dir.get());
     EXPECT_TRUE(_tablet->init().ok());
@@ -1027,6 +1039,10 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_nullable) {
 
     // 2. create tablet
     TabletMetaSharedPtr tablet_meta(new TabletMeta(_tablet_schema));
+    bool external_segment_meta_used_default = rand() % 2 == 0;
+    std::cout << "external_segment_meta_used_default: " << external_segment_meta_used_default
+              << std::endl;
+    _tablet_schema->set_external_segment_meta_used_default(external_segment_meta_used_default);
     tablet_meta->_tablet_id = 10000;
     _tablet = std::make_shared<Tablet>(*_engine_ref, tablet_meta, _data_dir.get());
     EXPECT_TRUE(_tablet->init().ok());
@@ -1178,6 +1194,10 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_nullable_without_finalize)
 
     // 2. create tablet
     TabletMetaSharedPtr tablet_meta(new TabletMeta(_tablet_schema));
+    bool external_segment_meta_used_default = rand() % 2 == 0;
+    std::cout << "external_segment_meta_used_default: " << external_segment_meta_used_default
+              << std::endl;
+    _tablet_schema->set_external_segment_meta_used_default(external_segment_meta_used_default);
     tablet_meta->_tablet_id = 10000;
     _tablet = std::make_shared<Tablet>(*_engine_ref, tablet_meta, _data_dir.get());
     EXPECT_TRUE(_tablet->init().ok());
@@ -1269,6 +1289,10 @@ TEST_F(VariantColumnWriterReaderTest, test_write_bm_with_finalize) {
 
     // 2. create tablet
     TabletMetaSharedPtr tablet_meta(new TabletMeta(_tablet_schema));
+    bool external_segment_meta_used_default = rand() % 2 == 0;
+    std::cout << "external_segment_meta_used_default: " << external_segment_meta_used_default
+              << std::endl;
+    _tablet_schema->set_external_segment_meta_used_default(external_segment_meta_used_default);
     tablet_meta->_tablet_id = 10000;
     _tablet = std::make_shared<Tablet>(*_engine_ref, tablet_meta, _data_dir.get());
     EXPECT_TRUE(_tablet->init().ok());
@@ -1362,6 +1386,10 @@ TEST_F(VariantColumnWriterReaderTest, test_write_bf_with_finalize) {
 
     // 2. create tablet
     TabletMetaSharedPtr tablet_meta(new TabletMeta(_tablet_schema));
+    bool external_segment_meta_used_default = rand() % 2 == 0;
+    std::cout << "external_segment_meta_used_default: " << external_segment_meta_used_default
+              << std::endl;
+    _tablet_schema->set_external_segment_meta_used_default(external_segment_meta_used_default);
     tablet_meta->_tablet_id = 10000;
     _tablet = std::make_shared<Tablet>(*_engine_ref, tablet_meta, _data_dir.get());
     EXPECT_TRUE(_tablet->init().ok());
@@ -1455,6 +1483,10 @@ TEST_F(VariantColumnWriterReaderTest, test_write_zm_with_finalize) {
 
     // 2. create tablet
     TabletMetaSharedPtr tablet_meta(new TabletMeta(_tablet_schema));
+    bool external_segment_meta_used_default = rand() % 2 == 0;
+    std::cout << "external_segment_meta_used_default: " << external_segment_meta_used_default
+              << std::endl;
+    _tablet_schema->set_external_segment_meta_used_default(external_segment_meta_used_default);
     tablet_meta->_tablet_id = 10000;
     _tablet = std::make_shared<Tablet>(*_engine_ref, tablet_meta, _data_dir.get());
     EXPECT_TRUE(_tablet->init().ok());
@@ -1548,6 +1580,10 @@ TEST_F(VariantColumnWriterReaderTest, test_write_inverted_with_finalize) {
 
     // 2. create tablet
     TabletMetaSharedPtr tablet_meta(new TabletMeta(_tablet_schema));
+    bool external_segment_meta_used_default = rand() % 2 == 0;
+    std::cout << "external_segment_meta_used_default: " << external_segment_meta_used_default
+              << std::endl;
+    _tablet_schema->set_external_segment_meta_used_default(external_segment_meta_used_default);
     tablet_meta->_tablet_id = 10000;
     _tablet = std::make_shared<Tablet>(*_engine_ref, tablet_meta, _data_dir.get());
     EXPECT_TRUE(_tablet->init().ok());
@@ -1640,6 +1676,10 @@ TEST_F(VariantColumnWriterReaderTest, test_no_sub_in_sparse_column) {
 
     // 2. create tablet
     TabletMetaSharedPtr tablet_meta(new TabletMeta(_tablet_schema));
+    bool external_segment_meta_used_default = rand() % 2 == 0;
+    std::cout << "external_segment_meta_used_default: " << external_segment_meta_used_default
+              << std::endl;
+    _tablet_schema->set_external_segment_meta_used_default(external_segment_meta_used_default);
     tablet_meta->_tablet_id = 10001;
     _tablet = std::make_shared<Tablet>(*_engine_ref, tablet_meta, _data_dir.get());
     EXPECT_TRUE(_tablet->init().ok());
@@ -1771,6 +1811,10 @@ TEST_F(VariantColumnWriterReaderTest, test_prefix_in_sub_and_sparse) {
 
     // 2. create tablet
     TabletMetaSharedPtr tablet_meta(new TabletMeta(_tablet_schema));
+    bool external_segment_meta_used_default = rand() % 2 == 0;
+    std::cout << "external_segment_meta_used_default: " << external_segment_meta_used_default
+              << std::endl;
+    _tablet_schema->set_external_segment_meta_used_default(external_segment_meta_used_default);
     tablet_meta->_tablet_id = 10001;
     _tablet = std::make_shared<Tablet>(*_engine_ref, tablet_meta, _data_dir.get());
     EXPECT_TRUE(_tablet->init().ok());
@@ -1916,6 +1960,10 @@ void test_write_variant_column(StorageEngine* _engine_ref, std::string _absolute
 
     // 2. create tablet
     TabletMetaSharedPtr tablet_meta(new TabletMeta(_tablet_schema));
+    bool external_segment_meta_used_default = rand() % 2 == 0;
+    std::cout << "external_segment_meta_used_default: " << external_segment_meta_used_default
+              << std::endl;
+    _tablet_schema->set_external_segment_meta_used_default(external_segment_meta_used_default);
     tablet_meta->_tablet_id = 10000;
     EXPECT_TRUE(io::global_local_filesystem()->delete_directory(_absolute_dir).ok());
     EXPECT_TRUE(io::global_local_filesystem()->create_directory(_absolute_dir).ok());
@@ -2438,6 +2486,10 @@ TEST_F(VariantColumnWriterReaderTest, test_read_with_checksum) {
 
     // 2. create tablet
     TabletMetaSharedPtr tablet_meta(new TabletMeta(_tablet_schema));
+    bool external_segment_meta_used_default = rand() % 2 == 0;
+    std::cout << "external_segment_meta_used_default: " << external_segment_meta_used_default
+              << std::endl;
+    _tablet_schema->set_external_segment_meta_used_default(external_segment_meta_used_default);
     tablet_meta->_tablet_id = 10000;
     _tablet = std::make_shared<Tablet>(*_engine_ref, tablet_meta, _data_dir.get());
 

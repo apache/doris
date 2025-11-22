@@ -55,7 +55,7 @@ Status ColumnReaderCache::_insert(const ColumnReaderCacheKey& key, const ColumnR
                                   std::shared_ptr<ColumnReader>* column_reader) {
     std::lock_guard<std::mutex> lock(_cache_mutex);
     // If already exists, and move it to the front
-    if (_cache_map.find(key) != _cache_map.end()) {
+    if (_cache_map.contains(key)) {
         g_segment_column_cache_hit_count << 1;
         auto it = _cache_map[key];
         DCHECK_EQ(it->key.first, key.first);
@@ -79,7 +79,8 @@ Status ColumnReaderCache::_insert(const ColumnReaderCacheKey& key, const ColumnR
     g_segment_column_reader_cache_count << 1;
     DCHECK(key.first >= 0) << " col_uid: " << key.first
                            << " relative_path: " << key.second.get_path();
-    _lru_list.push_front(CacheNode {key, reader_ptr, std::chrono::steady_clock::now()});
+    _lru_list.push_front(CacheNode {
+            .key = key, .reader = reader_ptr, .last_access = std::chrono::steady_clock::now()});
     _cache_map[key] = _lru_list.begin();
     *column_reader = reader_ptr;
     VLOG_DEBUG << "insert cache: " << key.first << " " << key.second.get_path()
@@ -87,6 +88,23 @@ Status ColumnReaderCache::_insert(const ColumnReaderCacheKey& key, const ColumnR
                << ", cache_size: " << _cache_map.size() << ", list_size: " << _lru_list.size()
                << ", cache_map: " << _cache_map.size() << ", lru_list: " << _lru_list.size();
     return Status::OK();
+}
+
+void ColumnReaderCache::_insert_direct(const ColumnReaderCacheKey& key,
+                                       const std::shared_ptr<ColumnReader>& column_reader) {
+    std::lock_guard<std::mutex> lock(_cache_mutex);
+    if (_cache_map.size() >= config::max_segment_partial_column_cache_size) {
+        g_segment_column_reader_cache_count << -1;
+        g_segment_column_cache_evict_count << 1;
+        auto last_it = _lru_list.end();
+        --last_it;
+        _cache_map.erase(last_it->key);
+        _lru_list.pop_back();
+    }
+    g_segment_column_reader_cache_count << 1;
+    _lru_list.push_front(CacheNode {
+            .key = key, .reader = column_reader, .last_access = std::chrono::steady_clock::now()});
+    _cache_map[key] = _lru_list.begin();
 }
 
 std::map<int32_t, std::shared_ptr<ColumnReader>> ColumnReaderCache::get_available_readers(
@@ -122,16 +140,13 @@ Status ColumnReaderCache::get_column_reader(int32_t col_uid,
         // keep the lock until the footer is loaded, since _get_segment_footer is not thread safe
         RETURN_IF_ERROR(_segment->_get_segment_footer(footer_pb_shared, stats));
     }
-    // lazy create column reader from footer
-    const auto& col_footer_pb = footer_pb_shared->columns(static_cast<int>(it->second));
+    // Create reader via ColumnReader::create (external meta preferred, inline fallback).
     ColumnReaderOptions opts {
             .kept_in_memory = _segment->tablet_schema()->is_in_memory(),
             .be_exec_version = _be_exec_version,
             .tablet_schema = _segment->tablet_schema(),
     };
-    VLOG_DEBUG << "insert cache: " << col_uid << " "
-               << ""
-               << ", type: " << (int)col_footer_pb.type() << ", footer_ordinal: " << it->second;
+    VLOG_DEBUG << "insert cache: uid=" << col_uid << " col_id=" << it->second;
     return _insert({col_uid, {}}, opts, *footer_pb_shared, static_cast<int>(it->second),
                    _segment->_file_reader, _segment->num_rows(), column_reader);
 }
@@ -155,16 +170,18 @@ Status ColumnReaderCache::get_path_column_reader(uint32_t col_uid,
                                  ->get_subcolumn_meta_by_path(relative_path)
                        : nullptr;
     }
-    if (node != nullptr) {
-        // lazy create column reader from footer
-        DCHECK_GE(node->data.footer_ordinal, 0);
-        std::shared_ptr<SegmentFooterPB> footer_pb_shared;
-        {
-            std::lock_guard<std::mutex> lock(_cache_mutex);
-            // keep the lock until the footer is loaded, since _get_segment_footer is not thread safe
-            RETURN_IF_ERROR(_segment->_get_segment_footer(footer_pb_shared, stats));
-        }
-        const auto& col_footer_pb = footer_pb_shared->columns(node->data.footer_ordinal);
+
+    // lazy create column reader from footer
+    std::shared_ptr<SegmentFooterPB> footer_pb_shared;
+    {
+        std::lock_guard<std::mutex> lock(_cache_mutex);
+        // keep the lock until the footer is loaded, since _get_segment_footer is not thread safe
+        RETURN_IF_ERROR(_segment->_get_segment_footer(footer_pb_shared, stats));
+    }
+
+    // if footer ordinal is valid, try to get the column reader from footer
+    // otherwise, try to get the column reader from external meta
+    if (node != nullptr && node->data.footer_ordinal >= 0) {
         ColumnReaderOptions opts {
                 .kept_in_memory = _segment->tablet_schema()->is_in_memory(),
                 .be_exec_version = _be_exec_version,
@@ -172,14 +189,39 @@ Status ColumnReaderCache::get_path_column_reader(uint32_t col_uid,
         };
         VLOG_DEBUG << "insert cache: " << col_uid << " "
                    << ""
-                   << ", type: " << (int)col_footer_pb.type()
                    << ", footer_ordinal: " << node->data.footer_ordinal;
         RETURN_IF_ERROR(_insert({col_uid, node->path}, opts, *footer_pb_shared,
                                 node->data.footer_ordinal, _segment->_file_reader,
                                 _segment->num_rows(), column_reader));
         return Status::OK();
     }
-    // no such column in this segment, return nullptr
+
+    // Fallback (V3 + only): try external meta directly when node is not found
+    // Note: avoid probing external meta on legacy segments for performance/readability
+    if (footer_pb_shared->version() >= kSegmentFooterVersionV3_ExtColMeta) {
+        // Ensure variant root reader is available
+        if (!variant_column_reader) {
+            RETURN_IF_ERROR(get_column_reader(col_uid, &variant_column_reader, stats));
+        }
+        ColumnReaderOptions ropts {.kept_in_memory = _segment->tablet_schema()->is_in_memory(),
+                                   .be_exec_version = _be_exec_version,
+                                   .tablet_schema = _segment->tablet_schema()};
+        std::shared_ptr<ColumnReader> ext_reader;
+        Status st = static_cast<VariantColumnReader*>(variant_column_reader.get())
+                            ->create_reader_from_external_meta(relative_path.get_path(), ropts,
+                                                               _segment->_file_reader,
+                                                               _segment->num_rows(), &ext_reader);
+        if (!st.is<ErrorCode::NOT_FOUND>() && !st.ok()) {
+            return st;
+        }
+        if (st.ok()) {
+            _insert_direct({col_uid, relative_path}, ext_reader);
+            *column_reader = std::move(ext_reader);
+            return Status::OK();
+        }
+    }
+
+    // No such column (either legacy format without inline path, or external meta missing)
     *column_reader = nullptr;
     return Status::Error<ErrorCode::NOT_FOUND, false>("column not found in segment, col_uid={}",
                                                       col_uid);

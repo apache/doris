@@ -233,6 +233,8 @@ public:
 
     void disable_index_meta_cache() { _use_index_page_cache = false; }
 
+    vectorized::DataTypePtr get_vec_data_type() { return _data_type; }
+
     virtual FieldType get_meta_type() { return _meta_type; }
 
     int64_t get_metadata_size() const override;
@@ -271,6 +273,8 @@ private:
     Status _calculate_row_ranges(const std::vector<uint32_t>& page_indexes, RowRanges* row_ranges,
                                  const ColumnIteratorOptions& iter_opts);
 
+    friend class VariantColumnReader;
+
 private:
     int64_t _meta_length;
     FieldType _meta_type;
@@ -288,6 +292,8 @@ private:
     io::FileReaderSPtr _file_reader;
 
     DictEncodingType _dict_encoding_type;
+
+    vectorized::DataTypePtr _data_type;
 
     TypeInfoPtr _type_info =
             TypeInfoPtr(nullptr,

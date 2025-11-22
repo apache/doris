@@ -1195,11 +1195,14 @@ public class PropertyAnalyzer {
             return TStorageFormat.V2;
         }
 
-        if (storageFormat.equalsIgnoreCase("v1")) {
+        if (storageFormat.equalsIgnoreCase("V1")) {
             throw new AnalysisException("Storage format V1 has been deprecated since version 0.14, "
                     + "please use V2 instead");
-        } else if (storageFormat.equalsIgnoreCase("v2")) {
+        } else if (storageFormat.equalsIgnoreCase("V2")) {
             return TStorageFormat.V2;
+        } else if (storageFormat.equalsIgnoreCase("V3")) {
+            // V3 (V2 + external column meta feature)
+            return TStorageFormat.V3;
         } else if (storageFormat.equalsIgnoreCase("default")) {
             return TStorageFormat.V2;
         } else {

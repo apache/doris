@@ -65,6 +65,12 @@ struct RowLocation;
 
 namespace segment_v2 {
 
+// SegmentFooterPB versioning:
+// 1 = V2 baseline
+// 2 = V3 (externalized ColumnMetaPB region + CMO present)
+static constexpr uint32_t kSegmentFooterVersionV2 = 1;
+static constexpr uint32_t kSegmentFooterVersionV3_ExtColMeta = 2;
+
 class BitmapIndexIterator;
 class Segment;
 class InvertedIndexIterator;
@@ -265,7 +271,7 @@ private:
     // Limited cache for column readers
     std::unique_ptr<ColumnReaderCache> _column_reader_cache;
 
-    // map column unique id ---> it's footer ordinal
+    // map column unique id ---> col_id (footer ordinal in legacy mode, or external CMO column id)
     std::unordered_map<int32_t, size_t> _column_uid_to_footer_ordinal;
 
     // Init from ColumnMetaPB in SegmentFooterPB

@@ -45,6 +45,7 @@
 #include "olap/rowset/segment_v2/column_reader.h"
 #include "olap/rowset/segment_v2/column_reader_cache.h"
 #include "olap/rowset/segment_v2/empty_segment_iterator.h"
+#include "olap/rowset/segment_v2/external_col_meta_util.h"
 #include "olap/rowset/segment_v2/index_file_reader.h"
 #include "olap/rowset/segment_v2/indexed_column_reader.h"
 #include "olap/rowset/segment_v2/page_io.h"
@@ -604,20 +605,21 @@ vectorized::DataTypePtr Segment::get_data_type_of(const TabletColumn& column,
 
     // Path exists, proceed with variant logic.
     vectorized::PathInData relative_path = path->copy_pop_front();
-    int32_t unique_id = column.unique_id() > 0 ? column.unique_id() : column.parent_unique_id();
+    int32_t unique_id = column.unique_id() >= 0 ? column.unique_id() : column.parent_unique_id();
 
     // Find the reader for the base variant column.
     if (!_column_uid_to_footer_ordinal.contains(unique_id)) {
         return vectorized::DataTypeFactory::instance().create_data_type(column);
     }
 
-    std::shared_ptr<ColumnReader> reader;
+    std::shared_ptr<ColumnReader> v_reader;
+
     // get the parent variant column reader
     OlapReaderStatistics stats;
     // If status is not ok, it will throw exception(data corruption)
-    THROW_IF_ERROR(get_column_reader(unique_id, &reader, &stats));
-    DCHECK(reader != nullptr);
-    const auto* variant_reader = static_cast<const VariantColumnReader*>(reader.get());
+    THROW_IF_ERROR(get_column_reader(unique_id, &v_reader, &stats));
+    DCHECK(v_reader != nullptr);
+    const auto* variant_reader = static_cast<const VariantColumnReader*>(v_reader.get());
 
     // Find the specific node within the variant structure using the relative path.
     const auto* node = variant_reader->get_subcolumn_meta_by_path(relative_path);
@@ -626,11 +628,21 @@ vectorized::DataTypePtr Segment::get_data_type_of(const TabletColumn& column,
         return vectorized::DataTypeFactory::instance().create_data_type(column);
     }
 
-    // Case 1: Node not found for the given path within the variant reader.
-    // If relative_path is empty, it means the original path pointed to the root
-    // of the variant column itself. We should return the Variant type.
+    // Use variant type when the path is a prefix of any existing subcolumn path.
+    if (variant_reader->has_prefix_path(relative_path)) {
+        return vectorized::DataTypeFactory::instance().create_data_type(column);
+    }
+
+    // try to get the reader from cache and return it's data type
+    // usually when leaf node is in cache
+    if (_column_reader_cache->get_path_column_reader(unique_id, relative_path, &v_reader,
+                                                     nullptr)) {
+        return v_reader->get_vec_data_type();
+    }
+
+    // Node not found for the given path within the variant reader.
     // If node is nullptr, it means the path is not exist in the variant sub columns.
-    if (node == nullptr || relative_path.empty()) {
+    if (node == nullptr) {
         // nested subcolumn is not exist in the sparse column
         if (column.is_nested_subcolumn()) {
             return vectorized::DataTypeFactory::instance().create_data_type(column);
@@ -651,19 +663,18 @@ vectorized::DataTypePtr Segment::get_data_type_of(const TabletColumn& column,
         }
     }
 
-    bool exist_in_sparse = variant_reader->exist_in_sparse_column(relative_path);
-    bool is_physical_leaf = node->children.empty();
-
-    if (is_physical_leaf && column.is_nested_subcolumn()) {
+    if (column.is_nested_subcolumn()) {
         return node->data.file_column_type;
     }
+
+    bool exist_in_sparse = variant_reader->exist_in_sparse_column(relative_path);
 
     // Condition to return the specific underlying type of the node:
     // 1. We are reading flat leaves (ignoring hierarchy).
     // 2. OR It's a leaf in the physical column structure AND it doesn't *also* exist
     //    in the sparse column (meaning it's purely a materialized leaf).
-    if (read_flat_leaves || (is_physical_leaf && !exist_in_sparse &&
-                             !variant_reader->is_exceeded_sparse_column_limit())) {
+    if (read_flat_leaves ||
+        (!exist_in_sparse && !variant_reader->is_exceeded_sparse_column_limit())) {
         return node->data.file_column_type;
     }
 
@@ -681,15 +692,39 @@ Status Segment::_create_column_meta_once(OlapReaderStatistics* stats) {
 }
 
 Status Segment::_create_column_meta(const SegmentFooterPB& footer) {
-    // unique_id -> idx in footer.columns()
-    uint32_t ordinal = 0;
-    for (const auto& column_meta : footer.columns()) {
-        // no need to create column reader for variant's subcolumn
-        if (column_meta.unique_id() == -1) {
-            ordinal++;
-            continue;
+    // Build uid -> col_id mapping used to locate per-column meta.
+    // Priority:
+    // 1) uid2colid blob in footer.file_meta_datas (external meta mode, raw uid array)
+    // 2) fallback: scan footer.columns() (old or mixed format)
+    // 3) both missing -> treat as no columns resolvable in this segment (return NOT_FOUND on lookup)
+    _column_uid_to_footer_ordinal.clear();
+    // Decide path by footer version: V3 and above uses externalized ColumnMeta region
+    const bool use_external_meta = footer.version() >= kSegmentFooterVersionV3_ExtColMeta;
+    // 1) Prefer uid->col_id blob (external meta mode). If corrupted or missing, fall back.
+    ExternalColMetaUtil::ExternalMetaPointers ptrs;
+    bool loaded = false;
+    if (use_external_meta) {
+        loaded = ExternalColMetaUtil::parse_external_meta_pointers(footer, &ptrs) &&
+                 ExternalColMetaUtil::parse_uid_to_colid_map(footer, ptrs,
+                                                             &_column_uid_to_footer_ordinal);
+    }
+    // 2) Fallback: inline footer columns (old or mixed format)
+    if (!loaded && footer.columns_size() > 0) {
+        uint32_t ordinal = 0;
+        for (const auto& column_meta : footer.columns()) {
+            if (column_meta.unique_id() == -1) {
+                ordinal++;
+                continue;
+            }
+            _column_uid_to_footer_ordinal.try_emplace(column_meta.unique_id(), ordinal++);
         }
-        _column_uid_to_footer_ordinal.try_emplace(column_meta.unique_id(), ordinal++);
+        loaded = true;
+    }
+    // 3) If still not loaded, warn once to aid troubleshooting (damaged mapping and empty inline columns).
+    if (!loaded) {
+        LOG(WARNING) << "segment external meta mapping missing or corrupted and no inline columns; "
+                        "uid->col_id cannot be resolved. path="
+                     << (_file_reader ? _file_reader->path().native() : std::string("<unknown>"));
     }
     _column_reader_cache = std::make_unique<ColumnReaderCache>(this);
     return Status::OK();
@@ -794,10 +829,55 @@ Status Segment::get_column_reader(int32_t col_uid, std::shared_ptr<ColumnReader>
 Status Segment::traverse_column_meta_pbs(const std::function<void(const ColumnMetaPB&)>& visitor) {
     std::shared_ptr<SegmentFooterPB> footer_pb_shared;
     RETURN_IF_ERROR(_get_segment_footer(footer_pb_shared, nullptr));
-    for (const auto& column : footer_pb_shared->columns()) {
-        visitor(column);
+    // Prefer externalized meta path when version indicates V3 or higher.
+    ExternalColMetaUtil::ExternalMetaPointers ptrs;
+    if (footer_pb_shared->version() >= kSegmentFooterVersionV3_ExtColMeta &&
+        ExternalColMetaUtil::parse_external_meta_pointers(*footer_pb_shared, &ptrs) &&
+        ptrs.num_columns > 0) {
+        const uint64_t region_size =
+                (ptrs.region_end > ptrs.region_start) ? (ptrs.region_end - ptrs.region_start) : 0;
+        if (region_size == 0) {
+            return Status::Corruption("invalid external meta region size");
+        }
+        // Read entire meta region once to reduce random IO
+        std::string region_buf;
+        region_buf.resize(static_cast<size_t>(region_size));
+        size_t br = 0;
+        io::IOContext io_ctx {.is_index_data = true};
+        RETURN_IF_ERROR(_file_reader->read_at(ptrs.region_start, Slice(region_buf), &br, &io_ctx));
+        if (br != region_size) {
+            return Status::Corruption("short read on meta region");
+        }
+        // Walk footer.column_meta_entries and parse metas
+        if (footer_pb_shared->column_meta_entries_size() != ptrs.num_columns) {
+            return Status::Corruption("column_meta_entries size mismatch");
+        }
+        uint64_t offset = ptrs.region_start;
+        for (uint32_t i = 0; i < ptrs.num_columns; ++i) {
+            const auto& entry = footer_pb_shared->column_meta_entries(i);
+            const uint64_t sz = static_cast<uint64_t>(entry.length());
+            const uint64_t pos = offset;
+            if (!ExternalColMetaUtil::is_valid_meta_slice(pos, sz, ptrs)) {
+                return Status::Corruption("external meta entry out of region bounds");
+            }
+            const uint64_t rel = pos - ptrs.region_start;
+            ColumnMetaPB meta;
+            if (!meta.ParseFromArray(region_buf.data() + rel, static_cast<int>(sz))) {
+                return Status::Corruption("failed parse ColumnMetaPB from region");
+            }
+            visitor(meta);
+            offset += sz;
+        }
+        return Status::OK();
     }
-    return Status::OK();
+    // Fallback: Inline footer columns
+    if (footer_pb_shared->columns_size() > 0) {
+        for (const auto& column : footer_pb_shared->columns()) {
+            visitor(column);
+        }
+        return Status::OK();
+    }
+    return Status::Corruption("no column meta found in footer");
 }
 
 Status Segment::get_column_reader(const TabletColumn& col,
