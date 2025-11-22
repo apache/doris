@@ -302,7 +302,7 @@ Status PartitionedAggLocalState::recover_blocks_from_disk(RuntimeState* state, b
             auto st = Status::InternalError(
                     "fault_inject partitioned_agg_source "
                     "merge spill data canceled");
-            ExecEnv::GetInstance()->fragment_mgr()->cancel_query(query_id, st);
+            state->get_query_ctx()->cancel(st);
             return st;
         });
 
