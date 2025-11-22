@@ -32,9 +32,16 @@ public class ExpressionNormalizationAndOptimization extends ExpressionRewrite {
     public static final ExpressionNormalizationAndOptimization NO_MIN_MAX_RANGE_INSTANCE
             = new ExpressionNormalizationAndOptimization(false);
 
+    public static final ExpressionNormalizationAndOptimization RULE_INSTANCE_FOR_MV
+            = new ExpressionNormalizationAndOptimization(buildRewriteRuleForMv());
+
     /** ExpressionNormalizationAndOptimization */
     public ExpressionNormalizationAndOptimization(boolean addRange) {
         super(new ExpressionRuleExecutor(buildRewriteRule(addRange)));
+    }
+
+    public ExpressionNormalizationAndOptimization(List<ExpressionRewriteRule<ExpressionRewriteContext>> rules) {
+        super(new ExpressionRuleExecutor(rules));
     }
 
     // The ADD_RANGE will add 'AND (slot min max range)' to the expression, later the added min max range condition
@@ -48,6 +55,13 @@ public class ExpressionNormalizationAndOptimization extends ExpressionRewrite {
         if (addRange) {
             builder.addAll(ExpressionOptimization.ADD_RANGE);
         }
+        return builder.build();
+    }
+
+    private static List<ExpressionRewriteRule<ExpressionRewriteContext>> buildRewriteRuleForMv() {
+        ImmutableList.Builder<ExpressionRewriteRule<ExpressionRewriteContext>> builder = ImmutableList.builder();
+        builder.addAll(ExpressionNormalization.NORMALIZE_REWRITE_RULES_FOR_MV)
+                .addAll(ExpressionOptimization.OPTIMIZE_REWRITE_RULES_FOR_MV);
         return builder.build();
     }
 

@@ -73,6 +73,30 @@ public class ExpressionNormalization extends ExpressionRewrite {
             )
     );
 
+    public static final List<ExpressionRewriteRule<ExpressionRewriteContext>> NORMALIZE_REWRITE_RULES_FOR_MV
+            = ImmutableList.of(
+            bottomUp(
+                    SupportJavaDateFormatter.INSTANCE,
+                    NormalizeBinaryPredicatesRule.INSTANCE,
+                    InPredicateDedup.INSTANCE,
+                    InPredicateExtractNonConstant.INSTANCE,
+                    InPredicateToEqualToRule.INSTANCE,
+                    SimplifyNotExprRule.INSTANCE,
+                    SimplifyArithmeticRule.INSTANCE,
+                    LogToLn.INSTANCE,
+                    ConcatWsMultiArrayToOne.INSTANCE,
+                    FoldConstantRule.INSTANCE,
+                    SimplifyCastRule.INSTANCE,
+                    DigitalMaskingConvert.INSTANCE,
+                    MedianConvert.INSTANCE,
+                    SimplifyArithmeticComparisonRule.INSTANCE,
+                    ConvertAggStateCast.INSTANCE,
+                    MergeDateTrunc.INSTANCE,
+                    CheckCast.INSTANCE,
+                    SimplifyEqualBooleanLiteral.INSTANCE
+            )
+    );
+
     public ExpressionNormalization() {
         super(new ExpressionRuleExecutor(NORMALIZE_REWRITE_RULES));
     }

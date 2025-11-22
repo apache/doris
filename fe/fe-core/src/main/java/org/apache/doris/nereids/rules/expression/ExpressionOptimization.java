@@ -73,6 +73,34 @@ public class ExpressionOptimization extends ExpressionRewrite {
             )
     );
 
+    public static final List<ExpressionRewriteRule<ExpressionRewriteContext>> OPTIMIZE_REWRITE_RULES_FOR_MV =
+            ImmutableList.of(
+                    bottomUp(
+                            SimplifyInPredicate.INSTANCE,
+
+                            // comparison predicates
+                            SimplifyComparisonPredicate.INSTANCE,
+                            SimplifySelfComparison.INSTANCE,
+
+                            // compound predicates
+                            SimplifyRange.INSTANCE,
+                            SimplifyConflictCompound.INSTANCE,
+                            DistinctPredicatesRule.INSTANCE,
+                            ExtractCommonFactorRule.INSTANCE,
+
+                            DateFunctionRewrite.INSTANCE,
+                            ArrayContainToArrayOverlap.INSTANCE,
+                            CondReplaceNullWithFalse.INSTANCE,
+                            NestedCaseWhenCondToLiteral.INSTANCE,
+                            CaseWhenToIf.INSTANCE,
+                            CaseWhenToCompoundPredicate.INSTANCE,
+                            TopnToMax.INSTANCE,
+                            NullSafeEqualToEqual.INSTANCE,
+                            LikeToEqualRewrite.INSTANCE,
+                            BetweenToEqual.INSTANCE
+                    )
+            );
+
     /**
      * don't use it with PushDownFilterThroughJoin, it may cause dead loop:
      *   LogicalFilter(origin expr)
