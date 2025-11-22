@@ -21,27 +21,23 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.plans.commands.execute.BaseExecuteAction;
 import org.apache.doris.nereids.trees.plans.commands.info.PartitionNamesInfo;
-import org.apache.doris.nereids.trees.plans.commands.optimize.BaseOptimizeAction;
 
 import java.util.Map;
 import java.util.Optional;
 
 /**
- * Abstract base class for Iceberg-specific OPTIMIZE TABLE actions.
- * This class extends BaseOptimizeAction and provides Iceberg-specific
- * functionality while inheriting common optimization action behavior.
+ * Abstract base class for Iceberg-specific EXECUTE TABLE actions.
+ * This class extends BaseExecuteAction and provides Iceberg-specific
+ * functionality while inheriting common execution action behavior.
  */
-public abstract class BaseIcebergAction extends BaseOptimizeAction {
-
-    protected final IcebergExternalTable icebergTable;
+public abstract class BaseIcebergAction extends BaseExecuteAction {
 
     protected BaseIcebergAction(String actionType, Map<String, String> properties,
             Optional<PartitionNamesInfo> partitionNamesInfo,
-            Optional<Expression> whereCondition,
-            IcebergExternalTable icebergTable) {
+            Optional<Expression> whereCondition) {
         super(actionType, properties, partitionNamesInfo, whereCondition);
-        this.icebergTable = icebergTable;
     }
 
     @Override
@@ -75,10 +71,4 @@ public abstract class BaseIcebergAction extends BaseOptimizeAction {
         // Default implementation does nothing.
     }
 
-    /**
-     * Get the underlying Iceberg table instance for procedure execution.
-     */
-    protected IcebergExternalTable getIcebergTable() {
-        return icebergTable;
-    }
 }

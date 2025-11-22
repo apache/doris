@@ -20,16 +20,16 @@ package org.apache.doris.datasource.iceberg.action;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.plans.commands.execute.ExecuteAction;
 import org.apache.doris.nereids.trees.plans.commands.info.PartitionNamesInfo;
-import org.apache.doris.nereids.trees.plans.commands.optimize.OptimizeAction;
 
 import java.util.Map;
 import java.util.Optional;
 
 /**
- * Factory for creating Iceberg-specific OPTIMIZE TABLE actions.
+ * Factory for creating Iceberg-specific EXECUTE TABLE actions.
  */
-public class IcebergOptimizeActionFactory {
+public class IcebergExecuteActionFactory {
 
     // Iceberg procedure names (mapped to action types)
     public static final String ROLLBACK_TO_SNAPSHOT = "rollback_to_snapshot";
@@ -41,7 +41,7 @@ public class IcebergOptimizeActionFactory {
     public static final String REWRITE_DATA_FILES = "rewrite_data_files";
 
     /**
-     * Create an Iceberg-specific OptimizeAction instance.
+     * Create an Iceberg-specific ExecuteAction instance.
      *
      * @param actionType         the type of action to create (corresponds to
      *                           Iceberg procedure name)
@@ -50,10 +50,10 @@ public class IcebergOptimizeActionFactory {
      * @param partitionNamesInfo partition information
      * @param whereCondition     where condition for filtering
      * @param table              the Iceberg table to operate on
-     * @return OptimizeAction instance that wraps Iceberg procedure calls
+     * @return ExecuteAction instance that wraps Iceberg procedure calls
      * @throws DdlException if action creation fails
      */
-    public static OptimizeAction createAction(String actionType, Map<String, String> properties,
+    public static ExecuteAction createAction(String actionType, Map<String, String> properties,
             Optional<PartitionNamesInfo> partitionNamesInfo,
             Optional<Expression> whereCondition,
             IcebergExternalTable table) throws DdlException {
@@ -61,25 +61,25 @@ public class IcebergOptimizeActionFactory {
         switch (actionType.toLowerCase()) {
             case ROLLBACK_TO_SNAPSHOT:
                 return new IcebergRollbackToSnapshotAction(properties, partitionNamesInfo,
-                        whereCondition, table);
+                        whereCondition);
             case ROLLBACK_TO_TIMESTAMP:
                 return new IcebergRollbackToTimestampAction(properties, partitionNamesInfo,
-                        whereCondition, table);
+                        whereCondition);
             case SET_CURRENT_SNAPSHOT:
                 return new IcebergSetCurrentSnapshotAction(properties, partitionNamesInfo,
-                        whereCondition, table);
+                        whereCondition);
             case CHERRYPICK_SNAPSHOT:
                 return new IcebergCherrypickSnapshotAction(properties, partitionNamesInfo,
-                        whereCondition, table);
+                        whereCondition);
             case FAST_FORWARD:
                 return new IcebergFastForwardAction(properties, partitionNamesInfo,
-                        whereCondition, table);
+                        whereCondition);
             case EXPIRE_SNAPSHOTS:
                 return new IcebergExpireSnapshotsAction(properties, partitionNamesInfo,
-                        whereCondition, table);
+                        whereCondition);
             case REWRITE_DATA_FILES:
                 return new IcebergRewriteDataFilesAction(properties, partitionNamesInfo,
-                        whereCondition, table);
+                        whereCondition);
             default:
                 throw new DdlException("Unsupported Iceberg procedure: " + actionType
                         + ". Supported procedures: " + String.join(", ", getSupportedActions()));
