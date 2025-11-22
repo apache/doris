@@ -84,10 +84,10 @@ public class CloudRollupJobV2 extends RollupJobV2 {
                        Column whereColumn,
                        int baseSchemaHash, int rollupSchemaHash, KeysType rollupKeysType,
                        short rollupShortKeyColumnCount,
-                       OriginStatement origStmt) throws AnalysisException {
+                       OriginStatement origStmt, Map<String, String> sessionVariable) throws AnalysisException {
         super(rawSql, jobId, dbId, tableId, tableName, timeoutMs, baseIndexId,
                 rollupIndexId, baseIndexName, rollupIndexName, rollupSchema, whereColumn,
-                baseSchemaHash, rollupSchemaHash, rollupKeysType, rollupShortKeyColumnCount, origStmt);
+                baseSchemaHash, rollupSchemaHash, rollupKeysType, rollupShortKeyColumnCount, origStmt, sessionVariable);
         ConnectContext context = ConnectContext.get();
         if (context != null) {
             String clusterName = "";

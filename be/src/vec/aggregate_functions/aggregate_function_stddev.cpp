@@ -32,6 +32,7 @@ template <template <typename> class Function, typename Name,
           template <PrimitiveType, typename, bool> class Data, bool is_stddev>
 AggregateFunctionPtr create_function_single_value(const String& name,
                                                   const DataTypes& argument_types,
+                                                  const DataTypePtr& result_type,
                                                   const bool result_is_nullable,
                                                   const AggregateFunctionAttr& attr) {
     return creator_without_type::create<Function<Data<TYPE_DOUBLE, Name, is_stddev>>>(
@@ -40,34 +41,41 @@ AggregateFunctionPtr create_function_single_value(const String& name,
 
 AggregateFunctionPtr create_aggregate_function_variance_samp(const std::string& name,
                                                              const DataTypes& argument_types,
+                                                             const DataTypePtr& result_type,
                                                              const bool result_is_nullable,
                                                              const AggregateFunctionAttr& attr) {
     return create_function_single_value<AggregateFunctionSampVariance, VarianceSampName, SampData,
-                                        false>(name, argument_types, result_is_nullable, attr);
+                                        false>(name, argument_types, result_type,
+                                               result_is_nullable, attr);
 }
 
 AggregateFunctionPtr create_aggregate_function_variance_pop(const std::string& name,
                                                             const DataTypes& argument_types,
+                                                            const DataTypePtr& result_type,
                                                             const bool result_is_nullable,
                                                             const AggregateFunctionAttr& attr) {
     return create_function_single_value<AggregateFunctionSampVariance, VarianceName, PopData,
-                                        false>(name, argument_types, result_is_nullable, attr);
+                                        false>(name, argument_types, result_type,
+                                               result_is_nullable, attr);
 }
 
 AggregateFunctionPtr create_aggregate_function_stddev_pop(const std::string& name,
                                                           const DataTypes& argument_types,
+                                                          const DataTypePtr& result_type,
                                                           const bool result_is_nullable,
                                                           const AggregateFunctionAttr& attr) {
     return create_function_single_value<AggregateFunctionSampVariance, StddevName, PopData, true>(
-            name, argument_types, result_is_nullable, attr);
+            name, argument_types, result_type, result_is_nullable, attr);
 }
 
 AggregateFunctionPtr create_aggregate_function_stddev_samp(const std::string& name,
                                                            const DataTypes& argument_types,
+                                                           const DataTypePtr& result_type,
                                                            const bool result_is_nullable,
                                                            const AggregateFunctionAttr& attr) {
     return create_function_single_value<AggregateFunctionSampVariance, StddevSampName, SampData,
-                                        true>(name, argument_types, result_is_nullable, attr);
+                                        true>(name, argument_types, result_type, result_is_nullable,
+                                              attr);
 }
 
 void register_aggregate_function_stddev_variance_pop(AggregateFunctionSimpleFactory& factory) {

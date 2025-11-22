@@ -30,6 +30,7 @@
 #include <vector>
 
 #include "runtime/decimalv2_value.h"
+#include "runtime/primitive_type.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_fixed_length_object.h"
@@ -105,23 +106,26 @@ struct AggregateFunctionAvgData {
     }
 };
 
+template <PrimitiveType T, PrimitiveType TResult, typename Data>
+class AggregateFunctionAvg;
+
+template <PrimitiveType T, PrimitiveType TResult>
+constexpr static bool is_valid_avg_types =
+        (is_same_or_wider_decimalv3(T, TResult) || (is_decimalv2(T) && is_decimalv2(TResult)) ||
+         (is_float_or_double(T) && is_float_or_double(TResult)) ||
+         (is_int_or_bool(T) && (is_double(TResult) || is_int(TResult))));
 /// Calculates arithmetic mean of numbers.
-template <PrimitiveType T, typename Data>
-class AggregateFunctionAvg final
-        : public IAggregateFunctionDataHelper<Data, AggregateFunctionAvg<T, Data>>,
+template <PrimitiveType T, PrimitiveType TResult, typename Data>
+    requires(is_valid_avg_types<T, TResult>)
+class AggregateFunctionAvg<T, TResult, Data> final
+        : public IAggregateFunctionDataHelper<Data, AggregateFunctionAvg<T, TResult, Data>>,
           UnaryExpression,
           NullableAggregateFunction {
 public:
-    using ResultType = std::conditional_t<
-            T == TYPE_DECIMALV2, Decimal128V2,
-            std::conditional_t<is_decimal(T), typename Data::ResultType, Float64>>;
-    using ResultDataType = std::conditional_t<
-            T == TYPE_DECIMALV2, DataTypeDecimalV2,
-            std::conditional_t<is_decimal(T), DataTypeDecimal<Data::ResultPType>, DataTypeFloat64>>;
-    using ColVecType = typename PrimitiveTypeTraits<T>::ColumnType;
-    using ColVecResult = std::conditional_t<
-            T == TYPE_DECIMALV2, ColumnDecimal128V2,
-            std::conditional_t<is_decimal(T), ColumnDecimal<Data::ResultPType>, ColumnFloat64>>;
+    using ResultType = PrimitiveTypeTraits<TResult>::ColumnItemType;
+    using ResultDataType = PrimitiveTypeTraits<TResult>::DataType;
+    using ColVecType = PrimitiveTypeTraits<T>::ColumnType;
+    using ColVecResult = PrimitiveTypeTraits<TResult>::ColumnType;
     // The result calculated by PercentileApprox is an approximate value,
     // so the underlying storage uses float. The following calls will involve
     // an implicit cast to float.
@@ -129,7 +133,8 @@ public:
     using DataType = typename Data::ResultType;
     /// ctor for native types
     AggregateFunctionAvg(const DataTypes& argument_types_)
-            : IAggregateFunctionDataHelper<Data, AggregateFunctionAvg<T, Data>>(argument_types_),
+            : IAggregateFunctionDataHelper<Data, AggregateFunctionAvg<T, TResult, Data>>(
+                      argument_types_),
               scale(get_decimal_scale(*argument_types_[0])) {}
 
     String get_name() const override { return "avg"; }

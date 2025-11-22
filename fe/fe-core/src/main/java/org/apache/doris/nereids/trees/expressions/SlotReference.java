@@ -199,6 +199,17 @@ public class SlotReference extends Slot {
         }
         return name.get() + "['" + String.join("']['", subPath) + "']" + "#" + exprId;
     }
+    // @Override
+    // public String toString() {
+    //     if (subPath.isEmpty()) {
+    //         // Just return name and exprId, add another method to show fully qualified name when it's necessary.
+    //         return name.get() + "#" + exprId
+    //                 + (this instanceof Unbound ? "" : "____type:" + getDataType().toString());
+    //     }
+    //     return name.get() + "['" + String.join("']['", subPath) + "']" + "#" + exprId
+    //             + (this instanceof Unbound ? "" : "____type:" + getDataType().toString());
+    //
+    // }
 
     @Override
     public String shapeInfo() {

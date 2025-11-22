@@ -441,7 +441,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 implements GsonPostProcessable
                 partition.createRollupIndex(shadowIndex);
             }
         }
-
+        // ?这里需要传入session variables吗？think
         for (long shadowIdxId : indexIdMap.keySet()) {
             MaterializedIndexMeta originalIndexMeta = tbl.getIndexMetaByIndexId(indexIdMap.get(shadowIdxId));
             tbl.setIndexMeta(shadowIdxId, indexIdToName.get(shadowIdxId), indexSchemaMap.get(shadowIdxId),
@@ -449,7 +449,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 implements GsonPostProcessable
                     indexSchemaVersionAndHashMap.get(shadowIdxId).schemaHash,
                     indexShortKeyMap.get(shadowIdxId), TStorageType.COLUMN,
                     tbl.getKeysTypeByIndexId(indexIdMap.get(shadowIdxId)), originalIndexMeta.getDefineStmt(),
-                    indexChange ? indexes : originalIndexMeta.getIndexes());
+                    indexChange ? indexes : originalIndexMeta.getIndexes(), null);
             MaterializedIndexMeta shadowIndexMeta = tbl.getIndexMetaByIndexId(shadowIdxId);
             shadowIndexMeta.setWhereClause(originalIndexMeta.getWhereClause());
         }

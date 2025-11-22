@@ -29,6 +29,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 
 public class AlterViewInfo implements Writable {
@@ -38,25 +39,25 @@ public class AlterViewInfo implements Writable {
     private long tableId;
     @SerializedName(value = "inlineViewDef")
     private String inlineViewDef;
-    @SerializedName(value = "sqlMode")
-    private long sqlMode;
     @SerializedName(value = "newFullSchema")
     private List<Column> newFullSchema;
     @SerializedName(value = "comment")
     private String comment;
+    @SerializedName(value = "sv")
+    private Map<String, String> sessionVariables;
 
     public AlterViewInfo() {
         // for persist
         newFullSchema = Lists.newArrayList();
     }
 
-    public AlterViewInfo(long dbId, long tableId, String inlineViewDef, List<Column> newFullSchema, long sqlMode,
-                         String comment) {
+    public AlterViewInfo(long dbId, long tableId, String inlineViewDef, List<Column> newFullSchema,
+            Map<String, String> sessionVariables, String comment) {
         this.dbId = dbId;
         this.tableId = tableId;
         this.inlineViewDef = inlineViewDef;
         this.newFullSchema = newFullSchema;
-        this.sqlMode = sqlMode;
+        this.sessionVariables = sessionVariables;
         this.comment = comment;
     }
 
@@ -76,8 +77,8 @@ public class AlterViewInfo implements Writable {
         return newFullSchema;
     }
 
-    public long getSqlMode() {
-        return sqlMode;
+    public Map<String, String> getSessionVariables() {
+        return sessionVariables;
     }
 
     public String getComment() {
@@ -86,7 +87,7 @@ public class AlterViewInfo implements Writable {
 
     @Override
     public int hashCode() {
-        return Objects.hash(dbId, tableId, inlineViewDef, sqlMode, newFullSchema);
+        return Objects.hash(dbId, tableId, inlineViewDef, sessionVariables, newFullSchema);
     }
 
     @Override
@@ -99,7 +100,8 @@ public class AlterViewInfo implements Writable {
         }
         AlterViewInfo otherInfo = (AlterViewInfo) other;
         return dbId == otherInfo.getDbId() && tableId == otherInfo.getTableId()
-                && inlineViewDef.equalsIgnoreCase(otherInfo.getInlineViewDef()) && sqlMode == otherInfo.getSqlMode()
+                && inlineViewDef.equalsIgnoreCase(otherInfo.getInlineViewDef())
+                && Objects.equals(sessionVariables, otherInfo.getSessionVariables())
                 && newFullSchema.equals(otherInfo.getNewFullSchema()) && Objects.equals(comment, otherInfo.comment);
     }
 

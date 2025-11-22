@@ -32,6 +32,7 @@ using HistogramNormal = AggregateFunctionLinearHistogram<T, Data, false>;
 
 AggregateFunctionPtr create_aggregate_function_linear_histogram(const std::string& name,
                                                                 const DataTypes& argument_types,
+                                                                const DataTypePtr& result_type,
                                                                 const bool result_is_nullable,
                                                                 const AggregateFunctionAttr& attr) {
     using creator = creator_with_type_list<TYPE_TINYINT, TYPE_SMALLINT, TYPE_INT, TYPE_BIGINT,
