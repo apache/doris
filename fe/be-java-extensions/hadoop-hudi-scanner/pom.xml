@@ -37,17 +37,6 @@ under the License.
     </properties>
 
     <dependencies>
-        <dependency>
-            <groupId>org.apache.doris</groupId>
-            <artifactId>java-common</artifactId>
-            <version>${project.version}</version>
-            <exclusions>
-                <exclusion>
-                    <groupId>org.apache.thrift</groupId>
-                    <artifactId>libthrift</artifactId>
-                </exclusion>
-            </exclusions>
-        </dependency>
 
         <!-- https://mvnrepository.com/artifact/org.apache.hadoop/hadoop-client -->
         <dependency>
@@ -120,26 +109,6 @@ under the License.
             <groupId>org.apache.parquet</groupId>
             <artifactId>parquet-hadoop-bundle</artifactId>
             <version>${parquet.version}</version>
-        </dependency>
-
-        <!-- https://mvnrepository.com/artifact/org.apache.parquet/parquet-avro -->
-        <dependency>
-            <groupId>org.apache.parquet</groupId>
-            <artifactId>parquet-avro</artifactId>
-            <version>${parquet.version}</version>
-        </dependency>
-
-        <!-- https://mvnrepository.com/artifact/org.apache.avro/avro -->
-        <dependency>
-            <groupId>org.apache.avro</groupId>
-            <artifactId>avro</artifactId>
-            <version>${avro.version}</version>
-            <exclusions>
-                <exclusion>
-                    <groupId>org.apache.commons</groupId>
-                    <artifactId>commons-compress</artifactId>
-                </exclusion>
-            </exclusions>
         </dependency>
 
         <dependency>

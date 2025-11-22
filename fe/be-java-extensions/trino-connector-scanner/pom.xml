@@ -35,9 +35,8 @@ under the License.
     <dependencies>
         <dependency>
             <groupId>org.apache.doris</groupId>
-            <artifactId>preload-extensions</artifactId>
+            <artifactId>java-common</artifactId>
             <version>${project.version}</version>
-            <scope>provided</scope>
         </dependency>
         <dependency>
             <groupId>io.trino</groupId>
