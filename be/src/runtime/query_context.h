@@ -265,14 +265,21 @@ public:
     }
 
     void set_ai_resources(std::map<std::string, TAIResource> ai_resources) {
+        for (const auto& [resource_name, ai_resource] : ai_resources) {
+            LOG(INFO) << "AI Resource: name=" << resource_name
+                      << ", model=" << ai_resource.model_name
+                      << ", api_key=" << (ai_resource.__isset.api_key ? "[SET]" : "[NOT_SET]");
+        }
         _ai_resources =
                 std::make_unique<std::map<std::string, TAIResource>>(std::move(ai_resources));
     }
 
     const std::map<std::string, TAIResource>& get_ai_resources() const {
         if (_ai_resources == nullptr) {
+            LOG(INFO) << "[AI_CHECK]: AI resources not set in QueryContext.";
             throw Status::InternalError("AI resources not found");
         }
+        LOG(INFO) << "[AI_CHECK]: Returning AI resources from QueryContext.";
         return *_ai_resources;
     }
 

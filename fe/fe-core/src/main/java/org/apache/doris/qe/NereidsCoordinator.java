@@ -145,6 +145,8 @@ public class NereidsCoordinator extends Coordinator {
 
         QeProcessorImpl.INSTANCE.registerInstances(coordinatorContext.queryId, coordinatorContext.instanceNum.get());
 
+        LOG.info("[AI_CHECK]: To Thrift in NereidsCoordinator for queryId: {}, instanceNum: {}",
+                DebugUtil.printId(coordinatorContext.queryId), coordinatorContext.instanceNum.get());
         Map<DistributedPlanWorker, TPipelineFragmentParamsList> workerToFragments
                 = ThriftPlansBuilder.plansToThrift(coordinatorContext);
         executionTask = PipelineExecutionTaskBuilder.build(coordinatorContext, workerToFragments);
