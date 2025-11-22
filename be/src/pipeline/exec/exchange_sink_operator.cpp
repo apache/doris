@@ -294,9 +294,7 @@ ExchangeSinkOperatorX::ExchangeSinkOperatorX(
         _output_tuple_id = sink.output_tuple_id;
     }
 
-    // Bucket shuffle may contain some same bucket so no need change the BUCKET_SHFFULE_HASH_PARTITIONED
-    if (_part_type != TPartitionType::UNPARTITIONED &&
-        _part_type != TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED) {
+    if (_part_type != TPartitionType::UNPARTITIONED) {
         // if the destinations only one dest, we need to use broadcast
         std::unordered_set<UniqueId> dest_fragment_ids_set;
         for (auto& dest : _dests) {
@@ -305,7 +303,7 @@ ExchangeSinkOperatorX::ExchangeSinkOperatorX(
                 break;
             }
         }
-        _part_type = dest_fragment_ids_set.size() == 1 ? TPartitionType::UNPARTITIONED : _part_type;
+        _part_type = dest_fragment_ids_set.size() == 1 ? TPartitionType::RANDOM : _part_type;
     }
 }
 
@@ -377,25 +375,27 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
         set_low_memory_mode(state);
     }
 
+    if (block->empty() && !eos) {
+        return Status::OK();
+    }
+
     if (_part_type == TPartitionType::UNPARTITIONED) {
         // 1. serialize depends on it is not local exchange
         // 2. send block
         // 3. rollover block
         if (local_state._only_local_exchange) {
-            if (!block->empty()) {
-                Status status;
-                size_t idx = 0;
-                for (auto& channel : local_state.channels) {
-                    if (!channel->is_receiver_eof()) {
-                        // If this channel is the last, we can move this block to downstream pipeline.
-                        // Otherwise, this block also need to be broadcasted to other channels so should be copied.
-                        DCHECK_GE(local_state._last_local_channel_idx, 0);
-                        status = channel->send_local_block(
-                                block, eos, idx == local_state._last_local_channel_idx);
-                        HANDLE_CHANNEL_STATUS(state, channel, status);
-                    }
-                    idx++;
+            Status status;
+            size_t idx = 0;
+            for (auto& channel : local_state.channels) {
+                if (!channel->is_receiver_eof()) {
+                    // If this channel is the last, we can move this block to downstream pipeline.
+                    // Otherwise, this block also need to be broadcasted to other channels so should be copied.
+                    DCHECK_GE(local_state._last_local_channel_idx, 0);
+                    status = channel->send_local_block(block, eos,
+                                                       idx == local_state._last_local_channel_idx);
+                    HANDLE_CHANNEL_STATUS(state, channel, status);
                 }
+                idx++;
             }
         } else {
             auto block_holder = vectorized::BroadcastPBlockHolder::create_shared();
@@ -485,7 +485,9 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
                 HANDLE_CHANNEL_STATUS(state, current_channel, status);
             } else {
                 auto pblock = std::make_unique<PBlock>();
-                RETURN_IF_ERROR(local_state._serializer.serialize_block(block, pblock.get()));
+                if (!block->empty()) {
+                    RETURN_IF_ERROR(local_state._serializer.serialize_block(block, pblock.get()));
+                }
                 auto status = current_channel->send_remote_block(std::move(pblock), eos);
                 HANDLE_CHANNEL_STATUS(state, current_channel, status);
             }
