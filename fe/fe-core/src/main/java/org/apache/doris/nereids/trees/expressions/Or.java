@@ -36,9 +36,9 @@ public class Or extends CompoundPredicate {
      * @param right right child of comparison predicate
      */
     public Or(Expression left, Expression right) {
-        super(ExpressionUtils.mergeList(
+        this(ExpressionUtils.mergeList(
                 ExpressionUtils.extractDisjunction(left),
-                ExpressionUtils.extractDisjunction(right)), "OR");
+                ExpressionUtils.extractDisjunction(right)));
     }
 
     public Or(List<Expression> children) {

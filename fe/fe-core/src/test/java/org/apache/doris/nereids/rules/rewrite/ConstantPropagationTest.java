@@ -22,7 +22,6 @@ import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.OrderKey;
-import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteTestHelper;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -36,6 +35,7 @@ import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
@@ -46,6 +46,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.types.BigIntType;
@@ -70,7 +71,7 @@ class ConstantPropagationTest {
 
     private final ConstantPropagation executor = new ConstantPropagation();
     private final NereidsParser parser = new NereidsParser();
-    private final ExpressionRewriteContext exprRewriteContext;
+    private final CascadesContext cascadesContext;
 
     private final JobContext jobContext;
 
@@ -82,11 +83,11 @@ class ConstantPropagationTest {
     private final SlotReference scoreSid;
     private final SlotReference scoreCid;
     private final SlotReference scoreGrade;
+    private final LogicalFilter filter;
 
     ConstantPropagationTest() {
-        CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(
+        cascadesContext = MemoTestUtils.createCascadesContext(
                 new UnboundRelation(new RelationId(1), ImmutableList.of("tbl")));
-        exprRewriteContext = new ExpressionRewriteContext(cascadesContext);
         jobContext = new JobContext(cascadesContext, null, Double.MAX_VALUE);
 
         student = new LogicalOlapScan(PlanConstructor.getNextRelationId(), PlanConstructor.student, ImmutableList.of(""));
@@ -98,6 +99,8 @@ class ConstantPropagationTest {
         scoreSid = (SlotReference) score.getOutput().get(0);
         scoreCid = (SlotReference) score.getOutput().get(1);
         scoreGrade = (SlotReference) score.getOutput().get(2);
+
+        filter = new LogicalFilter<>(ImmutableSet.of(BooleanLiteral.TRUE), student);
     }
 
     @Test
@@ -166,17 +169,17 @@ class ConstantPropagationTest {
         // for `a is not null`, if this Not isGeneratedIsNotNull, then will not rewrite it
         SlotReference a = new SlotReference("a", IntegerType.INSTANCE, true);
         Expression expr1 = ExpressionUtils.and(new EqualTo(a, new IntegerLiteral(1)), new Not(new IsNull(a), false));
-        Expression rewrittenExpr1 = executor.replaceConstantsAndRewriteExpr(student, expr1, true, exprRewriteContext);
+        Expression rewrittenExpr1 = rewriteExpression(expr1, true);
         Expression expectExpr1 = new EqualTo(a, new IntegerLiteral(1));
         Assertions.assertEquals(expectExpr1, rewrittenExpr1);
         Expression expr2 = ExpressionUtils.and(new EqualTo(a, new IntegerLiteral(1)), new Not(new IsNull(a), true));
-        Expression rewrittenExpr2 = executor.replaceConstantsAndRewriteExpr(student, expr2, true, exprRewriteContext);
+        Expression rewrittenExpr2 = rewriteExpression(expr2, true);
         Assertions.assertEquals(expr2, rewrittenExpr2);
 
         // for `a match_any xx`, don't replace it, because the match require left child is column, not literal
         SlotReference b = new SlotReference("b", StringType.INSTANCE, true);
         Expression expr3 = ExpressionUtils.and(new EqualTo(b, new StringLiteral("hello")), new MatchAny(b, new StringLiteral("%ll%")));
-        Expression rewrittenExpr3 = executor.replaceConstantsAndRewriteExpr(student, expr3, true, exprRewriteContext);
+        Expression rewrittenExpr3 = rewriteExpression(expr3, true);
         Assertions.assertEquals(expr3, rewrittenExpr3);
     }
 
@@ -439,10 +442,14 @@ class ConstantPropagationTest {
         Expression rewriteExpression = parser.parseExpression(expression);
         rewriteExpression = ExpressionRewriteTestHelper.typeCoercion(
                 ExpressionRewriteTestHelper.replaceUnboundSlot(rewriteExpression, Maps.newHashMap()));
-        rewriteExpression = executor.replaceConstantsAndRewriteExpr(student, rewriteExpression,
-                useInnerInferConstants, exprRewriteContext);
+        rewriteExpression = rewriteExpression(rewriteExpression, useInnerInferConstants);
         Expression expectedExpression = parser.parseExpression(expected);
         Assertions.assertEquals(expectedExpression.toSql(), rewriteExpression.toSql());
+    }
+
+    private Expression rewriteExpression(Expression expression, boolean useInnerInferConstants) {
+        LogicalPlan plan = useInnerInferConstants ? filter : student;
+        return executor.replaceConstantsAndRewriteExpr(plan, expression, cascadesContext);
     }
 
 }
