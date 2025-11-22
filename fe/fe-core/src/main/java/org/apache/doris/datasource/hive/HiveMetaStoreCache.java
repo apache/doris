@@ -82,6 +82,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -562,6 +563,93 @@ public class HiveMetaStoreCache {
                 partitionCache.invalidate(partKey);
             }
         }
+    }
+
+    /**
+     * Selectively refreshes cache for affected partitions based on update information from BE.
+     * This method optimizes cache refresh by only invalidating specific partitions
+     * rather than the entire table cache.
+     *
+     * @param table The Hive table whose partitions were modified
+     * @param partitionUpdates List of partition updates from BE
+     */
+    public void refreshAffectedPartitions(HMSExternalTable table,
+            List<org.apache.doris.thrift.THivePartitionUpdate> partitionUpdates) {
+        if (partitionUpdates == null || partitionUpdates.isEmpty()) {
+            return;
+        }
+
+        NameMapping nameMapping = table.getOrBuildNameMapping();
+        long tableId = Util.genIdByName(nameMapping.getLocalDbName(), nameMapping.getLocalTblName());
+
+        // Classify partition updates by type
+        Set<List<String>> modifiedPartitions = new HashSet<>();
+        boolean hasNewPartitions = false;
+
+        for (org.apache.doris.thrift.THivePartitionUpdate update : partitionUpdates) {
+            List<String> partitionValues = HiveUtil.toPartitionValues(update.getName());
+
+            switch (update.getUpdateMode()) {
+                case APPEND:
+                case OVERWRITE:
+                    modifiedPartitions.add(partitionValues);
+                    break;
+                case NEW:
+                    hasNewPartitions = true;
+                    break;
+                default:
+                    LOG.warn("Unknown update mode {} for partition {}",
+                            update.getUpdateMode(), update.getName());
+                    break;
+            }
+        }
+
+        // Refresh file cache for modified partitions
+        if (!modifiedPartitions.isEmpty()) {
+            invalidateFileCache(nameMapping, tableId, modifiedPartitions);
+        }
+
+        // Refresh partition values cache if new partitions were created
+        if (hasNewPartitions) {
+            invalidatePartitionValuesCache(nameMapping);
+        }
+
+        // Log summary
+        LOG.info("Refreshed cache for table {}: {} modified partitions, {} new partitions",
+                table.getName(), modifiedPartitions.size(), hasNewPartitions ? "has" : "no");
+    }
+
+    /**
+     * Invalidates file cache for specified partitions.
+     * Uses a Set-based approach for O(n) performance instead of nested loops.
+     */
+    private void invalidateFileCache(NameMapping nameMapping, long tableId,
+            Set<List<String>> partitionValuesList) {
+        LoadingCache<FileCacheKey, FileCacheValue> fileCache = fileCacheRef.get();
+
+        // Build a Set of partition paths for fast lookup
+        Set<String> pathsToInvalidate = new HashSet<>();
+        for (List<String> values : partitionValuesList) {
+            PartitionCacheKey partKey = new PartitionCacheKey(nameMapping, values);
+            HivePartition partition = partitionCache.getIfPresent(partKey);
+            if (partition != null) {
+                pathsToInvalidate.add(partition.getPath());
+            }
+        }
+
+        // Invalidate file cache entries (O(n) instead of O(n*m))
+        fileCache.asMap().keySet().removeIf(key ->
+                key.isSameTable(tableId) && pathsToInvalidate.contains(key.location));
+    }
+
+    /**
+     * Invalidates partition values cache for a table.
+     */
+    private void invalidatePartitionValuesCache(NameMapping nameMapping) {
+        partitionValuesCache.asMap().keySet().removeIf(k ->
+                k.nameMapping.getLocalDbName().equals(nameMapping.getLocalDbName())
+                && k.nameMapping.getLocalTblName().equals(nameMapping.getLocalTblName())
+        );
     }
 
     public void invalidateDbCache(String dbName) {
