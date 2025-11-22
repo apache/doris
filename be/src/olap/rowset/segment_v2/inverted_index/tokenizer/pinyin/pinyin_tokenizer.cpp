@@ -40,12 +40,6 @@ PinyinTokenizer::PinyinTokenizer(std::shared_ptr<doris::segment_v2::PinyinConfig
     if (!config_) {
         config_ = std::make_shared<doris::segment_v2::PinyinConfig>();
     }
-    if (!(config_->keepFirstLetter || config_->keepSeparateFirstLetter || config_->keepFullPinyin ||
-          config_->keepJoinedFullPinyin || config_->keepSeparateChinese)) {
-        throw Exception(ErrorCode::INVALID_ARGUMENT,
-                        "pinyin config error, can't disable separate_first_letter, first_letter "
-                        "and full_pinyin at the same time.");
-    }
     candidate_.clear();
     terms_filter_.clear();
     first_letters_.clear();

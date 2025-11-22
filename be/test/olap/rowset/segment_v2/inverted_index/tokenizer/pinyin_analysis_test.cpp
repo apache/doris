@@ -1370,3 +1370,72 @@ TEST_F(PinyinAnalysisTest, TestRepeatedCharacters) {
     }
     EXPECT_LE(de_count, 1) << "Should have at most one 'de' with removeDuplicatedTerm";
 }
+
+// Test emoji handling in PinyinTokenizer - emojis should be dropped
+TEST_F(PinyinAnalysisTest, TestTokenizer_EmojiShouldBeDropped) {
+    PinyinConfig config;
+    config.keepFirstLetter = true;
+    config.keepFullPinyin = true;
+    config.keepOriginal = false;
+    config.keepNoneChinese = false;
+    config.ignorePinyinOffset = false;
+
+    // When using PinyinTokenizer (not filter), emojis should be dropped
+    verifyTokens("⭐白菜", config, {"bai", "bc", "cai"});
+}
+
+// Test pure emoji input in PinyinTokenizer - should return empty
+TEST_F(PinyinAnalysisTest, TestTokenizer_PureEmojiDropped) {
+    PinyinConfig config;
+    config.keepFirstLetter = true;
+    config.keepFullPinyin = true;
+    config.keepOriginal = false;
+    config.keepNoneChinese = false;
+    config.ignorePinyinOffset = false;
+
+    verifyTokens("⭐🎉", config, {});
+}
+
+// Test multiple emojis with Chinese in PinyinTokenizer - emojis dropped
+TEST_F(PinyinAnalysisTest, TestTokenizer_MultipleEmojisDropped) {
+    PinyinConfig config;
+    config.keepFirstLetter = true;
+    config.keepFullPinyin = true;
+    config.keepOriginal = false;
+    config.keepNoneChinese = false;
+    config.ignorePinyinOffset = false;
+
+    // Emojis should be dropped, only Chinese pinyin remains
+    verifyTokens("🎉中国🚀", config, {"zhong", "zg", "guo"});
+}
+
+// Test keepNoneChineseTogether = false with PinyinTokenizer
+TEST_F(PinyinAnalysisTest, TestTokenizer_KeepNoneChineseTogetherFalse) {
+    PinyinConfig config;
+    config.keepFirstLetter = true;
+    config.keepFullPinyin = true;
+    config.keepOriginal = true;
+    config.keepNoneChinese = true;
+    config.keepNoneChineseTogether = false;
+    config.noneChinesePinyinTokenize = true;
+    config.lowercase = true;
+    config.removeDuplicatedTerm = true;
+    config.ignorePinyinOffset = false;
+
+    // Both letters and digits should be split individually
+    verifyTokens("刘德华ABC123", config,
+                 {"liu", "刘德华abc123", "ldhabc123", "de", "hua", "a", "b", "c", "1", "2", "3"});
+}
+
+// Test Unicode symbols in PinyinTokenizer - should be dropped like emojis
+TEST_F(PinyinAnalysisTest, TestTokenizer_UnicodeSymbolsDropped) {
+    PinyinConfig config;
+    config.keepFirstLetter = true;
+    config.keepFullPinyin = true;
+    config.keepOriginal = false;
+    config.keepNoneChinese = false;
+    config.ignorePinyinOffset = false;
+
+    // Unicode symbols like circled numbers should be dropped
+    verifyTokens("①②③中国", config, {"zhong", "zg", "guo"});
+}
