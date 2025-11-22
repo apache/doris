@@ -76,12 +76,12 @@ public class ShowTableStatusCommand extends ShowCommand {
             .build();
 
     private static Map<String, String> ALIAS_COLUMN_MAP = ImmutableMap.<String, String>builder()
-            // get temp table display name
-            .put("name", String.format("if(instr(TABLE_NAME, '%s') > 0,"
-                    + "substr(TABLE_NAME, instr(TABLE_NAME, '%s') + length('%s')), TABLE_NAME)",
-                            FeNameFormat.TEMPORARY_TABLE_SIGN,
-                            FeNameFormat.TEMPORARY_TABLE_SIGN,
-                            FeNameFormat.TEMPORARY_TABLE_SIGN))
+            // get temp table display name (case-insensitive match on temporary sign)
+            .put("name", String.format("if(instr(lower(TABLE_NAME), '%s') > 0,"
+                    + "substr(TABLE_NAME, instr(lower(TABLE_NAME), '%s') + length('%s')), TABLE_NAME)",
+                    FeNameFormat.TEMPORARY_TABLE_SIGN_LOWER,
+                    FeNameFormat.TEMPORARY_TABLE_SIGN_LOWER,
+                    FeNameFormat.TEMPORARY_TABLE_SIGN_LOWER))
             .put("engine", "ENGINE")
             .put("version", "VERSION")
             .put("row_format", "ROW_FORMAT")
@@ -146,6 +146,12 @@ public class ShowTableStatusCommand extends ShowCommand {
         }
     }
 
+    // Exposed for tests
+    @VisibleForTesting
+    Map<String, String> getAliasColumnMap() {
+        return ALIAS_COLUMN_MAP;
+    }
+
     /**
      * replaceColumnNameVisitor
      * replace column name to real column name
@@ -166,11 +172,11 @@ public class ShowTableStatusCommand extends ShowCommand {
      */
     private ShowResultSet execute(ConnectContext ctx, StmtExecutor executor, String whereClause)
             throws AnalysisException {
-        // only fetch temp table in current session
-        String tempTableCondition = String.format("and if(instr(TABLE_NAME, '%s') > 0,"
-                + "substr(TABLE_NAME, 1, instr(TABLE_NAME, '%s') - 1) = '%s', true)",
-                FeNameFormat.TEMPORARY_TABLE_SIGN,
-                FeNameFormat.TEMPORARY_TABLE_SIGN,
+        // only fetch temp table in current session. Use lower(TABLE_NAME) for case-insensitive check
+        String tempTableCondition = String.format("and if(instr(lower(TABLE_NAME), '%s') > 0,"
+                + "substr(TABLE_NAME, 1, instr(lower(TABLE_NAME), '%s') - 1) = '%s', true)",
+                FeNameFormat.TEMPORARY_TABLE_SIGN_LOWER,
+                FeNameFormat.TEMPORARY_TABLE_SIGN_LOWER,
                 ConnectContext.get().getSessionId());
         whereClause += tempTableCondition;
         List<AliasInfo> selectList = new ArrayList<>();
