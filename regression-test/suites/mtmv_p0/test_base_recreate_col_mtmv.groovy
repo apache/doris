@@ -17,22 +17,20 @@
 
 import org.junit.Assert;
 
-suite("test_base_recreate_on_commit_mtmv","mtmv") {
+suite("test_base_recreate_col_mtmv","mtmv") {
     String dbName = context.config.getDbNameByFile(context.file)
-    String suiteName = "test_base_recreate_on_commit_mtmv"
+    String suiteName = "test_base_recreate_col_mtmv"
     String tableName1 = "${suiteName}_table1"
-    String tableName2 = "${suiteName}_table2"
-    String mvName = "${suiteName}_mv"
-
+    String mvName1 = "${suiteName}_mv1"
     sql """drop table if exists `${tableName1}`"""
-    sql """drop table if exists `${tableName2}`"""
-    sql """drop materialized view if exists ${mvName};"""
+    sql """drop materialized view if exists ${mvName1};"""
 
     sql """
         CREATE TABLE ${tableName1}
         (
             k1 INT,
-            k2 INT
+            k2 varchar(32),
+            k3 varchar(32)
         )
         DISTRIBUTED BY HASH(k1) BUCKETS 2
         PROPERTIES (
@@ -41,12 +39,12 @@ suite("test_base_recreate_on_commit_mtmv","mtmv") {
         """
 
     sql """
-            INSERT INTO ${tableName1} VALUES(1,1);
+            INSERT INTO ${tableName1} VALUES(1,"a","a2");
         """
 
     sql """
-        CREATE MATERIALIZED VIEW ${mvName}
-        BUILD DEFERRED REFRESH AUTO ON COMMIT
+        CREATE MATERIALIZED VIEW ${mvName1}
+        BUILD DEFERRED REFRESH AUTO ON MANUAL
         DISTRIBUTED BY hash(k1) BUCKETS 2
         PROPERTIES (
         'replication_num' = '1'
@@ -55,32 +53,26 @@ suite("test_base_recreate_on_commit_mtmv","mtmv") {
         SELECT * from ${tableName1};
         """
     sql """
-            REFRESH MATERIALIZED VIEW ${mvName} auto
+            REFRESH MATERIALIZED VIEW ${mvName1} auto
         """
-    waitingMTMVTaskFinishedByMvName(mvName)
-    order_qt_select_init "select * from ${mvName}"
+    waitingMTMVTaskFinishedByMvName(mvName1)
 
-    // drop and recreate
-    sql """drop table if exists `${tableName1}`"""
-    order_qt_drop "select Name,State,RefreshState,SyncWithBaseTables  from mv_infos('database'='${dbName}') where Name='${mvName}'"
+    // drop column
+    sql """
+        alter table ${tableName1} drop COLUMN k3;
+        """
+    assertEquals("FINISHED", getAlterColumnFinalState("${tableName1}"))
+    // recreate column
+    sql """
+        alter table ${tableName1} add COLUMN k3 varchar(32);
+        """
+    assertEquals("FINISHED", getAlterColumnFinalState("${tableName1}"))
+
+    order_qt_recreate_col_t1_mv1 "select Name,State,RefreshState,SyncWithBaseTables  from mv_infos('database'='${dbName}') where Name='${mvName1}'"
 
     sql """
-        CREATE TABLE ${tableName1}
-        (
-            k1 INT,
-            k2 INT
-        )
-        DISTRIBUTED BY HASH(k1) BUCKETS 2
-        PROPERTIES (
-            "replication_num" = "1"
-        );
+            REFRESH MATERIALIZED VIEW ${mvName1} auto
         """
-
-    sql """
-            INSERT INTO ${tableName1} VALUES(2,2);
-        """
-
-    waitingMTMVTaskFinishedByMvName(mvName)
-    order_qt_recreate "select Name,State,RefreshState,SyncWithBaseTables  from mv_infos('database'='${dbName}') where Name='${mvName}'"
-    order_qt_select_recreate "select * from ${mvName}"
+    waitingMTMVTaskFinishedByMvName(mvName1)
+    order_qt_refresh_mv1 "select Name,State,RefreshState,SyncWithBaseTables  from mv_infos('database'='${dbName}') where Name='${mvName1}'"
 }

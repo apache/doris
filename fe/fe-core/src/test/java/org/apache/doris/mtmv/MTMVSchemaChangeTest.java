@@ -87,7 +87,7 @@ public class MTMVSchemaChangeTest extends TestWithFeService {
         Assertions.assertTrue(mtmv.getSchemaChangeVersion() == 0);
         Assertions.assertTrue(mtmv.getStatus().getState().equals(MTMVState.INIT));
         dropTable("t1", true);
-        Assertions.assertTrue(mtmv.getRefreshSnapshot().equals(mtmvRefreshSnapshot));
+        Assertions.assertFalse(mtmv.getRefreshSnapshot().equals(mtmvRefreshSnapshot));
         Assertions.assertTrue(mtmv.getSchemaChangeVersion() == 1);
         Assertions.assertTrue(mtmv.getStatus().getState().equals(MTMVState.SCHEMA_CHANGE));
     }

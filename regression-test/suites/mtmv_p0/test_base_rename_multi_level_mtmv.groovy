@@ -129,10 +129,10 @@ suite("test_base_rename_multi_level_mtmv","mtmv") {
     sql """
         ALTER TABLE ${tableName1} rename ${tableName1Rename};
         """
-    order_qt_drop_t1_mv1 "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName1}'"
-    order_qt_drop_t1_mv2 "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName2}'"
-    order_qt_drop_t1_mv3 "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName3}'"
-    order_qt_drop_t1_mv4 "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName4}'"
+    order_qt_drop_t1_mv1 "select Name,State,RefreshState,SyncWithBaseTables  from mv_infos('database'='${dbName}') where Name='${mvName1}'"
+    order_qt_drop_t1_mv2 "select Name,State,RefreshState,SyncWithBaseTables  from mv_infos('database'='${dbName}') where Name='${mvName2}'"
+    order_qt_drop_t1_mv3 "select Name,State,RefreshState,SyncWithBaseTables  from mv_infos('database'='${dbName}') where Name='${mvName3}'"
+    order_qt_drop_t1_mv4 "select Name,State,RefreshState,SyncWithBaseTables  from mv_infos('database'='${dbName}') where Name='${mvName4}'"
 
     mv_rewrite_success_without_check_chosen(querySql, mvName2)
     mv_not_part_in(querySql, mvName1)
