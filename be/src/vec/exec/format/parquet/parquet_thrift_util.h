@@ -39,7 +39,7 @@ constexpr size_t INIT_META_SIZE = 48 * 1024; // 48k
 
 static Status parse_thrift_footer(io::FileReaderSPtr file,
                                   std::unique_ptr<FileMetaData>* file_metadata, size_t* meta_size,
-                                  io::IOContext* io_ctx) {
+                                  io::IOContext* io_ctx, const bool enable_mapping_varbinary) {
     size_t file_size = file->size();
     size_t bytes_read = std::min(file_size, INIT_META_SIZE);
     std::vector<uint8_t> footer(bytes_read);
@@ -81,7 +81,7 @@ static Status parse_thrift_footer(io::FileReaderSPtr file,
     // deserialize footer
     RETURN_IF_ERROR(deserialize_thrift_msg(meta_ptr, &metadata_size, true, &t_metadata));
     *file_metadata = std::make_unique<FileMetaData>(t_metadata, metadata_size);
-    RETURN_IF_ERROR((*file_metadata)->init_schema());
+    RETURN_IF_ERROR((*file_metadata)->init_schema(enable_mapping_varbinary));
     *meta_size = PARQUET_FOOTER_SIZE + metadata_size;
     return Status::OK();
 }

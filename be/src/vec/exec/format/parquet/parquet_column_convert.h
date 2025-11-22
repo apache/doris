@@ -20,6 +20,7 @@
 #include <gen_cpp/parquet_types.h>
 
 #include "common/cast_set.h"
+#include "vec/columns/column_varbinary.h"
 #include "vec/core/extended_types.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
@@ -351,6 +352,48 @@ public:
 
         return Status::OK();
     }
+};
+
+class UUIDVarBinaryConverter : public PhysicalToLogicalConverter {
+public:
+    UUIDVarBinaryConverter(int type_length) : _type_length(type_length) {}
+
+    Status physical_convert(ColumnPtr& src_physical_col, ColumnPtr& src_logical_column) override {
+        DCHECK(!is_column_const(*src_physical_col)) << src_physical_col->dump_structure();
+        DCHECK(!is_column_const(*src_logical_column)) << src_logical_column->dump_structure();
+        const ColumnUInt8* uint8_col = nullptr;
+        if (is_column_nullable(*src_physical_col)) {
+            const auto& nullable =
+                    assert_cast<const vectorized::ColumnNullable*>(src_physical_col.get());
+            uint8_col = &assert_cast<const ColumnUInt8&>(nullable->get_nested_column());
+        } else {
+            uint8_col = &assert_cast<const ColumnUInt8&>(*src_physical_col);
+        }
+
+        MutableColumnPtr to_col = nullptr;
+        // nullmap flag seems have been handled in upper level
+        if (src_logical_column->is_nullable()) {
+            const auto* nullable =
+                    assert_cast<const vectorized::ColumnNullable*>(src_logical_column.get());
+            to_col = nullable->get_nested_column_ptr()->assume_mutable();
+        } else {
+            to_col = src_logical_column->assume_mutable();
+        }
+        auto* to_varbinary_column = assert_cast<ColumnVarbinary*>(to_col.get());
+        size_t length = uint8_col->size();
+        size_t num_values = length / _type_length;
+        const auto* ptr = uint8_col->get_data().data();
+
+        for (int i = 0; i < num_values; ++i) {
+            auto offset = i * _type_length;
+            const char* data_ptr = reinterpret_cast<const char*>(ptr + offset);
+            to_varbinary_column->insert_data(data_ptr, _type_length);
+        }
+        return Status::OK();
+    }
+
+private:
+    int _type_length;
 };
 
 template <PrimitiveType DecimalPType>
