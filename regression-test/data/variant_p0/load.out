@@ -336,6 +336,6 @@ kaana
 2	{"b":11}
 
 -- !sql --
-{"a":"bigint","b":"double","c":"string","d.e":"double","d.f":"string"}
+{"":"jsonb","a":"bigint","b":"double","c":"string","d.e":"double","d.f":"string"}
 \N
 

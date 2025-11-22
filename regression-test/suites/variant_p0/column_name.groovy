@@ -89,8 +89,6 @@ suite("regression_test_variant_column_name", "variant_type"){
     for (int i = 0; i < 256; i++) {
         key += "a"
     }
-    test {
-        sql """insert into var_column_name values (8, '{"${key}": "test"}')"""
-        exception "Key length exceeds maximum allowed size of 255 bytes."
-    }
+    // insert as string to variant column
+    sql """insert into var_column_name values (8, '{"${key}": "test"}')"""
 }
