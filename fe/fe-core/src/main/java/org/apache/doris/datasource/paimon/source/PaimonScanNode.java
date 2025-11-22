@@ -554,8 +554,8 @@ public class PaimonScanNode extends FileQueryScanNode {
             if (hasStartSnapshotId) {
                 try {
                     long startSId = Long.parseLong(params.get(DORIS_START_SNAPSHOT_ID));
-                    if (startSId <= 0) {
-                        throw new UserException("startSnapshotId must be greater than 0");
+                    if (startSId < 0) {
+                        throw new UserException("startSnapshotId must be greater than or equal to 0");
                     }
                 } catch (NumberFormatException e) {
                     throw new UserException("Invalid startSnapshotId format: " + e.getMessage());
@@ -565,8 +565,8 @@ public class PaimonScanNode extends FileQueryScanNode {
             if (hasEndSnapshotId) {
                 try {
                     long endSId = Long.parseLong(params.get(DORIS_END_SNAPSHOT_ID));
-                    if (endSId <= 0) {
-                        throw new UserException("endSnapshotId must be greater than 0");
+                    if (endSId < 0) {
+                        throw new UserException("endSnapshotId must be greater than or equal to 0");
                     }
                 } catch (NumberFormatException e) {
                     throw new UserException("Invalid endSnapshotId format: " + e.getMessage());
@@ -578,8 +578,8 @@ public class PaimonScanNode extends FileQueryScanNode {
                 try {
                     long startSId = Long.parseLong(params.get(DORIS_START_SNAPSHOT_ID));
                     long endSId = Long.parseLong(params.get(DORIS_END_SNAPSHOT_ID));
-                    if (startSId >= endSId) {
-                        throw new UserException("startSnapshotId must be less than endSnapshotId");
+                    if (startSId > endSId) {
+                        throw new UserException("startSnapshotId must be less than or equal to endSnapshotId");
                     }
                 } catch (NumberFormatException e) {
                     throw new UserException("Invalid snapshot ID format: " + e.getMessage());
