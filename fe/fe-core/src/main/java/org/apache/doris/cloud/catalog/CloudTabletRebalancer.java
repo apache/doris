@@ -163,7 +163,8 @@ public class CloudTabletRebalancer extends MasterDaemon {
     }
 
     public CloudTabletRebalancer(CloudSystemInfoService cloudSystemInfoService) {
-        super("cloud tablet rebalancer", Config.cloud_tablet_rebalancer_interval_second * 1000);
+        // Daemon interval is 0, we will set interval dynamically in runOneCycle
+        super("cloud tablet rebalancer", 0);
         this.cloudSystemInfoService = cloudSystemInfoService;
     }
 
@@ -316,7 +317,18 @@ public class CloudTabletRebalancer extends MasterDaemon {
 
         checkDecommissionState(clusterToBes);
         inited = true;
-        LOG.info("finished to rebalancer. cost: {} ms", (System.currentTimeMillis() - start));
+        long sleepSeconds = Config.cloud_tablet_rebalancer_interval_second;
+        if (sleepSeconds < 0L) {
+            LOG.warn("cloud tablet rebalance interval second is negative, change it to default 20s");
+            sleepSeconds = 20L;
+        }
+        try {
+            Thread.sleep(sleepSeconds * 1000L);
+        } catch (InterruptedException e) {
+            LOG.warn("sleep interrupted", e);
+        }
+        LOG.info("finished to rebalancer. cost: {} ms, rebalancer sche interval {} s",
+                (System.currentTimeMillis() - start), sleepSeconds);
     }
 
     private void buildClusterToBackendMap() {
