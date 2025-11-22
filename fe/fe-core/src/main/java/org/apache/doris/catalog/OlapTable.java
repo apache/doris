@@ -95,6 +95,7 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
@@ -3697,5 +3698,17 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
                                         : invertedIndexesWithFieldPattern.stream()
                                         .filter(Index::isAnalyzedInvertedIndex).findFirst().orElse(null);
         }
+    }
+
+    public boolean isInternal() {
+        return false;
+    }
+
+    public long getCatalogId() {
+        return Env.getCurrentInternalCatalog().getId();
+    }
+
+    public ImmutableMap<Long, Backend> getAllBackendsByAllCluster() throws AnalysisException {
+        return Env.getCurrentSystemInfo().getAllBackendsByAllCluster();
     }
 }

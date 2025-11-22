@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.property.constants;
 
 public class RemoteDorisProperties {
+    public static final String FE_THRIFT_HOSTS = "fe_thrift_hosts";
     public static final String FE_HTTP_HOSTS = "fe_http_hosts";
     public static final String FE_ARROW_HOSTS = "fe_arrow_hosts";
 

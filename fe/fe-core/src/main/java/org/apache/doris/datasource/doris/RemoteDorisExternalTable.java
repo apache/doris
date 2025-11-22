@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.doris;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.SchemaCacheValue;
@@ -36,9 +37,10 @@ import java.util.Optional;
 
 public class RemoteDorisExternalTable extends ExternalTable {
     private static final Logger LOG = LogManager.getLogger(RemoteDorisExternalTable.class);
+    private OlapTable olapTable;
 
     public RemoteDorisExternalTable(long id, String name, String remoteName,
-                                    RemoteDorisExternalCatalog catalog, ExternalDatabase db) {
+            RemoteDorisExternalCatalog catalog, ExternalDatabase db) {
         super(id, name, remoteName, catalog, db, TableType.DORIS_EXTERNAL_TABLE);
     }
 
@@ -46,8 +48,22 @@ public class RemoteDorisExternalTable extends ExternalTable {
     protected synchronized void makeSureInitialized() {
         super.makeSureInitialized();
         if (!objectCreated) {
+            olapTable = toDorisOlapTable();
             objectCreated = true;
         }
+    }
+
+    private OlapTable toDorisOlapTable() {
+        RemoteOlapTable table = ((RemoteDorisExternalCatalog) catalog).loadExternalOlapTable(dbName,
+                remoteName);
+        table.setCatalog((RemoteDorisExternalCatalog) catalog);
+        table.setDatabase((RemoteDorisExternalDatabase) db);
+        return table;
+    }
+
+    public OlapTable getOlapTable() {
+        makeSureInitialized();
+        return olapTable;
     }
 
     @Override

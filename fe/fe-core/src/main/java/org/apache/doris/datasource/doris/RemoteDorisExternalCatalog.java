@@ -17,26 +17,36 @@
 
 package org.apache.doris.datasource.doris;
 
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.property.constants.RemoteDorisProperties;
+import org.apache.doris.system.Backend;
+import org.apache.doris.thrift.TNetworkAddress;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 public class RemoteDorisExternalCatalog extends ExternalCatalog {
     private static final Logger LOG = LogManager.getLogger(RemoteDorisExternalCatalog.class);
 
     private RemoteDorisRestClient dorisRestClient;
+    private FeServiceClient client;
     private static final List<String> REQUIRED_PROPERTIES = ImmutableList.of(
+            RemoteDorisProperties.FE_THRIFT_HOSTS,
             RemoteDorisProperties.FE_HTTP_HOSTS,
             RemoteDorisProperties.FE_ARROW_HOSTS,
             RemoteDorisProperties.USER,
@@ -69,6 +79,19 @@ public class RemoteDorisExternalCatalog extends ExternalCatalog {
 
     public List<String> getFeArrowNodes() {
         return parseArrowHosts(catalogProperty.getOrDefault(RemoteDorisProperties.FE_ARROW_HOSTS, ""));
+    }
+
+    public List<TNetworkAddress> getFeThriftNodes() {
+        String addresses = catalogProperty.getOrDefault(RemoteDorisProperties.FE_THRIFT_HOSTS, "");
+        List<TNetworkAddress> tAddresses = new ArrayList<>();
+        for (String address : addresses.split(",")) {
+            int index = address.lastIndexOf(":");
+            String host = address.substring(0, index);
+            int port = Integer.parseInt(address.substring(index + 1));
+            TNetworkAddress thriftAddress = new TNetworkAddress(host, port);
+            tAddresses.add(thriftAddress);
+        }
+        return tAddresses;
     }
 
     public String getUsername() {
@@ -158,6 +181,7 @@ public class RemoteDorisExternalCatalog extends ExternalCatalog {
             throw new RuntimeException("Failed to connect to Doris cluster,"
                 + " please check your Doris cluster or your Doris catalog configuration.");
         }
+        client = new FeServiceClient(name, getFeThriftNodes());
     }
 
     protected List<String> listDatabaseNames() {
@@ -175,6 +199,31 @@ public class RemoteDorisExternalCatalog extends ExternalCatalog {
     public boolean tableExist(SessionContext ctx, String dbName, String tblName) {
         makeSureInitialized();
         return dorisRestClient.isTableExist(dbName, tblName);
+    }
+
+    public ImmutableMap<Long, Backend> loadBackends() {
+        List<Backend> backends = client.listBackends(catalogProperty.getOrDefault(RemoteDorisProperties.USER, ""),
+                catalogProperty.getOrDefault(RemoteDorisProperties.PASSWORD, ""),
+                getMetadataCallTimeoutSec());
+        if (LOG.isDebugEnabled()) {
+            List<String> names = backends.stream().map(b -> b.getAddress()).collect(Collectors.toList());
+            LOG.debug("load backends:{} from:{}", String.join(",", names), name);
+        }
+        Map<Long, Backend> backendMap = Maps.newHashMap();
+        backends.forEach(backend -> backendMap.put(backend.getId(), backend));
+        return ImmutableMap.copyOf(backendMap);
+    }
+
+    public ImmutableMap<Long, Backend> getBackends() {
+        return Env.getCurrentEnv().getExtMetaCacheMgr().getDorisExternalMetaCacheMgr().getBackends(id);
+    }
+
+    public RemoteOlapTable loadExternalOlapTable(String dbName, String tableName) {
+        OlapTable olapTable = client.getOlapTable(dbName, tableName,
+                catalogProperty.getOrDefault(RemoteDorisProperties.USER, ""),
+                catalogProperty.getOrDefault(RemoteDorisProperties.PASSWORD, ""),
+                getMetadataCallTimeoutSec());
+        return RemoteOlapTable.fromOlapTable(olapTable);
     }
 
     public RemoteDorisRestClient getDorisRestClient() {
