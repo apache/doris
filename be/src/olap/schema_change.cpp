@@ -327,8 +327,7 @@ Status BlockChanger::change_block(vectorized::Block* ref_block,
         RETURN_IF_ERROR(ctx->prepare(state.get(), row_desc));
         RETURN_IF_ERROR(ctx->open(state.get()));
 
-        RETURN_IF_ERROR(
-                vectorized::VExprContext::filter_block(ctx.get(), ref_block, ref_block->columns()));
+        RETURN_IF_ERROR(vectorized::VExprContext::filter_block(ctx.get(), ref_block));
     }
 
     const int row_num = cast_set<int>(ref_block->rows());
