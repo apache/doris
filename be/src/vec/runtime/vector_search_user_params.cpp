@@ -24,13 +24,13 @@ namespace doris {
 bool VectorSearchUserParams::operator==(const VectorSearchUserParams& other) const {
     return hnsw_ef_search == other.hnsw_ef_search &&
            hnsw_check_relative_distance == other.hnsw_check_relative_distance &&
-           hnsw_bounded_queue == other.hnsw_bounded_queue;
+           hnsw_bounded_queue == other.hnsw_bounded_queue && ivf_nprobe == other.ivf_nprobe;
 }
 
 std::string VectorSearchUserParams::to_string() const {
     return fmt::format(
             "hnsw_ef_search: {}, hnsw_check_relative_distance: {}, "
-            "hnsw_bounded_queue: {}",
-            hnsw_ef_search, hnsw_check_relative_distance, hnsw_bounded_queue);
+            "hnsw_bounded_queue: {}, ivf_nprobe: {}",
+            hnsw_ef_search, hnsw_check_relative_distance, hnsw_bounded_queue, ivf_nprobe);
 }
 } // namespace doris

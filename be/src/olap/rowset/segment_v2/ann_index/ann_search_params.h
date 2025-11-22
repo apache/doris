@@ -142,5 +142,9 @@ struct HNSWSearchParameters : public IndexSearchParameters {
     bool check_relative_distance = true;
     bool bounded_queue = true;
 };
+
+struct IVFSearchParameters : public IndexSearchParameters {
+    int nprobe = 1;
+};
 #include "common/compile_check_end.h"
 } // namespace doris::segment_v2

@@ -63,6 +63,7 @@ Status AnnIndexColumnWriter::init() {
     build_parameter.max_degree = std::stoi(get_or_default(properties, MAX_DEGREE, "32"));
     build_parameter.metric_type = FaissBuildParameter::string_to_metric_type(metric_type);
     build_parameter.ef_construction = std::stoi(get_or_default(properties, EF_CONSTRUCTION, "40"));
+    build_parameter.ivf_nlist = std::stoi(get_or_default(properties, NLIST, "1024"));
     build_parameter.quantizer = FaissBuildParameter::string_to_quantizer(quantizer);
     build_parameter.pq_m = std::stoi(get_or_default(properties, PQ_M, "8"));
     build_parameter.pq_nbits = std::stoi(get_or_default(properties, PQ_NBITS, "8"));
