@@ -18,6 +18,7 @@
 package org.apache.doris.common.util;
 
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.property.storage.AzurePropertyUtils;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.datasource.property.storage.exception.StoragePropertiesException;
 import org.apache.doris.fs.FileSystemType;
@@ -307,6 +308,13 @@ public class LocationPath {
     }
 
     public TFileType getTFileTypeForBE() {
+        if ((SchemaTypeMapper.ABFS.getSchema().equals(schema) || SchemaTypeMapper.ABFSS.getSchema()
+                .equals(schema)) && AzurePropertyUtils.isOneLakeLocation(normalizedLocation)) {
+            return TFileType.FILE_HDFS;
+        }
+        if (StringUtils.isNotBlank(normalizedLocation) && isHdfsOnOssEndpoint(normalizedLocation)) {
+            return TFileType.FILE_HDFS;
+        }
         return SchemaTypeMapper.fromSchemaToFileType(schema);
     }
 
@@ -321,6 +329,10 @@ public class LocationPath {
 
 
     public FileSystemType getFileSystemType() {
+        if ((SchemaTypeMapper.ABFS.getSchema().equals(schema) || SchemaTypeMapper.ABFSS.getSchema()
+                .equals(schema)) && AzurePropertyUtils.isOneLakeLocation(normalizedLocation)) {
+            return FileSystemType.HDFS;
+        }
         return SchemaTypeMapper.fromSchemaToFileSystemType(schema);
     }
 

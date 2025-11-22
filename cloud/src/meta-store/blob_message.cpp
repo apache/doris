@@ -21,6 +21,8 @@
 #include <butil/iobuf_inl.h>
 #include <google/protobuf/message.h>
 
+#include <cstdint>
+
 #include "common/logging.h"
 #include "common/util.h"
 #include "meta-store/codec.h"
@@ -159,4 +161,180 @@ void blob_put(Transaction* txn, std::string_view key, std::string_view value, ui
     }
 }
 
+BlobIterator::BlobIterator(std::unique_ptr<FullRangeGetIterator> iter)
+        : error_code_(TxnErrorCode::TXN_OK), iter_(std::move(iter)) {
+    // Load the first blob
+    next();
+}
+
+bool BlobIterator::valid() const {
+    return error_code_ == TxnErrorCode::TXN_OK && is_underlying_iter_valid() &&
+           // ... or it has reached the end of blobs
+           current_blob_key_.size() > 0;
+}
+
+TxnErrorCode BlobIterator::error_code() const {
+    if (error_code_ != TxnErrorCode::TXN_OK) {
+        return error_code_;
+    }
+    if (!iter_) {
+        return TxnErrorCode::TXN_INVALID_DATA;
+    }
+    return iter_->error_code();
+}
+
+void BlobIterator::next() {
+    // Switch to next blob, so clear previous state
+    version_ = -1;
+    current_blob_key_.clear();
+    current_blob_values_.clear();
+    current_blob_raw_keys_.clear();
+
+    if (error_code_ == TxnErrorCode::TXN_OK && is_underlying_iter_valid() && iter_->has_next()) {
+        load_current_blob();
+    }
+}
+
+bool BlobIterator::parse_value(google::protobuf::Message* pb) const {
+    butil::IOBuf merge;
+    for (auto&& value : current_blob_values_) {
+        merge.append_user_data((void*)value.data(), value.size(), +[](void*) {});
+    }
+    butil::IOBufAsZeroCopyInputStream merge_stream(merge);
+    return pb->ParseFromZeroCopyStream(&merge_stream);
+}
+
+void BlobIterator::load_current_blob() {
+    uint16_t next_sequence = 0;
+    if (auto&& kvp = iter_->peek(); !kvp.has_value()) {
+        // All keys have been processed.
+        return;
+    } else if (!extract_origin_key(kvp->first, &current_blob_key_, &version_, &next_sequence)) {
+        return;
+    }
+
+    while (iter_->is_valid() && iter_->has_next()) {
+        auto [k, v] = *(iter_->peek());
+
+        // Is this key part of the current blob?
+        std::string origin_key;
+        uint8_t version = -1;
+        uint16_t sequence = -1;
+        if (!extract_origin_key(k, &origin_key, &version, &sequence) ||
+            origin_key != current_blob_key_) {
+            return;
+        } else if (version != version_ || sequence != next_sequence) {
+            LOG_WARNING("blob key version or sequence mismatch")
+                    .tag("expected_version", version_)
+                    .tag("actual_version", version)
+                    .tag("expected_sequence", next_sequence)
+                    .tag("actual_sequence", sequence)
+                    .tag("key", hex(k));
+            error_code_ = TxnErrorCode::TXN_INVALID_DATA;
+            return;
+        }
+
+        current_blob_raw_keys_.push_back(std::string(k));
+        current_blob_values_.push_back(std::string(v));
+        iter_->next();
+        next_sequence++;
+    }
+}
+
+bool BlobIterator::extract_origin_key(std::string_view raw_key, std::string* output,
+                                      uint8_t* version, uint16_t* sequence) {
+    // The suffix is 8 bytes: |version(1)|dummy(5)|sequence(2)|
+    if (raw_key.size() < 9) {
+        LOG_WARNING("failed to extract origin key").tag("key", hex(raw_key));
+        error_code_ = TxnErrorCode::TXN_INVALID_DATA;
+        return false;
+    }
+
+    const size_t origin_key_size = raw_key.size() - 9;
+    std::string_view origin_key = raw_key.substr(0, origin_key_size);
+    raw_key.remove_prefix(origin_key_size);
+    int64_t suffix = 0;
+    if (decode_int64(&raw_key, &suffix) != 0) {
+        LOG_WARNING("failed to decode int64")
+                .tag("key", hex(raw_key))
+                .tag("origin_key", hex(origin_key));
+        error_code_ = TxnErrorCode::TXN_INVALID_DATA;
+        return false;
+    }
+
+    *version = (suffix >> 56) & 0xff;
+    *sequence = suffix & 0xffff;
+    *output = std::string(origin_key);
+
+    return true;
+}
+
+std::unique_ptr<BlobIterator> blob_get_range(const std::shared_ptr<TxnKv>& txn_kv,
+                                             std::string_view begin_key, std::string_view end_key,
+                                             bool snapshot) {
+    FullRangeGetOptions options;
+    options.txn_kv = txn_kv;
+    options.prefetch = true;
+    options.snapshot = snapshot;
+    std::unique_ptr<FullRangeGetIterator> iter =
+            txn_kv->full_range_get(std::string(begin_key), std::string(end_key), options);
+
+    return std::make_unique<BlobIterator>(std::move(iter));
+}
+
+std::unique_ptr<BlobIterator> blob_get_range(Transaction* txn, std::string_view begin_key,
+                                             std::string_view end_key, bool snapshot) {
+    FullRangeGetOptions options;
+    options.prefetch = true;
+    options.snapshot = snapshot;
+    std::unique_ptr<FullRangeGetIterator> iter =
+            txn->full_range_get(std::string(begin_key), std::string(end_key), options);
+
+    return std::make_unique<BlobIterator>(std::move(iter));
+}
+
+namespace versioned {
+
+void blob_put(Transaction* txn, std::string_view key, std::string_view value, uint8_t ver,
+              size_t split_size) {
+    std::string encoded_key(key);
+    uint32_t offset = encode_versionstamp(Versionstamp::min(), &encoded_key);
+    encode_versionstamp_end(&encoded_key);
+
+    auto split_vec = split_string(value, split_size);
+    int64_t suffix_base = ver;
+    suffix_base <<= 56;
+    for (size_t i = 0; i < split_vec.size(); ++i) {
+        std::string k(encoded_key);
+        encode_int64(suffix_base + i, &k);
+        txn->atomic_set_ver_key(k, offset, split_vec[i]);
+    }
+}
+
+void blob_put(Transaction* txn, std::string_view key, const google::protobuf::Message& pb,
+              uint8_t ver, size_t split_size) {
+    std::string value;
+    bool ret = pb.SerializeToString(&value); // Always success
+    DCHECK(ret) << hex(key) << ' ' << pb.ShortDebugString();
+    versioned::blob_put(txn, key, value, ver, split_size);
+}
+
+void blob_put(Transaction* txn, std::string_view key, Versionstamp vs, std::string_view value,
+              uint8_t ver, size_t split_size) {
+    std::string encoded_key(key);
+    encode_versionstamp(vs, &encoded_key);
+    encode_versionstamp_end(&encoded_key);
+    // Avoid set versionstamp again
+    doris::cloud::blob_put(txn, encoded_key, value, ver, split_size);
+}
+
+void blob_put(Transaction* txn, std::string_view key, Versionstamp vs,
+              const google::protobuf::Message& pb, uint8_t ver, size_t split_size) {
+    std::string value;
+    bool ret = pb.SerializeToString(&value); // Always success
+    DCHECK(ret) << hex(key) << ' ' << pb.ShortDebugString();
+    versioned::blob_put(txn, key, vs, value, ver, split_size);
+}
+
+} // namespace versioned
 } // namespace doris::cloud

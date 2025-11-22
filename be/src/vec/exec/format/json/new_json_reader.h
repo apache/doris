@@ -26,6 +26,7 @@
 
 #include <memory>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -143,6 +144,7 @@ private:
     Status _simdjson_set_column_value(simdjson::ondemand::object* value, Block& block,
                                       const std::vector<SlotDescriptor*>& slot_descs, bool* valid);
 
+    template <bool use_string_cache>
     Status _simdjson_write_data_to_column(simdjson::ondemand::value& value,
                                           const DataTypePtr& type_desc,
                                           vectorized::IColumn* column_ptr,
@@ -257,6 +259,24 @@ private:
     std::unique_ptr<simdjson::ondemand::parser> _ondemand_json_parser;
     // column to default value string map
     std::unordered_map<std::string, std::string> _col_default_value_map;
+
+    // From document of simdjson:
+    // ```
+    //   Important: a value should be consumed once. Calling get_string() twice on the same value is an error.
+    // ```
+    // We should cache the string_views to avoid multiple get_string() calls.
+    struct StringViewHash {
+        size_t operator()(const std::string_view& str) const {
+            return std::hash<int64_t>()(reinterpret_cast<int64_t>(str.data()));
+        }
+    };
+    struct StringViewEqual {
+        bool operator()(const std::string_view& lhs, const std::string_view& rhs) const {
+            return lhs.data() == rhs.data() && lhs.size() == rhs.size();
+        }
+    };
+    std::unordered_map<std::string_view, std::string_view, StringViewHash, StringViewEqual>
+            _cached_string_values;
 
     int32_t skip_bitmap_col_idx {-1};
 

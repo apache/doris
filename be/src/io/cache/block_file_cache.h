@@ -171,6 +171,9 @@ public:
 
     [[nodiscard]] const std::string& get_base_path() const { return _cache_base_path; }
 
+    // Get storage for inspection
+    FileCacheStorage* get_storage() const { return _storage.get(); }
+
     /**
          * Given an `offset` and `size` representing [offset, offset + size) bytes interval,
          * return list of cached non-overlapping non-empty
@@ -436,7 +439,8 @@ private:
     bool is_overflow(size_t removed_size, size_t need_size, size_t cur_cache_size,
                      bool evict_in_advance) const;
 
-    void remove_file_blocks(std::vector<FileBlockCell*>&, std::lock_guard<std::mutex>&, bool sync);
+    void remove_file_blocks(std::vector<FileBlockCell*>&, std::lock_guard<std::mutex>&, bool sync,
+                            std::string& reason);
 
     void remove_file_blocks_and_clean_time_maps(std::vector<FileBlockCell*>&,
                                                 std::lock_guard<std::mutex>&);

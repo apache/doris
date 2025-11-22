@@ -27,11 +27,10 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.info.TableNameInfo;
-import org.apache.doris.qe.GlobalVariable;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import org.apache.commons.collections.map.CaseInsensitiveMap;
+import org.apache.commons.collections4.map.CaseInsensitiveMap;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -167,12 +166,5 @@ public class OlapScanNodeTest {
             long mod = (int) ((hashValue & 0xffffffff) % 3);
             Assert.assertEquals(mod, 2);
         } // CHECKSTYLE IGNORE THIS LINE
-    }
-
-    @Test
-    public void testTableNameWithAlias() {
-        GlobalVariable.lowerCaseTableNames = 1;
-        SlotRef slot = new SlotRef(new TableNameInfo("DB.TBL"), Column.DELETE_SIGN);
-        Assert.assertTrue(slot.getTableName().toString().equals("DB.tbl"));
     }
 }

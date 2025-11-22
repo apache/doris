@@ -26,14 +26,12 @@ import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.planner.normalize.Normalizer;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 
-import com.google.common.base.Joiner;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 import com.google.common.base.Preconditions;
@@ -41,7 +39,6 @@ import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
 
 import java.text.StringCharacterIterator;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
@@ -127,36 +124,12 @@ public class FunctionCallExpr extends Expr {
         this(new FunctionName(functionName), new FunctionParams(false, params));
     }
 
-    public FunctionCallExpr(FunctionName fnName, List<Expr> params) {
-        this(fnName, new FunctionParams(false, params));
-    }
-
-    public FunctionCallExpr(FunctionName fnName, List<Expr> params, List<OrderByElement> orderByElements)
-            throws AnalysisException {
-        this(fnName, new FunctionParams(false, params), orderByElements);
-    }
-
     public FunctionCallExpr(String fnName, FunctionParams params) {
         this(new FunctionName(fnName), params, false);
     }
 
     public FunctionCallExpr(FunctionName fnName, FunctionParams params) {
         this(fnName, params, false);
-    }
-
-    public FunctionCallExpr(
-            FunctionName fnName, FunctionParams params, List<OrderByElement> orderByElements) throws AnalysisException {
-        this(fnName, params, false);
-        this.orderByElements = orderByElements;
-        if (!orderByElements.isEmpty()) {
-            if (!AggregateFunction.SUPPORT_ORDER_BY_AGGREGATE_FUNCTION_NAME_SET
-                    .contains(fnName.getFunction().toLowerCase())) {
-                throw new AnalysisException(
-                        "ORDER BY not support for the function:" + fnName.getFunction().toLowerCase());
-            }
-        }
-        setChildren();
-        originChildSize = children.size();
     }
 
     private FunctionCallExpr(
@@ -268,18 +241,6 @@ public class FunctionCallExpr extends Expr {
     @Override
     public Expr clone() {
         return new FunctionCallExpr(this);
-    }
-
-    @Override
-    public void resetAnalysisState() {
-        isAnalyzed = false;
-        // Resolving merge agg functions after substitution may fail e.g., if the
-        // intermediate agg type is not the same as the output type. Preserve the original
-        // fn_ such that analyze() hits the special-case code for merge agg fns that
-        // handles this case.
-        if (!isMergeAggFn) {
-            fn = null;
-        }
     }
 
     @Override
@@ -551,59 +512,6 @@ public class FunctionCallExpr extends Expr {
         return sb.toString();
     }
 
-    private String paramsToDigest() {
-        StringBuilder sb = new StringBuilder();
-        sb.append("(");
-
-        if (fnParams.isStar()) {
-            sb.append("*");
-        }
-        if (fnParams.isDistinct()) {
-            sb.append("DISTINCT ");
-        }
-        int len = children.size();
-        List<String> result = Lists.newArrayList();
-        if (fnName.getFunction().equalsIgnoreCase("aes_decrypt")
-                || fnName.getFunction().equalsIgnoreCase("aes_encrypt")
-                || fnName.getFunction().equalsIgnoreCase("sm4_decrypt")
-                || fnName.getFunction().equalsIgnoreCase("sm4_encrypt")) {
-            len = len - 1;
-        }
-        for (int i = 0; i < len; ++i) {
-            if (i == 1 && (fnName.getFunction().equalsIgnoreCase("aes_decrypt")
-                    || fnName.getFunction().equalsIgnoreCase("aes_encrypt")
-                    || fnName.getFunction().equalsIgnoreCase("sm4_decrypt"))) {
-                result.add("\'***\'");
-            } else {
-                result.add(children.get(i).toDigest());
-            }
-        }
-        sb.append(Joiner.on(", ").join(result)).append(")");
-        return sb.toString();
-    }
-
-    @Override
-    public String toDigestImpl() {
-        Expr expr;
-        if (originStmtFnExpr != null) {
-            expr = originStmtFnExpr;
-        } else {
-            expr = this;
-        }
-        StringBuilder sb = new StringBuilder();
-        sb.append(((FunctionCallExpr) expr).fnName);
-        sb.append(paramsToDigest());
-        if (fnName.getFunction().equalsIgnoreCase("json_quote")
-                || fnName.getFunction().equalsIgnoreCase("json_array")
-                || fnName.getFunction().equalsIgnoreCase("json_object")
-                || fnName.getFunction().equalsIgnoreCase("json_insert")
-                || fnName.getFunction().equalsIgnoreCase("json_replace")
-                || fnName.getFunction().equalsIgnoreCase("json_set")) {
-            return forJSON(sb.toString());
-        }
-        return sb.toString();
-    }
-
     @Override
     public String debugString() {
         return MoreObjects.toStringHelper(this)/*.add("op", aggOp)*/.add("name", fnName).add("isStar",
@@ -629,7 +537,8 @@ public class FunctionCallExpr extends Expr {
     protected void toThrift(TExprNode msg) {
         // TODO: we never serialize this to thrift if it's an aggregate function
         // except in test cases that do it explicitly.
-        if (isAggregate() || isAnalyticFnCall) {
+        if (this instanceof FunctionCallExpr && ((FunctionCallExpr) this).isAggregateFunction()
+                || isAnalyticFnCall) {
             msg.node_type = TExprNodeType.AGG_EXPR;
             if (aggFnParams == null) {
                 aggFnParams = fnParams;
@@ -795,18 +704,5 @@ public class FunctionCallExpr extends Expr {
 
     private void setChildren() {
         orderByElements.forEach(o -> addChild(o.getExpr()));
-    }
-
-    // eg: date_floor("0001-01-01 00:00:18",interval 5 second) convert to
-    // second_floor("0001-01-01 00:00:18", 5, "0001-01-01 00:00:00");
-    public static FunctionCallExpr functionWithIntervalConvert(String functionName, Expr str, Expr interval,
-            String timeUnitIdent) throws AnalysisException {
-        String newFunctionName = timeUnitIdent + "_" + functionName.split("_")[1];
-        List<Expr> params = new ArrayList<>();
-        Expr defaultDatetime = new DateLiteral(0001, 01, 01, 0, 0, 0, 0, Type.DATETIMEV2);
-        params.add(str);
-        params.add(interval);
-        params.add(defaultDatetime);
-        return new FunctionCallExpr(newFunctionName, params);
     }
 }

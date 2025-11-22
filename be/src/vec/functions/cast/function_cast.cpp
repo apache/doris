@@ -193,7 +193,7 @@ WrapperType prepare_remove_nullable(FunctionContext* context, const DataTypePtr&
 
             block.get_by_position(result).column =
                     wrap_in_nullable(block.get_by_position(nested_result_index).column, block,
-                                     arguments, result, input_rows_count);
+                                     arguments, input_rows_count);
 
             block.erase(nested_source_index);
             block.erase(nested_result_index);

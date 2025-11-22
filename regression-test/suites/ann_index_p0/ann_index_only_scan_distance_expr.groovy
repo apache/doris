@@ -46,7 +46,8 @@ def extractScanBytesValue = { String profileText ->
     def lines = profileText.split("\n")
     for (def line : lines) {
         if (line.contains("ScanBytes:")) {
-            def m = (line =~ /ScanBytes:\s*([0-9]+(?:\.[0-9]+)?)\s*[A-Za-z]+/)
+            // allow optional unit (e.g. "B"); sometimes profile prints no unit for 0 bytes
+            def m = (line =~ /ScanBytes:\s*([0-9]+(?:\.[0-9]+)?)(?:\s*([A-Za-z]+))?/) 
             if (m.find()) {
                 return m.group(1)
             }
@@ -80,10 +81,10 @@ suite("ann_index_only_scan_distance_expr") {
     sql "unset variable all;"
     sql "set profile_level=2;"
     sql "set enable_profile=true;"
-    sql "set experimental_topn_lazy_materialization_threshold=0;"
     sql "set experimental_enable_virtual_slot_for_cse=true;"
     sql "set enable_no_need_read_data_opt=true;"
     sql "set parallel_pipeline_task_num=1;" // make execution more deterministic for test
+    sql "set enable_condition_cache=false;"
 
     sql "drop table if exists ann_expr_l2"
     sql """

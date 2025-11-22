@@ -21,6 +21,7 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <limits>
 #include <memory>
 #include <random>
 #include <string>
@@ -914,6 +915,55 @@ TEST_F(VectorSearchTest, TestIdSelectorWithEmptyRoaring) {
     for (size_t i = 0; i < 10000; ++i) {
         ASSERT_EQ(sel->is_member(i), false) << "Selector should be empty";
     }
+}
+
+TEST_F(VectorSearchTest, TestIdSelectorRoaringBasicMembership) {
+    auto roaring = std::make_unique<roaring::Roaring>();
+    for (uint32_t i : {0u, 2u, 4u, 1000u}) {
+        roaring->add(i);
+    }
+    auto sel = FaissVectorIndex::roaring_to_faiss_selector(*roaring);
+    for (uint32_t i : {0u, 2u, 4u, 1000u}) {
+        ASSERT_TRUE(sel->is_member(static_cast<faiss::idx_t>(i)))
+                << "Expected id " << i << " present";
+    }
+    for (uint32_t i : {1u, 3u, 5u, 999u, 1001u}) {
+        ASSERT_FALSE(sel->is_member(static_cast<faiss::idx_t>(i)))
+                << "Unexpected id " << i << " present";
+    }
+    ASSERT_FALSE(sel->is_member(-1)) << "Negative ids should never match";
+}
+
+TEST_F(VectorSearchTest, TestIdSelectorRoaringReflectsBitmapUpdates) {
+    auto roaring = std::make_unique<roaring::Roaring>();
+    roaring->add(10);
+    auto sel = FaissVectorIndex::roaring_to_faiss_selector(*roaring);
+
+    ASSERT_TRUE(sel->is_member(10));
+    ASSERT_FALSE(sel->is_member(20));
+
+    roaring->add(20);
+    roaring->remove(10);
+
+    ASSERT_FALSE(sel->is_member(10)) << "Selector should track removals";
+    ASSERT_TRUE(sel->is_member(20)) << "Selector should track additions";
+}
+
+TEST_F(VectorSearchTest, TestIdSelectorRoaringHandlesUInt32Max) {
+    auto roaring = std::make_unique<roaring::Roaring>();
+    constexpr uint32_t kMax = std::numeric_limits<uint32_t>::max();
+    roaring->add(kMax);
+    auto sel = FaissVectorIndex::roaring_to_faiss_selector(*roaring);
+
+    ASSERT_TRUE(sel->is_member(static_cast<faiss::idx_t>(kMax)))
+            << "Expected uint32_t max to be present";
+    bool exception_thrown = false;
+    try {
+        sel->is_member(static_cast<faiss::idx_t>(kMax) + 1);
+    } catch (const std::exception& e) {
+        exception_thrown = true;
+    }
+    ASSERT_TRUE(exception_thrown) << "Expected exception for value beyond uint32_t max";
 }
 
 // New tests: radius == 0 or < 0

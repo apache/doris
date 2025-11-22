@@ -609,11 +609,47 @@ public class IcebergUtils {
         }
     }
 
-    public static Map<String, String> getPartitionInfoMap(PartitionData partitionData, String timeZone) {
+    /**
+     * Get partition info map for identity partitions only, considering partition
+     * evolution.
+     * For non-identity partitions (e.g., day, bucket, truncate), returns null to
+     * skip
+     * dynamic partition pruning.
+     *
+     * @param partitionData The partition data from the file
+     * @param partitionSpec The partition spec corresponding to the file's specId
+     *                      (required)
+     * @param timeZone      The time zone for timestamp serialization
+     * @return Map of partition field name to partition value string, or null if
+     *         there are non-identity partitions
+     */
+    public static Map<String, String> getPartitionInfoMap(PartitionData partitionData, PartitionSpec partitionSpec,
+            String timeZone) {
         Map<String, String> partitionInfoMap = new HashMap<>();
         List<NestedField> fields = partitionData.getPartitionType().asNestedType().fields();
+
+        // Check if all partition fields are identity transform
+        // If any field is not identity, return null to skip dynamic partition pruning
+        List<PartitionField> partitionFields = partitionSpec.fields();
+        Preconditions.checkArgument(fields.size() == partitionFields.size(),
+                "PartitionData fields size does not match PartitionSpec fields size");
+
         for (int i = 0; i < fields.size(); i++) {
             NestedField field = fields.get(i);
+            PartitionField partitionField = partitionFields.get(i);
+
+            // Only process identity transform partitions
+            // For other transforms (day, bucket, truncate, etc.), skip dynamic partition
+            // pruning
+            if (!partitionField.transform().isIdentity()) {
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug(
+                            "Skip dynamic partition pruning for non-identity partition field: {} with transform: {}",
+                            field.name(), partitionField.transform().toString());
+                }
+                return null;
+            }
+
             Object value = partitionData.get(i);
             try {
                 String partitionString = serializePartitionValue(field.type(), value, timeZone);
@@ -1102,7 +1138,16 @@ public class IcebergUtils {
             return IcebergPartitionInfo.empty();
         }
         Table table = getIcebergTable(dorisTable);
-        List<IcebergPartition> icebergPartitions = loadIcebergPartition(table, snapshotId);
+        List<IcebergPartition> icebergPartitions;
+        try {
+            icebergPartitions = dorisTable.getCatalog().getExecutionAuthenticator()
+                    .execute(() -> loadIcebergPartition(table, snapshotId));
+        } catch (Exception e) {
+            String errorMsg = String.format("Failed to get iceberg partition info, table: %s.%s.%s, snapshotId: %s",
+                    dorisTable.getCatalog().getName(), dorisTable.getDbName(), dorisTable.getName(), snapshotId);
+            LOG.warn(errorMsg, e);
+            throw new AnalysisException(errorMsg, e);
+        }
         Map<String, IcebergPartition> nameToPartition = Maps.newHashMap();
         Map<String, PartitionItem> nameToPartitionItem = Maps.newHashMap();
 
