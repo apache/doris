@@ -26,7 +26,7 @@ suite("test_binary_for_digest", "p0,external,mysql,external_docker,external_dock
         String catalog_name = "mysql_varbinary_hash_catalog";
         String ex_db_name = "doris_test";
         String mysql_port = context.config.otherConfigs.get("mysql_57_port");
-        String test_table = "binary_test";
+        String test_table = "binary_test_digiest_function_table";
 
         sql """drop catalog if exists ${catalog_name}"""
 
