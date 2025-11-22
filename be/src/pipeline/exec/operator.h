@@ -113,6 +113,9 @@ public:
     [[nodiscard]] virtual Status terminate(RuntimeState* state) = 0;
     [[nodiscard]] virtual Status close(RuntimeState* state);
     [[nodiscard]] virtual int node_id() const = 0;
+    [[nodiscard]] virtual int parallelism(RuntimeState* state) const {
+        return _is_serial_operator ? 1 : state->query_parallel_instance_num();
+    }
 
     [[nodiscard]] virtual Status set_child(OperatorPtr child) {
         if (_child && child != nullptr) {

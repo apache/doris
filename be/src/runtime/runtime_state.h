@@ -145,6 +145,11 @@ public:
     int num_scanner_threads() const {
         return _query_options.__isset.num_scanner_threads ? _query_options.num_scanner_threads : 0;
     }
+    int max_file_scanners_concurrency() const {
+        return _query_options.__isset.max_file_scanners_concurrency
+                       ? _query_options.max_file_scanners_concurrency
+                       : num_scanner_threads();
+    }
     int min_scan_concurrency_of_scan_scheduler() const {
         return _query_options.__isset.min_scan_scheduler_concurrency
                        ? _query_options.min_scan_scheduler_concurrency
