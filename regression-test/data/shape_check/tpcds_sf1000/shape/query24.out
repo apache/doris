@@ -43,10 +43,11 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------------------------PhysicalProject
 --------------------------filter((ssales.i_color = 'aquamarine'))
 ----------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
---------------PhysicalProject
-----------------hashAgg[GLOBAL]
-------------------PhysicalDistribute[DistributionSpecGather]
---------------------hashAgg[LOCAL]
-----------------------PhysicalDistribute[DistributionSpecExecutionAny]
-------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
+--------------PhysicalAssertNumRows
+----------------PhysicalProject
+------------------hashAgg[GLOBAL]
+--------------------PhysicalDistribute[DistributionSpecGather]
+----------------------hashAgg[LOCAL]
+------------------------PhysicalDistribute[DistributionSpecExecutionAny]
+--------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
 
