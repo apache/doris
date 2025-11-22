@@ -112,9 +112,16 @@ public:
     // start all background threads. This should be call after env is ready.
     virtual Status start_bg_threads(std::shared_ptr<WorkloadGroup> wg_sptr = nullptr) = 0;
 
+    /* Parameters:
+     * - tablet_id: the id of tablet to get
+     * - sync_stats: the stats of sync rowset
+     * - force_use_only_cached: whether only use cached tablet meta
+     * - cache_on_miss: whether cache the tablet meta when missing in cache
+     */
     virtual Result<BaseTabletSPtr> get_tablet(int64_t tablet_id,
                                               SyncRowsetStats* sync_stats = nullptr,
-                                              bool force_use_only_cached = false) = 0;
+                                              bool force_use_only_cached = false,
+                                              bool cache_on_miss = true) = 0;
 
     void register_report_listener(ReportWorker* listener);
     void deregister_report_listener(ReportWorker* listener);
@@ -237,8 +244,15 @@ public:
 
     Status create_tablet(const TCreateTabletReq& request, RuntimeProfile* profile);
 
+    /* Parameters:
+     * - tablet_id: the id of tablet to get
+     * - sync_stats: the stats of sync rowset
+     * - force_use_only_cached: whether only use cached tablet meta
+     * - cache_on_miss: whether cache the tablet meta when missing in cache
+     */
     Result<BaseTabletSPtr> get_tablet(int64_t tablet_id, SyncRowsetStats* sync_stats = nullptr,
-                                      bool force_use_only_cached = false) override;
+                                      bool force_use_only_cached = false,
+                                      bool cache_on_miss = true) override;
 
     void clear_transaction_task(const TTransactionId transaction_id);
     void clear_transaction_task(const TTransactionId transaction_id,
