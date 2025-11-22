@@ -98,6 +98,7 @@ import org.apache.doris.nereids.rules.rewrite.InferPredicates;
 import org.apache.doris.nereids.rules.rewrite.InferSetOperatorDistinct;
 import org.apache.doris.nereids.rules.rewrite.InitJoinOrder;
 import org.apache.doris.nereids.rules.rewrite.InlineLogicalView;
+import org.apache.doris.nereids.rules.rewrite.JoinExtractOrFromCaseWhen;
 import org.apache.doris.nereids.rules.rewrite.LimitAggToTopNAgg;
 import org.apache.doris.nereids.rules.rewrite.LimitSortToTopN;
 import org.apache.doris.nereids.rules.rewrite.LogicalResultSinkToShortCircuitPointQuery;
@@ -552,6 +553,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                         new ReorderJoin(),
                                         new PushFilterInsideJoin(),
                                         new FindHashConditionForJoin(),
+                                        new JoinExtractOrFromCaseWhen(),
                                         new ConvertInnerOrCrossJoin(),
                                         new EliminateNullAwareLeftAntiJoin()
                                 ),
