@@ -38,8 +38,11 @@ public class MaterializedViewFilterAggregateRule extends AbstractMaterializedVie
     @Override
     public List<Rule> buildRules() {
         return ImmutableList.of(
-                logicalFilter(logicalAggregate(any().when(LogicalPlan.class::isInstance))).thenApplyMultiNoThrow(
-                        ctx -> {
+                logicalFilter(logicalAggregate(any().when(LogicalPlan.class::isInstance))
+                        // Temporarily unsupported: do not rewrite when GROUP SETS is used together with HAVING.
+                        // Will be re-enabled after the fix is completed.
+                        .when(aggregate -> !aggregate.getSourceRepeat().isPresent()))
+                        .thenApplyMultiNoThrow(ctx -> {
                             LogicalFilter<LogicalAggregate<Plan>> root = ctx.root;
                             return rewrite(root, ctx.cascadesContext);
                         }).toRule(RuleType.MATERIALIZED_VIEW_FILTER_AGGREGATE));

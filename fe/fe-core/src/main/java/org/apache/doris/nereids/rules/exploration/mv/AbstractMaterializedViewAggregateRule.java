@@ -244,7 +244,9 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
         if (queryAggregate.getSourceRepeat().isPresent()) {
             // construct group sets for repeat
             List<List<Expression>> rewrittenGroupSetsExpressions = new ArrayList<>();
-            List<List<Expression>> groupingSets = queryAggregate.getSourceRepeat().get().getGroupingSets();
+            List<List<Expression>> groupingSets = queryAggregate.collectFirst(LogicalRepeat.class::isInstance)
+                    .map(repeat -> ((LogicalRepeat<? extends Plan>) repeat).getGroupingSets())
+                    .orElse(queryAggregate.getSourceRepeat().get().getGroupingSets());
             for (List<Expression> groupingSet : groupingSets) {
                 if (groupingSet.isEmpty()) {
                     rewrittenGroupSetsExpressions.add(ImmutableList.of());
@@ -766,6 +768,8 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
                     return Repeat.generateVirtualGroupingIdSlot();
                 } else {
                     GroupingScalarFunction groupingScalarFunction = originExpression.get();
+                    groupingScalarFunction = (GroupingScalarFunction) ExpressionUtils.shuttleExpressionWithLineage(
+                            groupingScalarFunction, rewriteContext.getQueryTopPlan(), new BitSet());
                     groupingScalarFunction =
                             (GroupingScalarFunction) groupingScalarFunction.accept(this, rewriteContext);
                     if (!rewriteContext.isValid()) {

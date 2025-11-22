@@ -33,6 +33,7 @@ import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOdbcScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.ImmutableList;
@@ -43,8 +44,10 @@ import org.junit.jupiter.api.Test;
 import java.util.Arrays;
 import java.util.BitSet;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * ExpressionUtils ut.
@@ -251,6 +254,157 @@ public class ExpressionUtilsTest extends TestWithFeService {
         Expression replacedExpression2 = ExpressionUtils.replace(a, replaceMap);
         // should return a
         Assertions.assertEquals(a, replacedExpression2);
+    }
+
+    @Test
+    public void testReplaceNullSafeDirectMatch() {
+        Slot a = new SlotReference("a", IntegerType.INSTANCE);
+        Slot b = new SlotReference("b", IntegerType.INSTANCE);
+
+        Map<Expression, Expression> replaceMap = new HashMap<>();
+        replaceMap.put(a, b);
+
+        Expression expr = new EqualTo(a, Literal.of(1));
+        Expression replaced = ExpressionUtils.replaceNullSafe(expr, replaceMap, e -> null);
+
+        Assertions.assertEquals(new EqualTo(b, Literal.of(1)), replaced);
+    }
+
+    @Test
+    public void testReplaceNullSafeFallbackMatch() {
+        Slot a = new SlotReference("a", IntegerType.INSTANCE);
+        Slot aKey = new SlotReference("a_key", IntegerType.INSTANCE);
+        Slot b = new SlotReference("b", IntegerType.INSTANCE);
+
+        Map<Expression, Expression> replaceMap = new HashMap<>();
+        replaceMap.put(aKey, b);
+
+        Expression replaced = ExpressionUtils.replaceNullSafe(a, replaceMap, e -> e.equals(a) ? aKey : null);
+        Assertions.assertEquals(b, replaced);
+    }
+
+    @Test
+    public void testReplaceNullSafeNoHitKeepOriginal() {
+        Slot a = new SlotReference("a", IntegerType.INSTANCE);
+        Slot missKey = new SlotReference("miss_key", IntegerType.INSTANCE);
+
+        Map<Expression, Expression> replaceMap = new HashMap<>();
+        Expression replaced1 = ExpressionUtils.replaceNullSafe(a, replaceMap, e -> null);
+        Assertions.assertEquals(a, replaced1);
+
+        Expression replaced2 = ExpressionUtils.replaceNullSafe(a, replaceMap, e -> missKey);
+        Assertions.assertEquals(a, replaced2);
+    }
+
+    @Test
+    public void testReplaceNullSafeDeepTraversal() {
+        Slot a = new SlotReference("a", IntegerType.INSTANCE);
+        Slot b = new SlotReference("b", IntegerType.INSTANCE);
+        Slot c = new SlotReference("c", IntegerType.INSTANCE);
+
+        Map<Expression, Expression> replaceMap = new HashMap<>();
+        replaceMap.put(a, b);
+
+        Expression expr = new And(Arrays.asList(
+                new EqualTo(a, Literal.of(1)),
+                new EqualTo(c, Literal.of(3))
+        ));
+        Expression replaced = ExpressionUtils.replaceNullSafe(expr, replaceMap, e -> null);
+
+        Expression expected = new And(Arrays.asList(
+                new EqualTo(b, Literal.of(1)),
+                new EqualTo(c, Literal.of(3))
+        ));
+        Assertions.assertEquals(expected, replaced);
+    }
+
+    @Test
+    public void testReplaceNullAwareExpressionVariantKeepOriginal() {
+        Slot v = new SlotReference("v", VariantType.INSTANCE);
+        Map<Expression, Expression> replaceMap = new HashMap<>();
+        Expression replaced = ExpressionUtils.replaceNullAware(v, replaceMap);
+        Assertions.assertEquals(v, replaced);
+    }
+
+    @Test
+    public void testReplaceNullAwareListAllMapped() {
+        Slot a = new SlotReference("a", IntegerType.INSTANCE);
+        Slot b = new SlotReference("b", IntegerType.INSTANCE);
+        Slot c = new SlotReference("c", IntegerType.INSTANCE);
+
+        Map<Expression, Expression> replaceMap = new HashMap<>();
+        replaceMap.put(a, b);
+        replaceMap.put(c, Literal.of(3));
+
+        List<Expression> input = Arrays.asList(a, c);
+        List<Expression> replaced = ExpressionUtils.replaceNullAware(input, replaceMap);
+
+        Assertions.assertNotNull(replaced);
+        Assertions.assertEquals(Arrays.asList(b, Literal.of(3)), replaced);
+    }
+
+    @Test
+    public void testReplaceNullAwareListVariantKeepOriginal() {
+        Slot v = new SlotReference("v", VariantType.INSTANCE);
+        Slot a = new SlotReference("a", IntegerType.INSTANCE);
+        Slot b = new SlotReference("b", IntegerType.INSTANCE);
+
+        Map<Expression, Expression> replaceMap = new HashMap<>();
+        replaceMap.put(a, b);
+
+        List<Expression> input = Arrays.asList(v, a);
+        List<Expression> replaced = ExpressionUtils.replaceNullAware(input, replaceMap);
+
+        Assertions.assertNotNull(replaced);
+        Assertions.assertEquals(Arrays.asList(v, b), replaced);
+    }
+
+    @Test
+    public void testReplaceNullAwareListPartialMissReturnNull() {
+        Slot a = new SlotReference("a", IntegerType.INSTANCE);
+        Slot b = new SlotReference("b", IntegerType.INSTANCE);
+        Slot miss = new SlotReference("miss", IntegerType.INSTANCE);
+
+        Map<Expression, Expression> replaceMap = new HashMap<>();
+        replaceMap.put(a, b);
+
+        List<Expression> input = Arrays.asList(a, miss);
+        List<Expression> replaced = ExpressionUtils.replaceNullAware(input, replaceMap);
+
+        Assertions.assertNull(replaced);
+    }
+
+    @Test
+    public void testReplaceNullAwareSetAllMapped() {
+        Slot a = new SlotReference("a", IntegerType.INSTANCE);
+        Slot b = new SlotReference("b", IntegerType.INSTANCE);
+        Slot c = new SlotReference("c", IntegerType.INSTANCE);
+
+        Map<Expression, Expression> replaceMap = new HashMap<>();
+        replaceMap.put(a, b);
+        replaceMap.put(c, Literal.of(3));
+
+        Set<Expression> input = new HashSet<>(Arrays.asList(a, c));
+        Set<Expression> replaced = ExpressionUtils.replaceNullAware(input, replaceMap);
+
+        Assertions.assertNotNull(replaced);
+        Set<Expression> expected = new HashSet<>(Arrays.asList(b, Literal.of(3)));
+        Assertions.assertEquals(expected, replaced);
+    }
+
+    @Test
+    public void testReplaceNullAwareSetPartialMissReturnNull() {
+        Slot a = new SlotReference("a", IntegerType.INSTANCE);
+        Slot b = new SlotReference("b", IntegerType.INSTANCE);
+        Slot miss = new SlotReference("miss", IntegerType.INSTANCE);
+
+        Map<Expression, Expression> replaceMap = new HashMap<>();
+        replaceMap.put(a, b);
+
+        Set<Expression> input = new HashSet<>(Arrays.asList(a, miss));
+        Set<Expression> replaced = ExpressionUtils.replaceNullAware(input, replaceMap);
+
+        Assertions.assertNull(replaced);
     }
 
     private void assertExpect(List<? extends Expression> originalExpressions,

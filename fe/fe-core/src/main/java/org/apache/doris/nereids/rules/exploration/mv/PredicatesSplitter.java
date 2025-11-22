@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.EqualPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
@@ -108,6 +109,9 @@ public class PredicatesSplitter {
 
     private static boolean containOnlyColumnRef(Expression expression, boolean allowCast) {
         if (expression instanceof SlotReference && expression.isColumnFromTable()) {
+            return true;
+        }
+        if (expression instanceof VirtualSlotReference) {
             return true;
         }
         if (allowCast && expression instanceof Cast) {
