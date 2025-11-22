@@ -15,27 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.datasource;
+package org.apache.doris.httpv2.rest.response;
 
-public enum TableFormatType {
-    HIVE("hive"),
-    ICEBERG("iceberg"),
-    HUDI("hudi"),
-    PAIMON("paimon"),
-    MAX_COMPUTE("max_compute"),
-    TRANSACTIONAL_HIVE("transactional_hive"),
-    LAKESOUL("lakesoul"),
-    TRINO_CONNECTOR("trino_connector"),
-    TVF("tvf"),
-    REMOTE_DORIS("remote_doris");
+import org.apache.doris.catalog.KeysType;
 
-    private final String tableFormatType;
+import lombok.Data;
 
-    TableFormatType(String tableFormatType) {
-        this.tableFormatType = tableFormatType;
-    }
+import java.util.List;
 
-    public String value() {
-        return tableFormatType;
-    }
+@Data
+public class GsonSchemaResponse {
+    List<String> jsonColumns;
+    KeysType keysType;
 }
