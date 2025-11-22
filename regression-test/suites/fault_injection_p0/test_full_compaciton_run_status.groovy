@@ -71,7 +71,11 @@ suite("test_full_compaction_run_status","nonConcurrent") {
                 logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
                 ++times
                 sleep(1000)
-            } while (parseJson(out.trim()).status.toLowerCase()!="success" && times<=10)
+
+                if (parseJson(out.trim()).status.toLowerCase()=="success" || times>10) {
+                    break
+                }
+            } while (true)
 
             def (code, out, err) = be_get_compaction_status(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
             logger.info("Get compaction status: code=" + code + ", out=" + out + ", err=" + err)
