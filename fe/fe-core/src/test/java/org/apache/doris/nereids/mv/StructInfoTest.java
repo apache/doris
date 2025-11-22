@@ -66,6 +66,131 @@ public class StructInfoTest extends SqlTestBase {
     }
 
     @Test
+    public void testPlanPatternCheckerLimitAboveAgg() {
+        PlanChecker.from(connectContext)
+                .checkExplain("select o_orderkey\n"
+                                + "from (select o_orderkey from orders_arr group by o_orderkey) orders_a\n"
+                                + "limit 10",
+                        nereidsPlanner -> {
+                            Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
+                            PlanCheckContext planCheckContext = new PlanCheckContext(
+                                    AbstractMaterializedViewJoinRule.SUPPORTED_JOIN_TYPE_SET);
+                            Boolean valid = rewrittenPlan.child(0).accept(
+                                    StructInfo.PLAN_PATTERN_CHECKER, planCheckContext);
+                            Assertions.assertTrue(valid);
+                            Assertions.assertEquals(1, planCheckContext.getTopLimitNum());
+                            Assertions.assertTrue(planCheckContext.isContainsTopLimit());
+
+                            Assertions.assertTrue(planCheckContext.isAlreadyMeetLimitForbiddenNode());
+                            Assertions.assertEquals(0, planCheckContext.getTopTopNNum());
+                            Assertions.assertFalse(planCheckContext.isContainsTopTopN());
+                        });
+    }
+
+    @Test
+    public void testPlanPatternCheckerLimitUnderAgg() {
+        PlanChecker.from(connectContext)
+                .checkExplain("select o_orderkey, count(*)\n"
+                                + "from (select o_orderkey from orders_arr limit 10) orders_a\n"
+                                + "group by o_orderkey",
+                        nereidsPlanner -> {
+
+                            Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
+                            PlanCheckContext planCheckContext = new PlanCheckContext(
+                                    AbstractMaterializedViewJoinRule.SUPPORTED_JOIN_TYPE_SET);
+                            Boolean valid = rewrittenPlan.child(0).accept(
+                                    StructInfo.PLAN_PATTERN_CHECKER, planCheckContext);
+
+                            Assertions.assertFalse(valid);
+                            Assertions.assertEquals(0, planCheckContext.getTopLimitNum());
+                            Assertions.assertFalse(planCheckContext.isContainsTopLimit());
+
+                            Assertions.assertTrue(planCheckContext.isAlreadyMeetLimitForbiddenNode());
+                            Assertions.assertEquals(0, planCheckContext.getTopTopNNum());
+                            Assertions.assertFalse(planCheckContext.isContainsTopTopN());
+                        });
+    }
+
+    @Test
+    public void testPlanPatternCheckerTopNAboveAgg() {
+        PlanChecker.from(connectContext)
+                .checkExplain("select o_orderkey\n"
+                                + "from (select o_orderkey from orders_arr group by o_orderkey) orders_a\n"
+                                + "order by o_orderkey limit 10",
+                        nereidsPlanner -> {
+                            Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
+                            PlanCheckContext planCheckContext = new PlanCheckContext(
+                                    AbstractMaterializedViewJoinRule.SUPPORTED_JOIN_TYPE_SET);
+                            Boolean valid = rewrittenPlan.child(0).accept(
+                                    StructInfo.PLAN_PATTERN_CHECKER, planCheckContext);
+                            Assertions.assertTrue(valid);
+                            Assertions.assertEquals(0, planCheckContext.getTopLimitNum());
+                            Assertions.assertFalse(planCheckContext.isContainsTopLimit());
+
+                            Assertions.assertTrue(planCheckContext.isAlreadyMeetLimitForbiddenNode());
+                            Assertions.assertEquals(1, planCheckContext.getTopTopNNum());
+                            Assertions.assertTrue(planCheckContext.isContainsTopTopN());
+                        });
+    }
+
+    @Test
+    public void testPlanPatternCheckerTopNUnderAgg() {
+        PlanChecker.from(connectContext)
+                .checkExplain("select o_orderkey, count(*)\n"
+                                + "from (select o_orderkey from orders_arr order by o_orderkey limit 10) orders_a\n"
+                                + "group by o_orderkey",
+                        nereidsPlanner -> {
+                            Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
+                            PlanCheckContext planCheckContext = new PlanCheckContext(
+                                    AbstractMaterializedViewJoinRule.SUPPORTED_JOIN_TYPE_SET);
+                            Boolean valid = rewrittenPlan.child(0).accept(
+                                    StructInfo.PLAN_PATTERN_CHECKER, planCheckContext);
+
+                            Assertions.assertFalse(valid);
+                            Assertions.assertEquals(0, planCheckContext.getTopLimitNum());
+                            Assertions.assertFalse(planCheckContext.isContainsTopLimit());
+
+                            Assertions.assertTrue(planCheckContext.isAlreadyMeetLimitForbiddenNode());
+                            Assertions.assertEquals(0, planCheckContext.getTopTopNNum());
+                            Assertions.assertFalse(planCheckContext.isContainsTopTopN());
+                        });
+    }
+
+    @Test
+    public void testCheckLimitTmpRewrittenPlanInValid() {
+        PlanChecker.from(connectContext)
+                .checkExplain("select o_orderkey, c2\n"
+                                + "from (select o_orderkey from orders_arr limit 1) orders_a\n"
+                                + "LATERAL VIEW explode_numbers(0) t1 as c2\n"
+                                + "order by c2;",
+                        nereidsPlanner -> {
+
+                            Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan().child(0);
+                            Assertions.assertFalse(StructInfo.checkLimitTmpRewrittenPlanIsValid(rewrittenPlan));
+                        });
+    }
+
+    @Test
+    public void testCheckLimitTmpRewrittenPlanIsInValid() {
+        PlanChecker.from(connectContext)
+                .checkExplain("select o_orderkey from orders_arr limit 1",
+                        nereidsPlanner -> {
+                            Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan().child(0);
+                            Assertions.assertFalse(StructInfo.checkLimitTmpRewrittenPlanIsValid(rewrittenPlan));
+                        });
+    }
+
+    @Test
+    public void testCheckLimitTmpRewrittenPlanIsValid() {
+        PlanChecker.from(connectContext)
+                .checkExplain("select o_orderkey from orders_arr",
+                        nereidsPlanner -> {
+                            Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan().child(0);
+                            Assertions.assertTrue(StructInfo.checkLimitTmpRewrittenPlanIsValid(rewrittenPlan));
+                        });
+    }
+
+    @Test
     public void testPlanPatternCheckerWindowAboveAgg() {
         PlanChecker.from(connectContext)
                 .checkExplain("select \n"

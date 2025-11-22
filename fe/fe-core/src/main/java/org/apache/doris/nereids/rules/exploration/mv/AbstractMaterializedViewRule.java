@@ -31,6 +31,7 @@ import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.jobs.executor.Rewriter;
 import org.apache.doris.nereids.properties.LogicalProperties;
+import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.rules.exploration.ExplorationRuleFactory;
 import org.apache.doris.nereids.rules.exploration.mv.Predicates.ExpressionInfo;
 import org.apache.doris.nereids.rules.exploration.mv.Predicates.SplitPredicate;
@@ -58,6 +59,7 @@ import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.types.VariantType;
@@ -68,6 +70,7 @@ import org.apache.doris.statistics.Statistics;
 
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Multimap;
@@ -549,51 +552,6 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
     }
 
     /**
-     * Derive the operative column for materialized view scan, if the operative column in query can be
-     * represented by the operative column in materialized view, then set the operative column in
-     * materialized view scan, otherwise return the materialized view scan without operative column
-     */
-    private static Plan deriveOperativeColumn(Plan rewrittenPlan, StructInfo queryStructInfo,
-            ExpressionMapping targetExpressionMapping, SlotMapping targetToSourceMapping,
-            MaterializationContext materializationContext) {
-        ExpressionMapping expressionMappingKeySourceBased = targetExpressionMapping.keyPermute(targetToSourceMapping);
-        // target to target replacement expression mapping, because mv is 1:1 so get first element
-        List<Map<Expression, Expression>> flattenExpressionMap = expressionMappingKeySourceBased.flattenMap();
-        Map<Expression, Expression> targetToTargetReplacementMappingQueryBased =
-                flattenExpressionMap.get(0);
-        final Multimap<NamedExpression, Slot> slotMapping = ArrayListMultimap.create();
-        for (Map.Entry<Expression, Expression> entry : targetToTargetReplacementMappingQueryBased.entrySet()) {
-            if (entry.getValue() instanceof Slot) {
-                entry.getKey().collect(NamedExpression.class::isInstance).forEach(
-                        namedExpression -> slotMapping.put(
-                                (NamedExpression) namedExpression, (Slot) entry.getValue()));
-            }
-        }
-        Set<Slot> operativeSlots = new HashSet<>();
-        for (CatalogRelation relation : queryStructInfo.getRelations()) {
-            List<Slot> relationOperativeSlots = relation.getOperativeSlots();
-            if (relationOperativeSlots.isEmpty()) {
-                continue;
-            }
-            for (Slot slot : relationOperativeSlots) {
-                Collection<Slot> mvOutputSlots = slotMapping.get(slot);
-                if (!mvOutputSlots.isEmpty()) {
-                    operativeSlots.addAll(mvOutputSlots);
-                }
-            }
-        }
-        return rewrittenPlan.accept(new DefaultPlanRewriter<MaterializationContext>() {
-            @Override
-            public Plan visitLogicalOlapScan(LogicalOlapScan olapScan, MaterializationContext context) {
-                if (context.generateMaterializationIdentifier().equals(olapScan.getTable().getFullQualifiers())) {
-                    return olapScan.withOperativeSlots(operativeSlots);
-                }
-                return super.visitLogicalOlapScan(olapScan, context);
-            }
-        }, materializationContext);
-    }
-
-    /**
      * Use target expression to represent the source expression. Visit the source expression,
      * try to replace the source expression with target expression in targetExpressionMapping, if found then
      * replace the source expression by target expression mapping value.
@@ -751,6 +709,51 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                         constructElementAt(minExpr, minCompensateName));
             }
         }
+    }
+
+    /**
+     * Derive the operative column for materialized view scan, if the operative column in query can be
+     * represented by the operative column in materialized view, then set the operative column in
+     * materialized view scan, otherwise return the materialized view scan without operative column
+     */
+    private static Plan deriveOperativeColumn(Plan rewrittenPlan, StructInfo queryStructInfo,
+            ExpressionMapping targetExpressionMapping, SlotMapping targetToSourceMapping,
+            MaterializationContext materializationContext) {
+        ExpressionMapping expressionMappingKeySourceBased = targetExpressionMapping.keyPermute(targetToSourceMapping);
+        // target to target replacement expression mapping, because mv is 1:1 so get first element
+        List<Map<Expression, Expression>> flattenExpressionMap = expressionMappingKeySourceBased.flattenMap();
+        Map<Expression, Expression> targetToTargetReplacementMappingQueryBased =
+                flattenExpressionMap.get(0);
+        final Multimap<NamedExpression, Slot> slotMapping = ArrayListMultimap.create();
+        for (Map.Entry<Expression, Expression> entry : targetToTargetReplacementMappingQueryBased.entrySet()) {
+            if (entry.getValue() instanceof Slot) {
+                entry.getKey().collect(NamedExpression.class::isInstance).forEach(
+                        namedExpression -> slotMapping.put(
+                                (NamedExpression) namedExpression, (Slot) entry.getValue()));
+            }
+        }
+        Set<Slot> operativeSlots = new HashSet<>();
+        for (CatalogRelation relation : queryStructInfo.getRelations()) {
+            List<Slot> relationOperativeSlots = relation.getOperativeSlots();
+            if (relationOperativeSlots.isEmpty()) {
+                continue;
+            }
+            for (Slot slot : relationOperativeSlots) {
+                Collection<Slot> mvOutputSlots = slotMapping.get(slot);
+                if (!mvOutputSlots.isEmpty()) {
+                    operativeSlots.addAll(mvOutputSlots);
+                }
+            }
+        }
+        return rewrittenPlan.accept(new DefaultPlanRewriter<MaterializationContext>() {
+            @Override
+            public Plan visitLogicalOlapScan(LogicalOlapScan olapScan, MaterializationContext context) {
+                if (context.generateMaterializationIdentifier().equals(olapScan.getTable().getFullQualifiers())) {
+                    return olapScan.withOperativeSlots(operativeSlots);
+                }
+                return super.visitLogicalOlapScan(olapScan, context);
+            }
+        }, materializationContext);
     }
 
     private static Expression constructElementAt(Expression target, List<String> atList) {
@@ -1033,5 +1036,91 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
          * Except for COMPLETE and VIEW_PARTIAL and QUERY_PARTIAL
          */
         NOT_MATCH
+    }
+
+    /**
+     * Try rewrite topN node
+     */
+    protected Plan tryRewriteTopN(LogicalTopN<Plan> queryTopNode, LogicalTopN<Plan> viewTopNode,
+            SlotMapping viewToQuerySlotMapping, Plan tmpRwritePlan, StructInfo queryStructInfo,
+            StructInfo viewStructInfo, MaterializationContext materializationContext, CascadesContext cascadesContext) {
+        if (queryTopNode == null || viewTopNode == null) {
+            materializationContext.recordFailReason(queryStructInfo,
+                    "query topN rewrite fail, queryLimitNode or viewLimitNode is null",
+                    () -> String.format("queryTopNode = %s,\n viewTopNode = %s,\n",
+                            queryTopNode, viewTopNode));
+            return null;
+        }
+        Pair<Long, Long> limitAndOffset = AbstractMaterializedViewLimitOrTopNRule.rewriteLimitAndOffset(
+                Pair.of(queryTopNode.getLimit(), queryTopNode.getOffset()),
+                Pair.of(viewTopNode.getLimit(), viewTopNode.getOffset()));
+        if (limitAndOffset == null) {
+            materializationContext.recordFailReason(queryStructInfo,
+                    "query topN limit and offset rewrite fail, query topN is not consistent with view topN",
+                    () -> String.format("query topN = %s,\n view topN = %s,\n",
+                            queryTopNode.treeString(),
+                            viewTopNode.treeString()));
+            return null;
+        }
+        // check the order keys of TopN between query and view is consistent
+        List<OrderKey> queryOrderKeys = queryTopNode.getOrderKeys();
+        List<OrderKey> viewOrderKeys = viewTopNode.getOrderKeys();
+        if (queryOrderKeys.size() != viewOrderKeys.size()) {
+            materializationContext.recordFailReason(queryStructInfo,
+                    "query topN order keys size is not consistent with view topN order keys size",
+                    () -> String.format("query topN order keys = %s,\n view topN order keys = %s,\n",
+                            queryOrderKeys, viewOrderKeys));
+            return null;
+        }
+        List<Expression> queryOrderKeysExpressions = queryOrderKeys.stream()
+                .map(OrderKey::getExpr).collect(Collectors.toList());
+        List<? extends Expression> queryOrderByExpressionsShuttled = ExpressionUtils.shuttleExpressionWithLineage(
+                queryOrderKeysExpressions, queryStructInfo.getTopPlan(), queryStructInfo.getTableBitSet());
+
+        List<OrderKey> queryShuttledOrderKeys = new ArrayList<>();
+        for (int i = 0; i < queryOrderKeys.size(); i++) {
+            OrderKey queryOrderKey = queryOrderKeys.get(i);
+            queryShuttledOrderKeys.add(new OrderKey(queryOrderByExpressionsShuttled.get(i), queryOrderKey.isAsc(),
+                    queryOrderKey.isNullFirst()));
+        }
+        List<OrderKey> viewShuttledOrderKeys = new ArrayList<>();
+        List<? extends Expression> viewOrderByExpressionsShuttled = ExpressionUtils.shuttleExpressionWithLineage(
+                viewOrderKeys.stream().map(OrderKey::getExpr).collect(Collectors.toList()),
+                viewStructInfo.getTopPlan(), new BitSet());
+        List<Expression> viewOrderByExpressionsQueryBasedSet = ExpressionUtils.replace(
+                viewOrderByExpressionsShuttled.stream().map(Expression.class::cast).collect(Collectors.toList()),
+                viewToQuerySlotMapping.toSlotReferenceMap());
+        for (int j = 0; j < viewOrderKeys.size(); j++) {
+            OrderKey viewOrderKey = viewOrderKeys.get(j);
+            viewShuttledOrderKeys.add(new OrderKey(viewOrderByExpressionsQueryBasedSet.get(j), viewOrderKey.isAsc(),
+                    viewOrderKey.isNullFirst()));
+        }
+        if (!queryShuttledOrderKeys.equals(viewShuttledOrderKeys)) {
+            materializationContext.recordFailReason(queryStructInfo,
+                    "view topN order key doesn't match query order key",
+                    () -> String.format("queryShuttledOrderKeys = %s,\n viewShuttledOrderKeys = %s,\n",
+                            queryShuttledOrderKeys, viewShuttledOrderKeys));
+            return null;
+        }
+
+        // try to rewrite the order by expressions using the mv scan slot
+        List<Expression> rewrittenExpressions = rewriteExpression(queryOrderKeysExpressions,
+                queryStructInfo.getTopPlan(), materializationContext.shuttledExprToScanExprMapping,
+                viewToQuerySlotMapping, queryStructInfo.getTableBitSet(), ImmutableMap.of(), cascadesContext);
+        if (rewrittenExpressions.isEmpty()) {
+            materializationContext.recordFailReason(queryStructInfo,
+                    "query topN order keys rewrite fail, query topN order keys is not consistent "
+                            + "with view topN order keys",
+                    () -> String.format("query topN order keys = %s,\n shuttledExprToScanExprMapping = %s,\n",
+                            queryOrderKeysExpressions, materializationContext.shuttledExprToScanExprMapping));
+            return null;
+        }
+        List<OrderKey> rewrittenOrderKeys = new ArrayList<>();
+        for (int i = 0; i < rewrittenExpressions.size(); i++) {
+            OrderKey queryOrderKey = queryOrderKeys.get(i);
+            rewrittenOrderKeys.add(new OrderKey(rewrittenExpressions.get(i), queryOrderKey.isAsc(),
+                    queryOrderKey.isNullFirst()));
+        }
+        return new LogicalTopN<>(rewrittenOrderKeys, limitAndOffset.key(), limitAndOffset.value(), tmpRwritePlan);
     }
 }
