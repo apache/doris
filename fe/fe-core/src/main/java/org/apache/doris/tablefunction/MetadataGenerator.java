@@ -66,6 +66,8 @@ import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergMetadataCache;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalCatalog;
 import org.apache.doris.datasource.mvcc.MvccUtil;
+import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
+import org.apache.doris.datasource.paimon.PaimonMetadataCache;
 import org.apache.doris.job.common.JobType;
 import org.apache.doris.job.extensions.insert.streaming.StreamingInsertJob;
 import org.apache.doris.job.extensions.insert.streaming.StreamingInsertTask;
@@ -122,12 +124,16 @@ import org.apache.hudi.common.table.timeline.HoodieInstant;
 import org.apache.hudi.common.table.timeline.HoodieTimeline;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.apache.paimon.catalog.CachingCatalog;
+import org.apache.paimon.catalog.CachingCatalog.CacheSizes;
+import org.apache.paimon.catalog.Catalog;
 import org.apache.thrift.TException;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
@@ -1584,6 +1590,27 @@ public class MetadataGenerator {
                 // 3. iceberg cache
                 IcebergMetadataCache icebergCache = mgr.getIcebergMetadataCache();
                 fillBatch(dataBatch, icebergCache.getCacheStats(), catalogIf.getName());
+            } else if (catalogIf instanceof PaimonExternalCatalog) {
+                PaimonExternalCatalog paimonExternalCatalog = (PaimonExternalCatalog) catalogIf;
+                PaimonMetadataCache paimonMetadataCache = mgr.getPaimonMetadataCache();
+                Catalog paimonCatalog = paimonExternalCatalog.getOriginCatalog();
+                Map<String, Map<String, String>> paimonCacheStats = new HashMap<>(paimonMetadataCache.getCacheStats());
+
+                if (paimonCatalog instanceof CachingCatalog) {
+                    CachingCatalog cachingCatalog = (CachingCatalog) paimonCatalog;
+                    CacheSizes cacheSizes = cachingCatalog.estimatedCacheSizes();
+
+                    Map<String, String> stats = new HashMap<>();
+                    stats.put("database_cache_size", String.valueOf(cacheSizes.databaseCacheSize()));
+                    stats.put("table_cache_size", String.valueOf(cacheSizes.tableCacheSize()));
+                    stats.put("manifest_cache_size", String.valueOf(cacheSizes.manifestCacheSize()));
+                    stats.put("manifest_cache_bytes", String.valueOf(cacheSizes.manifestCacheBytes()));
+                    stats.put("partition_cache_size", String.valueOf(cacheSizes.partitionCacheSize()));
+
+                    paimonCacheStats.put("paimon_origin_cache_catalog", stats);
+                }
+
+                fillBatch(dataBatch, paimonCacheStats, catalogIf.getName());
             }
         }
         result.setDataBatch(dataBatch);
