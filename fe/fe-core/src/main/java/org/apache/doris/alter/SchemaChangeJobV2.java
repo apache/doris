@@ -560,7 +560,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 implements GsonPostProcessable
                                     tableId, partitionId, shadowIdxId, originIdxId, shadowTabletId, originTabletId,
                                     shadowReplica.getId(), shadowSchemaHash, originSchemaHash, visibleVersion, jobId,
                                     JobType.SCHEMA_CHANGE, defineExprs, descTable, originSchemaColumns, objectPool,
-                                    null, expiration, vaultId);
+                                    null, expiration, vaultId, queryOptions, queryGlobals);
                             schemaChangeBatchTask.addTask(rollupTask);
                         }
                     }
