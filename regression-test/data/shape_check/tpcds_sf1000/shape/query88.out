@@ -14,17 +14,17 @@ PhysicalResultSink
 ----------------------PhysicalProject
 ------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_store_sk = store.s_store_sk)) otherCondition=() build RFs:RF23 s_store_sk->[ss_store_sk]
 --------------------------PhysicalProject
-----------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_hdemo_sk = household_demographics.hd_demo_sk)) otherCondition=() build RFs:RF22 hd_demo_sk->[ss_hdemo_sk]
+----------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_sold_time_sk = time_dim.t_time_sk)) otherCondition=() build RFs:RF22 t_time_sk->[ss_sold_time_sk]
 ------------------------------PhysicalProject
---------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_sold_time_sk = time_dim.t_time_sk)) otherCondition=() build RFs:RF21 t_time_sk->[ss_sold_time_sk]
+--------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_hdemo_sk = household_demographics.hd_demo_sk)) otherCondition=() build RFs:RF21 ss_hdemo_sk->[hd_demo_sk]
 ----------------------------------PhysicalProject
-------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF21 RF22 RF23
+------------------------------------filter((household_demographics.hd_vehicle_count <= 5) and OR[AND[(household_demographics.hd_dep_count = 0),(household_demographics.hd_vehicle_count <= 2)],AND[(household_demographics.hd_dep_count = -1),(household_demographics.hd_vehicle_count <= 1)],(household_demographics.hd_dep_count = 3)] and hd_dep_count IN (-1, 0, 3))
+--------------------------------------PhysicalOlapScan[household_demographics] apply RFs: RF21
 ----------------------------------PhysicalProject
-------------------------------------filter((time_dim.t_hour = 8) and (time_dim.t_minute >= 30))
---------------------------------------PhysicalOlapScan[time_dim]
+------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF22 RF23
 ------------------------------PhysicalProject
---------------------------------filter((household_demographics.hd_vehicle_count <= 5) and OR[AND[(household_demographics.hd_dep_count = 0),(household_demographics.hd_vehicle_count <= 2)],AND[(household_demographics.hd_dep_count = -1),(household_demographics.hd_vehicle_count <= 1)],(household_demographics.hd_dep_count = 3)] and hd_dep_count IN (-1, 0, 3))
-----------------------------------PhysicalOlapScan[household_demographics]
+--------------------------------filter((time_dim.t_hour = 8) and (time_dim.t_minute >= 30))
+----------------------------------PhysicalOlapScan[time_dim]
 --------------------------PhysicalProject
 ----------------------------filter((store.s_store_name = 'ese'))
 ------------------------------PhysicalOlapScan[store]
@@ -34,17 +34,17 @@ PhysicalResultSink
 ----------------------PhysicalProject
 ------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_store_sk = store.s_store_sk)) otherCondition=() build RFs:RF20 s_store_sk->[ss_store_sk]
 --------------------------PhysicalProject
-----------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_hdemo_sk = household_demographics.hd_demo_sk)) otherCondition=() build RFs:RF19 hd_demo_sk->[ss_hdemo_sk]
+----------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_sold_time_sk = time_dim.t_time_sk)) otherCondition=() build RFs:RF19 t_time_sk->[ss_sold_time_sk]
 ------------------------------PhysicalProject
---------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_sold_time_sk = time_dim.t_time_sk)) otherCondition=() build RFs:RF18 t_time_sk->[ss_sold_time_sk]
+--------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_hdemo_sk = household_demographics.hd_demo_sk)) otherCondition=() build RFs:RF18 ss_hdemo_sk->[hd_demo_sk]
 ----------------------------------PhysicalProject
-------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF18 RF19 RF20
+------------------------------------filter((household_demographics.hd_vehicle_count <= 5) and OR[AND[(household_demographics.hd_dep_count = 0),(household_demographics.hd_vehicle_count <= 2)],AND[(household_demographics.hd_dep_count = -1),(household_demographics.hd_vehicle_count <= 1)],(household_demographics.hd_dep_count = 3)] and hd_dep_count IN (-1, 0, 3))
+--------------------------------------PhysicalOlapScan[household_demographics] apply RFs: RF18
 ----------------------------------PhysicalProject
-------------------------------------filter((time_dim.t_hour = 9) and (time_dim.t_minute < 30))
---------------------------------------PhysicalOlapScan[time_dim]
+------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF19 RF20
 ------------------------------PhysicalProject
---------------------------------filter((household_demographics.hd_vehicle_count <= 5) and OR[AND[(household_demographics.hd_dep_count = 0),(household_demographics.hd_vehicle_count <= 2)],AND[(household_demographics.hd_dep_count = -1),(household_demographics.hd_vehicle_count <= 1)],(household_demographics.hd_dep_count = 3)] and hd_dep_count IN (-1, 0, 3))
-----------------------------------PhysicalOlapScan[household_demographics]
+--------------------------------filter((time_dim.t_hour = 9) and (time_dim.t_minute < 30))
+----------------------------------PhysicalOlapScan[time_dim]
 --------------------------PhysicalProject
 ----------------------------filter((store.s_store_name = 'ese'))
 ------------------------------PhysicalOlapScan[store]
@@ -54,17 +54,17 @@ PhysicalResultSink
 --------------------PhysicalProject
 ----------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_store_sk = store.s_store_sk)) otherCondition=() build RFs:RF17 s_store_sk->[ss_store_sk]
 ------------------------PhysicalProject
---------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_hdemo_sk = household_demographics.hd_demo_sk)) otherCondition=() build RFs:RF16 hd_demo_sk->[ss_hdemo_sk]
+--------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_sold_time_sk = time_dim.t_time_sk)) otherCondition=() build RFs:RF16 t_time_sk->[ss_sold_time_sk]
 ----------------------------PhysicalProject
-------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_sold_time_sk = time_dim.t_time_sk)) otherCondition=() build RFs:RF15 t_time_sk->[ss_sold_time_sk]
+------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_hdemo_sk = household_demographics.hd_demo_sk)) otherCondition=() build RFs:RF15 ss_hdemo_sk->[hd_demo_sk]
 --------------------------------PhysicalProject
-----------------------------------PhysicalOlapScan[store_sales] apply RFs: RF15 RF16 RF17
+----------------------------------filter((household_demographics.hd_vehicle_count <= 5) and OR[AND[(household_demographics.hd_dep_count = 0),(household_demographics.hd_vehicle_count <= 2)],AND[(household_demographics.hd_dep_count = -1),(household_demographics.hd_vehicle_count <= 1)],(household_demographics.hd_dep_count = 3)] and hd_dep_count IN (-1, 0, 3))
+------------------------------------PhysicalOlapScan[household_demographics] apply RFs: RF15
 --------------------------------PhysicalProject
-----------------------------------filter((time_dim.t_hour = 9) and (time_dim.t_minute >= 30))
-------------------------------------PhysicalOlapScan[time_dim]
+----------------------------------PhysicalOlapScan[store_sales] apply RFs: RF16 RF17
 ----------------------------PhysicalProject
-------------------------------filter((household_demographics.hd_vehicle_count <= 5) and OR[AND[(household_demographics.hd_dep_count = 0),(household_demographics.hd_vehicle_count <= 2)],AND[(household_demographics.hd_dep_count = -1),(household_demographics.hd_vehicle_count <= 1)],(household_demographics.hd_dep_count = 3)] and hd_dep_count IN (-1, 0, 3))
---------------------------------PhysicalOlapScan[household_demographics]
+------------------------------filter((time_dim.t_hour = 9) and (time_dim.t_minute >= 30))
+--------------------------------PhysicalOlapScan[time_dim]
 ------------------------PhysicalProject
 --------------------------filter((store.s_store_name = 'ese'))
 ----------------------------PhysicalOlapScan[store]
@@ -74,17 +74,17 @@ PhysicalResultSink
 ------------------PhysicalProject
 --------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_store_sk = store.s_store_sk)) otherCondition=() build RFs:RF14 s_store_sk->[ss_store_sk]
 ----------------------PhysicalProject
-------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_hdemo_sk = household_demographics.hd_demo_sk)) otherCondition=() build RFs:RF13 hd_demo_sk->[ss_hdemo_sk]
+------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_sold_time_sk = time_dim.t_time_sk)) otherCondition=() build RFs:RF13 t_time_sk->[ss_sold_time_sk]
 --------------------------PhysicalProject
-----------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_sold_time_sk = time_dim.t_time_sk)) otherCondition=() build RFs:RF12 t_time_sk->[ss_sold_time_sk]
+----------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_hdemo_sk = household_demographics.hd_demo_sk)) otherCondition=() build RFs:RF12 ss_hdemo_sk->[hd_demo_sk]
 ------------------------------PhysicalProject
---------------------------------PhysicalOlapScan[store_sales] apply RFs: RF12 RF13 RF14
+--------------------------------filter((household_demographics.hd_vehicle_count <= 5) and OR[AND[(household_demographics.hd_dep_count = 0),(household_demographics.hd_vehicle_count <= 2)],AND[(household_demographics.hd_dep_count = -1),(household_demographics.hd_vehicle_count <= 1)],(household_demographics.hd_dep_count = 3)] and hd_dep_count IN (-1, 0, 3))
+----------------------------------PhysicalOlapScan[household_demographics] apply RFs: RF12
 ------------------------------PhysicalProject
---------------------------------filter((time_dim.t_hour = 10) and (time_dim.t_minute < 30))
-----------------------------------PhysicalOlapScan[time_dim]
+--------------------------------PhysicalOlapScan[store_sales] apply RFs: RF13 RF14
 --------------------------PhysicalProject
-----------------------------filter((household_demographics.hd_vehicle_count <= 5) and OR[AND[(household_demographics.hd_dep_count = 0),(household_demographics.hd_vehicle_count <= 2)],AND[(household_demographics.hd_dep_count = -1),(household_demographics.hd_vehicle_count <= 1)],(household_demographics.hd_dep_count = 3)] and hd_dep_count IN (-1, 0, 3))
-------------------------------PhysicalOlapScan[household_demographics]
+----------------------------filter((time_dim.t_hour = 10) and (time_dim.t_minute < 30))
+------------------------------PhysicalOlapScan[time_dim]
 ----------------------PhysicalProject
 ------------------------filter((store.s_store_name = 'ese'))
 --------------------------PhysicalOlapScan[store]
@@ -94,17 +94,17 @@ PhysicalResultSink
 ----------------PhysicalProject
 ------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_store_sk = store.s_store_sk)) otherCondition=() build RFs:RF11 s_store_sk->[ss_store_sk]
 --------------------PhysicalProject
-----------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_hdemo_sk = household_demographics.hd_demo_sk)) otherCondition=() build RFs:RF10 hd_demo_sk->[ss_hdemo_sk]
+----------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_sold_time_sk = time_dim.t_time_sk)) otherCondition=() build RFs:RF10 t_time_sk->[ss_sold_time_sk]
 ------------------------PhysicalProject
---------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_sold_time_sk = time_dim.t_time_sk)) otherCondition=() build RFs:RF9 t_time_sk->[ss_sold_time_sk]
+--------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_hdemo_sk = household_demographics.hd_demo_sk)) otherCondition=() build RFs:RF9 ss_hdemo_sk->[hd_demo_sk]
 ----------------------------PhysicalProject
-------------------------------PhysicalOlapScan[store_sales] apply RFs: RF9 RF10 RF11
+------------------------------filter((household_demographics.hd_vehicle_count <= 5) and OR[AND[(household_demographics.hd_dep_count = 0),(household_demographics.hd_vehicle_count <= 2)],AND[(household_demographics.hd_dep_count = -1),(household_demographics.hd_vehicle_count <= 1)],(household_demographics.hd_dep_count = 3)] and hd_dep_count IN (-1, 0, 3))
+--------------------------------PhysicalOlapScan[household_demographics] apply RFs: RF9
 ----------------------------PhysicalProject
-------------------------------filter((time_dim.t_hour = 10) and (time_dim.t_minute >= 30))
---------------------------------PhysicalOlapScan[time_dim]
+------------------------------PhysicalOlapScan[store_sales] apply RFs: RF10 RF11
 ------------------------PhysicalProject
---------------------------filter((household_demographics.hd_vehicle_count <= 5) and OR[AND[(household_demographics.hd_dep_count = 0),(household_demographics.hd_vehicle_count <= 2)],AND[(household_demographics.hd_dep_count = -1),(household_demographics.hd_vehicle_count <= 1)],(household_demographics.hd_dep_count = 3)] and hd_dep_count IN (-1, 0, 3))
-----------------------------PhysicalOlapScan[household_demographics]
+--------------------------filter((time_dim.t_hour = 10) and (time_dim.t_minute >= 30))
+----------------------------PhysicalOlapScan[time_dim]
 --------------------PhysicalProject
 ----------------------filter((store.s_store_name = 'ese'))
 ------------------------PhysicalOlapScan[store]
@@ -114,17 +114,17 @@ PhysicalResultSink
 --------------PhysicalProject
 ----------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_store_sk = store.s_store_sk)) otherCondition=() build RFs:RF8 s_store_sk->[ss_store_sk]
 ------------------PhysicalProject
---------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_hdemo_sk = household_demographics.hd_demo_sk)) otherCondition=() build RFs:RF7 hd_demo_sk->[ss_hdemo_sk]
+--------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_sold_time_sk = time_dim.t_time_sk)) otherCondition=() build RFs:RF7 t_time_sk->[ss_sold_time_sk]
 ----------------------PhysicalProject
-------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_sold_time_sk = time_dim.t_time_sk)) otherCondition=() build RFs:RF6 t_time_sk->[ss_sold_time_sk]
+------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_hdemo_sk = household_demographics.hd_demo_sk)) otherCondition=() build RFs:RF6 ss_hdemo_sk->[hd_demo_sk]
 --------------------------PhysicalProject
-----------------------------PhysicalOlapScan[store_sales] apply RFs: RF6 RF7 RF8
+----------------------------filter((household_demographics.hd_vehicle_count <= 5) and OR[AND[(household_demographics.hd_dep_count = 0),(household_demographics.hd_vehicle_count <= 2)],AND[(household_demographics.hd_dep_count = -1),(household_demographics.hd_vehicle_count <= 1)],(household_demographics.hd_dep_count = 3)] and hd_dep_count IN (-1, 0, 3))
+------------------------------PhysicalOlapScan[household_demographics] apply RFs: RF6
 --------------------------PhysicalProject
-----------------------------filter((time_dim.t_hour = 11) and (time_dim.t_minute < 30))
-------------------------------PhysicalOlapScan[time_dim]
+----------------------------PhysicalOlapScan[store_sales] apply RFs: RF7 RF8
 ----------------------PhysicalProject
-------------------------filter((household_demographics.hd_vehicle_count <= 5) and OR[AND[(household_demographics.hd_dep_count = 0),(household_demographics.hd_vehicle_count <= 2)],AND[(household_demographics.hd_dep_count = -1),(household_demographics.hd_vehicle_count <= 1)],(household_demographics.hd_dep_count = 3)] and hd_dep_count IN (-1, 0, 3))
---------------------------PhysicalOlapScan[household_demographics]
+------------------------filter((time_dim.t_hour = 11) and (time_dim.t_minute < 30))
+--------------------------PhysicalOlapScan[time_dim]
 ------------------PhysicalProject
 --------------------filter((store.s_store_name = 'ese'))
 ----------------------PhysicalOlapScan[store]
@@ -134,17 +134,17 @@ PhysicalResultSink
 ------------PhysicalProject
 --------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_store_sk = store.s_store_sk)) otherCondition=() build RFs:RF5 s_store_sk->[ss_store_sk]
 ----------------PhysicalProject
-------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_hdemo_sk = household_demographics.hd_demo_sk)) otherCondition=() build RFs:RF4 hd_demo_sk->[ss_hdemo_sk]
+------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_sold_time_sk = time_dim.t_time_sk)) otherCondition=() build RFs:RF4 t_time_sk->[ss_sold_time_sk]
 --------------------PhysicalProject
-----------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_sold_time_sk = time_dim.t_time_sk)) otherCondition=() build RFs:RF3 t_time_sk->[ss_sold_time_sk]
+----------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_hdemo_sk = household_demographics.hd_demo_sk)) otherCondition=() build RFs:RF3 ss_hdemo_sk->[hd_demo_sk]
 ------------------------PhysicalProject
---------------------------PhysicalOlapScan[store_sales] apply RFs: RF3 RF4 RF5
+--------------------------filter((household_demographics.hd_vehicle_count <= 5) and OR[AND[(household_demographics.hd_dep_count = 0),(household_demographics.hd_vehicle_count <= 2)],AND[(household_demographics.hd_dep_count = -1),(household_demographics.hd_vehicle_count <= 1)],(household_demographics.hd_dep_count = 3)] and hd_dep_count IN (-1, 0, 3))
+----------------------------PhysicalOlapScan[household_demographics] apply RFs: RF3
 ------------------------PhysicalProject
---------------------------filter((time_dim.t_hour = 11) and (time_dim.t_minute >= 30))
-----------------------------PhysicalOlapScan[time_dim]
+--------------------------PhysicalOlapScan[store_sales] apply RFs: RF4 RF5
 --------------------PhysicalProject
-----------------------filter((household_demographics.hd_vehicle_count <= 5) and OR[AND[(household_demographics.hd_dep_count = 0),(household_demographics.hd_vehicle_count <= 2)],AND[(household_demographics.hd_dep_count = -1),(household_demographics.hd_vehicle_count <= 1)],(household_demographics.hd_dep_count = 3)] and hd_dep_count IN (-1, 0, 3))
-------------------------PhysicalOlapScan[household_demographics]
+----------------------filter((time_dim.t_hour = 11) and (time_dim.t_minute >= 30))
+------------------------PhysicalOlapScan[time_dim]
 ----------------PhysicalProject
 ------------------filter((store.s_store_name = 'ese'))
 --------------------PhysicalOlapScan[store]
@@ -154,17 +154,17 @@ PhysicalResultSink
 ----------PhysicalProject
 ------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_store_sk = store.s_store_sk)) otherCondition=() build RFs:RF2 s_store_sk->[ss_store_sk]
 --------------PhysicalProject
-----------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_hdemo_sk = household_demographics.hd_demo_sk)) otherCondition=() build RFs:RF1 hd_demo_sk->[ss_hdemo_sk]
+----------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_sold_time_sk = time_dim.t_time_sk)) otherCondition=() build RFs:RF1 t_time_sk->[ss_sold_time_sk]
 ------------------PhysicalProject
---------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_sold_time_sk = time_dim.t_time_sk)) otherCondition=() build RFs:RF0 t_time_sk->[ss_sold_time_sk]
+--------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_hdemo_sk = household_demographics.hd_demo_sk)) otherCondition=() build RFs:RF0 ss_hdemo_sk->[hd_demo_sk]
 ----------------------PhysicalProject
-------------------------PhysicalOlapScan[store_sales] apply RFs: RF0 RF1 RF2
+------------------------filter((household_demographics.hd_vehicle_count <= 5) and OR[AND[(household_demographics.hd_dep_count = 0),(household_demographics.hd_vehicle_count <= 2)],AND[(household_demographics.hd_dep_count = -1),(household_demographics.hd_vehicle_count <= 1)],(household_demographics.hd_dep_count = 3)] and hd_dep_count IN (-1, 0, 3))
+--------------------------PhysicalOlapScan[household_demographics] apply RFs: RF0
 ----------------------PhysicalProject
-------------------------filter((time_dim.t_hour = 12) and (time_dim.t_minute < 30))
---------------------------PhysicalOlapScan[time_dim]
+------------------------PhysicalOlapScan[store_sales] apply RFs: RF1 RF2
 ------------------PhysicalProject
---------------------filter((household_demographics.hd_vehicle_count <= 5) and OR[AND[(household_demographics.hd_dep_count = 0),(household_demographics.hd_vehicle_count <= 2)],AND[(household_demographics.hd_dep_count = -1),(household_demographics.hd_vehicle_count <= 1)],(household_demographics.hd_dep_count = 3)] and hd_dep_count IN (-1, 0, 3))
-----------------------PhysicalOlapScan[household_demographics]
+--------------------filter((time_dim.t_hour = 12) and (time_dim.t_minute < 30))
+----------------------PhysicalOlapScan[time_dim]
 --------------PhysicalProject
 ----------------filter((store.s_store_name = 'ese'))
 ------------------PhysicalOlapScan[store]

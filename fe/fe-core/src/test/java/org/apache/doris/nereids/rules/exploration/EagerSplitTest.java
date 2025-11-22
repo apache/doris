@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules.exploration;
 
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.rules.rewrite.eageraggregation.legacy.EagerSplit;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.plans.JoinType;
