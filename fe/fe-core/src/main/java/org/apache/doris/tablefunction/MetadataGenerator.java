@@ -1608,45 +1608,30 @@ public class MetadataGenerator {
             return result;
         }
 
-        if (catalog instanceof InternalCatalog) {
-            if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(currentUserIdentity, catalog.getName(),
-                    databaseIf.getFullName(), PrivPredicate.SHOW)) {
-                result.setDataBatch(dataBatch);
-                result.setStatus(new TStatus(TStatusCode.OK));
-                return result;
-            }
-            Database db = (Database) databaseIf;
-            Map<String, String> props = db.getDbProperties().getProperties();
-            if (props == null || props.isEmpty()) {
-                TRow trow = new TRow();
-                trow.addToColumnValue(new TCell().setStringVal(catalog.getName()));
-                trow.addToColumnValue(new TCell().setStringVal(databaseIf.getFullName()));
-                trow.addToColumnValue(new TCell().setStringVal(""));
-                trow.addToColumnValue(new TCell().setStringVal(""));
-                dataBatch.add(trow);
-            } else {
-                props.forEach((key, value) -> {
-                    TRow trow = new TRow();
-                    trow.addToColumnValue(new TCell().setStringVal(catalog.getName()));
-                    trow.addToColumnValue(new TCell().setStringVal(databaseIf.getFullName()));
-                    trow.addToColumnValue(new TCell().setStringVal(key));
-                    trow.addToColumnValue(new TCell().setStringVal(value));
-                    dataBatch.add(trow);
-                });
-            }
-        } else if (catalog instanceof ExternalCatalog) {
-            if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(currentUserIdentity, catalog.getName(),
-                    databaseIf.getFullName(), PrivPredicate.SHOW)) {
-                result.setDataBatch(dataBatch);
-                result.setStatus(new TStatus(TStatusCode.OK));
-                return result;
-            }
+        if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(currentUserIdentity, catalog.getName(),
+                databaseIf.getFullName(), PrivPredicate.SHOW)) {
+            result.setDataBatch(dataBatch);
+            result.setStatus(new TStatus(TStatusCode.OK));
+            return result;
+        }
+        Map<String, String> props = databaseIf.getDbProperties() == null
+                ? null : databaseIf.getDbProperties().getProperties();
+        if (props == null || props.isEmpty()) {
             TRow trow = new TRow();
             trow.addToColumnValue(new TCell().setStringVal(catalog.getName()));
             trow.addToColumnValue(new TCell().setStringVal(databaseIf.getFullName()));
             trow.addToColumnValue(new TCell().setStringVal(""));
             trow.addToColumnValue(new TCell().setStringVal(""));
             dataBatch.add(trow);
+        } else {
+            props.forEach((key, value) -> {
+                TRow trow = new TRow();
+                trow.addToColumnValue(new TCell().setStringVal(catalog.getName()));
+                trow.addToColumnValue(new TCell().setStringVal(databaseIf.getFullName()));
+                trow.addToColumnValue(new TCell().setStringVal(key));
+                trow.addToColumnValue(new TCell().setStringVal(value));
+                dataBatch.add(trow);
+            });
         }
         result.setDataBatch(dataBatch);
         result.setStatus(new TStatus(TStatusCode.OK));
