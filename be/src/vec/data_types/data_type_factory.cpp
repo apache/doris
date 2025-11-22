@@ -460,8 +460,7 @@ DataTypePtr DataTypeFactory::create_data_type(const PrimitiveType primitive_type
         nested = std::make_shared<vectorized::DataTypeBitMap>();
         break;
     case TYPE_DECIMALV2:
-        nested = std::make_shared<vectorized::DataTypeDecimalV2>(
-                precision > 0 ? precision : 0, precision > 0 ? scale : 0, precision, scale);
+        nested = std::make_shared<vectorized::DataTypeDecimalV2>(27, 9, precision, scale);
         break;
     case TYPE_QUANTILE_STATE:
         nested = std::make_shared<vectorized::DataTypeQuantileState>();

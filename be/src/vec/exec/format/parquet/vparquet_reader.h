@@ -123,7 +123,8 @@ public:
             const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts,
             std::shared_ptr<TableSchemaChangeHelper::Node> table_info_node_ptr =
                     TableSchemaChangeHelper::ConstNode::get_instance(),
-            bool filter_groups = true);
+            bool filter_groups = true, const std::set<uint64_t>& column_ids = {},
+            const std::set<uint64_t>& filter_column_ids = {});
 
     Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
 
@@ -316,6 +317,8 @@ private:
                                                                                            -1};
 
     bool _filter_groups;
+    std::set<uint64_t> _column_ids;
+    std::set<uint64_t> _filter_column_ids;
 
     // for page index filter. slot id => expr
     std::map<int, std::vector<std::unique_ptr<ColumnPredicate>>> _push_down_simple_predicates;
