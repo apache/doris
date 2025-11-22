@@ -89,9 +89,11 @@ public class JdbcSapHanaClient extends JdbcClient {
             case "NCLOB":
             case "TEXT":
             case "BINTEXT":
+                return ScalarType.createStringType();
             case "BINARY":
             case "VARBINARY":
-                return ScalarType.createStringType();
+                return enableMappingVarbinary ? ScalarType.createVarbinaryType(fieldSchema.requiredColumnSize())
+                        : ScalarType.createStringType();
             case "BLOB":
             case "ST_GEOMETRY":
             case "ST_POINT":
