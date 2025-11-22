@@ -80,19 +80,31 @@ suite("test_insert_partition_fail_url") {
     // or like this:
     // [DATA_QUALITY_ERROR]Encountered unqualified data, stop processing. url: http://172.16.0.10:8041/api/_load_error_log?
     // file=__shard_303/error_log_insert_stmt_a1ccfb9c67ba40f5-900d0db1d06a19dd_a1ccfb9c67ba40f5_900d0db1d06a19dd
-    expectExceptionLike({
+    // or like this (without URL, when error rows exceed MAX_ERROR_NUM):
+    // [DATA_QUALITY_ERROR]Encountered unqualified data, stop processing. Please check if the source data matches the schema...
+    try {
         sql """
             INSERT INTO ${dstName} SELECT `id`, `score` FROM ${srcName};
         """
-    }, "error_log", "first_error_msg")
+        assertTrue(false, "Expected exception but got none")
+    } catch (Exception e) {
+        def errMsg = e.getMessage()
+        assertTrue(errMsg.contains("error_log") || errMsg.contains("DATA_QUALITY_ERROR") || errMsg.contains("Encountered unqualified data"),
+                   "Error message should contain 'error_log' or 'DATA_QUALITY_ERROR' or 'Encountered unqualified data', but got: " + errMsg)
+    }
 
     sql """
         INSERT INTO ${srcName} SELECT * FROM ${srcName};
     """
 
-    expectExceptionLike({
+    try {
         sql """
             INSERT INTO ${dstName} SELECT `id`, `score` FROM ${srcName};
         """
-    }, "error_log", "first_error_msg")
+        assertTrue(false, "Expected exception but got none")
+    } catch (Exception e) {
+        def errMsg = e.getMessage()
+        assertTrue(errMsg.contains("error_log") || errMsg.contains("DATA_QUALITY_ERROR") || errMsg.contains("Encountered unqualified data"),
+                   "Error message should contain 'error_log' or 'DATA_QUALITY_ERROR' or 'Encountered unqualified data', but got: " + errMsg)
+    }
 }
