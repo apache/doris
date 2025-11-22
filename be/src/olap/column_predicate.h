@@ -216,6 +216,10 @@ public:
         return false;
     }
 
+    virtual bool evaluate_and(const vectorized::ParquetBlockSplitBloomFilter* bf) const {
+        return true;
+    }
+
     virtual bool evaluate_and(const BloomFilter* bf) const { return true; }
 
     virtual bool evaluate_and(const StringRef* dict_words, const size_t dict_count) const {
