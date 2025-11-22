@@ -93,7 +93,7 @@ public class Lag extends WindowFunction implements TernaryExpression, Explicitly
     }
 
     @Override
-    public void checkLegalityBeforeTypeCoercion() {
+    public void checkLegalityAfterRewrite() {
         if (children().size() == 1) {
             return;
         }
