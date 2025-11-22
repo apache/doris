@@ -1673,6 +1673,18 @@ const TabletIndex* TabletSchema::get_ngram_bf_index(int32_t col_unique_id) const
     return nullptr;
 }
 
+const TabletIndex* TabletSchema::get_index(int32_t col_unique_id, IndexType index_type,
+                                           const std::string& suffix_path) const {
+    IndexKey index_key(index_type, col_unique_id, suffix_path);
+    auto it = _col_id_suffix_to_index.find(index_key);
+    if (it != _col_id_suffix_to_index.end()) {
+        if (!it->second.empty() && it->second[0] < _indexes.size()) {
+            return _indexes[it->second[0]].get();
+        }
+    }
+    return nullptr;
+}
+
 vectorized::Block TabletSchema::create_block(
         const std::vector<uint32_t>& return_columns,
         const std::unordered_set<uint32_t>* tablet_columns_need_convert_null) const {
