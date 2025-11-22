@@ -720,7 +720,8 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
     if (!_row_bitmap.isEmpty() &&
         (!_opts.topn_filter_source_node_ids.empty() || !_opts.col_id_to_predicates.empty() ||
          _opts.delete_condition_predicates->num_of_column_predicate() > 0)) {
-        RowRanges condition_row_ranges = RowRanges::create_single(_segment->num_rows());
+        RowRanges condition_row_ranges =
+                RowRanges::create_single(_row_bitmap.minimum(), _row_bitmap.maximum() + 1);
         RETURN_IF_ERROR(_get_row_ranges_from_conditions(&condition_row_ranges));
         size_t pre_size = _row_bitmap.cardinality();
         _row_bitmap &= RowRanges::ranges_to_roaring(condition_row_ranges);
@@ -876,6 +877,7 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
             if (dict_row_ranges.is_empty()) {
                 RowRanges::ranges_intersection(*condition_row_ranges, dict_row_ranges,
                                                condition_row_ranges);
+
                 _opts.stats->segment_dict_filtered++;
                 _opts.stats->filtered_segment_number++;
                 return Status::OK();
@@ -883,12 +885,11 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
         }
     }
 
-    size_t pre_size = 0;
+    size_t pre_size = condition_row_ranges->count();
     {
         SCOPED_RAW_TIMER(&_opts.stats->generate_row_ranges_by_bf_ns);
         // first filter data by bloom filter index
         // bloom filter index only use CondColumn
-        RowRanges bf_row_ranges = RowRanges::create_single(num_rows());
         for (auto& cid : cids) {
             DCHECK(_opts.col_id_to_predicates.count(cid) > 0);
             if (!_segment->can_apply_predicate_safely(cid, *_schema,
@@ -897,14 +898,10 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
                 continue;
             }
             // get row ranges by bf index of this column,
-            RowRanges column_bf_row_ranges = RowRanges::create_single(num_rows());
             RETURN_IF_ERROR(_column_iterators[cid]->get_row_ranges_by_bloom_filter(
-                    _opts.col_id_to_predicates.at(cid).get(), &column_bf_row_ranges));
-            RowRanges::ranges_intersection(bf_row_ranges, column_bf_row_ranges, &bf_row_ranges);
+                    _opts.col_id_to_predicates.at(cid).get(), condition_row_ranges));
         }
 
-        pre_size = condition_row_ranges->count();
-        RowRanges::ranges_intersection(*condition_row_ranges, bf_row_ranges, condition_row_ranges);
         _opts.stats->rows_bf_filtered += (pre_size - condition_row_ranges->count());
 
         DBUG_EXECUTE_IF("bloom_filter_must_filter_data", {
@@ -917,7 +914,7 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
 
     {
         SCOPED_RAW_TIMER(&_opts.stats->generate_row_ranges_by_zonemap_ns);
-        RowRanges zone_map_row_ranges = RowRanges::create_single(num_rows());
+        pre_size = condition_row_ranges->count();
         // second filter data by zone map
         for (const auto& cid : cids) {
             DCHECK(_opts.col_id_to_predicates.count(cid) > 0);
@@ -931,23 +928,15 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
                 VLOG_DEBUG << "skip zonemap for column " << cid;
                 continue;
             }
-            // get row ranges by zone map of this column,
-            RowRanges column_row_ranges = RowRanges::create_single(num_rows());
             RETURN_IF_ERROR(_column_iterators[cid]->get_row_ranges_by_zone_map(
                     _opts.col_id_to_predicates.at(cid).get(),
                     _opts.del_predicates_for_zone_map.count(cid) > 0
                             ? &(_opts.del_predicates_for_zone_map.at(cid))
                             : nullptr,
-                    &column_row_ranges));
-            // intersect different columns's row ranges to get final row ranges by zone map
-            RowRanges::ranges_intersection(zone_map_row_ranges, column_row_ranges,
-                                           &zone_map_row_ranges);
+                    condition_row_ranges));
         }
 
-        pre_size = condition_row_ranges->count();
-        RowRanges::ranges_intersection(*condition_row_ranges, zone_map_row_ranges,
-                                       condition_row_ranges);
-
+        size_t pre_size2 = condition_row_ranges->count();
         if (!_opts.topn_filter_source_node_ids.empty()) {
             auto* query_ctx = _opts.runtime_state->get_query_ctx();
             for (int id : _opts.topn_filter_source_node_ids) {
@@ -964,18 +953,11 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
                     RowRanges column_rp_row_ranges = RowRanges::create_single(num_rows());
                     RETURN_IF_ERROR(_column_iterators[runtime_predicate->column_id()]
                                             ->get_row_ranges_by_zone_map(&and_predicate, nullptr,
-                                                                         &column_rp_row_ranges));
-
-                    // intersect different columns's row ranges to get final row ranges by zone map
-                    RowRanges::ranges_intersection(zone_map_row_ranges, column_rp_row_ranges,
-                                                   &zone_map_row_ranges);
+                                                                         condition_row_ranges));
                 }
             }
         }
 
-        size_t pre_size2 = condition_row_ranges->count();
-        RowRanges::ranges_intersection(*condition_row_ranges, zone_map_row_ranges,
-                                       condition_row_ranges);
         _opts.stats->rows_stats_rp_filtered += (pre_size2 - condition_row_ranges->count());
         _opts.stats->rows_stats_filtered += (pre_size - condition_row_ranges->count());
     }
