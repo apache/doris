@@ -173,6 +173,21 @@ Status DataTypeBitMapSerDe::_write_column_to_mysql(const IColumn& column,
     return Status::OK();
 }
 
+bool DataTypeBitMapSerDe::write_column_to_mysql_text(const IColumn& column, BufferWritable& bw,
+                                                     int64_t row_idx) const {
+    const auto& data_column = assert_cast<const ColumnBitmap&>(column);
+    if (_return_object_as_string) {
+        BitmapValue bitmap_value = data_column.get_element(row_idx);
+        size_t size = bitmap_value.getSizeInBytes();
+        std::unique_ptr<char[]> buf = std::make_unique_for_overwrite<char[]>(size);
+        bitmap_value.write_to(buf.get());
+        bw.write(buf.get(), size);
+        return true;
+    } else {
+        return false;
+    }
+}
+
 Status DataTypeBitMapSerDe::write_column_to_mysql_binary(const IColumn& column,
                                                          MysqlRowBinaryBuffer& row_buffer,
                                                          int64_t row_idx, bool col_const,
