@@ -31,6 +31,8 @@
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
+#include "io/fs/merge_file_manager.h"
+#include "io/fs/merge_file_system.h"
 #include "json2pb/json_to_pb.h"
 #include "json2pb/pb_to_json.h"
 #include "olap/base_tablet.h"
@@ -130,7 +132,31 @@ io::FileSystemSPtr RowsetMeta::fs() {
         // TODO: return a Result<FileSystemSPtr> in this method?
         return nullptr;
     }
-    return io::make_file_system(fs, algorithm.value());
+
+    auto wrapped = io::make_file_system(fs, algorithm.value());
+
+    // Apply merge file system if enabled and index_map is not empty
+    if (_rowset_meta_pb.merge_file_segment_index_size() > 0) {
+        std::unordered_map<std::string, io::MergeFileSegmentIndex> index_map;
+        for (const auto& [path, index_pb] : _rowset_meta_pb.merge_file_segment_index()) {
+            io::MergeFileSegmentIndex index;
+            index.merge_file_path = index_pb.merge_file_path();
+            index.offset = index_pb.offset();
+            index.size = index_pb.size();
+            index.tablet_id = tablet_id();
+            index.rowset_id = _rowset_id.to_string();
+            index.resource_id = wrapped->id();
+            index_map[path] = index;
+        }
+        if (!index_map.empty()) {
+            io::MergeFileAppendInfo append_info;
+            append_info.tablet_id = tablet_id();
+            append_info.rowset_id = _rowset_id.to_string();
+            append_info.txn_id = txn_id();
+            wrapped = std::make_shared<io::MergeFileSystem>(wrapped, index_map, append_info);
+        }
+    }
+    return wrapped;
 #else
     return fs;
 #endif

@@ -424,6 +424,16 @@ public:
     RowsetMeta(const RowsetMeta&) = delete;
     RowsetMeta operator=(const RowsetMeta&) = delete;
 
+    void add_merge_file_segment_index(const std::string& segment_path,
+                                      const std::string& merge_file_path, int64_t offset,
+                                      int64_t size) {
+        auto* index_map = _rowset_meta_pb.mutable_merge_file_segment_index();
+        auto& index_pb = (*index_map)[segment_path];
+        index_pb.set_merge_file_path(merge_file_path);
+        index_pb.set_offset(offset);
+        index_pb.set_size(size);
+    }
+
 private:
     bool _deserialize_from_pb(std::string_view value);
 
