@@ -414,7 +414,8 @@ struct ColumnStruct::less {
 };
 
 void ColumnStruct::get_permutation(bool reverse, size_t limit, int nan_direction_hint,
-                                   IColumn::Permutation& res) const {
+                                   IColumn::Permutation& res,
+                                   std::pair<uint32_t, uint32_t>& extremum_range) const {
     size_t s = size();
     res.resize(s);
     for (size_t i = 0; i < s; ++i) {
@@ -430,8 +431,10 @@ void ColumnStruct::get_permutation(bool reverse, size_t limit, int nan_direction
 
 void ColumnStruct::sort_column(const ColumnSorter* sorter, EqualFlags& flags,
                                IColumn::Permutation& perms, EqualRange& range,
+                               std::pair<uint32_t, uint32_t>& extremum_range,
                                bool last_column) const {
-    sorter->sort_column(static_cast<const ColumnStruct&>(*this), flags, perms, range, last_column);
+    sorter->sort_column(static_cast<const ColumnStruct&>(*this), flags, perms, range,
+                        extremum_range, last_column);
 }
 
 void ColumnStruct::serialize(StringRef* keys, size_t num_rows) const {

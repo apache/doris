@@ -48,8 +48,10 @@ void IColumn::insert_from(const IColumn& src, size_t n) {
 }
 
 void IColumn::sort_column(const ColumnSorter* sorter, EqualFlags& flags,
-                          IColumn::Permutation& perms, EqualRange& range, bool last_column) const {
-    sorter->sort_column(static_cast<const IColumn&>(*this), flags, perms, range, last_column);
+                          IColumn::Permutation& perms, EqualRange& range,
+                          std::pair<uint32_t, uint32_t>& extremum_range, bool last_column) const {
+    sorter->sort_column(static_cast<const IColumn&>(*this), flags, perms, range, extremum_range,
+                        last_column);
 }
 
 void IColumn::compare_internal(size_t rhs_row_id, const IColumn& rhs, int nan_direction_hint,

@@ -1996,7 +1996,9 @@ public:
         LOG(INFO) << "expected_permutation size: " << expected_permutation.size() << ", "
                   << join_ints(expected_permutation);
         // step2. get permutation by column
-        column.get_permutation(!ascending, limit, nan_direction_hint, actual_permutation);
+        std::pair<uint32_t, uint32_t> extremum_range;
+        column.get_permutation(!ascending, limit, nan_direction_hint, actual_permutation,
+                               extremum_range);
         LOG(INFO) << "actual_permutation size: " << actual_permutation.size() << ", "
                   << join_ints(actual_permutation);
 
@@ -3279,7 +3281,8 @@ auto assert_column_vector_compare_internal_callback = [](auto x,
     auto col_cloned = source_column->clone();
     size_t num_rows = col_cloned->size();
     IColumn::Permutation permutation;
-    col_cloned->get_permutation(false, 0, 1, permutation);
+    std::pair<uint32_t, uint32_t> extremum_range;
+    col_cloned->get_permutation(false, 0, 1, permutation, extremum_range);
     auto col_clone_sorted = col_cloned->permute(permutation, 0);
 
     auto test_func = [&](int direction) {
@@ -3547,11 +3550,12 @@ auto assert_sort_column_callback = [](auto x, const MutableColumnPtr& source_col
         }
         EqualFlags flags(cloned_column_row_count, 1);
         EqualRange range {0, cloned_column_row_count};
+        std::pair<uint32_t, uint32_t> extremum_range;
         for (size_t i = 0; i != cloned_columns.size(); ++i) {
             ColumnWithSortDescription column_with_sort_desc(cloned_columns[i].get(),
                                                             SortColumnDescription(i, 1, 0));
             ColumnSorter sorter(column_with_sort_desc, limit);
-            cloned_columns[i]->sort_column(&sorter, flags, perm, range,
+            cloned_columns[i]->sort_column(&sorter, flags, perm, range, extremum_range,
                                            i == cloned_columns.size() - 1);
         }
         auto col_sorted0 = cloned_columns[0]->permute(perm, limit);

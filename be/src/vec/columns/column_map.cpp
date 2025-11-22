@@ -696,7 +696,8 @@ struct ColumnMap::less {
 };
 
 void ColumnMap::get_permutation(bool reverse, size_t limit, int nan_direction_hint,
-                                IColumn::Permutation& res) const {
+                                IColumn::Permutation& res,
+                                std::pair<uint32_t, uint32_t>& extremum_range) const {
     size_t s = size();
     res.resize(s);
     for (size_t i = 0; i < s; ++i) {
@@ -712,8 +713,9 @@ void ColumnMap::get_permutation(bool reverse, size_t limit, int nan_direction_hi
 
 void ColumnMap::sort_column(const ColumnSorter* sorter, EqualFlags& flags,
                             IColumn::Permutation& perms, EqualRange& range,
-                            bool last_column) const {
-    sorter->sort_column(static_cast<const ColumnMap&>(*this), flags, perms, range, last_column);
+                            std::pair<uint32_t, uint32_t>& extremum_range, bool last_column) const {
+    sorter->sort_column(static_cast<const ColumnMap&>(*this), flags, perms, range, extremum_range,
+                        last_column);
 }
 
 void ColumnMap::serialize(StringRef* keys, size_t num_rows) const {
