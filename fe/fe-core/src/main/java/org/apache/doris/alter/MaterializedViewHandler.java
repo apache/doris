@@ -628,8 +628,8 @@ public class MaterializedViewHandler extends AlterHandler {
                     break;
                 }
             }
-            if (allKeysMatch) {
-                throw new DdlException("MV same with base table is useless.");
+            if (allKeysMatch && createMvCommand.getWhereClauseItem() == null) {
+                throw new DdlException("MV same with base table without where clause is useless.");
             }
         }
 
