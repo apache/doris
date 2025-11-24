@@ -297,6 +297,7 @@ public:
     virtual void stop() override {
         _is_stop.store(true);
         _task_executor->stop();
+        _task_executor->wait();
     }
 
     virtual Status start(int max_thread_num, int min_thread_num, int queue_size) override {
