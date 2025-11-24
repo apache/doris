@@ -133,8 +133,8 @@ static void read_orc_line(int64_t line, std::string block_dump) {
                            tuple_desc->slots().size());
     reader->set_row_id_column_iterator(iterator_pair);
 
-    auto status = reader->init_reader(&column_names, nullptr, {}, false, tuple_desc, &row_desc,
-                                      nullptr, nullptr);
+    auto status =
+            reader->init_reader(&column_names, {}, false, tuple_desc, &row_desc, nullptr, nullptr);
 
     EXPECT_TRUE(status.ok());
 
@@ -157,8 +157,8 @@ static void read_orc_line(int64_t line, std::string block_dump) {
     bool eof = false;
     size_t read_row = 0;
     static_cast<void>(reader->get_next_block(block.get(), &read_row, &eof));
-    auto row_id_string_column =
-            static_cast<const ColumnString&>(*block->get_by_name("row_id").column.get());
+    auto row_id_string_column = static_cast<const ColumnString&>(
+            *block->get_by_position(block->get_position_by_name("row_id")).column.get());
     for (auto i = 0; i < row_id_string_column.size(); i++) {
         GlobalRowLoacationV2 info =
                 *((GlobalRowLoacationV2*)row_id_string_column.get_data_at(i).data);
@@ -167,7 +167,7 @@ static void read_orc_line(int64_t line, std::string block_dump) {
         EXPECT_EQ(info.backend_id, BackendOptions::get_backend_id());
         EXPECT_EQ(info.version, IdManager::ID_VERSION);
     }
-    block->erase("row_id");
+    block->erase(block->get_position_by_name("row_id"));
 
     std::cout << block->dump_data();
     EXPECT_EQ(block->dump_data(), block_dump);

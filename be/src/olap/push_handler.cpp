@@ -478,10 +478,10 @@ Status PushBrokerReader::_cast_to_input_block() {
         if (slot_desc->type()->get_primitive_type() == PrimitiveType::TYPE_VARIANT) {
             continue;
         }
-        auto& arg = _src_block_ptr->get_by_name(slot_desc->col_name());
         // remove nullable here, let the get_function decide whether nullable
         auto return_type = slot_desc->get_data_type_ptr();
         idx = _src_block_name_to_idx[slot_desc->col_name()];
+        auto& arg = _src_block_ptr->get_by_position(idx);
         // bitmap convert：src -> to_base64 -> bitmap_from_base64
         if (slot_desc->type()->get_primitive_type() == TYPE_BITMAP) {
             auto base64_return_type = vectorized::DataTypeFactory::instance().create_data_type(
@@ -491,7 +491,7 @@ Status PushBrokerReader::_cast_to_input_block() {
             RETURN_IF_ERROR(func_to_base64->execute(nullptr, *_src_block_ptr, {idx}, idx,
                                                     arg.column->size()));
             _src_block_ptr->get_by_position(idx).type = std::move(base64_return_type);
-            auto& arg_base64 = _src_block_ptr->get_by_name(slot_desc->col_name());
+            auto& arg_base64 = _src_block_ptr->get_by_position(idx);
             auto func_bitmap_from_base64 =
                     vectorized::SimpleFunctionFactory::instance().get_function(
                             "bitmap_from_base64", {arg_base64}, return_type);
@@ -661,9 +661,9 @@ Status PushBrokerReader::_get_next_reader() {
                                                          _io_ctx.get(), _runtime_state.get());
 
         init_status = parquet_reader->init_reader(
-                _all_col_names, _colname_to_value_range, _push_down_exprs, _real_tuple_desc,
-                _default_val_row_desc.get(), _col_name_to_slot_id,
-                &_not_single_slot_filter_conjuncts, &_slot_id_to_filter_conjuncts,
+                _all_col_names, _push_down_exprs, _real_tuple_desc, _default_val_row_desc.get(),
+                _col_name_to_slot_id, &_not_single_slot_filter_conjuncts,
+                &_slot_id_to_filter_conjuncts,
                 vectorized::TableSchemaChangeHelper::ConstNode::get_instance(), false);
         _cur_reader = std::move(parquet_reader);
         if (!init_status.ok()) {

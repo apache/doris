@@ -100,6 +100,7 @@ import java.util.stream.Collectors;
 public class HiveMetaStoreCache {
     private static final Logger LOG = LogManager.getLogger(HiveMetaStoreCache.class);
     public static final String HIVE_DEFAULT_PARTITION = "__HIVE_DEFAULT_PARTITION__";
+    public static final String ERR_CACHE_INCONSISTENCY = "ERR_CACHE_INCONSISTENCY: ";
 
     private final HMSExternalCatalog catalog;
     private JobConf jobConf;
@@ -141,7 +142,7 @@ public class HiveMetaStoreCache {
                 Config.max_hive_partition_table_cache_num,
                 true,
                 null);
-        partitionValuesCache = partitionValuesCacheFactory.buildCache(this::loadPartitionValues, null,
+        partitionValuesCache = partitionValuesCacheFactory.buildCache(this::loadPartitionValues,
                 refreshExecutor);
 
         CacheFactory partitionCacheFactory = new CacheFactory(
@@ -160,7 +161,7 @@ public class HiveMetaStoreCache {
             public Map<PartitionCacheKey, HivePartition> loadAll(Iterable<? extends PartitionCacheKey> keys) {
                 return loadPartitions(keys);
             }
-        }, null, refreshExecutor);
+        }, refreshExecutor);
 
         setNewFileCache();
     }
@@ -196,7 +197,7 @@ public class HiveMetaStoreCache {
 
         LoadingCache<FileCacheKey, FileCacheValue> oldFileCache = fileCacheRef.get();
 
-        fileCacheRef.set(fileCacheFactory.buildCache(loader, null, this.refreshExecutor));
+        fileCacheRef.set(fileCacheFactory.buildCache(loader, this.refreshExecutor));
         if (Objects.nonNull(oldFileCache)) {
             oldFileCache.invalidateAll();
         }
@@ -276,11 +277,12 @@ public class HiveMetaStoreCache {
                 partitionNameToIdMap, idToUniqueIdsMap, singleUidToColumnRangeMap, partitionValuesMap);
     }
 
-    public ListPartitionItem toListPartitionItem(String partitionName, List<Type> types) {
+    private ListPartitionItem toListPartitionItem(String partitionName, List<Type> types) {
         // Partition name will be in format: nation=cn/city=beijing
         // parse it to get values "cn" and "beijing"
         List<String> partitionValues = HiveUtil.toPartitionValues(partitionName);
-        Preconditions.checkState(partitionValues.size() == types.size(), partitionName + " vs. " + types);
+        Preconditions.checkState(partitionValues.size() == types.size(),
+                ERR_CACHE_INCONSISTENCY + partitionName + " vs. " + types);
         List<PartitionValue> values = Lists.newArrayListWithExpectedSize(types.size());
         for (String partitionValue : partitionValues) {
             values.add(new PartitionValue(partitionValue, HIVE_DEFAULT_PARTITION.equals(partitionValue)));
@@ -433,6 +435,7 @@ public class HiveMetaStoreCache {
         return getPartitionValues(key);
     }
 
+    @VisibleForTesting
     public HivePartitionValues getPartitionValues(PartitionValueCacheKey key) {
         return partitionValuesCache.get(key);
     }

@@ -32,6 +32,7 @@
 #include "meta-service/meta_service.h"
 #include "meta-service/meta_service_helper.h"
 #include "meta-service/meta_service_tablet_stats.h"
+#include "meta-store/blob_message.h"
 #include "meta-store/clone_chain_reader.h"
 #include "meta-store/document_message.h"
 #include "meta-store/keys.h"
@@ -1829,17 +1830,9 @@ void MetaServiceImpl::commit_txn_immediately(
                 operation_log.set_min_timestamp(meta_reader.min_read_version());
             }
             operation_log.mutable_commit_txn()->Swap(&commit_txn_log);
-            std::string operation_log_value;
-            if (!operation_log.SerializeToString(&operation_log_value)) {
-                code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
-                ss << "failed to serialize operation_log, txn_id=" << txn_id;
-                msg = ss.str();
-                return;
-            }
+            versioned::blob_put(txn.get(), log_key, operation_log);
             LOG(INFO) << "put commit txn operation log, key=" << hex(log_key)
-                      << " txn_id=" << txn_id
-                      << " operation_log_size=" << operation_log_value.size();
-            versioned_put(txn.get(), log_key, operation_log_value);
+                      << " txn_id=" << txn_id;
         } else {
             std::string recycle_val;
             if (!recycle_pb.SerializeToString(&recycle_val)) {
@@ -2358,16 +2351,9 @@ void MetaServiceImpl::commit_txn_eventually(
                 operation_log.set_min_timestamp(meta_reader.min_read_version());
             }
             operation_log.mutable_commit_txn()->Swap(&commit_txn_log);
-            std::string operation_log_value;
-            if (!operation_log.SerializeToString(&operation_log_value)) {
-                code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
-                ss << "failed to serialize operation_log, txn_id=" << txn_id;
-                msg = ss.str();
-                return;
-            }
-            versioned_put(txn.get(), log_key, operation_log_value);
+            versioned::blob_put(txn.get(), log_key, operation_log);
             LOG(INFO) << "put commit txn operation log, key=" << hex(log_key)
-                      << " txn_id=" << txn_id << " log_size=" << operation_log_value.size();
+                      << " txn_id=" << txn_id;
         }
 
         VLOG_DEBUG << "put_size=" << txn->put_bytes() << " del_size=" << txn->delete_bytes()
@@ -2880,21 +2866,14 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
         if (is_versioned_write) {
             commit_txn_log.mutable_recycle_txn()->Swap(&recycle_pb);
             std::string log_key = versioned::log_key({instance_id});
-            std::string operation_log_value;
             OperationLogPB operation_log;
             if (is_versioned_read) {
                 operation_log.set_min_timestamp(meta_reader.min_read_version());
             }
             operation_log.mutable_commit_txn()->Swap(&commit_txn_log);
-            if (!operation_log.SerializeToString(&operation_log_value)) {
-                code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
-                ss << "failed to serialize operation_log, txn_id=" << txn_id;
-                msg = ss.str();
-                return;
-            }
-            versioned_put(txn.get(), log_key, operation_log_value);
+            versioned::blob_put(txn.get(), log_key, operation_log);
             LOG(INFO) << "put commit txn operation log key=" << hex(recycle_key)
-                      << " txn_id=" << txn_id << " log_size=" << operation_log_value.size();
+                      << " txn_id=" << txn_id;
         } else {
             if (!recycle_pb.SerializeToString(&recycle_val)) {
                 code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;

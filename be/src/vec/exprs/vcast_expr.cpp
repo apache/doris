@@ -105,25 +105,26 @@ void VCastExpr::close(VExprContext* context, FunctionContext::FunctionStateScope
     VExpr::close(context, scope);
 }
 
-doris::Status VCastExpr::execute(VExprContext* context, doris::vectorized::Block* block,
-                                 int* result_column_id) const {
+Status VCastExpr::execute_column(VExprContext* context, const Block* block,
+                                 ColumnPtr& result_column) const {
     DCHECK(_open_finished || _getting_const_col)
             << _open_finished << _getting_const_col << _expr_name;
     if (is_const_and_have_executed()) { // const have executed in open function
-        return get_result_from_const(block, _expr_name, result_column_id);
+        result_column = get_result_from_const(block);
+        return Status::OK();
     }
     // for each child call execute
-    int column_id = 0;
-    RETURN_IF_ERROR(_children[0]->execute(context, block, &column_id));
 
-    // call function
-    uint32_t num_columns_without_result = block->columns();
-    // prepare a column to save result
-    block->insert({nullptr, _data_type, _expr_name});
-    RETURN_IF_ERROR(_function->execute(context->fn_context(_fn_context_index), *block,
-                                       {static_cast<uint32_t>(column_id)},
-                                       num_columns_without_result, block->rows()));
-    *result_column_id = num_columns_without_result;
+    ColumnPtr from_column;
+    RETURN_IF_ERROR(_children[0]->execute_column(context, block, from_column));
+
+    Block temp_block;
+    temp_block.insert({from_column, _children[0]->execute_type(block), _children[0]->expr_name()});
+    temp_block.insert({nullptr, _data_type, _expr_name});
+    RETURN_IF_ERROR(_function->execute(context->fn_context(_fn_context_index), temp_block, {0}, 1,
+                                       block->rows()));
+
+    result_column = temp_block.get_by_position(1).column;
     return Status::OK();
 }
 
@@ -144,37 +145,37 @@ DataTypePtr TryCastExpr::original_cast_return_type() const {
     }
 }
 
-Status TryCastExpr::execute(VExprContext* context, Block* block, int* result_column_id) const {
+Status TryCastExpr::execute_column(VExprContext* context, const Block* block,
+                                   ColumnPtr& result_column) const {
     DCHECK(_open_finished || _getting_const_col)
             << _open_finished << _getting_const_col << _expr_name;
     if (is_const_and_have_executed()) { // const have executed in open function
-        return get_result_from_const(block, _expr_name, result_column_id);
+        result_column = get_result_from_const(block);
+        return Status::OK();
     }
-
-    int input_column_id = 0;
 
     // For try_cast, try to execute it in batches first.
 
     // execute child first
-    RETURN_IF_ERROR(_children[0]->execute(context, block, &input_column_id));
+
+    ColumnPtr from_column;
+    RETURN_IF_ERROR(_children[0]->execute_column(context, block, from_column));
+    auto from_type = _children[0]->execute_type(block);
 
     // prepare block
-    int output_column_id = block->columns();
-    block->insert({nullptr, original_cast_return_type(), _expr_name});
+
+    Block temp_block;
+    temp_block.insert({from_column, from_type, _children[0]->expr_name()});
+    temp_block.insert({nullptr, original_cast_return_type(), _expr_name});
 
     // batch execute
-    auto batch_exec_status = _function->execute(context->fn_context(_fn_context_index), *block,
-                                                {static_cast<uint32_t>(input_column_id)},
-                                                output_column_id, block->rows());
+    auto batch_exec_status = _function->execute(context->fn_context(_fn_context_index), temp_block,
+                                                {0}, 1, block->rows());
     // If batch is executed successfully,
     // it means that there is no error and it will be returned directly.
     if (batch_exec_status.ok()) {
-        // wrap nullable
-        block->get_by_position(output_column_id).column =
-                make_nullable(block->get_by_position(output_column_id).column);
-        block->get_by_position(output_column_id).type =
-                make_nullable(block->get_by_position(output_column_id).type);
-        *result_column_id = output_column_id;
+        result_column = temp_block.get_by_position(1).column;
+        result_column = make_nullable(result_column);
         return batch_exec_status;
     }
 
@@ -185,19 +186,16 @@ Status TryCastExpr::execute(VExprContext* context, Block* block, int* result_col
 
     // If there is an error that can be handled by try cast,
     // it will be converted into line execution.
-    auto& input_info = block->get_by_position(input_column_id);
-    ColumnPtr return_column;
+    ColumnWithTypeAndName input_info {from_column, from_type, _children[0]->expr_name()};
     // distinguish whether the return value of the original cast is nullable
     if (_original_cast_return_is_nullable) {
-        RETURN_IF_ERROR(single_row_execute<true>(context, input_info, return_column));
+        RETURN_IF_ERROR(single_row_execute<true>(context, input_info, result_column));
     } else {
-        RETURN_IF_ERROR(single_row_execute<false>(context, input_info, return_column));
+        RETURN_IF_ERROR(single_row_execute<false>(context, input_info, result_column));
     }
     // wrap nullable
-    block->get_by_position(output_column_id).column = return_column;
-    block->get_by_position(output_column_id).type =
-            make_nullable(block->get_by_position(output_column_id).type);
-    *result_column_id = output_column_id;
+    result_column = make_nullable(result_column);
+
     return Status::OK();
 }
 

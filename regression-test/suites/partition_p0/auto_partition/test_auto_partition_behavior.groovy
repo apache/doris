@@ -166,7 +166,7 @@ suite("test_auto_partition_behavior") {
     sql """ insert into rewrite values ("Xxx"); """
     test {
         sql """ insert overwrite table rewrite partition(p1) values ("") """
-        exception "Insert has filtered data in strict mode"
+        exception "no partition for this tuple"
     }
     sql """ insert overwrite table rewrite partition(p1) values ("Xxx") """
     qt_sql_overwrite """ select * from rewrite """ // Xxx

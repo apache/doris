@@ -116,7 +116,7 @@ public:
         }
     };
 
-    ParquetColumnReader(const std::vector<RowRange>& row_ranges, const cctz::time_zone* ctz,
+    ParquetColumnReader(const RowRanges& row_ranges, const cctz::time_zone* ctz,
                         io::IOContext* io_ctx)
             : _row_ranges(row_ranges), _ctz(ctz), _io_ctx(io_ctx) {}
     virtual ~ParquetColumnReader() = default;
@@ -135,10 +135,10 @@ public:
     }
 
     static Status create(io::FileReaderSPtr file, FieldSchema* field,
-                         const tparquet::RowGroup& row_group,
-                         const std::vector<RowRange>& row_ranges, const cctz::time_zone* ctz,
-                         io::IOContext* io_ctx, std::unique_ptr<ParquetColumnReader>& reader,
-                         size_t max_buf_size, const tparquet::OffsetIndex* offset_index = nullptr);
+                         const tparquet::RowGroup& row_group, const RowRanges& row_ranges,
+                         const cctz::time_zone* ctz, io::IOContext* io_ctx,
+                         std::unique_ptr<ParquetColumnReader>& reader, size_t max_buf_size,
+                         const tparquet::OffsetIndex* offset_index = nullptr);
     void set_nested_column() { _nested_column = true; }
     virtual const std::vector<level_t>& get_rep_level() const = 0;
     virtual const std::vector<level_t>& get_def_level() const = 0;
@@ -148,17 +148,15 @@ public:
     virtual void reset_filter_map_index() = 0;
 
 protected:
-    void _generate_read_ranges(int64_t start_index, int64_t end_index,
-                               std::list<RowRange>& read_ranges);
+    void _generate_read_ranges(RowRange page_row_range, RowRanges* result_ranges) const;
 
     FieldSchema* _field_schema = nullptr;
     // When scalar column is the child of nested column, we should turn off the filtering by page index and lazy read.
     bool _nested_column = false;
-    const std::vector<RowRange>& _row_ranges;
+    const RowRanges& _row_ranges;
     const cctz::time_zone* _ctz = nullptr;
     io::IOContext* _io_ctx = nullptr;
     int64_t _current_row_index = 0;
-    int _row_range_index = 0;
     int64_t _decode_null_map_time = 0;
 
     size_t _filter_map_index = 0;
@@ -167,8 +165,7 @@ protected:
 class ScalarColumnReader : public ParquetColumnReader {
     ENABLE_FACTORY_CREATOR(ScalarColumnReader)
 public:
-    ScalarColumnReader(const std::vector<RowRange>& row_ranges,
-                       const tparquet::ColumnChunk& chunk_meta,
+    ScalarColumnReader(const RowRanges& row_ranges, const tparquet::ColumnChunk& chunk_meta,
                        const tparquet::OffsetIndex* offset_index, const cctz::time_zone* ctz,
                        io::IOContext* io_ctx)
             : ParquetColumnReader(row_ranges, ctz, io_ctx),
@@ -218,7 +215,7 @@ private:
 class ArrayColumnReader : public ParquetColumnReader {
     ENABLE_FACTORY_CREATOR(ArrayColumnReader)
 public:
-    ArrayColumnReader(const std::vector<RowRange>& row_ranges, const cctz::time_zone* ctz,
+    ArrayColumnReader(const RowRanges& row_ranges, const cctz::time_zone* ctz,
                       io::IOContext* io_ctx)
             : ParquetColumnReader(row_ranges, ctz, io_ctx) {}
     ~ArrayColumnReader() override { close(); }
@@ -245,8 +242,7 @@ private:
 class MapColumnReader : public ParquetColumnReader {
     ENABLE_FACTORY_CREATOR(MapColumnReader)
 public:
-    MapColumnReader(const std::vector<RowRange>& row_ranges, const cctz::time_zone* ctz,
-                    io::IOContext* io_ctx)
+    MapColumnReader(const RowRanges& row_ranges, const cctz::time_zone* ctz, io::IOContext* io_ctx)
             : ParquetColumnReader(row_ranges, ctz, io_ctx) {}
     ~MapColumnReader() override { close(); }
 
@@ -286,7 +282,7 @@ private:
 class StructColumnReader : public ParquetColumnReader {
     ENABLE_FACTORY_CREATOR(StructColumnReader)
 public:
-    StructColumnReader(const std::vector<RowRange>& row_ranges, const cctz::time_zone* ctz,
+    StructColumnReader(const RowRanges& row_ranges, const cctz::time_zone* ctz,
                        io::IOContext* io_ctx)
             : ParquetColumnReader(row_ranges, ctz, io_ctx) {}
     ~StructColumnReader() override { close(); }

@@ -1988,10 +1988,10 @@ public class Config extends ConfigBase {
                     + " greater than 0, otherwise it defaults to 3." })
     public static int job_dictionary_task_consumer_thread_num = 3;
 
-    @ConfField(masterOnly = true, description = {"用于执行 Streaming 任务的线程数,值应该大于0，否则默认为10",
+    @ConfField(masterOnly = true, description = {"用于执行 Streaming 任务的线程数,值应该大于0，否则默认为100",
             "The number of threads used to execute Streaming Tasks, "
-                    + "the value should be greater than 0, if it is <=0, default is 10."})
-    public static int job_streaming_task_exec_thread_num = 10;
+                    + "the value should be greater than 0, if it is <=0, default is 100."})
+    public static int job_streaming_task_exec_thread_num = 100;
 
     @ConfField(masterOnly = true, description = {"最大的 Streaming 作业数量,值应该大于0，否则默认为1024",
             "The maximum number of Streaming jobs, "
@@ -3694,6 +3694,20 @@ public class Config extends ConfigBase {
         "The encryption algorithm used for data, default is AES256, may be set to empty later for KMS to decide"
     })
     public static String doris_tde_algorithm = "PLAINTEXT";
+
+    @ConfField(mutable = true, description = {
+            "数据加密自动rotate master key的时间间隔，单位为毫秒，默认间隔是一个月",
+            "The time interval for automatic rotation of the master key in data encryption, in milliseconds."
+                    + "The default interval is one month."
+    })
+    public static long doris_tde_rotate_master_key_interval_ms = 30 * 24 * 3600 * 1000L;
+
+    @ConfField(mutable = true, description = {
+            "数据加密检查是否要rotate的时间间隔，单位为毫秒，默认间隔是五分钟",
+            "Data encryption checks whether to rotate the time interval in milliseconds, "
+                    + "and the default interval is five minutes."
+    })
+    public static long doris_tde_check_rotate_master_key_interval_ms = 5 * 60 * 1000L;
 
     @ConfField(mutable = true, description = {
         "数据质量错误时，第一行错误信息的最大长度，默认 256 字节",

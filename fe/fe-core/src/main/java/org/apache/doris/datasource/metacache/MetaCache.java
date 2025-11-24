@@ -74,8 +74,10 @@ public class MetaCache<T> {
                 maxSize,
                 true,
                 null);
-        namesCache = namesCacheFactory.buildCache(namesCacheLoader, null, executor);
-        metaObjCache = objCacheFactory.buildCache(metaObjCacheLoader, removalListener, executor);
+        namesCache = namesCacheFactory.buildCache(namesCacheLoader, executor);
+        // Use sync removal listener to prevent deadlock (removal listener calls invalidateAll)
+        // NOTE: This cache should NOT use refreshAfterWrite, as it would become synchronous
+        metaObjCache = objCacheFactory.buildCacheWithSyncRemovalListener(metaObjCacheLoader, removalListener);
     }
 
     public List<String> listNames() {
