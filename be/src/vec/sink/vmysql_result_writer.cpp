@@ -293,6 +293,24 @@ Status VMysqlResultWriter<is_binary_format>::_write_one_block(RuntimeState* stat
                 }
                 bytes_sent += mysql_rows.size();
             }
+        } else if (serde_dialect == TSerdeDialect::PRESTO && !is_binary_format) {
+            for (int row_idx = 0; row_idx < num_rows; ++row_idx) {
+                auto& mysql_rows = result->result_batch.rows[row_idx];
+                for (size_t col_idx = 0; col_idx < num_cols; ++col_idx) {
+                    const auto col_index = index_check_const(row_idx, arguments[col_idx].is_const);
+                    const auto* column = arguments[col_idx].column;
+                    if (arguments[col_idx].serde->write_column_to_presto_text(*column, write_buffer,
+                                                                              col_index)) {
+                        write_buffer.commit();
+                        auto str = mysql_output_tmp_col->get_data_at(write_buffer_index);
+                        direct_write_to_mysql_result_string(mysql_rows, str.data, str.size);
+                        write_buffer_index++;
+                    } else {
+                        direct_write_to_mysql_result_null(mysql_rows);
+                    }
+                }
+                bytes_sent += mysql_rows.size();
+            }
         } else {
             for (int row_idx = 0; row_idx < num_rows; ++row_idx) {
                 for (size_t col_idx = 0; col_idx < num_cols; ++col_idx) {

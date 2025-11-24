@@ -671,5 +671,20 @@ void DataTypeStructSerDe::to_string(const IColumn& column, size_t row_num,
     bw.write("}", 1);
 }
 
+bool DataTypeStructSerDe::write_column_to_presto_text(const IColumn& column, BufferWritable& bw,
+                                                      int64_t row_idx) const {
+    const auto& struct_column = assert_cast<const ColumnStruct&>(column);
+    bw.write("{", 1);
+    for (size_t idx = 0; idx < elem_serdes_ptrs.size(); idx++) {
+        if (idx != 0) {
+            bw.write(", ", 2);
+        }
+        const auto & col_name =  elem_names[idx];
+        bw.write(col_name.c_str(), col_name.length());
+        elem_serdes_ptrs[idx]->to_string(struct_column.get_column(idx), row_idx, bw);
+    }
+    bw.write("}", 1);
+    return true;
+}
 } // namespace vectorized
 } // namespace doris

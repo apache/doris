@@ -715,5 +715,31 @@ void DataTypeMapSerDe::to_string(const IColumn& column, size_t row_num, BufferWr
     bw.write("}", 1);
 }
 
+
+
+bool DataTypeMapSerDe::write_column_to_presto_text(const IColumn& column, BufferWritable& bw,
+    int64_t row_idx) const {
+        const auto& map_column = assert_cast<const ColumnMap&>(column);
+        const ColumnArray::Offsets64& offsets = map_column.get_offsets();
+    
+        size_t offset = offsets[row_idx - 1];
+        size_t next_offset = offsets[row_idx];
+    
+        const IColumn& nested_keys_column = map_column.get_keys();
+        const IColumn& nested_values_column = map_column.get_values();
+        bw.write("{", 1);
+        for (size_t i = offset; i < next_offset; ++i) {
+            if (i != offset) {
+                bw.write(", ", 2);
+            }
+            key_serde->write_column_to_presto_text(nested_keys_column, i, bw);
+            bw.write("=", 1);
+            value_serde->write_column_to_presto_text(nested_values_column, i, bw);
+        }
+        bw.write("}", 1);
+
+        return true;
+    }
+
 } // namespace vectorized
 } // namespace doris
