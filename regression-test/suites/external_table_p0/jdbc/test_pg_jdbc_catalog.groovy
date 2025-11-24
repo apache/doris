@@ -258,7 +258,7 @@ suite("test_pg_jdbc_catalog", "p0,external,pg,external_docker,external_docker_pg
             "driver_class" = "org.postgresql.Driver",
             "enable.mapping.varbinary" = "true"
         );"""
-
+        sql """ switch test_pg_with_varbinary """
         sql """use catalog_pg_test """
         order_qt_varbinary_test  """ select * from wkb_test order by id; """
         sql """ insert into wkb_test values (3, X'0101000000000000000000F03F0000000000000040'); """
