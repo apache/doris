@@ -77,7 +77,7 @@ import java.util.stream.Collectors;
  *                   `-- LogicalAssertNumRows(output=(x, ...))
  * </pre>
  */
-public class PushDownJoinOnAssertNumRows extends OneRewriteRuleFactory {
+public class PushDownOneRowJoinThroughJoin extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
         return logicalJoin()

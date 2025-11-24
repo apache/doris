@@ -56,7 +56,7 @@ import java.util.List;
  * Test for PushDownJoinOnAssertNumRows rule.
  */
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
-class PushDownJoinOnAssertNumRowsTest implements MemoPatternMatchSupported {
+class PushDownOneRowJoinThroughJoinTest implements MemoPatternMatchSupported {
 
     private LogicalOlapScan t1;
     private LogicalOlapScan t2;
@@ -126,7 +126,7 @@ class PushDownJoinOnAssertNumRowsTest implements MemoPatternMatchSupported {
 
         // Apply the rule
         PlanChecker.from(MemoTestUtils.createConnectContext(), root)
-                .applyTopDown(new PushDownJoinOnAssertNumRows())
+                .applyTopDown(new PushDownOneRowJoinThroughJoin())
                 .matches(logicalJoin(
                                 logicalJoin(
                                                         logicalOlapScan(),
@@ -179,7 +179,7 @@ class PushDownJoinOnAssertNumRowsTest implements MemoPatternMatchSupported {
 
         // Apply the rule
         PlanChecker.from(MemoTestUtils.createConnectContext(), root)
-                .applyTopDown(new PushDownJoinOnAssertNumRows())
+                .applyTopDown(new PushDownOneRowJoinThroughJoin())
                 .matches(logicalJoin(
                                 logicalOlapScan(),
                                 logicalJoin(
@@ -244,7 +244,7 @@ class PushDownJoinOnAssertNumRowsTest implements MemoPatternMatchSupported {
 
         // Apply the rule
         PlanChecker.from(MemoTestUtils.createConnectContext(), root)
-                .applyTopDown(new PushDownJoinOnAssertNumRows())
+                .applyTopDown(new PushDownOneRowJoinThroughJoin())
                 .matches(logicalProject(
                                 logicalJoin(
                                                         logicalJoin(
@@ -281,7 +281,7 @@ class PushDownJoinOnAssertNumRowsTest implements MemoPatternMatchSupported {
 
         // Apply the rule
         PlanChecker.from(MemoTestUtils.createConnectContext(), root)
-                .applyTopDown(new PushDownJoinOnAssertNumRows())
+                .applyTopDown(new PushDownOneRowJoinThroughJoin())
                 .matches(logicalJoin(
                                 logicalJoin(
                                                         logicalOlapScan(),
@@ -326,7 +326,7 @@ class PushDownJoinOnAssertNumRowsTest implements MemoPatternMatchSupported {
         // Apply the rule - should not transform because bottom join already has
         // assertNumRows
         PlanChecker.from(MemoTestUtils.createConnectContext(), root)
-                .applyTopDown(new PushDownJoinOnAssertNumRows())
+                .applyTopDown(new PushDownOneRowJoinThroughJoin())
                 .matches(logicalJoin(
                                 logicalJoin(
                                                         logicalOlapScan(),
@@ -367,7 +367,7 @@ class PushDownJoinOnAssertNumRowsTest implements MemoPatternMatchSupported {
         // Apply the rule - should not transform because there are multiple join
         // conditions
         PlanChecker.from(MemoTestUtils.createConnectContext(), root)
-                .applyTopDown(new PushDownJoinOnAssertNumRows())
+                .applyTopDown(new PushDownOneRowJoinThroughJoin())
                 .matches(logicalJoin(
                                 logicalJoin(
                                                         logicalOlapScan(),
@@ -406,7 +406,7 @@ class PushDownJoinOnAssertNumRowsTest implements MemoPatternMatchSupported {
 
         // Apply the rule - should not transform because bottom join is outer join
         PlanChecker.from(MemoTestUtils.createConnectContext(), root)
-                .applyTopDown(new PushDownJoinOnAssertNumRows())
+                .applyTopDown(new PushDownOneRowJoinThroughJoin())
                 .matches(logicalJoin(
                                 logicalJoin(
                                                         logicalOlapScan(),
@@ -449,7 +449,7 @@ class PushDownJoinOnAssertNumRowsTest implements MemoPatternMatchSupported {
 
         // Apply the rule
         PlanChecker.from(MemoTestUtils.createConnectContext(), root)
-                .applyTopDown(new PushDownJoinOnAssertNumRows())
+                .applyTopDown(new PushDownOneRowJoinThroughJoin())
                 .matches(logicalJoin(
                                 logicalJoin(
                                                         logicalOlapScan(),
@@ -460,7 +460,7 @@ class PushDownJoinOnAssertNumRowsTest implements MemoPatternMatchSupported {
 
     @Test
     void testProjectAliasOnPlan() {
-        PushDownJoinOnAssertNumRows rule = new PushDownJoinOnAssertNumRows();
+        PushDownOneRowJoinThroughJoin rule = new PushDownOneRowJoinThroughJoin();
         Slot slot = new SlotReference(new ExprId(0), "data_slot", IntegerType.INSTANCE,
                 false, ImmutableList.of());
         LogicalProject childProject = new LogicalProject(ImmutableList.of(slot),
