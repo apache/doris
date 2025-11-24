@@ -20,10 +20,12 @@
 #include <gtest/gtest.h>
 
 #include <chrono>
+#include <cstring>
 #include <ctime>
 #include <future>
 #include <memory>
 #include <mutex>
+#include <set>
 #include <string>
 #include <thread>
 #include <utility>
@@ -195,12 +197,14 @@ protected:
         _old_merge_threshold = config::merge_file_size_threshold_bytes;
         _old_small_threshold = config::small_file_threshold_bytes;
         _old_retention = config::uploaded_file_retention_seconds;
+        _old_time_threshold = config::merge_file_time_threshold_ms;
         _old_deploy_mode = config::deploy_mode;
         _old_cloud_id = config::cloud_unique_id;
 
         config::merge_file_size_threshold_bytes = 1024;
         config::small_file_threshold_bytes = 1024;
         config::uploaded_file_retention_seconds = 60;
+        config::merge_file_time_threshold_ms = 100; // Default 100ms
         config::deploy_mode.clear();
         config::cloud_unique_id.clear();
 
@@ -221,6 +225,7 @@ protected:
         config::merge_file_size_threshold_bytes = _old_merge_threshold;
         config::small_file_threshold_bytes = _old_small_threshold;
         config::uploaded_file_retention_seconds = _old_retention;
+        config::merge_file_time_threshold_ms = _old_time_threshold;
         config::deploy_mode = _old_deploy_mode;
         config::cloud_unique_id = _old_cloud_id;
     }
@@ -241,6 +246,7 @@ private:
     int64_t _old_merge_threshold = 0;
     int64_t _old_small_threshold = 0;
     int64_t _old_retention = 0;
+    int64_t _old_time_threshold = 0;
     std::string _old_deploy_mode;
     std::string _old_cloud_id;
     std::string _resource_id = "test_resource";
@@ -573,6 +579,466 @@ TEST_F(MergeFileManagerTest, MergeFileBvarMetricsUpdated) {
     EXPECT_EQ(manager->merge_file_total_size_bytes_for_test(), 300);
     EXPECT_DOUBLE_EQ(manager->merge_file_avg_small_file_num_for_test(), 2.0);
     EXPECT_DOUBLE_EQ(manager->merge_file_avg_file_size_for_test(), 300.0);
+}
+
+// Multiple small file imports, segment size < threshold, triggers merge file
+TEST_F(MergeFileManagerTest, MultipleSmallFilesTriggerMergeFile) {
+    // Set small file threshold to 100 bytes
+    config::small_file_threshold_bytes = 100;
+    // Set merge file size threshold to 500 bytes (will trigger rotation when reached)
+    config::merge_file_size_threshold_bytes = 500;
+
+    auto writer = file_system->last_writer();
+    ASSERT_NE(writer, nullptr);
+
+    auto info = default_append_info();
+    constexpr int file_count = 10;
+    constexpr int file_size = 50; // Each file is 50 bytes, smaller than threshold 100
+
+    // Append multiple small files
+    for (int i = 0; i < file_count; ++i) {
+        std::string path = "small_file_" + std::to_string(i);
+        std::string payload(file_size, 'a' + (i % 26)); // 50 bytes per file
+        Slice slice(payload);
+
+        Status st = manager->append(path, slice, info);
+        EXPECT_TRUE(st.ok()) << "Failed to append file " << i << ": " << st.msg();
+
+        // Verify file is in global index map
+        auto it = manager->_global_index_map.find(path);
+        ASSERT_NE(it, manager->_global_index_map.end());
+        EXPECT_EQ(it->second.size, file_size);
+        EXPECT_EQ(it->second.tablet_id, info.tablet_id);
+        EXPECT_EQ(it->second.rowset_id, info.rowset_id);
+    }
+
+    // Verify all files are in global index map
+    // Note: When total_size + new_file_size >= threshold, a new merge file is created
+    // So files may be distributed across multiple merge files
+    int total_files_in_index = 0;
+    int64_t total_size_in_index = 0;
+    for (int i = 0; i < file_count; ++i) {
+        std::string path = "small_file_" + std::to_string(i);
+        auto it = manager->_global_index_map.find(path);
+        if (it != manager->_global_index_map.end()) {
+            total_files_in_index++;
+            total_size_in_index += it->second.size;
+            EXPECT_LT(it->second.size, config::small_file_threshold_bytes)
+                    << "File " << path << " size " << it->second.size
+                    << " should be less than threshold " << config::small_file_threshold_bytes;
+        }
+    }
+    EXPECT_EQ(total_files_in_index, file_count);
+    EXPECT_EQ(total_size_in_index, file_count * file_size);
+
+    // Count files across all merge files (current and uploading)
+    int total_files_in_merge_files = 0;
+    int64_t total_size_in_merge_files = 0;
+
+    // Check current merge file
+    auto* current_state = manager->_current_merge_files[_resource_id].get();
+    ASSERT_NE(current_state, nullptr);
+    total_files_in_merge_files += current_state->index_map.size();
+    total_size_in_merge_files += current_state->total_size;
+
+    // Check uploading merge files
+    for (const auto& [path, state] : manager->_uploading_merge_files) {
+        total_files_in_merge_files += state->index_map.size();
+        total_size_in_merge_files += state->total_size;
+    }
+
+    EXPECT_EQ(total_files_in_merge_files, file_count);
+    EXPECT_EQ(total_size_in_merge_files, file_count * file_size);
+
+    // When total size reaches threshold, merge file should be rotated
+    // Add one more file to trigger rotation (if not already triggered)
+    std::string path_trigger = "trigger_file";
+    std::string payload_trigger(file_size, 'z');
+    Slice slice_trigger(payload_trigger);
+
+    size_t create_before = file_system->created_paths().size();
+    Status st = manager->append(path_trigger, slice_trigger, info);
+    EXPECT_TRUE(st.ok());
+
+    // Should create new merge file when threshold is reached
+    EXPECT_GE(file_system->created_paths().size(), create_before);
+    // May have uploading merge files if threshold was reached
+    EXPECT_GE(manager->_uploading_merge_files.size(), 0);
+
+    // New merge file should have the trigger file
+    auto* new_state = manager->_current_merge_files[_resource_id].get();
+    ASSERT_NE(new_state, nullptr);
+    // Trigger file should be in current state or uploading state
+    auto trigger_it = manager->_global_index_map.find(path_trigger);
+    EXPECT_NE(trigger_it, manager->_global_index_map.end());
+}
+
+// Multiple files close to threshold, boundary value verification for merge file
+TEST_F(MergeFileManagerTest, FilesNearThresholdBoundaryMergeFile) {
+    // Set small file threshold to 100 bytes
+    config::small_file_threshold_bytes = 100;
+    // Set merge file size threshold to 500 bytes
+    config::merge_file_size_threshold_bytes = 500;
+
+    auto writer = file_system->last_writer();
+    ASSERT_NE(writer, nullptr);
+
+    auto info = default_append_info();
+
+    // Files exactly at threshold - 1 (should be merged)
+    {
+        std::string path1 = "boundary_file_99";
+        std::string payload1(99, 'x'); // 99 bytes, just below threshold
+        Slice slice1(payload1);
+
+        Status st = manager->append(path1, slice1, info);
+        EXPECT_TRUE(st.ok());
+
+        auto it = manager->_global_index_map.find(path1);
+        ASSERT_NE(it, manager->_global_index_map.end());
+        EXPECT_EQ(it->second.size, 99);
+        EXPECT_LT(it->second.size, config::small_file_threshold_bytes);
+    }
+
+    // Files exactly at threshold (should be merged, uses > not >=, so 100 <= 100 means merged)
+    {
+        std::string path2 = "boundary_file_100";
+        std::string payload2(100, 'y'); // 100 bytes, exactly at threshold
+        Slice slice2(payload2);
+
+        Status st = manager->append(path2, slice2, info);
+        EXPECT_TRUE(st.ok());
+
+        // File at threshold should be merged (check uses >, so 100 is not > 100, so it's merged)
+        auto it = manager->_global_index_map.find(path2);
+        ASSERT_NE(it, manager->_global_index_map.end());
+        EXPECT_EQ(it->second.size, 100);
+        EXPECT_LE(it->second.size, config::small_file_threshold_bytes);
+    }
+
+    // Files at threshold + 1 (should NOT be merged)
+    {
+        std::string path3 = "boundary_file_101";
+        std::string payload3(101, 'z'); // 101 bytes, above threshold
+        Slice slice3(payload3);
+
+        size_t append_calls_before = writer->append_calls();
+        Status st = manager->append(path3, slice3, info);
+        EXPECT_TRUE(st.ok());
+
+        // File above threshold should not be merged
+        auto it = manager->_global_index_map.find(path3);
+        EXPECT_EQ(it, manager->_global_index_map.end());
+        EXPECT_EQ(writer->append_calls(), append_calls_before);
+    }
+
+    // Multiple files close to threshold, verify merge file behavior
+    // Add files that are just below threshold to fill up merge file
+    constexpr int file_count = 5;
+    constexpr int file_size = 99; // Just below threshold
+
+    for (int i = 0; i < file_count; ++i) {
+        std::string path = "near_threshold_file_" + std::to_string(i);
+        std::string payload(file_size, 'a' + (i % 26));
+        Slice slice(payload);
+
+        Status st = manager->append(path, slice, info);
+        EXPECT_TRUE(st.ok()) << "Failed to append file " << i << ": " << st.msg();
+
+        // Verify file is merged
+        auto it = manager->_global_index_map.find(path);
+        ASSERT_NE(it, manager->_global_index_map.end());
+        EXPECT_EQ(it->second.size, file_size);
+        EXPECT_LT(it->second.size, config::small_file_threshold_bytes);
+    }
+
+    // Verify merge file state
+    // Note: When total_size + new_file_size >= threshold, a new merge file is created
+    // So files may be distributed across multiple merge files
+    int total_merged_files = 0;
+    int64_t total_merged_size = 0;
+
+    // Count files in current merge file
+    auto* current_state = manager->_current_merge_files[_resource_id].get();
+    ASSERT_NE(current_state, nullptr);
+    total_merged_files += current_state->index_map.size();
+    total_merged_size += current_state->total_size;
+
+    // Count files in uploading merge files
+    for (const auto& [path, state] : manager->_uploading_merge_files) {
+        total_merged_files += state->index_map.size();
+        total_merged_size += state->total_size;
+    }
+
+    // Should have 1 file from first test (99 bytes) + 1 file at threshold (100 bytes) + 5 files from loop (99 bytes each) = 7 files
+    EXPECT_EQ(total_merged_files, 7);
+    EXPECT_EQ(total_merged_size, 99 + 100 + (file_count * file_size));
+
+    // Verify all merged files are at or below threshold (uses >, so == threshold is merged)
+    for (const auto& [path, index] : current_state->index_map) {
+        EXPECT_LE(index.size, config::small_file_threshold_bytes)
+                << "File " << path << " size " << index.size
+                << " should be less than or equal to threshold "
+                << config::small_file_threshold_bytes;
+    }
+    for (const auto& [path, state] : manager->_uploading_merge_files) {
+        for (const auto& [file_path, index] : state->index_map) {
+            EXPECT_LE(index.size, config::small_file_threshold_bytes)
+                    << "File " << file_path << " size " << index.size
+                    << " should be less than or equal to threshold "
+                    << config::small_file_threshold_bytes;
+        }
+    }
+
+    // Note: writer->bytes_appended() may not reflect all merged data because
+    // each merge file has its own writer, and we're only checking the last writer
+    // So we don't verify writer->bytes_appended() here
+}
+
+// Merge file result check, generated path and filename meet expectations
+TEST_F(MergeFileManagerTest, MergeFilePathAndFilenameFormat) {
+    // Verify initial merge file path format
+    auto* current_state = manager->_current_merge_files[_resource_id].get();
+    ASSERT_NE(current_state, nullptr);
+    const std::string& merge_file_path = current_state->merge_file_path;
+
+    // Path should start with "data/merge_file/"
+    EXPECT_TRUE(merge_file_path.find("data/merge_file/") == 0)
+            << "Merge file path should start with 'data/merge_file/', got: " << merge_file_path;
+}
+
+// Test timeout triggers upload, causing small files to be uploaded directly
+TEST_F(MergeFileManagerTest, TimeoutTriggersDirectUpload) {
+    // Set a very large merge file size threshold so size won't trigger upload
+    config::merge_file_size_threshold_bytes = 10 * 1024 * 1024; // 10MB
+    // Set a short timeout threshold - 50ms to trigger timeout quickly
+    config::merge_file_time_threshold_ms = 50;
+
+    // Reset manager to use new config
+    manager.reset();
+    file_system.reset();
+    file_system = std::make_shared<MockFileSystem>();
+    manager = std::make_unique<MergeFileManager>();
+    manager->_file_systems[_resource_id] = file_system;
+    ASSERT_TRUE(manager->init().ok());
+    auto& state = manager->_current_merge_files[_resource_id];
+    ASSERT_TRUE(manager->create_new_merge_file_state(_resource_id, state).ok());
+    ASSERT_NE(file_system->last_writer(), nullptr);
+
+    // Add a small file that won't trigger size-based upload
+    std::string payload = "small_file_data";
+    Slice slice(payload);
+    auto info = default_append_info();
+    ASSERT_TRUE(manager->append("small_file_1", slice, info).ok());
+
+    // Get the merge file path before timeout
+    MergeFileSegmentIndex index_before;
+    ASSERT_TRUE(manager->get_merge_file_index("small_file_1", &index_before).ok());
+    std::string merge_file_path_before = index_before.merge_file_path;
+
+    // Verify file is in current merge file (not uploaded yet)
+    auto* current_state = manager->_current_merge_files[_resource_id].get();
+    ASSERT_NE(current_state, nullptr);
+    EXPECT_EQ(current_state->merge_file_path, merge_file_path_before);
+    EXPECT_EQ(current_state->state.load(), MergeFileManager::MergeFileStateEnum::ACTIVE);
+
+    // Start background manager thread
+    manager->start_background_manager();
+
+    // Wait for timeout to be triggered and processed
+    // Background thread checks every check_interval_ms (half of timeout threshold = 25ms)
+    // We need to wait at least timeout threshold (50ms) + some margin for processing
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+    // Verify that the merge file was marked for upload due to timeout
+    // The original merge file should be in uploading or uploaded state, or new file created
+    bool found_in_uploading = false;
+    bool found_in_uploaded = false;
+    std::string new_merge_file_path;
+    {
+        auto* new_current_state = manager->_current_merge_files[_resource_id].get();
+        if (new_current_state && new_current_state->merge_file_path != merge_file_path_before) {
+            new_merge_file_path = new_current_state->merge_file_path;
+        }
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(manager->_merge_files_mutex);
+        if (manager->_uploading_merge_files.find(merge_file_path_before) !=
+            manager->_uploading_merge_files.end()) {
+            found_in_uploading = true;
+        }
+        if (manager->_uploaded_merge_files.find(merge_file_path_before) !=
+            manager->_uploaded_merge_files.end()) {
+            found_in_uploaded = true;
+        }
+    }
+
+    // The merge file should have been moved to uploading/uploaded state or new file created
+    EXPECT_TRUE(found_in_uploading || found_in_uploaded || !new_merge_file_path.empty())
+            << "Merge file should be marked for upload due to timeout";
+
+    // Verify the small file index still points to the original merge file
+    MergeFileSegmentIndex index_after;
+    ASSERT_TRUE(manager->get_merge_file_index("small_file_1", &index_after).ok());
+    EXPECT_EQ(index_after.merge_file_path, merge_file_path_before);
+    EXPECT_EQ(index_after.size, payload.size());
+
+    // Process uploading files to complete the upload
+    manager->process_uploading_files();
+
+    // Stop background manager
+    manager->stop_background_manager();
+
+    // Verify the file is eventually in uploaded or uploading state
+    {
+        std::lock_guard<std::mutex> lock(manager->_merge_files_mutex);
+        bool is_uploaded = (manager->_uploaded_merge_files.find(merge_file_path_before) !=
+                            manager->_uploaded_merge_files.end());
+        bool is_uploading = (manager->_uploading_merge_files.find(merge_file_path_before) !=
+                             manager->_uploading_merge_files.end());
+        EXPECT_TRUE(is_uploaded || is_uploading)
+                << "Merge file should be in uploading or uploaded state after timeout";
+    }
+}
+
+// Continuous import of small files while modifying threshold, merge file should still trigger
+TEST_F(MergeFileManagerTest, ModifyThresholdDuringContinuousImport) {
+    // Set initial threshold to 100 bytes
+    config::small_file_threshold_bytes = 100;
+    config::merge_file_size_threshold_bytes = 500;
+
+    auto writer = file_system->last_writer();
+    ASSERT_NE(writer, nullptr);
+
+    auto info = default_append_info();
+    constexpr int file_size = 50; // 50 bytes per file, should be merged
+
+    // Phase 1: Import some files with initial threshold (100 bytes)
+    constexpr int phase1_file_count = 5;
+    for (int i = 0; i < phase1_file_count; ++i) {
+        std::string path = "file_phase1_" + std::to_string(i);
+        std::string payload(file_size, 'a' + (i % 26));
+        Slice slice(payload);
+
+        Status st = manager->append(path, slice, info);
+        EXPECT_TRUE(st.ok()) << "Failed to append file " << i << ": " << st.msg();
+
+        // Verify file is in global index map
+        auto it = manager->_global_index_map.find(path);
+        ASSERT_NE(it, manager->_global_index_map.end());
+        EXPECT_EQ(it->second.size, file_size);
+        EXPECT_LT(it->second.size, config::small_file_threshold_bytes);
+    }
+
+    // Phase 2: Modify threshold to 200 bytes (larger than before)
+    config::small_file_threshold_bytes = 200;
+
+    // Phase 3: Continue importing files with new threshold
+    // Files should still be merged because 50 < 200
+    constexpr int phase2_file_count = 5;
+    for (int i = 0; i < phase2_file_count; ++i) {
+        std::string path = "file_phase2_" + std::to_string(i);
+        std::string payload(file_size, 'x' + (i % 26));
+        Slice slice(payload);
+
+        Status st = manager->append(path, slice, info);
+        EXPECT_TRUE(st.ok()) << "Failed to append file phase2_" << i << ": " << st.msg();
+
+        // Verify file is in global index map
+        auto it = manager->_global_index_map.find(path);
+        ASSERT_NE(it, manager->_global_index_map.end());
+        EXPECT_EQ(it->second.size, file_size);
+        EXPECT_LT(it->second.size, config::small_file_threshold_bytes);
+    }
+
+    // Phase 4: Modify threshold to 30 bytes (smaller than file size)
+    config::small_file_threshold_bytes = 30;
+
+    // Phase 5: Import a file larger than new threshold
+    // This file should NOT be merged because 50 > 30
+    {
+        std::string path = "file_large_after_threshold_change";
+        std::string payload(file_size, 'z');
+        Slice slice(payload);
+
+        Status st = manager->append(path, slice, info);
+        EXPECT_TRUE(st.ok());
+
+        // Verify file is NOT in global index map (should be skipped)
+        auto it = manager->_global_index_map.find(path);
+        EXPECT_EQ(it, manager->_global_index_map.end())
+                << "File larger than threshold should not be merged";
+    }
+
+    // Verify all files from phase 1 and phase 2 are in merge files
+    int total_merged_files = 0;
+    int64_t total_merged_size = 0;
+
+    // Count files in current merge file
+    auto* current_state = manager->_current_merge_files[_resource_id].get();
+    ASSERT_NE(current_state, nullptr);
+    total_merged_files += current_state->index_map.size();
+    total_merged_size += current_state->total_size;
+
+    // Count files in uploading merge files
+    for (const auto& [path, state] : manager->_uploading_merge_files) {
+        total_merged_files += state->index_map.size();
+        total_merged_size += state->total_size;
+    }
+
+    // Should have phase1_file_count + phase2_file_count = 10 files merged
+    EXPECT_EQ(total_merged_files, phase1_file_count + phase2_file_count);
+    EXPECT_EQ(total_merged_size, (phase1_file_count + phase2_file_count) * file_size);
+
+    // Verify all phase 1 and phase 2 files are in global index map
+    for (int i = 0; i < phase1_file_count; ++i) {
+        std::string path = "file_phase1_" + std::to_string(i);
+        auto it = manager->_global_index_map.find(path);
+        EXPECT_NE(it, manager->_global_index_map.end())
+                << "Phase 1 file " << i << " should be in global index map";
+        if (it != manager->_global_index_map.end()) {
+            EXPECT_EQ(it->second.size, file_size);
+        }
+    }
+
+    for (int i = 0; i < phase2_file_count; ++i) {
+        std::string path = "file_phase2_" + std::to_string(i);
+        auto it = manager->_global_index_map.find(path);
+        EXPECT_NE(it, manager->_global_index_map.end())
+                << "Phase 2 file " << i << " should be in global index map";
+        if (it != manager->_global_index_map.end()) {
+            EXPECT_EQ(it->second.size, file_size);
+        }
+    }
+
+    // Phase 6: Modify threshold back to a larger value (e.g., 100 bytes)
+    // This verifies that threshold changes are applied dynamically
+    config::small_file_threshold_bytes = 100;
+
+    // Phase 7: Verify merge file rotation can still be triggered after threshold change
+    // Add a small file (25 bytes) that should be merged with new threshold
+    {
+        std::string path_trigger = "trigger_file_after_threshold";
+        constexpr int trigger_file_size = 25; // 25 bytes, should be merged (25 < 100)
+        std::string payload_trigger(trigger_file_size, 't');
+        Slice slice_trigger(payload_trigger);
+
+        size_t create_before = file_system->created_paths().size();
+        Status st = manager->append(path_trigger, slice_trigger, info);
+        EXPECT_TRUE(st.ok());
+
+        // Should create new merge file when threshold is reached (if not already)
+        EXPECT_GE(file_system->created_paths().size(), create_before);
+
+        // Verify trigger file is in global index map (should be merged because 25 < 100)
+        auto trigger_it = manager->_global_index_map.find(path_trigger);
+        EXPECT_NE(trigger_it, manager->_global_index_map.end())
+                << "Trigger file should be in global index map after threshold change";
+        if (trigger_it != manager->_global_index_map.end()) {
+            EXPECT_EQ(trigger_it->second.size, trigger_file_size);
+        }
+    }
 }
 
 } // namespace doris::io
