@@ -395,8 +395,7 @@ WorkloadGroupInfo WorkloadGroupInfo::parse_topic_info(
     }
 
     // 10 max remote scan thread num
-    int max_remote_scan_thread_num =
-            vectorized::SimplifiedScanScheduler::get_remote_scan_thread_num();
+    int max_remote_scan_thread_num = vectorized::ScannerScheduler::get_remote_scan_thread_num();
     if (tworkload_group_info.__isset.max_remote_scan_thread_num &&
         tworkload_group_info.max_remote_scan_thread_num > 0) {
         max_remote_scan_thread_num = tworkload_group_info.max_remote_scan_thread_num;
@@ -551,7 +550,7 @@ Status WorkloadGroup::upsert_thread_pool_no_lock(WorkloadGroupInfo* wg_info,
     }
 
     if (_scan_task_sched == nullptr) {
-        std::unique_ptr<vectorized::SimplifiedScanScheduler> scan_scheduler;
+        std::unique_ptr<vectorized::ScannerScheduler> scan_scheduler;
         if (config::enable_task_executor_in_internal_table) {
             scan_scheduler = std::make_unique<vectorized::TaskExecutorSimplifiedScanScheduler>(
                     "ls_" + wg_name, cg_cpu_ctl_ptr, wg_name);
@@ -572,8 +571,8 @@ Status WorkloadGroup::upsert_thread_pool_no_lock(WorkloadGroupInfo* wg_info,
 
     if (_remote_scan_task_sched == nullptr) {
         int remote_scan_thread_queue_size =
-                vectorized::SimplifiedScanScheduler::get_remote_scan_thread_queue_size();
-        std::unique_ptr<vectorized::SimplifiedScanScheduler> remote_scan_scheduler;
+                vectorized::ScannerScheduler::get_remote_scan_thread_queue_size();
+        std::unique_ptr<vectorized::ScannerScheduler> remote_scan_scheduler;
         if (config::enable_task_executor_in_external_table) {
             remote_scan_scheduler =
                     std::make_unique<vectorized::TaskExecutorSimplifiedScanScheduler>(
@@ -647,8 +646,8 @@ Status WorkloadGroup::upsert_task_scheduler(WorkloadGroupInfo* wg_info) {
 }
 
 void WorkloadGroup::get_query_scheduler(doris::pipeline::TaskScheduler** exec_sched,
-                                        vectorized::SimplifiedScanScheduler** scan_sched,
-                                        vectorized::SimplifiedScanScheduler** remote_scan_sched) {
+                                        vectorized::ScannerScheduler** scan_sched,
+                                        vectorized::ScannerScheduler** remote_scan_sched) {
     std::shared_lock<std::shared_mutex> rlock(_task_sched_lock);
     *exec_sched = _task_sched.get();
     *scan_sched = _scan_task_sched.get();

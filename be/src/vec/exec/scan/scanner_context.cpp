@@ -522,7 +522,7 @@ int32_t ScannerContext::_get_margin(std::unique_lock<std::mutex>& transfer_lock,
 
 // This function must be called with:
 // 1. _transfer_lock held.
-// 2. SimplifiedScanScheduler::_lock held.
+// 2. ScannerScheduler::_lock held.
 Status ScannerContext::schedule_scan_task(std::shared_ptr<ScanTask> current_scan_task,
                                           std::unique_lock<std::mutex>& transfer_lock,
                                           std::unique_lock<std::shared_mutex>& scheduler_lock) {

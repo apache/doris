@@ -44,7 +44,7 @@ namespace doris::vectorized {
 class ScannerDelegate;
 class ScanTask;
 class ScannerContext;
-class SimplifiedScanScheduler;
+class ScannerScheduler;
 
 struct SimplifiedScanTask {
     SimplifiedScanTask() = default;
@@ -102,9 +102,9 @@ private:
 //     The corresponding ScanNode will act as a consumer to consume blocks from the block queue.
 //     After the block is consumed, the unfinished scanner will resubmit to this scheduler.
 
-class SimplifiedScanScheduler {
+class ScannerScheduler {
 public:
-    virtual ~SimplifiedScanScheduler() {}
+    virtual ~ScannerScheduler() {}
 
     Status submit(std::shared_ptr<ScannerContext> ctx, std::shared_ptr<ScanTask> scan_task);
 
@@ -139,7 +139,7 @@ private:
                                                        vectorized::Block* block);
 };
 
-class ThreadPoolSimplifiedScanScheduler : public SimplifiedScanScheduler {
+class ThreadPoolSimplifiedScanScheduler : public ScannerScheduler {
 public:
     ThreadPoolSimplifiedScanScheduler(std::string sched_name,
                                       std::shared_ptr<CgroupCpuCtl> cgroup_cpu_ctl,
@@ -261,7 +261,7 @@ private:
     std::shared_mutex _lock;
 };
 
-class TaskExecutorSimplifiedScanScheduler : public SimplifiedScanScheduler {
+class TaskExecutorSimplifiedScanScheduler : public ScannerScheduler {
 public:
     TaskExecutorSimplifiedScanScheduler(std::string sched_name,
                                         std::shared_ptr<CgroupCpuCtl> cgroup_cpu_ctl,

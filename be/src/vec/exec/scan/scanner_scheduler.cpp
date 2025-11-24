@@ -52,8 +52,8 @@
 
 namespace doris::vectorized {
 
-Status SimplifiedScanScheduler::submit(std::shared_ptr<ScannerContext> ctx,
-                                       std::shared_ptr<ScanTask> scan_task) {
+Status ScannerScheduler::submit(std::shared_ptr<ScannerContext> ctx,
+                                std::shared_ptr<ScanTask> scan_task) {
     if (ctx->done()) {
         return Status::OK();
     }
@@ -124,8 +124,8 @@ void handle_reserve_memory_failure(RuntimeState* state, std::shared_ptr<ScannerC
     state->get_query_ctx()->set_low_memory_mode();
 }
 
-void SimplifiedScanScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
-                                            std::shared_ptr<ScanTask> scan_task) {
+void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
+                                     std::shared_ptr<ScanTask> scan_task) {
     auto task_lock = ctx->task_exec_ctx();
     if (task_lock == nullptr) {
         return;
@@ -335,7 +335,7 @@ void SimplifiedScanScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
     ctx->push_back_scan_task(scan_task);
 }
 
-int SimplifiedScanScheduler::get_remote_scan_thread_num() {
+int ScannerScheduler::get_remote_scan_thread_num() {
     static int remote_max_thread_num = []() {
         int num = config::doris_max_remote_scanner_thread_pool_thread_num != -1
                           ? config::doris_max_remote_scanner_thread_pool_thread_num
@@ -345,11 +345,11 @@ int SimplifiedScanScheduler::get_remote_scan_thread_num() {
     return remote_max_thread_num;
 }
 
-int SimplifiedScanScheduler::get_remote_scan_thread_queue_size() {
+int ScannerScheduler::get_remote_scan_thread_queue_size() {
     return config::doris_remote_scanner_thread_pool_queue_size;
 }
 
-void SimplifiedScanScheduler::_make_sure_virtual_col_is_materialized(
+void ScannerScheduler::_make_sure_virtual_col_is_materialized(
         const std::shared_ptr<Scanner>& scanner, vectorized::Block* free_block) {
 #ifndef NDEBUG
     // Currently, virtual column can only be used on olap table.

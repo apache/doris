@@ -56,7 +56,7 @@ namespace vectorized {
 class Scanner;
 class ScannerDelegate;
 class ScannerScheduler;
-class SimplifiedScanScheduler;
+class ScannerScheduler;
 class TaskExecutor;
 class TaskHandle;
 
@@ -116,7 +116,7 @@ public:
 class ScannerContext : public std::enable_shared_from_this<ScannerContext>,
                        public HasTaskExecutionCtx {
     ENABLE_FACTORY_CREATOR(ScannerContext);
-    friend class SimplifiedScanScheduler;
+    friend class ScannerScheduler;
 
 public:
     ScannerContext(RuntimeState* state, pipeline::ScanLocalStateBase* local_state,
@@ -228,7 +228,7 @@ protected:
     int64_t limit;
 
     int64_t _max_bytes_in_queue = 0;
-    SimplifiedScanScheduler* _scanner_scheduler = nullptr;
+    ScannerScheduler* _scanner_scheduler = nullptr;
     // Using stack so that we can resubmit scanner in a LIFO order, maybe more cache friendly
     std::stack<std::shared_ptr<ScanTask>> _pending_scanners;
     // Scanner that is submitted to the scheduler.

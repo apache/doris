@@ -121,7 +121,7 @@ private:
     std::shared_ptr<pipeline::Dependency> scan_dependency =
             pipeline::Dependency::create_shared(0, 0, "TestScanDependency");
     std::shared_ptr<CgroupCpuCtl> cgroup_cpu_ctl = std::make_shared<CgroupV2CpuCtl>(1);
-    std::unique_ptr<SimplifiedScanScheduler> scan_scheduler =
+    std::unique_ptr<ScannerScheduler> scan_scheduler =
             std::make_unique<ThreadPoolSimplifiedScanScheduler>("ForTest", cgroup_cpu_ctl);
 };
 
