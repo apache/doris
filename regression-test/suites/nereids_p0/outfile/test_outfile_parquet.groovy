@@ -37,6 +37,9 @@ suite("test_outfile_parquet") {
     strBuilder.append(" http://" + context.config.feHttpAddress + "/rest/v1/config/fe")
 
     String command = strBuilder.toString()
+    if ((context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false) {
+        command = command.replace("http://", "https://") + " --cert " + context.config.otherConfigs.get("trustCert") + " --cacert " + context.config.otherConfigs.get("trustCACert") + " --key " + context.config.otherConfigs.get("trustCAKey")
+    }
     def process = command.toString().execute()
     def code = process.waitFor()
     def err = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())));
@@ -151,6 +154,9 @@ suite("test_outfile_parquet") {
         commandBuilder.append("""curl -v --location-trusted -u ${context.config.feHttpUser}:${context.config.feHttpPassword}""")
         commandBuilder.append(""" -H format:parquet -T """ + files[0].getAbsolutePath() + """ http://${context.config.feHttpAddress}/api/""" + dbName + "/" + tableName2 + "/_stream_load")
         command = commandBuilder.toString()
+        if ((context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false) {
+            command = command.replace("http://", "https://") + " --cert " + context.config.otherConfigs.get("trustCert") + " --cacert " + context.config.otherConfigs.get("trustCACert") + " --key " + context.config.otherConfigs.get("trustCAKey")
+        }
         process = command.execute()
         code = process.waitFor()
         err = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())))

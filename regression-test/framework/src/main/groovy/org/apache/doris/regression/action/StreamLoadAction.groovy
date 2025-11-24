@@ -41,6 +41,15 @@ import org.junit.Assert
 import java.io.InputStream
 import java.io.IOException
 
+import javax.net.ssl.HostnameVerifier
+import org.apache.http.conn.ssl.NoopHostnameVerifier
+import org.apache.http.conn.ssl.SSLConnectionSocketFactory
+import org.apache.http.ssl.SSLContexts
+import javax.net.ssl.*
+import java.security.KeyStore
+import java.security.SecureRandom
+import java.security.cert.X509Certificate
+
 @Slf4j
 class StreamLoadAction implements SuiteAction {
     public InetSocketAddress address
@@ -272,16 +281,18 @@ class StreamLoadAction implements SuiteAction {
         Throwable ex = null
         long startTime = System.currentTimeMillis()
         def isHttpStream = headers.containsKey("version")
+        def httpType = enableTLS ? "https" : "http"
         try {
             def uri = ""
             if (isHttpStream) {
-                uri = "http://${address.hostString}:${address.port}/api/_http_stream"
+                uri = "${httpType}://${address.hostString}:${address.port}/api/_http_stream"
             } else if (twoPhaseCommit) {
-                uri = "http://${address.hostString}:${address.port}/api/${db}/_stream_load_2pc"
+                uri = "${httpType}://${address.hostString}:${address.port}/api/${db}/_stream_load_2pc"
             } else {
-                uri = "http://${address.hostString}:${address.port}/api/${db}/${table}/_stream_load"
+                uri = "${httpType}://${address.hostString}:${address.port}/api/${db}/${table}/_stream_load"
             }
-            HttpClients.createDefault().withCloseable { client ->
+
+            buildHttpClient().withCloseable { client ->
                 RequestBuilder requestBuilder = prepareRequestHeader(RequestBuilder.put(uri))
                 HttpEntity httpEntity = prepareHttpEntity(client)
                 if (!directToBe) {
@@ -297,8 +308,7 @@ class StreamLoadAction implements SuiteAction {
         }
         long endTime = System.currentTimeMillis()
 
-        log.info("Stream load elapsed ${endTime - startTime} ms, is http stream: ${isHttpStream}, " +
-                " response: ${responseText}" + ex.toString())
+        log.info("Stream load elapsed ${endTime - startTime} ms, is http stream: ${isHttpStream}, response: ${responseText}${ex ? (', ex=' + ex.toString()) : ''}")
         checkResult(responseText, ex, startTime, endTime)
     }
 

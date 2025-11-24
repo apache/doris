@@ -27,6 +27,10 @@ suite("test_outfile") {
     strBuilder.append(" http://" + context.config.feHttpAddress + "/rest/v1/config/fe")
 
     String command = strBuilder.toString()
+    if ((context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false) {
+        command = command.replace("http://", "https://") + " --cert " + context.config.otherConfigs.get("trustCert") + " --cacert " + context.config.otherConfigs.get("trustCACert") + " --key " + context.config.otherConfigs.get("trustCAKey") + " --http0.9"
+    }
+    logger.info("command xxx " + command.toString())
     def process = command.toString().execute()
     def code = process.waitFor()
     def err = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())));
