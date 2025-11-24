@@ -83,7 +83,6 @@ check_prerequest() {
 }
 
 check_prerequest "mysql --version" "mysql"
-
 source $CURDIR/conf/doris-cluster.conf
 echo "FE_HOST: $FE_HOST"
 echo "FE_QUERY_PORT: $FE_QUERY_PORT"
@@ -91,8 +90,16 @@ echo "USER: $USER"
 echo "PASSWORD: $PASSWORD"
 echo "DB: $DB"
 
-mysql -h$FE_HOST -u$USER -P$FE_QUERY_PORT -e "CREATE DATABASE IF NOT EXISTS $DB"
-mysql -h$FE_HOST -u$USER -P$FE_QUERY_PORT -D$DB <$CURDIR/sql/create-clickbench-table.sql
-mysql -h$FE_HOST -u$USER -P$FE_QUERY_PORT -D$DB -e "show create table hits;"
+if [[ "a${ENABLE_MTLS}" == "atrue" ]] && \
+   [[ -n "${CERT_PATH}" ]] && \
+   [[ -n "${KEY_PATH}" ]] && \
+   [[ -n "${CACERT_PATH}" ]]; then
+    export mysqlMTLSInfo="--ssl-mode=VERIFY_CA --tls-version=TLSv1.2 --ssl-ca=${CACERT_PATH} --ssl-cert=${CERT_PATH} --ssl-key=${KEY_PATH}"
+    export curlMTLSInfo="--cert ${CERT_PATH} --key ${KEY_PATH} --cacert ${CACERT_PATH}"
+fi
+
+mysql $mysqlMTLSInfo -h$FE_HOST -u$USER -P$FE_QUERY_PORT -e "CREATE DATABASE IF NOT EXISTS $DB"
+mysql $mysqlMTLSInfo -h$FE_HOST -u$USER -P$FE_QUERY_PORT -D$DB <$CURDIR/sql/create-clickbench-table.sql
+mysql $mysqlMTLSInfo -h$FE_HOST -u$USER -P$FE_QUERY_PORT -D$DB -e "show create table hits;"
 
 echo "DONE."

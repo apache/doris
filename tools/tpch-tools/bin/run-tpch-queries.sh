@@ -77,6 +77,7 @@ done
 if [[ "${HELP}" -eq 1 ]]; then
     usage
 fi
+
 TPCH_QUERIES_DIR="${CURDIR}/../queries"
 if [[ ${SCALE_FACTOR} -eq 1 ]]; then
     echo "Running tpch sf 1 queries"
@@ -107,13 +108,23 @@ export MYSQL_PWD=${PASSWORD:-}
 
 echo "FE_HOST: ${FE_HOST:='127.0.0.1'}"
 echo "FE_QUERY_PORT: ${FE_QUERY_PORT:='9030'}"
+echo "FE_HTTP_PORT: ${FE_HTTP_PORT:='8030'}"
 echo "USER: ${USER:='root'}"
 echo "DB: ${DB:='tpch'}"
 echo "Time Unit: ms"
 
+if [[ "a${ENABLE_MTLS}" == "atrue" ]] && \
+   [[ -n "${CERT_PATH}" ]] && \
+   [[ -n "${KEY_PATH}" ]] && \
+   [[ -n "${CACERT_PATH}" ]]; then
+    export mysqlMTLSInfo="--ssl-mode=VERIFY_CA --tls-version=TLSv1.2 --ssl-ca=${CACERT_PATH} --ssl-cert=${CERT_PATH} --ssl-key=${KEY_PATH}"
+    export curlMTLSInfo="--cert ${CERT_PATH} --key ${KEY_PATH} --cacert ${CACERT_PATH}"
+fi
+
+
 run_sql() {
     echo "$*"
-    mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" -e "$*"
+    mysql ${mysqlMTLSInfo} -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" -e "$*"
 }
 
 echo '============================================'
@@ -140,19 +151,31 @@ for i in ${query_array[@]}; do
     hot2=0
     echo -ne "q${i}\t" | tee -a result.csv
     start=$(date +%s%3N)
-    mysql -h"${FE_HOST}" -u "${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" --comments <"${TPCH_QUERIES_DIR}"/q"${i}".sql >"${RESULT_DIR}"/result"${i}".out 2>"${RESULT_DIR}"/result"${i}".log
+    if ! output=$(mysql ${mysqlMTLSInfo} -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" --comments \
+        <"${TPCH_QUERIES_DIR}/q${i}.sql" 2>&1); then
+        printf "Error: Failed to execute query q%s (cold run). Output:\n%s\n" "${i}" "${output}" >&2
+        continue
+    fi
     end=$(date +%s%3N)
     cold=$((end - start))
     echo -ne "${cold}\t" | tee -a result.csv
 
     start=$(date +%s%3N)
-    mysql -h"${FE_HOST}" -u "${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" --comments <"${TPCH_QUERIES_DIR}"/q"${i}".sql >"${RESULT_DIR}"/result"${i}".out 2>"${RESULT_DIR}"/result"${i}".log
+    if ! output=$(mysql ${mysqlMTLSInfo} -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" --comments \
+        <"${TPCH_QUERIES_DIR}/q${i}.sql" 2>&1); then
+        printf "Error: Failed to execute query q%s (hot run 1). Output:\n%s\n" "${i}" "${output}" >&2
+        continue
+    fi
     end=$(date +%s%3N)
     hot1=$((end - start))
     echo -ne "${hot1}\t" | tee -a result.csv
 
     start=$(date +%s%3N)
-    mysql -h"${FE_HOST}" -u "${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" --comments <"${TPCH_QUERIES_DIR}"/q"${i}".sql >"${RESULT_DIR}"/result"${i}".out 2>"${RESULT_DIR}"/result"${i}".log
+    if ! output=$(mysql ${mysqlMTLSInfo} -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" --comments \
+        <"${TPCH_QUERIES_DIR}/q${i}.sql" 2>&1); then
+        printf "Error: Failed to execute query q%s (hot run 2). Output:\n%s\n" "${i}" "${output}" >&2
+        continue
+    fi
     end=$(date +%s%3N)
     hot2=$((end - start))
     echo -ne "${hot2}\t" | tee -a result.csv

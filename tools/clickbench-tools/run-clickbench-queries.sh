@@ -96,14 +96,22 @@ echo "USER: $USER"
 echo "PASSWORD: $PASSWORD"
 echo "DB: $DB"
 
+if [[ "a${ENABLE_MTLS}" == "atrue" ]] && \
+   [[ -n "${CERT_PATH}" ]] && \
+   [[ -n "${KEY_PATH}" ]] && \
+   [[ -n "${CACERT_PATH}" ]]; then
+    export mysqlMTLSInfo="--ssl-mode=VERIFY_CA --tls-version=TLSv1.2 --ssl-ca=${CACERT_PATH} --ssl-cert=${CERT_PATH} --ssl-key=${KEY_PATH}"
+    export curlMTLSInfo="--cert ${CERT_PATH} --key ${KEY_PATH} --cacert ${CACERT_PATH}"
+fi
+
 run_sql() {
   echo $@
-  mysql -h$FE_HOST -u$USER -P$FE_QUERY_PORT -D$DB -e "$@"
+  mysql $mysqlMTLSInfo -h$FE_HOST -u$USER -P$FE_QUERY_PORT -D$DB -e "$@"
 }
 
 get_session_variable() {
   k="$1"
-  v=$(mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" -e"show variables like '${k}'\G" | grep " Value: ")
+  v=$(mysql $mysqlMTLSInfo -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" -e"show variables like '${k}'\G" | grep " Value: ")
   echo "${v/*Value: /}"
 }
 
@@ -128,7 +136,7 @@ cat ${QUERIES_FILE} | while read query; do
 
   echo -n "query${QUERY_NUM}," | tee -a result.csv
   for i in $(seq 1 $TRIES); do
-    RES=$(mysql -vvv -h$FE_HOST -u$USER -P$FE_QUERY_PORT -D$DB -e "${query}" | perl -nle 'print $1 if /\((\d+\.\d+)+ sec\)/' || :)
+    RES=$(mysql $mysqlMTLSInfo -vvv -h$FE_HOST -u$USER -P$FE_QUERY_PORT -D$DB -e "${query}" | perl -nle 'print $1 if /\((\d+\.\d+)+ sec\)/' || :)
 
     echo -n "${RES}" | tee -a result.csv
     [[ "$i" != $TRIES ]] && echo -n "," | tee -a result.csv

@@ -7,7 +7,7 @@
 # "License"); you may not use this file except in compliance
 # with the License.  You may obtain a copy of the License at
 #
-#   http://www.apache.org/licenses/LICENSE-2.0
+#   ${urlHeader}://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing,
 # software distributed under the License is distributed on an
@@ -91,11 +91,11 @@ if [[ "${HELP}" -eq 1 ]]; then
     usage
 fi
 
-# check if tpcds-data exists
-if [[ ! -d "${TPCDS_DATA_DIR}"/ ]]; then
-    echo "${TPCDS_DATA_DIR} does not exist. Run sh gen-tpcds-data.sh first."
-    exit 1
-fi
+run_sql() {
+    sql="$*"
+    echo "${sql}" >&2
+    mysql $mysqlMTLSInfo -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" -e "$@"
+}
 
 check_prerequest() {
     local CMD=$1
@@ -129,6 +129,44 @@ if [[ "a${ENABLE_MTLS}" == "atrue" ]] && \
     urlHeader="https"
 fi
 
+if [[ "a${ENABLE_PROFILE}" == "atrue" ]]; then
+    run_sql "set global enable_profile=true;"
+else
+    run_sql "set global enable_profile=false;"
+fi
+
+RESULT_CSV="load_time_summary.csv"
+echo -ne "object\t" | tee -a "${RESULT_CSV}"
+echo -ne "OpType\t" | tee -a "${RESULT_CSV}"
+echo -ne "ms\t" | tee -a "${RESULT_CSV}"
+echo "" | tee -a "${RESULT_CSV}"
+
+wait_for_load() {
+    local label=$1
+    local tbl=$2
+    echo "Waiting for load $label to finish..."
+    while true; do
+        state=$(run_sql "SHOW LOAD WHERE Label = '${label}' ORDER BY CreateTime DESC LIMIT 1;" | awk '{print $3}' |tail -n 1)
+        if [[ "$state" == "FINISHED" ]]; then
+            echo "Load $label finished."
+            startTime=$(run_sql "SHOW LOAD WHERE Label = '${label}' ORDER BY CreateTime DESC LIMIT 1\G;" |awk 'NR==10'|awk -F 'CreateTime: ' '{print $2}')
+            finishTime=$(run_sql "SHOW LOAD WHERE Label = '${label}' ORDER BY CreateTime DESC LIMIT 1\G;" |awk 'NR==14'|awk -F 'LoadFinishTime: ' '{print $2}')
+            start_seconds=$(date -d "$startTime" +%s)
+            end_seconds=$(date -d "$finishTime" +%s)
+            timeCost=$((end_seconds - start_seconds))
+            echo -ne "${tbl}\t" | tee -a "${RESULT_CSV}"
+            echo -ne "S3Load\t" | tee -a "${RESULT_CSV}"
+            echo -ne "${timeCost}\t" | tee -a "${RESULT_CSV}"
+            echo "" | tee -a "${RESULT_CSV}"
+            break
+        elif [[ "$state" == "CANCELLED" ]]; then
+            echo "Load $label cancelled."
+            exit 1
+        fi
+        sleep 5
+    done
+}
+
 declare -A table_columns=(
     ['call_center']='cc_call_center_sk, cc_call_center_id, cc_rec_start_date, cc_rec_end_date, cc_closed_date_sk, cc_open_date_sk, cc_name, cc_class, cc_employees, cc_sq_ft, cc_hours, cc_manager, cc_mkt_id, cc_mkt_class, cc_mkt_desc, cc_market_manager, cc_division, cc_division_name, cc_company, cc_company_name, cc_street_number, cc_street_name, cc_street_type, cc_suite_number, cc_city, cc_county, cc_state, cc_zip, cc_country, cc_gmt_offset, cc_tax_percentage'
     ['catalog_page']='cp_catalog_page_sk, cp_catalog_page_id, cp_start_date_sk, cp_end_date_sk, cp_department, cp_catalog_number, cp_catalog_page_number, cp_description, cp_type'
@@ -157,75 +195,119 @@ declare -A table_columns=(
     ['web_site']='web_site_sk, web_site_id, web_rec_start_date, web_rec_end_date, web_name, web_open_date_sk, web_close_date_sk, web_class, web_manager, web_mkt_id, web_mkt_class, web_mkt_desc, web_market_manager, web_company_id, web_company_name, web_street_number, web_street_name, web_street_type, web_suite_number, web_city, web_county, web_state, web_zip, web_country, web_gmt_offset, web_tax_percentage'
 )
 
-# set parallelism
-
-# 以PID为名, 防止创建命名管道时与已有文件重名，从而失败
-fifo="/tmp/$$.fifo"
-# 创建命名管道
-mkfifo "${fifo}"
-# 以读写方式打开命名管道，文件标识符fd为3，fd可取除0，1，2，5外0-9中的任意数字
-exec 3<>"${fifo}"
-# 删除文件, 也可不删除, 不影响后面操作
-rm -rf "${fifo}"
-
-# 在fd3中放置$PARALLEL个空行作为令牌
-for ((i = 1; i <= PARALLEL; i++)); do
-    echo >&3
-done
-
 # start load
 start_time=$(date +%s)
 echo "Start time: $(date)"
-for table_name in ${!table_columns[*]}; do
-    # 领取令牌, 即从fd3中读取行, 每次一行
-    # 对管道，读一行便少一行，每次只能读取一行
-    # 所有行读取完毕, 执行挂起, 直到管道再次有可读行
-    # 因此实现了进程数量控制
-    read -r -u3
 
-    # 要批量执行的命令放在大括号内, 后台运行
-    {
-        for file in "${TPCDS_DATA_DIR}/${table_name}"_{1..100}_*.dat; do
-            if ! [[ -f "${file}" ]]; then continue; fi
-            FILE_ID=$(echo "${file}" | awk -F'/' '{print $(NF)}' | awk -F'.' '{print $(1)}')
-            if [[ -z ${TXN_ID} ]]; then
-                ret=$(curl \
-                    --location-trusted \
-                    -u "${USER}":"${PASSWORD:-}" \
-                    -H "Expect: 100-continue" \
-                    -H "column_separator:|" \
-                    -H "columns: ${table_columns[${table_name}]}" \
-                    -T "${file}" \
-                    ${urlHeader}://"${FE_HOST}":"${FE_HTTP_PORT:-8030}"/api/"${DB}"/"${table_name}"/_stream_load \
-                    ${curlMTLSInfo} 2>/dev/null)
-            else
-                ret=$(curl \
-                    --location-trusted \
-                    -u "${USER}":"${PASSWORD:-}" \
-                    -H "Expect: 100-continue" \
-                    -H "label:${TXN_ID}_${FILE_ID}" \
-                    -H "column_separator:|" \
-                    -H "columns: ${table_columns[${table_name}]}" \
-                    -T "${file}" \
-                    ${urlHeader}://"${FE_HOST}":"${FE_HTTP_PORT:-8030}"/api/"${DB}"/"${table_name}"/_stream_load 
-                    ${curlMTLSInfo} 2>/dev/null)
-            fi
+if [[ "$ENABLE_S3_LOAD" == true ]]; then
+  echo "======== Using S3 Load mode ========"
+  tables=("part" "dates" "supplier" "customer" "lineorder")
+  for table_name in ${!table_columns[*]}; do
+    label="${table_name}_$(date +%s)"
+    echo "Loading table ${table_name} via S3..."
+    s3file="${table_name}*.*"
+    if [ "$table_name" == "customer" ];then
+        s3file="customer_[0-9]*.dat"
+    elif [ "$table_name" == "store" ];then
+        s3file="store_1_64.dat"
+    fi
+    run_sql "
+    LOAD LABEL ${label}
+    (
+        DATA INFILE(\"s3://${S3_BUCKET}/${S3_PATH_PREFIX}/${s3file}\")
+        INTO TABLE ${table_name}
+        COLUMNS TERMINATED BY '|'
+        (${table_columns[$table_name]})
+        PROPERTIES(\"skip_lines\" = \"0\")
+    )
+    WITH S3 (
+        \"AWS_ENDPOINT\" = \"${S3_ENDPOINT}\",
+        \"AWS_REGION\" = \"${S3_REGION}\",
+        \"AWS_ACCESS_KEY\" = \"${S3_ACCESS_KEY}\",
+        \"AWS_SECRET_KEY\" = \"${S3_SECRET_KEY}\"
+    )
+    PROPERTIES (\"timeout\" = \"3600\", \"max_filter_ratio\" = \"0.1\");
+    "
+    wait_for_load "${label}" "${table_name}"
+  done
+else
+    # check if tpcds-data exists
+    if [[ ! -d "${TPCDS_DATA_DIR}"/ ]]; then
+        echo "${TPCDS_DATA_DIR} does not exist. Run sh gen-tpcds-data.sh first."
+        exit 1
+    fi
+    # set parallelism
 
-            if [[ $(echo "${ret}" | jq ".Status") == '"Success"' ]]; then
-                echo "----loaded ${file}"
-            else
-                echo -e "\033[31m----load ${file} FAIL...\n${ret}\033[0m"
-            fi
-        done
-        # 归还令牌, 即进程结束后，再写入一行，使挂起的循环继续执行
+    # 以PID为名, 防止创建命名管道时与已有文件重名，从而失败
+    fifo="/tmp/$$.fifo"
+    # 创建命名管道
+    mkfifo "${fifo}"
+    # 以读写方式打开命名管道，文件标识符fd为3，fd可取除0，1，2，5外0-9中的任意数字
+    exec 3<>"${fifo}"
+    # 删除文件, 也可不删除, 不影响后面操作
+    rm -rf "${fifo}"
+
+    # 在fd3中放置$PARALLEL个空行作为令牌
+    for ((i = 1; i <= PARALLEL; i++)); do
         echo >&3
-    } &
-done
+    done
 
-# 等待所有的后台子进程结束
-wait
-# 删除文件标识符
-exec 3>&-
+    for table_name in ${!table_columns[*]}; do
+        # 领取令牌, 即从fd3中读取行, 每次一行
+        # 对管道，读一行便少一行，每次只能读取一行
+        # 所有行读取完毕, 执行挂起, 直到管道再次有可读行
+        # 因此实现了进程数量控制
+        read -r -u3
+
+        # 要批量执行的命令放在大括号内, 后台运行
+        {
+            for file in "${TPCDS_DATA_DIR}/${table_name}"_{1..100}_*.dat; do
+                if ! [[ -f "${file}" ]]; then continue; fi
+                FILE_ID=$(echo "${file}" | awk -F'/' '{print $(NF)}' | awk -F'.' '{print $(1)}')
+                if [[ -z ${TXN_ID} ]]; then
+                    ret=$(curl \
+                        --location-trusted \
+                        -u "${USER}":"${PASSWORD:-}" \
+                        -H "Expect: 100-continue" \
+                        -H "column_separator:|" \
+                        -H "columns: ${table_columns[${table_name}]}" \
+                        -T "${file}" \
+                        ${urlHeader}://"${FE_HOST}":"${FE_HTTP_PORT:-8030}"/api/"${DB}"/"${table_name}"/_stream_load \
+                        ${curlMTLSInfo} 2>/dev/null)
+                else
+                    ret=$(curl \
+                        --location-trusted \
+                        -u "${USER}":"${PASSWORD:-}" \
+                        -H "Expect: 100-continue" \
+                        -H "label:${TXN_ID}_${FILE_ID}" \
+                        -H "column_separator:|" \
+                        -H "columns: ${table_columns[${table_name}]}" \
+                        -T "${file}" \
+                        ${urlHeader}://"${FE_HOST}":"${FE_HTTP_PORT:-8030}"/api/"${DB}"/"${table_name}"/_stream_load 
+                        ${curlMTLSInfo} 2>/dev/null)
+                fi
+                loadCost=-9999999
+                if [[ $(echo "${ret}" | jq ".Status") == '"Success"' ]]; then
+                    echo "----loaded ${file}"
+                    loadCost=$(echo ${ret}|awk '{print $25}'|awk -F ','  '{print $1}')
+                else
+                    echo -e "\033[31m----load ${file} FAIL...\n${ret}\033[0m"
+                fi
+                echo -ne "${table_name}\t" | tee -a "${RESULT_CSV}"
+                echo -ne "StreamLoad\t" | tee -a "${RESULT_CSV}"
+                echo -ne "${loadCost}\t" | tee -a "${RESULT_CSV}"
+                echo "" | tee -a "${RESULT_CSV}"
+            done
+            # 归还令牌, 即进程结束后，再写入一行，使挂起的循环继续执行
+            echo >&3
+        } &
+    done
+
+    # 等待所有的后台子进程结束
+    wait
+    # 删除文件标识符
+    exec 3>&-
+fi
 
 end_time=$(date +%s)
 echo "End time: $(date)"
@@ -233,13 +315,14 @@ echo "End time: $(date)"
 echo "Finish load tpcds data, Time taken: $((end_time - start_time)) seconds"
 echo '============================================'
 echo "analyze database ${DB}"
-run_sql() {
-    echo "$*"
-    mysql ${mysqlMTLSInfo} -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" -e "$*"
-}
+
 start=$(date +%s)
 run_sql "analyze database ${DB} with full with sync;"
 end=$(date +%s)
 analyzeTime=$((end - start))
 echo "analyze database ${DB} with full with sync total time: ${analyzeTime} s"
+echo -ne "analyzeDB\t" | tee -a "${RESULT_CSV}"
+echo -ne "Analyze\t" | tee -a "${RESULT_CSV}"
+echo -ne "${analyzeTime}\t" | tee -a "${RESULT_CSV}"
+echo "" | tee -a "${RESULT_CSV}"
 echo '============================================'

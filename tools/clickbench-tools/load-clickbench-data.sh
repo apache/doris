@@ -104,13 +104,28 @@ echo "USER: $USER"
 echo "PASSWORD: $PASSWORD"
 echo "DB: $DB"
 
+urlHeader="http"
+if [[ "a${ENABLE_MTLS}" == "atrue" ]] && \
+   [[ -n "${CERT_PATH}" ]] && \
+   [[ -n "${KEY_PATH}" ]] && \
+   [[ -n "${CACERT_PATH}" ]]; then
+    export mysqlMTLSInfo="--ssl-mode=VERIFY_CA --tls-version=TLSv1.2 --ssl-ca=${CACERT_PATH} --ssl-cert=${CERT_PATH} --ssl-key=${KEY_PATH}"
+    export curlMTLSInfo="--cert ${CERT_PATH} --key ${KEY_PATH} --cacert ${CACERT_PATH}"
+    urlHeader="https"
+fi
+
 function check_doris_conf() {
-    cv=$(mysql -h$FE_HOST -P$FE_QUERY_PORT -u$USER -e 'admin show frontend config' | grep 'stream_load_default_timeout_second' | awk '{print $2}')
+    cv=$(mysql $mysqlMTLSInfo -h$FE_HOST -P$FE_QUERY_PORT -u$USER -e 'admin show frontend config' | grep 'stream_load_default_timeout_second' | awk '{print $2}')
     if (($cv < 3600)); then
         echo "advise: revise your Doris FE's conf to set 'stream_load_default_timeout_second=3600' or above"
     fi
 
-    cv=$(curl "${BE_HOST}:${BE_WEBSERVER_PORT}/varz" 2>/dev/null | grep 'streaming_load_max_mb' | awk -F'=' '{print $2}')
+    if ! output=$(curl -s "${urlHeader}://${BE_HOST}:${BE_WEBSERVER_PORT}/varz" ${curlMTLSInfo} 2>&1); then
+        printf "Curl failed with the following output:\n%s\n" "${output}" >&2
+        printf "Error: Failed to execute curl to fetch BE's configuration.\n" >&2
+        exit 1
+    fi
+    cv=$(grep 'streaming_load_max_mb' <<< "${output}" | awk -F'=' '{print $2}')
     if (($cv < 16000)); then
         echo -e "advise: revise your Doris BE's conf to set 'streaming_load_max_mb=16000' or above and 'flush_thread_num_per_store=5' to speed up load."
     fi
@@ -141,15 +156,19 @@ function load() {
             curl --location-trusted \
                 -u $USER:$PASSWORD \
                 -T "$DATA_DIR/hits_split${i}" \
+                -H "Expect: 100-continue" \
                 -H "columns:WatchID,JavaEnable,Title,GoodEvent,EventTime,EventDate,CounterID,ClientIP,RegionID,UserID,CounterClass,OS,UserAgent,URL,Referer,IsRefresh,RefererCategoryID,RefererRegionID,URLCategoryID,URLRegionID,ResolutionWidth,ResolutionHeight,ResolutionDepth,FlashMajor,FlashMinor,FlashMinor2,NetMajor,NetMinor,UserAgentMajor,UserAgentMinor,CookieEnable,JavascriptEnable,IsMobile,MobilePhone,MobilePhoneModel,Params,IPNetworkID,TraficSourceID,SearchEngineID,SearchPhrase,AdvEngineID,IsArtifical,WindowClientWidth,WindowClientHeight,ClientTimeZone,ClientEventTime,SilverlightVersion1,SilverlightVersion2,SilverlightVersion3,SilverlightVersion4,PageCharset,CodeVersion,IsLink,IsDownload,IsNotBounce,FUniqID,OriginalURL,HID,IsOldCounter,IsEvent,IsParameter,DontCountHits,WithHash,HitColor,LocalEventTime,Age,Sex,Income,Interests,Robotness,RemoteIP,WindowName,OpenerName,HistoryLength,BrowserLanguage,BrowserCountry,SocialNetwork,SocialAction,HTTPError,SendTiming,DNSTiming,ConnectTiming,ResponseStartTiming,ResponseEndTiming,FetchTiming,SocialSourceNetworkID,SocialSourcePage,ParamPrice,ParamOrderID,ParamCurrency,ParamCurrencyID,OpenstatServiceName,OpenstatCampaignID,OpenstatAdID,OpenstatSourceID,UTMSource,UTMMedium,UTMCampaign,UTMContent,UTMTerm,FromTag,HasGCLID,RefererHash,URLHash,CLID" \
-                http://$FE_HOST:$FE_HTTP_PORT/api/$DB/hits/_stream_load
+                ${urlHeader}://$FE_HOST:$FE_HTTP_PORT/api/$DB/hits/_stream_load \
+                $curlMTLSInfo
         else
             curl --location-trusted \
                 -u $USER:$PASSWORD \
                 -T "$DATA_DIR/hits_split${i}" \
+                -H "Expect: 100-continue" \
                 -H "label:${TXN_ID}_${i}" \
                 -H "columns:WatchID,JavaEnable,Title,GoodEvent,EventTime,EventDate,CounterID,ClientIP,RegionID,UserID,CounterClass,OS,UserAgent,URL,Referer,IsRefresh,RefererCategoryID,RefererRegionID,URLCategoryID,URLRegionID,ResolutionWidth,ResolutionHeight,ResolutionDepth,FlashMajor,FlashMinor,FlashMinor2,NetMajor,NetMinor,UserAgentMajor,UserAgentMinor,CookieEnable,JavascriptEnable,IsMobile,MobilePhone,MobilePhoneModel,Params,IPNetworkID,TraficSourceID,SearchEngineID,SearchPhrase,AdvEngineID,IsArtifical,WindowClientWidth,WindowClientHeight,ClientTimeZone,ClientEventTime,SilverlightVersion1,SilverlightVersion2,SilverlightVersion3,SilverlightVersion4,PageCharset,CodeVersion,IsLink,IsDownload,IsNotBounce,FUniqID,OriginalURL,HID,IsOldCounter,IsEvent,IsParameter,DontCountHits,WithHash,HitColor,LocalEventTime,Age,Sex,Income,Interests,Robotness,RemoteIP,WindowName,OpenerName,HistoryLength,BrowserLanguage,BrowserCountry,SocialNetwork,SocialAction,HTTPError,SendTiming,DNSTiming,ConnectTiming,ResponseStartTiming,ResponseEndTiming,FetchTiming,SocialSourceNetworkID,SocialSourcePage,ParamPrice,ParamOrderID,ParamCurrency,ParamCurrencyID,OpenstatServiceName,OpenstatCampaignID,OpenstatAdID,OpenstatSourceID,UTMSource,UTMMedium,UTMCampaign,UTMContent,UTMTerm,FromTag,HasGCLID,RefererHash,URLHash,CLID" \
-                http://$FE_HOST:$FE_HTTP_PORT/api/$DB/hits/_stream_load
+                ${urlHeader}://$FE_HOST:$FE_HTTP_PORT/api/$DB/hits/_stream_load \
+                $curlMTLSInfo
         fi
     done
 }
@@ -172,7 +191,7 @@ echo "load cost time: $((end - start)) seconds"
 
 run_sql() {
   echo $@
-  mysql -h$FE_HOST -u$USER -P$FE_QUERY_PORT -D$DB -e "$@"
+  mysql $mysqlMTLSInfo -h$FE_HOST -u$USER -P$FE_QUERY_PORT -D$DB -e "$@"
 }
 
 echo '============================================'
