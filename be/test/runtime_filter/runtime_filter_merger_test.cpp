@@ -34,7 +34,7 @@ public:
         std::shared_ptr<RuntimeFilterMerger> merger;
         auto desc = TRuntimeFilterDescBuilder().build();
         FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
-                RuntimeFilterMerger::create(_query_ctx.get(), &desc, &merger));
+                RuntimeFilterMerger::create(&desc, &merger));
         merger->set_expected_producer_num(2);
         ASSERT_FALSE(merger->ready());
         ASSERT_EQ(merger->_wrapper->_state, RuntimeFilterWrapper::State::UNINITED);
@@ -62,7 +62,7 @@ public:
                                                           .build()) {
         std::shared_ptr<RuntimeFilterMerger> merger;
         FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
-                RuntimeFilterMerger::create(_query_ctx.get(), &desc, &merger));
+                RuntimeFilterMerger::create(&desc, &merger));
         merger->set_expected_producer_num(1);
         ASSERT_FALSE(merger->ready());
 
@@ -81,7 +81,7 @@ public:
 
         std::shared_ptr<RuntimeFilterProducer> deserialized_producer;
         FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
-                RuntimeFilterProducer::create(_query_ctx.get(), &desc, &deserialized_producer));
+                RuntimeFilterProducer::create(_query_options, &desc, &deserialized_producer));
         butil::IOBuf buf;
         buf.append(data, len);
         butil::IOBufAsZeroCopyInputStream stream(buf);
@@ -98,7 +98,7 @@ TEST_F(RuntimeFilterMergerTest, basic) {
 TEST_F(RuntimeFilterMergerTest, add_rf_size) {
     std::shared_ptr<RuntimeFilterMerger> merger;
     auto desc = TRuntimeFilterDescBuilder().build();
-    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(RuntimeFilterMerger::create(_query_ctx.get(), &desc, &merger));
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(RuntimeFilterMerger::create(&desc, &merger));
     merger->set_expected_producer_num(2);
 
     ASSERT_FALSE(merger->add_rf_size(123));
@@ -117,7 +117,7 @@ TEST_F(RuntimeFilterMergerTest, add_rf_size) {
 TEST_F(RuntimeFilterMergerTest, invalid_merge) {
     std::shared_ptr<RuntimeFilterMerger> merger;
     auto desc = TRuntimeFilterDescBuilder().build();
-    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(RuntimeFilterMerger::create(_query_ctx.get(), &desc, &merger));
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(RuntimeFilterMerger::create(&desc, &merger));
     merger->set_expected_producer_num(1);
     ASSERT_FALSE(merger->ready());
     ASSERT_EQ(merger->_wrapper->_state, RuntimeFilterWrapper::State::UNINITED);

@@ -31,7 +31,7 @@ TEST_F(RuntimeFilterProducerTest, basic) {
     std::shared_ptr<RuntimeFilterProducer> producer;
     auto desc = TRuntimeFilterDescBuilder().build();
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
-            RuntimeFilterProducer::create(_query_ctx.get(), &desc, &producer));
+            RuntimeFilterProducer::create(_query_options, &desc, &producer));
 }
 
 TEST_F(RuntimeFilterProducerTest, no_sync_filter_size) {
@@ -42,7 +42,7 @@ TEST_F(RuntimeFilterProducerTest, no_sync_filter_size) {
                             .set_is_broadcast_join(true)
                             .build();
         FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
-                RuntimeFilterProducer::create(_query_ctx.get(), &desc, &producer));
+                RuntimeFilterProducer::create(_query_options, &desc, &producer));
         ASSERT_EQ(producer->_need_sync_filter_size, false);
         ASSERT_EQ(producer->_rf_state, RuntimeFilterProducer::State::WAITING_FOR_DATA);
     }
@@ -53,7 +53,7 @@ TEST_F(RuntimeFilterProducerTest, no_sync_filter_size) {
                             .set_is_broadcast_join(false)
                             .build();
         FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
-                RuntimeFilterProducer::create(_query_ctx.get(), &desc, &producer));
+                RuntimeFilterProducer::create(_query_options, &desc, &producer));
         ASSERT_EQ(producer->_need_sync_filter_size, false);
         ASSERT_EQ(producer->_rf_state, RuntimeFilterProducer::State::WAITING_FOR_DATA);
     }
@@ -66,7 +66,7 @@ TEST_F(RuntimeFilterProducerTest, sync_filter_size) {
                         .set_is_broadcast_join(false)
                         .build();
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
-            RuntimeFilterProducer::create(_query_ctx.get(), &desc, &producer));
+            RuntimeFilterProducer::create(_query_options, &desc, &producer));
     ASSERT_EQ(producer->_need_sync_filter_size, true);
     ASSERT_EQ(producer->_rf_state, RuntimeFilterProducer::State::WAITING_FOR_SEND_SIZE);
 
@@ -85,7 +85,7 @@ TEST_F(RuntimeFilterProducerTest, sync_filter_size_local_no_merge) {
                         .set_is_broadcast_join(false)
                         .build();
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
-            RuntimeFilterProducer::create(_query_ctx.get(), &desc, &producer));
+            RuntimeFilterProducer::create(_query_options, &desc, &producer));
     ASSERT_EQ(producer->_need_sync_filter_size, true);
     ASSERT_EQ(producer->_rf_state, RuntimeFilterProducer::State::WAITING_FOR_SEND_SIZE);
 
