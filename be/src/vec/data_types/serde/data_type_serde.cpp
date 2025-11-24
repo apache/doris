@@ -142,7 +142,7 @@ bool DataTypeSerDe::write_column_to_mysql_text(const IColumn& column, BufferWrit
 }
 
 bool DataTypeSerDe::write_column_to_presto_text(const IColumn& column, BufferWritable& bw,
-                                               int64_t row_idx) const {
+                                                int64_t row_idx) const {
     to_string(column, row_idx, bw);
     return true;
 }

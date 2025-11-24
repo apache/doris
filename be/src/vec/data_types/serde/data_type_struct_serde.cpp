@@ -679,9 +679,10 @@ bool DataTypeStructSerDe::write_column_to_presto_text(const IColumn& column, Buf
         if (idx != 0) {
             bw.write(", ", 2);
         }
-        const auto & col_name =  elem_names[idx];
+        const auto& col_name = elem_names[idx];
         bw.write(col_name.c_str(), col_name.length());
-        elem_serdes_ptrs[idx]->to_string(struct_column.get_column(idx), row_idx, bw);
+        elem_serdes_ptrs[idx]->write_column_to_presto_text(struct_column.get_column(idx), bw,
+                                                           row_idx);
     }
     bw.write("}", 1);
     return true;
