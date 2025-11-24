@@ -545,12 +545,6 @@ TEST_F(ScannerContextTest, schedule_scan_task) {
     EXPECT_CALL(*scheduler, get_active_threads()).WillRepeatedly(testing::Return(0));
     EXPECT_CALL(*scheduler, get_queue_size()).WillRepeatedly(testing::Return(0));
 
-    std::unique_ptr<MockScannerScheduler> scanner_scheduler =
-            std::make_unique<MockScannerScheduler>();
-    EXPECT_CALL(*scanner_scheduler, submit(testing::_, testing::_))
-            .WillRepeatedly(testing::Return(Status::OK()));
-
-    scanner_context->_scanner_scheduler_global = scanner_scheduler.get();
     scanner_context->_scanner_scheduler = scheduler.get();
     scanner_context->_max_scan_concurrency = 1;
     scanner_context->_max_scan_concurrency = 1;
@@ -571,7 +565,6 @@ TEST_F(ScannerContextTest, schedule_scan_task) {
             state.get(), olap_scan_local_state.get(), output_tuple_desc, output_row_descriptor,
             scanners, limit, scan_dependency, parallel_tasks);
 
-    scanner_context->_scanner_scheduler_global = scanner_scheduler.get();
     scanner_context->_scanner_scheduler = scheduler.get();
 
     scanner_context->_max_scan_concurrency = 100;
@@ -593,7 +586,6 @@ TEST_F(ScannerContextTest, schedule_scan_task) {
             state.get(), olap_scan_local_state.get(), output_tuple_desc, output_row_descriptor,
             scanners, limit, scan_dependency, parallel_tasks);
 
-    scanner_context->_scanner_scheduler_global = scanner_scheduler.get();
     scanner_context->_scanner_scheduler = scheduler.get();
 
     scanner_context->_max_scan_concurrency = 1;
@@ -610,7 +602,6 @@ TEST_F(ScannerContextTest, schedule_scan_task) {
             state.get(), olap_scan_local_state.get(), output_tuple_desc, output_row_descriptor,
             scanners, limit, scan_dependency, parallel_tasks);
 
-    scanner_context->_scanner_scheduler_global = scanner_scheduler.get();
     scanner_context->_scanner_scheduler = scheduler.get();
 
     scanner_context->_max_scan_concurrency = 1;

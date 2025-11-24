@@ -46,17 +46,6 @@ class ScanTask;
 class ScannerContext;
 class SimplifiedScanScheduler;
 
-// Responsible for the scheduling and execution of all Scanners of a BE node.
-// Execution thread pool
-//     When a ScannerContext is launched, it will submit the running scanners to this scheduler.
-//     The scheduling thread will submit the running scanner and its ScannerContext
-//     to the execution thread pool to do the actual scan task.
-//     Each Scanner will act as a producer, read the next block and put it into
-//     the corresponding block queue.
-//     The corresponding ScanNode will act as a consumer to consume blocks from the block queue.
-//     After the block is consumed, the unfinished scanner will resubmit to this scheduler.
-class ScannerScheduler {};
-
 struct SimplifiedScanTask {
     SimplifiedScanTask() = default;
     SimplifiedScanTask(std::function<bool()> scan_func,
@@ -102,6 +91,17 @@ private:
 };
 
 // Abstract interface for scan scheduler
+
+// Responsible for the scheduling and execution of all Scanners of a BE node.
+// Execution thread pool
+//     When a ScannerContext is launched, it will submit the running scanners to this scheduler.
+//     The scheduling thread will submit the running scanner and its ScannerContext
+//     to the execution thread pool to do the actual scan task.
+//     Each Scanner will act as a producer, read the next block and put it into
+//     the corresponding block queue.
+//     The corresponding ScanNode will act as a consumer to consume blocks from the block queue.
+//     After the block is consumed, the unfinished scanner will resubmit to this scheduler.
+
 class SimplifiedScanScheduler {
 public:
     virtual ~SimplifiedScanScheduler() {}

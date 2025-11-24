@@ -51,7 +51,6 @@ class MemoryPool;
 namespace doris {
 namespace vectorized {
 class VDataStreamMgr;
-class ScannerScheduler;
 class SpillStreamManager;
 class DeltaWriterV2Pool;
 class DictionaryFactory;
