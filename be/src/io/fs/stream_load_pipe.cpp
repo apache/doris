@@ -28,6 +28,7 @@
 #include "runtime/exec_env.h"
 #include "runtime/thread_context.h"
 #include "util/bit_util.h"
+#include "vec/common/custom_allocator.h"
 
 namespace doris {
 namespace io {
@@ -90,7 +91,7 @@ Status StreamLoadPipe::read_at_impl(size_t /*offset*/, Slice result, size_t* byt
 // If _total_length == -1, this should be a Kafka routine load task or stream load with chunked transfer HTTP request,
 // just get the next buffer directly from the buffer queue, because one buffer contains a complete piece of data.
 // Otherwise, this should be a stream load task that needs to read the specified amount of data.
-Status StreamLoadPipe::read_one_message(std::unique_ptr<uint8_t[]>* data, size_t* length) {
+Status StreamLoadPipe::read_one_message(DorisUniqueBufferPtr<uint8_t>* data, size_t* length) {
     if (_total_length < -1) {
         return Status::InternalError("invalid, _total_length is: {}", _total_length);
     } else if (_total_length == 0) {
@@ -104,7 +105,7 @@ Status StreamLoadPipe::read_one_message(std::unique_ptr<uint8_t[]>* data, size_t
     }
 
     // _total_length > 0, read the entire data
-    data->reset(new uint8_t[_total_length]);
+    *data = make_unique_buffer<uint8_t>(_total_length);
     Slice result(data->get(), _total_length);
     Status st = read_at(0, result, length);
     return st;
@@ -163,7 +164,7 @@ Status StreamLoadPipe::append(const ByteBufferPtr& buf) {
 }
 
 // read the next buffer from _buf_queue
-Status StreamLoadPipe::_read_next_buffer(std::unique_ptr<uint8_t[]>* data, size_t* length) {
+Status StreamLoadPipe::_read_next_buffer(DorisUniqueBufferPtr<uint8_t>* data, size_t* length) {
     std::unique_lock<std::mutex> l(_lock);
     while (!_cancelled && !_finished && _buf_queue.empty()) {
         _get_cond.wait(l);
@@ -181,7 +182,7 @@ Status StreamLoadPipe::_read_next_buffer(std::unique_ptr<uint8_t[]>* data, size_
     }
     auto buf = _buf_queue.front();
     *length = buf->remaining();
-    data->reset(new uint8_t[*length]);
+    *data = make_unique_buffer<uint8_t>(*length);
     buf->get_bytes((char*)(data->get()), *length);
     _buf_queue.pop_front();
     _buffered_bytes -= buf->limit;

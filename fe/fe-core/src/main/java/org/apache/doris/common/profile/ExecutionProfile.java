@@ -20,6 +20,7 @@ package org.apache.doris.common.profile;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.common.util.SafeStringBuilder;
 import org.apache.doris.planner.PlanFragmentId;
 import org.apache.doris.thrift.TDetailedReportParams;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -43,12 +44,12 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
  * root is used to collect profile of a complete query plan(including query or load).
  * Need to call addToProfileAsChild() to add it to the root profile.
  * It has the following structure:
- *  Execution Profile:
+ *  DetailProfile:
  *      Fragment 0:
- *          Instance 0:
+ *          Pipeline 0:
  *          ...
  *      Fragment 1:
- *          Instance 0:
+ *          Pipeine 0:
  *          ...
  *      ...
  *      LoadChannels:  // only for load job
@@ -82,7 +83,7 @@ public class ExecutionProfile {
     // and will be convenient for the test.
     public ExecutionProfile(TUniqueId queryId, List<Integer> fragmentIds) {
         this.queryId = queryId;
-        root = new RuntimeProfile("Execution Profile " + DebugUtil.printId(queryId));
+        root = new RuntimeProfile("DetailProfile(" + DebugUtil.printId(queryId) + ")");
         RuntimeProfile fragmentsProfile = new RuntimeProfile("Fragments");
         root.addChild(fragmentsProfile, true);
         fragmentProfiles = Maps.newHashMap();
@@ -145,7 +146,8 @@ public class ExecutionProfile {
         }
     }
 
-    void setMultiBeProfile(int fragmentId, TNetworkAddress backendHBAddress, List<RuntimeProfile> taskProfile) {
+    protected void setMultiBeProfile(int fragmentId, TNetworkAddress backendHBAddress,
+                                List<RuntimeProfile> taskProfile) {
         multiBeProfileLock.writeLock().lock();
         try {
             multiBeProfile.get(fragmentId).put(backendHBAddress, taskProfile);
@@ -154,7 +156,7 @@ public class ExecutionProfile {
         }
     }
 
-    private RuntimeProfile getPipelineAggregatedProfile(Map<Integer, String> planNodeMap) {
+    protected RuntimeProfile getPipelineAggregatedProfile(Map<Integer, String> planNodeMap) {
         RuntimeProfile fragmentsProfile = new RuntimeProfile("Fragments");
         for (int i = 0; i < fragmentProfiles.size(); ++i) {
             RuntimeProfile newFragmentProfile = new RuntimeProfile("Fragment " + i);
@@ -168,11 +170,11 @@ public class ExecutionProfile {
                     // It is possible that the profile collection may be incomplete, so only part of
                     // the profile will be merged here.
                     mergedpipelineProfile = new RuntimeProfile(
-                            "Pipeline : " + pipelineIdx + "(miss profile)",
+                            "Pipeline " + pipelineIdx + "(miss profile)",
                             -pipelineIdx);
                 } else {
                     mergedpipelineProfile = new RuntimeProfile(
-                            "Pipeline : " + pipelineIdx + "(instance_num="
+                            "Pipeline " + pipelineIdx + "(instance_num="
                                     + allPipelineTask.size() + ")",
                             allPipelineTask.get(0).nodeId());
                     RuntimeProfile.mergeProfiles(allPipelineTask, mergedpipelineProfile, planNodeMap);
@@ -232,15 +234,15 @@ public class ExecutionProfile {
             List<TDetailedReportParams> fragmentProfile = entry.getValue();
             int pipelineIdx = 0;
             List<RuntimeProfile> taskProfile = Lists.newArrayList();
-            String suffix = " (host=" + backendHBAddress + ")";
+            String suffix = "(host=" + backendHBAddress + ")";
             for (TDetailedReportParams pipelineProfile : fragmentProfile) {
                 String name = "";
                 boolean isFragmentLevel = (pipelineProfile.isSetIsFragmentLevel() && pipelineProfile.is_fragment_level);
                 if (isFragmentLevel) {
                     // Fragment Level profile is also represented by TDetailedReportParams.
-                    name = "Fragment Level Profile: " + suffix;
+                    name = "FragmentLevelProfile:" + suffix;
                 } else {
-                    name = "Pipeline :" + pipelineIdx + " " + suffix;
+                    name = "Pipeline " + pipelineIdx + suffix;
                     pipelineIdx++;
                 }
 
@@ -319,12 +321,12 @@ public class ExecutionProfile {
     }
 
     public String toString() {
-        StringBuilder sb = new StringBuilder();
-        sb.append("ExecutionProfile: ").append(DebugUtil.printId(queryId)).append("\n");
-        for (Entry<Integer, RuntimeProfile> entry : fragmentProfiles.entrySet()) {
-            sb.append("Fragment ").append(entry.getKey()).append(":\n");
-            entry.getValue().prettyPrint(sb, " ");
-        }
+        SafeStringBuilder sb = new SafeStringBuilder();
+        root.prettyPrint(sb, "");
         return sb.toString();
+    }
+
+    public void prettyPrint(SafeStringBuilder sb, String prefix) {
+        root.prettyPrint(sb, prefix);
     }
 }

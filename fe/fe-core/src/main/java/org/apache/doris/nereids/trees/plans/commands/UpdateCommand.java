@@ -23,6 +23,7 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundTableSinkCreator;
@@ -44,6 +45,7 @@ import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
@@ -96,7 +98,7 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         // NOTE: update command is executed as insert command, so txn insert can support it
         new InsertIntoTableCommand(completeQueryPlan(ctx, logicalQuery), Optional.empty(), Optional.empty(),
-                Optional.empty()).run(ctx, executor);
+                Optional.empty(), true, Optional.empty()).run(ctx, executor);
     }
 
     /**
@@ -109,10 +111,10 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
         Map<String, Expression> colNameToExpression = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
         Map<String, Expression> partialUpdateColNameToExpression = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
         for (EqualTo equalTo : assignments) {
-            List<String> nameParts = ((UnboundSlot) equalTo.left()).getNameParts();
-            checkAssignmentColumn(ctx, nameParts);
-            colNameToExpression.put(nameParts.get(nameParts.size() - 1), equalTo.right());
-            partialUpdateColNameToExpression.put(nameParts.get(nameParts.size() - 1), equalTo.right());
+            List<String> colNameParts = ((UnboundSlot) equalTo.left()).getNameParts();
+            checkAssignmentColumn(ctx, colNameParts, this.nameParts, this.tableAlias);
+            colNameToExpression.put(colNameParts.get(colNameParts.size() - 1), equalTo.right());
+            partialUpdateColNameToExpression.put(colNameParts.get(colNameParts.size() - 1), equalTo.right());
         }
         // check if any key in update clause
         if (targetTable.getFullSchema().stream().filter(Column::isKey)
@@ -120,7 +122,7 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
             throw new AnalysisException("Only value columns of unique table could be updated");
         }
         List<NamedExpression> selectItems = Lists.newArrayList();
-        String tableName = tableAlias != null ? tableAlias : targetTable.getName();
+        String tableName = tableAlias != null ? tableAlias : Util.getTempTableDisplayName(targetTable.getName());
         Expression setExpr = null;
         for (Column column : targetTable.getFullSchema()) {
             // if it sets sequence column in stream load phase, the sequence map column is null, we query it.
@@ -145,8 +147,7 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
                     selectItems.add(new UnboundAlias(setExpr, column.getName()));
                 } else if (column.hasOnUpdateDefaultValue()) {
                     Expression defualtValueExpression =
-                            new NereidsParser().parseExpression(column.getOnUpdateDefaultValueExpr()
-                                    .toSqlWithoutTbl());
+                            new NereidsParser().parseExpression(column.getOnUpdateDefaultValueSql());
                     selectItems.add(new UnboundAlias(defualtValueExpression, column.getName()));
                 } else {
                     selectItems.add(new UnboundSlot(tableName, column.getName()));
@@ -193,10 +194,19 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
         // make UnboundTableSink
         return UnboundTableSinkCreator.createUnboundTableSink(nameParts,
                 isPartialUpdate ? partialUpdateColNames : ImmutableList.of(), ImmutableList.of(),
-                false, ImmutableList.of(), isPartialUpdate, DMLCommandType.UPDATE, logicalQuery);
+                false, ImmutableList.of(), isPartialUpdate, TPartialUpdateNewRowPolicy.APPEND,
+                DMLCommandType.UPDATE, logicalQuery);
     }
 
-    private void checkAssignmentColumn(ConnectContext ctx, List<String> columnNameParts) {
+    /**
+     * check assignment column valid or not.
+     * @param ctx connect context
+     * @param columnNameParts qualified column name
+     * @param tableNameParts qualified target table name
+     * @param tableAlias target table alias
+     */
+    public static void checkAssignmentColumn(ConnectContext ctx, List<String> columnNameParts,
+            List<String> tableNameParts, String tableAlias) {
         if (columnNameParts.size() <= 1) {
             return;
         }
@@ -210,10 +220,10 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
         } else {
             throw new AnalysisException("column in assignment list is invalid, " + String.join(".", columnNameParts));
         }
-        if (dbName != null && this.tableAlias != null) {
+        if (dbName != null && tableAlias != null) {
             throw new AnalysisException("column in assignment list is invalid, " + String.join(".", columnNameParts));
         }
-        List<String> tableQualifier = RelationUtil.getQualifierName(ctx, nameParts);
+        List<String> tableQualifier = RelationUtil.getQualifierName(ctx, tableNameParts);
         if (!ExpressionAnalyzer.sameTableName(tableAlias == null ? tableQualifier.get(2) : tableAlias, tableName)
                 || (dbName != null
                 && !ExpressionAnalyzer.compareDbNameIgnoreClusterName(tableQualifier.get(1), dbName))) {
@@ -228,7 +238,7 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
                     + ctx.getSessionVariable().printDebugModeVariables());
         }
         List<String> tableQualifier = RelationUtil.getQualifierName(ctx, nameParts);
-        TableIf table = RelationUtil.getTable(tableQualifier, ctx.getEnv());
+        TableIf table = RelationUtil.getTable(tableQualifier, ctx.getEnv(), Optional.empty());
         if (!(table instanceof OlapTable)) {
             throw new AnalysisException("target table in update command should be an olapTable");
         }

@@ -27,12 +27,18 @@ import org.apache.doris.analysis.RangePartitionDesc;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.catalog.AggregateType;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
+import org.apache.doris.nereids.trees.expressions.functions.BuiltinFunctionBuilder;
+import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Maps;
@@ -208,6 +214,8 @@ public class PartitionTableInfo {
                 }
             }
 
+            validateAutoPartitionExpression(columnMap);
+
             if (partitionDefs != null) {
                 if (!checkPartitionsTypes()) {
                     throw new AnalysisException(
@@ -231,6 +239,67 @@ public class PartitionTableInfo {
                             .map(s -> columnMap.get(s).getType()).collect(Collectors.toList()));
                     p.validate(Maps.newHashMap(properties));
                 });
+            }
+        }
+    }
+
+    /**
+     * auto partition expresison should be
+     *   - builtin function
+     *   - all arguments are column's slot or literal
+     *   - after type coercion, argument should not be wrapped with cast (argument's type exact same with signature)
+     */
+    private void validateAutoPartitionExpression(Map<String, ColumnDefinition> columnMap) {
+        for (Expression expression : partitionList) {
+            if (expression instanceof UnboundFunction) {
+                UnboundFunction unboundFunction = (UnboundFunction) expression;
+                List<Expression> mockedArguments = unboundFunction.getArguments()
+                        .stream()
+                        .map(a -> {
+                            if (a instanceof UnboundSlot) {
+                                UnboundSlot unboundSlot = (UnboundSlot) a;
+                                ColumnDefinition cd = columnMap.get(unboundSlot.getName());
+                                if (cd == null) {
+                                    throw new AnalysisException("partition expr "
+                                            + expression.toSql() + " is illegal!");
+                                }
+                                return new SlotReference(unboundSlot.getName(), cd.getType());
+                            } else if (a instanceof Literal) {
+                                return a;
+                            } else {
+                                throw new AnalysisException("partition expr "
+                                        + expression.toSql() + " is illegal!");
+                            }
+                        }).collect(Collectors.toList());
+                if (unboundFunction.getDbName() != null) {
+                    throw new AnalysisException("partition expr " + expression.toSql() + " is illegal!");
+                }
+
+                BoundFunction boundFunction;
+                try {
+                    FunctionBuilder functionBuilder = Env.getCurrentEnv().getFunctionRegistry()
+                            .findFunctionBuilder(unboundFunction.getName(), mockedArguments);
+                    if (!(functionBuilder instanceof BuiltinFunctionBuilder)) {
+                        throw new AnalysisException("partition expr " + expression.toSql() + " is illegal!");
+                    }
+                    boundFunction = (BoundFunction) functionBuilder
+                            .build(unboundFunction.getName(), mockedArguments).first;
+                    boundFunction = (BoundFunction) TypeCoercionUtils.processBoundFunction(boundFunction);
+
+                } catch (Exception e) {
+                    throw new AnalysisException("partition expr " + expression.toSql() + " is illegal!");
+                }
+                for (int i = 0; i < boundFunction.arity(); i++) {
+                    if (!boundFunction.child(i).getDataType().equals(mockedArguments.get(i).getDataType())) {
+                        throw new AnalysisException("partition expr " + expression.toSql() + " is illegal!");
+                    }
+                }
+            } else if (expression instanceof UnboundSlot) {
+                if (isAutoPartition && partitionType.equals(PartitionType.RANGE.name())) {
+                    throw new AnalysisException("Auto Range Partition need function expression");
+                }
+            } else {
+                throw new AnalysisException("partition expr " + expression.toSql() + " is illegal!");
             }
         }
     }
@@ -341,5 +410,9 @@ public class PartitionTableInfo {
 
     public List<String> getIdentifierPartitionColumns() {
         return identifierPartitionColumns;
+    }
+
+    public List<PartitionDefinition> getPartitionDefs() {
+        return partitionDefs;
     }
 }

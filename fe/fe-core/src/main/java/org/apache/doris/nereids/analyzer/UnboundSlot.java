@@ -42,7 +42,7 @@ public class UnboundSlot extends Slot implements Unbound, PropagateNullable {
     }
 
     public UnboundSlot(List<String> nameParts) {
-        this(ImmutableList.copyOf(nameParts), Optional.empty());
+        this(Utils.fastToImmutableList(nameParts), Optional.empty());
     }
 
     public UnboundSlot(List<String> nameParts, Optional<Pair<Integer, Integer>> indexInSqlString) {
@@ -68,6 +68,11 @@ public class UnboundSlot extends Slot implements Unbound, PropagateNullable {
                 return n;
             }
         }).reduce((left, right) -> left + "." + right).orElse("");
+    }
+
+    @Override
+    public String toDigest() {
+        return computeToSql();
     }
 
     @Override

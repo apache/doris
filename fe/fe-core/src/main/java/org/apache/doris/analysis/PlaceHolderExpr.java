@@ -19,16 +19,15 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.MysqlColType;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FormatOptions;
-import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.thrift.TExprNode;
 
 import com.google.common.base.Preconditions;
 
-import java.io.DataInput;
-import java.io.IOException;
 import java.nio.ByteBuffer;
 
 // PlaceHolderExpr is a reference class point to real LiteralExpr
@@ -40,21 +39,7 @@ public class PlaceHolderExpr extends LiteralExpr {
         type = Type.UNSUPPORTED;
     }
 
-    public void setTypeCode(int mysqlTypeCode) {
-        this.mysqlTypeCode = mysqlTypeCode;
-    }
-
     protected PlaceHolderExpr(LiteralExpr literal) {
-        this.lExpr = literal;
-        this.type = literal.getType();
-    }
-
-    protected PlaceHolderExpr(PlaceHolderExpr other) {
-        this.lExpr = other.lExpr;
-        this.type = other.type;
-    }
-
-    public void setLiteral(LiteralExpr literal) {
         this.lExpr = literal;
         this.type = literal.getType();
     }
@@ -71,11 +56,6 @@ public class PlaceHolderExpr extends LiteralExpr {
         if (!isAnalyzed) {
             super.analysisDone();
         }
-    }
-
-    public LiteralExpr createLiteralFromType() throws AnalysisException {
-        Preconditions.checkState(mysqlTypeCode > 0);
-        return LiteralExpr.getLiteralByMysqlType(mysqlTypeCode, isUnsigned());
     }
 
     public static PlaceHolderExpr create(String value, Type type) throws AnalysisException {
@@ -145,26 +125,6 @@ public class PlaceHolderExpr extends LiteralExpr {
     }
 
     @Override
-    public String toDigestImpl() {
-        return "?";
-    }
-
-    // Swaps the sign of numeric literals.
-    // Throws for non-numeric literals.
-    public void swapSign() throws NotImplementedException {
-        Preconditions.checkState(false, "should not implement this in derived class. " + this.type.toSql());
-    }
-
-    @Override
-    public boolean supportSerializable() {
-        return false;
-    }
-
-    public void readFields(DataInput in) throws IOException {
-        Preconditions.checkState(false, "should not implement this in derived class. " + this.type.toSql());
-    }
-
-    @Override
     public boolean isNullable() {
         return this.lExpr instanceof NullLiteral;
     }
@@ -183,11 +143,13 @@ public class PlaceHolderExpr extends LiteralExpr {
         return "_placeholder_(" + this.lExpr.toSqlImpl() + ")";
     }
 
-    // @Override
-    public Expr reset() {
-        this.lExpr = null;
-        this.type = Type.UNSUPPORTED;
-        return this;
+    @Override
+    public String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
+            TableIf table) {
+        if (this.lExpr == null) {
+            return "?";
+        }
+        return "_placeholder_(" + this.lExpr.toSqlImpl(disableTableName, needExternalSql, tableType, table) + ")";
     }
 
     @Override
@@ -195,7 +157,4 @@ public class PlaceHolderExpr extends LiteralExpr {
         return options.getNestedStringWrapper() + getStringValueForQuery(options) + options.getNestedStringWrapper();
     }
 
-    public void setupParamFromBinary(ByteBuffer data, boolean isUnsigned) {
-        lExpr.setupParamFromBinary(data, isUnsigned);
-    }
 }

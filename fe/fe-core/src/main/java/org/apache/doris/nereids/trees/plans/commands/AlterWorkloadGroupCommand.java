@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.catalog.Env;
-import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
@@ -30,10 +29,12 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.resource.Tag;
+import org.apache.doris.resource.computegroup.ComputeGroup;
 import org.apache.doris.resource.workloadgroup.WorkloadGroup;
 
 import org.apache.commons.lang3.StringUtils;
 
+import java.util.HashMap;
 import java.util.Map;
 
 /**
@@ -48,11 +49,14 @@ public class AlterWorkloadGroupCommand extends AlterCommand {
      * constructor
      */
     public AlterWorkloadGroupCommand(String computeGroupName, String workloadGroupName,
-            Map<String, String> properties) {
+            Map<String, String> inputProperties) {
         super(PlanType.ALTER_WORKLOAD_GROUP_COMMAND);
 
         this.workloadGroupName = workloadGroupName;
-        this.properties = properties;
+        this.properties = new HashMap<>();
+        for (String key : inputProperties.keySet()) {
+            properties.put(key.toLowerCase(), inputProperties.get(key));
+        }
         this.computeGroup = computeGroupName;
     }
 
@@ -78,20 +82,24 @@ public class AlterWorkloadGroupCommand extends AlterCommand {
             throw new AnalysisException(WorkloadGroup.COMPUTE_GROUP + " can not be set in property.");
         }
 
-        if (StringUtils.isEmpty(computeGroup)) {
-            computeGroup = Config.isCloudMode() ? Tag.VALUE_DEFAULT_COMPUTE_GROUP_NAME : Tag.DEFAULT_BACKEND_TAG.value;
-        }
-
+        ComputeGroup cg = null;
         if (Config.isCloudMode()) {
-            String originStr = computeGroup;
-            computeGroup = ((CloudSystemInfoService) Env.getCurrentEnv().getClusterInfo()).getCloudClusterIdByName(
-                    computeGroup);
             if (StringUtils.isEmpty(computeGroup)) {
-                throw new UserException("Can not find compute group " + originStr + ".");
+                computeGroup = Tag.VALUE_DEFAULT_COMPUTE_GROUP_NAME;
             }
+            String cgName = computeGroup;
+            cg = Env.getCurrentEnv().getComputeGroupMgr().getComputeGroupByName(cgName);
+            if (cg == null) {
+                throw new UserException("Can not find compute group:" + cgName);
+            }
+        } else {
+            if (StringUtils.isEmpty(computeGroup)) {
+                computeGroup = Tag.DEFAULT_BACKEND_TAG.value;
+            }
+            cg = Env.getCurrentEnv().getComputeGroupMgr().getComputeGroupByName(computeGroup);
         }
 
-        Env.getCurrentEnv().getWorkloadGroupMgr().alterWorkloadGroup(computeGroup, workloadGroupName, properties);
+        Env.getCurrentEnv().getWorkloadGroupMgr().alterWorkloadGroup(cg, workloadGroupName, properties);
     }
 
     @Override

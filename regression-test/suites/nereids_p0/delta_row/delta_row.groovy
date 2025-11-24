@@ -15,13 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("delta_row") {
-    String database = context.config.getDbNameByFile(context.file)
+suite("delta_row", "nonConcurrent") {
     sql """
-        drop database if exists ${database};
-        create database ${database};
-        use ${database};
-        CREATE TABLE IF NOT EXISTS t (
+        drop table if exists t;
+        CREATE TABLE t (
             k int(11) null comment "",
             v string replace null comment "",
         ) engine=olap
@@ -33,7 +30,7 @@ suite("delta_row") {
     explain {
         sql "physical plan select * from t where k > 6"
         contains("stats=0,")
-        contains("stats=4 ")
+        contains("stats=4, ")
         // PhysicalResultSink[75] ( outputExprs=[k#0, v#1] )
         //     +--PhysicalFilter[72]@1 ( stats=0, predicates=(k#0 > 6) )
         //         +--PhysicalOlapScan[t]@0 ( stats=4 )
@@ -53,7 +50,7 @@ suite("delta_row") {
         logger.info("rows not reported, test analyze rows + delta rows")
         assertTrue(stringResult.contains("stats=0.5,"))
         assertFalse(stringResult.contains("stats=0,"))
-        assertFalse(stringResult.contains("stats=4 "))
+        assertFalse(stringResult.contains("stats=4, "))
     } else {
         logger.info("rows reported, test use reported rows.")
         result = sql """show index stats t t"""

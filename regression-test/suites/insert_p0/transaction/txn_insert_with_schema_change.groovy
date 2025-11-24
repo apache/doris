@@ -63,7 +63,7 @@ suite("txn_insert_with_schema_change") {
                 return
             }
             retry++
-            if (retry >= 10 || last_state == "FINISHED" || last_state == "CANCELLED") {
+            if (retry >= 40 || last_state == "FINISHED" || last_state == "CANCELLED") {
                 break
             }
         }

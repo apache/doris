@@ -38,6 +38,9 @@ protected:
     void SetUp() override {}
 
     void TearDown() override {}
+
+    std::shared_ptr<TableSchemaChangeHelper::ConstNode> const_node =
+            std::make_shared<TableSchemaChangeHelper::ConstNode>();
 };
 
 std::unique_ptr<orc::LongVectorBatch> create_long_batch(size_t size,
@@ -78,12 +81,12 @@ TEST_F(OrcReaderFillDataTest, TestFillLongColumn) {
 
     TFileScanRangeParams params;
     TFileRangeDesc range;
-    auto reader = OrcReader::create_unique(params, range, "", nullptr, true);
+    auto reader = OrcReader::create_unique(params, range, "", nullptr, nullptr, true);
 
     MutableColumnPtr xx = column->assume_mutable();
 
     Status status = reader->_fill_doris_data_column<false>(
-            "test_long", xx, data_type, orc_type_ptr.get(), batch.get(), values.size());
+            "test_long", xx, data_type, const_node, orc_type_ptr.get(), batch.get(), values.size());
 
     ASSERT_TRUE(status.ok());
     ASSERT_EQ(column->size(), values.size());
@@ -104,12 +107,13 @@ TEST_F(OrcReaderFillDataTest, TestFillLongColumnWithNull) {
 
     TFileScanRangeParams params;
     TFileRangeDesc range;
-    auto reader = OrcReader::create_unique(params, range, "", nullptr, true);
+    auto reader = OrcReader::create_unique(params, range, "", nullptr, nullptr, true);
 
     MutableColumnPtr xx = column->assume_mutable();
 
-    Status status = reader->_fill_doris_data_column<false>(
-            "test_long_with_null", xx, data_type, orc_type_ptr.get(), batch.get(), values.size());
+    Status status =
+            reader->_fill_doris_data_column<false>("test_long_with_null", xx, data_type, const_node,
+                                                   orc_type_ptr.get(), batch.get(), values.size());
 
     ASSERT_TRUE(status.ok());
     ASSERT_EQ(column->size(), values.size());
@@ -157,7 +161,7 @@ TEST_F(OrcReaderFillDataTest, ComplexTypeConversionTest) {
 
         TFileScanRangeParams params;
         TFileRangeDesc range;
-        auto reader = OrcReader::create_unique(params, range, "", nullptr, true);
+        auto reader = OrcReader::create_unique(params, range, "", nullptr, nullptr, true);
 
         auto doris_struct_type = std::make_shared<DataTypeStruct>(
                 std::vector<DataTypePtr> {
@@ -165,8 +169,9 @@ TEST_F(OrcReaderFillDataTest, ComplexTypeConversionTest) {
                 std::vector<std::string> {"col1"});
         MutableColumnPtr doris_column = doris_struct_type->create_column()->assume_mutable();
 
-        Status status = reader->_fill_doris_data_column<false>(
-                "test", doris_column, doris_struct_type, type.get(), structBatch, rowCount);
+        Status status = reader->_fill_doris_data_column<false>("test", doris_column,
+                                                               doris_struct_type, const_node,
+                                                               type.get(), structBatch, rowCount);
 
         ASSERT_TRUE(status.ok());
         std::string line;
@@ -183,30 +188,30 @@ TEST_F(OrcReaderFillDataTest, ComplexTypeConversionTest) {
         std::cout << block.dump_data() << "\n";
 
         ASSERT_EQ(block.dump_data(),
-                  "+-----------------------------+\n"
-                  "|cc(Struct(col1:Array(Int32)))|\n"
-                  "+-----------------------------+\n"
-                  "|                        {[0]}|\n"
-                  "|                     {[1, 1]}|\n"
-                  "|                  {[2, 2, 2]}|\n"
-                  "|               {[3, 3, 3, 3]}|\n"
-                  "|            {[4, 4, 4, 4, 4]}|\n"
-                  "|                        {[5]}|\n"
-                  "|                     {[6, 6]}|\n"
-                  "|                  {[7, 7, 7]}|\n"
-                  "|               {[8, 8, 8, 8]}|\n"
-                  "|            {[9, 9, 9, 9, 9]}|\n"
-                  "|                       {[10]}|\n"
-                  "|                   {[11, 11]}|\n"
-                  "|               {[12, 12, 12]}|\n"
-                  "|           {[13, 13, 13, 13]}|\n"
-                  "|       {[14, 14, 14, 14, 14]}|\n"
-                  "|                       {[15]}|\n"
-                  "|                   {[16, 16]}|\n"
-                  "|               {[17, 17, 17]}|\n"
-                  "|           {[18, 18, 18, 18]}|\n"
-                  "|       {[19, 19, 19, 19, 19]}|\n"
-                  "+-----------------------------+\n");
+                  "+---------------------------+\n"
+                  "|cc(Struct(col1:Array(INT)))|\n"
+                  "+---------------------------+\n"
+                  "|               {\"col1\":[0]}|\n"
+                  "|            {\"col1\":[1, 1]}|\n"
+                  "|         {\"col1\":[2, 2, 2]}|\n"
+                  "|      {\"col1\":[3, 3, 3, 3]}|\n"
+                  "|   {\"col1\":[4, 4, 4, 4, 4]}|\n"
+                  "|               {\"col1\":[5]}|\n"
+                  "|            {\"col1\":[6, 6]}|\n"
+                  "|         {\"col1\":[7, 7, 7]}|\n"
+                  "|      {\"col1\":[8, 8, 8, 8]}|\n"
+                  "|   {\"col1\":[9, 9, 9, 9, 9]}|\n"
+                  "|              {\"col1\":[10]}|\n"
+                  "|          {\"col1\":[11, 11]}|\n"
+                  "|      {\"col1\":[12, 12, 12]}|\n"
+                  "|  {\"col1\":[13, 13, 13, 13]}|\n"
+                  "|{\"col1\":[14, 14, 14, 14,...|\n"
+                  "|              {\"col1\":[15]}|\n"
+                  "|          {\"col1\":[16, 16]}|\n"
+                  "|      {\"col1\":[17, 17, 17]}|\n"
+                  "|  {\"col1\":[18, 18, 18, 18]}|\n"
+                  "|{\"col1\":[19, 19, 19, 19,...|\n"
+                  "+---------------------------+\n");
     }
 
     {
@@ -242,7 +247,7 @@ TEST_F(OrcReaderFillDataTest, ComplexTypeConversionTest) {
 
         TFileScanRangeParams params;
         TFileRangeDesc range;
-        auto reader = OrcReader::create_unique(params, range, "", nullptr, true);
+        auto reader = OrcReader::create_unique(params, range, "", nullptr, nullptr, true);
 
         auto doris_struct_type = std::make_shared<DataTypeStruct>(
                 std::vector<DataTypePtr> {std::make_shared<DataTypeInt32>(),
@@ -250,8 +255,9 @@ TEST_F(OrcReaderFillDataTest, ComplexTypeConversionTest) {
                 std::vector<std::string> {"col1", "col2"});
         MutableColumnPtr doris_column = doris_struct_type->create_column()->assume_mutable();
 
-        Status status = reader->_fill_doris_data_column<false>(
-                "test", doris_column, doris_struct_type, type.get(), &structBatch, rowCount);
+        Status status = reader->_fill_doris_data_column<false>("test", doris_column,
+                                                               doris_struct_type, const_node,
+                                                               type.get(), &structBatch, rowCount);
 
         ASSERT_TRUE(status.ok());
 
@@ -260,20 +266,20 @@ TEST_F(OrcReaderFillDataTest, ComplexTypeConversionTest) {
         std::cout << block.dump_data() << "\n";
 
         ASSERT_EQ(block.dump_data(),
-                  "+----------------------------------+\n"
-                  "|cc(Struct(col1:Int32, col2:Int32))|\n"
-                  "+----------------------------------+\n"
-                  "|                            {0, 0}|\n"
-                  "|                        {100, 300}|\n"
-                  "|                        {200, 600}|\n"
-                  "|                        {300, 900}|\n"
-                  "|                       {400, 1200}|\n"
-                  "|                       {500, 1500}|\n"
-                  "|                       {600, 1800}|\n"
-                  "|                       {700, 2100}|\n"
-                  "|                       {800, 2400}|\n"
-                  "|                       {900, 2700}|\n"
-                  "+----------------------------------+\n");
+                  "+------------------------------+\n"
+                  "|cc(Struct(col1:INT, col2:INT))|\n"
+                  "+------------------------------+\n"
+                  "|          {\"col1\":0, \"col2\":0}|\n"
+                  "|      {\"col1\":100, \"col2\":300}|\n"
+                  "|      {\"col1\":200, \"col2\":600}|\n"
+                  "|      {\"col1\":300, \"col2\":900}|\n"
+                  "|     {\"col1\":400, \"col2\":1200}|\n"
+                  "|     {\"col1\":500, \"col2\":1500}|\n"
+                  "|     {\"col1\":600, \"col2\":1800}|\n"
+                  "|     {\"col1\":700, \"col2\":2100}|\n"
+                  "|     {\"col1\":800, \"col2\":2400}|\n"
+                  "|     {\"col1\":900, \"col2\":2700}|\n"
+                  "+------------------------------+\n");
     }
 
     {
@@ -327,16 +333,17 @@ TEST_F(OrcReaderFillDataTest, ComplexTypeConversionTest) {
 
         TFileScanRangeParams params;
         TFileRangeDesc range;
-        auto reader = OrcReader::create_unique(params, range, "", nullptr, true);
+        auto reader = OrcReader::create_unique(params, range, "", nullptr, nullptr, true);
 
         auto doris_struct_type = std::make_shared<DataTypeStruct>(
-                std::vector<DataTypePtr> {std::make_shared<DataTypeDecimal<Decimal64>>(18, 5)},
+                std::vector<DataTypePtr> {std::make_shared<DataTypeDecimal64>(18, 5)},
                 std::vector<std::string> {"col1"});
         MutableColumnPtr doris_column = doris_struct_type->create_column()->assume_mutable();
         reader->_decimal_scale_params.resize(0);
         reader->_decimal_scale_params_index = 0;
-        Status status = reader->_fill_doris_data_column<false>(
-                "test", doris_column, doris_struct_type, type.get(), structBatch, rowCount);
+        Status status = reader->_fill_doris_data_column<false>("test", doris_column,
+                                                               doris_struct_type, const_node,
+                                                               type.get(), structBatch, rowCount);
 
         ASSERT_TRUE(status.ok());
 
@@ -347,52 +354,52 @@ TEST_F(OrcReaderFillDataTest, ComplexTypeConversionTest) {
                   "+-------------------------------+\n"
                   "|cc(Struct(col1:Decimal(18, 5)))|\n"
                   "+-------------------------------+\n"
-                  "|                      {0.10000}|\n"
-                  "|                      {0.10001}|\n"
-                  "|                      {0.10002}|\n"
-                  "|                      {0.10003}|\n"
-                  "|                      {0.10004}|\n"
-                  "|                     {-0.09995}|\n"
-                  "|                     {-0.09994}|\n"
-                  "|                     {-0.09993}|\n"
-                  "|                     {-0.09992}|\n"
-                  "|                     {-0.09991}|\n"
-                  "|                      {0.00009}|\n"
-                  "|                     {-0.00009}|\n"
-                  "|                      {0.00099}|\n"
-                  "|                     {-0.00099}|\n"
-                  "|                      {0.00999}|\n"
-                  "|                     {-0.00999}|\n"
-                  "|                      {0.09999}|\n"
-                  "|                     {-0.09999}|\n"
-                  "|                      {0.99999}|\n"
-                  "|                     {-0.99999}|\n"
-                  "|                      {9.99999}|\n"
-                  "|                     {-9.99999}|\n"
-                  "|                     {99.99999}|\n"
-                  "|                    {-99.99999}|\n"
-                  "|                    {999.99999}|\n"
-                  "|                   {-999.99999}|\n"
-                  "|                   {9999.99999}|\n"
-                  "|                  {-9999.99999}|\n"
-                  "|                  {99999.99999}|\n"
-                  "|                 {-99999.99999}|\n"
-                  "|                 {999999.99999}|\n"
-                  "|                {-999999.99999}|\n"
-                  "|                {9999999.99999}|\n"
-                  "|               {-9999999.99999}|\n"
-                  "|               {99999999.99999}|\n"
-                  "|              {-99999999.99999}|\n"
-                  "|              {999999999.99999}|\n"
-                  "|             {-999999999.99999}|\n"
-                  "|             {9999999999.99999}|\n"
-                  "|            {-9999999999.99999}|\n"
-                  "|            {99999999999.99999}|\n"
-                  "|           {-99999999999.99999}|\n"
-                  "|           {999999999999.99999}|\n"
-                  "|          {-999999999999.99999}|\n"
-                  "|          {9999999999999.99999}|\n"
-                  "|         {-9999999999999.99999}|\n"
+                  "|               {\"col1\":0.10000}|\n"
+                  "|               {\"col1\":0.10001}|\n"
+                  "|               {\"col1\":0.10002}|\n"
+                  "|               {\"col1\":0.10003}|\n"
+                  "|               {\"col1\":0.10004}|\n"
+                  "|              {\"col1\":-0.09995}|\n"
+                  "|              {\"col1\":-0.09994}|\n"
+                  "|              {\"col1\":-0.09993}|\n"
+                  "|              {\"col1\":-0.09992}|\n"
+                  "|              {\"col1\":-0.09991}|\n"
+                  "|               {\"col1\":0.00009}|\n"
+                  "|              {\"col1\":-0.00009}|\n"
+                  "|               {\"col1\":0.00099}|\n"
+                  "|              {\"col1\":-0.00099}|\n"
+                  "|               {\"col1\":0.00999}|\n"
+                  "|              {\"col1\":-0.00999}|\n"
+                  "|               {\"col1\":0.09999}|\n"
+                  "|              {\"col1\":-0.09999}|\n"
+                  "|               {\"col1\":0.99999}|\n"
+                  "|              {\"col1\":-0.99999}|\n"
+                  "|               {\"col1\":9.99999}|\n"
+                  "|              {\"col1\":-9.99999}|\n"
+                  "|              {\"col1\":99.99999}|\n"
+                  "|             {\"col1\":-99.99999}|\n"
+                  "|             {\"col1\":999.99999}|\n"
+                  "|            {\"col1\":-999.99999}|\n"
+                  "|            {\"col1\":9999.99999}|\n"
+                  "|           {\"col1\":-9999.99999}|\n"
+                  "|           {\"col1\":99999.99999}|\n"
+                  "|          {\"col1\":-99999.99999}|\n"
+                  "|          {\"col1\":999999.99999}|\n"
+                  "|         {\"col1\":-999999.99999}|\n"
+                  "|         {\"col1\":9999999.99999}|\n"
+                  "|        {\"col1\":-9999999.99999}|\n"
+                  "|        {\"col1\":99999999.99999}|\n"
+                  "|       {\"col1\":-99999999.99999}|\n"
+                  "|       {\"col1\":999999999.99999}|\n"
+                  "|      {\"col1\":-999999999.99999}|\n"
+                  "|      {\"col1\":9999999999.99999}|\n"
+                  "|     {\"col1\":-9999999999.99999}|\n"
+                  "|     {\"col1\":99999999999.99999}|\n"
+                  "|    {\"col1\":-99999999999.99999}|\n"
+                  "|    {\"col1\":999999999999.99999}|\n"
+                  "|   {\"col1\":-999999999999.99999}|\n"
+                  "|   {\"col1\":9999999999999.99999}|\n"
+                  "|  {\"col1\":-9999999999999.99999}|\n"
                   "+-------------------------------+\n");
     }
 
@@ -440,14 +447,15 @@ TEST_F(OrcReaderFillDataTest, ComplexTypeConversionTest) {
 
         TFileScanRangeParams params;
         TFileRangeDesc range;
-        auto reader = OrcReader::create_unique(params, range, "", nullptr, true);
+        auto reader = OrcReader::create_unique(params, range, "", nullptr, nullptr, true);
 
         auto doris_struct_type = std::make_shared<DataTypeMap>(std::make_shared<DataTypeInt32>(),
                                                                std::make_shared<DataTypeFloat32>());
         MutableColumnPtr doris_column = doris_struct_type->create_column()->assume_mutable();
 
-        Status status = reader->_fill_doris_data_column<false>(
-                "test", doris_column, doris_struct_type, type.get(), &mapBatch, rowCount);
+        Status status =
+                reader->_fill_doris_data_column<false>("test", doris_column, doris_struct_type,
+                                                       const_node, type.get(), &mapBatch, rowCount);
 
         ASSERT_TRUE(status.ok());
 
@@ -455,20 +463,20 @@ TEST_F(OrcReaderFillDataTest, ComplexTypeConversionTest) {
                 {doris_column->get_ptr(), doris_struct_type, "cc"}}};
         std::cout << block.dump_data() << "\n";
         ASSERT_EQ(block.dump_data(),
-                  "+-----------------------+\n"
-                  "|cc(Map(Int32, Float32))|\n"
-                  "+-----------------------+\n"
-                  "|                     {}|\n"
-                  "|                     {}|\n"
-                  "|                {200:6}|\n"
-                  "|                {300:9}|\n"
-                  "|       {400:12, 400:12}|\n"
-                  "|       {500:15, 500:15}|\n"
-                  "|{600:18, 600:18, 600...|\n"
-                  "|{700:21, 700:21, 700...|\n"
-                  "|{800:24, 800:24, 800...|\n"
-                  "|{900:27, 900:27, 900...|\n"
-                  "+-----------------------+\n");
+                  "+-------------------+\n"
+                  "|cc(Map(INT, FLOAT))|\n"
+                  "+-------------------+\n"
+                  "|                 {}|\n"
+                  "|                 {}|\n"
+                  "|            {200:6}|\n"
+                  "|            {300:9}|\n"
+                  "|           {400:12}|\n"
+                  "|           {500:15}|\n"
+                  "|           {600:18}|\n"
+                  "|           {700:21}|\n"
+                  "|           {800:24}|\n"
+                  "|           {900:27}|\n"
+                  "+-------------------+\n");
     }
 }
 } // namespace vectorized

@@ -800,4 +800,61 @@ TEST_F(CacheTest, SetCapacity) {
     ASSERT_EQ(0, cache()->get_usage());
 }
 
+TEST_F(CacheTest, ResetInitialCapacity) {
+    init_number_cache();
+    for (int i = 0; i < kCacheSize; i++) {
+        Insert(i, 1000 + i, 1);
+        EXPECT_EQ(1000 + i, Lookup(i));
+    }
+    ASSERT_EQ(kCacheSize, cache()->get_capacity());
+    ASSERT_EQ(kCacheSize, cache()->get_usage());
+
+    int64_t prune_num = cache()->adjust_capacity_weighted(0.5);
+    ASSERT_EQ(prune_num, kCacheSize / 2);
+    ASSERT_EQ(kCacheSize / 2, cache()->get_capacity());
+    ASSERT_EQ(kCacheSize / 2, cache()->get_usage());
+
+    prune_num = cache()->adjust_capacity_weighted(2);
+    ASSERT_EQ(prune_num, 0);
+    ASSERT_EQ(kCacheSize * 2, cache()->get_capacity());
+    ASSERT_EQ(kCacheSize / 2, cache()->get_usage());
+
+    prune_num = cache()->reset_initial_capacity(0.5);
+    ASSERT_EQ(prune_num, 0);
+    ASSERT_EQ(kCacheSize / 2, cache()->get_capacity());
+    ASSERT_EQ(kCacheSize / 2, cache()->get_usage());
+
+    prune_num = cache()->adjust_capacity_weighted(2);
+    ASSERT_EQ(prune_num, 0);
+    ASSERT_EQ(kCacheSize, cache()->get_capacity());
+    ASSERT_EQ(kCacheSize / 2, cache()->get_usage());
+
+    prune_num = cache()->adjust_capacity_weighted(1);
+    ASSERT_EQ(prune_num, 0);
+    ASSERT_EQ(kCacheSize / 2, cache()->get_capacity());
+    ASSERT_EQ(kCacheSize / 2, cache()->get_usage());
+
+    prune_num = cache()->reset_initial_capacity(4);
+    ASSERT_EQ(prune_num, 0);
+    ASSERT_EQ(kCacheSize * 2, cache()->get_capacity());
+    ASSERT_EQ(kCacheSize / 2, cache()->get_usage());
+
+    for (int i = kCacheSize; i < kCacheSize * 2; i++) {
+        Insert(i, 1000 + i, 1);
+        EXPECT_EQ(1000 + i, Lookup(i));
+    }
+    ASSERT_EQ(kCacheSize * 2, cache()->get_capacity());
+    ASSERT_EQ(kCacheSize + kCacheSize / 2, cache()->get_usage());
+
+    prune_num = cache()->adjust_capacity_weighted(0.5);
+    ASSERT_EQ(prune_num, kCacheSize / 2);
+    ASSERT_EQ(kCacheSize, cache()->get_capacity());
+    ASSERT_EQ(kCacheSize, cache()->get_usage());
+
+    prune_num = cache()->reset_initial_capacity(0.25);
+    ASSERT_EQ(prune_num, kCacheSize / 2);
+    ASSERT_EQ(kCacheSize / 2, cache()->get_capacity());
+    ASSERT_EQ(kCacheSize / 2, cache()->get_usage());
+}
+
 } // namespace doris

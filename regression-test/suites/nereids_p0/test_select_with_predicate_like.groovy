@@ -14,11 +14,12 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-suite("test_select_with_predicate_like") {
+suite("test_select_with_predicate_like", "arrow_flight_sql") {
     sql "SET enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
     def tables=["test_basic_agg"]
 
+    sql "set enable_insert_strict = false;"
     for (String table in tables) {
         sql """drop table if exists ${table};"""
         sql new File("""regression-test/common/table/${table}.sql""").text

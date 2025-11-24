@@ -23,9 +23,9 @@
 #include <iostream>
 
 #include "gtest/gtest_pred_impl.h"
-#include "gutil/hash/city.h"
 #include "olap/rowset/segment_v2/ngram_bloom_filter.h"
 #include "testutil/any_type.h"
+#include "util/hash/city.h"
 
 namespace doris {
 

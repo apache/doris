@@ -24,6 +24,7 @@
 
 namespace doris {
 namespace segment_v2 {
+#include "common/compile_check_begin.h"
 
 // Encode page use frame-of-reference coding
 template <FieldType Type>
@@ -50,6 +51,7 @@ public:
         }
         _encoder->put_batch(new_vals, *count);
         _count += *count;
+        _raw_data_size += *count * sizeof(CppType);
         _last_val = new_vals[*count - 1];
         return Status::OK();
     }
@@ -65,6 +67,7 @@ public:
     Status reset() override {
         _count = 0;
         _finished = false;
+        _raw_data_size = 0;
         _encoder->clear();
         return Status::OK();
     }
@@ -72,6 +75,8 @@ public:
     size_t count() const override { return _count; }
 
     uint64_t size() const override { return _buf.size(); }
+
+    uint64_t get_raw_data_size() const override { return _raw_data_size; }
 
     Status get_first_value(void* value) const override {
         if (_count == 0) {
@@ -101,6 +106,7 @@ private:
     faststring _buf;
     CppType _first_val;
     CppType _last_val;
+    uint64_t _raw_data_size = 0;
 };
 
 template <FieldType Type>
@@ -129,11 +135,16 @@ public:
                 << "Tried to seek to " << pos << " which is > number of elements (" << _num_elements
                 << ") in the block!";
         // If the block is empty (e.g. the column is filled with nulls), there is no data to seek.
-        if (PREDICT_FALSE(_num_elements == 0)) {
-            return Status::OK();
+        if (_num_elements == 0) [[unlikely]] {
+            if (pos != 0) {
+                return Status::Error<ErrorCode::INTERNAL_ERROR, false>(
+                        "seek pos {} is larger than total elements  {}", pos, _num_elements);
+            } else {
+                return Status::OK();
+            }
         }
 
-        int32_t skip_num = pos - _cur_index;
+        auto skip_num = cast_set<int32_t>(pos - _cur_index);
         _decoder->skip(skip_num);
         _cur_index = pos;
         return Status::OK();
@@ -171,5 +182,6 @@ private:
     std::unique_ptr<ForDecoder<CppType>> _decoder;
 };
 
+#include "common/compile_check_end.h"
 } // namespace segment_v2
 } // namespace doris

@@ -30,6 +30,14 @@ pch_reuse(meta_tool)
 # This permits libraries loaded by dlopen to link to the symbols in the program.
 set_target_properties(meta_tool PROPERTIES ENABLE_EXPORTS 1)
 
+
+if (COMPILER_CLANG)
+    target_compile_options(meta_tool PRIVATE
+    -Wno-implicit-int-conversion
+    -Wno-shorten-64-to-32
+    )
+endif()
+
 target_link_libraries(meta_tool
     ${DORIS_LINK_LIBS}
 )

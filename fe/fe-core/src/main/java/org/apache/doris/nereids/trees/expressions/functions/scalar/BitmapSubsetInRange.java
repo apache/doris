@@ -50,13 +50,18 @@ public class BitmapSubsetInRange extends ScalarFunction
         super("bitmap_subset_in_range", arg0, arg1, arg2);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private BitmapSubsetInRange(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public BitmapSubsetInRange withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 3);
-        return new BitmapSubsetInRange(children.get(0), children.get(1), children.get(2));
+        return new BitmapSubsetInRange(getFunctionParams(children));
     }
 
     @Override

@@ -74,7 +74,7 @@ TEST(ColumnFixedLenghtObjectTest, UpdateHashWithValue) {
         column1->update_hash_with_value(i, hash1);
     }
 
-    auto column2 = ColumnVector<int64_t>::create();
+    auto column2 = ColumnInt64::create();
     column2->resize(count);
     for (size_t i = 0; i != count; ++i) {
         column2->get_data()[i] = i;
@@ -172,9 +172,7 @@ TEST(ColumnFixedLenghtObjectTest, GetDataAtTest) {
     ASSERT_EQ(column_fixed2->operator[](1), column_fixed4->operator[](1));
     ASSERT_EQ(*reinterpret_cast<const int64_t*>(column_fixed4->get_data_at(0).data), 11);
     ASSERT_EQ(*reinterpret_cast<const int64_t*>(column_fixed4->get_data_at(1).data), 22);
-    ASSERT_EQ(*reinterpret_cast<const int64_t*>(column_fixed2->get_data_at(2).data), 33);
-    // ASSERT_EQ(*reinterpret_cast<const int64_t*>(column_fixed4->get_data_at(2).data), 33);
-    // ASSERT_EQ(column_fixed2->get_data_at(2).to_string(), column_fixed4->get_data_at(2).to_string());
+    ASSERT_EQ(*reinterpret_cast<const int64_t*>(column_fixed4->get_data_at(2).data), 33);
     std::cout << "8. test insert_many_strings data success" << std::endl;
 
     auto column_fixed5 = ColumnFixedLengthObject::create(sizeof(int64_t));
@@ -192,6 +190,24 @@ TEST(ColumnFixedLenghtObjectTest, GetDataAtTest) {
     ASSERT_EQ(*reinterpret_cast<const int64_t*>(column_fixed5->get_data_at(1).data), 22);
     ASSERT_EQ(*reinterpret_cast<const int64_t*>(column_fixed5->get_data_at(2).data), 33);
     std::cout << "9. test insert_many_continuous_binary_data data success" << std::endl;
+
+    auto column_fixed5_2 = ColumnFixedLengthObject::create(sizeof(int64_t));
+    column_fixed5_2->insert_many_continuous_binary_data(buffer.data(), buffer_offsets.data(), 3);
+    ASSERT_EQ(column_fixed5_2->size(), 3);
+    ASSERT_EQ(column_fixed2->operator[](0), column_fixed5_2->operator[](0));
+    ASSERT_EQ(column_fixed2->operator[](1), column_fixed5_2->operator[](1));
+    ASSERT_EQ(*reinterpret_cast<const int64_t*>(column_fixed5_2->get_data_at(0).data), 11);
+    ASSERT_EQ(*reinterpret_cast<const int64_t*>(column_fixed5_2->get_data_at(1).data), 22);
+    ASSERT_EQ(*reinterpret_cast<const int64_t*>(column_fixed5_2->get_data_at(2).data), 33);
+    column_fixed5_2->insert_many_continuous_binary_data(buffer.data(), buffer_offsets.data(), 3);
+    ASSERT_EQ(column_fixed5_2->size(), 6);
+    ASSERT_EQ(*reinterpret_cast<const int64_t*>(column_fixed5_2->get_data_at(0).data), 11);
+    ASSERT_EQ(*reinterpret_cast<const int64_t*>(column_fixed5_2->get_data_at(1).data), 22);
+    ASSERT_EQ(*reinterpret_cast<const int64_t*>(column_fixed5_2->get_data_at(2).data), 33);
+    ASSERT_EQ(*reinterpret_cast<const int64_t*>(column_fixed5_2->get_data_at(3).data), 11);
+    ASSERT_EQ(*reinterpret_cast<const int64_t*>(column_fixed5_2->get_data_at(4).data), 22);
+    ASSERT_EQ(*reinterpret_cast<const int64_t*>(column_fixed5_2->get_data_at(5).data), 33);
+    std::cout << "9.2 test insert_many_continuous_binary_data data success" << std::endl;
 
     auto column_fixed6 = ColumnFixedLengthObject::create(sizeof(int64_t));
     column_fixed6->insert_range_from(*column_fixed5, 0, 3);
@@ -218,16 +234,6 @@ TEST(ColumnFixedLenghtObjectTest, GetDataAtTest) {
     ASSERT_EQ(*reinterpret_cast<const int64_t*>(column_permute->get_data_at(1).data), 22);
     ASSERT_EQ(*reinterpret_cast<const int64_t*>(column_permute->get_data_at(2).data), 33);
     std::cout << "12. test permute data success" << std::endl;
-
-    IColumn::Offsets offsets2 {2, 4, 6};
-    std::vector<int> res_idx {0, 0, 1, 1, 2, 2};
-    auto column_replicate_res = column_fixed6->replicate(offsets2);
-    ASSERT_EQ(column_replicate_res->size(), 6);
-    ASSERT_EQ(column_fixed6->size(), 3);
-    for (int i = 0; i < 6; ++i) {
-        ASSERT_EQ(column_fixed6->operator[](res_idx[i]), column_replicate_res->operator[](i));
-    }
-    std::cout << "13. test more val data value and replicate success" << std::endl;
 
     Arena arena;
     const char* pos = nullptr;

@@ -117,9 +117,14 @@ public class AggCombinerFunctionBuilder extends FunctionBuilder {
         }
 
         Expression arg = (Expression) arguments.get(0);
-        AggStateType type = (AggStateType) arg.getDataType();
+        List<Expression> nestedArguments;
+        if (arg instanceof StateCombinator) {
+            nestedArguments = arg.children();
+        } else {
+            nestedArguments = ((AggStateType) arg.getDataType()).getMockedExpressions();
+        }
 
-        return (AggregateFunction) nestedBuilder.build(nestedName, type.getMockedExpressions()).first;
+        return (AggregateFunction) nestedBuilder.build(nestedName, nestedArguments).first;
     }
 
     @Override

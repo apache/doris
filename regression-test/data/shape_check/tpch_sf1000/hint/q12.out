@@ -17,6 +17,6 @@ PhysicalResultSink
 
 Hint log:
 Used: leading(orders lineitem )
-UnUsed: 
+UnUsed:
 SyntaxError:
 

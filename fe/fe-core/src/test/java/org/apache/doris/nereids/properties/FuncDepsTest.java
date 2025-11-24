@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.properties;
 
+import org.apache.doris.nereids.properties.FuncDeps.FuncDepsItem;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.types.IntegerType;
@@ -117,5 +118,16 @@ class FuncDepsTest {
         Set<Set<Slot>> expected = new HashSet<>();
         expected.add(set1);
         Assertions.assertEquals(expected, slots);
+    }
+
+    @Test
+    void testFuncDepsItemEqual() {
+        FuncDepsItem funcDepsItem1 = new FuncDepsItem(set1, set2);
+        FuncDepsItem funcDepsItem2 = new FuncDepsItem(set2, set1);
+        Assertions.assertNotEquals(funcDepsItem1, funcDepsItem2);
+        Set<Slot> set5 = Sets.newHashSet(s1, s2);
+        FuncDepsItem funcDepsItem3 = new FuncDepsItem(set5, set1);
+        FuncDepsItem funcDepsItem4 = new FuncDepsItem(set2, set5);
+        Assertions.assertNotEquals(funcDepsItem3, funcDepsItem4);
     }
 }

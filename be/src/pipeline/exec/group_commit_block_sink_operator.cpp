@@ -68,9 +68,9 @@ Status GroupCommitBlockSinkLocalState::_initialize_load_queue() {
     auto& p = _parent->cast<GroupCommitBlockSinkOperatorX>();
     if (_state->exec_env()->wal_mgr()->is_running()) {
         RETURN_IF_ERROR(_state->exec_env()->group_commit_mgr()->get_first_block_load_queue(
-                p._db_id, p._table_id, p._base_schema_version, p._load_id, _load_block_queue,
-                _state->be_exec_version(), _state->query_mem_tracker(), _create_plan_dependency,
-                _put_block_dependency));
+                p._db_id, p._table_id, p._base_schema_version, p._schema->indexes().size(),
+                p._load_id, _load_block_queue, _state->be_exec_version(),
+                _state->query_mem_tracker(), _create_plan_dependency, _put_block_dependency));
         _state->set_import_label(_load_block_queue->label);
         _state->set_wal_id(_load_block_queue->txn_id); // wal_id is txn_id
         return Status::OK();
@@ -243,10 +243,10 @@ Status GroupCommitBlockSinkLocalState::init(RuntimeState* state, LocalSinkStateI
     RETURN_IF_ERROR(Base::init(state, info));
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_init_timer);
-    _init_load_queue_timer = ADD_TIMER(_profile, "InitLoadQueueTime");
-    _valid_and_convert_block_timer = ADD_TIMER(_profile, "ValidAndConvertBlockTime");
-    _find_partition_timer = ADD_TIMER(_profile, "FindPartitionTime");
-    _append_blocks_timer = ADD_TIMER(_profile, "AppendBlocksTime");
+    _init_load_queue_timer = ADD_TIMER(custom_profile(), "InitLoadQueueTime");
+    _valid_and_convert_block_timer = ADD_TIMER(custom_profile(), "ValidAndConvertBlockTime");
+    _find_partition_timer = ADD_TIMER(custom_profile(), "FindPartitionTime");
+    _append_blocks_timer = ADD_TIMER(custom_profile(), "AppendBlocksTime");
     return Status::OK();
 }
 
@@ -259,7 +259,7 @@ Status GroupCommitBlockSinkOperatorX::init(const TDataSink& t_sink) {
     RETURN_IF_ERROR(_schema->init(table_sink.schema));
     _db_id = table_sink.db_id;
     _table_id = table_sink.table_id;
-    _base_schema_version = table_sink.base_schema_version;
+    _base_schema_version = _schema->version();
     _partition = table_sink.partition;
     _group_commit_mode = table_sink.group_commit_mode;
     _load_id = table_sink.load_id;
@@ -307,7 +307,8 @@ Status GroupCommitBlockSinkOperatorX::sink(RuntimeState* state, vectorized::Bloc
                 if (num_selected_rows > 0 &&
                     (double)state->num_rows_load_filtered() / (double)num_selected_rows >
                             _max_filter_ratio) {
-                    return Status::DataQualityError("too many filtered rows");
+                    return Status::DataQualityError("too many filtered rows, {}",
+                                                    state->get_first_error_msg());
                 }
                 RETURN_IF_ERROR(local_state._add_blocks(state, true));
             }
@@ -351,7 +352,7 @@ Status GroupCommitBlockSinkOperatorX::sink(RuntimeState* state, vectorized::Bloc
             if (local_state._partitions[row_index] == nullptr) [[unlikely]] {
                 local_state._filter_bitmap.Set(row_index, true);
                 LOG(WARNING) << "no partition for this tuple. tuple="
-                             << block->dump_data(row_index, 1);
+                             << block->dump_data_json(row_index, 1);
                 local_state._has_filtered_rows = true;
                 state->update_num_rows_load_filtered(1);
                 state->update_num_rows_load_total(-1);
@@ -361,8 +362,8 @@ Status GroupCommitBlockSinkOperatorX::sink(RuntimeState* state, vectorized::Bloc
                         []() -> std::string { return ""; },
                         [&]() -> std::string {
                             fmt::memory_buffer buf;
-                            fmt::format_to(buf, "no partition for this tuple. tuple=\n{}",
-                                           block->dump_data(row_index, 1));
+                            fmt::format_to(buf, "no partition for this tuple. tuple={}",
+                                           block->dump_data_json(row_index, 1));
                             return fmt::to_string(buf);
                         }));
             }

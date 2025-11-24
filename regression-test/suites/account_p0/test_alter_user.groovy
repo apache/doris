@@ -170,7 +170,7 @@ suite("test_alter_user", "account,nonConcurrent") {
     }
     sleep(6000)
     sql """set password for 'test_auth_user4' = password('123')"""
-    result2 = connect('test_auth_user4', '123', context.config.jdbcUrl) {
+    def result2 = connect('test_auth_user4', '123', context.config.jdbcUrl) {
         sql 'select 1'
     }
     sleep(6000)

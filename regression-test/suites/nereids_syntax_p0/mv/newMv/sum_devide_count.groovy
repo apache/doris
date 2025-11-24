@@ -16,6 +16,8 @@
 // under the License.
 
 suite ("sum_devide_count") {
+    // this mv rewrite would not be rewritten in RBO phase, so set TRY_IN_RBO explicitly to make case stable
+    sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
     sql """ DROP TABLE IF EXISTS sum_devide_count; """
 
     sql """
@@ -46,7 +48,7 @@ suite ("sum_devide_count") {
     sql "SET experimental_enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
 
-    createMV ("create materialized view kavg as select k1,k4,sum(k2),count(k2) from sum_devide_count group by k1,k4;")
+    createMV ("create materialized view kavg as select k1 as a1,k4 as a2,sum(k2),count(k2) from sum_devide_count group by k1,k4;")
 
     sleep(3000)
 

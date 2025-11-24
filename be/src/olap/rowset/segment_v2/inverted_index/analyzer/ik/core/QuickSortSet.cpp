@@ -25,7 +25,13 @@ QuickSortSet::~QuickSortSet() {
 
 void QuickSortSet::clear() {
     if (head_) {
-        pool_.mergeFreeList(head_, tail_, cell_size_);
+        Cell* current = head_;
+        while (current) {
+            Cell* next = current->next_;
+            current->~Cell();
+            current = next;
+        }
+
         head_ = nullptr;
         tail_ = nullptr;
         cell_size_ = 0;
@@ -129,14 +135,13 @@ size_t QuickSortSet::getPathEnd() const {
 }
 
 Cell* QuickSortSet::allocateCell(Lexeme&& lexeme) {
-    void* memory = pool_.allocate();
-    return new (memory) Cell(std::move(lexeme));
+    Cell* cell = arena_.alloc<Cell>();
+    return new (cell) Cell(std::move(lexeme));
 }
 
 void QuickSortSet::deallocateCell(Cell* cell) {
     if (cell) {
         cell->~Cell();
-        pool_.deallocate(cell);
     }
 }
 

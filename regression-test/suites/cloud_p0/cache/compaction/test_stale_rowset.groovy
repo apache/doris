@@ -114,7 +114,7 @@ suite("test_stale_rowset") {
         }
     }
     def getCurCacheSize = {
-        backendIdToCacheSize = [:]
+        def backendIdToCacheSize = [:]
         for (String[] backend in backends) {
             if (backend[9].equals("true") && backend[19].contains("regression_cluster_name1")) {
                 StringBuilder sb = new StringBuilder();

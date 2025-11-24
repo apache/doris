@@ -90,7 +90,7 @@ arrow::Result<std::shared_ptr<ArrowFlightBatchLocalReader>> ArrowFlightBatchLoca
     return result;
 }
 
-arrow::Status ArrowFlightBatchLocalReader::ReadNext(std::shared_ptr<arrow::RecordBatch>* out) {
+arrow::Status ArrowFlightBatchLocalReader::ReadNextImpl(std::shared_ptr<arrow::RecordBatch>* out) {
     // parameter *out not nullptr
     *out = nullptr;
     SCOPED_ATTACH_TASK(_mem_tracker);
@@ -122,6 +122,10 @@ arrow::Status ArrowFlightBatchLocalReader::ReadNext(std::shared_ptr<arrow::Recor
                     << (*out)->num_columns() << ", packet_seq: " << _packet_seq;
     }
     return arrow::Status::OK();
+}
+
+arrow::Status ArrowFlightBatchLocalReader::ReadNext(std::shared_ptr<arrow::RecordBatch>* out) {
+    RETURN_ARROW_STATUS_IF_CATCH_EXCEPTION(ReadNextImpl(out));
 }
 
 ArrowFlightBatchRemoteReader::ArrowFlightBatchRemoteReader(
@@ -264,7 +268,10 @@ arrow::Status ArrowFlightBatchRemoteReader::_fetch_data() {
         {
             SCOPED_ATOMIC_TIMER(&_deserialize_block_timer);
             _block = vectorized::Block::create_shared();
-            st = _block->deserialize(callback->response_->block());
+            [[maybe_unused]] size_t uncompressed_size = 0;
+            [[maybe_unused]] int64_t uncompressed_time = 0;
+            st = _block->deserialize(callback->response_->block(), &uncompressed_size,
+                                     &uncompressed_time);
             ARROW_RETURN_NOT_OK(to_arrow_status(st));
             break;
         }
@@ -284,7 +291,7 @@ arrow::Status ArrowFlightBatchRemoteReader::init_schema() {
     return arrow::Status::OK();
 }
 
-arrow::Status ArrowFlightBatchRemoteReader::ReadNext(std::shared_ptr<arrow::RecordBatch>* out) {
+arrow::Status ArrowFlightBatchRemoteReader::ReadNextImpl(std::shared_ptr<arrow::RecordBatch>* out) {
     // parameter *out not nullptr
     *out = nullptr;
     SCOPED_ATTACH_TASK(_mem_tracker);
@@ -308,6 +315,10 @@ arrow::Status ArrowFlightBatchRemoteReader::ReadNext(std::shared_ptr<arrow::Reco
                     << (*out)->num_columns() << ", packet_seq: " << _packet_seq;
     }
     return arrow::Status::OK();
+}
+
+arrow::Status ArrowFlightBatchRemoteReader::ReadNext(std::shared_ptr<arrow::RecordBatch>* out) {
+    RETURN_ARROW_STATUS_IF_CATCH_EXCEPTION(ReadNextImpl(out));
 }
 
 } // namespace doris::flight

@@ -32,6 +32,8 @@ import org.apache.doris.thrift.TNetworkAddress;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import jline.internal.Nullable;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.logging.log4j.LogManager;
@@ -54,8 +56,6 @@ import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.Collections;
 import java.util.stream.Collectors;
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
 
 public class RestBaseController extends BaseController {
 
@@ -77,7 +77,6 @@ public class RestBaseController extends BaseController {
         UserIdentity currentUser = checkPassword(authInfo);
         ConnectContext ctx = new ConnectContext();
         ctx.setEnv(Env.getCurrentEnv());
-        ctx.setQualifiedUser(authInfo.fullUserName);
         ctx.setRemoteIP(authInfo.remoteIp);
         ctx.setCurrentUserIdentity(currentUser);
         ctx.setThreadLocalInfo();

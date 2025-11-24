@@ -23,6 +23,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.plugin.AuditEvent;
 import org.apache.doris.thrift.TQueryStatistics;
+import org.apache.doris.thrift.TQueryStatisticsResult;
 import org.apache.doris.thrift.TReportWorkloadRuntimeStatusParams;
 
 import com.google.common.collect.Lists;
@@ -35,7 +36,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.concurrent.locks.ReentrantLock;
 
 // NOTE: not using a lock for beToQueryStatsMap's update because it should void global lock for all be
 // this may cause in some corner case missing statistics update,for example:
@@ -48,8 +49,9 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
 
     private static final Logger LOG = LogManager.getLogger(WorkloadRuntimeStatusMgr.class);
     private Map<Long, BeReportInfo> beToQueryStatsMap = Maps.newConcurrentMap();
-    private final ReentrantReadWriteLock queryAuditEventLock = new ReentrantReadWriteLock();
+    private final ReentrantLock queryAuditEventLock = new ReentrantLock();
     private List<AuditEvent> queryAuditEventList = Lists.newLinkedList();
+    private volatile long lastWarnTime;
 
     private class BeReportInfo {
         volatile long beLastReportTime;
@@ -58,7 +60,7 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
             this.beLastReportTime = beLastReportTime;
         }
 
-        Map<String, Pair<Long, TQueryStatistics>> queryStatsMap = Maps.newConcurrentMap();
+        Map<String, Pair<Long, TQueryStatisticsResult>> queryStatsMap = Maps.newConcurrentMap();
     }
 
     public WorkloadRuntimeStatusMgr() {
@@ -112,12 +114,18 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
         queryAuditEventLogWriteLock();
         try {
             if (queryAuditEventList.size() > Config.audit_event_log_queue_size) {
-                // if queryAuditEventList is full, we don't put the event to queryAuditEventList.
-                // so that the statistic info of this audit event will be ignored, and event will be logged directly.
-                LOG.warn("audit log event queue size {} is full, this may cause audit log missing statistics."
-                                + "you can check whether qps is too high or "
-                                + "set audit_event_log_queue_size to a larger value in fe.conf. query id: {}",
-                        queryAuditEventList.size(), event.queryId);
+                long now = System.currentTimeMillis();
+
+                if (now - lastWarnTime >= 1000) {
+                    lastWarnTime = now;
+                    // if queryAuditEventList is full, we don't put the event to queryAuditEventList.
+                    // so that the statistic info of this audit event will be ignored,
+                    // and event will be logged directly.
+                    LOG.warn("audit log event queue size {} is full, this may cause audit log missing statistics."
+                                    + "you can check whether qps is too high or "
+                                    + "set audit_event_log_queue_size to a larger value in fe.conf. query id: {}",
+                            queryAuditEventList.size(), event.queryId);
+                }
                 Env.getCurrentAuditEventProcessor().handleAuditEvent(event);
             } else {
                 // put the event to queryAuditEventList and let the worker thread to handle it.
@@ -157,7 +165,7 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
             LOG.warn("be report workload runtime status but without beid");
             return;
         }
-        if (!params.isSetQueryStatisticsMap()) {
+        if (!params.isSetQueryStatisticsResultMap()) {
             LOG.warn("be report workload runtime status but without query stats map");
             return;
         }
@@ -173,8 +181,8 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
         } else {
             beReportInfo.beLastReportTime = currentTime;
         }
-        for (Map.Entry<String, TQueryStatistics> entry : params.query_statistics_map.entrySet()) {
-            beReportInfo.queryStatsMap.put(entry.getKey(), Pair.of(currentTime, (TQueryStatistics) entry.getValue()));
+        for (Map.Entry<String, TQueryStatisticsResult> entry : params.query_statistics_result_map.entrySet()) {
+            beReportInfo.queryStatsMap.put(entry.getKey(), Pair.of(currentTime, entry.getValue()));
         }
     }
 
@@ -190,7 +198,7 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
             }
             Set<String> queryIdSet = beReportInfo.queryStatsMap.keySet();
             for (String queryId : queryIdSet) {
-                Pair<Long, TQueryStatistics> pair = beReportInfo.queryStatsMap.get(queryId);
+                Pair<Long, TQueryStatisticsResult> pair = beReportInfo.queryStatsMap.get(queryId);
                 long queryLastReportTime = pair.first;
                 if (currentTime - queryLastReportTime > Config.be_report_query_statistics_timeout_ms) {
                     beReportInfo.queryStatsMap.remove(queryId);
@@ -209,7 +217,7 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
             BeReportInfo beReportInfo = beToQueryStatsMap.get(beId);
             Set<String> queryIdSet = beReportInfo.queryStatsMap.keySet();
             for (String queryId : queryIdSet) {
-                TQueryStatistics curQueryStats = beReportInfo.queryStatsMap.get(queryId).second;
+                TQueryStatisticsResult curQueryStats = beReportInfo.queryStatsMap.get(queryId).second;
 
                 TQueryStatistics retQuery = resultQueryMap.get(queryId);
                 if (retQuery == null) {
@@ -223,26 +231,43 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
         return resultQueryMap;
     }
 
-    private void mergeQueryStatistics(TQueryStatistics dst, TQueryStatistics src) {
-        dst.scan_rows += src.scan_rows;
-        dst.scan_bytes += src.scan_bytes;
-        dst.scan_bytes_from_local_storage += src.scan_bytes_from_local_storage;
-        dst.scan_bytes_from_remote_storage += src.scan_bytes_from_remote_storage;
-        dst.cpu_ms += src.cpu_ms;
-        dst.shuffle_send_bytes += src.shuffle_send_bytes;
-        dst.shuffle_send_rows += src.shuffle_send_rows;
-        if (dst.max_peak_memory_bytes < src.max_peak_memory_bytes) {
-            dst.max_peak_memory_bytes = src.max_peak_memory_bytes;
+    public Map<Long, TQueryStatisticsResult> getQueryStatistics(String queryId) {
+        Map<Long, TQueryStatisticsResult> result = Maps.newHashMap();
+        for (Map.Entry<Long, BeReportInfo> entry : beToQueryStatsMap.entrySet()) {
+            Pair<Long, TQueryStatisticsResult> pair = entry.getValue().queryStatsMap.get(queryId);
+            if (pair != null) {
+                result.put(entry.getKey(), pair.second);
+            }
         }
-        dst.spill_write_bytes_to_local_storage += src.spill_write_bytes_to_local_storage;
-        dst.spill_read_bytes_from_local_storage += src.spill_read_bytes_from_local_storage;
+        return result;
+    }
+
+
+    private void mergeQueryStatistics(TQueryStatistics dst, TQueryStatisticsResult src) {
+        TQueryStatistics srcStats = src.getStatistics();
+        if (srcStats == null) {
+            return;
+        }
+        dst.scan_rows += srcStats.scan_rows;
+        dst.scan_bytes += srcStats.scan_bytes;
+        dst.scan_bytes_from_local_storage += srcStats.scan_bytes_from_local_storage;
+        dst.scan_bytes_from_remote_storage += srcStats.scan_bytes_from_remote_storage;
+        dst.cpu_ms += srcStats.cpu_ms;
+        dst.shuffle_send_bytes += srcStats.shuffle_send_bytes;
+        dst.shuffle_send_rows += srcStats.shuffle_send_rows;
+        if (dst.max_peak_memory_bytes < srcStats.max_peak_memory_bytes) {
+            dst.max_peak_memory_bytes = srcStats.max_peak_memory_bytes;
+        }
+        dst.spill_write_bytes_to_local_storage += srcStats.spill_write_bytes_to_local_storage;
+        dst.spill_read_bytes_from_local_storage += srcStats.spill_read_bytes_from_local_storage;
     }
 
     private void queryAuditEventLogWriteLock() {
-        queryAuditEventLock.writeLock().lock();
+        queryAuditEventLock.lock();
     }
 
     private void queryAuditEventLogWriteUnlock() {
-        queryAuditEventLock.writeLock().unlock();
+        queryAuditEventLock.unlock();
     }
+
 }

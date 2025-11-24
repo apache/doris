@@ -48,13 +48,18 @@ public class ArrayPopBack extends ScalarFunction
         super("array_popback", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ArrayPopBack(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public ArrayPopBack withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new ArrayPopBack(children.get(0));
+        return new ArrayPopBack(getFunctionParams(children));
     }
 
     @Override

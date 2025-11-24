@@ -84,6 +84,16 @@ under the License.
 
 8. Cases injected should be marked as nonConcurrent and ensured injection to be removed after running the case.
 
+9. Docker case run in a docker cluster. The docker cluster is new created and independent, not contains history data, not affect other cluster.
+
+   Docker case can add/drop/start/stop/restart fe and be, and specify fe and be num.
+
+   Example will see [demo_p0/docker_action.groovy](https://github.com/apache/doris/blob/master/regression-test/suites/demo_p0/docker_action.groovy)
+
+   Read the annotation carefully in the example file.
+
+   Also read the [doris-compose](https://github.com/apache/doris/tree/master/docker/runtime/doris-compose) readme.
+
 ## Compatibility case
 
 Refers to the resources or rules created on the initial cluster during FE testing or upgrade testing, which can still be used normally after the cluster restart or upgrade, such as permissions, UDF, etc.

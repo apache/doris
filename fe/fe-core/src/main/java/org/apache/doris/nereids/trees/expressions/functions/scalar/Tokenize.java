@@ -27,9 +27,7 @@ import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
-import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.StringType;
-import org.apache.doris.nereids.types.VarcharType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -43,7 +41,7 @@ public class Tokenize extends ScalarFunction
         implements BinaryExpression, ExplicitlyCastableSignature, PropagateNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(ArrayType.of(VarcharType.SYSTEM_DEFAULT))
+            FunctionSignature.ret(StringType.INSTANCE)
                     .args(StringType.INSTANCE, StringType.INSTANCE)
     );
 
@@ -52,6 +50,11 @@ public class Tokenize extends ScalarFunction
      */
     public Tokenize(Expression arg0, Expression arg1) {
         super("tokenize", arg0, arg1);
+    }
+
+    /** constructor for withChildren and reuse signature */
+    private Tokenize(ScalarFunctionParams functionParams) {
+        super(functionParams);
     }
 
     @Override
@@ -81,7 +84,7 @@ public class Tokenize extends ScalarFunction
     @Override
     public Tokenize withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new Tokenize(children.get(0), children.get(1));
+        return new Tokenize(getFunctionParams(children));
     }
 
     @Override

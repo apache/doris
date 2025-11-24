@@ -17,15 +17,12 @@
 
 package org.apache.doris.system;
 
-import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.FeDiskInfo;
 
 import com.google.gson.annotations.SerializedName;
 
-import java.io.DataInput;
-import java.io.IOException;
 import java.util.List;
 
 /**
@@ -65,7 +62,7 @@ public class FrontendHbResponse extends HeartbeatResponse implements Writable {
         this.replayedJournalId = replayedJournalId;
         this.hbTime = hbTime;
         this.version = version;
-        this.processUUID = processUUID;
+        this.feStartTime = feStartTime;
         this.diskInfos = diskInfos;
         this.processUUID = processUUID;
     }
@@ -112,15 +109,6 @@ public class FrontendHbResponse extends HeartbeatResponse implements Writable {
 
     public List<FeDiskInfo> getDiskInfos() {
         return diskInfos;
-    }
-
-    @Override
-    public void readFields(DataInput in) throws IOException {
-        super.readFields(in);
-        name = Text.readString(in);
-        queryPort = in.readInt();
-        rpcPort = in.readInt();
-        replayedJournalId = in.readLong();
     }
 
     @Override

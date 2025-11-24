@@ -44,16 +44,13 @@ public class CostCalculator {
             planContext.setBroadcastJoin();
         }
 
-        CostModelV1 costModelV1 = new CostModelV1(connectContext);
+        CostModel costModelV1 = new CostModel(connectContext);
         return groupExpression.getPlan().accept(costModelV1, planContext);
     }
 
     public static Cost addChildCost(ConnectContext connectContext, Plan plan, Cost planCost, Cost childCost,
             int index) {
         SessionVariable sessionVariable = connectContext.getSessionVariable();
-        if (sessionVariable.getEnableNewCostModel()) {
-            return CostModelV2.addChildCost(plan, planCost, childCost, index);
-        }
-        return CostModelV1.addChildCost(sessionVariable, planCost, childCost);
+        return CostModel.addChildCost(sessionVariable, planCost, childCost);
     }
 }

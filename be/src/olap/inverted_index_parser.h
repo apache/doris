@@ -46,8 +46,10 @@ enum class InvertedIndexParserType {
 using CharFilterMap = std::map<std::string, std::string>;
 
 struct InvertedIndexCtx {
+    std::string custom_analyzer;
     InvertedIndexParserType parser_type;
     std::string parser_mode;
+    std::string support_phrase;
     CharFilterMap char_filter_map;
     std::string lower_case;
     std::string stop_words;
@@ -66,6 +68,7 @@ const std::string INVERTED_INDEX_PARSER_MAX_WORD = "ik_max_word";
 const std::string INVERTED_INDEX_PARSER_SMART = "ik_smart";
 
 const std::string INVERTED_INDEX_PARSER_KEY = "parser";
+const std::string INVERTED_INDEX_PARSER_KEY_ALIAS = "built_in_analyzer";
 const std::string INVERTED_INDEX_PARSER_UNKNOWN = "unknown";
 const std::string INVERTED_INDEX_PARSER_NONE = "none";
 const std::string INVERTED_INDEX_PARSER_STANDARD = "standard";
@@ -83,6 +86,7 @@ const std::string INVERTED_INDEX_PARSER_PHRASE_SUPPORT_NO = "false";
 const std::string INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE = "char_filter_type";
 const std::string INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN = "char_filter_pattern";
 const std::string INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT = "char_filter_replacement";
+const std::string INVERTED_INDEX_CHAR_FILTER_CHAR_REPLACE = "char_replace";
 
 const std::string INVERTED_INDEX_PARSER_IGNORE_ABOVE_KEY = "ignore_above";
 const std::string INVERTED_INDEX_PARSER_IGNORE_ABOVE_VALUE = "256";
@@ -92,6 +96,8 @@ const std::string INVERTED_INDEX_PARSER_LOWERCASE_KEY = "lower_case";
 const std::string INVERTED_INDEX_PARSER_STOPWORDS_KEY = "stopwords";
 
 const std::string INVERTED_INDEX_PARSER_DICT_COMPRESSION_KEY = "dict_compression";
+
+const std::string INVERTED_INDEX_CUSTOM_ANALYZER_KEY = "analyzer";
 
 std::string inverted_index_parser_type_to_string(InvertedIndexParserType parser_type);
 
@@ -130,6 +136,9 @@ std::string get_parser_stopwords_from_properties(
         const std::map<std::string, std::string>& properties);
 
 std::string get_parser_dict_compression_from_properties(
+        const std::map<std::string, std::string>& properties);
+
+std::string get_custom_analyzer_string_from_properties(
         const std::map<std::string, std::string>& properties);
 
 } // namespace doris

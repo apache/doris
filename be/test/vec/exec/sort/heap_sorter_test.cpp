@@ -34,7 +34,6 @@
 #include "testutil/mock/mock_descriptors.h"
 #include "testutil/mock/mock_runtime_state.h"
 #include "testutil/mock/mock_slot_ref.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/sort/sorter.h"
 #include "vec/common/sort/topn_sorter.h"
@@ -69,8 +68,8 @@ struct HeapSorterTest : public testing::Test {
 
     VSortExecExprs sort_exec_exprs;
 
-    std::vector<bool> is_asc_order {true};
-    std::vector<bool> nulls_first {false};
+    std::vector<bool> is_asc_order {true, true};
+    std::vector<bool> nulls_first {false, false};
 };
 
 TEST_F(HeapSorterTest, test_topn_sorter1) {
@@ -85,8 +84,6 @@ TEST_F(HeapSorterTest, test_topn_sorter1) {
 
     sort_exec_exprs._sort_tuple_slot_expr_ctxs = MockSlotRef::create_mock_contexts(data_types);
 
-    sort_exec_exprs._need_convert_to_nullable_flags = {true, false};
-
     sorter = HeapSorter::create_unique(sort_exec_exprs, 6, 0, &pool, is_asc_order, nulls_first,
                                        *row_desc);
 
@@ -99,32 +96,38 @@ TEST_F(HeapSorterTest, test_topn_sorter1) {
         EXPECT_TRUE(st.ok());
     }
 
-    EXPECT_EQ(sorter->_heap->size(), 6);
+    EXPECT_EQ(sorter->_queue_row_num, 6);
 
     {
         Block block = ColumnHelper::create_block<DataTypeInt64>({6}, {6});
         auto st = sorter->append_block(&block);
         EXPECT_TRUE(st.ok());
+
+        EXPECT_EQ(sorter->_queue_row_num, 6);
+
+        auto value = sorter->get_top_value();
+        Field real;
+        block.get_by_position(0).column->get(0, real);
+        EXPECT_EQ(value, real);
     }
 
-    EXPECT_EQ(sorter->_heap->size(), 6);
-
-    static_cast<void>(sorter->get_top_value());
-
-    EXPECT_TRUE(sorter->prepare_for_read());
+    EXPECT_TRUE(sorter->prepare_for_read(false));
 
     {
         Block block;
-        bool eos;
+        bool eos = false;
         EXPECT_TRUE(sorter->get_next(&_state, &block, &eos));
-        std::cout << block.dump_data() << std::endl;
         EXPECT_EQ(block.rows(), 6);
-
         EXPECT_TRUE(ColumnHelper::block_equal(
                 block,
-                Block {ColumnHelper::create_nullable_column_with_name<DataTypeInt64>(
-                               {1, 2, 3, 4, 5, 6}, {false, false, false, false, false, false}),
+                Block {ColumnHelper::create_column_with_name<DataTypeInt64>({1, 2, 3, 4, 5, 6}),
                        ColumnHelper::create_column_with_name<DataTypeInt64>({1, 2, 3, 4, 5, 6})}));
+
+        block.clear_column_data();
+
+        EXPECT_TRUE(sorter->get_next(&_state, &block, &eos));
+        EXPECT_EQ(block.rows(), 0);
+        EXPECT_EQ(eos, true);
     }
 }
 

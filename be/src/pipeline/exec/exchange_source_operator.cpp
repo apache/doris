@@ -36,17 +36,21 @@ namespace doris::pipeline {
 ExchangeLocalState::ExchangeLocalState(RuntimeState* state, OperatorXBase* parent)
         : Base(state, parent), num_rows_skipped(0), is_ready(false) {}
 
+ExchangeLocalState::~ExchangeLocalState() {
+    // It is necessary to call stream_recvr->close() in ~ExchangeLocalState.
+    // This is because VDataStreamRecvr is initialized during init and then added to VDataStreamMgr.
+    // When closing, VDataStreamRecvr is removed from VDataStreamMgr.
+    // However, in some error situations, the pipeline may not be opened and therefore may not be closed either.
+    // The close method of VDataStreamRecvr contains checks and will not be closed multiple times.
+    if (stream_recvr) {
+        stream_recvr->close();
+    }
+}
+
 std::string ExchangeLocalState::debug_string(int indentation_level) const {
     fmt::memory_buffer debug_string_buffer;
-    fmt::format_to(debug_string_buffer, "{}", Base::debug_string(indentation_level));
-    fmt::format_to(debug_string_buffer, ", Queues: (");
-    const auto& queues = stream_recvr->sender_queues();
-    for (size_t i = 0; i < queues.size(); i++) {
-        fmt::format_to(debug_string_buffer,
-                       "No. {} queue: (_num_remaining_senders = {}, block_queue size = {})", i,
-                       queues[i]->_num_remaining_senders, queues[i]->_block_queue.size());
-    }
-    fmt::format_to(debug_string_buffer, ")");
+    fmt::format_to(debug_string_buffer, "{}, recvr: ({})", Base::debug_string(indentation_level),
+                   stream_recvr->debug_string());
     return fmt::to_string(debug_string_buffer);
 }
 
@@ -63,7 +67,7 @@ void ExchangeLocalState::create_stream_recvr(RuntimeState* state) {
     auto& p = _parent->cast<ExchangeSourceOperatorX>();
     stream_recvr = state->exec_env()->vstream_mgr()->create_recvr(
             state, _memory_used_counter, state->fragment_instance_id(), p.node_id(),
-            p.num_senders(), profile(), p.is_merging(),
+            p.num_senders(), custom_profile(), p.is_merging(),
             std::max(20480, config::exchg_node_buffer_size_bytes /
                                     (p.is_merging() ? p.num_senders() : 1)));
 }
@@ -77,19 +81,19 @@ Status ExchangeLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     deps.resize(queues.size());
     metrics.resize(queues.size());
     static const std::string timer_name = "WaitForDependencyTime";
-    _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(_runtime_profile, timer_name, 1);
+    _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(custom_profile(), timer_name, 1);
     for (size_t i = 0; i < queues.size(); i++) {
         deps[i] = Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
                                             fmt::format("SHUFFLE_DATA_DEPENDENCY_{}", i));
         queues[i]->set_dependency(deps[i]);
-        metrics[i] = _runtime_profile->add_nonzero_counter(fmt::format("WaitForData{}", i),
+        metrics[i] = custom_profile()->add_nonzero_counter(fmt::format("WaitForData{}", i),
                                                            TUnit ::TIME_NS, timer_name, 1);
     }
 
-    get_data_from_recvr_timer = ADD_TIMER(_runtime_profile, "GetDataFromRecvrTime");
-    filter_timer = ADD_TIMER(_runtime_profile, "FilterTime");
-    create_merger_timer = ADD_TIMER(_runtime_profile, "CreateMergerTime");
-    _runtime_profile->add_info_string("InstanceID", print_id(state->fragment_instance_id()));
+    get_data_from_recvr_timer = ADD_TIMER(custom_profile(), "GetDataFromRecvrTime");
+    filter_timer = ADD_TIMER(custom_profile(), "FilterTime");
+    create_merger_timer = ADD_TIMER(custom_profile(), "CreateMergerTime");
+    custom_profile()->add_info_string("InstanceID", print_id(state->fragment_instance_id()));
 
     return Status::OK();
 }
@@ -182,7 +186,7 @@ Status ExchangeSourceOperatorX::get_block(RuntimeState* state, vectorized::Block
             }
         }
         // Merge actually also handles the limit, but handling the limit one more time will not cause correctness issues
-        if (local_state.num_rows_returned() + block->rows() < _limit) {
+        if (_limit == -1 || local_state.num_rows_returned() + block->rows() < _limit) {
             local_state.add_num_rows_returned(block->rows());
         } else {
             *eos = true;

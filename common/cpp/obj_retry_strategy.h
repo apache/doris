@@ -37,16 +37,14 @@ public:
 #ifdef USE_AZURE
 class AzureRetryRecordPolicy final : public Azure::Core::Http::Policies::HttpPolicy {
 public:
-    AzureRetryRecordPolicy(int retry_cnt);
-    ~AzureRetryRecordPolicy() override;
+    AzureRetryRecordPolicy() = default;
+    ~AzureRetryRecordPolicy() override = default;
+
     std::unique_ptr<HttpPolicy> Clone() const override;
     std::unique_ptr<Azure::Core::Http::RawResponse> Send(
             Azure::Core::Http::Request& request,
             Azure::Core::Http::Policies::NextHttpPolicy nextPolicy,
             Azure::Core::Context const& context) const override;
-
-private:
-    mutable int retry_cnt;
 };
 #endif
 } // namespace doris

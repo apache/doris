@@ -31,10 +31,10 @@ import java.util.List;
 import java.util.Set;
 
 public class ScanPlanStatistics extends PlanStatistics {
-    private PhysicalOlapScan scan;
-    private ImmutableList<Long> selectedPartitionIds;
-    private Set<Expression> partitionColumnPredicates = new HashSet<>();
-    private Set<Expression> otherPredicate = new HashSet<>();
+    private final PhysicalOlapScan scan;
+    private final ImmutableList<Long> selectedPartitionIds;
+    private final Set<Expression> partitionColumnPredicates = new HashSet<>();
+    private final Set<Expression> otherPredicate = new HashSet<>();
     private final Set<Expression> tableFilterSet;
     private final PartitionInfo partitionInfo;
     private final boolean isPartitionedTable;

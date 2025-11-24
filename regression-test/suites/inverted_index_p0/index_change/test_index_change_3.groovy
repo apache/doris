@@ -19,46 +19,8 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("test_index_change_3") {
     def timeout = 60000
-    def delta_time = 1000
-    def alter_res = "null"
-    def useTime = 0
 
-    def wait_for_latest_op_on_table_finish = { table_name, OpTimeout ->
-        for(int t = delta_time; t <= OpTimeout; t += delta_time){
-            alter_res = sql """SHOW ALTER TABLE COLUMN WHERE TableName = "${table_name}" ORDER BY CreateTime DESC LIMIT 1;"""
-            alter_res = alter_res.toString()
-            if(alter_res.contains("FINISHED")) {
-                sleep(10000) // wait change table state to normal
-                logger.info(table_name + " latest alter job finished, detail: " + alter_res)
-                break
-            }
-            useTime = t
-            sleep(delta_time)
-        }
-        assertTrue(useTime <= OpTimeout, "wait_for_latest_op_on_table_finish timeout")
-    }
-
-    def wait_for_build_index_on_partition_finish = { table_name, OpTimeout ->
-        for(int t = delta_time; t <= OpTimeout; t += delta_time){
-            alter_res = sql """SHOW BUILD INDEX WHERE TableName = "${table_name}";"""
-            def expected_finished_num = alter_res.size();
-            def finished_num = 0;
-            for (int i = 0; i < expected_finished_num; i++) {
-                logger.info(table_name + " build index job state: " + alter_res[i][7] + i)
-                if (alter_res[i][7] == "FINISHED") {
-                    ++finished_num;
-                }
-            }
-            if (finished_num == expected_finished_num) {
-                sleep(10000)
-                logger.info(table_name + " all build index jobs finished, detail: " + alter_res)
-                break
-            }
-            useTime = t
-            sleep(delta_time)
-        }
-        assertTrue(useTime <= OpTimeout, "wait_for_latest_build_index_on_partition_finish timeout")
-    }
+    sql "set enable_add_index_for_new_data = true"
     
     def tableName = "test_index_change_3"
 
@@ -111,18 +73,17 @@ suite("test_index_change_3") {
 
     // create inverted index idx_city
     sql """ CREATE INDEX idx_city ON ${tableName}(`city`) using inverted properties("support_phrase" = "true", "parser" = "english", "lower_case" = "true") """
-    wait_for_latest_op_on_table_finish(tableName, timeout)
-    // build index
+    wait_for_last_col_change_finish(tableName, timeout)
     if (!isCloudMode()) {
-        sql """ BUILD INDEX idx_city ON ${tableName} """
-        wait_for_latest_op_on_table_finish(tableName, timeout)
+        build_index_on_table("idx_city", tableName)
+        wait_for_last_build_index_finish(tableName, timeout)
     }
 
     // drop inverted index idx_user_id, idx_note
     sql """ DROP INDEX idx_city ON ${tableName} """
-    wait_for_latest_op_on_table_finish(tableName, timeout)
+    wait_for_last_build_index_finish(tableName, timeout)
     sql """ DROP INDEX idx_note ON ${tableName} """
-    wait_for_latest_op_on_table_finish(tableName, timeout)
+    wait_for_last_build_index_finish(tableName, timeout)
 
     def show_result = sql "show index from ${tableName}"
     logger.info("show index from " + tableName + " result: " + show_result)
@@ -186,18 +147,18 @@ suite("test_index_change_3") {
 
     // create inverted index idx_city
     sql """ CREATE INDEX idx_city ON ${tableName}(`city`) using inverted properties("support_phrase" = "true", "parser" = "english", "lower_case" = "true") """
-    wait_for_latest_op_on_table_finish(tableName, timeout)
-    // build index
+    wait_for_last_col_change_finish(tableName, timeout)
+
     if (!isCloudMode()) {
-        sql """ BUILD INDEX idx_city ON ${tableName} """
-        wait_for_latest_op_on_table_finish(tableName, timeout)
+        build_index_on_table("idx_city", tableName)
+        wait_for_last_build_index_finish(tableName, timeout)
     }
 
     // drop inverted index idx_user_id, idx_note
     sql """ DROP INDEX idx_city ON ${tableName} """
-    wait_for_latest_op_on_table_finish(tableName, timeout)
+    wait_for_last_build_index_finish(tableName, timeout)
     sql """ DROP INDEX idx_note ON ${tableName} """
-    wait_for_latest_op_on_table_finish(tableName, timeout)
+    wait_for_last_build_index_finish(tableName, timeout)
 
     show_result = sql "show index from ${tableName}"
     logger.info("show index from " + tableName + " result: " + show_result)

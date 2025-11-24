@@ -52,7 +52,9 @@
 #include "olap/tablet_schema.h"
 #include "runtime/thread_context.h"
 #include "util/debug_points.h"
+#include "util/pretty_printer.h"
 #include "util/slice.h"
+#include "util/stopwatch.hpp"
 #include "util/time.h"
 #include "vec/columns/column.h"
 #include "vec/common/schema_util.h"
@@ -90,7 +92,8 @@ void build_rowset_meta_with_spec_field(RowsetMeta& rowset_meta,
     rowset_meta.set_num_segments(spec_rowset_meta.num_segments());
     rowset_meta.set_segments_overlap(spec_rowset_meta.segments_overlap());
     rowset_meta.set_rowset_state(spec_rowset_meta.rowset_state());
-
+    rowset_meta.set_segments_key_bounds_truncated(
+            spec_rowset_meta.is_segments_key_bounds_truncated());
     std::vector<KeyBoundsPB> segments_key_bounds;
     spec_rowset_meta.get_segments_key_bounds(&segments_key_bounds);
     rowset_meta.set_segments_key_bounds(segments_key_bounds);
@@ -192,7 +195,7 @@ Result<std::vector<size_t>> SegmentFileCollection::segments_file_size(int seg_id
 
 InvertedIndexFileCollection::~InvertedIndexFileCollection() = default;
 
-Status InvertedIndexFileCollection::add(int seg_id, InvertedIndexFileWriterPtr&& index_writer) {
+Status InvertedIndexFileCollection::add(int seg_id, IndexFileWriterPtr&& index_writer) {
     std::lock_guard lock(_lock);
     if (_inverted_index_file_writers.find(seg_id) != _inverted_index_file_writers.end())
             [[unlikely]] {
@@ -329,18 +332,23 @@ Status BaseBetaRowsetWriter::_generate_delete_bitmap(int32_t segment_id) {
     std::vector<RowsetSharedPtr> specified_rowsets;
     {
         std::shared_lock meta_rlock(_context.tablet->get_header_lock());
-        specified_rowsets = _context.tablet->get_rowset_by_ids(&_context.mow_context->rowset_ids);
+        specified_rowsets =
+                _context.tablet->get_rowset_by_ids(_context.mow_context->rowset_ids.get());
     }
     OlapStopWatch watch;
+    auto finish_callback = [this](segment_v2::SegmentSharedPtr segment, Status st) {
+        auto* task = calc_delete_bitmap_task(segment->id());
+        task->set_status(st);
+    };
     RETURN_IF_ERROR(BaseTablet::calc_delete_bitmap(
             _context.tablet, rowset_ptr, segments, specified_rowsets,
             _context.mow_context->delete_bitmap, _context.mow_context->max_version,
-            _calc_delete_bitmap_token.get()));
+            _calc_delete_bitmap_token.get(), nullptr, nullptr, std::move(finish_callback)));
     size_t total_rows = std::accumulate(
             segments.begin(), segments.end(), 0,
             [](size_t sum, const segment_v2::SegmentSharedPtr& s) { return sum += s->num_rows(); });
     LOG(INFO) << "[Memtable Flush] construct delete bitmap tablet: " << _context.tablet->tablet_id()
-              << ", rowset_ids: " << _context.mow_context->rowset_ids.size()
+              << ", rowset_ids: " << _context.mow_context->rowset_ids->size()
               << ", cur max_version: " << _context.mow_context->max_version
               << ", transaction_id: " << _context.mow_context->txn_id << ", delete_bitmap_count: "
               << _context.mow_context->delete_bitmap->get_delete_bitmap_count()
@@ -356,7 +364,7 @@ Status BetaRowsetWriter::init(const RowsetWriterContext& rowset_writer_context) 
         _segcompaction_worker->init_mem_tracker(rowset_writer_context);
     }
     if (_context.mow_context != nullptr) {
-        _calc_delete_bitmap_token = _engine.calc_delete_bitmap_executor()->create_token();
+        _calc_delete_bitmap_token = _engine.calc_delete_bitmap_executor_for_load()->create_token();
     }
     return Status::OK();
 }
@@ -380,8 +388,7 @@ Status BetaRowsetWriter::_load_noncompacted_segment(segment_v2::SegmentSharedPtr
             .is_doris_table = true,
             .cache_base_path {},
     };
-    auto s = segment_v2::Segment::open(io::global_local_filesystem(), path,
-                                       _rowset_meta->tablet_id(), segment_id, rowset_id(),
+    auto s = segment_v2::Segment::open(fs, path, _rowset_meta->tablet_id(), segment_id, rowset_id(),
                                        _context.tablet_schema, reader_options, &segment);
     if (!s.ok()) {
         LOG(WARNING) << "failed to open segment. " << path << ":" << s;
@@ -419,8 +426,8 @@ Status BetaRowsetWriter::_find_longest_consecutive_small_segment(
                 auto dst_seg_id = _num_segcompacted.load();
                 RETURN_IF_ERROR(_rename_compacted_segment_plain(_segcompacted_point++));
                 if (_segcompaction_worker->need_convert_delete_bitmap()) {
-                    _segcompaction_worker->convert_segment_delete_bitmap(
-                            _context.mow_context->delete_bitmap, segid, dst_seg_id);
+                    RETURN_IF_ERROR(_segcompaction_worker->convert_segment_delete_bitmap(
+                            segment, _context.mow_context->delete_bitmap, segid, dst_seg_id));
                 }
                 continue;
             } else {
@@ -448,10 +455,12 @@ Status BetaRowsetWriter::_find_longest_consecutive_small_segment(
         VLOG_DEBUG << "only one candidate segment";
         auto src_seg_id = _segcompacted_point.load();
         auto dst_seg_id = _num_segcompacted.load();
+        segment_v2::SegmentSharedPtr segment;
+        RETURN_IF_ERROR(_load_noncompacted_segment(segment, src_seg_id));
         RETURN_IF_ERROR(_rename_compacted_segment_plain(_segcompacted_point++));
         if (_segcompaction_worker->need_convert_delete_bitmap()) {
-            _segcompaction_worker->convert_segment_delete_bitmap(
-                    _context.mow_context->delete_bitmap, src_seg_id, dst_seg_id);
+            RETURN_IF_ERROR(_segcompaction_worker->convert_segment_delete_bitmap(
+                    segment, _context.mow_context->delete_bitmap, src_seg_id, dst_seg_id));
         }
         segments->clear();
         return Status::OK();
@@ -543,7 +552,8 @@ Status BetaRowsetWriter::_rename_compacted_indices(int64_t begin, int64_t end, u
 
     if (_context.tablet_schema->get_inverted_index_storage_format() >=
         InvertedIndexStorageFormatPB::V2) {
-        if (_context.tablet_schema->has_inverted_index()) {
+        if (_context.tablet_schema->has_inverted_index() ||
+            _context.tablet_schema->has_ann_index()) {
             auto src_idx_path =
                     InvertedIndexDescriptor::get_index_file_path_v2(src_index_path_prefix);
             auto dst_idx_path =
@@ -559,8 +569,8 @@ Status BetaRowsetWriter::_rename_compacted_indices(int64_t begin, int64_t end, u
     }
     // rename remaining inverted index files
     for (auto column : _context.tablet_schema->columns()) {
-        if (const auto& index_info = _context.tablet_schema->inverted_index(*column);
-            index_info != nullptr) {
+        auto index_infos = _context.tablet_schema->inverted_indexs(*column);
+        for (const auto& index_info : index_infos) {
             auto index_id = index_info->index_id();
             if (_context.tablet_schema->get_inverted_index_storage_format() ==
                 InvertedIndexStorageFormatPB::V1) {
@@ -649,10 +659,12 @@ Status BetaRowsetWriter::_segcompaction_rename_last_segments() {
     VLOG_DEBUG << "segcompaction last few segments";
     for (int32_t segid = _segcompacted_point; segid < _num_segment; segid++) {
         auto dst_segid = _num_segcompacted.load();
+        segment_v2::SegmentSharedPtr segment;
+        RETURN_IF_ERROR(_load_noncompacted_segment(segment, segid));
         RETURN_IF_ERROR(_rename_compacted_segment_plain(_segcompacted_point++));
         if (_segcompaction_worker->need_convert_delete_bitmap()) {
-            _segcompaction_worker->convert_segment_delete_bitmap(
-                    _context.mow_context->delete_bitmap, segid, dst_segid);
+            RETURN_IF_ERROR(_segcompaction_worker->convert_segment_delete_bitmap(
+                    segment, _context.mow_context->delete_bitmap, segid, dst_segid));
         }
     }
     return Status::OK();
@@ -686,6 +698,7 @@ Status BaseBetaRowsetWriter::add_rowset(RowsetSharedPtr rowset) {
     _num_segment += cast_set<int32_t>(rowset->num_segments());
     // append key_bounds to current rowset
     RETURN_IF_ERROR(rowset->get_segments_key_bounds(&_segments_encoded_key_bounds));
+    _segments_key_bounds_truncated = rowset->rowset_meta()->is_segments_key_bounds_truncated();
 
     // TODO update zonemap
     if (rowset->rowset_meta()->has_delete_predicate()) {
@@ -829,13 +842,11 @@ Status BetaRowsetWriter::build(RowsetSharedPtr& rowset) {
         _rowset_meta->set_newest_write_timestamp(UnixSeconds());
     }
 
-    // update rowset meta tablet schema if tablet schema updated
-    auto rowset_schema = _context.merged_tablet_schema != nullptr ? _context.merged_tablet_schema
-                                                                  : _context.tablet_schema;
-    _rowset_meta->set_tablet_schema(rowset_schema);
+    _rowset_meta->set_tablet_schema(_context.tablet_schema);
 
     // If segment compaction occurs, the idx file info will become inaccurate.
-    if (rowset_schema->has_inverted_index() && _num_segcompacted == 0) {
+    if ((_context.tablet_schema->has_inverted_index() || _context.tablet_schema->has_ann_index()) &&
+        _num_segcompacted == 0) {
         if (auto idx_files_info = _idx_files.inverted_index_file_info(_segment_start_id);
             !idx_files_info.has_value()) [[unlikely]] {
             LOG(ERROR) << "expected inverted index files info, but none presents: "
@@ -845,9 +856,10 @@ Status BetaRowsetWriter::build(RowsetSharedPtr& rowset) {
         }
     }
 
-    RETURN_NOT_OK_STATUS_WITH_WARN(RowsetFactory::create_rowset(rowset_schema, _context.tablet_path,
-                                                                _rowset_meta, &rowset),
-                                   "rowset init failed when build new rowset");
+    RETURN_NOT_OK_STATUS_WITH_WARN(
+            RowsetFactory::create_rowset(_context.tablet_schema, _context.tablet_path, _rowset_meta,
+                                         &rowset),
+            "rowset init failed when build new rowset");
     _already_built = true;
     return Status::OK();
 }
@@ -858,27 +870,6 @@ int64_t BaseBetaRowsetWriter::_num_seg() const {
 
 int64_t BetaRowsetWriter::_num_seg() const {
     return is_segcompacted() ? _num_segcompacted : _num_segment;
-}
-
-// update tablet schema when meet variant columns, before commit_txn
-// Eg. rowset schema:       A(int),    B(float),  C(int), D(int)
-// _tabelt->tablet_schema:  A(bigint), B(double)
-//  => update_schema:       A(bigint), B(double), C(int), D(int)
-void BaseBetaRowsetWriter::update_rowset_schema(TabletSchemaSPtr flush_schema) {
-    std::lock_guard<std::mutex> lock(*(_context.schema_lock));
-    TabletSchemaSPtr update_schema;
-    if (_context.merged_tablet_schema == nullptr) {
-        _context.merged_tablet_schema = _context.tablet_schema;
-    }
-    static_cast<void>(vectorized::schema_util::get_least_common_schema(
-            {_context.merged_tablet_schema, flush_schema}, nullptr, update_schema));
-    CHECK_GE(update_schema->num_columns(), flush_schema->num_columns())
-            << "Rowset merge schema columns count is " << update_schema->num_columns()
-            << ", but flush_schema is larger " << flush_schema->num_columns()
-            << " update_schema: " << update_schema->dump_structure()
-            << " flush_schema: " << flush_schema->dump_structure();
-    _context.merged_tablet_schema.swap(update_schema);
-    VLOG_DEBUG << "dump rs schema: " << _context.tablet_schema->dump_structure();
 }
 
 Status BaseBetaRowsetWriter::_build_rowset_meta(RowsetMeta* rowset_meta, bool check_segment_num) {
@@ -897,6 +888,9 @@ Status BaseBetaRowsetWriter::_build_rowset_meta(RowsetMeta* rowset_meta, bool ch
     }
     for (auto& key_bound : _segments_encoded_key_bounds) {
         segments_encoded_key_bounds.push_back(key_bound);
+    }
+    if (_segments_key_bounds_truncated.has_value()) {
+        rowset_meta->set_segments_key_bounds_truncated(_segments_key_bounds_truncated.value());
     }
     // segment key bounds are empty in old version(before version 1.2.x). So we should not modify
     // the overlap property when key bounds are empty.
@@ -984,9 +978,9 @@ Status BaseBetaRowsetWriter::create_file_writer(uint32_t segment_id, io::FileWri
             fmt::format("failed to create file = {}, file type = {}", segment_path, file_type));
 }
 
-Status BaseBetaRowsetWriter::create_inverted_index_file_writer(
-        uint32_t segment_id, InvertedIndexFileWriterPtr* index_file_writer) {
-    RETURN_IF_ERROR(RowsetWriter::create_inverted_index_file_writer(segment_id, index_file_writer));
+Status BaseBetaRowsetWriter::create_index_file_writer(uint32_t segment_id,
+                                                      IndexFileWriterPtr* index_file_writer) {
+    RETURN_IF_ERROR(RowsetWriter::create_index_file_writer(segment_id, index_file_writer));
     // used for inverted index format v1
     (*index_file_writer)->set_file_writer_opts(_context.get_file_writer_options());
     return Status::OK();
@@ -1000,8 +994,8 @@ Status BetaRowsetWriter::create_segment_writer_for_segcompaction(
     io::FileWriterPtr file_writer;
     RETURN_IF_ERROR(_create_file_writer(path, file_writer));
 
-    InvertedIndexFileWriterPtr index_file_writer;
-    if (_context.tablet_schema->has_inverted_index()) {
+    IndexFileWriterPtr index_file_writer;
+    if (_context.tablet_schema->has_inverted_index() || _context.tablet_schema->has_ann_index()) {
         io::FileWriterPtr idx_file_writer;
         std::string prefix(InvertedIndexDescriptor::get_index_file_path_prefix(path));
         if (_context.tablet_schema->get_inverted_index_storage_format() !=
@@ -1009,7 +1003,7 @@ Status BetaRowsetWriter::create_segment_writer_for_segcompaction(
             std::string index_path = InvertedIndexDescriptor::get_index_file_path_v2(prefix);
             RETURN_IF_ERROR(_create_file_writer(index_path, idx_file_writer));
         }
-        index_file_writer = std::make_unique<InvertedIndexFileWriter>(
+        index_file_writer = std::make_unique<IndexFileWriter>(
                 _context.fs(), prefix, _context.rowset_id.to_string(), _num_segcompacted,
                 _context.tablet_schema->get_inverted_index_storage_format(),
                 std::move(idx_file_writer));
@@ -1068,8 +1062,7 @@ Status BetaRowsetWriter::_check_segment_number_limit(size_t segnum) {
     return Status::OK();
 }
 
-Status BaseBetaRowsetWriter::add_segment(uint32_t segment_id, const SegmentStatistics& segstat,
-                                         TabletSchemaSPtr flush_schema) {
+Status BaseBetaRowsetWriter::add_segment(uint32_t segment_id, const SegmentStatistics& segstat) {
     uint32_t segid_offset = segment_id - _segment_start_id;
     {
         std::lock_guard<std::mutex> lock(_segid_statistics_map_mutex);
@@ -1091,25 +1084,31 @@ Status BaseBetaRowsetWriter::add_segment(uint32_t segment_id, const SegmentStati
             _num_segment++;
         }
     }
-    // tablet schema updated
-    if (flush_schema != nullptr) {
-        update_rowset_schema(flush_schema);
-    }
+
     if (_context.mow_context != nullptr) {
         // ensure that the segment file writing is complete
         auto* file_writer = _seg_files.get(segment_id);
         if (file_writer && file_writer->state() != io::FileWriter::State::CLOSED) {
+            MonotonicStopWatch close_timer;
+            close_timer.start();
             RETURN_IF_ERROR(file_writer->close());
+            close_timer.stop();
+
+            auto close_time_ms = close_timer.elapsed_time_milliseconds();
+            if (close_time_ms > 1000) {
+                LOG(INFO) << "file_writer->close() took " << close_time_ms
+                          << "ms for segment_id=" << segment_id
+                          << ", tablet_id=" << _context.tablet_id
+                          << ", rowset_id=" << _context.rowset_id;
+            }
         }
         RETURN_IF_ERROR(_generate_delete_bitmap(segment_id));
     }
     return Status::OK();
 }
 
-Status BetaRowsetWriter::add_segment(uint32_t segment_id, const SegmentStatistics& segstat,
-                                     TabletSchemaSPtr flush_schema) {
-    RETURN_IF_ERROR(
-            BaseBetaRowsetWriter::add_segment(segment_id, segstat, std::move(flush_schema)));
+Status BetaRowsetWriter::add_segment(uint32_t segment_id, const SegmentStatistics& segstat) {
+    RETURN_IF_ERROR(BaseBetaRowsetWriter::add_segment(segment_id, segstat));
     return _segcompaction_if_necessary();
 }
 
@@ -1139,7 +1138,8 @@ Status BetaRowsetWriter::flush_segment_writer_for_segcompaction(
         _segid_statistics_map.emplace(segid, segstat);
     }
     VLOG_DEBUG << "_segid_statistics_map add new record. segid:" << segid << " row_num:" << row_num
-               << " data_size:" << segment_size << " index_size:" << index_size;
+               << " data_size:" << PrettyPrinter::print_bytes(segment_size)
+               << " index_size:" << PrettyPrinter::print_bytes(inverted_index_file_size);
 
     writer->reset();
 

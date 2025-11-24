@@ -32,6 +32,7 @@
 #include <string_view>
 
 #include "common/config.h"
+#include "common/defer.h"
 #include "common/logging.h"
 #include "common/string_util.h"
 #include "cpp/sync_point.h"
@@ -533,12 +534,12 @@ int HdfsAccessor::put_file(const std::string& relative_path, const std::string& 
         return -1;
     }
 
-    std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01, [&](int*) {
+    DORIS_CLOUD_DEFER {
         if (file) {
             SCOPED_BVAR_LATENCY(hdfs_close_latency);
             hdfsCloseFile(fs_.get(), file);
         }
-    });
+    };
 
     int64_t written_bytes = 0;
     {
@@ -607,6 +608,13 @@ int HdfsAccessor::exists(const std::string& relative_path) {
 #endif
 
     return ret != 0;
+}
+
+int HdfsAccessor::abort_multipart_upload(const std::string& path, const std::string& upload_id) {
+    LOG_WARNING("abort_multipart_upload not implemented")
+            .tag("path", path)
+            .tag("upload_id", upload_id);
+    return -1;
 }
 
 } // namespace doris::cloud

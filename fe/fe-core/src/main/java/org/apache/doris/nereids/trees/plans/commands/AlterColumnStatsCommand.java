@@ -30,10 +30,10 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.info.PartitionNamesInfo;
+import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanType;
-import org.apache.doris.nereids.trees.plans.commands.info.PartitionNamesInfo;
-import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
@@ -74,6 +74,7 @@ public class AlterColumnStatsCommand extends AlterCommand {
             .add(ColumnStatistic.MIN_VALUE)
             .add(ColumnStatistic.MAX_VALUE)
             .add(StatsType.DATA_SIZE)
+            .add(StatsType.HOT_VALUES)
             .build();
     private final TableNameInfo tableNameInfo;
     private final String indexName;

@@ -18,26 +18,30 @@
 package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.catalog.ScalarType;
-import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
+import org.apache.doris.nereids.rules.rewrite.PushProjectThroughUnion;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Cast;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
+import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.ImmutableList;
@@ -55,7 +59,8 @@ import java.util.Optional;
  * <p>
  * eg: select k1, k2 from t1 union select 1, 2 union select d1, d2 from t2;
  */
-public abstract class LogicalSetOperation extends AbstractLogicalPlan implements SetOperation, OutputSavePoint {
+public abstract class LogicalSetOperation extends AbstractLogicalPlan
+        implements SetOperation, OutputSavePoint, ProjectProcessor {
 
     // eg value: qualifier:DISTINCT
     protected final Qualifier qualifier;
@@ -115,8 +120,13 @@ public abstract class LogicalSetOperation extends AbstractLogicalPlan implements
     public List<NamedExpression> buildNewOutputs() {
         List<Slot> slots = resetNullableForLeftOutputs();
         ImmutableList.Builder<NamedExpression> newOutputs = ImmutableList.builderWithExpectedSize(slots.size());
-        for (Slot slot : slots) {
-            newOutputs.add(new SlotReference(slot.toSql(), slot.getDataType(), slot.nullable()));
+
+        for (int i = 0; i < slots.size(); i++) {
+            Slot slot = slots.get(i);
+            ExprId exprId = i < outputs.size() ? outputs.get(i).getExprId() : StatementScopeIdGenerator.newExprId();
+            newOutputs.add(
+                    new SlotReference(exprId, slot.toSql(), slot.getDataType(), slot.nullable(), ImmutableList.of())
+            );
         }
         return newOutputs.build();
     }
@@ -147,7 +157,13 @@ public abstract class LogicalSetOperation extends AbstractLogicalPlan implements
         for (int i = 0; i < childOutputSize; ++i) {
             Slot left = child(0).getOutput().get(i);
             Slot right = child(1).getOutput().get(i);
-            DataType compatibleType = getAssignmentCompatibleType(left.getDataType(), right.getDataType());
+            DataType compatibleType;
+            try {
+                compatibleType = getAssignmentCompatibleType(left.getDataType(), right.getDataType());
+            } catch (Exception e) {
+                throw new AnalysisException(
+                        "Can not find compatible type for " + left + " and " + right + ", " + e.getMessage());
+            }
             Expression newLeft = TypeCoercionUtils.castIfNotSameTypeStrict(left, compatibleType);
             Expression newRight = TypeCoercionUtils.castIfNotSameTypeStrict(right, compatibleType);
             if (newLeft instanceof Cast) {
@@ -218,6 +234,19 @@ public abstract class LogicalSetOperation extends AbstractLogicalPlan implements
 
     /** getAssignmentCompatibleType */
     public static DataType getAssignmentCompatibleType(DataType left, DataType right) {
+        if (GlobalVariable.enableNewTypeCoercionBehavior) {
+            Optional<DataType> commonType = TypeCoercionUtils.findWiderTypeForTwo(left, right, false, true);
+            if (commonType.isPresent()) {
+                return commonType.get();
+            }
+            throw new AnalysisException("Can not find assignment compatible type between "
+                    + left + " and " + right + "in set operation");
+        } else {
+            return getAssignmentCompatibleTypeLegacy(left, right);
+        }
+    }
+
+    private static DataType getAssignmentCompatibleTypeLegacy(DataType left, DataType right) {
         if (left.isNullType()) {
             return right;
         }
@@ -254,20 +283,33 @@ public abstract class LogicalSetOperation extends AbstractLogicalPlan implements
             return new StructType(commonFields.build());
         }
         boolean enableDecimal256 = SessionVariable.getEnableDecimal256();
-        Type resultType = Type.getAssignmentCompatibleType(left.toCatalogDataType(),
-                right.toCatalogDataType(), false, enableDecimal256);
-        if (resultType.isDecimalV3()) {
-            int oldPrecision = resultType.getPrecision();
-            int oldScale = resultType.getDecimalDigits();
+        Optional<DataType> opDataType = TypeCoercionUtils.findCommonPrimitiveTypeForCaseWhen(left, right);
+        if (!opDataType.isPresent()) {
+            throw new AnalysisException("Cannot find common type for set operation");
+        }
+        DataType resultType = opDataType.get();
+        if (resultType.isDecimalV3Type()) {
+            DecimalV3Type decimalV3Type = (DecimalV3Type) resultType;
+            int oldPrecision = decimalV3Type.getPrecision();
+            int oldScale = decimalV3Type.getScale();
             int integerPart = oldPrecision - oldScale;
             int maxPrecision = enableDecimal256 ? ScalarType.MAX_DECIMAL256_PRECISION
                     : ScalarType.MAX_DECIMAL128_PRECISION;
             if (oldPrecision > maxPrecision) {
                 int newScale = maxPrecision - integerPart;
-                resultType =
-                        ScalarType.createDecimalType(maxPrecision, newScale < 0 ? 0 : newScale);
+                resultType = DecimalV3Type.createDecimalV3Type(maxPrecision, newScale < 0 ? 0 : newScale);
             }
         }
-        return DataType.fromCatalogType(resultType);
+        return resultType;
+    }
+
+    @Override
+    public boolean canProcessProject(List<NamedExpression> parentProjects) {
+        return PushProjectThroughUnion.canPushProject(parentProjects, this);
+    }
+
+    @Override
+    public Optional<Plan> processProject(List<NamedExpression> parentProjects) {
+        return Optional.of(PushProjectThroughUnion.doPushProject(parentProjects, this));
     }
 }

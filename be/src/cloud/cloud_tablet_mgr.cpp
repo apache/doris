@@ -21,6 +21,7 @@
 
 #include <chrono>
 
+#include "cloud/cloud_cluster_info.h"
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet.h"
@@ -28,9 +29,14 @@
 #include "common/status.h"
 #include "olap/lru_cache.h"
 #include "runtime/memory/cache_policy.h"
+#include "util/stack_util.h"
 
 namespace doris {
 uint64_t g_tablet_report_inactive_duration_ms = 0;
+bvar::Adder<uint64_t> g_base_compaction_not_frozen_tablet_num(
+        "base_compaction_not_frozen_tablet_num");
+bvar::Adder<uint64_t> g_cumu_compaction_not_frozen_tablet_num(
+        "cumu_compaction_not_frozen_tablet_num");
 namespace {
 
 // port from
@@ -87,7 +93,8 @@ private:
     std::unordered_map<Key, std::shared_ptr<Call>> _call_map;
 };
 
-SingleFlight<int64_t /* tablet_id */, std::shared_ptr<CloudTablet>> s_singleflight_load_tablet;
+// tablet_id -> load tablet function
+SingleFlight<int64_t, Result<std::shared_ptr<CloudTablet>>> s_singleflight_load_tablet;
 
 } // namespace
 
@@ -154,7 +161,7 @@ void set_tablet_access_time_ms(CloudTablet* tablet) {
 Result<std::shared_ptr<CloudTablet>> CloudTabletMgr::get_tablet(int64_t tablet_id, bool warmup_data,
                                                                 bool sync_delete_bitmap,
                                                                 SyncRowsetStats* sync_stats,
-                                                                bool force_use_cache) {
+                                                                bool force_use_only_cached) {
     // LRU value type. `Value`'s lifetime MUST NOT be longer than `CloudTabletMgr`
     class Value : public LRUCacheValueBase {
     public:
@@ -168,21 +175,29 @@ Result<std::shared_ptr<CloudTablet>> CloudTabletMgr::get_tablet(int64_t tablet_i
         TabletMap& tablet_map;
     };
 
+    VLOG_DEBUG << "get_tablet tablet_id=" << tablet_id << " stack: " << get_stack_trace();
+
     auto tablet_id_str = std::to_string(tablet_id);
     CacheKey key(tablet_id_str);
     auto* handle = _cache->lookup(key);
 
-    if (handle == nullptr && force_use_cache) {
-        return ResultError(
-                Status::InternalError("failed to get cloud tablet from cache {}", tablet_id));
-    }
-
     if (handle == nullptr) {
+        if (force_use_only_cached) {
+            LOG(INFO) << "tablet=" << tablet_id
+                      << "does not exists in local tablet cache, because param "
+                         "force_use_only_cached=true, "
+                         "treat it as an error";
+            return ResultError(Status::InternalError(
+                    "tablet={} does not exists in local tablet cache, because param "
+                    "force_use_only_cached=true, "
+                    "treat it as an error",
+                    tablet_id));
+        }
         if (sync_stats) {
             ++sync_stats->tablet_meta_cache_miss;
         }
         auto load_tablet = [this, &key, warmup_data, sync_delete_bitmap,
-                            sync_stats](int64_t tablet_id) -> std::shared_ptr<CloudTablet> {
+                            sync_stats](int64_t tablet_id) -> Result<std::shared_ptr<CloudTablet>> {
             TabletMetaSharedPtr tablet_meta;
             auto start = std::chrono::steady_clock::now();
             auto st = _engine.meta_mgr().get_tablet_meta(tablet_id, &tablet_meta);
@@ -193,7 +208,7 @@ Result<std::shared_ptr<CloudTablet>> CloudTabletMgr::get_tablet(int64_t tablet_i
             }
             if (!st.ok()) {
                 LOG(WARNING) << "failed to tablet " << tablet_id << ": " << st;
-                return nullptr;
+                return ResultError(st);
             }
 
             auto tablet = std::make_shared<CloudTablet>(_engine, std::move(tablet_meta));
@@ -205,7 +220,7 @@ Result<std::shared_ptr<CloudTablet>> CloudTabletMgr::get_tablet(int64_t tablet_i
             st = _engine.meta_mgr().sync_tablet_rowsets(tablet.get(), options, sync_stats);
             if (!st.ok()) {
                 LOG(WARNING) << "failed to sync tablet " << tablet_id << ": " << st;
-                return nullptr;
+                return ResultError(st);
             }
 
             auto* handle = _cache->insert(key, value.release(), 1, sizeof(CloudTablet),
@@ -219,10 +234,12 @@ Result<std::shared_ptr<CloudTablet>> CloudTabletMgr::get_tablet(int64_t tablet_i
             return ret;
         };
 
-        auto tablet = s_singleflight_load_tablet.load(tablet_id, std::move(load_tablet));
-        if (tablet == nullptr) {
-            return ResultError(Status::InternalError("failed to get tablet {}", tablet_id));
+        auto load_result = s_singleflight_load_tablet.load(tablet_id, std::move(load_tablet));
+        if (!load_result.has_value()) {
+            return ResultError(Status::InternalError("failed to get tablet {}, msg={}", tablet_id,
+                                                     load_result.error()));
         }
+        auto tablet = load_result.value();
         set_tablet_access_time_ms(tablet.get());
         return tablet;
     }
@@ -264,6 +281,52 @@ void CloudTabletMgr::vacuum_stale_rowsets(const CountDownLatch& stop_latch) {
     LOG_INFO("finish vacuum stale rowsets")
             .tag("num_vacuumed", num_vacuumed)
             .tag("num_tablets", tablets_to_vacuum.size());
+
+    {
+        LOG_INFO("begin to remove unused rowsets");
+        std::vector<std::shared_ptr<CloudTablet>> tablets_to_remove_unused_rowsets;
+        tablets_to_remove_unused_rowsets.reserve(_tablet_map->size());
+        _tablet_map->traverse([&tablets_to_remove_unused_rowsets](auto&& t) {
+            if (t->need_remove_unused_rowsets()) {
+                tablets_to_remove_unused_rowsets.push_back(t);
+            }
+        });
+        for (auto& t : tablets_to_remove_unused_rowsets) {
+            t->remove_unused_rowsets();
+        }
+        LOG_INFO("finish remove unused rowsets")
+                .tag("num_tablets", tablets_to_remove_unused_rowsets.size());
+        if (config::enable_check_agg_and_remove_pre_rowsets_delete_bitmap) {
+            int64_t max_useless_rowset_count = 0;
+            int64_t tablet_id_with_max_useless_rowset_count = 0;
+            int64_t max_useless_rowset_version_count = 0;
+            int64_t tablet_id_with_max_useless_rowset_version_count = 0;
+            OlapStopWatch watch;
+            _tablet_map->traverse([&](auto&& tablet) {
+                int64_t useless_rowset_count = 0;
+                int64_t useless_rowset_version_count = 0;
+                tablet->check_agg_delete_bitmap_for_stale_rowsets(useless_rowset_count,
+                                                                  useless_rowset_version_count);
+                if (useless_rowset_count > max_useless_rowset_count) {
+                    max_useless_rowset_count = useless_rowset_count;
+                    tablet_id_with_max_useless_rowset_count = tablet->tablet_id();
+                }
+                if (useless_rowset_version_count > max_useless_rowset_version_count) {
+                    max_useless_rowset_version_count = useless_rowset_version_count;
+                    tablet_id_with_max_useless_rowset_version_count = tablet->tablet_id();
+                }
+            });
+            g_max_rowsets_with_useless_delete_bitmap.set_value(max_useless_rowset_count);
+            g_max_rowsets_with_useless_delete_bitmap_version.set_value(
+                    max_useless_rowset_version_count);
+            LOG(INFO) << "finish check_agg_delete_bitmap_for_stale_rowsets, cost(us)="
+                      << watch.get_elapse_time_us()
+                      << ". max useless rowset count=" << max_useless_rowset_count
+                      << ", tablet_id=" << tablet_id_with_max_useless_rowset_count
+                      << ", max useless rowset version count=" << max_useless_rowset_version_count
+                      << ", tablet_id=" << tablet_id_with_max_useless_rowset_version_count;
+        }
+    }
 }
 
 std::vector<std::weak_ptr<CloudTablet>> CloudTabletMgr::get_weak_tablets() {
@@ -341,17 +404,32 @@ Status CloudTabletMgr::get_topn_tablets_to_compact(
     using namespace std::chrono;
     auto now = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
     auto skip = [now, compaction_type](CloudTablet* t) {
-        if (compaction_type == CompactionType::BASE_COMPACTION) {
-            return now - t->last_base_compaction_success_time_ms < config::base_compaction_freeze_interval_s * 1000 ||
-                now - t->last_base_compaction_failure_time() < config::min_compaction_failure_interval_ms;
+        auto* cloud_cluster_info = static_cast<CloudClusterInfo*>(ExecEnv::GetInstance()->cluster_info());
+        if (config::enable_standby_passive_compaction && cloud_cluster_info->is_in_standby()) {
+            if (t->fetch_add_approximate_num_rowsets(0) < config::max_tablet_version_num * config::standby_compaction_version_ratio) {
+                return true;
+            }
         }
+
+        int32_t max_version_config = t->max_version_config();
+        if (compaction_type == CompactionType::BASE_COMPACTION) {
+            bool is_recent_failure = now - t->last_base_compaction_failure_time() < config::min_compaction_failure_interval_ms;
+            bool is_frozen = (now - t->last_load_time_ms > config::compaction_load_max_freeze_interval_s * 1000
+                   && now - t->last_base_compaction_success_time_ms < config::base_compaction_freeze_interval_s * 1000
+                   && t->fetch_add_approximate_num_rowsets(0) < max_version_config / 2);
+            g_base_compaction_not_frozen_tablet_num << !is_frozen;
+            return is_recent_failure || is_frozen;
+        }
+        
         // If tablet has too many rowsets but not be compacted for a long time, compaction should be performed
         // regardless of whether there is a load job recently.
-        return now - t->last_cumu_compaction_failure_time() < config::min_compaction_failure_interval_ms ||
-               now - t->last_cumu_no_suitable_version_ms < config::min_compaction_failure_interval_ms ||
-               (now - t->last_load_time_ms > config::cu_compaction_freeze_interval_s * 1000
+        bool is_recent_failure = now - t->last_cumu_compaction_failure_time() < config::min_compaction_failure_interval_ms;
+        bool is_recent_no_suitable_version = now - t->last_cumu_no_suitable_version_ms < config::min_compaction_failure_interval_ms;
+        bool is_frozen = (now - t->last_load_time_ms > config::compaction_load_max_freeze_interval_s * 1000
                && now - t->last_cumu_compaction_success_time_ms < config::cumu_compaction_interval_s * 1000
-               && t->fetch_add_approximate_num_rowsets(0) < config::max_tablet_version_num / 2);
+               && t->fetch_add_approximate_num_rowsets(0) < max_version_config / 2);
+        g_cumu_compaction_not_frozen_tablet_num << !is_frozen;
+        return is_recent_failure || is_recent_no_suitable_version || is_frozen;
     };
     // We don't schedule tablets that are disabled for compaction
     auto disable = [](CloudTablet* t) { return t->tablet_meta()->tablet_schema()->disable_auto_compaction(); };
@@ -413,7 +491,7 @@ void CloudTabletMgr::build_all_report_tablets_info(std::map<TTabletId, TTablet>*
         tablet->build_tablet_report_info(&tablet_info);
         using namespace std::chrono;
         int64_t now = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
-        if (now - g_tablet_report_inactive_duration_ms * 1000 < tablet->last_access_time_ms) {
+        if (now - g_tablet_report_inactive_duration_ms < tablet->last_access_time_ms) {
             // the tablet is still being accessed and used in recently, so not report it
             return;
         }
@@ -481,20 +559,28 @@ void CloudTabletMgr::get_topn_tablet_delete_bitmap_score(
     }
     std::stringstream ss;
     for (auto& i : buf) {
-        ss << i.first->tablet_id() << ":" << i.second << ",";
+        ss << i.first->tablet_id() << ": " << i.second << ", ";
     }
     LOG(INFO) << "get_topn_tablet_delete_bitmap_score, n=" << n
-              << ",tablet size=" << weak_tablets.size()
-              << ",total_delete_map_count=" << total_delete_map_count
-              << ",cost(us)=" << watch.get_elapse_time_us()
-              << ",max_delete_bitmap_score=" << *max_delete_bitmap_score
-              << ",max_delete_bitmap_score_tablet_id=" << max_delete_bitmap_score_tablet_id
-              << ",max_base_rowset_delete_bitmap_score=" << *max_base_rowset_delete_bitmap_score
-              << ",max_base_rowset_delete_bitmap_score_tablet_id="
-              << max_base_rowset_delete_bitmap_score_tablet_id << ",tablets=[" << ss.str() << "]";
+              << ", tablet size=" << weak_tablets.size()
+              << ", total_delete_map_count=" << total_delete_map_count
+              << ", cost(us)=" << watch.get_elapse_time_us()
+              << ", max_delete_bitmap_score=" << *max_delete_bitmap_score
+              << ", max_delete_bitmap_score_tablet_id=" << max_delete_bitmap_score_tablet_id
+              << ", max_base_rowset_delete_bitmap_score=" << *max_base_rowset_delete_bitmap_score
+              << ", max_base_rowset_delete_bitmap_score_tablet_id="
+              << max_base_rowset_delete_bitmap_score_tablet_id << ", tablets=[" << ss.str() << "]";
+}
+
+std::vector<std::shared_ptr<CloudTablet>> CloudTabletMgr::get_all_tablet() {
+    std::vector<std::shared_ptr<CloudTablet>> tablets;
+    tablets.reserve(_tablet_map->size());
+    _tablet_map->traverse([&tablets](auto& t) { tablets.push_back(t); });
+    return tablets;
 }
 
 void CloudTabletMgr::put_tablet_for_UT(std::shared_ptr<CloudTablet> tablet) {
     _tablet_map->put(tablet);
 }
+
 } // namespace doris

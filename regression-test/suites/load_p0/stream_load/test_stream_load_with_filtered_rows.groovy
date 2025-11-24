@@ -21,7 +21,7 @@ import org.apache.http.util.EntityUtils
 
 import java.text.SimpleDateFormat
 
-suite("test_stream_load_with_filtered_rows", "p2") {
+suite("test_stream_load_with_filtered_rows", "p0") {
     sql "show tables"
 
     // test length of input is too long than schema.
@@ -66,6 +66,7 @@ suite("test_stream_load_with_filtered_rows", "p2") {
                 assertEquals("fail", json.Status.toLowerCase())
                 assertTrue(result.contains("ErrorURL"))
                 assertTrue(json.Message.contains("Encountered unqualified data, stop processing. Please"))
+                assertTrue(result.contains("FirstErrorMsg"))
             }
         }
 
@@ -82,7 +83,7 @@ suite("test_stream_load_with_filtered_rows", "p2") {
                 def json = parseJson(result)
                 assertEquals("fail", json.Status.toLowerCase())
                 assertTrue(result.contains("ErrorURL"))
-                assertTrue(json.Message.contains("Encountered unqualified data, stop processing. Please"))
+                assertTrue(json.Message.contains("Encountered unqualified data, stop processing. Please"), json.Message.toString())
             }
         }
 

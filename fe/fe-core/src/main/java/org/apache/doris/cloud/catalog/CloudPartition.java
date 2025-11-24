@@ -37,8 +37,6 @@ import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.DataInput;
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.locks.ReentrantLock;
@@ -426,14 +424,6 @@ public class CloudPartition extends Partition {
             }
         }
         return null;
-    }
-
-    @Deprecated
-    @Override
-    public void readFields(DataInput in) throws IOException {
-        super.readFields(in);
-        this.dbId = in.readLong();
-        this.tableId = in.readLong();
     }
 
     public boolean equals(Object obj) {

@@ -240,7 +240,8 @@ public:
         //4) create the partition column and return
         if (is_nullable) {
             auto res_column = ColumnNullable::create(std::move(col_res), null_map_column_ptr);
-            return {res_column, make_nullable(get_result_type()), column_with_type_and_name.name};
+            return {std::move(res_column), make_nullable(get_result_type()),
+                    column_with_type_and_name.name};
         } else {
             return {std::move(col_res), remove_nullable(get_result_type()),
                     column_with_type_and_name.name};
@@ -296,7 +297,8 @@ public:
         //4) create the partition column and return
         if (is_nullable) {
             auto res_column = ColumnNullable::create(std::move(col_res), null_map_column_ptr);
-            return {res_column, make_nullable(get_result_type()), column_with_type_and_name.name};
+            return {std::move(res_column), make_nullable(get_result_type()),
+                    column_with_type_and_name.name};
         } else {
             return {std::move(col_res), remove_nullable(get_result_type()),
                     column_with_type_and_name.name};
@@ -308,9 +310,10 @@ private:
     int _width;
 };
 
-template <typename T>
+template <PrimitiveType PT>
 class DecimalTruncatePartitionColumnTransform : public PartitionColumnTransform {
 public:
+    using T = typename PrimitiveTypeTraits<PT>::ColumnItemType;
     DecimalTruncatePartitionColumnTransform(const DataTypePtr source_type, int width)
             : _source_type(source_type), _width(width) {}
 
@@ -334,17 +337,16 @@ public:
             is_nullable = false;
         }
 
-        const auto* const decimal_col = check_and_get_column<ColumnDecimal<T>>(column_ptr.get());
+        const auto* const decimal_col = check_and_get_column<ColumnDecimal<PT>>(column_ptr.get());
         const auto& vec_src = decimal_col->get_data();
 
-        auto col_res = ColumnDecimal<T>::create(vec_src.size(), decimal_col->get_scale());
+        auto col_res = ColumnDecimal<PT>::create(vec_src.size(), decimal_col->get_scale());
         auto& vec_res = col_res->get_data();
 
-        const typename T::NativeType* __restrict p_in =
-                reinterpret_cast<const T::NativeType*>(vec_src.data());
-        const typename T::NativeType* end_in =
+        const auto* __restrict p_in = reinterpret_cast<const T::NativeType*>(vec_src.data());
+        const auto* end_in =
                 reinterpret_cast<const T::NativeType*>(vec_src.data()) + vec_src.size();
-        typename T::NativeType* __restrict p_out = reinterpret_cast<T::NativeType*>(vec_res.data());
+        auto* __restrict p_out = reinterpret_cast<T::NativeType*>(vec_res.data());
 
         while (p_in < end_in) {
             typename T::NativeType remainder = ((*p_in % _width) + _width) % _width;
@@ -355,7 +357,8 @@ public:
 
         if (is_nullable) {
             auto res_column = ColumnNullable::create(std::move(col_res), null_map_column_ptr);
-            return {res_column, make_nullable(get_result_type()), column_with_type_and_name.name};
+            return {std::move(res_column), make_nullable(get_result_type()),
+                    column_with_type_and_name.name};
         } else {
             return {std::move(col_res), remove_nullable(get_result_type()),
                     column_with_type_and_name.name};
@@ -489,9 +492,10 @@ private:
     DataTypePtr _target_type;
 };
 
-template <typename T>
+template <PrimitiveType PT>
 class DecimalBucketPartitionColumnTransform : public PartitionColumnTransform {
 public:
+    using T = typename PrimitiveTypeTraits<PT>::ColumnItemType;
     DecimalBucketPartitionColumnTransform(const DataTypePtr source_type, int bucket_num)
             : _bucket_num(bucket_num),
               _target_type(DataTypeFactory::instance().create_data_type(TYPE_INT, false)) {}
@@ -516,19 +520,17 @@ public:
             null_map_column_ptr = nullable_column->get_null_map_column_ptr();
             column_ptr = nullable_column->get_nested_column_ptr();
         }
-        const auto& in_data = assert_cast<const ColumnDecimal<T>*>(column_ptr.get())->get_data();
+        const auto& in_data = assert_cast<const ColumnDecimal<PT>*>(column_ptr.get())->get_data();
 
         //3) do partition routing
         auto col_res = ColumnInt32::create();
         ColumnInt32::Container& out_data = col_res->get_data();
         out_data.resize(in_data.size());
-        auto& vec_res = col_res->get_data();
 
-        const typename T::NativeType* __restrict p_in =
-                reinterpret_cast<const T::NativeType*>(in_data.data());
-        const typename T::NativeType* end_in =
+        const auto* __restrict p_in = reinterpret_cast<const T::NativeType*>(in_data.data());
+        const auto* end_in =
                 reinterpret_cast<const T::NativeType*>(in_data.data()) + in_data.size();
-        typename T::NativeType* __restrict p_out = reinterpret_cast<T::NativeType*>(vec_res.data());
+        Int32* __restrict p_out = out_data.data();
 
         while (p_in < end_in) {
             std::string buffer = BitUtil::IntToByteBuffer(*p_in);

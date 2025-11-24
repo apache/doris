@@ -50,13 +50,18 @@ public class ExplodeOuter extends TableGeneratingFunction implements CustomSigna
         super("explode_outer", args);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ExplodeOuter(GeneratorFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public ExplodeOuter withChildren(List<Expression> children) {
         Preconditions.checkArgument(!children.isEmpty());
-        return new ExplodeOuter(children.toArray(new Expression[0]));
+        return new ExplodeOuter(getFunctionParams(children));
     }
 
     @Override
@@ -82,7 +87,12 @@ public class ExplodeOuter extends TableGeneratingFunction implements CustomSigna
                 SearchSignature.throwCanNotFoundFunctionException(this.getName(), getArguments());
             }
         }
-        return FunctionSignature.of(new StructType(structFields.build()), arguments);
+
+        StructType structType = new StructType(structFields.build());
+        if (arguments.size() == 1) {
+            return FunctionSignature.of(structType.getFields().get(0).getDataType(), arguments);
+        }
+        return FunctionSignature.of(structType, arguments);
     }
 
     @Override

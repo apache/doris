@@ -38,7 +38,7 @@ suite("test_materialized_view_hll_with_light_sc", "rollup") {
             DISTRIBUTED BY HASH(record_id) properties("replication_num" = "1", "light_schema_change" = "true");
         """
 
-    sql "CREATE materialized VIEW amt_count1 AS SELECT store_id, hll_union(hll_hash(sale_amt)) FROM ${tbName1} GROUP BY store_id;"
+    sql "CREATE materialized VIEW amt_count1 AS SELECT store_id as a1, hll_union(hll_hash(sale_amt)) FROM ${tbName1} GROUP BY store_id;"
     def max_try_secs = 60
     Awaitility.await().atMost(max_try_secs, SECONDS).pollInterval(2, SECONDS).until{
         String res = getJobState(tbName1)

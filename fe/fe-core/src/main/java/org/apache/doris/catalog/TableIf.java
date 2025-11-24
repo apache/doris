@@ -18,7 +18,6 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.alter.AlterCancelException;
-import org.apache.doris.analysis.TableValuedFunctionRef;
 import org.apache.doris.catalog.constraint.Constraint;
 import org.apache.doris.catalog.constraint.ForeignKeyConstraint;
 import org.apache.doris.catalog.constraint.PrimaryKeyConstraint;
@@ -28,6 +27,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.systable.SysTable;
+import org.apache.doris.info.TableValuedFunctionRefInfo;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
 import org.apache.doris.persist.AlterConstraintLog;
@@ -143,6 +143,17 @@ public interface TableIf {
 
     Column getColumn(String name);
 
+    default int getBaseColumnIdxByName(String colName) {
+        int i = 0;
+        for (Column col : getBaseSchema()) {
+            if (col.getName().equalsIgnoreCase(colName)) {
+                return i;
+            }
+            ++i;
+        }
+        return -1;
+    }
+
     String getMysqlType();
 
     String getEngine();
@@ -225,10 +236,14 @@ public interface TableIf {
 
     default Set<PrimaryKeyConstraint> getPrimaryKeyConstraints() {
         try {
-            return getConstraintsMapUnsafe().values().stream()
-                    .filter(PrimaryKeyConstraint.class::isInstance)
-                    .map(PrimaryKeyConstraint.class::cast)
-                    .collect(ImmutableSet.toImmutableSet());
+            ImmutableSet.Builder<PrimaryKeyConstraint> constraintBuilder = ImmutableSet.builder();
+            for (Constraint constraint : getConstraintsMapUnsafe().values()) {
+                if (!(constraint instanceof PrimaryKeyConstraint)) {
+                    continue;
+                }
+                constraintBuilder.add((PrimaryKeyConstraint) constraint);
+            }
+            return constraintBuilder.build();
         } catch (Exception ignored) {
             return ImmutableSet.of();
         }
@@ -236,10 +251,14 @@ public interface TableIf {
 
     default Set<UniqueConstraint> getUniqueConstraints() {
         try {
-            return getConstraintsMapUnsafe().values().stream()
-                    .filter(UniqueConstraint.class::isInstance)
-                    .map(UniqueConstraint.class::cast)
-                    .collect(ImmutableSet.toImmutableSet());
+            ImmutableSet.Builder<UniqueConstraint> constraintBuilder = ImmutableSet.builder();
+            for (Constraint constraint : getConstraintsMapUnsafe().values()) {
+                if (!(constraint instanceof UniqueConstraint)) {
+                    continue;
+                }
+                constraintBuilder.add((UniqueConstraint) constraint);
+            }
+            return constraintBuilder.build();
         } catch (Exception ignored) {
             return ImmutableSet.of();
         }
@@ -379,7 +398,7 @@ public interface TableIf {
         @Deprecated ICEBERG, @Deprecated HUDI, JDBC,
         TABLE_VALUED_FUNCTION, HMS_EXTERNAL_TABLE, ES_EXTERNAL_TABLE, MATERIALIZED_VIEW, JDBC_EXTERNAL_TABLE,
         ICEBERG_EXTERNAL_TABLE, TEST_EXTERNAL_TABLE, PAIMON_EXTERNAL_TABLE, MAX_COMPUTE_EXTERNAL_TABLE,
-        HUDI_EXTERNAL_TABLE, TRINO_CONNECTOR_EXTERNAL_TABLE, LAKESOUl_EXTERNAL_TABLE, DICTIONARY;
+        HUDI_EXTERNAL_TABLE, TRINO_CONNECTOR_EXTERNAL_TABLE, LAKESOUl_EXTERNAL_TABLE, DICTIONARY, DORIS_EXTERNAL_TABLE;
 
         public String toEngineName() {
             switch (this) {
@@ -456,6 +475,7 @@ public interface TableIf {
                 case PAIMON_EXTERNAL_TABLE:
                 case MATERIALIZED_VIEW:
                 case TRINO_CONNECTOR_EXTERNAL_TABLE:
+                case DORIS_EXTERNAL_TABLE:
                     return "BASE TABLE";
                 default:
                     return null;
@@ -482,9 +502,15 @@ public interface TableIf {
     }
 
     default String getNameWithFullQualifiers() {
-        return String.format("%s.%s.%s", getDatabase().getCatalog().getName(),
-                ClusterNamespace.getNameFromFullName(getDatabase().getFullName()),
-                getName());
+        DatabaseIf db = getDatabase();
+        // Some kind of table like FunctionGenTable does not belong to any database
+        if (db == null) {
+            return "null.null." + getName();
+        } else {
+            return db.getCatalog().getName()
+                    + "." + ClusterNamespace.getNameFromFullName(db.getFullName())
+                    + "." + getName();
+        }
     }
 
     default boolean isManagedTable() {
@@ -500,7 +526,7 @@ public interface TableIf {
         return false;
     }
 
-    default boolean isPartitionColumn(String columnName) {
+    default boolean isPartitionColumn(Column column) {
         return false;
     }
 
@@ -551,7 +577,7 @@ public interface TableIf {
      * @param tableNameWithSysTableName: eg: table$partitions
      * @return
      */
-    default Optional<TableValuedFunctionRef> getSysTableFunctionRef(
+    default Optional<TableValuedFunctionRefInfo> getSysTableFunctionRef(
             String ctlName, String dbName, String tableNameWithSysTableName) {
         for (SysTable sysTable : getSupportedSysTables()) {
             if (sysTable.containsMetaTable(tableNameWithSysTableName)) {
@@ -562,3 +588,4 @@ public interface TableIf {
         return Optional.empty();
     }
 }
+

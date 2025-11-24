@@ -49,7 +49,8 @@ public:
 
     ~VBitmapPredicate() override = default;
 
-    Status execute(VExprContext* context, Block* block, int* result_column_id) override;
+    Status execute_column(VExprContext* context, const Block* block,
+                          ColumnPtr& result_column) const override;
 
     Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override;
 
@@ -70,8 +71,11 @@ public:
         return fmt::format(" VBitmapPredicate:{}", VExpr::debug_string());
     }
 
+    // not need support bitmap filter get_digest
+    uint64_t get_digest(uint64_t seed) const override { return 0; }
+
 private:
     std::shared_ptr<BitmapFilterFuncBase> _filter;
-    std::string _expr_name;
+    inline static const std::string EXPR_NAME = "bitmap_predicate";
 };
 } // namespace doris::vectorized

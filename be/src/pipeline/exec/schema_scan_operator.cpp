@@ -41,7 +41,7 @@ Status SchemaScanLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     _scanner_param.common_param = p._common_scanner_param;
     // init schema scanner profile
     _scanner_param.profile = std::make_unique<RuntimeProfile>("SchemaScanner");
-    profile()->add_child(_scanner_param.profile.get(), true, nullptr);
+    custom_profile()->add_child(_scanner_param.profile.get(), true, nullptr);
 
     // get src tuple desc
     const auto* schema_table =
@@ -132,6 +132,11 @@ Status SchemaScanOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
         fe_addr.port = tnode.schema_scan_node.port;
         _common_scanner_param->fe_addr_list.insert(fe_addr);
     }
+
+    if (tnode.schema_scan_node.__isset.frontend_conjuncts) {
+        _common_scanner_param->frontend_conjuncts =
+                state->obj_pool()->add(new std::string(tnode.schema_scan_node.frontend_conjuncts));
+    }
     return Status::OK();
 }
 
@@ -174,6 +179,7 @@ Status SchemaScanOperatorX::prepare(RuntimeState* state) {
         int j = 0;
         for (; j < columns_desc.size(); ++j) {
             if (boost::iequals(_dest_tuple_desc->slots()[i]->col_name(), columns_desc[j].name)) {
+                _slot_offsets[i] = j;
                 break;
             }
         }
@@ -245,11 +251,10 @@ Status SchemaScanOperatorX::get_block(RuntimeState* state, vectorized::Block* bl
         if (src_block.rows()) {
             // block->check_number_of_rows();
             for (int i = 0; i < _slot_num; ++i) {
-                auto* dest_slot_desc = _dest_tuple_desc->slots()[i];
                 vectorized::MutableColumnPtr column_ptr =
                         std::move(*block->get_by_position(i).column).mutate();
                 column_ptr->insert_range_from(
-                        *src_block.get_by_name(dest_slot_desc->col_name()).column, 0,
+                        *src_block.safe_get_by_position(_slot_offsets[i]).column, 0,
                         src_block.rows());
             }
             RETURN_IF_ERROR(local_state.filter_block(local_state._conjuncts, block,

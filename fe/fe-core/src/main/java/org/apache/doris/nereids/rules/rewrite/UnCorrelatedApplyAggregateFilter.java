@@ -118,8 +118,7 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
         return new LogicalApply<>(apply.getCorrelationSlot(), apply.getSubqueryType(), apply.isNot(),
                 apply.getCompareExpr(), apply.getTypeCoercionExpr(),
                 ExpressionUtils.optionalAnd(correlatedPredicate), apply.getMarkJoinSlotReference(),
-                apply.isNeedAddSubOutputToProjects(), apply.isInProject(),
-                apply.isMarkJoinSlotNotNull(), apply.left(),
+                apply.isNeedAddSubOutputToProjects(), apply.isMarkJoinSlotNotNull(), apply.left(),
                 isRightChildAgg ? newAgg : apply.right().withChildren(newAgg));
     }
 }

@@ -38,6 +38,11 @@ public class Rank extends WindowFunction implements AlwaysNotNullable, LeafExpre
         super("rank");
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Rank(WindowFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public List<FunctionSignature> getSignatures() {
         return ImmutableList.of(FunctionSignature.ret(BigIntType.INSTANCE).args());
@@ -50,8 +55,8 @@ public class Rank extends WindowFunction implements AlwaysNotNullable, LeafExpre
 
     @Override
     public Rank withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() == 0);
-        return new Rank();
+        Preconditions.checkArgument(children.isEmpty());
+        return new Rank(getFunctionParams(children));
     }
 
     @Override

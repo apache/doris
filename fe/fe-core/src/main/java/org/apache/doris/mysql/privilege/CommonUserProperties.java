@@ -17,11 +17,8 @@
 
 package org.apache.doris.mysql.privilege;
 
-import org.apache.doris.common.io.Text;
-import org.apache.doris.common.io.Writable;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.persist.gson.GsonPostProcessable;
-import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
 
@@ -31,15 +28,13 @@ import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Set;
 
 /**
  * Used in
  */
-public class CommonUserProperties implements Writable, GsonPostProcessable {
+public class CommonUserProperties implements GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(CommonUserProperties.class);
 
     // The max connections allowed for a user on one FE
@@ -72,6 +67,12 @@ public class CommonUserProperties implements Writable, GsonPostProcessable {
 
     @SerializedName(value = "wg", alternate = {"workloadGroup"})
     private String workloadGroup = WorkloadGroupMgr.DEFAULT_GROUP_NAME;
+
+    @SerializedName(value = "epcr", alternate = {"enablePreferCachedRowset"})
+    private boolean enablePreferCachedRowset = false;
+
+    @SerializedName(value = "qft", alternate = {"queryFreshnessTolerance"})
+    private long queryFreshnessToleranceMs = -1;
 
     private String[] sqlBlockRulesSplit = {};
 
@@ -146,9 +147,6 @@ public class CommonUserProperties implements Writable, GsonPostProcessable {
     }
 
     public void setQueryTimeout(int timeout) {
-        if (timeout <= 0) {
-            LOG.warn("Setting 0 query timeout", new RuntimeException(""));
-        }
         this.queryTimeout = timeout;
     }
 
@@ -176,17 +174,20 @@ public class CommonUserProperties implements Writable, GsonPostProcessable {
         this.workloadGroup = workloadGroup;
     }
 
-    @Deprecated
-    public static CommonUserProperties read(DataInput in) throws IOException {
-        String json = Text.readString(in);
-        CommonUserProperties commonUserProperties = GsonUtils.GSON.fromJson(json, CommonUserProperties.class);
-        return commonUserProperties;
+    public long getQueryFreshnessToleranceMs() {
+        return queryFreshnessToleranceMs;
     }
 
-    @Override
-    public void write(DataOutput out) throws IOException {
-        String json = GsonUtils.GSON.toJson(this);
-        Text.writeString(out, json);
+    public void setQueryFreshnessToleranceMs(long queryFreshnessToleranceMs) {
+        this.queryFreshnessToleranceMs = queryFreshnessToleranceMs;
+    }
+
+    public boolean getEnablePreferCachedRowset() {
+        return enablePreferCachedRowset;
+    }
+
+    public void setEnablePreferCachedRowset(boolean enablePreferCachedRowset) {
+        this.enablePreferCachedRowset = enablePreferCachedRowset;
     }
 
     @Override

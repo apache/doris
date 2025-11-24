@@ -17,14 +17,9 @@
 
 #pragma once
 
-#include <rapidjson/stringbuffer.h>
-#include <stddef.h>
-
-#include <iterator>
 #include <map>
 #include <memory>
 #include <string>
-#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -35,7 +30,6 @@
 #include "vec/columns/column.h"
 #include "vec/columns/column_decimal.h"
 #include "vec/columns/column_string.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/types.h"
@@ -45,19 +39,13 @@
 
 namespace doris {
 #include "common/compile_check_begin.h"
-namespace vectorized {
-class Arena;
-class BufferReadable;
-class BufferWritable;
-template <typename>
-class ColumnVector;
-} // namespace vectorized
 } // namespace doris
 
 namespace doris::vectorized {
 
 template <PrimitiveType T>
 struct AggregateFunctionHistogramData {
+    static constexpr auto Ptype = T;
     using ColVecType = typename PrimitiveTypeTraits<T>::ColumnType;
     const static size_t DEFAULT_BUCKET_NUM = 128;
     const static size_t BUCKET_NUM_INIT_VALUE = 0;
@@ -106,30 +94,30 @@ struct AggregateFunctionHistogramData {
     }
 
     void write(BufferWritable& buf) const {
-        write_binary(max_num_buckets, buf);
-        size_t element_number = (size_t)ordered_map.size();
-        write_binary(element_number, buf);
+        buf.write_binary(max_num_buckets);
+        auto element_number = (size_t)ordered_map.size();
+        buf.write_binary(element_number);
 
         auto pair_vector = map_to_vector();
 
         for (auto i = 0; i < element_number; i++) {
             auto element = pair_vector[i];
-            write_binary(element.second, buf);
-            write_binary(element.first, buf);
+            buf.write_binary(element.second);
+            buf.write_binary(element.first);
         }
     }
 
     void read(BufferReadable& buf) {
-        read_binary(max_num_buckets, buf);
+        buf.read_binary(max_num_buckets);
 
         size_t element_number = 0;
-        read_binary(element_number, buf);
+        buf.read_binary(element_number);
 
         ordered_map.clear();
         std::pair<typename PrimitiveTypeTraits<T>::ColumnItemType, size_t> element;
         for (auto i = 0; i < element_number; i++) {
-            read_binary(element.first, buf);
-            read_binary(element.second, buf);
+            buf.read_binary(element.first);
+            buf.read_binary(element.second);
             ordered_map.insert(element);
         }
     }
@@ -158,7 +146,7 @@ struct AggregateFunctionHistogramData {
                 buckets, ordered_map,
                 max_num_buckets == BUCKET_NUM_INIT_VALUE ? DEFAULT_BUCKET_NUM : max_num_buckets);
         histogram_to_json(buffer, buckets, data_type);
-        return std::string(buffer.GetString());
+        return {buffer.GetString()};
     }
 
     std::vector<std::pair<size_t, typename PrimitiveTypeTraits<T>::ColumnItemType>> map_to_vector()
@@ -175,17 +163,16 @@ private:
     std::map<typename PrimitiveTypeTraits<T>::ColumnItemType, size_t> ordered_map;
 };
 
-template <typename Data, PrimitiveType T, bool has_input_param>
+template <typename Data, bool has_input_param>
 class AggregateFunctionHistogram final
-        : public IAggregateFunctionDataHelper<
-                  Data, AggregateFunctionHistogram<Data, T, has_input_param>> {
+        : public IAggregateFunctionDataHelper<Data,
+                                              AggregateFunctionHistogram<Data, has_input_param>>,
+          VarargsExpression,
+          NotNullableAggregateFunction {
 public:
-    using ColVecType = typename PrimitiveTypeTraits<T>::ColumnType;
-
     AggregateFunctionHistogram() = default;
     AggregateFunctionHistogram(const DataTypes& argument_types_)
-            : IAggregateFunctionDataHelper<Data,
-                                           AggregateFunctionHistogram<Data, T, has_input_param>>(
+            : IAggregateFunctionDataHelper<Data, AggregateFunctionHistogram<Data, has_input_param>>(
                       argument_types_),
               _argument_type(argument_types_[0]) {}
 
@@ -194,27 +181,29 @@ public:
     DataTypePtr get_return_type() const override { return std::make_shared<DataTypeString>(); }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
-             Arena*) const override {
+             Arena&) const override {
         if constexpr (has_input_param) {
             Int32 input_max_num_buckets =
                     assert_cast<const ColumnInt32*>(columns[1])->get_element(row_num);
-            if (input_max_num_buckets <= 0) {
-                throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
-                                       "Invalid max_num_buckets {}, row_num {}",
-                                       input_max_num_buckets, row_num);
+            if (input_max_num_buckets <= 0 || input_max_num_buckets > 1000000) {
+                throw doris::Exception(
+                        ErrorCode::INVALID_ARGUMENT,
+                        "Invalid max_num_buckets {}, row_num {}, should be in (0, 1000000]",
+                        input_max_num_buckets, row_num);
             }
             this->data(place).set_parameters(input_max_num_buckets);
         } else {
             this->data(place).set_parameters(Data::DEFAULT_BUCKET_NUM);
         }
 
-        if constexpr (is_string_type(T)) {
+        if constexpr (is_string_type(Data::Ptype)) {
             this->data(place).add(
                     assert_cast<const ColumnString&, TypeCheckOnRelease::DISABLE>(*columns[0])
                             .get_data_at(row_num));
         } else {
             this->data(place).add(
-                    assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(*columns[0])
+                    assert_cast<const typename Data::ColVecType&, TypeCheckOnRelease::DISABLE>(
+                            *columns[0])
                             .get_data()[row_num]);
         }
     }
@@ -222,7 +211,7 @@ public:
     void reset(AggregateDataPtr place) const override { this->data(place).reset(); }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
-               Arena*) const override {
+               Arena&) const override {
         this->data(place).merge(this->data(rhs));
     }
 
@@ -231,7 +220,7 @@ public:
     }
 
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
-                     Arena*) const override {
+                     Arena&) const override {
         this->data(place).read(buf);
     }
 

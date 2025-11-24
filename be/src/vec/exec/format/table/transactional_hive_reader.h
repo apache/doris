@@ -47,7 +47,7 @@ class GenericReader;
 class ShardedKVCache;
 class VExprContext;
 
-class TransactionalHiveReader : public TableFormatReader {
+class TransactionalHiveReader : public TableFormatReader, public TableSchemaChangeHelper {
     ENABLE_FACTORY_CREATOR(TransactionalHiveReader);
 
 public:
@@ -82,7 +82,7 @@ public:
     TransactionalHiveReader(std::unique_ptr<GenericReader> file_format_reader,
                             RuntimeProfile* profile, RuntimeState* state,
                             const TFileScanRangeParams& params, const TFileRangeDesc& range,
-                            io::IOContext* io_ctx);
+                            io::IOContext* io_ctx, FileMetaCache* meta_cache);
     ~TransactionalHiveReader() override = default;
 
     Status init_row_filters() final;
@@ -90,10 +90,8 @@ public:
     Status get_next_block_inner(Block* block, size_t* read_rows, bool* eof) final;
 
     Status init_reader(
-            const std::vector<std::string>& column_names,
-            const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
-            const VExprContextSPtrs& conjuncts, const TupleDescriptor* tuple_descriptor,
-            const RowDescriptor* row_descriptor,
+            const std::vector<std::string>& column_names, const VExprContextSPtrs& conjuncts,
+            const TupleDescriptor* tuple_descriptor, const RowDescriptor* row_descriptor,
             const VExprContextSPtrs* not_single_slot_filter_conjuncts,
             const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts);
 

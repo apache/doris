@@ -18,23 +18,20 @@
 package org.apache.doris.datasource.iceberg;
 
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.info.SimpleTableInfo;
+import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.common.util.SerializationUtils;
-import org.apache.doris.datasource.ExternalCatalog;
+import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.nereids.trees.plans.commands.insert.IcebergInsertCommandContext;
 import org.apache.doris.thrift.TFileContent;
 import org.apache.doris.thrift.TIcebergCommitData;
 
-import com.google.common.collect.Maps;
-import mockit.Mock;
-import mockit.MockUp;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
-import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.expressions.Expression;
@@ -49,6 +46,9 @@ import org.apache.iceberg.util.DateTimeUtil;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.ArgumentMatchers;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.io.IOException;
 import java.io.Serializable;
@@ -68,9 +68,8 @@ public class IcebergTransactionTest {
     private static String tbWithPartition = "tbWithPartition";
     private static String tbWithoutPartition = "tbWithoutPartition";
 
-    private IcebergExternalCatalog externalCatalog;
+    private IcebergExternalCatalog spyExternalCatalog;
     private IcebergMetadataOps ops;
-
 
     @Before
     public void init() throws IOException {
@@ -86,18 +85,14 @@ public class IcebergTransactionTest {
         props.put(CatalogProperties.WAREHOUSE_LOCATION, warehouse);
         hadoopCatalog.setConf(new Configuration());
         hadoopCatalog.initialize("df", props);
-        this.externalCatalog = new IcebergHMSExternalCatalog(1L, "iceberg", "", Maps.newHashMap(), "");
-        externalCatalog.initLocalObjectsImpl();
-        new MockUp<IcebergHMSExternalCatalog>() {
-            @Mock
-            public Catalog getCatalog() {
-                return hadoopCatalog;
-            }
-        };
-        ops = new IcebergMetadataOps(externalCatalog, hadoopCatalog);
+        this.spyExternalCatalog = Mockito.mock(IcebergExternalCatalog.class);
+        Mockito.when(spyExternalCatalog.getCatalog()).thenReturn(hadoopCatalog);
+        Mockito.when(spyExternalCatalog.getExecutionAuthenticator()).thenReturn(new ExecutionAuthenticator() {
+        });
+        ops = new IcebergMetadataOps(spyExternalCatalog, hadoopCatalog);
     }
 
-    private void createTable() throws IOException {
+    private void createTable() {
         HadoopCatalog icebergCatalog = (HadoopCatalog) ops.getCatalog();
         icebergCatalog.createNamespace(Namespace.of(dbName));
         Schema schema = new Schema(
@@ -187,19 +182,20 @@ public class IcebergTransactionTest {
 
         Table table = ops.getCatalog().loadTable(TableIdentifier.of(dbName, tbWithPartition));
 
-        new MockUp<IcebergUtils>() {
-            @Mock
-            public Table getRemoteTable(ExternalCatalog catalog, SimpleTableInfo tableInfo) {
-                return table;
-            }
-        };
+        IcebergExternalTable icebergExternalTable = Mockito.mock(IcebergExternalTable.class);
+        Mockito.when(icebergExternalTable.getCatalog()).thenReturn(spyExternalCatalog);
+        Mockito.when(icebergExternalTable.getDbName()).thenReturn(dbName);
+        Mockito.when(icebergExternalTable.getName()).thenReturn(tbWithPartition);
 
-        IcebergTransaction txn = getTxn();
-        txn.updateIcebergCommitData(ctdList);
-        SimpleTableInfo tableInfo = new SimpleTableInfo(dbName, tbWithPartition);
-        txn.beginInsert(tableInfo);
-        txn.finishInsert(tableInfo, Optional.empty());
-        txn.commit();
+        try (MockedStatic<IcebergUtils> mockedStatic = Mockito.mockStatic(IcebergUtils.class)) {
+            mockedStatic.when(() -> IcebergUtils.getIcebergTable(ArgumentMatchers.any(ExternalTable.class)))
+                    .thenReturn(table);
+            IcebergTransaction txn = getTxn();
+            txn.updateIcebergCommitData(ctdList);
+            txn.beginInsert(icebergExternalTable, Optional.empty());
+            txn.finishInsert(NameMapping.createForTest(dbName, tbWithPartition));
+            txn.commit();
+        }
 
         checkSnapshotAddProperties(table.currentSnapshot().summary(), "6", "2", "6");
         checkPushDownByPartitionForTs(table, "ts1");
@@ -298,19 +294,21 @@ public class IcebergTransactionTest {
         ctdList.add(ctd2);
 
         Table table = ops.getCatalog().loadTable(TableIdentifier.of(dbName, tbWithoutPartition));
-        new MockUp<IcebergUtils>() {
-            @Mock
-            public Table getRemoteTable(ExternalCatalog catalog, SimpleTableInfo tableInfo) {
-                return table;
-            }
-        };
+        IcebergExternalTable icebergExternalTable = Mockito.mock(IcebergExternalTable.class);
+        Mockito.when(icebergExternalTable.getCatalog()).thenReturn(spyExternalCatalog);
+        Mockito.when(icebergExternalTable.getDbName()).thenReturn(dbName);
+        Mockito.when(icebergExternalTable.getName()).thenReturn(tbWithoutPartition);
 
-        IcebergTransaction txn = getTxn();
-        txn.updateIcebergCommitData(ctdList);
-        SimpleTableInfo tableInfo = new SimpleTableInfo(dbName, tbWithPartition);
-        txn.beginInsert(tableInfo);
-        txn.finishInsert(tableInfo, Optional.empty());
-        txn.commit();
+        try (MockedStatic<IcebergUtils> mockedStatic = Mockito.mockStatic(IcebergUtils.class)) {
+            mockedStatic.when(() -> IcebergUtils.getIcebergTable(ArgumentMatchers.any(ExternalTable.class)))
+                    .thenReturn(table);
+
+            IcebergTransaction txn = getTxn();
+            txn.updateIcebergCommitData(ctdList);
+            txn.beginInsert(icebergExternalTable, Optional.empty());
+            txn.finishInsert(NameMapping.createForTest(dbName, tbWithPartition));
+            txn.commit();
+        }
 
         checkSnapshotAddProperties(table.currentSnapshot().summary(), "6", "2", "6");
     }
@@ -408,21 +406,22 @@ public class IcebergTransactionTest {
         ctdList.add(ctd3);
 
         Table table = ops.getCatalog().loadTable(TableIdentifier.of(dbName, tbWithoutPartition));
-        new MockUp<IcebergUtils>() {
-            @Mock
-            public Table getRemoteTable(ExternalCatalog catalog, SimpleTableInfo tableInfo) {
-                return table;
-            }
-        };
+        IcebergExternalTable icebergExternalTable = Mockito.mock(IcebergExternalTable.class);
+        Mockito.when(icebergExternalTable.getCatalog()).thenReturn(spyExternalCatalog);
+        Mockito.when(icebergExternalTable.getDbName()).thenReturn(dbName);
+        Mockito.when(icebergExternalTable.getName()).thenReturn(tbWithoutPartition);
+        try (MockedStatic<IcebergUtils> mockedStatic = Mockito.mockStatic(IcebergUtils.class)) {
+            mockedStatic.when(() -> IcebergUtils.getIcebergTable(ArgumentMatchers.any(ExternalTable.class)))
+                    .thenReturn(table);
 
-        IcebergTransaction txn = getTxn();
-        txn.updateIcebergCommitData(ctdList);
-        SimpleTableInfo tableInfo = new SimpleTableInfo(dbName, tbWithPartition);
-        txn.beginInsert(tableInfo);
-        IcebergInsertCommandContext ctx = new IcebergInsertCommandContext();
-        ctx.setOverwrite(true);
-        txn.finishInsert(tableInfo, Optional.of(ctx));
-        txn.commit();
+            IcebergTransaction txn = getTxn();
+            txn.updateIcebergCommitData(ctdList);
+            IcebergInsertCommandContext ctx = new IcebergInsertCommandContext();
+            txn.beginInsert(icebergExternalTable, Optional.of(ctx));
+            ctx.setOverwrite(true);
+            txn.finishInsert(NameMapping.createForTest(dbName, tbWithPartition));
+            txn.commit();
+        }
 
         checkSnapshotTotalProperties(table.currentSnapshot().summary(), "24", "3", "24");
     }
@@ -433,20 +432,21 @@ public class IcebergTransactionTest {
         testUnPartitionedTableOverwriteWithData();
 
         Table table = ops.getCatalog().loadTable(TableIdentifier.of(dbName, tbWithoutPartition));
-        new MockUp<IcebergUtils>() {
-            @Mock
-            public Table getRemoteTable(ExternalCatalog catalog, SimpleTableInfo tableInfo) {
-                return table;
-            }
-        };
+        IcebergExternalTable icebergExternalTable = Mockito.mock(IcebergExternalTable.class);
+        Mockito.when(icebergExternalTable.getCatalog()).thenReturn(spyExternalCatalog);
+        Mockito.when(icebergExternalTable.getDbName()).thenReturn(dbName);
+        Mockito.when(icebergExternalTable.getName()).thenReturn(tbWithoutPartition);
+        try (MockedStatic<IcebergUtils> mockedStatic = Mockito.mockStatic(IcebergUtils.class)) {
+            mockedStatic.when(() -> IcebergUtils.getIcebergTable(ArgumentMatchers.any(ExternalTable.class)))
+                    .thenReturn(table);
 
-        IcebergTransaction txn = getTxn();
-        SimpleTableInfo tableInfo = new SimpleTableInfo(dbName, tbWithPartition);
-        txn.beginInsert(tableInfo);
-        IcebergInsertCommandContext ctx = new IcebergInsertCommandContext();
-        ctx.setOverwrite(true);
-        txn.finishInsert(tableInfo, Optional.of(ctx));
-        txn.commit();
+            IcebergTransaction txn = getTxn();
+            IcebergInsertCommandContext ctx = new IcebergInsertCommandContext();
+            txn.beginInsert(icebergExternalTable, Optional.of(ctx));
+            ctx.setOverwrite(true);
+            txn.finishInsert(NameMapping.createForTest(dbName, tbWithPartition));
+            txn.commit();
+        }
 
         checkSnapshotTotalProperties(table.currentSnapshot().summary(), "0", "0", "0");
     }

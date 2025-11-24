@@ -21,8 +21,8 @@ import java.sql.PreparedStatement
 import java.sql.ResultSet
 
 suite("prepare_stmt_with_sql_cache") {
-
-    multi_sql """
+    withGlobalLock("cache_last_version_interval_second") {
+        multi_sql """
         drop table if exists test_prepare_stmt_with_sql_cache;
         create table test_prepare_stmt_with_sql_cache(id int)
         distributed by hash(id)
@@ -31,42 +31,43 @@ suite("prepare_stmt_with_sql_cache") {
         insert into test_prepare_stmt_with_sql_cache select * from numbers('number'='100');
         """
 
-    sql "ADMIN SET ALL FRONTENDS CONFIG ('cache_last_version_interval_second' = '10')"
+        sql "ADMIN SET ALL FRONTENDS CONFIG ('cache_last_version_interval_second' = '5')"
 
-    def db = (sql "select database()")[0][0].toString()
+        def db = (sql "select database()")[0][0].toString()
 
-    def serverPrepareUrl = getServerPrepareJdbcUrl(context.config.jdbcUrl, db)
+        def serverPrepareUrl = getServerPrepareJdbcUrl(context.config.jdbcUrl, db)
 
-    connect(context.config.jdbcUser, context.config.jdbcPassword, serverPrepareUrl) {
-        sql "set enable_sql_cache=true"
-        for (def i in 0..<10) {
-            try (PreparedStatement pstmt = prepareStatement("select * from test_prepare_stmt_with_sql_cache where id=?")) {
-                pstmt.setInt(1, i)
-                try (ResultSet rs = pstmt.executeQuery()) {
-                    def result = JdbcUtils.toList(rs).v1
-                    logger.info("result: {}", result)
+        connect(context.config.jdbcUser, context.config.jdbcPassword, serverPrepareUrl) {
+            sql "set enable_sql_cache=true"
+            for (def i in 0..<10) {
+                try (PreparedStatement pstmt = prepareStatement("select * from test_prepare_stmt_with_sql_cache where id=?")) {
+                    pstmt.setInt(1, i)
+                    try (ResultSet rs = pstmt.executeQuery()) {
+                        def result = JdbcUtils.toList(rs).v1
+                        logger.info("result: {}", result)
+                    }
                 }
             }
         }
-    }
 
-    sleep(10 * 1000)
+        sleep(10 * 1000)
 
-    connect(context.config.jdbcUser, context.config.jdbcPassword, context.config.jdbcUrl) {
-        sql "use ${db}"
-        sql "set enable_sql_cache=true"
-        test {
-            sql "select * from test_prepare_stmt_with_sql_cache where id=10"
-            result([[10]])
+        connect(context.config.jdbcUser, context.config.jdbcPassword, context.config.jdbcUrl) {
+            sql "use ${db}"
+            sql "set enable_sql_cache=true"
+            test {
+                sql "select * from test_prepare_stmt_with_sql_cache where id=10"
+                result([[10]])
+            }
         }
-    }
 
-    connect(context.config.jdbcUser, context.config.jdbcPassword, serverPrepareUrl) {
-        sql "use ${db}"
-        sql "set enable_sql_cache=true"
-        test {
-            sql "select * from test_prepare_stmt_with_sql_cache where id=10"
-            result(([[10]]))
+        connect(context.config.jdbcUser, context.config.jdbcPassword, serverPrepareUrl) {
+            sql "use ${db}"
+            sql "set enable_sql_cache=true"
+            test {
+                sql "select * from test_prepare_stmt_with_sql_cache where id=10"
+                result(([[10]]))
+            }
         }
     }
 }

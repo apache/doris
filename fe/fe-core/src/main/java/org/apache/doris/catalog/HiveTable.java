@@ -18,11 +18,10 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.io.Text;
 import org.apache.doris.common.security.authentication.AuthType;
 import org.apache.doris.common.security.authentication.AuthenticationConfig;
-import org.apache.doris.datasource.property.constants.HMSProperties;
-import org.apache.doris.datasource.property.constants.S3Properties;
+import org.apache.doris.datasource.property.metastore.HMSBaseProperties;
+import org.apache.doris.datasource.property.storage.S3Properties;
 import org.apache.doris.thrift.THiveTable;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
@@ -32,8 +31,6 @@ import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 import org.apache.hadoop.fs.CommonConfigurationKeysPublic;
 
-import java.io.DataInput;
-import java.io.IOException;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -48,6 +45,8 @@ public class HiveTable extends Table {
             + " when create table";
     private static final String PROPERTY_ERROR_MSG = "Hive table properties('%s'='%s')"
             + " is illegal or not supported. Please check it";
+
+    public static final String AWS_PROPERTIES_PREFIX = "AWS";
 
     @SerializedName("hdb")
     private String hiveDb;
@@ -105,18 +104,19 @@ public class HiveTable extends Table {
 
         // check hive properties
         // hive.metastore.uris
-        String hiveMetaStoreUris = copiedProps.get(HMSProperties.HIVE_METASTORE_URIS);
+        String hiveMetaStoreUris = copiedProps.get(HMSBaseProperties.HIVE_METASTORE_URIS);
         if (Strings.isNullOrEmpty(hiveMetaStoreUris)) {
             throw new DdlException(String.format(
-                    PROPERTY_MISSING_MSG, HMSProperties.HIVE_METASTORE_URIS, HMSProperties.HIVE_METASTORE_URIS));
+                    PROPERTY_MISSING_MSG, HMSBaseProperties.HIVE_METASTORE_URIS,
+                    HMSBaseProperties.HIVE_METASTORE_URIS));
         }
-        copiedProps.remove(HMSProperties.HIVE_METASTORE_URIS);
-        hiveProperties.put(HMSProperties.HIVE_METASTORE_URIS, hiveMetaStoreUris);
+        copiedProps.remove(HMSBaseProperties.HIVE_METASTORE_URIS);
+        hiveProperties.put(HMSBaseProperties.HIVE_METASTORE_URIS, hiveMetaStoreUris);
         // support multi hive version
-        String hiveVersion = copiedProps.get(HMSProperties.HIVE_VERSION);
+        String hiveVersion = copiedProps.get(HMSBaseProperties.HIVE_VERSION);
         if (!Strings.isNullOrEmpty(hiveVersion)) {
-            copiedProps.remove(HMSProperties.HIVE_VERSION);
-            hiveProperties.put(HMSProperties.HIVE_VERSION, hiveVersion);
+            copiedProps.remove(HMSBaseProperties.HIVE_VERSION);
+            hiveProperties.put(HMSBaseProperties.HIVE_VERSION, hiveVersion);
         }
 
         // check auth type
@@ -163,7 +163,7 @@ public class HiveTable extends Table {
                 String key = entry.getKey();
                 if (key.startsWith(HdfsResource.HADOOP_FS_PREFIX)
                         || key.startsWith(S3Properties.S3_PREFIX)
-                        || key.startsWith(S3Properties.Env.PROPERTIES_PREFIX)) {
+                        || key.startsWith(AWS_PROPERTIES_PREFIX)) {
                     hiveProperties.put(key, entry.getValue());
                     iter.remove();
                 }
@@ -172,20 +172,6 @@ public class HiveTable extends Table {
 
         if (!copiedProps.isEmpty()) {
             throw new DdlException("Unknown table properties: " + copiedProps);
-        }
-    }
-
-    @Deprecated
-    public void readFields(DataInput in) throws IOException {
-        super.readFields(in);
-
-        hiveDb = Text.readString(in);
-        hiveTable = Text.readString(in);
-        int size = in.readInt();
-        for (int i = 0; i < size; i++) {
-            String key = Text.readString(in);
-            String val = Text.readString(in);
-            hiveProperties.put(key, val);
         }
     }
 

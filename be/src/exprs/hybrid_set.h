@@ -29,7 +29,7 @@
 #include "vec/common/hash_table/phmap_fwd_decl.h"
 
 namespace doris {
-
+#include "common/compile_check_begin.h"
 constexpr int FIXED_CONTAINER_MAX_SIZE = 8;
 
 /**
@@ -75,40 +75,56 @@ public:
             return false;
         }
         if constexpr (N == 1) {
-            return (value == _data[0]);
+            return (Compare::equal(value, _data[0]));
         }
         if constexpr (N == 2) {
-            return (uint8_t)(value == _data[0]) | (uint8_t)(value == _data[1]);
+            return (uint8_t)(Compare::equal(value, _data[0])) |
+                   (uint8_t)(Compare::equal(value, _data[1]));
         }
         if constexpr (N == 3) {
-            return (uint8_t)(value == _data[0]) | (uint8_t)(value == _data[1]) |
-                   (uint8_t)(value == _data[2]);
+            return (uint8_t)(Compare::equal(value, _data[0])) |
+                   (uint8_t)(Compare::equal(value, _data[1])) |
+                   (uint8_t)(Compare::equal(value, _data[2]));
         }
         if constexpr (N == 4) {
-            return (uint8_t)(value == _data[0]) | (uint8_t)(value == _data[1]) |
-                   (uint8_t)(value == _data[2]) | (uint8_t)(value == _data[3]);
+            return (uint8_t)(Compare::equal(value, _data[0])) |
+                   (uint8_t)(Compare::equal(value, _data[1])) |
+                   (uint8_t)(Compare::equal(value, _data[2])) |
+                   (uint8_t)(Compare::equal(value, _data[3]));
         }
         if constexpr (N == 5) {
-            return (uint8_t)(value == _data[0]) | (uint8_t)(value == _data[1]) |
-                   (uint8_t)(value == _data[2]) | (uint8_t)(value == _data[3]) |
-                   (uint8_t)(value == _data[4]);
+            return (uint8_t)(Compare::equal(value, _data[0])) |
+                   (uint8_t)(Compare::equal(value, _data[1])) |
+                   (uint8_t)(Compare::equal(value, _data[2])) |
+                   (uint8_t)(Compare::equal(value, _data[3])) |
+                   (uint8_t)(Compare::equal(value, _data[4]));
         }
         if constexpr (N == 6) {
-            return (uint8_t)(value == _data[0]) | (uint8_t)(value == _data[1]) |
-                   (uint8_t)(value == _data[2]) | (uint8_t)(value == _data[3]) |
-                   (uint8_t)(value == _data[4]) | (uint8_t)(value == _data[5]);
+            return (uint8_t)(Compare::equal(value, _data[0])) |
+                   (uint8_t)(Compare::equal(value, _data[1])) |
+                   (uint8_t)(Compare::equal(value, _data[2])) |
+                   (uint8_t)(Compare::equal(value, _data[3])) |
+                   (uint8_t)(Compare::equal(value, _data[4])) |
+                   (uint8_t)(Compare::equal(value, _data[5]));
         }
         if constexpr (N == 7) {
-            return (uint8_t)(value == _data[0]) | (uint8_t)(value == _data[1]) |
-                   (uint8_t)(value == _data[2]) | (uint8_t)(value == _data[3]) |
-                   (uint8_t)(value == _data[4]) | (uint8_t)(value == _data[5]) |
-                   (uint8_t)(value == _data[6]);
+            return (uint8_t)(Compare::equal(value, _data[0])) |
+                   (uint8_t)(Compare::equal(value, _data[1])) |
+                   (uint8_t)(Compare::equal(value, _data[2])) |
+                   (uint8_t)(Compare::equal(value, _data[3])) |
+                   (uint8_t)(Compare::equal(value, _data[4])) |
+                   (uint8_t)(Compare::equal(value, _data[5])) |
+                   (uint8_t)(Compare::equal(value, _data[6]));
         }
         if constexpr (N == FIXED_CONTAINER_MAX_SIZE) {
-            return (uint8_t)(value == _data[0]) | (uint8_t)(value == _data[1]) |
-                   (uint8_t)(value == _data[2]) | (uint8_t)(value == _data[3]) |
-                   (uint8_t)(value == _data[4]) | (uint8_t)(value == _data[5]) |
-                   (uint8_t)(value == _data[6]) | (uint8_t)(value == _data[7]);
+            return (uint8_t)(Compare::equal(value, _data[0])) |
+                   (uint8_t)(Compare::equal(value, _data[1])) |
+                   (uint8_t)(Compare::equal(value, _data[2])) |
+                   (uint8_t)(Compare::equal(value, _data[3])) |
+                   (uint8_t)(Compare::equal(value, _data[4])) |
+                   (uint8_t)(Compare::equal(value, _data[5])) |
+                   (uint8_t)(Compare::equal(value, _data[6])) |
+                   (uint8_t)(Compare::equal(value, _data[7]));
         }
         CHECK(false) << "unreachable path";
         return false;
@@ -205,6 +221,9 @@ public:
     // use in vectorize execute engine
     virtual void insert(void* data, size_t) = 0;
 
+    virtual void insert_range_from(const vectorized::ColumnPtr& column, size_t start,
+                                   size_t end) = 0;
+
     virtual void insert_fixed_len(const vectorized::ColumnPtr& column, size_t start) = 0;
 
     virtual void insert(HybridSetBase* set) {
@@ -275,8 +294,16 @@ public:
     void insert(void* data, size_t /*unused*/) override { insert(data); }
 
     void insert_fixed_len(const vectorized::ColumnPtr& column, size_t start) override {
-        const auto size = column->size();
+        insert_range_from(column, start, column->size());
+    }
 
+    void insert_range_from(const vectorized::ColumnPtr& column, size_t start, size_t end) override {
+        if (end > column->size()) {
+            throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
+                                   "Parameters start = {}, end = {}, are out of bound in "
+                                   "HybridSet::insert_range_from method (data.size() = {}).",
+                                   start, end, column->size());
+        }
         if (column->is_nullable()) {
             const auto* nullable = assert_cast<const vectorized::ColumnNullable*>(column.get());
             const auto& col = nullable->get_nested_column();
@@ -285,7 +312,7 @@ public:
                             .get_data();
 
             const ElementType* data = (ElementType*)col.get_raw_data().data;
-            for (size_t i = start; i < size; i++) {
+            for (size_t i = start; i < end; i++) {
                 if (!nullmap[i]) {
                     _set.insert(*(data + i));
                 } else {
@@ -294,13 +321,13 @@ public:
             }
         } else {
             const ElementType* data = (ElementType*)column->get_raw_data().data;
-            for (size_t i = start; i < size; i++) {
+            for (size_t i = start; i < end; i++) {
                 _set.insert(*(data + i));
             }
         }
     }
 
-    int size() override { return _set.size(); }
+    int size() override { return (int)_set.size(); }
 
     bool find(const void* data) const override {
         return _set.find(*reinterpret_cast<const ElementType*>(data));
@@ -432,6 +459,16 @@ public:
     }
 
     void insert_fixed_len(const vectorized::ColumnPtr& column, size_t start) override {
+        insert_range_from(column, start, column->size());
+    }
+
+    void insert_range_from(const vectorized::ColumnPtr& column, size_t start, size_t end) override {
+        if (end > column->size()) {
+            throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
+                                   "Parameters start = {}, end = {}, are out of bound in "
+                                   "StringSet::insert_range_from method (data.size() = {}).",
+                                   start, end, column->size());
+        }
         if (column->is_nullable()) {
             const auto* nullable = assert_cast<const vectorized::ColumnNullable*>(column.get());
             const auto& nullmap =
@@ -440,28 +477,28 @@ public:
             if (nullable->get_nested_column().is_column_string64()) {
                 _insert_fixed_len_string(assert_cast<const vectorized::ColumnString64&>(
                                                  nullable->get_nested_column()),
-                                         nullmap.data(), start, nullmap.size());
+                                         nullmap.data(), start, end);
             } else {
                 _insert_fixed_len_string(
                         assert_cast<const vectorized::ColumnString&>(nullable->get_nested_column()),
-                        nullmap.data(), start, nullmap.size());
+                        nullmap.data(), start, end);
             }
         } else {
             if (column->is_column_string64()) {
                 _insert_fixed_len_string(assert_cast<const vectorized::ColumnString64&>(*column),
-                                         nullptr, start, column->size());
+                                         nullptr, start, end);
             } else {
                 _insert_fixed_len_string(assert_cast<const vectorized::ColumnString&>(*column),
-                                         nullptr, start, column->size());
+                                         nullptr, start, end);
             }
         }
     }
 
-    int size() override { return _set.size(); }
+    int size() override { return (int)_set.size(); }
 
     bool find(const void* data) const override {
         const auto* value = reinterpret_cast<const StringRef*>(data);
-        std::string str_value(const_cast<const char*>(value->data), value->size);
+        std::string str_value(value->data, value->size);
         return _set.find(str_value);
     }
 
@@ -528,7 +565,7 @@ public:
         ~Iterator() override = default;
         bool has_next() const override { return !(_begin == _end); }
         const void* get_value() override {
-            _value.data = const_cast<char*>(_begin->data());
+            _value.data = _begin->data();
             _value.size = _begin->length();
             return &_value;
         }
@@ -602,6 +639,16 @@ public:
     }
 
     void insert_fixed_len(const vectorized::ColumnPtr& column, size_t start) override {
+        insert_range_from(column, start, column->size());
+    }
+
+    void insert_range_from(const vectorized::ColumnPtr& column, size_t start, size_t end) override {
+        if (end > column->size()) {
+            throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
+                                   "Parameters start = {}, end = {}, are out of bound in "
+                                   "StringSet::insert_range_from method (data.size() = {}).",
+                                   start, end, column->size());
+        }
         if (column->is_nullable()) {
             const auto* nullable = assert_cast<const vectorized::ColumnNullable*>(column.get());
             const auto& nullmap =
@@ -610,24 +657,24 @@ public:
             if (nullable->get_nested_column().is_column_string64()) {
                 _insert_fixed_len_string(assert_cast<const vectorized::ColumnString64&>(
                                                  nullable->get_nested_column()),
-                                         nullmap.data(), start, nullmap.size());
+                                         nullmap.data(), start, end);
             } else {
                 _insert_fixed_len_string(
                         assert_cast<const vectorized::ColumnString&>(nullable->get_nested_column()),
-                        nullmap.data(), start, nullmap.size());
+                        nullmap.data(), start, end);
             }
         } else {
             if (column->is_column_string64()) {
                 _insert_fixed_len_string(assert_cast<const vectorized::ColumnString64&>(*column),
-                                         nullptr, start, column->size());
+                                         nullptr, start, end);
             } else {
                 _insert_fixed_len_string(assert_cast<const vectorized::ColumnString&>(*column),
-                                         nullptr, start, column->size());
+                                         nullptr, start, end);
             }
         }
     }
 
-    int size() override { return _set.size(); }
+    int size() override { return (int)_set.size(); }
 
     bool find(const void* data) const override {
         const auto* value = reinterpret_cast<const StringRef*>(data);
@@ -668,7 +715,6 @@ public:
         const auto& col = assert_cast<const doris::vectorized::ColumnString&>(column);
         const auto& offset = col.get_offsets();
         const uint8_t* __restrict data = col.get_chars().data();
-        auto* __restrict cursor = const_cast<uint8_t*>(data);
         const uint8_t* __restrict null_map_data;
         if constexpr (is_nullable) {
             null_map_data = null_map->data();
@@ -682,15 +728,15 @@ public:
         for (size_t i = 0; i < rows; ++i) {
             uint32_t len = offset[i] - offset[i - 1];
             if constexpr (!is_nullable && !is_negative) {
-                result_data[i] = _set.find(StringRef(cursor, len));
+                result_data[i] = _set.find(StringRef(data, len));
             } else if constexpr (!is_nullable && is_negative) {
-                result_data[i] = !_set.find(StringRef(cursor, len));
+                result_data[i] = !_set.find(StringRef(data, len));
             } else if constexpr (is_nullable && !is_negative) {
-                result_data[i] = (!null_map_data[i]) & _set.find(StringRef(cursor, len));
+                result_data[i] = (!null_map_data[i]) & _set.find(StringRef(data, len));
             } else { // (is_nullable && is_negative)
-                result_data[i] = !((!null_map_data[i]) & _set.find(StringRef(cursor, len)));
+                result_data[i] = !((!null_map_data[i]) & _set.find(StringRef(data, len)));
             }
-            cursor += len;
+            data += len;
         }
     }
 
@@ -701,7 +747,7 @@ public:
         ~Iterator() override = default;
         bool has_next() const override { return !(_begin == _end); }
         const void* get_value() override {
-            _value.data = const_cast<char*>(_begin->data);
+            _value.data = _begin->data;
             _value.size = _begin->size;
             return &_value;
         }
@@ -725,5 +771,5 @@ private:
     ContainerType _set;
     ObjectPool _pool;
 };
-
+#include "common/compile_check_end.h"
 } // namespace doris

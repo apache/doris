@@ -46,7 +46,7 @@ public class CreateResourceCommandTest extends TestWithFeService {
         };
 
         // test validate normal
-        ImmutableMap<String, String> properties = ImmutableMap.of("type", "spark", "host", "http://127.0.0.1:29200");
+        ImmutableMap<String, String> properties = ImmutableMap.of("type", "es", "host", "http://127.0.0.1:29200");
         CreateResourceInfo info = new CreateResourceInfo(true, false, "test", properties);
         CreateResourceCommand createResourceCommand = new CreateResourceCommand(info);
         Assertions.assertDoesNotThrow(() -> createResourceCommand.getInfo().validate());
@@ -68,12 +68,6 @@ public class CreateResourceCommandTest extends TestWithFeService {
         info = new CreateResourceInfo(false, false, "test", properties);
         CreateResourceCommand createResourceCommand3 = new CreateResourceCommand(info);
         Assertions.assertThrows(AnalysisException.class, () -> createResourceCommand3.getInfo().validate());
-
-        // test spark is external resource
-        properties = ImmutableMap.of("type", "spark", "host", "http://127.0.0.1:29200");
-        info = new CreateResourceInfo(false, false, "test", properties);
-        CreateResourceCommand createResourceCommand4 = new CreateResourceCommand(info);
-        Assertions.assertThrows(AnalysisException.class, () -> createResourceCommand4.getInfo().validate());
     }
 
     @Test
@@ -94,7 +88,7 @@ public class CreateResourceCommandTest extends TestWithFeService {
                 + " \"user\" = \"jdbc_user\",\n"
                 + " \"password\" = \"jdbc_passwd\",\n"
                 + " \"jdbc_url\" = \"jdbc:mysql://127.0.0.1:3316/doris_test?useSSL=false\",\n"
-                + " \"driver_url\" = \"https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/mysql-connector-java-8.0.25.jar\",\n"
+                + " \"driver_url\" = \"https://doris-regression-hk.oss-cn-hongkong.aliyuncs.com/regression/jdbc_driver/mysql-connector-java-8.0.25.jar\",\n"
                 + " \"driver_class\" = \"com.mysql.cj.jdbc.Driver\"\n"
                 + ");";
 

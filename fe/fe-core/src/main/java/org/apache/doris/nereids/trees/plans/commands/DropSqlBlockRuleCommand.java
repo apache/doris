@@ -57,4 +57,12 @@ public class DropSqlBlockRuleCommand extends DropCommand {
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitDropSqlBlockRuleCommand(this, context);
     }
+
+    public boolean isIfExists() {
+        return ifExists;
+    }
+
+    public List<String> getRuleNames() {
+        return ruleNames;
+    }
 }

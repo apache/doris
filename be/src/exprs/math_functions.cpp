@@ -83,7 +83,7 @@ double MathFunctions::my_double_round(double value, int64_t dec, bool dec_unsign
 
     if (dec_negative && std::isinf(tmp)) {
         tmp2 = 0.0;
-    } else if (!dec_negative && std::isinf(value_mul_tmp)) {
+    } else if (!dec_negative && !std::isfinite(value_mul_tmp)) {
         tmp2 = value;
     } else if (truncate) {
         if (value >= 0.0) {
@@ -125,6 +125,8 @@ StringRef MathFunctions::decimal_to_base(FunctionContext* ctx, int64_t src_num, 
         buf[buf_index] = '-';
         ++result_len;
     }
+
+    // Modify a string passed via stringref
     StringRef result = ctx->create_temp_string_val(result_len);
     memcpy(const_cast<char*>(result.data), buf + max_digits - result_len, result_len);
     return result;

@@ -22,6 +22,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <cstdint>
 #include <vector>
 
 #include "common/config.h"
@@ -70,18 +71,18 @@ public:
     Status get_current_key(Slice& slice);
     Status advance();
     Status seek_at_or_after(Slice const& key);
-    size_t row_id() const { return _cur_row_id; }
+    uint32_t row_id() const { return _cur_row_id; }
     int32_t segment_id() const { return _segment_id; }
 
 private:
-    Status _next_batch(size_t row_id);
+    Status _next_batch(uint32_t row_id);
 
     std::unique_ptr<segment_v2::IndexedColumnIterator> _iter;
     vectorized::DataTypePtr _index_type;
     vectorized::MutableColumnPtr _index_column;
     size_t _block_size {0};
     size_t _cur_pos {0};
-    size_t _cur_row_id {0};
+    uint32_t _cur_row_id {0};
     size_t const _num_rows;
     size_t const _max_batch_size;
     int32_t const _segment_id;

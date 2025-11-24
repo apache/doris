@@ -127,7 +127,6 @@ public class OutFileClause {
 
     private static final long DEFAULT_MAX_FILE_SIZE_BYTES = 1 * 1024 * 1024 * 1024; // 1GB
     private static final long MIN_FILE_SIZE_BYTES = 5 * 1024 * 1024L; // 5MB
-    private static final long MAX_FILE_SIZE_BYTES = 2 * 1024 * 1024 * 1024L; // 2GB
 
     private String filePath;
     private Map<String, String> properties;
@@ -196,7 +195,7 @@ public class OutFileClause {
         return parquetSchemas;
     }
 
-    public void analyze(Analyzer analyzer, List<Expr> resultExprs, List<String> colLabels) throws UserException {
+    public void analyze(List<Expr> resultExprs, List<String> colLabels, boolean needFormat) throws UserException {
         if (isAnalyzed) {
             // If the query stmt is rewritten, the whole stmt will be analyzed again.
             // But some of fields in this OutfileClause has been changed,
@@ -215,10 +214,16 @@ public class OutFileClause {
         }
         isAnalyzed = true;
 
-        if (isParquetFormat()) {
-            analyzeForParquetFormat(resultExprs, colLabels);
-        } else if (isOrcFormat()) {
-            analyzeForOrcFormat(resultExprs, colLabels);
+        // This analyze() method will be called twice:
+        // one is normal query plan analyze,
+        // the other is when writing success file after outfile is done on FE side.
+        // In the second time, we do not need to analyze format related things again.
+        if (needFormat) {
+            if (isParquetFormat()) {
+                analyzeForParquetFormat(resultExprs, colLabels);
+            } else if (isOrcFormat()) {
+                analyzeForOrcFormat(resultExprs, colLabels);
+            }
         }
     }
 
@@ -505,18 +510,27 @@ public class OutFileClause {
         analyzeBrokerDesc(copiedProps);
 
         fileFormatProperties.analyzeFileFormatProperties(copiedProps, true);
+        // check if compression type for csv is supported
+        if (fileFormatProperties instanceof CsvFileFormatProperties) {
+            CsvFileFormatProperties csvFileFormatProperties = (CsvFileFormatProperties) fileFormatProperties;
+            csvFileFormatProperties.checkSupportedCompressionType(true);
+        }
 
         if (copiedProps.containsKey(PROP_MAX_FILE_SIZE)) {
             maxFileSizeBytes = ParseUtil.analyzeDataVolume(copiedProps.get(PROP_MAX_FILE_SIZE));
-            if (maxFileSizeBytes > MAX_FILE_SIZE_BYTES || maxFileSizeBytes < MIN_FILE_SIZE_BYTES) {
-                throw new AnalysisException("max file size should between 5MB and 2GB. Given: " + maxFileSizeBytes);
+            if (maxFileSizeBytes < MIN_FILE_SIZE_BYTES) {
+                throw new AnalysisException("max file size should larger than 5MB. Given: " + maxFileSizeBytes);
             }
             copiedProps.remove(PROP_MAX_FILE_SIZE);
         }
 
         if (copiedProps.containsKey(PROP_DELETE_EXISTING_FILES)) {
-            deleteExistingFiles = Boolean.parseBoolean(copiedProps.get(PROP_DELETE_EXISTING_FILES))
-                    & Config.enable_delete_existing_files;
+            deleteExistingFiles = Boolean.parseBoolean(copiedProps.get(PROP_DELETE_EXISTING_FILES));
+            if (deleteExistingFiles && !Config.enable_delete_existing_files) {
+                throw new AnalysisException("Deleting existing files is not allowed."
+                        + " To enable this feature, you need to add `enable_delete_existing_files=true`"
+                        + " in fe.conf");
+            }
             copiedProps.remove(PROP_DELETE_EXISTING_FILES);
         }
 
@@ -746,3 +760,5 @@ public class OutFileClause {
         return sinkOptions;
     }
 }
+
+

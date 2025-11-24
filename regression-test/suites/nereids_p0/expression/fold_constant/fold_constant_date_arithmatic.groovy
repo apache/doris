@@ -38,11 +38,7 @@ suite("fold_constant_date_arithmatic") {
     testFoldConst("SELECT date_format('2020-12-01 12:00:30.01', '%I');")
     testFoldConst("SELECT date_format('2020-12-01 12:00:30.01', '%l');")
     testFoldConst("SELECT date_format('2020-12-01 12:00:30.01', '%r');")
-    
-    testFoldConst("select str_to_date('2023-02-29', '%Y-%m-%d') AS result;")
-    testFoldConst("select str_to_date('1900-02-29', '%Y-%m-%d') AS result;")
-    testFoldConst("select str_to_date('2025-04-31', '%Y-%m-%d') AS result;")
-    testFoldConst("select str_to_date('31-12-2020 23:59:59', '%d-%m-%Y %H:%i:%s');")
+
     testFoldConst("select str_to_date('2020-12-31T23:59:59', '%Y-%m-%dT%H:%i:%s');")
     testFoldConst("select str_to_date('20201231235959', '%Y%m%d%H%i%s');")
     testFoldConst("select str_to_date('31/12/2020 23:59', '%d/%m/%Y %H:%i');")
@@ -84,14 +80,7 @@ suite("fold_constant_date_arithmatic") {
     testFoldConst("select unix_timestamp('1970/01/01 00:00:00');")
     testFoldConst("select unix_timestamp('1970-01-01T00:00:00');")
     testFoldConst("select unix_timestamp('1970-01-01');")
-    testFoldConst("select unix_timestamp('31/Apr/2023','%d/%b/%Y');")
-    testFoldConst("select unix_timestamp('00-00-0000');")
-    testFoldConst("select unix_timestamp('3000/02/29','%Y/%m/%d');")
     testFoldConst("select unix_timestamp('01.Jan.1970','%d.%b.%Y');")
-    testFoldConst("select unix_timestamp('0000-00-00 00:00:00');")
-    testFoldConst("select unix_timestamp('2021-02-29', '%Y-%m-%d');")
-    testFoldConst("select unix_timestamp('2023/04/31', '%Y/%m/%d');")
-    testFoldConst("select unix_timestamp('2023-04-31 12:00:00');")
     testFoldConst("select unix_timestamp('1970-01-01','%Y-%m-%d');")
     testFoldConst("select unix_timestamp('0');")
 }

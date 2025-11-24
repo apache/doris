@@ -18,15 +18,13 @@
 package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.NativeInsertStmt;
-import org.apache.doris.analysis.SelectStmt;
-import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf.TableType;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -68,6 +66,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.protobuf.ByteString;
 import com.google.protobuf.ProtocolStringList;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
@@ -171,27 +170,6 @@ public class GroupCommitPlanner {
         return backendId;
     }
 
-    public List<InternalService.PDataRow> getRows(NativeInsertStmt stmt) throws UserException {
-        List<InternalService.PDataRow> rows = new ArrayList<>();
-        SelectStmt selectStmt = (SelectStmt) (stmt.getQueryStmt());
-        if (selectStmt.getValueList() != null) {
-            for (List<Expr> row : selectStmt.getValueList().getRows()) {
-                rows.add(getOneRow(row));
-            }
-        } else {
-            List<Expr> exprList = new ArrayList<>();
-            for (Expr resultExpr : selectStmt.getResultExprs()) {
-                if (resultExpr instanceof SlotRef) {
-                    exprList.add(((SlotRef) resultExpr).getDesc().getSourceExprs().get(0));
-                } else {
-                    exprList.add(resultExpr);
-                }
-            }
-            rows.add(getOneRow(exprList));
-        }
-        return rows;
-    }
-
     private static InternalService.PDataRow getOneRow(List<Expr> row) throws UserException {
         InternalService.PDataRow data = StmtExecutor.getRowStringValue(row, FormatOptions.getDefault());
         if (LOG.isDebugEnabled()) {
@@ -289,6 +267,10 @@ public class GroupCommitPlanner {
         String errMsg = "group commit insert failed. db: " + db.getId() + ", table: " + table.getId()
                 + ", query: " + DebugUtil.printId(ctx.queryId()) + ", backend: " + backendId
                 + ", status: " + response.getStatus();
+        if (response.hasFirstErrorMsg()) {
+            errMsg += ", first_error_msg: "
+                + StringUtils.abbreviate(response.getFirstErrorMsg(), Config.first_error_msg_max_length);
+        }
         if (response.hasErrorUrl()) {
             errMsg += ", error url: " + response.getErrorUrl();
         }
@@ -302,6 +284,7 @@ public class GroupCommitPlanner {
         long loadedRows = response.getLoadedRows();
         long filteredRows = (int) response.getFilteredRows();
         String errorUrl = response.getErrorUrl();
+        String firstErrorMsg = response.getFirstErrorMsg();
         // the same as {@OlapInsertExecutor#setReturnInfo}
         // {'label':'my_label1', 'status':'visible', 'txnId':'123'}
         // {'label':'my_label1', 'status':'visible', 'txnId':'123' 'err':'error messages'}
@@ -314,6 +297,10 @@ public class GroupCommitPlanner {
         /*if (!Strings.isNullOrEmpty(errMsg)) {
             sb.append(", 'err':'").append(errMsg).append("'");
         }*/
+        if (!Strings.isNullOrEmpty(firstErrorMsg)) {
+            sb.append(", 'first_error_msg':'").append(
+                    StringUtils.abbreviate(firstErrorMsg, Config.first_error_msg_max_length)).append("'");
+        }
         if (!Strings.isNullOrEmpty(errorUrl)) {
             sb.append(", 'err_url':'").append(errorUrl).append("'");
         }

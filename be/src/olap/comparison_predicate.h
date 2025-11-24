@@ -20,6 +20,7 @@
 #include <cstdint>
 #include <type_traits>
 
+#include "common/compare.h"
 #include "olap/column_predicate.h"
 #include "olap/rowset/segment_v2/bloom_filter.h"
 #include "olap/rowset/segment_v2/inverted_index_cache.h" // IWYU pragma: keep
@@ -28,17 +29,13 @@
 #include "vec/columns/column_dictionary.h"
 
 namespace doris {
-
+#include "common/compile_check_begin.h"
 template <PrimitiveType Type, PredicateType PT>
 class ComparisonPredicateBase : public ColumnPredicate {
 public:
     using T = typename PrimitiveTypeTraits<Type>::CppType;
     ComparisonPredicateBase(uint32_t column_id, const T& value, bool opposite = false)
             : ColumnPredicate(column_id, opposite), _value(value) {}
-
-    bool can_do_apply_safely(PrimitiveType input_type, bool is_null) const override {
-        return input_type == Type || (is_string_type(input_type) && is_string_type(Type));
-    }
 
     PredicateType type() const override { return PT; }
 
@@ -68,12 +65,20 @@ public:
     }
 
     Status evaluate(const vectorized::IndexFieldNameAndTypePair& name_with_type,
-                    InvertedIndexIterator* iterator, uint32_t num_rows,
+                    IndexIterator* iterator, uint32_t num_rows,
                     roaring::Roaring* bitmap) const override {
         if (iterator == nullptr) {
-            return Status::OK();
+            return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>(
+                    "Inverted index evaluate skipped, no inverted index reader can not support "
+                    "comparison predicate");
         }
-        std::string column_name = name_with_type.first;
+
+        if (iterator->get_reader(segment_v2::InvertedIndexReaderType::STRING_TYPE) == nullptr &&
+            iterator->get_reader(segment_v2::InvertedIndexReaderType::BKD) == nullptr) {
+            return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>(
+                    "Inverted index evaluate skipped, no inverted index reader can not support "
+                    "comparison predicate");
+        }
 
         InvertedIndexQueryType query_type = InvertedIndexQueryType::UNKNOWN_QUERY;
         switch (PT) {
@@ -99,13 +104,18 @@ public:
             return Status::InvalidArgument("invalid comparison predicate type {}", PT);
         }
 
-        std::shared_ptr<roaring::Roaring> roaring = std::make_shared<roaring::Roaring>();
-
         std::unique_ptr<InvertedIndexQueryParamFactory> query_param = nullptr;
         RETURN_IF_ERROR(
                 InvertedIndexQueryParamFactory::create_query_value<Type>(&_value, query_param));
-        RETURN_IF_ERROR(iterator->read_from_inverted_index(column_name, query_param->get_value(),
-                                                           query_type, num_rows, roaring));
+
+        InvertedIndexParam param;
+        param.column_name = name_with_type.first;
+        param.column_type = name_with_type.second;
+        param.query_value = query_param->get_value();
+        param.query_type = query_type;
+        param.num_rows = num_rows;
+        param.roaring = std::make_shared<roaring::Roaring>();
+        RETURN_IF_ERROR(iterator->read_from_index(&param));
 
         // mask out null_bitmap, since NULL cmp VALUE will produce NULL
         //  and be treated as false in WHERE
@@ -120,9 +130,9 @@ public:
         }
 
         if constexpr (PT == PredicateType::NE) {
-            *bitmap -= *roaring;
+            *bitmap -= *param.roaring;
         } else {
-            *bitmap &= *roaring;
+            *bitmap &= *param.roaring;
         }
 
         return Status::OK();
@@ -142,15 +152,103 @@ public:
         T tmp_max_value = get_zone_map_value<Type, T>(statistic.second->cell_ptr());
 
         if constexpr (PT == PredicateType::EQ) {
-            return _operator(tmp_min_value <= _value && tmp_max_value >= _value, true);
+            return _operator(Compare::less_equal(tmp_min_value, _value) &&
+                                     Compare::greater_equal(tmp_max_value, _value),
+                             true);
         } else if constexpr (PT == PredicateType::NE) {
-            return _operator(tmp_min_value == _value && tmp_max_value == _value, true);
+            return _operator(
+                    Compare::equal(tmp_min_value, _value) && Compare::equal(tmp_max_value, _value),
+                    true);
         } else if constexpr (PT == PredicateType::LT || PT == PredicateType::LE) {
             return _operator(tmp_min_value, _value);
         } else {
             static_assert(PT == PredicateType::GT || PT == PredicateType::GE);
             return _operator(tmp_max_value, _value);
         }
+    }
+
+    /**
+     * To figure out whether this page is matched partially or completely.
+     *
+     * 1. EQ: if `_value` belongs to the interval [min, max], return true to further compute each value in this page.
+     * 2. NE: return true to further compute each value in this page if some values not equal to `_value`.
+     * 3. LT|LE: if `_value` is greater than min, return true to further compute each value in this page.
+     * 4. GT|GE: if `_value` is less than max, return true to further compute each value in this page.
+     */
+
+    bool camp_field(const vectorized::Field& min_field, const vectorized::Field& max_field) const {
+        T min_value;
+        T max_value;
+        if constexpr (is_int_or_bool(Type) || is_float_or_double(Type)) {
+            min_value =
+                    (typename PrimitiveTypeTraits<Type>::CppType)min_field
+                            .template get<typename PrimitiveTypeTraits<Type>::NearestFieldType>();
+            max_value =
+                    (typename PrimitiveTypeTraits<Type>::CppType)max_field
+                            .template get<typename PrimitiveTypeTraits<Type>::NearestFieldType>();
+        } else {
+            min_value = min_field.template get<typename PrimitiveTypeTraits<Type>::CppType>();
+            max_value = max_field.template get<typename PrimitiveTypeTraits<Type>::CppType>();
+        }
+
+        if constexpr (PT == PredicateType::EQ) {
+            return Compare::less_equal(min_value, _value) &&
+                   Compare::greater_equal(max_value, _value);
+        } else if constexpr (PT == PredicateType::NE) {
+            return !Compare::equal(min_value, _value) || !Compare::equal(max_value, _value);
+        } else if constexpr (PT == PredicateType::LT || PT == PredicateType::LE) {
+            return Compare::less_equal(min_value, _value);
+        } else {
+            static_assert(PT == PredicateType::GT || PT == PredicateType::GE);
+            return Compare::greater_equal(max_value, _value);
+        }
+    }
+
+    bool evaluate_and(vectorized::ParquetPredicate::ColumnStat* statistic) const override {
+        if (!(*statistic->get_stat_func)(statistic, column_id())) {
+            return true;
+        }
+
+        vectorized::Field min_field;
+        vectorized::Field max_field;
+        if (!vectorized::ParquetPredicate::parse_min_max_value(
+                     statistic->col_schema, statistic->encoded_min_value,
+                     statistic->encoded_max_value, *statistic->ctz, &min_field, &max_field)
+                     .ok()) [[unlikely]] {
+            return true;
+        };
+
+        return camp_field(min_field, max_field);
+    }
+
+    bool evaluate_and(vectorized::ParquetPredicate::CachedPageIndexStat* statistic,
+                      RowRanges* row_ranges) const override {
+        vectorized::ParquetPredicate::PageIndexStat* stat = nullptr;
+        if (!(statistic->get_stat_func)(&stat, column_id())) {
+            return true;
+        }
+
+        for (int page_id = 0; page_id < stat->num_of_pages; page_id++) {
+            if (stat->is_all_null[page_id]) {
+                // all null page, not need read.
+                continue;
+            }
+
+            vectorized::Field min_field;
+            vectorized::Field max_field;
+            if (!vectorized::ParquetPredicate::parse_min_max_value(
+                         stat->col_schema, stat->encoded_min_value[page_id],
+                         stat->encoded_max_value[page_id], *statistic->ctz, &min_field, &max_field)
+                         .ok()) [[unlikely]] {
+                row_ranges->add(stat->ranges[page_id]);
+                continue;
+            };
+
+            if (camp_field(min_field, max_field)) {
+                row_ranges->add(stat->ranges[page_id]);
+            }
+        };
+        return row_ranges->count() > 0;
     }
 
     bool is_always_true(const std::pair<WrapperField*, WrapperField*>& statistic) const override {
@@ -206,24 +304,20 @@ public:
                 // DecimalV2 using decimal12_t in bloom filter, should convert value to decimal12_t
                 if constexpr (Type == PrimitiveType::TYPE_DECIMALV2) {
                     decimal12_t decimal12_t_val(_value.int_value(), _value.frac_value());
-                    return bf->test_bytes(
-                            const_cast<char*>(reinterpret_cast<const char*>(&decimal12_t_val)),
-                            sizeof(decimal12_t));
+                    return bf->test_bytes(reinterpret_cast<const char*>(&decimal12_t_val),
+                                          sizeof(decimal12_t));
                     // Datev1 using uint24_t in bloom filter
                 } else if constexpr (Type == PrimitiveType::TYPE_DATE) {
-                    uint24_t date_value(_value.to_olap_date());
-                    return bf->test_bytes(
-                            const_cast<char*>(reinterpret_cast<const char*>(&date_value)),
-                            sizeof(uint24_t));
+                    uint24_t date_value(uint32_t(_value.to_olap_date()));
+                    return bf->test_bytes(reinterpret_cast<const char*>(&date_value),
+                                          sizeof(uint24_t));
                     // DatetimeV1 using int64_t in bloom filter
                 } else if constexpr (Type == PrimitiveType::TYPE_DATETIME) {
                     int64_t datetime_value(_value.to_olap_datetime());
-                    return bf->test_bytes(
-                            const_cast<char*>(reinterpret_cast<const char*>(&datetime_value)),
-                            sizeof(int64_t));
+                    return bf->test_bytes(reinterpret_cast<const char*>(&datetime_value),
+                                          sizeof(int64_t));
                 } else {
-                    return bf->test_bytes(const_cast<char*>(reinterpret_cast<const char*>(&_value)),
-                                          sizeof(T));
+                    return bf->test_bytes(reinterpret_cast<const char*>(&_value), sizeof(T));
                 }
             }
         } else {
@@ -255,8 +349,8 @@ public:
     }
 
     template <bool is_and>
-    __attribute__((flatten)) void _evaluate_vec_internal(const vectorized::IColumn& column,
-                                                         uint16_t size, bool* flags) const {
+    void __attribute__((flatten))
+    _evaluate_vec_internal(const vectorized::IColumn& column, uint16_t size, bool* flags) const {
         uint16_t current_evaluated_rows = 0;
         uint16_t current_passed_rows = 0;
         if (_can_ignore()) {
@@ -399,17 +493,17 @@ private:
     template <typename LeftT, typename RightT>
     bool _operator(const LeftT& lhs, const RightT& rhs) const {
         if constexpr (PT == PredicateType::EQ) {
-            return lhs == rhs;
+            return Compare::equal(lhs, rhs);
         } else if constexpr (PT == PredicateType::NE) {
-            return lhs != rhs;
+            return Compare::not_equal(lhs, rhs);
         } else if constexpr (PT == PredicateType::LT) {
-            return lhs < rhs;
+            return Compare::less(lhs, rhs);
         } else if constexpr (PT == PredicateType::LE) {
-            return lhs <= rhs;
+            return Compare::less_equal(lhs, rhs);
         } else if constexpr (PT == PredicateType::GT) {
-            return lhs > rhs;
+            return Compare::greater(lhs, rhs);
         } else if constexpr (PT == PredicateType::GE) {
-            return lhs >= rhs;
+            return Compare::greater_equal(lhs, rhs);
         }
     }
 
@@ -483,10 +577,9 @@ private:
     }
 
     template <bool is_nullable, bool is_and, typename TArray, typename TValue>
-    __attribute__((flatten)) void _base_loop_vec(uint16_t size, bool* __restrict bflags,
-                                                 const uint8_t* __restrict null_map,
-                                                 const TArray* __restrict data_array,
-                                                 const TValue& value) const {
+    void __attribute__((flatten))
+    _base_loop_vec(uint16_t size, bool* __restrict bflags, const uint8_t* __restrict null_map,
+                   const TArray* __restrict data_array, const TValue& value) const {
         //uint8_t helps compiler to generate vectorized code
         auto* flags = reinterpret_cast<uint8_t*>(bflags);
         if constexpr (is_and) {
@@ -601,8 +694,8 @@ private:
         }
     }
 
-    __attribute__((flatten)) int32_t _find_code_from_dictionary_column(
-            const vectorized::ColumnDictI32& column) const {
+    int32_t __attribute__((flatten))
+    _find_code_from_dictionary_column(const vectorized::ColumnDictI32& column) const {
         int32_t code = 0;
         if (_segment_id_to_cached_code.if_contains(
                     column.get_rowset_segment_id(),
@@ -640,5 +733,5 @@ private:
             _segment_id_to_cached_code;
     T _value;
 };
-
+#include "common/compile_check_end.h"
 } //namespace doris

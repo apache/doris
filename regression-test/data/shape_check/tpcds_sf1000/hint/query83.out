@@ -80,6 +80,6 @@ PhysicalResultSink
 
 Hint log:
 Used: leading(sr_items cr_items wr_items )
-UnUsed: 
+UnUsed:
 SyntaxError:
 

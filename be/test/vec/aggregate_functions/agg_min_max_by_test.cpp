@@ -31,7 +31,6 @@
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/core/field.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
@@ -52,6 +51,7 @@ void register_aggregate_function_max_by(AggregateFunctionSimpleFactory& factory)
 class AggMinMaxByTest : public ::testing::TestWithParam<std::string> {};
 
 TEST_P(AggMinMaxByTest, min_max_by_test) {
+    Arena arena;
     std::string min_max_by_type = GetParam();
     // Prepare test data.
     auto column_vector_value = ColumnInt32::create();
@@ -96,7 +96,7 @@ TEST_P(AggMinMaxByTest, min_max_by_test) {
                                      i == 0 ? (IColumn*)column_vector_key_int32.get()
                                             : (IColumn*)column_vector_key_str.get()};
         for (int j = 0; j < agg_test_batch_size; j++) {
-            agg_function->add(place, columns, j, nullptr);
+            agg_function->add(place, columns, j, arena);
         }
 
         // Check result.

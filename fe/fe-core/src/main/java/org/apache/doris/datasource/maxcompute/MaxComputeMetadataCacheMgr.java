@@ -17,6 +17,8 @@
 
 package org.apache.doris.datasource.maxcompute;
 
+import org.apache.doris.datasource.ExternalTable;
+
 import com.google.common.collect.Maps;
 
 import java.util.Map;
@@ -58,10 +60,10 @@ public class MaxComputeMetadataCacheMgr {
         }
     }
 
-    public void invalidateTableCache(long catalogId, String dbName, String tblName) {
-        MaxComputeMetadataCache cache = maxComputeMetadataCaches.get(catalogId);
+    public void invalidateTableCache(ExternalTable dorisTable) {
+        MaxComputeMetadataCache cache = maxComputeMetadataCaches.get(dorisTable.getCatalog().getId());
         if (cache != null) {
-            cache.cleanTableCache(dbName, tblName);
+            cache.cleanTableCache(dorisTable.getDbName(), dorisTable.getName());
         }
     }
 }

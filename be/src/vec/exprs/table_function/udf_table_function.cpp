@@ -117,7 +117,8 @@ Status UDFTableFunction::process_init(Block* block, RuntimeState* state) {
             {"required_fields", input_table_schema.first},
             {"columns_types", input_table_schema.second}};
 
-    jobject input_map = JniUtil::convert_to_java_map(env, input_params);
+    jobject input_map = nullptr;
+    RETURN_IF_ERROR(JniUtil::convert_to_java_map(env, input_params, &input_map));
     _array_result_column = _return_type->create_column();
     _result_column_idx = block->columns();
     block->insert({_array_result_column, _return_type, "res"});
@@ -127,13 +128,16 @@ Status UDFTableFunction::process_init(Block* block, RuntimeState* state) {
                                               {"required_fields", output_table_schema.first},
                                               {"columns_types", output_table_schema.second}};
 
-    jobject output_map = JniUtil::convert_to_java_map(env, output_params);
+    jobject output_map = nullptr;
+    RETURN_IF_ERROR(JniUtil::convert_to_java_map(env, output_params, &output_map));
     DCHECK(_jni_ctx != nullptr);
     DCHECK(_jni_ctx->executor != nullptr);
     long output_address = env->CallLongMethod(_jni_ctx->executor, _jni_ctx->executor_evaluate_id,
                                               input_map, output_map);
-    env->DeleteLocalRef(input_map);
-    env->DeleteLocalRef(output_map);
+    RETURN_ERROR_IF_EXC(env);
+    env->DeleteGlobalRef(input_map);
+    RETURN_ERROR_IF_EXC(env);
+    env->DeleteGlobalRef(output_map);
     RETURN_ERROR_IF_EXC(env);
     RETURN_IF_ERROR(JniConnector::fill_block(block, {_result_column_idx}, output_address));
     block->erase(_result_column_idx);

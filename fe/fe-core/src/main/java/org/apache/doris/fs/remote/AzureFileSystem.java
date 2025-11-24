@@ -19,34 +19,37 @@ package org.apache.doris.fs.remote;
 
 import org.apache.doris.analysis.StorageBackend.StorageType;
 import org.apache.doris.backup.Status;
-import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.property.storage.AzureProperties;
+import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.fs.obj.AzureObjStorage;
 
-import com.google.common.annotations.VisibleForTesting;
-import org.apache.hadoop.fs.FileSystem;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
+import java.io.IOException;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 public class AzureFileSystem extends ObjFileSystem {
-    public AzureFileSystem(Map<String, String> properties) {
-        super(StorageType.AZURE.name(), StorageType.S3, new AzureObjStorage(properties));
-        initFsProperties();
-    }
+    private static final Logger LOG = LogManager.getLogger(AzureFileSystem.class);
+    private final AzureProperties azureProperties;
 
-    @VisibleForTesting
-    public AzureFileSystem(AzureObjStorage storage) {
-        super(StorageType.AZURE.name(), StorageType.S3, storage);
-        initFsProperties();
-    }
-
-    private void initFsProperties() {
-        this.properties.putAll(((AzureObjStorage) objStorage).getProperties());
+    public AzureFileSystem(AzureProperties azureProperties) {
+        super(StorageType.AZURE.name(), StorageType.AZURE, new AzureObjStorage(azureProperties));
+        this.azureProperties = azureProperties;
+        this.properties.putAll(azureProperties.getOrigProps());
     }
 
     @Override
-    protected FileSystem nativeFileSystem(String remotePath) throws UserException {
-        return null;
+    public Status renameDir(String origFilePath, String destFilePath) {
+        throw new UnsupportedOperationException("Renaming directories is not supported in Azure File System.");
+    }
+
+    @Override
+    public Status listFiles(String remotePath, boolean recursive, List<RemoteFile> result) {
+        AzureObjStorage azureObjStorage = (AzureObjStorage) getObjStorage();
+        return azureObjStorage.listFiles(remotePath, recursive, result);
     }
 
     @Override
@@ -54,4 +57,33 @@ public class AzureFileSystem extends ObjFileSystem {
         AzureObjStorage azureObjStorage = (AzureObjStorage) getObjStorage();
         return azureObjStorage.globList(remotePath, result, fileNameOnly);
     }
+
+    @Override
+    public Status listDirectories(String remotePath, Set<String> result) {
+        AzureObjStorage azureObjStorage = (AzureObjStorage) getObjStorage();
+        return azureObjStorage.listDirectories(remotePath, result);
+    }
+
+    @Override
+    public StorageProperties getStorageProperties() {
+        return azureProperties;
+    }
+
+    @Override
+    public void close() throws IOException {
+        if (closed.compareAndSet(false, true)) {
+            try {
+                objStorage.close();
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        }
+    }
+
+    @Override
+    public void completeMultipartUpload(String bucket, String key, String uploadId, Map<Integer, String> parts) {
+        AzureObjStorage azureObjStorage = (AzureObjStorage) getObjStorage();
+        azureObjStorage.completeMultipartUpload(bucket, key, parts);
+    }
+
 }

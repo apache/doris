@@ -39,16 +39,22 @@ public class TimerDefinition {
     private Long latestSchedulerTimeMs;
 
 
-    public void checkParams() {
+    public void initParams() {
         if (null == startTimeMs) {
             long currentTimeMs = TimeUtils.convertToSecondTimestamp(System.currentTimeMillis());
             startTimeMs = currentTimeMs + intervalUnit.getIntervalMs(interval);
         }
-        if (null != endTimeMs && endTimeMs < startTimeMs) {
-            throw new IllegalArgumentException("endTimeMs must be greater than the start time");
-        }
         if (null != endTimeMs) {
             endTimeMs = TimeUtils.convertToSecondTimestamp(endTimeMs);
+        }
+    }
+
+    public void checkParams() {
+        if (null == startTimeMs) {
+            throw new IllegalArgumentException("startTimeMs cannot be null");
+        }
+        if (null != endTimeMs && endTimeMs < startTimeMs) {
+            throw new IllegalArgumentException("endTimeMs must be greater than the start time");
         }
 
         if (null != intervalUnit) {

@@ -17,14 +17,10 @@
 
 package org.apache.doris.common.property;
 
-import org.apache.doris.common.io.Text;
 import org.apache.doris.thrift.TPropertyVal;
 
 import com.google.common.collect.ImmutableMap;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
@@ -82,18 +78,8 @@ public abstract class PropertySchema<T> {
         }
 
         @Override
-        public String read(DataInput input) throws IOException {
-            return Text.readString(input);
-        }
-
-        @Override
         public void write(String val, TPropertyVal out) {
             out.setStrVal(val);
-        }
-
-        @Override
-        public void write(String val, DataOutput out) throws IOException {
-            Text.writeString(out, val);
         }
     }
 
@@ -124,18 +110,8 @@ public abstract class PropertySchema<T> {
         }
 
         @Override
-        public Integer read(DataInput input) throws IOException {
-            return input.readInt();
-        }
-
-        @Override
         public void write(Integer val, TPropertyVal out) {
             out.setIntVal(val);
-        }
-
-        @Override
-        public void write(Integer val, DataOutput out) throws IOException {
-            out.writeInt(val);
         }
     }
 
@@ -166,18 +142,8 @@ public abstract class PropertySchema<T> {
         }
 
         @Override
-        public Long read(DataInput input) throws IOException {
-            return input.readLong();
-        }
-
-        @Override
         public void write(Long val, TPropertyVal out) {
             out.setLongVal(val);
-        }
-
-        @Override
-        public void write(Long val, DataOutput out) throws IOException {
-            out.writeLong(val);
         }
     }
 
@@ -210,18 +176,8 @@ public abstract class PropertySchema<T> {
         }
 
         @Override
-        public Boolean read(DataInput input) throws IOException {
-            return input.readBoolean();
-        }
-
-        @Override
         public void write(Boolean val, TPropertyVal out) {
             out.setBoolVal(val);
-        }
-
-        @Override
-        public void write(Boolean val, DataOutput out) throws IOException {
-            out.writeBoolean(val);
         }
     }
 
@@ -252,18 +208,8 @@ public abstract class PropertySchema<T> {
         }
 
         @Override
-        public Date read(DataInput input) throws IOException {
-            return readTimeFormat(Text.readString(input));
-        }
-
-        @Override
         public void write(Date val, TPropertyVal out) {
             out.setStrVal(writeTimeFormat(val));
-        }
-
-        @Override
-        public void write(Date val, DataOutput out) throws IOException {
-            Text.writeString(out, writeTimeFormat(val));
         }
 
         public Date readTimeFormat(String timeStr) throws IllegalArgumentException {
@@ -311,18 +257,8 @@ public abstract class PropertySchema<T> {
         }
 
         @Override
-        public T read(DataInput input) throws IOException {
-            return T.valueOf(enumClass, Text.readString(input));
-        }
-
-        @Override
         public void write(T val, TPropertyVal out) {
             out.setStrVal(val.name());
-        }
-
-        @Override
-        public void write(T val, DataOutput out) throws IOException {
-            Text.writeString(out, val.name());
         }
 
         private String formatError(String rawVal) {
@@ -393,9 +329,5 @@ public abstract class PropertySchema<T> {
 
     public abstract T read(TPropertyVal tVal) throws IllegalArgumentException;
 
-    public abstract T read(DataInput input) throws IOException;
-
     public abstract void write(T val, TPropertyVal out);
-
-    public abstract void write(T val, DataOutput out) throws IOException;
 }

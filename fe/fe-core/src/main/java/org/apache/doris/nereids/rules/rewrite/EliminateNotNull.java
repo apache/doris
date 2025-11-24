@@ -51,6 +51,7 @@ public class EliminateNotNull implements RewriteRuleFactory {
     public List<Rule> buildRules() {
         return ImmutableList.of(
                 logicalFilter()
+                        .when(EliminateNotNull::containsNot)
                         .thenApply(ctx -> {
                             LogicalFilter<Plan> filter = ctx.root;
                             List<Expression> predicates = removeGeneratedNotNull(filter.getConjuncts(),
@@ -61,6 +62,7 @@ public class EliminateNotNull implements RewriteRuleFactory {
                             return PlanUtils.filterOrSelf(ImmutableSet.copyOf(predicates), filter.child());
                         }).toRule(RuleType.ELIMINATE_NOT_NULL),
                 innerLogicalJoin()
+                        .when(EliminateNotNull::containsNot)
                         .thenApply(ctx -> {
                             LogicalJoin<Plan, Plan> join = ctx.root;
                             List<Expression> newOtherJoinConjuncts = removeGeneratedNotNull(
@@ -112,5 +114,14 @@ public class EliminateNotNull implements RewriteRuleFactory {
                 .addAll(predicatesNotContainIsNotNull)
                 .addAll(keepIsNotNull.build())
                 .build();
+    }
+
+    private static boolean containsNot(Plan plan) {
+        for (Expression expression : plan.getExpressions()) {
+            if (expression.containsType(Not.class)) {
+                return true;
+            }
+        }
+        return false;
     }
 }

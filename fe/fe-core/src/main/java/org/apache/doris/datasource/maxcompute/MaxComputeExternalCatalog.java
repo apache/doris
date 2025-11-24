@@ -27,20 +27,16 @@ import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.property.constants.MCProperties;
 
 import com.aliyun.odps.Odps;
-import com.aliyun.odps.OdpsException;
 import com.aliyun.odps.Partition;
-import com.aliyun.odps.Project;
 import com.aliyun.odps.account.Account;
+import com.aliyun.odps.account.AccountFormat;
 import com.aliyun.odps.account.AliyunAccount;
-import com.aliyun.odps.security.SecurityManager;
+import com.aliyun.odps.table.TableIdentifier;
 import com.aliyun.odps.table.configuration.RestOptions;
 import com.aliyun.odps.table.configuration.SplitOptions;
 import com.aliyun.odps.table.enviroment.Credentials;
 import com.aliyun.odps.table.enviroment.EnvironmentSettings;
-import com.aliyun.odps.utils.StringUtils;
 import com.google.common.collect.ImmutableList;
-import com.google.gson.JsonObject;
-import com.google.gson.JsonParser;
 import org.apache.log4j.Logger;
 
 import java.time.ZoneId;
@@ -65,7 +61,6 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
     private String defaultProject;
     private String quota;
     private EnvironmentSettings settings;
-    private String catalogOwner;
 
     private String splitStrategy;
     private SplitOptions splitOptions;
@@ -77,6 +72,10 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
     private int retryTimes;
 
     public boolean dateTimePredicatePushDown;
+
+    AccountFormat accountFormat = AccountFormat.DISPLAYNAME;
+
+    private McStructureHelper mcStructureHelper = null;
 
     private static final Map<String, ZoneId> REGION_ZONE_MAP;
     private static final List<String> REQUIRED_PROPERTIES = ImmutableList.of(
@@ -211,6 +210,14 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
         this.odps = new Odps(account);
         odps.setDefaultProject(defaultProject);
         odps.setEndpoint(endpoint);
+
+        String accountFormatProp = props.getOrDefault(MCProperties.ACCOUNT_FORMAT, MCProperties.DEFAULT_ACCOUNT_FORMAT);
+        if (accountFormatProp.equals(MCProperties.ACCOUNT_FORMAT_NAME)) {
+            accountFormat = AccountFormat.DISPLAYNAME;
+        } else if (accountFormatProp.equals(MCProperties.ACCOUNT_FORMAT_ID)) {
+            accountFormat = AccountFormat.ID;
+        }
+        odps.setAccountFormat(accountFormat);
         Credentials credentials = Credentials.newBuilder().withAccount(odps.getAccount())
                 .withAppAccount(odps.getAppAccount()).build();
 
@@ -220,6 +227,10 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
                 .withQuotaName(quota)
                 .withRestOptions(restOptions)
                 .build();
+
+        boolean enableNamespaceSchema = Boolean.parseBoolean(
+                props.getOrDefault(MCProperties.ENABLE_NAMESPACE_SCHEMA, MCProperties.DEFAULT_ENABLE_NAMESPACE_SCHEMA));
+        mcStructureHelper = McStructureHelper.getHelper(enableNamespaceSchema, defaultProject);
     }
 
     public Odps getClient() {
@@ -228,39 +239,15 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
     }
 
     protected List<String> listDatabaseNames() {
-        List<String> result = new ArrayList<>();
-        result.add(defaultProject);
-
-        try {
-            result.add(defaultProject);
-            if (StringUtils.isNullOrEmpty(catalogOwner)) {
-                SecurityManager sm = odps.projects().get().getSecurityManager();
-                String whoami = sm.runQuery("whoami", false);
-
-                JsonObject js = JsonParser.parseString(whoami).getAsJsonObject();
-                catalogOwner = js.get("DisplayName").getAsString();
-            }
-            Iterator<Project> iterator = odps.projects().iterator(catalogOwner);
-            while (iterator.hasNext()) {
-                Project project = iterator.next();
-                if (!project.getName().equals(defaultProject)) {
-                    result.add(project.getName());
-                }
-            }
-        } catch (OdpsException e) {
-            throw new RuntimeException(e);
-        }
-        return result;
+        makeSureInitialized();
+        return mcStructureHelper.listDatabaseNames(getClient(), getDefaultProject());
     }
 
     @Override
     public boolean tableExist(SessionContext ctx, String dbName, String tblName) {
         makeSureInitialized();
-        try {
-            return getClient().tables().exists(dbName, tblName);
-        } catch (OdpsException e) {
-            throw new RuntimeException(e);
-        }
+        return mcStructureHelper.tableExist(getClient(), dbName, tblName);
+
     }
 
     public List<String> listPartitionNames(String dbName, String tbl) {
@@ -268,43 +255,37 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
     }
 
     public List<String> listPartitionNames(String dbName, String tbl, long skip, long limit) {
-        try {
-            if (getClient().projects().exists(dbName)) {
-                List<Partition> parts;
-                if (limit < 0) {
-                    parts = getClient().tables().get(dbName, tbl).getPartitions();
-                } else {
-                    skip = skip < 0 ? 0 : skip;
-                    parts = new ArrayList<>();
-                    Iterator<Partition> it = getClient().tables().get(dbName, tbl).getPartitionIterator();
-                    int count = 0;
-                    while (it.hasNext()) {
-                        if (count < skip) {
-                            count++;
-                            it.next();
-                        } else if (parts.size() >= limit) {
-                            break;
-                        } else {
-                            parts.add(it.next());
-                        }
+        if (mcStructureHelper.databaseExist(getClient(), dbName)) {
+            List<Partition> parts;
+            if (limit < 0) {
+                parts = mcStructureHelper.getPartitions(getClient(), dbName, tbl);
+            } else {
+                skip = skip < 0 ? 0 : skip;
+                parts = new ArrayList<>();
+                Iterator<Partition> it = mcStructureHelper.getPartitionIterator(getClient(), dbName, tbl);
+                int count = 0;
+                while (it.hasNext()) {
+                    if (count < skip) {
+                        count++;
+                        it.next();
+                    } else if (parts.size() >= limit) {
+                        break;
+                    } else {
+                        parts.add(it.next());
                     }
                 }
-                return parts.stream().map(p -> p.getPartitionSpec().toString(false, true))
-                        .collect(Collectors.toList());
-            } else {
-                throw new OdpsException("Max compute project: " + dbName + " not exists.");
             }
-        } catch (OdpsException e) {
-            throw new RuntimeException(e);
+            return parts.stream().map(p -> p.getPartitionSpec().toString(false, true))
+                    .collect(Collectors.toList());
+        } else {
+            throw new RuntimeException("MaxCompute schema/project: " + dbName + " not exists.");
         }
     }
 
     @Override
     public List<String> listTableNames(SessionContext ctx, String dbName) {
         makeSureInitialized();
-        List<String> result = new ArrayList<>();
-        getClient().tables().iterable(dbName).forEach(e -> result.add(e.getName()));
-        return result;
+        return mcStructureHelper.listTableNames(getClient(), dbName);
     }
 
     public String getAccessKey() {
@@ -391,6 +372,14 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
         return splitByteSize;
     }
 
+    public com.aliyun.odps.Table getOdpsTable(String dbName, String tableName) {
+        return mcStructureHelper.getOdpsTable(getClient(), dbName, tableName);
+    }
+
+    public TableIdentifier getOdpsTableIdentifier(String dbName, String tableName) {
+        return mcStructureHelper.getTableIdentifier(dbName, tableName);
+    }
+
     @Override
     public void checkProperties() throws DdlException {
         super.checkProperties();
@@ -427,6 +416,14 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
                     + MCProperties.SPLIT_ROW_COUNT + "must be an integer");
         }
 
+        String accountFormatProp = props.getOrDefault(MCProperties.ACCOUNT_FORMAT, MCProperties.DEFAULT_ACCOUNT_FORMAT);
+        if (accountFormatProp.equals(MCProperties.ACCOUNT_FORMAT_NAME)) {
+            accountFormat = AccountFormat.DISPLAYNAME;
+        } else if (accountFormatProp.equals(MCProperties.ACCOUNT_FORMAT_ID)) {
+            accountFormat = AccountFormat.ID;
+        } else {
+            throw new DdlException("property " + MCProperties.ACCOUNT_FORMAT + "only support name and id");
+        }
 
         try {
             connectTimeout = Integer.parseInt(

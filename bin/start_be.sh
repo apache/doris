@@ -33,6 +33,7 @@ OPTS="$(getopt \
     -l 'console' \
     -l 'version' \
     -l 'benchmark' \
+    -l 'benchmark_filter:' \
     -- "$@")"
 
 eval set -- "${OPTS}"
@@ -41,6 +42,7 @@ RUN_DAEMON=0
 RUN_CONSOLE=0
 RUN_VERSION=0
 RUN_BENCHMARK=0
+BENCHMARK_FILTER=""
 
 while true; do
     case "$1" in
@@ -59,6 +61,10 @@ while true; do
     --benchmark)
         RUN_BENCHMARK=1
         shift
+        ;;
+    --benchmark_filter)
+        BENCHMARK_FILTER="$2"
+        shift 2
         ;;
     --)
         shift
@@ -107,9 +113,9 @@ log() {
     cur_date=$(date +"%Y-%m-%d %H:%M:%S,$(date +%3N)")
     if [[ "${RUN_CONSOLE}" -eq 1 ]]; then
         echo "StdoutLogger ${cur_date} $1"
-    else
-        echo "StdoutLogger ${cur_date} $1" >>"${STDOUT_LOGGER}"
     fi
+    # always output start time info into be.out file
+    echo "StdoutLogger ${cur_date} $1" >>"${STDOUT_LOGGER}"
 }
 
 jdk_version() {
@@ -176,8 +182,11 @@ setup_java_env() {
 # prepare jvm if needed
 setup_java_env || true
 
+if [[ ! -x "${DORIS_HOME}/lib/doris_be" || ! -r "${DORIS_HOME}/lib/doris_be" ]]; then
+    chmod 550 "${DORIS_HOME}/lib/doris_be"
+fi
+
 if [[ "${RUN_VERSION}" -eq 1 ]]; then
-    chmod 755 "${DORIS_HOME}/lib/doris_be"
     "${DORIS_HOME}"/lib/doris_be --version
     exit 0
 fi
@@ -229,16 +238,18 @@ done
 
 if [[ -d "${DORIS_HOME}/lib/hadoop_hdfs/" ]]; then
     # add hadoop libs
-    for f in "${DORIS_HOME}/lib/hadoop_hdfs/common"/*.jar; do
+    for f in "${DORIS_HOME}/lib/hadoop_hdfs"/*.jar; do
         DORIS_CLASSPATH="${DORIS_CLASSPATH}:${f}"
     done
-    for f in "${DORIS_HOME}/lib/hadoop_hdfs/common/lib"/*.jar; do
+    for f in "${DORIS_HOME}/lib/hadoop_hdfs/lib"/*.jar; do
         DORIS_CLASSPATH="${DORIS_CLASSPATH}:${f}"
     done
-    for f in "${DORIS_HOME}/lib/hadoop_hdfs/hdfs"/*.jar; do
-        DORIS_CLASSPATH="${DORIS_CLASSPATH}:${f}"
-    done
-    for f in "${DORIS_HOME}/lib/hadoop_hdfs/hdfs/lib"/*.jar; do
+fi
+
+# add jindofs
+# should after jars in lib/hadoop_hdfs/, or it will override the hadoop jars in lib/hadoop_hdfs
+if [[ -d "${DORIS_HOME}/lib/java_extensions/jindofs" ]]; then
+    for f in "${DORIS_HOME}/lib/java_extensions/jindofs"/*.jar; do
         DORIS_CLASSPATH="${DORIS_CLASSPATH}:${f}"
     done
 fi
@@ -319,7 +330,6 @@ if [[ -f "${pidfile}" && "${RUN_BENCHMARK}" -eq 0 ]]; then
     fi
 fi
 
-chmod 550 "${DORIS_HOME}/lib/doris_be"
 log "Start time: $(date)"
 
 if [[ ! -f '/bin/limit3' ]]; then
@@ -333,11 +343,12 @@ export AWS_MAX_ATTEMPTS=2
 # filter known leak
 export LSAN_OPTIONS=suppressions=${DORIS_HOME}/conf/lsan_suppr.conf
 export ASAN_OPTIONS=suppressions=${DORIS_HOME}/conf/asan_suppr.conf
+export UBSAN_OPTIONS=suppressions=${DORIS_HOME}/conf/ubsan_suppr.conf
 
 ## set asan and ubsan env to generate core file
 ## detect_container_overflow=0, https://github.com/google/sanitizers/issues/193
 export ASAN_OPTIONS=symbolize=1:abort_on_error=1:disable_coredump=0:unmap_shadow_on_exit=1:detect_container_overflow=0:check_malloc_usable_size=0:${ASAN_OPTIONS}
-export UBSAN_OPTIONS=print_stacktrace=1
+export UBSAN_OPTIONS=print_stacktrace=1:${UBSAN_OPTIONS}
 
 ## set TCMALLOC_HEAP_LIMIT_MB to limit memory used by tcmalloc
 set_tcmalloc_heap_limit() {
@@ -438,10 +449,16 @@ else
 fi
 
 if [[ "${RUN_BENCHMARK}" -eq 1 ]]; then
+    BENCHMARK_ARGS=()
+
+    if [[ -n ${BENCHMARK_FILTER} ]]; then
+        BENCHMARK_ARGS+=("--benchmark_filter=${BENCHMARK_FILTER}")
+    fi
+
     if [[ "$(uname -s)" == 'Darwin' ]]; then
-        env DYLD_LIBRARY_PATH="${DYLD_LIBRARY_PATH}" ${LIMIT:+${LIMIT}} "${DORIS_HOME}/lib/benchmark_test"
+        env DYLD_LIBRARY_PATH="${DYLD_LIBRARY_PATH}" ${LIMIT:+${LIMIT}} "${DORIS_HOME}/lib/benchmark_test" "${BENCHMARK_ARGS[@]}"
     else
-        ${LIMIT:+${LIMIT}} "${DORIS_HOME}/lib/benchmark_test"
+        ${LIMIT:+${LIMIT}} "${DORIS_HOME}/lib/benchmark_test" "${BENCHMARK_ARGS[@]}"
     fi
 elif [[ "${RUN_DAEMON}" -eq 1 ]]; then
     if [[ "$(uname -s)" == 'Darwin' ]]; then
@@ -450,8 +467,10 @@ elif [[ "${RUN_DAEMON}" -eq 1 ]]; then
         nohup ${LIMIT:+${LIMIT}} "${DORIS_HOME}/lib/doris_be" "$@" >>"${LOG_DIR}/be.out" 2>&1 </dev/null &
     fi
 elif [[ "${RUN_CONSOLE}" -eq 1 ]]; then
+    # stdout outputs console
+    # stderr outputs be.out
     export DORIS_LOG_TO_STDERR=1
-    ${LIMIT:+${LIMIT}} "${DORIS_HOME}/lib/doris_be" "$@" 2>&1 </dev/null
+    ${LIMIT:+${LIMIT}} "${DORIS_HOME}/lib/doris_be" "$@" 2>>"${LOG_DIR}/be.out" </dev/null
 else
     ${LIMIT:+${LIMIT}} "${DORIS_HOME}/lib/doris_be" "$@" >>"${LOG_DIR}/be.out" 2>&1 </dev/null
 fi

@@ -23,7 +23,7 @@
 #include "vec/core/column_with_type_and_name.h"
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 ColumnsWithSortDescriptions get_columns_with_sort_description(const Block& block,
                                                               const SortDescription& description) {
     size_t size = description.size();
@@ -32,10 +32,7 @@ ColumnsWithSortDescriptions get_columns_with_sort_description(const Block& block
 
     for (size_t i = 0; i < size; ++i) {
         const IColumn* column =
-                !description[i].column_name.empty()
-                        ? block.get_by_name(description[i].column_name).column.get()
-                        : block.safe_get_by_position(description[i].column_number).column.get();
-
+                block.safe_get_by_position(description[i].column_number).column.get();
         res.emplace_back(column, description[i]);
     }
 
@@ -53,9 +50,7 @@ void sort_block(Block& src_block, Block& dest_block, const SortDescription& desc
         bool reverse = description[0].direction == -1;
 
         const IColumn* column =
-                !description[0].column_name.empty()
-                        ? src_block.get_by_name(description[0].column_name).column.get()
-                        : src_block.safe_get_by_position(description[0].column_number).column.get();
+                src_block.safe_get_by_position(description[0].column_number).column.get();
 
         IColumn::Permutation perm;
         column->get_permutation(reverse, limit, description[0].nulls_direction, perm);

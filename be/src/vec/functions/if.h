@@ -23,6 +23,7 @@
 
 #include <boost/iterator/iterator_facade.hpp>
 
+#include "runtime/primitive_type.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_vector.h"
 #include "vec/common/pod_array_fwd.h"
@@ -37,38 +38,49 @@
 
 namespace doris::vectorized {
 
-template <typename Type>
+template <PrimitiveType PType>
 struct NumIfImpl {
 private:
+    using Type = typename PrimitiveTypeTraits<PType>::ColumnItemType;
     using ArrayCond = PaddedPODArray<UInt8>;
     using Array = PaddedPODArray<Type>;
-    using ColVecResult = ColumnVector<Type>;
-    using ColVecT = ColumnVector<Type>;
+    using ColVecT = typename PrimitiveTypeTraits<PType>::ColumnType;
 
 public:
     static const Array& get_data_from_column_const(const ColumnConst* column) {
         return assert_cast<const ColVecT&>(column->get_data_column()).get_data();
     }
 
+    static auto create_column(const ArrayCond& cond, int scale) {
+        if constexpr (is_decimal(PType)) {
+            return ColVecT::create(cond.size(), scale);
+        } else {
+            return ColVecT::create(cond.size());
+        }
+    }
+
     static ColumnPtr execute_if(const ArrayCond& cond, const ColumnPtr& then_col,
-                                const ColumnPtr& else_col) {
+                                const ColumnPtr& else_col, int result_scale) {
         if (const auto* col_then = check_and_get_column<ColVecT>(then_col.get())) {
             if (const auto* col_else = check_and_get_column<ColVecT>(else_col.get())) {
-                return execute_impl<false, false>(cond, col_then->get_data(), col_else->get_data());
+                return execute_impl<false, false>(cond, col_then->get_data(), col_else->get_data(),
+                                                  result_scale);
             } else if (const auto* col_const_else =
                                check_and_get_column_const<ColVecT>(else_col.get())) {
                 return execute_impl<false, true>(cond, col_then->get_data(),
-                                                 get_data_from_column_const(col_const_else));
+                                                 get_data_from_column_const(col_const_else),
+                                                 result_scale);
             }
         } else if (const auto* col_const_then =
                            check_and_get_column_const<ColVecT>(then_col.get())) {
             if (const auto* col_else = check_and_get_column<ColVecT>(else_col.get())) {
                 return execute_impl<true, false>(cond, get_data_from_column_const(col_const_then),
-                                                 col_else->get_data());
+                                                 col_else->get_data(), result_scale);
             } else if (const auto* col_const_else =
                                check_and_get_column_const<ColVecT>(else_col.get())) {
                 return execute_impl<true, true>(cond, get_data_from_column_const(col_const_then),
-                                                get_data_from_column_const(col_const_else));
+                                                get_data_from_column_const(col_const_else),
+                                                result_scale);
             }
         }
         return nullptr;
@@ -76,24 +88,26 @@ public:
 
 private:
     template <bool is_const_a, bool is_const_b>
-    static ColumnPtr execute_impl(const ArrayCond& cond, const Array& a, const Array& b) {
+    static ColumnPtr execute_impl(const ArrayCond& cond, const Array& a, const Array& b,
+                                  int result_scale) {
 #ifdef __ARM_NEON
         if constexpr (can_use_neon_opt()) {
-            auto col_res = ColVecResult::create(cond.size());
+            auto col_res = create_column(cond, result_scale);
             auto res = col_res->get_data().data();
             neon_execute<is_const_a, is_const_b>(cond.data(), res, a.data(), b.data(), cond.size());
             return col_res;
         }
 #endif
-        return native_execute<is_const_a, is_const_b>(cond, a, b);
+        return native_execute<is_const_a, is_const_b>(cond, a, b, result_scale);
     }
 
     // res[i] = cond[i] ? a[i] : b[i];
     template <bool is_const_a, bool is_const_b>
-    static ColumnPtr native_execute(const ArrayCond& cond, const Array& a, const Array& b) {
+    static ColumnPtr native_execute(const ArrayCond& cond, const Array& a, const Array& b,
+                                    int result_scale) {
         size_t size = cond.size();
-        auto col_res = ColVecResult::create(size);
-        typename ColVecResult::Container& res = col_res->get_data();
+        auto col_res = create_column(cond, result_scale);
+        auto& res = col_res->get_data();
         for (size_t i = 0; i < size; ++i) {
             res[i] = cond[i] ? a[index_check_const<is_const_a>(i)]
                              : b[index_check_const<is_const_b>(i)];

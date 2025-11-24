@@ -45,7 +45,7 @@ Status FileMetaData::init_schema() {
     return _schema.parse_from_thrift(_metadata.schema);
 }
 
-const tparquet::FileMetaData& FileMetaData::to_thrift() {
+const tparquet::FileMetaData& FileMetaData::to_thrift() const {
     return _metadata;
 }
 

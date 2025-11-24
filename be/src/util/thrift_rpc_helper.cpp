@@ -54,7 +54,7 @@ using apache::thrift::transport::TSocket;
 using apache::thrift::transport::TTransport;
 using apache::thrift::transport::TBufferedTransport;
 
-ExecEnv* ThriftRpcHelper::_s_exec_env;
+ExecEnv* ThriftRpcHelper::_s_exec_env = nullptr;
 
 void ThriftRpcHelper::setup(ExecEnv* exec_env) {
     _s_exec_env = exec_env;
@@ -68,7 +68,9 @@ Status ThriftRpcHelper::rpc(const std::string& ip, const int32_t port,
     DBUG_EXECUTE_IF("thriftRpcHelper.rpc.error", { timeout_ms = 30000; });
     ClientConnection<T> client(_s_exec_env->get_client_cache<T>(), address, timeout_ms, &status);
     if (!status.ok()) {
+#ifndef ADDRESS_SANITIZER
         LOG(WARNING) << "Connect frontend failed, address=" << address << ", status=" << status;
+#endif
         return status;
     }
     try {
@@ -76,22 +78,28 @@ Status ThriftRpcHelper::rpc(const std::string& ip, const int32_t port,
             callback(client);
         } catch (apache::thrift::transport::TTransportException& e) {
             std::cerr << "thrift error, reason=" << e.what();
+#ifndef ADDRESS_SANITIZER
             LOG(WARNING) << "retrying call frontend service after "
                          << config::thrift_client_retry_interval_ms << " ms, address=" << address
                          << ", reason=" << e.what();
+#endif
             std::this_thread::sleep_for(
                     std::chrono::milliseconds(config::thrift_client_retry_interval_ms));
             status = client.reopen(timeout_ms);
             if (!status.ok()) {
+#ifndef ADDRESS_SANITIZER
                 LOG(WARNING) << "client reopen failed. address=" << address
                              << ", status=" << status;
+#endif
                 return status;
             }
             callback(client);
         }
     } catch (apache::thrift::TException& e) {
+#ifndef ADDRESS_SANITIZER
         LOG(WARNING) << "call frontend service failed, address=" << address
                      << ", reason=" << e.what();
+#endif
         std::this_thread::sleep_for(
                 std::chrono::milliseconds(config::thrift_client_retry_interval_ms * 2));
         // just reopen to disable this connection

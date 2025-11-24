@@ -97,7 +97,7 @@ private:
                     }
                     if (!_cur_probe_row_visited_flags[i]) {
                         _cur_probe_row_visited_flags[i] =
-                                simd::contain_byte<uint8>(filter.data() + offset, end - offset, 1)
+                                simd::contain_byte<uint8_t>(filter.data() + offset, end - offset, 1)
                                         ? 1
                                         : 0;
                     }
@@ -213,7 +213,7 @@ public:
         return _old_version_flag ? _row_descriptor : *_intermediate_row_desc;
     }
 
-    DataDistribution required_data_distribution() const override {
+    DataDistribution required_data_distribution(RuntimeState* /*state*/) const override {
         if (_join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN ||
             _join_op == TJoinOp::RIGHT_OUTER_JOIN || _join_op == TJoinOp::RIGHT_ANTI_JOIN ||
             _join_op == TJoinOp::RIGHT_SEMI_JOIN || _join_op == TJoinOp::FULL_OUTER_JOIN) {

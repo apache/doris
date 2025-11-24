@@ -27,11 +27,12 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
+import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Sets;
@@ -51,6 +52,7 @@ public class AddColumnOp extends AlterTableOp {
     private String rollupName;
 
     private Map<String, String> properties;
+
     // set in analyze
     private Column column;
 
@@ -73,6 +75,10 @@ public class AddColumnOp extends AlterTableOp {
 
     public String getRollupName() {
         return rollupName;
+    }
+
+    public void setColumn(Column column) {
+        this.column = column;
     }
 
     @Override
@@ -126,7 +132,7 @@ public class AddColumnOp extends AlterTableOp {
      * validateColumnDef
      */
     public static void validateColumnDef(TableNameInfo tableName, ColumnDefinition columnDef, ColumnPosition colPos,
-            String rollupName)
+                                         String rollupName)
             throws UserException {
         if (columnDef == null) {
             throw new AnalysisException("No column definition in add column clause.");
@@ -137,7 +143,9 @@ public class AddColumnOp extends AlterTableOp {
         boolean isEnableMergeOnWrite = false;
         KeysType keysType = KeysType.DUP_KEYS;
         Set<String> clusterKeySet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
-        Table table = Env.getCurrentInternalCatalog().getDbOrDdlException(tableName.getDb())
+        TableIf table = Env.getCurrentEnv().getCatalogMgr()
+                .getCatalogOrDdlException(tableName.getCtl())
+                .getDbOrDdlException(tableName.getDb())
                 .getTableOrDdlException(tableName.getTbl());
         if (table instanceof OlapTable) {
             isOlap = true;

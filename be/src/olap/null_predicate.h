@@ -29,6 +29,7 @@
 #include "olap/rowset/segment_v2/bloom_filter.h"
 #include "olap/schema.h"
 #include "olap/wrapper_field.h"
+#include "vec/exec/format/parquet/parquet_predicate.h"
 
 namespace roaring {
 class Roaring;
@@ -53,7 +54,7 @@ public:
                     roaring::Roaring* roaring) const override;
 
     Status evaluate(const vectorized::IndexFieldNameAndTypePair& name_with_type,
-                    InvertedIndexIterator* iterator, uint32_t num_rows,
+                    IndexIterator* iterator, uint32_t num_rows,
                     roaring::Roaring* bitmap) const override;
 
     void evaluate_or(const vectorized::IColumn& column, const uint16_t* sel, uint16_t size,
@@ -68,6 +69,31 @@ public:
         } else {
             return !statistic.second->is_null();
         }
+    }
+
+    bool evaluate_and(vectorized::ParquetPredicate::ColumnStat* statistic) const override {
+        if (!(*statistic->get_stat_func)(statistic, column_id())) {
+            return true;
+        }
+        if (_is_null) {
+            return true;
+        } else {
+            return !statistic->is_all_null;
+        }
+    }
+
+    bool evaluate_and(vectorized::ParquetPredicate::CachedPageIndexStat* statistic,
+                      RowRanges* row_ranges) const override {
+        vectorized::ParquetPredicate::PageIndexStat* stat = nullptr;
+        if (!(statistic->get_stat_func)(&stat, column_id())) {
+            return true;
+        }
+        for (int page_id = 0; page_id < stat->num_of_pages; page_id++) {
+            if (_is_null || !stat->is_all_null[page_id]) {
+                row_ranges->add(stat->ranges[page_id]);
+            }
+        };
+        return row_ranges->count() > 0;
     }
 
     bool evaluate_del(const std::pair<WrapperField*, WrapperField*>& statistic) const override {
@@ -93,11 +119,6 @@ public:
     }
 
     bool can_do_bloom_filter(bool ngram) const override { return _is_null && !ngram; }
-
-    bool can_do_apply_safely(PrimitiveType input_type, bool is_null) const override {
-        // Always safe to apply is null predicate
-        return true;
-    }
 
     void evaluate_vec(const vectorized::IColumn& column, uint16_t size, bool* flags) const override;
 

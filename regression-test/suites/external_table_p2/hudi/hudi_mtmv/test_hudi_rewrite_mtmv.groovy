@@ -70,7 +70,7 @@ suite("test_hudi_rewrite_mtmv", "p2,external,hudi,external_remote,external_remot
     mv_rewrite_success("${mvSql}", "${mvName}")
 
     // select p_b should not rewrite
-    mv_rewrite_fail("SELECT par,count(*) as num FROM ${catalogName}.`hudi_mtmv_regression_test`.hudi_table_1 where par='b' group by par;", "${mvName}")
+    mv_not_part_in("SELECT par,count(*) as num FROM ${catalogName}.`hudi_mtmv_regression_test`.hudi_table_1 where par='b' group by par;", "${mvName}")
 
     //refresh auto
     sql """

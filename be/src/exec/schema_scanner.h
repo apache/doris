@@ -57,6 +57,7 @@ struct SchemaScannerCommonParam {
               user(nullptr),
               user_ip(nullptr),
               current_user_ident(nullptr),
+              frontend_conjuncts(nullptr),
               ip(nullptr),
               port(0),
               catalog(nullptr) {}
@@ -66,6 +67,7 @@ struct SchemaScannerCommonParam {
     const std::string* user = nullptr;                 // deprecated
     const std::string* user_ip = nullptr;              // deprecated
     const TUserIdentity* current_user_ident = nullptr; // to replace the user and user ip
+    const std::string* frontend_conjuncts = nullptr;   // frontend_conjuncts
     const std::string* ip = nullptr;                   // frontend ip
     int32_t port;                                      // frontend thrift port
     int64_t thread_id;

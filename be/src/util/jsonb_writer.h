@@ -36,12 +36,17 @@
 #ifndef JSONB_JSONBWRITER_H
 #define JSONB_JSONBWRITER_H
 
+#include <glog/logging.h>
+
+#include <cstdint>
 #include <limits>
 #include <stack>
 #include <string>
 
+#include "common/status.h"
 #include "jsonb_document.h"
 #include "jsonb_stream.h"
+#include "vec/core/types.h"
 
 namespace doris {
 
@@ -49,6 +54,9 @@ using int128_t = __int128;
 
 template <class OS_TYPE>
 class JsonbWriterT {
+    /// TODO: maybe we should not use a template class here
+    static_assert(std::is_same_v<OS_TYPE, JsonbOutStream>);
+
 public:
     JsonbWriterT() : alloc_(true), hasHdr_(false), kvState_(WS_Value), str_pos_(0) {
         os_ = new OS_TYPE();
@@ -63,77 +71,93 @@ public:
         }
     }
 
+    JsonbWriterT<OS_TYPE>& operator=(JsonbWriterT<OS_TYPE>&& other) {
+        if (this != &other) {
+            if (alloc_) {
+                delete os_;
+            }
+            os_ = other.os_;
+            other.os_ = nullptr;
+            alloc_ = other.alloc_;
+            other.alloc_ = false;
+            hasHdr_ = other.hasHdr_;
+            kvState_ = other.kvState_;
+            str_pos_ = other.str_pos_;
+            first_ = other.first_;
+            stack_ = std::move(other.stack_);
+        }
+        return *this;
+    }
+
     void reset() {
         os_->clear();
         os_->seekp(0);
         hasHdr_ = false;
         kvState_ = WS_Value;
         first_ = true;
-        for (; !stack_.empty(); stack_.pop())
+        for (; !stack_.empty(); stack_.pop()) {
             ;
+        }
     }
 
-    uint32_t writeKey(const char* key, hDictInsert handler = nullptr) {
-        return writeKey(key, strlen(key), handler);
-    }
+    bool writeKey(const char* key) { return writeKey(key, strlen(key)); }
 
     // write a key string (or key id if an external dict is provided)
-    uint32_t writeKey(const char* key, uint8_t len, hDictInsert handler = nullptr) {
+    bool writeKey(const char* key, uint8_t len) {
         if (!stack_.empty() && verifyKeyState()) {
-            int key_id = -1;
-            if (handler) {
-                key_id = handler(key, len);
-            }
-
-            uint32_t size = sizeof(uint8_t);
-            if (key_id < 0) {
-                os_->put(len);
-                if (len == 0) {
-                    // NOTE: we use sMaxKeyId to represent an empty key
-                    JsonbKeyValue::keyid_type idx = JsonbKeyValue::sMaxKeyId;
-                    os_->write((char*)&idx, sizeof(JsonbKeyValue::keyid_type));
-                    size += sizeof(JsonbKeyValue::keyid_type);
-                } else {
-                    os_->write(key, len);
-                    size += len;
-                }
-            } else if (key_id < JsonbKeyValue::sMaxKeyId) {
-                JsonbKeyValue::keyid_type idx = key_id;
-                os_->put(0);
+            os_->put(len);
+            if (len == 0) {
+                // NOTE: we use sMaxKeyId to represent an empty key
+                JsonbKeyValue::keyid_type idx = JsonbKeyValue::sMaxKeyId;
                 os_->write((char*)&idx, sizeof(JsonbKeyValue::keyid_type));
-                size += sizeof(JsonbKeyValue::keyid_type);
-            } else { // key id overflow
-                assert(0);
-                return 0;
+            } else {
+                os_->write(key, len);
             }
-
             kvState_ = WS_Key;
-            return size;
+            return true;
         }
 
-        return 0;
+        return false;
     }
 
-    uint32_t writeValue(const JsonbValue* value) {
+    bool writeValue(const JsonbValue* value) {
+        if (!value) {
+            return writeNull();
+        }
+
         if ((first_ && stack_.empty()) || (!stack_.empty() && verifyValueState())) {
-            if (!writeFirstHeader()) return 0;
+            if (!writeFirstHeader()) {
+                return false;
+            }
             os_->write((char*)value, value->numPackedBytes());
             kvState_ = WS_Value;
-            return value->size();
+            return true;
         }
-        return 0;
+        return false;
+    }
+
+    bool writeValueSimple(const JsonbValue* value) {
+        DCHECK(value) << "value should not be nullptr";
+        DCHECK(first_) << "only called at the beginning";
+        DCHECK(stack_.empty()) << "only called at the beginning";
+        DCHECK(!hasHdr_) << "only called at the beginning";
+        first_ = false;
+        writeHeader();
+        os_->write((char*)value, value->numPackedBytes());
+        kvState_ = WS_Value;
+        return true;
     }
 
     // write a key id
-    uint32_t writeKey(JsonbKeyValue::keyid_type idx) {
+    bool writeKey(JsonbKeyValue::keyid_type idx) {
         if (!stack_.empty() && verifyKeyState()) {
             os_->put(0);
             os_->write((char*)&idx, sizeof(JsonbKeyValue::keyid_type));
             kvState_ = WS_Key;
-            return sizeof(uint8_t) + sizeof(JsonbKeyValue::keyid_type);
+            return true;
         }
 
-        return 0;
+        return false;
     }
 
     bool writeFirstHeader() {
@@ -151,20 +175,24 @@ public:
         }
     }
 
-    uint32_t writeNull() {
+    bool writeNull() {
         if ((first_ && stack_.empty()) || (!stack_.empty() && verifyValueState())) {
-            if (!writeFirstHeader()) return 0;
+            if (!writeFirstHeader()) {
+                return false;
+            }
             os_->put((JsonbTypeUnder)JsonbType::T_Null);
             kvState_ = WS_Value;
-            return sizeof(JsonbValue);
+            return true;
         }
 
-        return 0;
+        return false;
     }
 
-    uint32_t writeBool(bool b) {
+    bool writeBool(bool b) {
         if ((first_ && stack_.empty()) || (!stack_.empty() && verifyValueState())) {
-            if (!writeFirstHeader()) return 0;
+            if (!writeFirstHeader()) {
+                return false;
+            }
             if (b) {
                 os_->put((JsonbTypeUnder)JsonbType::T_True);
             } else {
@@ -172,15 +200,15 @@ public:
             }
 
             kvState_ = WS_Value;
-            return sizeof(JsonbValue);
+            return true;
         }
 
-        return 0;
+        return false;
     }
 
     // This function is a helper. It will make use of smallest space to
     // write an int
-    uint32_t writeInt(int64_t val) {
+    bool writeInt(int64_t val) {
         if (val >= std::numeric_limits<int8_t>::min() &&
             val <= std::numeric_limits<int8_t>::max()) {
             return writeInt8((int8_t)val);
@@ -195,88 +223,129 @@ public:
         }
     }
 
-    uint32_t writeInt8(int8_t v) {
+    bool writeInt8(int8_t v) {
         if ((first_ && stack_.empty()) || (!stack_.empty() && verifyValueState())) {
-            if (!writeFirstHeader()) return 0;
+            if (!writeFirstHeader()) {
+                return false;
+            }
             os_->put((JsonbTypeUnder)JsonbType::T_Int8);
             os_->put(v);
             kvState_ = WS_Value;
-            return sizeof(JsonbInt8Val);
+            return true;
         }
 
-        return 0;
+        return false;
     }
 
-    uint32_t writeInt16(int16_t v) {
+    bool writeInt16(int16_t v) {
         if ((first_ && stack_.empty()) || (!stack_.empty() && verifyValueState())) {
-            if (!writeFirstHeader()) return 0;
+            if (!writeFirstHeader()) {
+                return false;
+            }
             os_->put((JsonbTypeUnder)JsonbType::T_Int16);
             os_->write((char*)&v, sizeof(int16_t));
             kvState_ = WS_Value;
-            return sizeof(JsonbInt16Val);
+            return true;
         }
 
-        return 0;
+        return false;
     }
 
-    uint32_t writeInt32(int32_t v) {
+    bool writeInt32(int32_t v) {
         if ((first_ && stack_.empty()) || (!stack_.empty() && verifyValueState())) {
-            if (!writeFirstHeader()) return 0;
+            if (!writeFirstHeader()) {
+                return false;
+            }
             os_->put((JsonbTypeUnder)JsonbType::T_Int32);
             os_->write((char*)&v, sizeof(int32_t));
             kvState_ = WS_Value;
-            return sizeof(JsonbInt32Val);
+            return true;
         }
 
-        return 0;
+        return false;
     }
 
-    uint32_t writeInt64(int64_t v) {
+    bool writeInt64(int64_t v) {
         if ((first_ && stack_.empty()) || (!stack_.empty() && verifyValueState())) {
-            if (!writeFirstHeader()) return 0;
+            if (!writeFirstHeader()) {
+                return false;
+            }
             os_->put((JsonbTypeUnder)JsonbType::T_Int64);
             os_->write((char*)&v, sizeof(int64_t));
             kvState_ = WS_Value;
-            return sizeof(JsonbInt64Val);
+            return true;
         }
 
-        return 0;
+        return false;
     }
 
-    uint32_t writeInt128(int128_t v) {
+    bool writeInt128(int128_t v) {
         if ((first_ && stack_.empty()) || (!stack_.empty() && verifyValueState())) {
-            if (!writeFirstHeader()) return 0;
+            if (!writeFirstHeader()) {
+                return false;
+            }
             os_->put((JsonbTypeUnder)JsonbType::T_Int128);
             os_->write((char*)&v, sizeof(int128_t));
             kvState_ = WS_Value;
-            return sizeof(JsonbInt128Val);
+            return true;
         }
 
-        return 0;
+        return false;
     }
 
-    uint32_t writeDouble(double v) {
+    bool writeDouble(double v) {
         if ((first_ && stack_.empty()) || (!stack_.empty() && verifyValueState())) {
-            if (!writeFirstHeader()) return 0;
+            if (!writeFirstHeader()) {
+                return false;
+            }
             os_->put((JsonbTypeUnder)JsonbType::T_Double);
             os_->write((char*)&v, sizeof(double));
             kvState_ = WS_Value;
-            return sizeof(JsonbDoubleVal);
+            return true;
         }
 
-        return 0;
+        return false;
     }
 
-    uint32_t writeFloat(float v) {
+    bool writeFloat(float v) {
         if ((first_ && stack_.empty()) || (!stack_.empty() && verifyValueState())) {
-            if (!writeFirstHeader()) return 0;
+            if (!writeFirstHeader()) {
+                return false;
+            }
             os_->put((JsonbTypeUnder)JsonbType::T_Float);
             os_->write((char*)&v, sizeof(float));
             kvState_ = WS_Value;
-            return sizeof(JsonbFloatVal);
+            return true;
         }
 
-        return 0;
+        return false;
+    }
+
+    template <JsonbDecimalType T>
+    bool writeDecimal(const T& v, const uint32_t precision, const uint32_t scale) {
+        if ((first_ && stack_.empty()) || (!stack_.empty() && verifyValueState())) {
+            if (!writeFirstHeader()) {
+                return false;
+            }
+
+            if constexpr (std::same_as<T, vectorized::Decimal256>) {
+                os_->put((JsonbTypeUnder)JsonbType::T_Decimal256);
+            } else if constexpr (std::same_as<T, vectorized::Decimal128V3>) {
+                os_->put((JsonbTypeUnder)JsonbType::T_Decimal128);
+            } else if constexpr (std::same_as<T, vectorized::Decimal64>) {
+                os_->put((JsonbTypeUnder)JsonbType::T_Decimal64);
+            } else {
+                os_->put((JsonbTypeUnder)JsonbType::T_Decimal32);
+            }
+
+            os_->write(reinterpret_cast<const char*>(&precision), sizeof(uint32_t));
+            os_->write(reinterpret_cast<const char*>(&scale), sizeof(uint32_t));
+            os_->write((char*)(&(v.value)), sizeof(v.value));
+            kvState_ = WS_Value;
+            return true;
+        }
+
+        return false;
     }
 
     // must call writeStartString before writing a string val
@@ -317,23 +386,23 @@ public:
 
     // TODO: here changed length to uint64_t, as some api also need changed, But the thirdparty api is uint_32t
     // need consider a better way to handle case.
-    uint64_t writeString(const char* str, uint64_t len) {
+    bool writeString(const char* str, uint64_t len) {
         if (kvState_ == WS_String) {
             os_->write(str, len);
-            return len;
+            return true;
         }
 
-        return 0;
+        return false;
     }
 
-    uint32_t writeString(const std::string& str) { return writeString(str.c_str(), str.size()); }
-    uint32_t writeString(char ch) {
+    bool writeString(const std::string& str) { return writeString(str.c_str(), str.size()); }
+    bool writeString(char ch) {
         if (kvState_ == WS_String) {
             os_->put(ch);
-            return 1;
+            return true;
         }
 
-        return 0;
+        return false;
     }
 
     // must call writeStartBinary before writing a binary val
@@ -372,13 +441,13 @@ public:
         return false;
     }
 
-    uint64_t writeBinary(const char* bin, uint64_t len) {
+    bool writeBinary(const char* bin, uint64_t len) {
         if (kvState_ == WS_Binary) {
             os_->write(bin, len);
-            return len;
+            return true;
         }
 
-        return 0;
+        return false;
     }
 
     // must call writeStartObject before writing an object val
@@ -415,7 +484,7 @@ public:
         if (!stack_.empty() && stack_.top().state == WS_Object && kvState_ == WS_Value) {
             WriteInfo& ci = stack_.top();
             std::streampos cur_pos = os_->tellp();
-            int32_t size = (int32_t)(cur_pos - ci.sz_pos - sizeof(uint32_t));
+            auto size = (int32_t)(cur_pos - ci.sz_pos - sizeof(uint32_t));
             assert(size >= 0);
 
             os_->seekp(ci.sz_pos);
@@ -436,12 +505,15 @@ public:
                 // if this is a new JSONB, write the header
                 if (!hasHdr_) {
                     writeHeader();
-                } else
+                } else {
                     return false;
+                }
             }
 
             // check if the array exceeds the maximum nesting level
-            if (stack_.size() >= MaxNestingLevel) return false;
+            if (stack_.size() >= MaxNestingLevel) {
+                return false;
+            }
 
             os_->put((JsonbTypeUnder)JsonbType::T_Array);
             // save the size position
@@ -463,7 +535,7 @@ public:
         if (!stack_.empty() && stack_.top().state == WS_Array && kvState_ == WS_Value) {
             WriteInfo& ci = stack_.top();
             std::streampos cur_pos = os_->tellp();
-            int32_t size = (int32_t)(cur_pos - ci.sz_pos - sizeof(uint32_t));
+            auto size = (int32_t)(cur_pos - ci.sz_pos - sizeof(uint32_t));
             assert(size >= 0);
 
             os_->seekp(ci.sz_pos);
@@ -479,8 +551,10 @@ public:
 
     OS_TYPE* getOutput() { return os_; }
     JsonbDocument* getDocument() {
-        return JsonbDocument::checkAndCreateDocument(getOutput()->getBuffer(),
-                                                     getOutput()->getSize());
+        JsonbDocument* doc = nullptr;
+        THROW_IF_ERROR(JsonbDocument::checkAndCreateDocument(getOutput()->getBuffer(),
+                                                             getOutput()->getSize(), &doc));
+        return doc;
     }
 
     JsonbValue* getValue() {
@@ -507,7 +581,9 @@ public:
                 ok = false;
                 break;
             }
-            if (ok == false) return false;
+            if (!ok) {
+                return false;
+            }
         }
         return true;
     }
@@ -533,7 +609,6 @@ private:
         hasHdr_ = true;
     }
 
-private:
     enum WriteState {
         WS_NONE,
         WS_Array,
@@ -549,7 +624,6 @@ private:
         std::streampos sz_pos;
     };
 
-private:
     OS_TYPE* os_ = nullptr;
     bool alloc_;
     bool hasHdr_;
@@ -559,7 +633,7 @@ private:
     bool first_ = true;
 };
 
-typedef JsonbWriterT<JsonbOutStream> JsonbWriter;
+using JsonbWriter = JsonbWriterT<JsonbOutStream>;
 
 } // namespace doris
 

@@ -18,6 +18,8 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("dup_mv_plus") {
+    // this mv rewrite would not be rewritten in RBO, so set NOT_IN_RBO explicitly
+    sql "set pre_materialized_view_rewrite_strategy = NOT_IN_RBO"
     sql """ DROP TABLE IF EXISTS dup_mv_plus; """
 
     sql """
@@ -36,7 +38,7 @@ suite ("dup_mv_plus") {
     sql "insert into dup_mv_plus select 2,2,2,'b';"
     sql "insert into dup_mv_plus select 3,-3,null,'c';"
 
-    createMV ("create materialized view k12p as select k1,k2+1 from dup_mv_plus;")
+    createMV ("create materialized view k12p as select k1 as a1,k2+1 from dup_mv_plus;")
     sleep(3000)
 
     sql "insert into dup_mv_plus select -4,-4,-4,'d';"

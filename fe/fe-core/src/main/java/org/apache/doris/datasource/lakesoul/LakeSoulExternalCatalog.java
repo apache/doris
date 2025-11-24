@@ -21,9 +21,7 @@ import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.SessionContext;
-import org.apache.doris.datasource.property.PropertyConverter;
 
-import com.dmetasoul.lakesoul.meta.DBManager;
 import com.dmetasoul.lakesoul.meta.DBUtil;
 import com.dmetasoul.lakesoul.meta.entity.PartitionInfo;
 import com.dmetasoul.lakesoul.meta.entity.TableInfo;
@@ -34,18 +32,22 @@ import org.apache.logging.log4j.Logger;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * @deprecated LakeSoul catalog support has been deprecated and will be removed in a future version.
+ */
+@Deprecated
 public class LakeSoulExternalCatalog extends ExternalCatalog {
 
     private static final Logger LOG = LogManager.getLogger(LakeSoulExternalCatalog.class);
 
-    private DBManager lakesoulMetadataManager;
+    // private transient DBManager lakesoulMetadataManager;
 
     private final Map<String, String> props;
 
     public LakeSoulExternalCatalog(long catalogId, String name, String resource, Map<String, String> props,
                                    String comment) {
         super(catalogId, name, InitCatalogLog.Type.LAKESOUL, comment);
-        this.props = PropertyConverter.convertToMetaProperties(props);
+        this.props = props;
         catalogProperty = new CatalogProperty(resource, props);
         initLocalObjectsImpl();
     }
@@ -53,25 +55,28 @@ public class LakeSoulExternalCatalog extends ExternalCatalog {
     @Override
     protected List<String> listDatabaseNames() {
         initLocalObjectsImpl();
-        return lakesoulMetadataManager.listNamespaces();
+        // return lakesoulMetadataManager.listNamespaces();
+        return Lists.newArrayList();
     }
 
     @Override
     public List<String> listTableNames(SessionContext ctx, String dbName) {
-        makeSureInitialized();
-        List<TableInfo> tifs = lakesoulMetadataManager.getTableInfosByNamespace(dbName);
-        List<String> tableNames = Lists.newArrayList();
-        for (TableInfo item : tifs) {
-            tableNames.add(item.getTableName());
-        }
-        return tableNames;
+        // makeSureInitialized();
+        // List<TableInfo> tifs = lakesoulMetadataManager.getTableInfosByNamespace(dbName);
+        // List<String> tableNames = Lists.newArrayList();
+        // for (TableInfo item : tifs) {
+        //     tableNames.add(item.getTableName());
+        // }
+        // return tableNames;
+        return Lists.newArrayList();
     }
 
     @Override
     public boolean tableExist(SessionContext ctx, String dbName, String tblName) {
-        makeSureInitialized();
-        TableInfo tableInfo = lakesoulMetadataManager.getTableInfoByNameAndNamespace(tblName, dbName);
-        return null != tableInfo;
+        // makeSureInitialized();
+        // TableInfo tableInfo = lakesoulMetadataManager.getTableInfoByNameAndNamespace(tblName, dbName);
+        // return null != tableInfo;
+        return false;
     }
 
     @Override
@@ -87,17 +92,19 @@ public class LakeSoulExternalCatalog extends ExternalCatalog {
                 System.setProperty(DBUtil.passwordKey, props.get(DBUtil.passwordKey));
             }
         }
-        lakesoulMetadataManager = new DBManager();
+        // lakesoulMetadataManager = new DBManager();
     }
 
     public TableInfo getLakeSoulTable(String dbName, String tblName) {
         makeSureInitialized();
-        return lakesoulMetadataManager.getTableInfoByNameAndNamespace(tblName, dbName);
+        // return lakesoulMetadataManager.getTableInfoByNameAndNamespace(tblName, dbName);
+        return null;
     }
 
     public List<PartitionInfo> listPartitionInfo(String tableId) {
         makeSureInitialized();
-        return lakesoulMetadataManager.getAllPartitionInfo(tableId);
+        // return lakesoulMetadataManager.getAllPartitionInfo(tableId);
+        return Lists.newArrayList();
     }
 }
 

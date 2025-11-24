@@ -47,13 +47,17 @@ struct ResultFileOptions {
     std::vector<TParquetSchema> parquet_schemas;
     TParquetCompressionType::type parquet_commpression_type;
     TParquetVersion::type parquet_version;
-    bool parquert_disable_dictionary;
+    bool parquert_disable_dictionary = false;
+    bool enable_int96_timestamps = false;
     //note: use outfile with parquet format, have deprecated 9:schema and 10:file_properties
     //But in order to consider the compatibility when upgrading, so add a bool to check
     //Now the code version is 1.1.2, so when the version is after 1.2, could remove this code.
     bool is_refactor_before_flag = false;
     std::string orc_schema;
     TFileCompressType::type orc_compression_type;
+    // currently only for csv
+    // TODO: we should merge parquet_commpression_type/orc_compression_type/compression_type
+    TFileCompressType::type compression_type = TFileCompressType::PLAIN;
 
     bool delete_existing_files = false;
     std::string file_suffix;
@@ -104,6 +108,9 @@ struct ResultFileOptions {
         if (t_opt.__isset.parquet_version) {
             parquet_version = t_opt.parquet_version;
         }
+        if (t_opt.__isset.enable_int96_timestamps) {
+            enable_int96_timestamps = t_opt.enable_int96_timestamps;
+        }
         if (t_opt.__isset.orc_schema) {
             orc_schema = t_opt.orc_schema;
         }
@@ -112,6 +119,9 @@ struct ResultFileOptions {
         }
         if (t_opt.__isset.orc_writer_version) {
             orc_writer_version = t_opt.orc_writer_version;
+        }
+        if (t_opt.__isset.compression_type) {
+            compression_type = t_opt.compression_type;
         }
     }
 };

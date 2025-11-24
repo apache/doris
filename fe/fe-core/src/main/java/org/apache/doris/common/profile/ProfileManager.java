@@ -32,9 +32,11 @@ import org.apache.doris.thrift.BackendService;
 import org.apache.doris.thrift.TGetRealtimeExecStatusRequest;
 import org.apache.doris.thrift.TGetRealtimeExecStatusResponse;
 import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.thrift.TQueryStatistics;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
 
+import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -72,6 +74,10 @@ public class ProfileManager extends MasterDaemon {
     private static volatile ProfileManager INSTANCE = null;
     static String PROFILE_STORAGE_PATH = Config.spilled_profile_storage_path;
     private static final int BATCH_SIZE = 10; // Number of profiles to process in each batch
+
+    // Archive cleanup interval: 24 hours
+    private static final long ARCHIVE_CLEANUP_INTERVAL_MS = 6 * 3600 * 1000L;
+    private volatile long lastArchiveCleanupTime = 0;
 
     public enum ProfileType {
         QUERY,
@@ -253,7 +259,7 @@ public class ProfileManager extends MasterDaemon {
     }
 
     private static TGetRealtimeExecStatusResponse getRealtimeQueryProfile(
-            TUniqueId queryID, TNetworkAddress targetBackend) {
+            TUniqueId queryID, String reqType, TNetworkAddress targetBackend) {
         TGetRealtimeExecStatusResponse resp = null;
         BackendService.Client client = null;
 
@@ -268,6 +274,7 @@ public class ProfileManager extends MasterDaemon {
         try {
             TGetRealtimeExecStatusRequest req = new TGetRealtimeExecStatusRequest();
             req.setId(queryID);
+            req.setReqType(reqType);
             resp = client.getRealtimeExecStatus(req);
         } catch (TException e) {
             LOG.warn("Got exception when getRealtimeExecStatus, query {} backend {}",
@@ -293,8 +300,8 @@ public class ProfileManager extends MasterDaemon {
             return null;
         }
 
-        if (!resp.isSetReportExecStatusParams()) {
-            LOG.warn("Invalid GetRealtimeExecStatusResponse, query {}",
+        if (!resp.isSetReportExecStatusParams() && !resp.isSetQueryStats()) {
+            LOG.warn("Invalid GetRealtimeExecStatusResponse, missing both exec status and query stats. query {}",
                     DebugUtil.printId(queryID));
             return null;
         }
@@ -302,7 +309,7 @@ public class ProfileManager extends MasterDaemon {
         return resp;
     }
 
-    private List<Future<TGetRealtimeExecStatusResponse>> createFetchRealTimeProfileTasks(String id) {
+    private List<Future<TGetRealtimeExecStatusResponse>> createFetchRealTimeProfileTasks(String id, String reqType) {
         // For query, id is queryId, for load, id is LoadLoadingTaskId
         class QueryIdAndAddress {
             public TUniqueId id;
@@ -319,15 +326,17 @@ public class ProfileManager extends MasterDaemon {
         List<QueryIdAndAddress> involvedBackends = Lists.newArrayList();
 
         if (queryId != null) {
-            CoordInterface coor = QeProcessorImpl.INSTANCE.getCoordinator(queryId);
-
-            if (coor != null) {
-                for (TNetworkAddress addr : coor.getInvolvedBackends()) {
+            CoordInterface coord = QeProcessorImpl.INSTANCE.getCoordinator(queryId);
+            if (coord != null) {
+                for (TNetworkAddress addr : coord.getInvolvedBackends()) {
                     QueryIdAndAddress tmp = new QueryIdAndAddress();
                     tmp.id = queryId;
                     tmp.beAddress = addr;
                     involvedBackends.add(tmp);
                 }
+            } else {
+                LOG.warn("Coordinator is null, query id {}", id);
+                return futures;
             }
         } else {
             Long loadJobId = (long) -1;
@@ -348,10 +357,10 @@ public class ProfileManager extends MasterDaemon {
             }
 
             for (TUniqueId taskId : loadJob.getLoadTaskIds()) {
-                CoordInterface coor = QeProcessorImpl.INSTANCE.getCoordinator(taskId);
-                if (coor != null) {
-                    if (coor.getInvolvedBackends() != null) {
-                        for (TNetworkAddress beAddress : coor.getInvolvedBackends()) {
+                CoordInterface coord = QeProcessorImpl.INSTANCE.getCoordinator(taskId);
+                if (coord != null) {
+                    if (coord.getInvolvedBackends() != null) {
+                        for (TNetworkAddress beAddress : coord.getInvolvedBackends()) {
                             QueryIdAndAddress tmp = new QueryIdAndAddress();
                             tmp.id = taskId;
                             tmp.beAddress = beAddress;
@@ -360,23 +369,77 @@ public class ProfileManager extends MasterDaemon {
                     } else {
                         LOG.warn("Involved backends is null, load job {}, task {}", id, DebugUtil.printId(taskId));
                     }
+                } else {
+                    LOG.warn("Coordinator is null, load job {}, task {}", id, DebugUtil.printId(taskId));
                 }
             }
         }
 
         for (QueryIdAndAddress idAndAddress : involvedBackends) {
-            Callable<TGetRealtimeExecStatusResponse> task = () -> {
-                return getRealtimeQueryProfile(idAndAddress.id, idAndAddress.beAddress);
-            };
+            Callable<TGetRealtimeExecStatusResponse> task = () -> getRealtimeQueryProfile(idAndAddress.id,
+                    reqType, idAndAddress.beAddress);
             Future<TGetRealtimeExecStatusResponse> future = fetchRealTimeProfileExecutor.submit(task);
             futures.add(future);
+        }
+        if (futures.isEmpty()) {
+            LOG.warn("No involved backend found for query id {}", id);
         }
 
         return futures;
     }
 
+    public TQueryStatistics getQueryStatistic(String queryId) throws Exception {
+        List<Future<TGetRealtimeExecStatusResponse>> futures = createFetchRealTimeProfileTasks(queryId,
+                "stats");
+        List<TQueryStatistics> queryStatisticsList = Lists.newArrayList();
+        for (Future<TGetRealtimeExecStatusResponse> future : futures) {
+            try {
+                TGetRealtimeExecStatusResponse resp = future.get(5, TimeUnit.SECONDS);
+                if (resp != null && resp.getStatus().status_code == TStatusCode.OK && resp.isSetQueryStats()) {
+                    queryStatisticsList.add(resp.getQueryStats());
+                } else {
+                    LOG.warn("Failed to get real-time query stats, id {}, resp is {}",
+                            queryId, resp == null ? "null" : resp.toString());
+                    throw new Exception("Failed to get realtime query stats: "
+                            + (resp == null ? "null" : resp.toString()));
+                }
+            } catch (Exception e) {
+                LOG.warn("Failed to get real-time query stats, id {}, error: {}", queryId, e.getMessage(), e);
+                throw new Exception("Failed to get realtime query stats: " + e.getMessage());
+            }
+        }
+        Preconditions.checkState(queryStatisticsList.size() == futures.size(),
+                String.format("Failed to get real-time stats, id %s, "
+                                + "queryStatisticsList size %d != futures size %d",
+                        queryId, queryStatisticsList.size(), futures.size()));
+
+        TQueryStatistics summary = new TQueryStatistics();
+        for (TQueryStatistics queryStats : queryStatisticsList) {
+            // sum all the statistics
+            summary.setScanRows(summary.getScanRows() + queryStats.getScanRows());
+            summary.setScanBytes(summary.getScanBytes() + queryStats.getScanBytes());
+            summary.setReturnedRows(summary.getReturnedRows() + queryStats.getReturnedRows());
+            summary.setCpuMs(summary.getCpuMs() + queryStats.getCpuMs());
+            summary.setMaxPeakMemoryBytes(Math.max(summary.getMaxPeakMemoryBytes(),
+                    queryStats.getMaxPeakMemoryBytes()));
+            summary.setCurrentUsedMemoryBytes(Math.max(summary.getCurrentUsedMemoryBytes(),
+                    queryStats.getCurrentUsedMemoryBytes()));
+            summary.setShuffleSendBytes(summary.getShuffleSendBytes() + queryStats.getShuffleSendBytes());
+            summary.setShuffleSendRows(summary.getShuffleSendRows() + queryStats.getShuffleSendRows());
+            summary.setScanBytesFromLocalStorage(
+                    summary.getScanBytesFromLocalStorage() + queryStats.getScanBytesFromLocalStorage());
+            summary.setScanBytesFromRemoteStorage(
+                    summary.getScanBytesFromRemoteStorage() + queryStats.getScanBytesFromRemoteStorage());
+            summary.setSpillWriteBytesToLocalStorage(
+                    summary.getSpillWriteBytesToLocalStorage() + queryStats.getSpillWriteBytesToLocalStorage());
+            summary.setSpillReadBytesFromLocalStorage(
+                    summary.getSpillReadBytesFromLocalStorage() + queryStats.getSpillReadBytesFromLocalStorage());
+        }
+        return summary;
+    }
+
     public String getProfile(String id) {
-        List<Future<TGetRealtimeExecStatusResponse>> futures = createFetchRealTimeProfileTasks(id);
+        List<Future<TGetRealtimeExecStatusResponse>> futures = createFetchRealTimeProfileTasks(id, "profile");
         // beAddr of reportExecStatus of QeProcessorImpl is meaningless, so assign a dummy address
         // to avoid compile failing.
         TNetworkAddress dummyAddr = new TNetworkAddress();
@@ -481,6 +544,22 @@ public class ProfileManager extends MasterDaemon {
         deleteBrokenProfiles();
         deleteOutdatedProfilesFromStorage();
         preventExecutionProfileLeakage();
+
+        // Archive-related periodic tasks
+        if (Config.enable_profile_archive) {
+            // Task 1: Periodically check pending directory
+            checkAndArchivePendingProfilesPeriodically();
+
+            // Task 2: Clean old archives
+            long currentTime = System.currentTimeMillis();
+            long duration = currentTime - lastArchiveCleanupTime;
+            if (duration >= ARCHIVE_CLEANUP_INTERVAL_MS
+                    || (Config.profile_archive_retention_seconds > 0
+                            && duration >= Config.profile_archive_retention_seconds * 1000 / 2)) {
+                cleanOldArchivedProfiles();
+                lastArchiveCleanupTime = currentTime;
+            }
+        }
     }
 
     // List PROFILE_STORAGE_PATH and return all dir names
@@ -495,9 +574,11 @@ public class ProfileManager extends MasterDaemon {
             }
 
             File[] files = profileDir.listFiles();
-            for (File file : files) {
-                if (file.isFile()) {
-                    res.add(file.getAbsolutePath());
+            if (files != null) {
+                for (File file : files) {
+                    if (file.isFile()) {
+                        res.add(file.getAbsolutePath());
+                    }
                 }
             }
         } catch (Exception e) {
@@ -719,24 +800,20 @@ public class ProfileManager extends MasterDaemon {
                 readLock.unlock();
             }
 
-            List<Thread> iothreads = Lists.newArrayList();
-
-            for (ProfileElement profileElement : queryIdToBeRemoved) {
-                Thread thread = new Thread(() -> {
-                    profileElement.deleteFromStorage();
-                });
-                thread.start();
-                iothreads.add(thread);
+            if (queryIdToBeRemoved.isEmpty()) {
+                return;
             }
 
-            try {
-                for (Thread thread : iothreads) {
-                    thread.join();
-                }
-            } catch (InterruptedException e) {
-                LOG.error("Failed to remove outdated query profile", e);
+            // Archive or delete profiles based on configuration
+            if (Config.enable_profile_archive) {
+                // Move profiles to pending directory for archiving
+                moveProfilesToArchivePending(queryIdToBeRemoved);
+            } else {
+                // Directly delete profiles if archiving is disabled
+                deleteProfilesFromStorage(queryIdToBeRemoved);
             }
 
+            // Remove profile references from memory
             writeLock.lock();
             try {
                 for (ProfileElement profileElement : queryIdToBeRemoved) {
@@ -1056,4 +1133,110 @@ public class ProfileManager extends MasterDaemon {
             writeLock.unlock();
         }
     }
+
+
+    /**
+     * Moves profiles to the archive pending directory.
+     * Files in pending will be archived when batch size is reached or timeout occurs.
+     *
+     * @param profileElements list of profile elements to move to pending
+     */
+    private void moveProfilesToArchivePending(List<ProfileElement> profileElements) {
+        try {
+            ProfileArchiveManager archiveManager = new ProfileArchiveManager(
+                    PROFILE_STORAGE_PATH, Config.profile_archive_batch_size);
+
+            int movedCount = 0;
+            for (ProfileElement element : profileElements) {
+                String profilePath = element.profile.getProfileStoragePath();
+                if (profilePath != null) {
+                    File profileFile = new File(profilePath);
+                    if (profileFile.exists()) {
+                        if (archiveManager.moveToArchivePending(profileFile)) {
+                            movedCount++;
+                        } else {
+                            // If move fails, fall back to direct deletion
+                            LOG.warn("Failed to move profile to pending, deleting: {}", profilePath);
+                            element.deleteFromStorage();
+                        }
+                    }
+                }
+            }
+
+            LOG.info("Moved {} profiles to archive pending", movedCount);
+
+            // Immediately check if archiving should be triggered (e.g., batch size reached)
+            int archived = archiveManager.checkAndArchivePendingProfiles();
+            if (archived > 0) {
+                LOG.info("Immediately archived {} profiles from pending", archived);
+            }
+
+        } catch (Exception e) {
+            LOG.error("Failed to move profiles to pending, falling back to direct deletion", e);
+            // Fall back to direct deletion if archiving fails
+            deleteProfilesFromStorage(profileElements);
+        }
+    }
+
+    /**
+     * Directly deletes profiles from storage (used when archiving is disabled).
+     *
+     * @param profileElements list of profile elements to delete
+     */
+    private void deleteProfilesFromStorage(List<ProfileElement> profileElements) {
+        List<Thread> iothreads = Lists.newArrayList();
+
+        for (ProfileElement profileElement : profileElements) {
+            Thread thread = new Thread(() -> {
+                profileElement.deleteFromStorage();
+            });
+            thread.start();
+            iothreads.add(thread);
+        }
+
+        try {
+            for (Thread thread : iothreads) {
+                thread.join();
+            }
+        } catch (InterruptedException e) {
+            LOG.error("Failed to delete profiles from storage", e);
+        }
+    }
+
+    /**
+     * Periodically checks the pending directory and archives profiles if conditions are met.
+     * This is a fast operation that runs every time runAfterCatalogReady() is called.
+     */
+    private void checkAndArchivePendingProfilesPeriodically() {
+        try {
+            ProfileArchiveManager archiveManager = new ProfileArchiveManager(
+                    PROFILE_STORAGE_PATH, Config.profile_archive_batch_size);
+
+            int archived = archiveManager.checkAndArchivePendingProfiles();
+            if (archived > 0) {
+                LOG.info("Periodically archived {} profiles from pending", archived);
+            }
+        } catch (Exception e) {
+            LOG.error("Failed to check and archive pending profiles", e);
+        }
+    }
+
+    /**
+     * Cleans up old archived profiles that exceed the retention period.
+     * This is a slow operation that runs once per day.
+     */
+    private void cleanOldArchivedProfiles() {
+        try {
+            ProfileArchiveManager archiveManager = new ProfileArchiveManager(
+                    PROFILE_STORAGE_PATH, Config.profile_archive_batch_size);
+
+            int deleted = archiveManager.cleanOldArchives();
+            if (deleted > 0) {
+                LOG.info("Cleaned {} old archived profiles", deleted);
+            }
+        } catch (Exception e) {
+            LOG.error("Failed to clean old archived profiles", e);
+        }
+    }
 }
+

@@ -21,6 +21,8 @@ suite ("unionDis") {
     sql "SET experimental_enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
     sql """ DROP TABLE IF EXISTS unionDis; """
+    // this mv rewrite would not be rewritten in RBO phase, so set TRY_IN_RBO explicitly to make case stable
+    sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
 
     sql """
             create table unionDis (
@@ -37,7 +39,7 @@ suite ("unionDis") {
     sql """insert into unionDis values("2020-01-02",2,"b",2,2,2);"""
     sql """insert into unionDis values("2020-01-03",3,"c",3,3,3);"""
 
-    createMV("create materialized view unionDis_mv as select empid, deptno from unionDis order by empid, deptno;")
+    createMV("create materialized view unionDis_mv as select empid as a1, deptno as a2 from unionDis order by empid, deptno;")
 
     sleep(3000)
 

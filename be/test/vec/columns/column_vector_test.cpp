@@ -22,7 +22,6 @@
 #include <cstdint>
 
 #include "vec/columns/column.h"
-#include "vec/columns/columns_number.h"
 #include "vec/columns/common_column_test.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
@@ -99,9 +98,7 @@ protected:
         column_uint8 = ColumnUInt8::create();
 
         column_date = ColumnDate::create();
-        // column_date->set_date_type();
         column_datetime = ColumnDateTime::create();
-        // column_datetime->set_datetime_type();
         column_datetime_v2_0 = ColumnDateTimeV2::create();
         column_datetime_v2_5 = ColumnDateTimeV2::create();
         column_datetime_v2_6 = ColumnDateTimeV2::create();
@@ -153,8 +150,8 @@ protected:
             assert_callback(columns, serdes,
                             test_result_dir + "/" + res_file_name + "_" + function_name + ".out");
         };
-        test_func(column_float32->get_ptr(), dt_float32, "column_float32");
-        test_func(column_float64->get_ptr(), dt_float64, "column_float64");
+        // test_func(column_float32->get_ptr(), dt_float32, "column_float32");
+        // test_func(column_float64->get_ptr(), dt_float64, "column_float64");
         test_func(column_int8->get_ptr(), dt_int8, "column_int8");
         test_func(column_int16->get_ptr(), dt_int16, "column_int16");
         test_func(column_int32->get_ptr(), dt_int32, "column_int32");
@@ -168,25 +165,20 @@ protected:
         test_func(column_datetime->get_ptr(), dt_datetime, "column_datetime_v1");
         test_func(column_date->get_ptr(), dt_date, "column_date_v1");
     }
-    template <typename T>
-    void _column_vector_common_test(T callback) {
-        // callback((Float32)0, column_float32->get_ptr());
-        // callback((Float64)0, column_float64->get_ptr());
-        callback((Int8)0, column_int8->get_ptr());
-        callback((Int16)0, column_int16->get_ptr());
-        callback((Int32)0, column_int32->get_ptr());
-        callback((Int64)0, column_int64->get_ptr());
-        callback((Int128)0, column_int128->get_ptr());
 
-        callback((UInt8)0, column_uint8->get_ptr());
-
-        callback((Int64)0, column_date->get_ptr());
-        callback((Int64)0, column_datetime->get_ptr());
-        callback((UInt64)0, column_datetime_v2_0->get_ptr());
-        callback((UInt64)0, column_datetime_v2_5->get_ptr());
-        callback((UInt64)0, column_datetime_v2_6->get_ptr());
-        callback((UInt32)0, column_date_v2->get_ptr());
-    }
+#define _column_vector_common_test(callback)                               \
+    callback<TYPE_TINYINT>((Int8)0, column_int8->get_ptr());               \
+    callback<TYPE_SMALLINT>((Int16)0, column_int16->get_ptr());            \
+    callback<TYPE_INT>((Int32)0, column_int32->get_ptr());                 \
+    callback<TYPE_BIGINT>((Int64)0, column_int64->get_ptr());              \
+    callback<TYPE_LARGEINT>((Int128)0, column_int128->get_ptr());          \
+    callback<TYPE_BOOLEAN>((UInt8)0, column_uint8->get_ptr());             \
+    callback<TYPE_DATE>((Int64)0, column_date->get_ptr());                 \
+    callback<TYPE_DATETIME>((Int64)0, column_datetime->get_ptr());         \
+    callback<TYPE_DATETIMEV2>((UInt64)0, column_datetime_v2_0->get_ptr()); \
+    callback<TYPE_DATETIMEV2>((UInt64)0, column_datetime_v2_5->get_ptr()); \
+    callback<TYPE_DATETIMEV2>((UInt64)0, column_datetime_v2_6->get_ptr()); \
+    callback<TYPE_DATEV2>((UInt32)0, column_date_v2->get_ptr());
 };
 
 TEST_F(ColumnVectorTest, get_name) {
@@ -252,15 +244,34 @@ TEST_F(ColumnVectorTest, insert_many_from) {
 }
 TEST_F(ColumnVectorTest, insert_range_of_integer) {
     _column_vector_common_test(assert_column_vector_insert_range_of_integer_callback);
-    assert_column_vector_insert_range_of_integer_callback((Float32)0, column_float32->get_ptr());
-    assert_column_vector_insert_range_of_integer_callback((Float64)0, column_float64->get_ptr());
+    assert_column_vector_insert_range_of_integer_callback<TYPE_FLOAT>((Float32)0,
+                                                                      column_float32->get_ptr());
+    assert_column_vector_insert_range_of_integer_callback<TYPE_DOUBLE>((Float64)0,
+                                                                       column_float64->get_ptr());
 }
 // void insert_date_column(const char* data_ptr, size_t num) {
 // decimal, vector, nullable, PredicateColumnType
 TEST_F(ColumnVectorTest, insert_many_fix_len_data) {
-    _column_vector_common_test(assert_column_vector_insert_many_fix_len_data_callback);
-
-    // assert_column_vector_insert_many_fix_len_data_callback((uint24_t)0, column_date->get_ptr());
+    assert_column_vector_insert_many_fix_len_data_callback<TYPE_TINYINT>((Int8)0,
+                                                                         column_int8->get_ptr());
+    assert_column_vector_insert_many_fix_len_data_callback<TYPE_SMALLINT>((Int16)0,
+                                                                          column_int16->get_ptr());
+    assert_column_vector_insert_many_fix_len_data_callback<TYPE_INT>((Int32)0,
+                                                                     column_int32->get_ptr());
+    assert_column_vector_insert_many_fix_len_data_callback<TYPE_BIGINT>((Int64)0,
+                                                                        column_int64->get_ptr());
+    assert_column_vector_insert_many_fix_len_data_callback<TYPE_LARGEINT>((Int128)0,
+                                                                          column_int128->get_ptr());
+    assert_column_vector_insert_many_fix_len_data_callback<TYPE_BOOLEAN>((UInt8)0,
+                                                                         column_uint8->get_ptr());
+    assert_column_vector_insert_many_fix_len_data_callback<TYPE_DATETIMEV2>(
+            (UInt64)0, column_datetime_v2_0->get_ptr());
+    assert_column_vector_insert_many_fix_len_data_callback<TYPE_DATETIMEV2>(
+            (UInt64)0, column_datetime_v2_5->get_ptr());
+    assert_column_vector_insert_many_fix_len_data_callback<TYPE_DATETIMEV2>(
+            (UInt64)0, column_datetime_v2_6->get_ptr());
+    assert_column_vector_insert_many_fix_len_data_callback<TYPE_DATEV2>((UInt32)0,
+                                                                        column_date_v2->get_ptr());
 }
 TEST_F(ColumnVectorTest, insert_many_raw_data) {
     _column_vector_common_test(assert_column_vector_insert_many_raw_data_callback);
@@ -337,7 +348,7 @@ TEST_F(ColumnVectorTest, update_crcs_with_value) {
               "column_datetime_v1");
     test_func(column_date->get_ptr(), dt_date, PrimitiveType::TYPE_DATE, "column_date_v1");
 }
-template <typename T>
+template <PrimitiveType T>
 void insert_value_test(ColumnVector<T>* src_col) {
     auto clone_col = src_col->clone_empty();
     auto* col = assert_cast<ColumnVector<T>*>(clone_col.get());
@@ -432,10 +443,6 @@ TEST_F(ColumnVectorTest, permute) {
     assert_column_vector_permute(columns, UINT64_MAX);
 }
 
-TEST_F(ColumnVectorTest, replicate) {
-    _column_vector_common_test(assert_column_vector_replicate_callback);
-}
-
 TEST_F(ColumnVectorTest, replace_column_data) {
     _column_vector_common_test(assert_column_vector_replace_column_data_callback);
 }
@@ -446,8 +453,10 @@ TEST_F(ColumnVectorTest, replace_column_null_data) {
 
 TEST_F(ColumnVectorTest, compare_internal) {
     _column_vector_common_test(assert_column_vector_compare_internal_callback);
-    assert_column_vector_compare_internal_callback((Float32)0, column_float32->get_ptr());
-    assert_column_vector_compare_internal_callback((Float64)0, column_float64->get_ptr());
+    // assert_column_vector_compare_internal_callback<TYPE_FLOAT>((Float32)0,
+    //                                                            column_float32->get_ptr());
+    // assert_column_vector_compare_internal_callback<TYPE_DOUBLE>((Float64)0,
+    //                                                             column_float64->get_ptr());
 }
 TEST_F(ColumnVectorTest, has_enough_capacity) {
     _column_vector_common_test(assert_column_vector_has_enough_capacity_callback);

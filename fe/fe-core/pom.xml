@@ -33,7 +33,6 @@ under the License.
         <doris.thirdparty>${basedir}/../../thirdparty</doris.thirdparty>
         <fe_ut_parallel>1</fe_ut_parallel>
         <huaweiobs.version>3.1.1-hw-46</huaweiobs.version>
-        <tencentcos.version>8.2.7</tencentcos.version>
     </properties>
     <profiles>
         <profile>
@@ -125,10 +124,9 @@ under the License.
             <groupId>commons-codec</groupId>
             <artifactId>commons-codec</artifactId>
         </dependency>
-        <!-- https://mvnrepository.com/artifact/commons-lang/commons-lang -->
         <dependency>
-            <groupId>commons-lang</groupId>
-            <artifactId>commons-lang</artifactId>
+            <groupId>org.apache.hadoop</groupId>
+            <artifactId>hadoop-azure</artifactId>
         </dependency>
         <!-- https://mvnrepository.com/artifact/org.apache.commons/commons-lang3 -->
         <dependency>
@@ -175,29 +173,9 @@ under the License.
             <groupId>com.fasterxml.jackson.core</groupId>
             <artifactId>jackson-core</artifactId>
         </dependency>
-        <!-- https://mvnrepository.com/artifact/net.sourceforge.czt.dev/java-cup -->
-        <dependency>
-            <groupId>net.sourceforge.czt.dev</groupId>
-            <artifactId>java-cup</artifactId>
-        </dependency>
-        <!-- https://mvnrepository.com/artifact/org.javassist/javassist -->
-        <dependency>
-            <groupId>org.javassist</groupId>
-            <artifactId>javassist</artifactId>
-        </dependency>
-        <!-- https://mvnrepository.com/artifact/javax.servlet/javax.servlet-api -->
-        <dependency>
-            <groupId>javax.servlet</groupId>
-            <artifactId>javax.servlet-api</artifactId>
-        </dependency>
         <dependency>
             <groupId>org.apache.doris</groupId>
             <artifactId>je</artifactId>
-        </dependency>
-        <!-- https://mvnrepository.com/artifact/de.jflex/jflex -->
-        <dependency>
-            <groupId>de.jflex</groupId>
-            <artifactId>jflex</artifactId>
         </dependency>
         <dependency>
             <groupId>commons-io</groupId>
@@ -213,12 +191,6 @@ under the License.
                 </exclusion>
             </exclusions>
         </dependency>
-        <!-- https://mvnrepository.com/artifact/io.dropwizard.metrics/metrics-core -->
-        <dependency>
-            <groupId>io.dropwizard.metrics</groupId>
-            <artifactId>metrics-core</artifactId>
-        </dependency>
-        <!-- https://mvnrepository.com/artifact/io.netty/netty-all -->
         <dependency>
             <groupId>io.netty</groupId>
             <artifactId>netty-all</artifactId>
@@ -243,86 +215,26 @@ under the License.
             <groupId>org.xerial.snappy</groupId>
             <artifactId>snappy-java</artifactId>
         </dependency>
-        <!-- for k8s client-->
-        <!-- https://mvnrepository.com/artifact/dk.brics.automaton/automaton -->
-        <dependency>
-            <groupId>dk.brics.automaton</groupId>
-            <artifactId>automaton</artifactId>
-        </dependency>
-        <!-- https://mvnrepository.com/artifact/com.github.mifmif/generex -->
-        <dependency>
-            <groupId>com.github.mifmif</groupId>
-            <artifactId>generex</artifactId>
-        </dependency>
-        <!-- https://mvnrepository.com/artifact/com.fasterxml.jackson.core/jackson-annotations -->
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>
             <artifactId>jackson-annotations</artifactId>
         </dependency>
-
-        <!-- https://mvnrepository.com/artifact/com.fasterxml.jackson.dataformat/jackson-dataformat-yaml -->
         <dependency>
             <groupId>com.fasterxml.jackson.dataformat</groupId>
             <artifactId>jackson-dataformat-yaml</artifactId>
         </dependency>
-        <!-- https://mvnrepository.com/artifact/com.fasterxml.jackson.module/jackson-module-jaxb-annotations -->
         <dependency>
             <groupId>com.fasterxml.jackson.module</groupId>
             <artifactId>jackson-module-jaxb-annotations</artifactId>
-        </dependency>
-        <!-- https://mvnrepository.com/artifact/io.fabric8/kubernetes-client -->
-        <dependency>
-            <groupId>io.fabric8</groupId>
-            <artifactId>kubernetes-client</artifactId>
-        </dependency>
-        <!-- https://mvnrepository.com/artifact/io.fabric8/kubernetes-model -->
-        <dependency>
-            <groupId>io.fabric8</groupId>
-            <artifactId>kubernetes-model</artifactId>
-        </dependency>
-        <!-- https://mvnrepository.com/artifact/com.squareup.okhttp3/logging-interceptor -->
-        <dependency>
-            <groupId>com.squareup.okhttp3</groupId>
-            <artifactId>logging-interceptor</artifactId>
-        </dependency>
-        <!-- https://mvnrepository.com/artifact/com.squareup.okhttp3/okhttp -->
-        <dependency>
-            <groupId>com.squareup.okhttp3</groupId>
-            <artifactId>okhttp</artifactId>
-        </dependency>
-        <!-- https://mvnrepository.com/artifact/com.squareup.okio/okio -->
-        <dependency>
-            <groupId>com.squareup.okio</groupId>
-            <artifactId>okio</artifactId>
-        </dependency>
-        <!-- https://mvnrepository.com/artifact/org.yaml/snakeyaml -->
-        <dependency>
-            <groupId>org.yaml</groupId>
-            <artifactId>snakeyaml</artifactId>
-        </dependency>
-        <!-- https://mvnrepository.com/artifact/javax.validation/validation-api -->
-        <dependency>
-            <groupId>javax.validation</groupId>
-            <artifactId>validation-api</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.kafka</groupId>
-            <artifactId>kafka-clients</artifactId>
-        </dependency>
-        <!-- https://mvnrepository.com/artifact/com.github.oshi/oshi-core -->
-        <dependency>
-            <groupId>com.github.oshi</groupId>
-            <artifactId>oshi-core</artifactId>
-        </dependency>
-        <!-- https://mvnrepository.com/artifact/org.jboss.xnio/xnio-nio -->
-        <dependency>
-            <groupId>org.jboss.xnio</groupId>
-            <artifactId>xnio-nio</artifactId>
         </dependency>
         <!-- support jdk9 -->
         <dependency>
             <groupId>javax.annotation</groupId>
             <artifactId>javax.annotation-api</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.jboss.xnio</groupId>
+            <artifactId>xnio-nio</artifactId>
         </dependency>
         <!-- support jdk9 -->
         <dependency>
@@ -330,79 +242,9 @@ under the License.
             <artifactId>javax.activation</artifactId>
         </dependency>
         <!-- support jdk11 -->
-        <!-- https://mvnrepository.com/artifact/javax.xml.ws/jaxws-api -->
-        <dependency>
-            <groupId>javax.xml.ws</groupId>
-            <artifactId>jaxws-api</artifactId>
-        </dependency>
         <dependency>
             <groupId>org.roaringbitmap</groupId>
             <artifactId>RoaringBitmap</artifactId>
-        </dependency>
-        <!-- spark -->
-        <!-- https://mvnrepository.com/artifact/org.apache.spark/spark-core_2.12 -->
-        <dependency>
-            <groupId>org.apache.spark</groupId>
-            <artifactId>spark-core_2.12</artifactId>
-        </dependency>
-        <!-- https://mvnrepository.com/artifact/org.apache.spark/spark-launcher_2.12 -->
-        <dependency>
-            <groupId>org.apache.spark</groupId>
-            <artifactId>spark-launcher_2.12</artifactId>
-        </dependency>
-        <!-- https://mvnrepository.com/artifact/org.apache.spark/spark-sql_2.12 -->
-        <dependency>
-            <groupId>org.apache.spark</groupId>
-            <artifactId>spark-sql_2.12</artifactId>
-        </dependency>
-        <!-- https://mvnrepository.com/artifact/com.alibaba.otter/canal.client -->
-        <dependency>
-            <groupId>com.alibaba.otter</groupId>
-            <artifactId>canal.client</artifactId>
-            <version>1.1.6</version>
-            <scope>provided</scope>
-            <exclusions>
-                <exclusion>
-                    <groupId>ch.qos.logback</groupId>
-                    <artifactId>logback-core</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>ch.qos.logback</groupId>
-                    <artifactId>logback-classic</artifactId>
-                </exclusion>
-                <exclusion>
-                    <artifactId>netty-all</artifactId>
-                    <groupId>io.netty</groupId>
-                </exclusion>
-                <exclusion>
-                    <groupId>org.springframework</groupId>
-                    <artifactId>*</artifactId>
-                </exclusion>
-            </exclusions>
-        </dependency>
-        <!-- https://mvnrepository.com/artifact/com.alibaba.otter/canal.protocol -->
-        <dependency>
-            <groupId>com.alibaba.otter</groupId>
-            <artifactId>canal.protocol</artifactId>
-            <version>1.1.6</version>
-            <exclusions>
-                <exclusion>
-                    <groupId>ch.qos.logback</groupId>
-                    <artifactId>logback-core</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>ch.qos.logback</groupId>
-                    <artifactId>logback-classic</artifactId>
-                </exclusion>
-                <exclusion>
-                    <artifactId>netty-all</artifactId>
-                    <groupId>io.netty</groupId>
-                </exclusion>
-                <exclusion>
-                    <groupId>org.springframework</groupId>
-                    <artifactId>*</artifactId>
-                </exclusion>
-            </exclusions>
         </dependency>
         <dependency>
             <groupId>com.amazonaws</groupId>
@@ -511,13 +353,6 @@ under the License.
         <dependency>
             <groupId>software.amazon.awssdk</groupId>
             <artifactId>s3</artifactId>
-            <version>${awssdk.version}</version>
-            <exclusions>
-                <!--exclusion>
-                    <groupId>software.amazon.awssdk</groupId>
-                    <artifactId>apache-client</artifactId>
-                </exclusion-->
-            </exclusions>
         </dependency>
         <!-- tencent cloud sts -->
         <dependency>
@@ -570,11 +405,6 @@ under the License.
             <artifactId>hive-catalog-shade</artifactId>
         </dependency>
         <dependency>
-            <groupId>org.apache.velocity</groupId>
-            <artifactId>velocity-engine-core</artifactId>
-        </dependency>
-        <!-- https://mvnrepository.com/artifact/org.apache.hadoop/hadoop-hdfs -->
-        <dependency>
             <groupId>org.apache.hadoop</groupId>
             <artifactId>hadoop-hdfs</artifactId>
         </dependency>
@@ -592,6 +422,7 @@ under the License.
             <groupId>com.dmetasoul</groupId>
             <artifactId>lakesoul-io-java</artifactId>
             <version>${lakesoul.version}</version>
+            <scope>provided</scope>
             <exclusions>
                 <exclusion>
                     <groupId>io.netty</groupId>
@@ -651,25 +482,29 @@ under the License.
                 </exclusion>
             </exclusions>
         </dependency>
+        <!-- LakeSoul dependencies - provided scope as lakesoul is deprecated -->
         <dependency>
             <groupId>org.postgresql</groupId>
             <artifactId>postgresql</artifactId>
             <version>42.7.3</version>
+            <scope>provided</scope>
         </dependency>
         <dependency>
             <groupId>org.scala-lang</groupId>
             <artifactId>scala-library</artifactId>
             <version>${scala.version}</version>
-            <scope>compile</scope>
+            <scope>provided</scope>
         </dependency>
 
         <dependency>
             <groupId>org.apache.iceberg</groupId>
             <artifactId>iceberg-core</artifactId>
+            <version>${iceberg.version}</version>
         </dependency>
         <dependency>
             <groupId>org.apache.iceberg</groupId>
             <artifactId>iceberg-aws</artifactId>
+            <version>${iceberg.version}</version>
         </dependency>
         <dependency>
             <groupId>org.apache.paimon</groupId>
@@ -704,7 +539,6 @@ under the License.
         <dependency>
             <groupId>software.amazon.awssdk</groupId>
             <artifactId>glue</artifactId>
-            <version>${awssdk.version}</version>
             <exclusions>
                 <exclusion>
                     <groupId>software.amazon.awssdk</groupId>
@@ -714,8 +548,11 @@ under the License.
         </dependency>
         <dependency>
             <groupId>software.amazon.awssdk</groupId>
+            <artifactId>s3-transfer-manager</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
             <artifactId>sts</artifactId>
-            <version>${awssdk.version}</version>
             <exclusions>
                 <exclusion>
                     <groupId>software.amazon.awssdk</groupId>
@@ -726,17 +563,14 @@ under the License.
         <dependency>
             <groupId>software.amazon.awssdk</groupId>
             <artifactId>url-connection-client</artifactId>
-            <version>${awssdk.version}</version>
         </dependency>
         <dependency>
             <groupId>software.amazon.awssdk</groupId>
             <artifactId>aws-json-protocol</artifactId>
-            <version>${awssdk.version}</version>
         </dependency>
         <dependency>
             <groupId>software.amazon.awssdk</groupId>
             <artifactId>protocol-core</artifactId>
-            <version>${awssdk.version}</version>
         </dependency>
         <!-- For Iceberg, must be consistent with Iceberg version -->
         <dependency>
@@ -767,6 +601,10 @@ under the License.
         <dependency>
             <groupId>com.zaxxer</groupId>
             <artifactId>HikariCP</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.kafka</groupId>
+            <artifactId>kafka-clients</artifactId>
         </dependency>
 
         <dependency>
@@ -819,15 +657,8 @@ under the License.
         <dependency>
             <groupId>com.google.cloud.bigdataoss</groupId>
             <artifactId>gcs-connector</artifactId>
-            <version>hadoop3-2.2.21</version>
-            <classifier>shaded</classifier>
+            <version>${gcs.version}</version>
             <scope>${gcs.dependency.scope}</scope>
-            <exclusions>
-                <exclusion>
-                    <groupId>*</groupId>
-                    <artifactId>*</artifactId>
-                </exclusion>
-            </exclusions>
         </dependency>
 
         <!-- https://mvnrepository.com/artifact/org.apache.ranger/ranger-plugins-common -->
@@ -925,15 +756,6 @@ under the License.
             <version>3.0-8</version>
         </dependency>
         <dependency>
-            <groupId>org.apache.hbase</groupId>
-            <artifactId>hbase-server</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.hbase</groupId>
-            <artifactId>hbase-hadoop-compat</artifactId>
-            <version>2.5.2-hadoop3</version>
-        </dependency>
-        <dependency>
             <groupId>com.azure</groupId>
             <artifactId>azure-storage-blob</artifactId>
         </dependency>
@@ -949,7 +771,6 @@ under the License.
         <dependency>
             <groupId>software.amazon.awssdk</groupId>
             <artifactId>s3tables</artifactId>
-            <version>${awssdk.version}</version>
         </dependency>
         <dependency>
             <groupId>software.amazon.s3tables</groupId>
@@ -960,9 +781,12 @@ under the License.
         <dependency>
             <groupId>software.amazon.awssdk</groupId>
             <artifactId>sdk-core</artifactId>
-            <version>${awssdk.version}</version>
         </dependency>
-
+        <dependency>
+            <groupId>com.taobao.arthas</groupId>
+            <artifactId>arthas-packaging</artifactId>
+            <version>4.0.5</version>
+        </dependency>
         <dependency>
             <groupId>org.mockito</groupId>
             <artifactId>mockito-core</artifactId>
@@ -993,9 +817,6 @@ under the License.
         <resources>
             <resource>
                 <directory>target/generated-sources</directory>
-                <excludes>
-                    <exclude>cup</exclude>
-                </excludes>
             </resource>
             <resource>
                 <directory>src/main/resources</directory>
@@ -1005,75 +826,6 @@ under the License.
             </resource>
         </resources>
         <plugins>
-            <!--aspectj-->
-            <plugin>
-                <groupId>dev.aspectj</groupId>
-                <artifactId>aspectj-maven-plugin</artifactId>
-                <version>1.13.1</version>
-                <executions>
-                    <execution>
-                        <phase>process-classes</phase>
-                        <goals>
-                            <goal>compile</goal>
-                        </goals>
-                    </execution>
-                </executions>
-                <configuration>
-                    <forceAjcCompile>true</forceAjcCompile>
-                    <sources/>
-                    <weaveDirectories>
-                        <weaveDirectory>${project.build.directory}/classes</weaveDirectory>
-                    </weaveDirectories>
-                    <source>${maven.compiler.source}</source>
-                    <target>${maven.compiler.target}</target>
-                    <complianceLevel>${maven.compiler.target}</complianceLevel>
-                </configuration>
-            </plugin>
-            <!--jcup-->
-            <plugin>
-                <groupId>net.sourceforge.czt.dev</groupId>
-                <artifactId>cup-maven-plugin</artifactId>
-                <version>1.6-cdh</version>
-                <executions>
-                    <execution>
-                        <id>cup</id>
-                        <phase>generate-sources</phase>
-                        <goals>
-                            <goal>generate</goal>
-                        </goals>
-                    </execution>
-                </executions>
-                <configuration>
-                    <!--<cupDefinition>${doris.home}/gensrc/parser/sql_parser.cup</cupDefinition>-->
-                    <className>SqlParser</className>
-                    <symbolsName>SqlParserSymbols</symbolsName>
-                    <expectedConflicts>0</expectedConflicts>
-                    <!--<outputDirectory>src/main/java</outputDirectory>-->
-                </configuration>
-            </plugin>
-
-            <!--jflex-->
-            <plugin>
-                <groupId>de.jflex</groupId>
-                <artifactId>maven-jflex-plugin</artifactId>
-                <version>1.4.3</version>
-                <executions>
-                    <execution>
-                        <id>jflex</id>
-                        <phase>generate-sources</phase>
-                        <goals>
-                            <goal>generate</goal>
-                        </goals>
-                        <configuration>
-                            <!-- lexDefinitions -->
-                            <!--<lexDefinition>${doris.home}/gensrc/parser/sql_scanner.flex</lexDefinition>-->
-                            <!-- /lexDefinitions -->
-                            <!--<outputDirectory>src/main/java</outputDirectory>-->
-                            <backup>false</backup>
-                        </configuration>
-                    </execution>
-                </executions>
-            </plugin>
             <!--antlr-->
             <plugin>
                 <groupId>org.antlr</groupId>

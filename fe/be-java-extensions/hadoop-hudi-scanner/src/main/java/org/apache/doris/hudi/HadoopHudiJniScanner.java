@@ -111,8 +111,13 @@ public class HadoopHudiJniScanner extends JniScanner {
 
         this.hudiColumnNames = params.get("hudi_column_names");
         this.hudiColumnTypes = params.get("hudi_column_types").split("#");
-        this.requiredFields = params.get("required_fields").split(",");
-
+        // Required fields will be empty when only partition fields are selected
+        // This is because partition fields are not stored in the data files
+        if (!params.get("required_fields").equals("")) {
+            this.requiredFields = params.get("required_fields").split(",");
+        } else {
+            this.requiredFields = new String[0];
+        }
         this.fieldInspectors = new ObjectInspector[requiredFields.length];
         this.structFields = new StructField[requiredFields.length];
         this.fsOptionsProps = Maps.newHashMap();
@@ -166,16 +171,19 @@ public class HadoopHudiJniScanner extends JniScanner {
                     if (!reader.next(key, value)) {
                         break;
                     }
-                    Object rowData = deserializer.deserialize(value);
-                    for (int i = 0; i < fields.length; i++) {
-                        Object fieldData = rowInspector.getStructFieldData(rowData, structFields[i]);
-                        columnValue.setRow(fieldData);
-                        // LOG.info("rows: {}, column: {}, col name: {}, col type: {}, inspector: {}",
-                        //        numRows, i, types[i].getName(), types[i].getType().name(),
-                        //        fieldInspectors[i].getTypeName());
-                        columnValue.setField(types[i], fieldInspectors[i]);
-                        appendData(i, columnValue);
+                    if (fields.length > 0) {
+                        Object rowData = deserializer.deserialize(value);
+                        for (int i = 0; i < fields.length; i++) {
+                            Object fieldData = rowInspector.getStructFieldData(rowData, structFields[i]);
+                            columnValue.setRow(fieldData);
+                            columnValue.setField(types[i], fieldInspectors[i]);
+                            appendData(i, columnValue);
+                        }
                     }
+                }
+                // vectorTable is virtual
+                if (fields.length == 0) {
+                    vectorTable.appendVirtualData(numRows);
                 }
                 return numRows;
             });
@@ -211,9 +219,15 @@ public class HadoopHudiJniScanner extends JniScanner {
                         .boxed()
                         .collect(Collectors.toMap(i -> splitHudiColumnNames[i], i -> hudiColumnTypes[i]));
 
-        requiredTypes = Arrays.stream(requiredFields)
-                .map(field -> ColumnType.parseType(field, hudiColNameToType.get(field)))
-                .toArray(ColumnType[]::new);
+        requiredTypes = new ColumnType[requiredFields.length];
+        for (int i = 0; i < requiredFields.length; i++) {
+            String requiredField = requiredFields[i];
+            if (!hudiColNameToType.containsKey(requiredField)) {
+                throw new IllegalArgumentException(
+                        "Required field " + requiredField + " not found in Hudi column names: " + splitHudiColumnNames);
+            }
+            requiredTypes[i] = ColumnType.parseType(requiredField, hudiColNameToType.get(requiredField));
+        }
 
         requiredColumnIds = Arrays.stream(requiredFields)
                 .mapToInt(hudiColNameToIdx::get)

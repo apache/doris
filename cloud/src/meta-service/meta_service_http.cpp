@@ -41,16 +41,15 @@
 #include <string>
 #include <string_view>
 #include <type_traits>
-#include <variant>
 #include <vector>
 
 #include "common/config.h"
 #include "common/configbase.h"
 #include "common/logging.h"
 #include "common/string_util.h"
-#include "meta-service/keys.h"
-#include "meta-service/txn_kv.h"
-#include "meta-service/txn_kv_error.h"
+#include "meta-service/meta_service_helper.h"
+#include "meta-store/txn_kv.h"
+#include "meta-store/txn_kv_error.h"
 #include "meta_service.h"
 #include "rate-limiter/rate_limiter.h"
 
@@ -63,7 +62,7 @@ namespace doris::cloud {
         auto st = parse_json_message(unresolved_path, body, &req);                              \
         if (!st.ok()) {                                                                         \
             std::string msg = "parse http request '" + unresolved_path + "': " + st.ToString(); \
-            LOG_WARNING(msg).tag("body", body);                                                 \
+            LOG_WARNING(msg).tag("body", encryt_sk(body));                                      \
             return http_json_reply(MetaServiceCode::PROTOBUF_PARSE_ERR, msg);                   \
         }                                                                                       \
     } while (0)
@@ -75,6 +74,9 @@ extern int decrypt_instance_info(InstanceInfoPB& instance, const std::string& in
                                  MetaServiceCode& code, std::string& msg,
                                  std::shared_ptr<Transaction>& txn);
 
+extern void get_kv_range_boundaries_count(std::vector<std::string>& partition_boundaries,
+                                          std::unordered_map<std::string, size_t>& partition_count);
+
 template <typename Message>
 static google::protobuf::util::Status parse_json_message(const std::string& unresolved_path,
                                                          const std::string& body, Message* req) {
@@ -83,7 +85,7 @@ static google::protobuf::util::Status parse_json_message(const std::string& unre
     if (!st.ok()) {
         std::string msg = "failed to strictly parse http request for '" + unresolved_path +
                           "' error: " + st.ToString();
-        LOG_WARNING(msg).tag("body", body);
+        LOG_WARNING(msg).tag("body", encryt_sk(hide_access_key(body)));
 
         // ignore unknown fields
         google::protobuf::util::JsonParseOptions json_parse_options;
@@ -198,6 +200,7 @@ static HttpResponse process_alter_cluster(MetaServiceImpl* service, brpc::Contro
             {"decommission_node", AlterClusterRequest::DECOMMISSION_NODE},
             {"set_cluster_status", AlterClusterRequest::SET_CLUSTER_STATUS},
             {"notify_decommissioned", AlterClusterRequest::NOTIFY_DECOMMISSIONED},
+            {"alter_vcluster_info", AlterClusterRequest::ALTER_VCLUSTER_INFO},
     };
 
     auto& path = ctrl->http_request().unresolved_path();
@@ -229,7 +232,8 @@ static HttpResponse process_get_obj_store_info(MetaServiceImpl* service, brpc::C
 static HttpResponse process_alter_obj_store_info(MetaServiceImpl* service, brpc::Controller* ctrl) {
     static std::unordered_map<std::string_view, AlterObjStoreInfoRequest::Operation> operations {
             {"add_obj_info", AlterObjStoreInfoRequest::ADD_OBJ_INFO},
-            {"legacy_update_ak_sk", AlterObjStoreInfoRequest::LEGACY_UPDATE_AK_SK}};
+            {"legacy_update_ak_sk", AlterObjStoreInfoRequest::LEGACY_UPDATE_AK_SK},
+            {"alter_obj_info", AlterObjStoreInfoRequest::ALTER_OBJ_INFO}};
 
     auto& path = ctrl->http_request().unresolved_path();
     auto it = operations.find(remove_version_prefix(path));
@@ -251,6 +255,7 @@ static HttpResponse process_alter_storage_vault(MetaServiceImpl* service, brpc::
     static std::unordered_map<std::string_view, AlterObjStoreInfoRequest::Operation> operations {
             {"drop_s3_vault", AlterObjStoreInfoRequest::DROP_S3_VAULT},
             {"add_s3_vault", AlterObjStoreInfoRequest::ADD_S3_VAULT},
+            {"alter_s3_vault", AlterObjStoreInfoRequest::ALTER_S3_VAULT},
             {"drop_hdfs_vault", AlterObjStoreInfoRequest::DROP_HDFS_INFO},
             {"add_hdfs_vault", AlterObjStoreInfoRequest::ADD_HDFS_INFO}};
 
@@ -530,38 +535,8 @@ static HttpResponse process_show_meta_ranges(MetaServiceImpl* service, brpc::Con
         auto msg = fmt::format("failed to get boundaries, code={}", code);
         return http_json_reply(MetaServiceCode::UNDEFINED_ERR, msg);
     }
-
     std::unordered_map<std::string, size_t> partition_count;
-    size_t prefix_size = FdbTxnKv::fdb_partition_key_prefix().size();
-    for (auto&& boundary : partition_boundaries) {
-        if (boundary.size() < prefix_size + 1 || boundary[prefix_size] != CLOUD_USER_KEY_SPACE01) {
-            continue;
-        }
-
-        std::string_view user_key(boundary);
-        user_key.remove_prefix(prefix_size + 1); // Skip the KEY_SPACE prefix.
-        std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> out;
-        decode_key(&user_key, &out); // ignore any error, since the boundary key might be truncated.
-
-        auto visitor = [](auto&& arg) -> std::string {
-            using T = std::decay_t<decltype(arg)>;
-            if constexpr (std::is_same_v<T, std::string>) {
-                return arg;
-            } else {
-                return std::to_string(arg);
-            }
-        };
-
-        if (!out.empty()) {
-            std::string key;
-            for (size_t i = 0; i < 3 && i < out.size(); ++i) {
-                key += std::visit(visitor, std::get<0>(out[i]));
-                key += '|';
-            }
-            key.pop_back(); // omit the last '|'
-            partition_count[key]++;
-        }
-    }
+    get_kv_range_boundaries_count(partition_boundaries, partition_count);
 
     // sort ranges by count
     std::vector<std::pair<std::string, size_t>> meta_ranges;
@@ -573,7 +548,7 @@ static HttpResponse process_show_meta_ranges(MetaServiceImpl* service, brpc::Con
     std::sort(meta_ranges.begin(), meta_ranges.end(),
               [](const auto& lhs, const auto& rhs) { return lhs.second > rhs.second; });
 
-    std::string body = fmt::format("total partitions: {}\n", partition_boundaries.size());
+    std::string body = fmt::format("total meta ranges: {}\n", partition_boundaries.size());
     for (auto&& [key, count] : meta_ranges) {
         body += fmt::format("{}: {}\n", key, count);
     }
@@ -689,6 +664,154 @@ static HttpResponse process_unknown(MetaServiceImpl*, brpc::Controller*) {
     return http_json_reply(MetaServiceCode::OK, "");
 }
 
+static HttpResponse process_list_snapshot(MetaServiceImpl* service, brpc::Controller* ctrl) {
+    ListSnapshotRequest req;
+    PARSE_MESSAGE_OR_RETURN(ctrl, req);
+    ListSnapshotResponse resp;
+    service->list_snapshot(ctrl, &req, &resp, nullptr);
+    return http_json_reply_message(resp.status(), resp);
+}
+
+static HttpResponse process_set_snapshot_property(MetaServiceImpl* service,
+                                                  brpc::Controller* ctrl) {
+    AlterInstanceRequest req;
+    PARSE_MESSAGE_OR_RETURN(ctrl, req);
+    auto* properties = req.mutable_properties();
+    if (properties->contains("status")) {
+        std::string status = properties->at("status");
+        if (status != "ENABLED" && status != "DISABLED") {
+            return http_json_reply(MetaServiceCode::INVALID_ARGUMENT,
+                                   "Invalid value for status property: " + status +
+                                           ", expected 'ENABLED' or 'DISABLED' (case insensitive)");
+        }
+        std::string_view is_enable = (status == "ENABLED") ? "true" : "false";
+        const std::string& property_name =
+                AlterInstanceRequest::SnapshotProperty_Name(AlterInstanceRequest::ENABLE_SNAPSHOT);
+        (*properties)[property_name] = is_enable;
+        properties->erase("status");
+    }
+    if (properties->contains("max_reserved_snapshots")) {
+        const std::string& property_name = AlterInstanceRequest::SnapshotProperty_Name(
+                AlterInstanceRequest::MAX_RESERVED_SNAPSHOTS);
+        (*properties)[property_name] = properties->at("max_reserved_snapshots");
+        properties->erase("max_reserved_snapshots");
+    }
+    if (properties->contains("snapshot_interval_seconds")) {
+        const std::string& property_name = AlterInstanceRequest::SnapshotProperty_Name(
+                AlterInstanceRequest::SNAPSHOT_INTERVAL_SECONDS);
+        (*properties)[property_name] = properties->at("snapshot_interval_seconds");
+        properties->erase("snapshot_interval_seconds");
+    }
+    req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
+    AlterInstanceResponse resp;
+    service->alter_instance(ctrl, &req, &resp, nullptr);
+    return http_json_reply(resp.status());
+}
+
+static HttpResponse process_set_multi_version_status(MetaServiceImpl* service,
+                                                     brpc::Controller* ctrl) {
+    auto& uri = ctrl->http_request().uri();
+    std::string instance_id(http_query(uri, "instance_id"));
+    std::string cloud_unique_id(http_query(uri, "cloud_unique_id"));
+    std::string multi_version_status_str(http_query(uri, "multi_version_status"));
+
+    // Prefer instance_id if provided, fallback to cloud_unique_id
+    if (instance_id.empty()) {
+        return http_json_reply(MetaServiceCode::INVALID_ARGUMENT, "empty instance id");
+    }
+
+    if (multi_version_status_str.empty()) {
+        return http_json_reply(MetaServiceCode::INVALID_ARGUMENT,
+                               "multi_version_status is required");
+    }
+
+    // Parse multi_version_status from string to enum
+    MultiVersionStatus multi_version_status;
+    std::string multi_version_status_upper = multi_version_status_str;
+    std::ranges::transform(multi_version_status_upper, multi_version_status_upper.begin(),
+                           ::toupper);
+
+    if (multi_version_status_upper == "MULTI_VERSION_DISABLED") {
+        multi_version_status = MultiVersionStatus::MULTI_VERSION_DISABLED;
+    } else if (multi_version_status_upper == "MULTI_VERSION_WRITE_ONLY") {
+        multi_version_status = MultiVersionStatus::MULTI_VERSION_WRITE_ONLY;
+    } else if (multi_version_status_upper == "MULTI_VERSION_READ_WRITE") {
+        multi_version_status = MultiVersionStatus::MULTI_VERSION_READ_WRITE;
+    } else if (multi_version_status_upper == "MULTI_VERSION_ENABLED") {
+        multi_version_status = MultiVersionStatus::MULTI_VERSION_ENABLED;
+    } else {
+        return http_json_reply(
+                MetaServiceCode::INVALID_ARGUMENT,
+                "invalid multi_version_status value. Supported values: MULTI_VERSION_DISABLED, "
+                "MULTI_VERSION_WRITE_ONLY, MULTI_VERSION_READ_WRITE, MULTI_VERSION_ENABLED");
+    }
+    // Call snapshot manager directly
+    auto [code, msg] = service->snapshot_manager()->set_multi_version_status(instance_id,
+                                                                             multi_version_status);
+
+    return http_json_reply(code, msg);
+}
+
+static HttpResponse process_get_snapshot_property(MetaServiceImpl* service,
+                                                  brpc::Controller* ctrl) {
+    auto& uri = ctrl->http_request().uri();
+    std::string_view instance_id = http_query(uri, "instance_id");
+    std::string_view cloud_unique_id = http_query(uri, "cloud_unique_id");
+
+    if (instance_id.empty() && cloud_unique_id.empty()) {
+        return http_json_reply(MetaServiceCode::INVALID_ARGUMENT,
+                               "empty instance_id and cloud_unique_id");
+    }
+
+    InstanceInfoPB instance;
+    auto [code, msg] = service->get_instance_info(std::string(instance_id),
+                                                  std::string(cloud_unique_id), &instance);
+    if (code != MetaServiceCode::OK) {
+        return http_json_reply(code, msg);
+    }
+
+    // Build snapshot properties response
+    rapidjson::Document doc;
+    doc.SetObject();
+
+    // Snapshot switch status
+    std::string_view switch_status;
+    switch (instance.snapshot_switch_status()) {
+    case SNAPSHOT_SWITCH_DISABLED:
+        switch_status = "UNSUPPORTED";
+        break;
+    case SNAPSHOT_SWITCH_OFF:
+        switch_status = "DISABLED";
+        break;
+    case SNAPSHOT_SWITCH_ON:
+        switch_status = "ENABLED";
+        break;
+    default:
+        switch_status = "UNKNOWN";
+        break;
+    }
+    doc.AddMember("status", rapidjson::StringRef(switch_status.data(), switch_status.size()),
+                  doc.GetAllocator());
+
+    // Max reserved snapshots
+    if (instance.has_max_reserved_snapshot()) {
+        doc.AddMember("max_reserved_snapshots", instance.max_reserved_snapshot(),
+                      doc.GetAllocator());
+    }
+
+    // Snapshot interval seconds
+    if (instance.has_snapshot_interval_seconds()) {
+        doc.AddMember("snapshot_interval_seconds", instance.snapshot_interval_seconds(),
+                      doc.GetAllocator());
+    }
+
+    rapidjson::StringBuffer buffer;
+    rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+    doc.Accept(writer);
+
+    return http_json_reply(MetaServiceCode::OK, "", buffer.GetString());
+}
+
 void MetaServiceImpl::http(::google::protobuf::RpcController* controller,
                            const MetaServiceHttpRequest*, MetaServiceHttpResponse*,
                            ::google::protobuf::Closure* done) {
@@ -705,6 +828,7 @@ void MetaServiceImpl::http(::google::protobuf::RpcController* controller,
             {"decommission_node", process_alter_cluster},
             {"set_cluster_status", process_alter_cluster},
             {"notify_decommissioned", process_alter_cluster},
+            {"alter_vcluster_info", process_alter_cluster},
             {"v1/add_cluster", process_alter_cluster},
             {"v1/drop_cluster", process_alter_cluster},
             {"v1/rename_cluster", process_alter_cluster},
@@ -714,6 +838,7 @@ void MetaServiceImpl::http(::google::protobuf::RpcController* controller,
             {"v1/drop_node", process_alter_cluster},
             {"v1/decommission_node", process_alter_cluster},
             {"v1/set_cluster_status", process_alter_cluster},
+            {"v1/alter_vcluster_info", process_alter_cluster},
             // for alter instance
             {"create_instance", process_create_instance},
             {"drop_instance", process_alter_instance},
@@ -740,6 +865,10 @@ void MetaServiceImpl::http(::google::protobuf::RpcController* controller,
             {"alter_s3_vault", process_alter_storage_vault},
             {"drop_s3_vault", process_alter_storage_vault},
             {"drop_hdfs_vault", process_alter_storage_vault},
+            {"alter_obj_info", process_alter_obj_store_info},
+            {"v1/alter_obj_info", process_alter_obj_store_info},
+            {"v1/alter_s3_vault", process_alter_storage_vault},
+
             // for tools
             {"decode_key", process_decode_key},
             {"encode_key", process_encode_key},
@@ -770,6 +899,15 @@ void MetaServiceImpl::http(::google::protobuf::RpcController* controller,
             {"v1/get_tablet_stats", process_get_tablet_stats},
             {"v1/get_stage", process_get_stage},
             {"v1/get_cluster_status", process_get_cluster_status},
+            // snapshot related
+            {"list_snapshot", process_list_snapshot},
+            {"set_snapshot_property", process_set_snapshot_property},
+            {"get_snapshot_property", process_get_snapshot_property},
+            {"set_multi_version_status", process_set_multi_version_status},
+            {"v1/list_snapshot", process_list_snapshot},
+            {"v1/set_snapshot_property", process_set_snapshot_property},
+            {"v1/get_snapshot_property", process_get_snapshot_property},
+            {"v1/set_multi_version_status", process_set_multi_version_status},
             // misc
             {"abort_txn", process_abort_txn},
             {"abort_tablet_job", process_abort_tablet_job},
@@ -794,6 +932,8 @@ void MetaServiceImpl::http(::google::protobuf::RpcController* controller,
     LOG(INFO) << "rpc from " << cntl->remote_side()
               << " request: " << cntl->http_request().uri().path();
     std::string http_request = format_http_request(cntl);
+    std::string http_request_for_log = encryt_sk(http_request);
+    http_request_for_log = hide_ak(http_request_for_log);
 
     // Auth
     auto token = http_query(cntl->http_request().uri(), "token");
@@ -804,7 +944,7 @@ void MetaServiceImpl::http(::google::protobuf::RpcController* controller,
         cntl->response_attachment().append(body);
         cntl->response_attachment().append("\n");
         LOG(WARNING) << "failed to handle http from " << cntl->remote_side()
-                     << " request: " << http_request << " msg: " << body;
+                     << " request: " << http_request_for_log << " msg: " << body;
         return;
     }
 
@@ -824,7 +964,7 @@ void MetaServiceImpl::http(::google::protobuf::RpcController* controller,
     int ret = cntl->http_response().status_code();
     LOG(INFO) << (ret == 200 ? "succ to " : "failed to ") << __PRETTY_FUNCTION__ << " "
               << cntl->remote_side() << " request=\n"
-              << http_request << "\n ret=" << ret << " msg=" << msg;
+              << http_request_for_log << "\n ret=" << ret << " msg=" << msg;
 }
 
 } // namespace doris::cloud

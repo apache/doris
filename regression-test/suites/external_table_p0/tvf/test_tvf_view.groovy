@@ -35,33 +35,46 @@ suite("test_tvf_view", "p0,external,tvf,external_docker,hive") {
         qt_3 """select p_partkey from tvf_view order by p_partkey limit 10"""
         explain{
             sql("select * from tvf_view")
-            contains("_table_valued_function_hdfs.p_partkey")
-            contains("_table_valued_function_hdfs.p_name")
-            contains("_table_valued_function_hdfs.p_mfgr")
-            contains("_table_valued_function_hdfs.p_brand")
-            contains("_table_valued_function_hdfs.p_type")
-            contains("_table_valued_function_hdfs.p_size")
-            contains("_table_valued_function_hdfs.p_container")
-            contains("_table_valued_function_hdfs.p_retailprice")
-            contains("_table_valued_function_hdfs.p_comment")
+            contains("_tvf_hdfs.p_partkey")
+            contains("_tvf_hdfs.p_name")
+            contains("_tvf_hdfs.p_mfgr")
+            contains("_tvf_hdfs.p_brand")
+            contains("_tvf_hdfs.p_type")
+            contains("_tvf_hdfs.p_size")
+            contains("_tvf_hdfs.p_container")
+            contains("_tvf_hdfs.p_retailprice")
+            contains("_tvf_hdfs.p_comment")
+            contains("table: null.null.HDFSTableValuedFunction")
         }
         explain{
             sql("select * from hdfs (\n" +
                     "  \"uri\"=\"hdfs://${nameNodeHost}:${hdfsPort}/user/doris/tpch1.db/tpch1_parquet/part/part-00000-cb9099f7-a053-4f9a-80af-c659cfa947cc-c000.snappy.parquet\",\n" +
                     "  \"hadoop.username\" = \"hadoop\",\n" +
                     "  \"format\"=\"parquet\")")
-            contains("_table_valued_function_hdfs.p_partkey")
-            contains("_table_valued_function_hdfs.p_name")
-            contains("_table_valued_function_hdfs.p_mfgr")
-            contains("_table_valued_function_hdfs.p_brand")
-            contains("_table_valued_function_hdfs.p_type")
-            contains("_table_valued_function_hdfs.p_size")
-            contains("_table_valued_function_hdfs.p_container")
-            contains("_table_valued_function_hdfs.p_retailprice")
-            contains("_table_valued_function_hdfs.p_comment")
+            contains("_tvf_hdfs.p_partkey")
+            contains("_tvf_hdfs.p_name")
+            contains("_tvf_hdfs.p_mfgr")
+            contains("_tvf_hdfs.p_brand")
+            contains("_tvf_hdfs.p_type")
+            contains("_tvf_hdfs.p_size")
+            contains("_tvf_hdfs.p_container")
+            contains("_tvf_hdfs.p_retailprice")
+            contains("_tvf_hdfs.p_comment")
         }
 
-        sql """drop database if exists test_tvf_view_p2"""
+        sql """create view tvf_view_count as select * from hdfs (
+            "uri"="hdfs://${nameNodeHost}:${hdfsPort}/user/doris/tpch1.db/tpch1_parquet/part/part-00000-cb9099f7-a053-4f9a-80af-c659cfa947cc-c000.snappy.parquet",
+            "hadoop.username" = "hadoop",
+            "format"="parquet");"""
+
+        explain {
+            verbose true
+            sql("select count(1) from tvf_view_count")
+            contains "SlotDescriptor{id=0,"
+            notContains "SlotDescriptor{id=1,"
+        }
+
+        // sql """drop database if exists test_tvf_view_p2"""
     }
 }
 

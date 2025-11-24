@@ -17,18 +17,18 @@
 
 #pragma once
 
-#include <CLucene.h> // IWYU pragma: keep
-#include <CLucene/analysis/CharFilter.h>
-
 #include <bitset>
 
-namespace doris {
+#include "olap/rowset/segment_v2/inverted_index/char_filter/char_filter.h"
 
-class CharReplaceCharFilter : public lucene::analysis::CharFilter {
+namespace doris::segment_v2::inverted_index {
+
+class CharReplaceCharFilter : public DorisCharFilter {
 public:
-    CharReplaceCharFilter(lucene::util::Reader* in, const std::string& pattern,
-                          const std::string& replacement);
+    CharReplaceCharFilter(ReaderPtr in, const std::string& pattern, std::string replacement);
     ~CharReplaceCharFilter() override = default;
+
+    void initialize() override;
 
     void init(const void* _value, int32_t _length, bool copyData) override;
     int32_t read(const void** start, int32_t min, int32_t max) override;
@@ -47,4 +47,4 @@ private:
     lucene::util::SStringReader<char> _transformed_input;
 };
 
-} // namespace doris
+} // namespace doris::segment_v2::inverted_index

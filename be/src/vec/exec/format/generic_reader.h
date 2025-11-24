@@ -20,15 +20,21 @@
 #include <gen_cpp/PlanNodes_types.h>
 
 #include "common/status.h"
+#include "olap/block_column_predicate.h"
 #include "runtime/descriptors.h"
 #include "runtime/types.h"
 #include "util/profile_collector.h"
 #include "vec/exprs/vexpr_fwd.h"
 
+namespace doris {
+class ColumnPredicate;
+} // namespace doris
+
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
 class Block;
+class VSlotRef;
 // This a reader interface for all file readers.
 // A GenericReader is responsible for reading a file and return
 // a set of blocks with specified schema,
@@ -47,6 +53,11 @@ public:
         return Status::NotSupported("get_columns is not implemented");
     }
 
+    // This method is responsible for initializing the resource for parsing schema.
+    // It will be called before `get_parsed_schema`.
+    virtual Status init_schema_reader() {
+        return Status::NotSupported("init_schema_reader is not implemented for this reader.");
+    }
     // `col_types` is always nullable to process illegal values.
     virtual Status get_parsed_schema(std::vector<std::string>* col_names,
                                      std::vector<DataTypePtr>* col_types) {
@@ -70,12 +81,55 @@ public:
 
     virtual Status close() { return Status::OK(); }
 
+    Status read_by_rows(const std::list<int64_t>& row_ids) {
+        _read_by_rows = true;
+        _row_ids = row_ids;
+        return _set_read_one_line_impl();
+    }
+
+    /// The reader is responsible for counting the number of rows read,
+    /// because some readers, such as parquet/orc,
+    /// can skip some pages/rowgroups through indexes.
+    virtual bool count_read_rows() { return false; }
+
 protected:
+    virtual Status _set_read_one_line_impl() {
+        return Status::NotSupported("read_by_rows is not implemented for this reader.");
+    }
+
     const size_t _MIN_BATCH_SIZE = 4064; // 4094 - 32(padding)
 
     /// Whether the underlying FileReader has filled the partition&missing columns
     bool _fill_all_columns = false;
     TPushAggOp::type _push_down_agg_type {};
+
+    // For TopN queries, rows will be read according to row ids produced by TopN result.
+    bool _read_by_rows = false;
+    std::list<int64_t> _row_ids;
+
+    // Cache to save some common part such as file footer.
+    // Maybe null if not used
+    FileMetaCache* _meta_cache = nullptr;
+};
+
+class ExprPushDownHelper {
+public:
+    ExprPushDownHelper() = default;
+    virtual ~ExprPushDownHelper() = default;
+    bool check_expr_can_push_down(const VExprSPtr& expr) const;
+    Status convert_predicates(const VExprSPtrs& exprs,
+                              std::vector<std::unique_ptr<ColumnPredicate>>& predicates,
+                              std::unique_ptr<MutilColumnBlockPredicate>& root, Arena& arena);
+
+protected:
+    virtual bool _exists_in_file(const VSlotRef*) const = 0;
+    virtual bool _type_matches(const VSlotRef*) const = 0;
+
+private:
+    bool _check_slot_can_push_down(const VExprSPtr& expr) const;
+    bool _check_other_children_is_literal(const VExprSPtr& expr) const;
+    Status _extract_predicates(const VExprSPtr& expr, int& cid, DataTypePtr& data_type,
+                               std::vector<Field>& values, bool null_pred, bool& parsed) const;
 };
 
 #include "common/compile_check_end.h"

@@ -467,15 +467,10 @@ TEST_F(ColumnArrayTest, GetNameTest) {
     }
 }
 
-// test get_ratio_of_default_rows
-TEST_F(ColumnArrayTest, GetRatioOfDefaultRowsTest) {
-    assert_get_ratio_of_default_rows(array_columns, serdes);
-}
-
-TEST_F(ColumnArrayTest, SerDeVecTest) {
-    // get_max_row_byte_size is not support in column_array
-    EXPECT_ANY_THROW(ser_deser_vec(array_columns, array_types));
-}
+//TEST_F(ColumnArrayTest, SerDeVecTest) {
+//    // get_max_row_byte_size is not support in column_array
+//    EXPECT_ANY_THROW(ser_deser_vec(array_columns, array_types));
+//}
 
 TEST_F(ColumnArrayTest, serDeserializeWithArenaImpl) {
     ser_deserialize_with_arena_impl(array_columns, array_types);
@@ -524,28 +519,6 @@ TEST_F(ColumnArrayTest, ReserveTest) {
     assert_reserve_callback(array_columns, serdes);
 }
 
-TEST_F(ColumnArrayTest, ReplicateTest) {
-    // array_array_char will cause exception in replicate with: string column length is too large: total_length=4295103210, element_number=327295
-    // so we need to skip it
-    MutableColumns array_columns_copy;
-    DataTypeSerDeSPtrs serdes_copy;
-    // just skip array_array_char use vector copy
-    for (int i = 0; i < array_columns.size(); i++) {
-        if (i == 33) {
-            continue;
-        }
-        array_columns_copy.push_back(array_columns[i]->assume_mutable());
-        serdes_copy.push_back(serdes[i]);
-    }
-    assert_replicate_callback(array_columns_copy, serdes_copy);
-    // expect error columns
-    MutableColumns error_columns;
-    error_columns.push_back(array_columns[33]->assume_mutable());
-    DataTypeSerDeSPtrs error_serdes;
-    error_serdes.push_back(serdes[33]);
-    EXPECT_ANY_THROW(assert_replicate_callback(error_columns, error_serdes));
-}
-
 TEST_F(ColumnArrayTest, ReplaceColumnTest) {
     // replace_column_data is not support in column_array, only support non-variable length column
     EXPECT_ANY_THROW(assert_replace_column_data_callback(array_columns, serdes));
@@ -554,17 +527,6 @@ TEST_F(ColumnArrayTest, ReplaceColumnTest) {
 
 TEST_F(ColumnArrayTest, AppendDataBySelectorTest) {
     assert_append_data_by_selector_callback(array_columns, serdes);
-}
-
-TEST_F(ColumnArrayTest, PermutationAndSortTest) {
-    for (int i = 0; i < array_columns.size(); i++) {
-        auto& column = array_columns[i];
-        auto& type = array_types[i];
-        auto column_type = type->get_name();
-        LOG(INFO) << "column_type: " << column_type;
-        // permutation
-        EXPECT_ANY_THROW(assert_column_permutations(column->assume_mutable_ref(), type));
-    }
 }
 
 TEST_F(ColumnArrayTest, FilterInplaceTest) {
@@ -616,11 +578,6 @@ TEST_F(ColumnArrayTest, ConvertDictCodesIfNecessaryTest) {
     assert_convert_dict_codes_if_necessary_callback(array_columns, callback);
 }
 
-// test assert_copy_date_types_callback
-TEST_F(ColumnArrayTest, CopyDateTypesTest) {
-    assert_copy_date_types_callback(array_columns);
-}
-
 // test assert_column_nullable_funcs
 TEST_F(ColumnArrayTest, ColumnNullableFuncsTest) {
     assert_column_nullable_funcs(array_columns, nullptr);
@@ -658,18 +615,11 @@ TEST_F(ColumnArrayTest, CreateArrayTest) {
         LOG(INFO) << "column_type: " << column->get_name();
         // test create_array
         // test create expect exception case
-        // 1.offsets is not ColumnUInt64
+        // 1.offsets is not ColumnOffset64
         auto tmp_data_col = column->get_data_ptr()->clone_resized(1);
         MutableColumnPtr tmp_offsets_col =
                 assert_cast<const ColumnArray::ColumnOffsets&>(column->get_offsets_column())
                         .clone_resized(1);
-        UInt64 off = tmp_offsets_col->operator[](0).get<UInt64>();
-        // make offsets_col into column_int32
-        auto wrong_type_offsets_col = vectorized::ColumnVector<vectorized::UInt128>::create(1, off);
-        EXPECT_ANY_THROW({
-            auto new_array_column = ColumnArray::create(tmp_data_col->assume_mutable(),
-                                                        wrong_type_offsets_col->assume_mutable());
-        });
         // 2.offsets size is not equal to data size
         auto tmp_data_col1 = column->get_data_ptr()->clone_resized(2);
         EXPECT_ANY_THROW({
@@ -827,7 +777,7 @@ TEST_F(ColumnArrayTest, MaxArraySizeAsFieldTest) {
 }
 
 TEST_F(ColumnArrayTest, IsDefaultAtTest) {
-    // default means meet empty array row in column_array, now just only used in ColumnObject.
+    // default means meet empty array row in column_array, now just only used in ColumnVariant.
     // test is_default_at
     for (int i = 0; i < array_columns.size(); i++) {
         auto column = check_and_get_column<ColumnArray>(
@@ -871,7 +821,7 @@ TEST_F(ColumnArrayTest, HasEqualOffsetsTest) {
 }
 
 TEST_F(ColumnArrayTest, String64ArrayTest) {
-    auto off_column = ColumnVector<ColumnArray::Offset64>::create();
+    auto off_column = ColumnOffset64::create();
     auto str64_column = ColumnString64::create();
     // init column array with [["abc","d"],["ef"],[], [""]];
     std::vector<ColumnArray::Offset64> offs = {0, 2, 3, 3, 4};
@@ -917,8 +867,8 @@ TEST_F(ColumnArrayTest, String64ArrayTest) {
 }
 
 TEST_F(ColumnArrayTest, IntArrayPermuteTest) {
-    auto off_column = ColumnVector<ColumnArray::Offset64>::create();
-    auto data_column = ColumnVector<int32_t>::create();
+    auto off_column = ColumnOffset64::create();
+    auto data_column = ColumnInt32::create();
     // init column array with [[1,2,3],[],[4],[5,6]]
     std::vector<ColumnArray::Offset64> offs = {0, 3, 3, 4, 6};
     std::vector<int32_t> vals = {1, 2, 3, 4, 5, 6};
@@ -1014,8 +964,8 @@ TEST_F(ColumnArrayTest, ArrayTypeTesterase) {
     // std::cout << tmp2.dump_data(0, tmp2.rows());
     auto* column_result = assert_cast<ColumnArray*>(column_res.get());
     auto& column_offsets_res = column_result->get_offsets_column();
-    auto& offset_data_res = assert_cast<ColumnUInt64&>(column_offsets_res);
-    auto& offset_data = assert_cast<ColumnUInt64&>(column_offsets);
+    auto& offset_data_res = assert_cast<ColumnOffset64&>(column_offsets_res);
+    auto& offset_data = assert_cast<ColumnOffset64&>(column_offsets);
     auto& column_data_res = assert_cast<ColumnInt32&>(
             assert_cast<ColumnNullable&>(column_result->get_data()).get_nested_column());
     auto& column_data_origin = assert_cast<ColumnInt32&>(
@@ -1079,8 +1029,8 @@ TEST_F(ColumnArrayTest, ArrayTypeTest2erase) {
 
     auto* column_result = assert_cast<ColumnArray*>(column_res.get());
     auto& column_offsets_res = column_result->get_offsets_column();
-    auto& offset_data_res = assert_cast<ColumnUInt64&>(column_offsets_res);
-    auto& offset_data = assert_cast<ColumnUInt64&>(column_offsets);
+    auto& offset_data_res = assert_cast<ColumnOffset64&>(column_offsets_res);
+    auto& offset_data = assert_cast<ColumnOffset64&>(column_offsets);
     auto& column_data_res = assert_cast<ColumnInt32&>(
             assert_cast<ColumnNullable&>(column_result->get_data()).get_nested_column());
     auto& column_data_origin = assert_cast<ColumnInt32&>(

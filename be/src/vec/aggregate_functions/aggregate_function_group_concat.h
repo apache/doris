@@ -29,7 +29,6 @@
 #include "vec/common/string_ref.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_string.h"
-#include "vec/io/io_helper.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
@@ -91,15 +90,15 @@ struct AggregateFunctionGroupConcatData {
     StringRef get() const { return StringRef {data.data(), data.size()}; }
 
     void write(BufferWritable& buf) const {
-        write_binary(StringRef {data.data(), data.size()}, buf);
-        write_binary(separator, buf);
-        write_binary(inited, buf);
+        buf.write_binary(data);
+        buf.write_binary(separator);
+        buf.write_binary(inited);
     }
 
     void read(BufferReadable& buf) {
-        read_binary(data, buf);
-        read_binary(separator, buf);
-        read_binary(inited, buf);
+        buf.read_binary(data);
+        buf.read_binary(separator);
+        buf.read_binary(inited);
     }
 
     void reset() {
@@ -132,7 +131,9 @@ struct AggregateFunctionGroupConcatImplStrStr {
 template <typename Impl>
 class AggregateFunctionGroupConcat final
         : public IAggregateFunctionDataHelper<AggregateFunctionGroupConcatData,
-                                              AggregateFunctionGroupConcat<Impl>> {
+                                              AggregateFunctionGroupConcat<Impl>>,
+          VarargsExpression,
+          NullableAggregateFunction {
 public:
     AggregateFunctionGroupConcat(const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper<AggregateFunctionGroupConcatData,
@@ -143,14 +144,14 @@ public:
     DataTypePtr get_return_type() const override { return std::make_shared<DataTypeString>(); }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
-             Arena*) const override {
+             Arena&) const override {
         Impl::add(this->data(place), columns, row_num);
     }
 
     void reset(AggregateDataPtr place) const override { this->data(place).reset(); }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
-               Arena*) const override {
+               Arena&) const override {
         this->data(place).merge(this->data(rhs));
     }
 
@@ -159,7 +160,7 @@ public:
     }
 
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
-                     Arena*) const override {
+                     Arena&) const override {
         this->data(place).read(buf);
     }
 

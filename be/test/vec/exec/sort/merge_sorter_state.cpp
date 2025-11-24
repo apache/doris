@@ -32,7 +32,6 @@
 #include "testutil/mock/mock_descriptors.h"
 #include "testutil/mock/mock_runtime_state.h"
 #include "testutil/mock/mock_slot_ref.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/sort/heap_sorter.h"
 #include "vec/common/sort/sorter.h"
@@ -63,7 +62,7 @@ std::shared_ptr<Block> create_block(std::vector<int64_t> data) {
 }
 
 TEST_F(MergeSorterStateTest, test1) {
-    state.reset(new MergeSorterState(*row_desc, 0, -1, &_state, &_profile));
+    state.reset(new MergeSorterState(*row_desc, 0));
     state->add_sorted_block(create_block({1, 2, 3}));
     state->add_sorted_block(create_block({4, 5, 6}));
     state->add_sorted_block(create_block({}));

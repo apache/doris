@@ -48,7 +48,6 @@ public class MetaServiceClient {
     private final MetaServiceGrpc.MetaServiceBlockingStub blockingStub;
     private final ManagedChannel channel;
     private final long expiredAt;
-    private final boolean isMetaServiceEndpointList;
     private Random random = new Random();
 
     static {
@@ -64,10 +63,8 @@ public class MetaServiceClient {
     public MetaServiceClient(String address) {
         this.address = address;
 
-        isMetaServiceEndpointList = address.contains(",");
-
         String target = address;
-        if (isMetaServiceEndpointList) {
+        if (address.contains(",")) {
             target = MetaServiceListResolverProvider.MS_LIST_SCHEME_PREFIX + address;
         }
 
@@ -87,8 +84,7 @@ public class MetaServiceClient {
 
     private long connectionAgeExpiredAt() {
         long connectionAgeBase = Config.meta_service_connection_age_base_minutes;
-        // Disable connection age if the endpoint is a list.
-        if (!isMetaServiceEndpointList && connectionAgeBase > 1) {
+        if (connectionAgeBase > 0) {
             long base = TimeUnit.MINUTES.toMillis(connectionAgeBase);
             long now = System.currentTimeMillis();
             long rand = random.nextLong() % base;
@@ -364,6 +360,10 @@ public class MetaServiceClient {
                 .alterCluster(request);
     }
 
+    /**
+     * This method is deprecated, there is no code to call it.
+     */
+    @Deprecated
     public Cloud.AlterObjStoreInfoResponse alterObjStoreInfo(Cloud.AlterObjStoreInfoRequest request) {
         if (!request.hasCloudUniqueId()) {
             Cloud.AlterObjStoreInfoRequest.Builder builder = Cloud.AlterObjStoreInfoRequest.newBuilder();
@@ -448,6 +448,18 @@ public class MetaServiceClient {
                 .resetRlProgress(request);
     }
 
+    public Cloud.ResetStreamingJobOffsetResponse resetStreamingJobOffset(Cloud.ResetStreamingJobOffsetRequest request) {
+        if (!request.hasCloudUniqueId()) {
+            Cloud.ResetStreamingJobOffsetRequest.Builder builder =
+                    Cloud.ResetStreamingJobOffsetRequest.newBuilder();
+            builder.mergeFrom(request);
+            return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                    .resetStreamingJobOffset(builder.setCloudUniqueId(Config.cloud_unique_id).build());
+        }
+        return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                .resetStreamingJobOffset(request);
+    }
+
     public Cloud.GetObjStoreInfoResponse
             getObjStoreInfo(Cloud.GetObjStoreInfoRequest request) {
         if (!request.hasCloudUniqueId()) {
@@ -491,5 +503,56 @@ public class MetaServiceClient {
             createInstance(Cloud.CreateInstanceRequest request) {
         return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
                 .createInstance(request);
+    }
+
+    public Cloud.GetStreamingTaskCommitAttachResponse
+            getStreamingTaskCommitAttach(Cloud.GetStreamingTaskCommitAttachRequest request) {
+        return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                .getStreamingTaskCommitAttach(request);
+    }
+
+    public Cloud.DeleteStreamingJobResponse deleteStreamingJob(Cloud.DeleteStreamingJobRequest request) {
+        return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                .deleteStreamingJob(request);
+    }
+
+    public Cloud.AlterInstanceResponse alterInstance(Cloud.AlterInstanceRequest request) {
+        return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                .alterInstance(request);
+    }
+
+    public Cloud.BeginSnapshotResponse beginSnapshot(Cloud.BeginSnapshotRequest request) {
+        return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+            .beginSnapshot(request);
+    }
+
+    public Cloud.UpdateSnapshotResponse updateSnapshot(Cloud.UpdateSnapshotRequest request) {
+        return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                .updateSnapshot(request);
+    }
+
+    public Cloud.CommitSnapshotResponse commitSnapshot(Cloud.CommitSnapshotRequest request) {
+        return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                .commitSnapshot(request);
+    }
+
+    public Cloud.AbortSnapshotResponse abortSnapshot(Cloud.AbortSnapshotRequest request) {
+        return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                .abortSnapshot(request);
+    }
+
+    public Cloud.ListSnapshotResponse listSnapshot(Cloud.ListSnapshotRequest request) {
+        return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                .listSnapshot(request);
+    }
+
+    public Cloud.DropSnapshotResponse dropSnapshot(Cloud.DropSnapshotRequest request) {
+        return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                .dropSnapshot(request);
+    }
+
+    public Cloud.CloneInstanceResponse cloneInstance(Cloud.CloneInstanceRequest request) {
+        return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                .cloneInstance(request);
     }
 }

@@ -50,13 +50,18 @@ public class StGeometryfromtext extends ScalarFunction
         super("st_geometryfromtext", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private StGeometryfromtext(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public StGeometryfromtext withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new StGeometryfromtext(children.get(0));
+        return new StGeometryfromtext(getFunctionParams(children));
     }
 
     @Override

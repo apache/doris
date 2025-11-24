@@ -87,7 +87,7 @@ public class FrontendsDisksTableValuedFunction extends MetadataTableValuedFuncti
     }
 
     @Override
-    public TMetaScanRange getMetaScanRange() {
+    public TMetaScanRange getMetaScanRange(List<String> requiredFileds) {
         TMetaScanRange metaScanRange = new TMetaScanRange();
         metaScanRange.setMetadataType(TMetadataType.FRONTENDS_DISKS);
         TFrontendsMetadataParams frontendsMetadataParams = new TFrontendsMetadataParams();

@@ -52,6 +52,7 @@
 #include "util/stopwatch.hpp"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 const std::string TOP_N = "top_n";
 const std::string SYNC_META = "sync_meta";
@@ -142,13 +143,14 @@ static rapidjson::Value jsonfy_tablet_compaction_score(
     tablet_id_key.SetString(TABLET_ID.data(), TABLET_ID.length(), allocator);
     rapidjson::Value tablet_id_val;
     auto tablet_id_str = std::to_string(result.tablet_id);
-    tablet_id_val.SetString(tablet_id_str.c_str(), tablet_id_str.length(), allocator);
+    tablet_id_val.SetString(tablet_id_str.c_str(), cast_set<int32_t>(tablet_id_str.length()),
+                            allocator);
 
     rapidjson::Value score_key;
-    score_key.SetString(COMPACTION_SCORE.data(), COMPACTION_SCORE.size());
+    score_key.SetString(COMPACTION_SCORE.data(), cast_set<int32_t>(COMPACTION_SCORE.size()));
     rapidjson::Value score_val;
     auto score_str = std::to_string(result.compaction_score);
-    score_val.SetString(score_str.c_str(), score_str.length(), allocator);
+    score_val.SetString(score_str.c_str(), cast_set<int32_t>(score_str.length()), allocator);
     node.AddMember(score_key, score_val, allocator);
 
     node.AddMember(tablet_id_key, tablet_id_val, allocator);
@@ -233,4 +235,5 @@ Status CompactionScoreAction::_handle(size_t top_n, bool sync_meta, std::string*
     return Status::OK();
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris

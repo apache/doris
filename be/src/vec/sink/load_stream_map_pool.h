@@ -98,11 +98,21 @@ public:
     // only call this method after release() returns true.
     void close_load(bool incremental);
 
+    std::unordered_map<int64_t, std::shared_ptr<LoadStreamStubs>> get_streams_for_node() {
+        decltype(_streams_for_node) snapshot;
+        {
+            std::lock_guard<std::mutex> lock(_mutex);
+            snapshot = _streams_for_node;
+        }
+        return snapshot;
+    }
+
 private:
     const UniqueId _load_id;
     const int64_t _src_id;
     const int _num_streams;
     std::atomic<int> _use_cnt;
+    std::atomic<int> _num_incremental_streams;
     std::mutex _mutex;
     std::unordered_map<int64_t, std::shared_ptr<LoadStreamStubs>> _streams_for_node;
     LoadStreamMapPool* _pool = nullptr;

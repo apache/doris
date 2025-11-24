@@ -69,6 +69,10 @@ public class UnassignedAllBEJob extends AbstractUnassignedJob {
             Dictionary dictionary = sink.getDictionary();
             long lastVersion = dictionary.getSrcVersion();
             long usingVersion = ((OlapScanNode) rootNode).getMaxVersion();
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("UnassignedAllBEJob check load: dictionary={}, lastVersion={}, usingVersion={}",
+                        dictionary.getName(), lastVersion, usingVersion);
+            }
             if (usingVersion > lastVersion) {
                 // load new data
                 bes = computeFullLoad(workerManager, inputJobs);

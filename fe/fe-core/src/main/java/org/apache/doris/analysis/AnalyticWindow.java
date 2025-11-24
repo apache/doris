@@ -20,7 +20,8 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.common.AnalysisException;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.thrift.TAnalyticWindow;
 import org.apache.doris.thrift.TAnalyticWindowBoundary;
 import org.apache.doris.thrift.TAnalyticWindowBoundaryType;
@@ -36,11 +37,6 @@ import java.util.Objects;
  * Both left and right boundaries are always non-null after analyze().
  */
 public class AnalyticWindow {
-    // default window used when an analytic expr was given an order by but no window
-    public static final AnalyticWindow DEFAULT_WINDOW = new AnalyticWindow(Type.RANGE,
-            new Boundary(BoundaryType.UNBOUNDED_PRECEDING, null),
-            new Boundary(BoundaryType.CURRENT_ROW, null));
-
     public enum Type {
         ROWS("ROWS"),
         RANGE("RANGE");
@@ -100,33 +96,6 @@ public class AnalyticWindow {
         public boolean isOffset() {
             return this == PRECEDING || this == FOLLOWING;
         }
-
-        public boolean isPreceding() {
-            return this == UNBOUNDED_PRECEDING || this == PRECEDING;
-        }
-
-        public boolean isFollowing() {
-            return this == UNBOUNDED_FOLLOWING || this == FOLLOWING;
-        }
-
-        public BoundaryType converse() {
-            switch (this) {
-                case UNBOUNDED_PRECEDING:
-                    return UNBOUNDED_FOLLOWING;
-
-                case UNBOUNDED_FOLLOWING:
-                    return UNBOUNDED_PRECEDING;
-
-                case PRECEDING:
-                    return FOLLOWING;
-
-                case FOLLOWING:
-                    return PRECEDING;
-
-                default:
-                    return CURRENT_ROW;
-            }
-        }
     }
 
     public static class Boundary {
@@ -141,10 +110,6 @@ public class AnalyticWindow {
 
         public BoundaryType getType() {
             return type;
-        }
-
-        public Expr getExpr() {
-            return expr;
         }
 
         public Boundary(BoundaryType type, Expr e) {
@@ -172,11 +137,12 @@ public class AnalyticWindow {
             return sb.toString();
         }
 
-        public String toDigest() {
+        public String toSql(boolean disableTableName, boolean needExternalSql, TableType tableType,
+                TableIf table) {
             StringBuilder sb = new StringBuilder();
 
             if (expr != null) {
-                sb.append(expr.toDigest()).append(" ");
+                sb.append(expr.toSql(disableTableName, needExternalSql, tableType, table)).append(" ");
             }
 
             sb.append(type.toString());
@@ -219,22 +185,9 @@ public class AnalyticWindow {
             return type == o.type && exprEqual;
         }
 
-        public Boundary converse() {
-            Boundary result = new Boundary(type.converse(),
-                    (expr != null) ? expr.clone() : null);
-            result.offsetValue = offsetValue;
-            return result;
-        }
-
         @Override
         public Boundary clone() {
             return new Boundary(type, expr != null ? expr.clone() : null, offsetValue);
-        }
-
-        public void analyze(Analyzer analyzer) throws AnalysisException {
-            if (expr != null) {
-                expr.analyze(analyzer);
-            }
         }
     }
 
@@ -243,34 +196,9 @@ public class AnalyticWindow {
     private Boundary rightBoundary;  // may be null before analyze()
     private String toSqlString;  // cached after analysis
 
-    public Type getType() {
-        return type;
-    }
-
-    public Boundary getLeftBoundary() {
-        return leftBoundary;
-    }
-
-    public Boundary getRightBoundary() {
-        return rightBoundary;
-    }
-
-    public Boundary setRightBoundary(Boundary b) {
-        return rightBoundary = b;
-    }
-
-    public AnalyticWindow(Type type, Boundary b) {
-        this.type = type;
-        Preconditions.checkNotNull(b);
-        leftBoundary = b;
-        rightBoundary = null;
-    }
-
     public AnalyticWindow(Type type, Boundary l, Boundary r) {
         this.type = type;
-        Preconditions.checkNotNull(l);
         leftBoundary = l;
-        Preconditions.checkNotNull(r);
         rightBoundary = r;
     }
 
@@ -287,19 +215,6 @@ public class AnalyticWindow {
         }
 
         toSqlString = other.toSqlString;  // safe to share
-    }
-
-    public AnalyticWindow reverse() {
-        Boundary newRightBoundary = leftBoundary.converse();
-        Boundary newLeftBoundary = null;
-
-        if (rightBoundary == null) {
-            newLeftBoundary = new Boundary(leftBoundary.getType(), null);
-        } else {
-            newLeftBoundary = rightBoundary.converse();
-        }
-
-        return new AnalyticWindow(type, newLeftBoundary, newRightBoundary);
     }
 
     public String toSql() {
@@ -320,20 +235,25 @@ public class AnalyticWindow {
         return sb.toString();
     }
 
-    public String toDigest() {
+    public String toSql(boolean disableTableName, boolean needExternalSql, TableType tableType,
+            TableIf table) {
+        if (toSqlString != null) {
+            return toSqlString;
+        }
+
         StringBuilder sb = new StringBuilder();
         sb.append(type.toString()).append(" ");
 
         if (rightBoundary == null) {
-            sb.append(leftBoundary.toDigest());
+            sb.append(leftBoundary.toSql(disableTableName, needExternalSql, tableType, table));
         } else {
-            sb.append("BETWEEN ").append(leftBoundary.toDigest()).append(" AND ");
-            sb.append(rightBoundary.toDigest());
+            sb.append("BETWEEN ").append(leftBoundary.toSql(disableTableName, needExternalSql, tableType, table))
+                    .append(" AND ");
+            sb.append(rightBoundary.toSql(disableTableName, needExternalSql, tableType, table));
         }
 
         return sb.toString();
     }
-
 
     public TAnalyticWindow toThrift() {
         TAnalyticWindow result = new TAnalyticWindow(type.toThrift());
@@ -381,160 +301,5 @@ public class AnalyticWindow {
     @Override
     public AnalyticWindow clone() {
         return new AnalyticWindow(this);
-    }
-
-    /**
-     * Semantic analysis for expr of a PRECEDING/FOLLOWING clause.
-     */
-    private void checkOffsetExpr(Analyzer analyzer, Boundary boundary)
-            throws AnalysisException {
-        Preconditions.checkState(boundary.getType().isOffset());
-        Expr e = boundary.getExpr();
-        Preconditions.checkNotNull(e);
-        boolean isPos = true;
-        Double val = null;
-
-        if (e.isConstant() && e.getType().isNumericType()) {
-            try {
-                val = Expr.getConstFromExpr(e);
-                if (val <= 0) {
-                    isPos = false;
-                }
-            } catch (AnalysisException exc) {
-                throw new AnalysisException(
-                        "Couldn't evaluate PRECEDING/FOLLOWING expression: " + exc.getMessage());
-            }
-        }
-
-        if (type == Type.ROWS) {
-            if (!e.isConstant() || !e.getType().isFixedPointType() || !isPos) {
-                throw new AnalysisException(
-                        "For ROWS window, the value of a PRECEDING/FOLLOWING offset must be a "
-                        + "constant positive integer: " + boundary.toSql());
-            }
-
-            Preconditions.checkNotNull(val);
-            boundary.offsetValue = new BigDecimal(val.longValue());
-        } else {
-            if (!e.isConstant() || !e.getType().isNumericType() || !isPos) {
-                throw new AnalysisException(
-                        "For RANGE window, the value of a PRECEDING/FOLLOWING offset must be a "
-                        + "constant positive number: " + boundary.toSql());
-            }
-
-            boundary.offsetValue = new BigDecimal(val);
-        }
-    }
-
-    /**
-     * Check that b1 <= b2.
-     */
-    private void checkOffsetBoundaries(Analyzer analyzer, Boundary b1, Boundary b2)
-            throws AnalysisException {
-        Preconditions.checkState(b1.getType().isOffset());
-        Preconditions.checkState(b2.getType().isOffset());
-        Expr e1 = b1.getExpr();
-        Preconditions.checkState(
-                e1 != null && e1.isConstant() && e1.getType().isNumericType());
-        Expr e2 = b2.getExpr();
-        Preconditions.checkState(
-                e2 != null && e2.isConstant() && e2.getType().isNumericType());
-
-        try {
-            double left = Expr.getConstFromExpr(e1);
-            double right = Expr.getConstFromExpr(e2);
-
-            if (left > right) {
-                throw new AnalysisException(
-                        "Offset boundaries are in the wrong order: " + toSql());
-            }
-        } catch (AnalysisException exc) {
-            throw new AnalysisException(
-                    "Couldn't evaluate PRECEDING/FOLLOWING expression: " + exc.getMessage());
-        }
-
-    }
-
-    public void analyze(Analyzer analyzer) throws AnalysisException {
-        leftBoundary.analyze(analyzer);
-
-        if (rightBoundary != null) {
-            rightBoundary.analyze(analyzer);
-        }
-
-        if (leftBoundary.getType() == BoundaryType.UNBOUNDED_FOLLOWING) {
-            throw new AnalysisException(
-                    leftBoundary.getType().toString() + " is only allowed for upper bound of "
-                    + "BETWEEN");
-        }
-
-        if (rightBoundary != null
-                && rightBoundary.getType() == BoundaryType.UNBOUNDED_PRECEDING) {
-            throw new AnalysisException(
-                    rightBoundary.getType().toString() + " is only allowed for lower bound of "
-                    + "BETWEEN");
-        }
-
-        // TODO: Remove when RANGE windows with offset boundaries are supported.
-        if (type == Type.RANGE) {
-            if (leftBoundary.type.isOffset()
-                    || (rightBoundary != null && rightBoundary.type.isOffset())
-                    || (leftBoundary.type == BoundaryType.CURRENT_ROW
-                            && (rightBoundary == null
-                                    || rightBoundary.type == BoundaryType.CURRENT_ROW))) {
-                throw new AnalysisException(
-                        "RANGE is only supported with both the lower and upper bounds UNBOUNDED or"
-                        + " one UNBOUNDED and the other CURRENT ROW.");
-            }
-        }
-
-        if (rightBoundary == null && leftBoundary.getType() == BoundaryType.FOLLOWING) {
-            throw new AnalysisException(
-                    leftBoundary.getType().toString() + " requires a BETWEEN clause");
-        }
-
-        if (leftBoundary.getType().isOffset()) {
-            checkOffsetExpr(analyzer, leftBoundary);
-        }
-
-        if (rightBoundary == null) {
-            // set right boundary to implied value, but make sure to cache toSql string
-            // beforehand
-            toSqlString = toSql();
-            rightBoundary = new Boundary(BoundaryType.CURRENT_ROW, null);
-            return;
-        }
-
-        if (rightBoundary.getType().isOffset()) {
-            checkOffsetExpr(analyzer, rightBoundary);
-        }
-
-        if (leftBoundary.getType() == BoundaryType.FOLLOWING) {
-            if (rightBoundary.getType() != BoundaryType.FOLLOWING
-                    && rightBoundary.getType() != BoundaryType.UNBOUNDED_FOLLOWING) {
-                throw new AnalysisException(
-                        "A lower window bound of " + BoundaryType.FOLLOWING.toString()
-                        + " requires that the upper bound also be "
-                        + BoundaryType.FOLLOWING.toString());
-            }
-
-            if (rightBoundary.getType() != BoundaryType.UNBOUNDED_FOLLOWING) {
-                checkOffsetBoundaries(analyzer, leftBoundary, rightBoundary);
-            }
-        }
-
-        if (rightBoundary.getType() == BoundaryType.PRECEDING) {
-            if (leftBoundary.getType() != BoundaryType.PRECEDING
-                    && leftBoundary.getType() != BoundaryType.UNBOUNDED_PRECEDING) {
-                throw new AnalysisException(
-                        "An upper window bound of " + BoundaryType.PRECEDING.toString()
-                        + " requires that the lower bound also be "
-                        + BoundaryType.PRECEDING.toString());
-            }
-
-            if (leftBoundary.getType() != BoundaryType.UNBOUNDED_PRECEDING) {
-                checkOffsetBoundaries(analyzer, rightBoundary, leftBoundary);
-            }
-        }
     }
 }

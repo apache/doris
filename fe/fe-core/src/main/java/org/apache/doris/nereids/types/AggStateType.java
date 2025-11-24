@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.types;
 
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.catalog.BuiltinAggregateFunctions;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -28,6 +29,7 @@ import com.google.common.collect.ImmutableMap;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.stream.Collectors;
@@ -57,6 +59,7 @@ public class AggStateType extends DataType {
             .put("variance_pop", "variance")
             .put("var_samp", "variance_samp")
             .put("hist", "histogram")
+            .put("map_agg", "map_agg_v2")
             .build();
 
     private final List<DataType> subTypes;
@@ -75,6 +78,9 @@ public class AggStateType extends DataType {
                 .copyOf(Objects.requireNonNull(subTypeNullables, "subTypeNullables should not be null"));
         Preconditions.checkState(subTypes.size() == subTypeNullables.size(),
                 "AggStateType' subTypes.size()!=subTypeNullables.size()");
+        Objects.requireNonNull(functionName, "functionName should not be null");
+        // be only supports lowercase function names
+        functionName = functionName.toLowerCase(Locale.ROOT);
         this.functionName = aliasToName.getOrDefault(functionName, functionName);
     }
 
@@ -101,7 +107,8 @@ public class AggStateType extends DataType {
     @Override
     public Type toCatalogDataType() {
         List<Type> types = subTypes.stream().map(DataType::toCatalogDataType).collect(Collectors.toList());
-        return Expr.createAggStateType(functionName, types, subTypeNullables);
+        return Expr.createAggStateType(functionName, types, subTypeNullables,
+                BuiltinAggregateFunctions.INSTANCE.aggFuncNameNullableMap.get(functionName));
     }
 
     @Override
@@ -127,6 +134,9 @@ public class AggStateType extends DataType {
         }
 
         AggStateType rhs = (AggStateType) o;
+        if (!Objects.equals(functionName, rhs.functionName)) {
+            return false;
+        }
         if ((subTypes == null) != (rhs.subTypes == null)) {
             return false;
         }
@@ -146,6 +156,11 @@ public class AggStateType extends DataType {
             }
         }
         return true;
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(super.hashCode(), subTypes, subTypeNullables, functionName);
     }
 
     @Override

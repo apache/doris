@@ -17,11 +17,9 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.analysis.AlterColocateGroupStmt;
 import org.apache.doris.clone.ColocateTableCheckerAndBalancer;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
@@ -29,6 +27,7 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.lock.MonitoredReentrantReadWriteLock;
 import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.nereids.trees.plans.commands.AlterColocateGroupCommand;
 import org.apache.doris.persist.ColocatePersistInfo;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -105,25 +104,13 @@ public class ColocateTableIndex implements Writable {
         }
 
         public static GroupId read(DataInput in) throws IOException {
-            if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_105) {
-                GroupId groupId = new GroupId();
-                groupId.readFields(in);
-                return groupId;
-            } else {
-                String json = Text.readString(in);
-                return GsonUtils.GSON.fromJson(json, GroupId.class);
-            }
+            String json = Text.readString(in);
+            return GsonUtils.GSON.fromJson(json, GroupId.class);
         }
 
         @Override
         public void write(DataOutput out) throws IOException {
             Text.writeString(out, GsonUtils.GSON.toJson(this));
-        }
-
-        @Deprecated
-        private void readFields(DataInput in) throws IOException {
-            dbId = in.readLong();
-            grpId = in.readLong();
         }
 
         @Override
@@ -796,35 +783,20 @@ public class ColocateTableIndex implements Writable {
             group2Schema.put(grpId, groupSchema);
 
             // backends seqs
-            if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_105) {
+            int tagSize = in.readInt();
+            for (int j = 0; j < tagSize; j++) {
+                Tag tag = Tag.read(in);
+                int bucketSize = in.readInt();
                 List<List<Long>> bucketsSeq = Lists.newArrayList();
-                int beSize = in.readInt();
-                for (int j = 0; j < beSize; j++) {
-                    int seqSize = in.readInt();
-                    List<Long> seq = Lists.newArrayList();
-                    for (int k = 0; k < seqSize; k++) {
-                        long beId = in.readLong();
-                        seq.add(beId);
+                for (int k = 0; k < bucketSize; k++) {
+                    List<Long> beIds = Lists.newArrayList();
+                    int beSize = in.readInt();
+                    for (int l = 0; l < beSize; l++) {
+                        beIds.add(in.readLong());
                     }
-                    bucketsSeq.add(seq);
+                    bucketsSeq.add(beIds);
                 }
-                group2BackendsPerBucketSeq.put(grpId, Tag.DEFAULT_BACKEND_TAG, bucketsSeq);
-            } else {
-                int tagSize = in.readInt();
-                for (int j = 0; j < tagSize; j++) {
-                    Tag tag = Tag.read(in);
-                    int bucketSize = in.readInt();
-                    List<List<Long>> bucketsSeq = Lists.newArrayList();
-                    for (int k = 0; k < bucketSize; k++) {
-                        List<Long> beIds = Lists.newArrayList();
-                        int beSize = in.readInt();
-                        for (int l = 0; l < beSize; l++) {
-                            beIds.add(in.readLong());
-                        }
-                        bucketsSeq.add(beIds);
-                    }
-                    group2BackendsPerBucketSeq.put(grpId, tag, bucketsSeq);
-                }
+                group2BackendsPerBucketSeq.put(grpId, tag, bucketsSeq);
             }
         }
 
@@ -843,12 +815,12 @@ public class ColocateTableIndex implements Writable {
         return table2Group;
     }
 
-    public void alterColocateGroup(AlterColocateGroupStmt stmt) throws UserException {
+    public void alterColocateGroup(AlterColocateGroupCommand command) throws UserException {
         writeLock();
         try {
-            Map<String, String> properties = stmt.getProperties();
-            String dbName = stmt.getColocateGroupName().getDb();
-            String groupName = stmt.getColocateGroupName().getGroup();
+            Map<String, String> properties = command.getProperties();
+            String dbName = command.getColocateGroupName().getDb();
+            String groupName = command.getColocateGroupName().getGroup();
             long dbId = 0;
             if (!GroupId.isGlobalGroupName(groupName)) {
                 Database db = (Database) Env.getCurrentInternalCatalog().getDbOrMetaException(dbName);
@@ -857,7 +829,7 @@ public class ColocateTableIndex implements Writable {
             String fullGroupName = GroupId.getFullGroupName(dbId, groupName);
             ColocateGroupSchema groupSchema = getGroupSchema(fullGroupName);
             if (groupSchema == null) {
-                throw new DdlException("Not found colocate group " + stmt.getColocateGroupName().toSql());
+                throw new DdlException("Not found colocate group " + command.getColocateGroupName().toSql());
             }
 
             GroupId groupId = groupSchema.getGroupId();

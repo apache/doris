@@ -155,14 +155,7 @@ public class BDBJEJournalTest { // CHECKSTYLE IGNORE THIS LINE: BDBJE should use
 
         journal.rollJournal();
         for (int i = 0; i < 10; i++) {
-            String data = "OperationType.OP_TIMESTAMP";
-            Writable writable = new Writable() {
-                @Override
-                public void write(DataOutput out) throws IOException {
-                    Text.writeString(out, data);
-                }
-            };
-            journal.write(OperationType.OP_TIMESTAMP, writable);
+            journal.write(OperationType.OP_TIMESTAMP, new Timestamp());
         }
 
         Assertions.assertEquals(10, journal.getMaxJournalId());
@@ -183,14 +176,7 @@ public class BDBJEJournalTest { // CHECKSTYLE IGNORE THIS LINE: BDBJE should use
             if (i % 10 == 0) {
                 journal.rollJournal();
             }
-            String data = "OperationType.OP_TIMESTAMP";
-            Writable writable = new Writable() {
-                @Override
-                public void write(DataOutput out) throws IOException {
-                    Text.writeString(out, data);
-                }
-            };
-            journal.write(OperationType.OP_TIMESTAMP, writable);
+            journal.write(OperationType.OP_TIMESTAMP, new Timestamp());
         }
 
         Assertions.assertEquals(50, journal.getMaxJournalId());
@@ -213,13 +199,13 @@ public class BDBJEJournalTest { // CHECKSTYLE IGNORE THIS LINE: BDBJE should use
             Assertions.assertEquals(OperationType.OP_TIMESTAMP, entity.getOpCode());
         }
 
-        Assertions.assertEquals(null, cursor.next());
+        Assertions.assertNull(cursor.next());
 
         journal.close();
-        Assertions.assertEquals(null, journal.getBDBEnvironment());
+        Assertions.assertNull(journal.getBDBEnvironment());
 
         journal.open();
-        Assertions.assertTrue(journal.getBDBEnvironment() != null);
+        Assertions.assertNotNull(journal.getBDBEnvironment());
         // BDBEnvrinment need several seconds election from unknown to master
         for (int i = 0; i < 10; i++) {
             if (journal.getBDBEnvironment().getReplicatedEnvironment().getState()
@@ -301,8 +287,8 @@ public class BDBJEJournalTest { // CHECKSTYLE IGNORE THIS LINE: BDBJE should use
                     Text.writeString(out, data);
                 }
             };
-            // CREATE_MTMV_JOB is deprecated, and safe to write any data.
-            batch.addJournal(OperationType.OP_CREATE_MTMV_JOB, writable);
+            // OP_START_ROLLUP is deprecated, and safe to write any data.
+            batch.addJournal(OperationType.OP_START_ROLLUP, writable);
         }
         long journalId = journal.write(batch);
         Assertions.assertEquals(1, journalId);
@@ -319,7 +305,7 @@ public class BDBJEJournalTest { // CHECKSTYLE IGNORE THIS LINE: BDBJE should use
         Assertions.assertEquals(1, journal.getDatabaseNames().get(0));
 
         JournalEntity journalEntity = journal.read(1);
-        Assertions.assertEquals(OperationType.OP_CREATE_MTMV_JOB, journalEntity.getOpCode());
+        Assertions.assertEquals(OperationType.OP_START_ROLLUP, journalEntity.getOpCode());
 
         batch = new JournalBatch(10);
         for (int i = 0; i < 10; i++) {
@@ -330,7 +316,7 @@ public class BDBJEJournalTest { // CHECKSTYLE IGNORE THIS LINE: BDBJE should use
                     Text.writeString(out, data);
                 }
             };
-            batch.addJournal(OperationType.OP_CREATE_MTMV_JOB, writable);
+            batch.addJournal(OperationType.OP_START_ROLLUP, writable);
         }
         journalId = journal.write(batch);
         Assertions.assertEquals(11, journalId);

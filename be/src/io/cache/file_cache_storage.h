@@ -17,6 +17,9 @@
 
 #pragma once
 
+#include <mutex>
+
+#include "common/status.h"
 #include "io/cache/file_cache_common.h"
 #include "util/slice.h"
 
@@ -50,15 +53,16 @@ public:
     // append datas into block
     virtual Status append(const FileCacheKey& key, const Slice& value) = 0;
     // finalize the block
-    virtual Status finalize(const FileCacheKey& key) = 0;
+    virtual Status finalize(const FileCacheKey& key, const size_t size) = 0;
     // read the block
     virtual Status read(const FileCacheKey& key, size_t value_offset, Slice result) = 0;
     // remove the block
     virtual Status remove(const FileCacheKey& key) = 0;
     // change the block meta
-    virtual Status change_key_meta_type(const FileCacheKey& key, const FileCacheType type) = 0;
-    virtual Status change_key_meta_expiration(const FileCacheKey& key,
-                                              const uint64_t expiration) = 0;
+    virtual Status change_key_meta_type(const FileCacheKey& key, const FileCacheType type,
+                                        const size_t size) = 0;
+    virtual Status change_key_meta_expiration(const FileCacheKey& key, const uint64_t expiration,
+                                              const size_t size) = 0;
     // use when lazy load cache
     virtual void load_blocks_directly_unlocked(BlockFileCache* _mgr, const FileCacheKey& key,
                                                std::lock_guard<std::mutex>& cache_lock) {}
@@ -67,6 +71,10 @@ public:
     virtual FileCacheStorageType get_type() = 0;
     // get local cached file
     virtual std::string get_local_file(const FileCacheKey& key) = 0;
+    virtual Status get_file_cache_infos(std::vector<FileCacheInfo>& infos,
+                                        std::lock_guard<std::mutex>& cache_lock) const {
+        return Status::OK();
+    };
 };
 
 } // namespace doris::io

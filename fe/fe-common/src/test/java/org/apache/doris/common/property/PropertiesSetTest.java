@@ -24,12 +24,6 @@ import com.google.common.collect.Maps;
 import org.junit.Assert;
 import org.junit.Test;
 
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
-import java.io.DataInput;
-import java.io.DataInputStream;
-import java.io.DataOutput;
-import java.io.DataOutputStream;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.NoSuchElementException;
@@ -58,21 +52,6 @@ public class PropertiesSetTest {
         Assert.assertEquals(3, thriftMap.get(FileFormat.SKIP_HEADER.getName()).intVal);
 
         properties = PropertiesSet.readFromThrift(FileFormat.get(), thriftMap);
-        verifyVariableProps(properties);
-    }
-
-    @Test
-    public void testDataOutputSerde() throws Exception {
-        ByteArrayOutputStream outStream = new ByteArrayOutputStream();
-        DataOutput output = new DataOutputStream(outStream);
-
-        PropertiesSet<FileFormat> properties = PropertiesSet.readFromStrMap(FileFormat.get(), rawVariableProps());
-        properties.writeToData(output);
-
-        ByteArrayInputStream inStream = new ByteArrayInputStream(outStream.toByteArray());
-        DataInput input = new DataInputStream(inStream);
-
-        properties = PropertiesSet.readFromData(FileFormat.get(), input);
         verifyVariableProps(properties);
     }
 

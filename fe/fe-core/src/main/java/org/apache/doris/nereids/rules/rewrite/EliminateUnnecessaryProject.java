@@ -21,12 +21,12 @@ import org.apache.doris.nereids.annotation.DependsRules;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.Project;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 
-import java.util.ArrayList;
-import java.util.List;
+import com.google.common.collect.ImmutableList;
 
 /**
  * remove the project that output same with its child to avoid we get two consecutive projects in best plan.
@@ -37,6 +37,9 @@ public class EliminateUnnecessaryProject implements CustomRewriter {
 
     @Override
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
+        if (!plan.containsType(Project.class)) {
+            return plan;
+        }
         return rewrite(plan);
     }
 
@@ -52,7 +55,7 @@ public class EliminateUnnecessaryProject implements CustomRewriter {
         if (project.child() instanceof LogicalEmptyRelation) {
             // eliminate unnecessary project
             return new LogicalEmptyRelation(StatementScopeIdGenerator.newRelationId(), project.getProjects());
-        } else if (project.getOutputSet().equals(project.child().getOutputSet())) {
+        } else if (project.getOutputExprIdBitSet().equals(project.getChildrenOutputExprIdBitSet())) {
             // eliminate unnecessary project
             return rewrite(project.child());
         } else {
@@ -61,7 +64,7 @@ public class EliminateUnnecessaryProject implements CustomRewriter {
     }
 
     private Plan rewriteChildren(Plan plan) {
-        List<Plan> newChildren = new ArrayList<>();
+        ImmutableList.Builder<Plan> newChildren = ImmutableList.builderWithExpectedSize(plan.arity());
         boolean hasNewChildren = false;
         for (Plan child : plan.children()) {
             Plan newChild = rewrite(child);
@@ -70,6 +73,6 @@ public class EliminateUnnecessaryProject implements CustomRewriter {
             }
             newChildren.add(newChild);
         }
-        return hasNewChildren ? plan.withChildren(newChildren) : plan;
+        return hasNewChildren ? plan.withChildren(newChildren.build()) : plan;
     }
 }

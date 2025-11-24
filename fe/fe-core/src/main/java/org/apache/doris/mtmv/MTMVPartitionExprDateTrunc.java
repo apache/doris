@@ -31,9 +31,9 @@ import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeArithmetic;
 import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeExtractAndTransform;
+import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
-import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 
 import com.google.common.base.Preconditions;
@@ -69,19 +69,27 @@ public class MTMVPartitionExprDateTrunc implements MTMVPartitionExprService {
             throw new AnalysisException(
                     String.format("timeUnit not support: %s, only support: %s", this.timeUnit, timeUnits));
         }
-        MTMVRelatedTableIf relatedTable = mvPartitionInfo.getRelatedTable();
-        PartitionType partitionType = relatedTable.getPartitionType(MvccUtil.getSnapshotFromContext(relatedTable));
-        if (partitionType == PartitionType.RANGE) {
-            Type partitionColumnType = MTMVPartitionUtil
-                    .getPartitionColumnType(mvPartitionInfo.getRelatedTable(), mvPartitionInfo.getRelatedCol());
-            if (!partitionColumnType.isDateType()) {
-                throw new AnalysisException(
-                        "partitionColumnType should be date/datetime "
-                                + "when PartitionType is range and expr is date_trunc");
+        List<BaseColInfo> pctInfos = mvPartitionInfo.getPctInfos();
+        for (BaseColInfo pctInfo : pctInfos) {
+            MTMVRelatedTableIf pctTable = MTMVUtil.getRelatedTable(pctInfo.getTableInfo());
+            PartitionType partitionType = pctTable.getPartitionType(MvccUtil.getSnapshotFromContext(pctTable));
+            if (partitionType == PartitionType.RANGE) {
+                Type partitionColumnType = MTMVPartitionUtil
+                        .getPartitionColumnType(pctTable, pctInfo.getColName());
+                if (!partitionColumnType.isDateType()) {
+                    throw new AnalysisException(
+                            "partitionColumnType should be date/datetime "
+                                    + "when PartitionType is range and expr is date_trunc");
+                }
+            } else {
+                throw new AnalysisException("date_trunc only support range partition");
             }
-        } else {
-            throw new AnalysisException("date_trunc only support range partition");
         }
+    }
+
+    @Override
+    public String toSql(MTMVPartitionInfo mvPartitionInfo) {
+        return String.format("date_trunc(`%s`, '%s')", mvPartitionInfo.getPartitionCol(), timeUnit);
     }
 
     @Override
@@ -120,9 +128,9 @@ public class MTMVPartitionExprDateTrunc implements MTMVPartitionExprService {
 
     @Override
     public PartitionKeyDesc generateRollUpPartitionKeyDesc(PartitionKeyDesc partitionKeyDesc,
-            MTMVPartitionInfo mvPartitionInfo) throws AnalysisException {
+            MTMVPartitionInfo mvPartitionInfo, MTMVRelatedTableIf pctTable) throws AnalysisException {
         Type partitionColumnType = MTMVPartitionUtil
-                .getPartitionColumnType(mvPartitionInfo.getRelatedTable(), mvPartitionInfo.getRelatedCol());
+                .getPartitionColumnType(pctTable, mvPartitionInfo.getPartitionColByPctTable(pctTable));
         // mtmv only support one partition column
         Preconditions.checkState(partitionKeyDesc.getLowerValues().size() == 1,
                 "only support one partition column");
@@ -159,7 +167,7 @@ public class MTMVPartitionExprDateTrunc implements MTMVPartitionExprService {
         DateTimeV2Literal dateTimeLiteral = strToDate(value, dateFormat);
         // for (2020-01-31,2020-02-01),if not -1, lower value and upper value will not same after rollup
         if (isUpper) {
-            dateTimeLiteral = (DateTimeV2Literal) DateTimeArithmetic.secondsSub(dateTimeLiteral, new IntegerLiteral(1));
+            dateTimeLiteral = (DateTimeV2Literal) DateTimeArithmetic.secondsSub(dateTimeLiteral, new BigIntLiteral(1));
         }
         Expression expression = DateTimeExtractAndTransform.dateTrunc(dateTimeLiteral, new VarcharLiteral(timeUnit));
         if (!(expression instanceof DateTimeV2Literal)) {
@@ -237,5 +245,19 @@ public class MTMVPartitionExprDateTrunc implements MTMVPartitionExprService {
             throw new AnalysisException(
                     "MTMV not support partition with column type : " + partitionColumnType);
         }
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        MTMVPartitionExprDateTrunc that = (MTMVPartitionExprDateTrunc) o;
+        return Objects.equals(timeUnit, that.timeUnit);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hashCode(timeUnit);
     }
 }

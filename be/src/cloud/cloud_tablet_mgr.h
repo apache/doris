@@ -47,7 +47,7 @@ public:
     Result<std::shared_ptr<CloudTablet>> get_tablet(int64_t tablet_id, bool warmup_data = false,
                                                     bool sync_delete_bitmap = true,
                                                     SyncRowsetStats* sync_stats = nullptr,
-                                                    bool force_use_cache = false);
+                                                    bool local_only = false);
 
     void erase_tablet(int64_t tablet_id);
 
@@ -87,6 +87,8 @@ public:
 
     void get_topn_tablet_delete_bitmap_score(uint64_t* max_delete_bitmap_score,
                                              uint64_t* max_base_rowset_delete_bitmap_score);
+
+    std::vector<std::shared_ptr<CloudTablet>> get_all_tablet();
 
     // **ATTN: JUST FOR UT**
     void put_tablet_for_UT(std::shared_ptr<CloudTablet> tablet);

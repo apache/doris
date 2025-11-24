@@ -71,18 +71,18 @@ private:
 
 class ParquetBuildHelper {
 public:
-    static void build_schema_repetition_type(
-            parquet::Repetition::type& parquet_repetition_type,
-            const TParquetRepetitionType::type& column_repetition_type);
-
-    static void build_schema_data_type(parquet::Type::type& parquet_data_type,
-                                       const TParquetDataType::type& column_data_type);
-
-    static void build_compression_type(parquet::WriterProperties::Builder& builder,
+    static void build_compression_type(::parquet::WriterProperties::Builder& builder,
                                        const TParquetCompressionType::type& compression_type);
 
-    static void build_version(parquet::WriterProperties::Builder& builder,
+    static void build_version(::parquet::WriterProperties::Builder& builder,
                               const TParquetVersion::type& parquet_version);
+};
+
+struct ParquetFileOptions {
+    TParquetCompressionType::type compression_type;
+    TParquetVersion::type parquet_version;
+    bool parquet_disable_dictionary = false;
+    bool enable_int96_timestamps = false;
 };
 
 // a wrapper of parquet output stream
@@ -90,18 +90,16 @@ class VParquetTransformer final : public VFileFormatTransformer {
 public:
     VParquetTransformer(RuntimeState* state, doris::io::FileWriter* file_writer,
                         const VExprContextSPtrs& output_vexpr_ctxs,
-                        std::vector<std::string> column_names,
-                        TParquetCompressionType::type compression_type,
-                        bool parquet_disable_dictionary, TParquetVersion::type parquet_version,
-                        bool output_object_data, const std::string* iceberg_schema_json = nullptr,
+                        std::vector<std::string> column_names, bool output_object_data,
+                        const ParquetFileOptions& parquet_options,
+                        const std::string* iceberg_schema_json = nullptr,
                         const iceberg::Schema* iceberg_schema = nullptr);
 
     VParquetTransformer(RuntimeState* state, doris::io::FileWriter* file_writer,
                         const VExprContextSPtrs& output_vexpr_ctxs,
-                        const std::vector<TParquetSchema>& parquet_schemas,
-                        TParquetCompressionType::type compression_type,
-                        bool parquet_disable_dictionary, TParquetVersion::type parquet_version,
-                        bool output_object_data, const std::string* iceberg_schema_json = nullptr);
+                        const std::vector<TParquetSchema>& parquet_schemas, bool output_object_data,
+                        const ParquetFileOptions& parquet_options,
+                        const std::string* iceberg_schema_json = nullptr);
 
     ~VParquetTransformer() override = default;
 
@@ -119,16 +117,14 @@ private:
     arrow::Status _open_file_writer();
 
     std::shared_ptr<ParquetOutputStream> _outstream;
-    std::shared_ptr<parquet::WriterProperties> _parquet_writer_properties;
-    std::shared_ptr<parquet::ArrowWriterProperties> _arrow_properties;
-    std::unique_ptr<parquet::arrow::FileWriter> _writer;
+    std::shared_ptr<::parquet::WriterProperties> _parquet_writer_properties;
+    std::shared_ptr<::parquet::ArrowWriterProperties> _arrow_properties;
+    std::unique_ptr<::parquet::arrow::FileWriter> _writer;
     std::shared_ptr<arrow::Schema> _arrow_schema;
 
     std::vector<std::string> _column_names;
     const std::vector<TParquetSchema>* _parquet_schemas = nullptr;
-    const TParquetCompressionType::type _compression_type;
-    const bool _parquet_disable_dictionary;
-    const TParquetVersion::type _parquet_version;
+    const ParquetFileOptions _parquet_options;
     const std::string* _iceberg_schema_json;
     uint64_t _write_size = 0;
     const iceberg::Schema* _iceberg_schema;

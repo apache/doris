@@ -17,7 +17,6 @@
 
 package org.apache.doris.load;
 
-import org.apache.doris.analysis.ShowStreamLoadStmt.StreamLoadState;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
@@ -29,6 +28,7 @@ import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.trees.plans.commands.ShowLoadCommand;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.plugin.AuditEvent;
 import org.apache.doris.plugin.AuditEvent.EventType;
@@ -154,7 +154,7 @@ public class StreamLoadRecordMgr extends MasterDaemon {
     }
 
     public List<List<Comparable>> getStreamLoadRecordByDb(
-            long dbId, String label, boolean accurateMatch, StreamLoadState state) {
+            long dbId, String label, boolean accurateMatch, ShowLoadCommand.StreamLoadState state) {
         LinkedList<List<Comparable>> streamLoadRecords = new LinkedList<List<Comparable>>();
 
         readLock();
@@ -274,13 +274,14 @@ public class StreamLoadRecordMgr extends MasterDaemon {
                                         + " label: {}, db: {}, tbl: {}, user: {}, user_ip: {},"
                                         + " status: {}, message: {}, error_url: {},"
                                         + " total_rows: {}, loaded_rows: {}, filtered_rows: {}, unselected_rows: {},"
-                                        + " load_bytes: {}, start_time: {}, finish_time: {}.",
+                                        + " load_bytes: {}, start_time: {}, finish_time: {}, first_error_msg: {}.",
                                 backend.getHost(), streamLoadItem.getLabel(), streamLoadItem.getDb(),
                                 streamLoadItem.getTbl(), streamLoadItem.getUser(), streamLoadItem.getUserIp(),
                                 streamLoadItem.getStatus(), streamLoadItem.getMessage(), streamLoadItem.getUrl(),
                                 streamLoadItem.getTotalRows(), streamLoadItem.getLoadedRows(),
                                 streamLoadItem.getFilteredRows(), streamLoadItem.getUnselectedRows(),
-                                streamLoadItem.getLoadBytes(), startTime, finishTime);
+                                streamLoadItem.getLoadBytes(), startTime, finishTime,
+                                streamLoadItem.getFirstErrorMsg());
                     }
 
                     AuditEvent auditEvent =
@@ -312,7 +313,8 @@ public class StreamLoadRecordMgr extends MasterDaemon {
                                     String.valueOf(streamLoadItem.getFilteredRows()),
                                     String.valueOf(streamLoadItem.getUnselectedRows()),
                                     String.valueOf(streamLoadItem.getLoadBytes()),
-                                    startTime, finishTime, streamLoadItem.getUser(), streamLoadItem.getComment());
+                                    startTime, finishTime, streamLoadItem.getUser(), streamLoadItem.getComment(),
+                                    String.valueOf(streamLoadItem.getFirstErrorMsg()));
 
                     String fullDbName = streamLoadItem.getDb();
                     Database db = Env.getCurrentInternalCatalog().getDbNullable(fullDbName);

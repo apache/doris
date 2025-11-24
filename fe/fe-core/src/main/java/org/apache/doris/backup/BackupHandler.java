@@ -17,18 +17,7 @@
 
 package org.apache.doris.backup;
 
-import org.apache.doris.analysis.AbstractBackupStmt;
-import org.apache.doris.analysis.AbstractBackupTableRefClause;
-import org.apache.doris.analysis.BackupStmt;
-import org.apache.doris.analysis.BackupStmt.BackupType;
-import org.apache.doris.analysis.CancelBackupStmt;
-import org.apache.doris.analysis.CreateRepositoryStmt;
-import org.apache.doris.analysis.DropRepositoryStmt;
-import org.apache.doris.analysis.PartitionNames;
-import org.apache.doris.analysis.RestoreStmt;
 import org.apache.doris.analysis.StorageBackend;
-import org.apache.doris.analysis.TableName;
-import org.apache.doris.analysis.TableRef;
 import org.apache.doris.backup.AbstractJob.JobType;
 import org.apache.doris.backup.BackupJob.BackupJobState;
 import org.apache.doris.backup.BackupJobInfo.BackupOlapTableInfo;
@@ -38,24 +27,27 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf.TableType;
+import org.apache.doris.cloud.backup.CloudRestoreJob;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.Pair;
-import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.property.storage.StorageProperties;
-import org.apache.doris.fsv2.FileSystemFactory;
-import org.apache.doris.fsv2.remote.AzureFileSystem;
-import org.apache.doris.fsv2.remote.RemoteFileSystem;
-import org.apache.doris.fsv2.remote.S3FileSystem;
+import org.apache.doris.fs.FileSystemFactory;
+import org.apache.doris.fs.remote.RemoteFileSystem;
+import org.apache.doris.info.PartitionNamesInfo;
+import org.apache.doris.info.TableNameInfo;
+import org.apache.doris.info.TableRefInfo;
+import org.apache.doris.nereids.trees.plans.commands.BackupCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelBackupCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateRepositoryCommand;
+import org.apache.doris.nereids.trees.plans.commands.RestoreCommand;
 import org.apache.doris.persist.BarrierLog;
 import org.apache.doris.task.DirMoveTask;
 import org.apache.doris.task.DownloadTask;
@@ -68,7 +60,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
-import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.collections4.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -78,6 +70,7 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.ArrayList;
 import java.util.Deque;
 import java.util.HashMap;
 import java.util.LinkedList;
@@ -208,32 +201,26 @@ public class BackupHandler extends MasterDaemon implements Writable {
         }
     }
 
-    // handle create repository stmt
-    public void createRepository(CreateRepositoryStmt stmt) throws DdlException {
-        if (!env.getBrokerMgr().containsBroker(stmt.getBrokerName())
-                && stmt.getStorageType() == StorageBackend.StorageType.BROKER) {
+    // handle create repository command
+    public void createRepository(CreateRepositoryCommand command) throws DdlException {
+        if (!env.getBrokerMgr().containsBroker(command.getBrokerName())
+                && command.getStorageType() == StorageBackend.StorageType.BROKER) {
             ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
-                    "broker does not exist: " + stmt.getBrokerName());
+                    "broker does not exist: " + command.getBrokerName());
         }
 
         RemoteFileSystem fileSystem;
-        try {
-            fileSystem = FileSystemFactory.get(stmt.getStorageType(), stmt.getProperties());
-        } catch (UserException e) {
-            throw new DdlException("Failed to initialize remote file system: " + e.getMessage());
-        }
-        org.apache.doris.fs.remote.RemoteFileSystem oldfs = org.apache.doris.fs.FileSystemFactory
-                .get(stmt.getBrokerName(), stmt.getStorageType(),
-                        stmt.getProperties());
+        fileSystem = FileSystemFactory.get(command.getStorageProperties());
         long repoId = env.getNextId();
-        Repository repo = new Repository(repoId, stmt.getName(), stmt.isReadOnly(), stmt.getLocation(),
-                fileSystem, oldfs);
+        Repository repo = new Repository(repoId, command.getName(), command.isReadOnly(), command.getLocation(),
+                fileSystem);
 
         Status st = repoMgr.addAndInitRepoIfNotExist(repo, false);
         if (!st.ok()) {
             ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
-                                           "Failed to create repository: " + st.getErrMsg());
+                    "Failed to create repository: " + st.getErrMsg());
         }
+        //fixme why ping again? it has pinged in addAndInitRepoIfNotExist
         if (!repo.ping()) {
             ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
                     "Failed to create repository: failed to connect to the repo");
@@ -245,12 +232,10 @@ public class BackupHandler extends MasterDaemon implements Writable {
      *
      * @param repoName    The name of the repository to alter.
      * @param newProps    The new properties to apply to the repository.
-     * @param strictCheck If true, only allows altering S3 or Azure repositories and validates properties accordingly.
-     *                    TODO: Investigate why only S3 and Azure repositories are supported for alter operation
      * @throws DdlException if the repository does not exist, fails to apply properties, or cannot connect
      * to the updated repository.
      */
-    public void alterRepository(String repoName, Map<String, String> newProps, boolean strictCheck)
+    public void alterRepository(String repoName, Map<String, String> newProps)
             throws DdlException {
         tryLock();
         try {
@@ -259,21 +244,13 @@ public class BackupHandler extends MasterDaemon implements Writable {
                 throw new DdlException("Repository does not exist");
             }
             // Merge new properties with the existing repository's properties
-            Map<String, String> mergedProps = mergeProperties(oldRepo, newProps, strictCheck);
+            Map<String, String> mergedProps = mergeProperties(oldRepo, newProps);
             // Create new remote file system with merged properties
             RemoteFileSystem fileSystem = FileSystemFactory.get(StorageProperties.createPrimary(mergedProps));
-            org.apache.doris.fs.remote.RemoteFileSystem oldfs = null;
-            if (oldRepo.getRemoteFileSystem() instanceof S3FileSystem) {
-                oldfs = org.apache.doris.fs.FileSystemFactory.get(oldRepo.getRemoteFileSystem().getName(),
-                        StorageBackend.StorageType.S3, mergedProps);
-            } else if (oldRepo.getRemoteFileSystem() instanceof AzureFileSystem) {
-                oldfs = org.apache.doris.fs.FileSystemFactory.get(oldRepo.getRemoteFileSystem().getName(),
-                        StorageBackend.StorageType.AZURE, mergedProps);
-            }
             // Create new Repository instance with updated file system
             Repository newRepo = new Repository(
                     oldRepo.getId(), oldRepo.getName(), oldRepo.isReadOnly(),
-                    oldRepo.getLocation(), fileSystem, oldfs
+                    oldRepo.getLocation(), fileSystem
             );
             // Verify the repository can be connected with new settings
             if (!newRepo.ping()) {
@@ -294,34 +271,16 @@ public class BackupHandler extends MasterDaemon implements Writable {
 
     /**
      * Merges new user-provided properties into the existing repository's configuration.
-     * In strict mode, only supports S3 or Azure repositories and applies internal S3 merge logic.
      *
      * @param repo        The existing repository.
      * @param newProps    New user-specified properties.
-     * @param strictCheck Whether to enforce S3/Azure-only and validate the new properties.
      * @return A complete set of merged properties.
-     * @throws DdlException if the merge fails or the repository type is unsupported.
      */
-    private Map<String, String> mergeProperties(Repository repo, Map<String, String> newProps, boolean strictCheck)
-            throws DdlException {
-        if (strictCheck) {
-            if (!(repo.getRemoteFileSystem() instanceof S3FileSystem
-                    || repo.getRemoteFileSystem() instanceof AzureFileSystem)) {
-                throw new DdlException("Only support altering S3 or Azure repository");
-            }
-            // Let the repository validate and enrich the new S3/Azure properties
-            Map<String, String> propsCopy = new HashMap<>(newProps);
-            Status status = repo.alterRepositoryS3Properties(propsCopy);
-            if (!status.ok()) {
-                throw new DdlException("Failed to merge S3 properties: " + status.getErrMsg());
-            }
-            return propsCopy;
-        } else {
-            // General case: just override old props with new ones
-            Map<String, String> combined = new HashMap<>(repo.getRemoteFileSystem().getProperties());
-            combined.putAll(newProps);
-            return combined;
-        }
+    private Map<String, String> mergeProperties(Repository repo, Map<String, String> newProps) {
+        // General case: just override old props with new ones
+        Map<String, String> combined = new HashMap<>(repo.getRemoteFileSystem().getProperties());
+        combined.putAll(newProps);
+        return combined;
     }
 
     /**
@@ -339,12 +298,7 @@ public class BackupHandler extends MasterDaemon implements Writable {
         }
     }
 
-    // handle drop repository stmt
-    public void dropRepository(DropRepositoryStmt stmt) throws DdlException {
-        dropRepository(stmt.getRepoName());
-    }
-
-    // handle drop repository stmt
+    // handle drop repository command
     public void dropRepository(String repoName) throws DdlException {
         tryLock();
         try {
@@ -371,15 +325,14 @@ public class BackupHandler extends MasterDaemon implements Writable {
         }
     }
 
-    // the entry method of submitting a backup or restore job
-    public void process(AbstractBackupStmt stmt) throws DdlException {
+    public void process(BackupCommand command) throws DdlException {
         if (Config.isCloudMode()) {
             ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
-                    "BACKUP and RESTORE are not supported by the cloud mode yet");
+                    "BACKUP are not supported by the cloud mode yet");
         }
 
         // check if repo exist
-        String repoName = stmt.getRepoName();
+        String repoName = command.getRepoName();
         Repository repository = null;
         if (!repoName.equals(Repository.KEEP_ON_LOCAL_REPO_NAME)) {
             repository = repoMgr.getRepo(repoName);
@@ -390,7 +343,7 @@ public class BackupHandler extends MasterDaemon implements Writable {
         }
 
         // check if db exist
-        String dbName = stmt.getDbName();
+        String dbName = command.getDbName();
         Database db = env.getInternalCatalog().getDbOrDdlException(dbName);
 
         // Try to get sequence lock.
@@ -403,16 +356,52 @@ public class BackupHandler extends MasterDaemon implements Writable {
             AbstractJob currentJob = getCurrentJob(db.getId());
             if (currentJob != null && !currentJob.isDone()) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
-                                               "Can only run one backup or restore job of a database at same time "
-                                               + ", current running: label = " + currentJob.getLabel() + " jobId = "
-                                               + currentJob.getJobId() + ", to run label = " + stmt.getLabel());
+                        "Can only run one backup or restore job of a database at same time "
+                        + ", current running: label = " + currentJob.getLabel() + " jobId = "
+                        + currentJob.getJobId() + ", to run label = " + command.getLabel());
             }
+            backup(repository, db, command);
+        } finally {
+            seqlock.unlock();
+        }
+    }
 
-            if (stmt instanceof BackupStmt) {
-                backup(repository, db, (BackupStmt) stmt);
-            } else if (stmt instanceof RestoreStmt) {
-                restore(repository, db, (RestoreStmt) stmt);
+    public void process(RestoreCommand command) throws DdlException {
+        if (Config.isCloudMode() && !Config.enable_cloud_restore_job) {
+            ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
+                    "Restore is an experimental feature in cloud mode. Set config "
+                    + "`experimental_enable_cloud_restore_job` = `true` to enable.");
+        }
+        // check if repo exist
+        String repoName = command.getRepoName();
+        Repository repository = null;
+        if (!repoName.equals(Repository.KEEP_ON_LOCAL_REPO_NAME)) {
+            repository = repoMgr.getRepo(repoName);
+            if (repository == null) {
+                ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
+                        "Repository " + repoName + " does not exist");
             }
+        }
+
+        // check if db exist
+        String dbName = command.getDbName();
+        Database db = env.getInternalCatalog().getDbOrDdlException(dbName);
+
+        // Try to get sequence lock.
+        // We expect at most one operation on a repo at same time.
+        // But this operation may take a few seconds with lock held.
+        // So we use tryLock() to give up this operation if we can not get lock.
+        tryLock();
+        try {
+            // Check if there is backup or restore job running on this database
+            AbstractJob currentJob = getCurrentJob(db.getId());
+            if (currentJob != null && !currentJob.isDone()) {
+                ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
+                        "Can only run one backup or restore job of a database at same time "
+                        + ", current running: label = " + currentJob.getLabel() + " jobId = "
+                        + currentJob.getJobId() + ", to run label = " + command.getLabel());
+            }
+            restore(repository, db, command);
         } finally {
             seqlock.unlock();
         }
@@ -430,7 +419,7 @@ public class BackupHandler extends MasterDaemon implements Writable {
         }
     }
 
-    private void backup(Repository repository, Database db, BackupStmt stmt) throws DdlException {
+    private void backup(Repository repository, Database db, BackupCommand command) throws DdlException {
         if (repository != null && repository.isReadOnly()) {
             ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR, "Repository " + repository.getName()
                     + " is read only");
@@ -438,7 +427,8 @@ public class BackupHandler extends MasterDaemon implements Writable {
 
         long commitSeq = 0;
         Set<String> tableNames = Sets.newHashSet();
-        AbstractBackupTableRefClause abstractBackupTableRefClause = stmt.getAbstractBackupTableRefClause();
+
+        List<TableRefInfo> tableRefInfos = command.getTableRefInfos();
 
         // Obtain the snapshot commit seq, any creating table binlog will be visible.
         db.readLock();
@@ -447,13 +437,13 @@ public class BackupHandler extends MasterDaemon implements Writable {
             commitSeq = env.getEditLog().logBarrier(log);
 
             // Determine the tables to be backed up
-            if (abstractBackupTableRefClause == null) {
+            if (tableRefInfos.isEmpty()) {
                 tableNames = db.getTableNames();
-            } else if (abstractBackupTableRefClause.isExclude()) {
+            } else if (command.isExclude()) {
                 tableNames = db.getTableNames();
-                for (TableRef tableRef : abstractBackupTableRefClause.getTableRefList()) {
-                    if (!tableNames.remove(tableRef.getName().getTbl())) {
-                        LOG.info("exclude table " + tableRef.getName().getTbl()
+                for (TableRefInfo tableRefInfo : tableRefInfos) {
+                    if (!tableNames.remove(tableRefInfo.getTableNameInfo().getTbl())) {
+                        LOG.info("exclude table " + tableRefInfo.getTableNameInfo().getTbl()
                                 + " of backup stmt is not exists in db " + db.getFullName());
                     }
                 }
@@ -462,36 +452,35 @@ public class BackupHandler extends MasterDaemon implements Writable {
             db.readUnlock();
         }
 
-        while (DebugPointUtil.isEnable("BackupHandler.backup.block")) {
-            try {
-                Thread.sleep(100);
-            } catch (InterruptedException e) {
-                LOG.info("error ", e);
-            }
-        }
-
-        List<TableRef> tblRefs = Lists.newArrayList();
-        if (abstractBackupTableRefClause != null && !abstractBackupTableRefClause.isExclude()) {
-            tblRefs = abstractBackupTableRefClause.getTableRefList();
+        List<TableRefInfo> tableRefInfoList = Lists.newArrayList();
+        if (!tableRefInfos.isEmpty() && !command.isExclude()) {
+            tableRefInfoList.addAll(tableRefInfos);
         } else {
             for (String tableName : tableNames) {
-                TableRef tableRef = new TableRef(new TableName(null, db.getFullName(), tableName), null);
-                tblRefs.add(tableRef);
+                TableRefInfo tableRefInfo = new TableRefInfo(new TableNameInfo(db.getFullName(), tableName),
+                        null,
+                        null,
+                        null,
+                        new ArrayList<>(),
+                        null,
+                        null,
+                        new ArrayList<>());
+                tableRefInfoList.add(tableRefInfo);
             }
         }
 
         // Check if backup objects are valid
         // This is just a pre-check to avoid most of invalid backup requests.
         // Also calculate the signature for incremental backup check.
-        List<TableRef> tblRefsNotSupport = Lists.newArrayList();
-        for (TableRef tblRef : tblRefs) {
-            String tblName = tblRef.getName().getTbl();
+        List<TableRefInfo> tblRefInfosNotSupport = Lists.newArrayList();
+        for (TableRefInfo tableRef : tableRefInfoList) {
+            String tblName = tableRef.getTableNameInfo().getTbl();
             Table tbl = db.getTableOrDdlException(tblName);
 
             // filter the table types which are not supported by local backup.
             if (repository == null && tbl.getType() != TableType.OLAP
                     && tbl.getType() != TableType.VIEW && tbl.getType() != TableType.MATERIALIZED_VIEW) {
-                tblRefsNotSupport.add(tblRef);
+                tblRefInfosNotSupport.add(tableRef);
                 continue;
             }
 
@@ -503,8 +492,8 @@ public class BackupHandler extends MasterDaemon implements Writable {
                 if (Config.ignore_backup_not_support_table_type) {
                     LOG.warn("Table '{}' is a {} table, can not backup and ignore it."
                             + "Only OLAP(Doris)/ODBC/VIEW table can be backed up",
-                            tblName, tbl.isTemporary() ? "temporary" : tbl.getType().toString());
-                    tblRefsNotSupport.add(tblRef);
+                            tblName, tbl.getType().toString());
+                    tblRefInfosNotSupport.add(tableRef);
                     continue;
                 } else {
                     ErrorReport.reportDdlException(ErrorCode.ERR_NOT_OLAP_TABLE, tblName);
@@ -512,11 +501,11 @@ public class BackupHandler extends MasterDaemon implements Writable {
             }
 
             if (tbl.isTemporary()) {
-                if (Config.ignore_backup_not_support_table_type || tblRefs.size() > 1) {
+                if (Config.ignore_backup_not_support_table_type || tableRefInfoList.size() > 1) {
                     LOG.warn("Table '{}' is a temporary table, can not backup and ignore it."
                             + "Only OLAP(Doris)/ODBC/VIEW table can be backed up",
                             Util.getTempTableDisplayName(tblName));
-                    tblRefsNotSupport.add(tblRef);
+                    tblRefInfosNotSupport.add(tableRef);
                     continue;
                 } else {
                     ErrorReport.reportDdlException("Table " + Util.getTempTableDisplayName(tblName)
@@ -532,11 +521,12 @@ public class BackupHandler extends MasterDaemon implements Writable {
                             "Do not support backup table " + olapTbl.getName() + " with temp partitions");
                 }
 
-                PartitionNames partitionNames = tblRef.getPartitionNames();
+                PartitionNamesInfo partitionNames = tableRef.getPartitionNamesInfo();
                 if (partitionNames != null) {
                     if (!Config.ignore_backup_tmp_partitions && partitionNames.isTemp()) {
                         ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
-                                "Do not support backup temp partitions in table " + tblRef.getName());
+                                "Do not support backup temp partitions in table "
+                                    + tableRef.getTableNameInfo().getTbl());
                     }
 
                     for (String partName : partitionNames.getPartitionNames()) {
@@ -552,7 +542,7 @@ public class BackupHandler extends MasterDaemon implements Writable {
             }
         }
 
-        tblRefs.removeAll(tblRefsNotSupport);
+        tableRefInfoList.removeAll(tblRefInfosNotSupport);
 
         // Check if label already be used
         long repoId = Repository.KEEP_ON_LOCAL_REPO_ID;
@@ -562,10 +552,10 @@ public class BackupHandler extends MasterDaemon implements Writable {
             if (!st.ok()) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR, st.getErrMsg());
             }
-            if (existSnapshotNames.contains(stmt.getLabel())) {
-                if (stmt.getType() == BackupType.FULL) {
+            if (existSnapshotNames.contains(command.getLabel())) {
+                if (command.getBackupType() == BackupCommand.BackupType.FULL) {
                     ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR, "Snapshot with name '"
-                            + stmt.getLabel() + "' already exist in repository");
+                            + command.getLabel() + "' already exist in repository");
                 } else {
                     ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR, "Currently does not support "
                             + "incremental backup");
@@ -575,9 +565,9 @@ public class BackupHandler extends MasterDaemon implements Writable {
         }
 
         // Create a backup job
-        BackupJob backupJob = new BackupJob(stmt.getLabel(), db.getId(),
+        BackupJob backupJob = new BackupJob(command.getLabel(), db.getId(),
                 ClusterNamespace.getNameFromFullName(db.getFullName()),
-                tblRefs, stmt.getTimeoutMs(), stmt.getContent(), env, repoId, commitSeq);
+                tableRefInfoList, command.getTimeoutMs(), command.getContent(), env, repoId, commitSeq);
         // write log
         env.getEditLog().logBackupJob(backupJob);
 
@@ -587,11 +577,14 @@ public class BackupHandler extends MasterDaemon implements Writable {
         LOG.info("finished to submit backup job: {}", backupJob);
     }
 
-    private void restore(Repository repository, Database db, RestoreStmt stmt) throws DdlException {
+    public void restore(Repository repository, Database db, RestoreCommand command) throws DdlException {
         BackupJobInfo jobInfo;
-        if (stmt.isLocal()) {
-            String jobInfoString = new String(stmt.getJobInfo());
-            jobInfo = BackupJobInfo.genFromJson(jobInfoString);
+        if ((command.isLocal() || command.isAtomicRestore() || command.reserveColocate() || command.isForceReplace())
+                && Config.isCloudMode()) {
+            ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR, "not supported now.");
+        }
+        if (command.isLocal()) {
+            jobInfo = command.getJobInfo();
 
             if (jobInfo.extraInfo == null) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR, "Invalid job extra info empty");
@@ -605,11 +598,11 @@ public class BackupHandler extends MasterDaemon implements Writable {
         } else {
             // Check if snapshot exist in repository
             List<BackupJobInfo> infos = Lists.newArrayList();
-            Status status = repository.getSnapshotInfoFile(stmt.getLabel(), stmt.getBackupTimestamp(), infos);
+            Status status = repository.getSnapshotInfoFile(command.getLabel(), command.getBackupTimestamp(), infos);
             if (!status.ok()) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
-                        "Failed to get info of snapshot '" + stmt.getLabel() + "' because: "
-                                + status.getErrMsg() + ". Maybe specified wrong backup timestamp");
+                        "Failed to get info of snapshot '" + command.getLabel() + "' because: "
+                        + status.getErrMsg() + ". Maybe specified wrong backup timestamp");
             }
 
             // Check if all restore objects are exist in this snapshot.
@@ -618,45 +611,47 @@ public class BackupHandler extends MasterDaemon implements Writable {
             jobInfo = infos.get(0);
         }
 
-        checkAndFilterRestoreObjsExistInSnapshot(jobInfo, stmt.getAbstractBackupTableRefClause());
+        checkAndFilterRestoreObjsExistInSnapshot(jobInfo, command);
 
         // Create a restore job
         RestoreJob restoreJob;
-        if (stmt.isLocal()) {
-            int metaVersion = stmt.getMetaVersion();
+        if (command.isLocal()) {
+            int metaVersion = command.getMetaVersion();
             if (metaVersion == -1) {
                 metaVersion = jobInfo.metaVersion;
             }
 
-            BackupMeta backupMeta;
-            try {
-                backupMeta = BackupMeta.fromBytes(stmt.getMeta(), metaVersion);
-            } catch (IOException e) {
-                LOG.warn("read backup meta failed, current meta version {}", Env.getCurrentEnvJournalVersion(), e);
-                throw new DdlException("read backup meta failed", e);
-            }
+            BackupMeta backupMeta = command.getMeta();
             String backupTimestamp = TimeUtils.longToTimeString(
                     jobInfo.getBackupTime(), TimeUtils.getDatetimeFormatWithHyphenWithTimeZone());
-            restoreJob = new RestoreJob(stmt.getLabel(), backupTimestamp,
-                    db.getId(), db.getFullName(), jobInfo, stmt.allowLoad(), stmt.getReplicaAlloc(),
-                    stmt.getTimeoutMs(), metaVersion, stmt.reserveReplica(), stmt.reserveColocate(),
-                    stmt.reserveDynamicPartitionEnable(), stmt.isBeingSynced(),
-                    stmt.isCleanTables(), stmt.isCleanPartitions(), stmt.isAtomicRestore(), stmt.isForceReplace(),
-                    env, Repository.KEEP_ON_LOCAL_REPO_ID, backupMeta);
+            restoreJob = new RestoreJob(command.getLabel(), backupTimestamp,
+                db.getId(), db.getFullName(), jobInfo, command.allowLoad(), command.getReplicaAlloc(),
+                command.getTimeoutMs(), command.getMetaVersion(), command.reserveReplica(), command.reserveColocate(),
+                command.reserveDynamicPartitionEnable(), command.isBeingSynced(), command.isCleanTables(),
+                command.isCleanPartitions(), command.isAtomicRestore(), command.isForceReplace(),
+                env, Repository.KEEP_ON_LOCAL_REPO_ID, backupMeta);
         } else {
-            restoreJob = new RestoreJob(stmt.getLabel(), stmt.getBackupTimestamp(),
-                db.getId(), db.getFullName(), jobInfo, stmt.allowLoad(), stmt.getReplicaAlloc(),
-                stmt.getTimeoutMs(), stmt.getMetaVersion(), stmt.reserveReplica(), stmt.reserveColocate(),
-                stmt.reserveDynamicPartitionEnable(), stmt.isBeingSynced(), stmt.isCleanTables(),
-                stmt.isCleanPartitions(), stmt.isAtomicRestore(), stmt.isForceReplace(),
-                env, repository.getId());
+            if (Config.isCloudMode()) {
+                restoreJob = new CloudRestoreJob(command.getLabel(), command.getBackupTimestamp(),
+                    db.getId(), db.getFullName(), jobInfo, command.allowLoad(), command.getReplicaAlloc(),
+                    command.getTimeoutMs(), command.getMetaVersion(), command.reserveReplica(),
+                    command.reserveDynamicPartitionEnable(), command.isBeingSynced(), command.isCleanTables(),
+                    command.isCleanPartitions(), command.isAtomicRestore(), command.isForceReplace(),
+                    env, repository.getId(), command.getStorageVaultName());
+            } else {
+                restoreJob = new RestoreJob(command.getLabel(), command.getBackupTimestamp(),
+                    db.getId(), db.getFullName(), jobInfo, command.allowLoad(), command.getReplicaAlloc(),
+                    command.getTimeoutMs(), command.getMetaVersion(), command.reserveReplica(),
+                    command.reserveColocate(), command.reserveDynamicPartitionEnable(), command.isBeingSynced(),
+                    command.isCleanTables(), command.isCleanPartitions(), command.isAtomicRestore(),
+                    command.isForceReplace(), env, repository.getId());
+            }
         }
 
         env.getEditLog().logRestoreJob(restoreJob);
 
         // must put to dbIdToBackupOrRestoreJob after edit log, otherwise the state of job may be changed.
         addBackupOrRestoreJob(db.getId(), restoreJob);
-
         LOG.info("finished to submit restore job: {}", restoreJob);
     }
 
@@ -722,37 +717,39 @@ public class BackupHandler extends MasterDaemon implements Writable {
     }
 
     private void checkAndFilterRestoreObjsExistInSnapshot(BackupJobInfo jobInfo,
-                                                          AbstractBackupTableRefClause backupTableRefClause)
+                                                          RestoreCommand command)
             throws DdlException {
+
         // case1: all table in job info
-        if (backupTableRefClause == null) {
+        if (command.getTableRefInfos().isEmpty()) {
             return;
         }
 
         // case2: exclude table ref
-        if (backupTableRefClause.isExclude()) {
-            for (TableRef tblRef : backupTableRefClause.getTableRefList()) {
-                String tblName = tblRef.getName().getTbl();
+        if (command.isExclude()) {
+            for (TableRefInfo tableRefInfo : command.getTableRefInfos()) {
+                String tblName = tableRefInfo.getTableNameInfo().getTbl();
                 TableType tableType = jobInfo.getTypeByTblName(tblName);
                 if (tableType == null) {
                     LOG.info("Ignore error : exclude table " + tblName + " does not exist in snapshot "
                             + jobInfo.name);
                     continue;
                 }
-                if (tblRef.hasExplicitAlias()) {
+                if (tableRefInfo.hasAlias()) {
                     ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
                             "The table alias in exclude clause does not make sense");
                 }
-                jobInfo.removeTable(tblRef, tableType);
+                jobInfo.removeTable(tableRefInfo, tableType);
             }
             return;
         }
+
         // case3: include table ref
         Set<String> olapTableNames = Sets.newHashSet();
         Set<String> viewNames = Sets.newHashSet();
         Set<String> odbcTableNames = Sets.newHashSet();
-        for (TableRef tblRef : backupTableRefClause.getTableRefList()) {
-            String tblName = tblRef.getName().getTbl();
+        for (TableRefInfo tableRefInfo : command.getTableRefInfos()) {
+            String tblName = tableRefInfo.getTableNameInfo().getTbl();
             TableType tableType = jobInfo.getTypeByTblName(tblName);
             if (tableType == null) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
@@ -760,7 +757,7 @@ public class BackupHandler extends MasterDaemon implements Writable {
             }
             switch (tableType) {
                 case OLAP:
-                    checkAndFilterRestoreOlapTableExistInSnapshot(jobInfo.backupOlapTableObjects, tblRef);
+                    checkAndFilterRestoreOlapTableExistInSnapshot(jobInfo.backupOlapTableObjects, tableRefInfo);
                     olapTableNames.add(tblName);
                     break;
                 case VIEW:
@@ -774,8 +771,8 @@ public class BackupHandler extends MasterDaemon implements Writable {
             }
 
             // set alias
-            if (tblRef.hasExplicitAlias()) {
-                jobInfo.setAlias(tblName, tblRef.getExplicitAlias());
+            if (tableRefInfo.hasAlias()) {
+                jobInfo.setAlias(tblName, tableRefInfo.getTableAlias());
             }
         }
         jobInfo.retainOlapTables(olapTableNames);
@@ -783,29 +780,27 @@ public class BackupHandler extends MasterDaemon implements Writable {
         jobInfo.retainOdbcTables(odbcTableNames);
     }
 
-
-
     public void checkAndFilterRestoreOlapTableExistInSnapshot(Map<String, BackupOlapTableInfo> backupOlapTableInfoMap,
-                                                              TableRef tableRef) throws DdlException {
-        String tblName = tableRef.getName().getTbl();
+                                                              TableRefInfo tableRefInfo) throws DdlException {
+        String tblName = tableRefInfo.getTableNameInfo().getTbl();
         BackupOlapTableInfo tblInfo = backupOlapTableInfoMap.get(tblName);
-        PartitionNames partitionNames = tableRef.getPartitionNames();
-        if (partitionNames != null) {
-            if (partitionNames.isTemp()) {
+        PartitionNamesInfo partitionNamesInfo = tableRefInfo.getPartitionNamesInfo();
+        if (partitionNamesInfo != null) {
+            if (partitionNamesInfo.isTemp()) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
                         "Do not support restoring temporary partitions in table " + tblName);
             }
             // check the selected partitions
-            for (String partName : partitionNames.getPartitionNames()) {
+            for (String partName : partitionNamesInfo.getPartitionNames()) {
                 if (!tblInfo.containsPart(partName)) {
                     ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
                             "Partition " + partName + " of table " + tblName
-                                    + " does not exist in snapshot");
+                            + " does not exist in snapshot");
                 }
             }
         }
         // only retain restore partitions
-        tblInfo.retainPartitions(partitionNames == null ? null : partitionNames.getPartitionNames());
+        tblInfo.retainPartitions(partitionNamesInfo == null ? null : partitionNamesInfo.getPartitionNames());
     }
 
     public void cancel(CancelBackupCommand command) throws DdlException {
@@ -825,26 +820,6 @@ public class BackupHandler extends MasterDaemon implements Writable {
         }
 
         LOG.info("finished to cancel {} job: {}", (command.isRestore() ? "restore" : "backup"), job);
-    }
-
-    public void cancel(CancelBackupStmt stmt) throws DdlException {
-        String dbName = stmt.getDbName();
-        Database db = env.getInternalCatalog().getDbOrDdlException(dbName);
-
-        AbstractJob job = getCurrentJob(db.getId());
-        if (job == null || (job instanceof BackupJob && stmt.isRestore())
-                || (job instanceof RestoreJob && !stmt.isRestore())) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR, "No "
-                    + (stmt.isRestore() ? "restore" : "backup" + " job")
-                    + " is currently running");
-        }
-
-        Status status = job.cancel();
-        if (!status.ok()) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR, "Failed to cancel job: " + status.getErrMsg());
-        }
-
-        LOG.info("finished to cancel {} job: {}", (stmt.isRestore() ? "restore" : "backup"), job);
     }
 
     public boolean handleFinishedSnapshotTask(SnapshotTask task, TFinishTaskRequest request) {
@@ -1010,12 +985,6 @@ public class BackupHandler extends MasterDaemon implements Writable {
         }
 
         return backupJob.getSnapshot();
-    }
-
-    public static BackupHandler read(DataInput in) throws IOException {
-        BackupHandler backupHandler = new BackupHandler();
-        backupHandler.readFields(in);
-        return backupHandler;
     }
 
     @Override

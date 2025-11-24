@@ -49,7 +49,8 @@ class VMatchPredicate final : public VExpr {
 public:
     VMatchPredicate(const TExprNode& node);
     ~VMatchPredicate() override;
-    Status execute(VExprContext* context, Block* block, int* result_column_id) override;
+    Status execute_column(VExprContext* context, const Block* block,
+                          ColumnPtr& result_column) const override;
     Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override;
     Status open(RuntimeState* state, VExprContext* context,
                 FunctionContext::FunctionStateScope scope) override;
@@ -67,6 +68,6 @@ private:
     std::string _expr_name;
     std::string _function_name;
     InvertedIndexCtxSPtr _inverted_index_ctx;
-    std::unique_ptr<lucene::analysis::Analyzer> _analyzer;
+    std::shared_ptr<lucene::analysis::Analyzer> _analyzer;
 };
 } // namespace doris::vectorized

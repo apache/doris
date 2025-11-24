@@ -68,7 +68,8 @@ public class PhysicalPlanTranslatorTest {
         PhysicalOlapScan scan = new PhysicalOlapScan(StatementScopeIdGenerator.newRelationId(), t1, qualifier, t1.getBaseIndexId(),
                 Collections.emptyList(), Collections.emptyList(), null, PreAggStatus.on(),
                 ImmutableList.of(), Optional.empty(), t1Properties, Optional.empty(),
-                ImmutableList.of());
+                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), Optional.empty(),
+                ImmutableList.of(), Optional.empty());
         Literal t1FilterRight = new IntegerLiteral(1);
         Expression t1FilterExpr = new GreaterThan(col1, t1FilterRight);
         PhysicalFilter<PhysicalOlapScan> filter =
@@ -83,6 +84,6 @@ public class PhysicalPlanTranslatorTest {
         PlanNode planNode = fragment.getPlanRoot();
         List<OlapScanNode> scanNodeList = new ArrayList<>();
         planNode.collect(OlapScanNode.class::isInstance, scanNodeList);
-        Assertions.assertEquals(2, scanNodeList.get(0).getTupleDesc().getMaterializedSlots().size());
+        Assertions.assertEquals(2, scanNodeList.get(0).getTupleDesc().getSlots().size());
     }
 }

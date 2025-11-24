@@ -125,6 +125,14 @@ public interface NormalizeToSlot {
                     NormalizeToSlotTriplet normalizeToSlotTriplet = normalizeToSlotMap.get(child);
                     return normalizeToSlotTriplet == null ? child : normalizeToSlotTriplet.remainExpr;
                 });
+                if (rewriteExpr instanceof Alias) {
+                    Alias alias = (Alias) rewriteExpr;
+                    if (alias.child() instanceof SlotReference
+                            && alias.getExprId().equals(((SlotReference) alias.child()).getExprId())) {
+                        // alias k1#1 as k1#1  -->  k1#1
+                        rewriteExpr = alias.child();
+                    }
+                }
                 result.add((E) rewriteExpr);
             }
             return result.build();

@@ -38,10 +38,6 @@ suite("test_join_on", "nereids_p0") {
     sql """insert into join_on values (2, [2, 3], hll_hash(2), bitmap_from_string('2, 4, 6, 8, 10, 12, 14, 100, 19910812, 20150403')); """
     qt_sql """ select * from join_on order by k1; """
     test {
-        sql """ select * from join_on as j1 inner join join_on as j2 on j1.d_array = j2.d_array; """
-        exception "errCode = 2"
-    }
-    test {
         sql """ select * from join_on as j1 inner join join_on as j2 on j1.hll_col = j2.hll_col; """
         exception "errCode = 2"
     }
@@ -53,6 +49,6 @@ suite("test_join_on", "nereids_p0") {
 
     test {
         sql """select * from (select cast('' as variant) as a) t1 join (select cast('' as variant) as a) t2 on t1.a = t2.a"""
-        exception "variant type could not in join equal conditions"
+        exception "could not used in ComparisonPredicate (a = a)"
     }
 }

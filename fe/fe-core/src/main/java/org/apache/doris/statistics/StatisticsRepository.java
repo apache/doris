@@ -17,8 +17,6 @@
 
 package org.apache.doris.statistics;
 
-import org.apache.doris.analysis.AlterColumnStatsStmt;
-import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
@@ -26,8 +24,9 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.nereids.trees.plans.commands.AlterColumnStatsCommand;
-import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.util.DBObjects;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
@@ -84,9 +83,11 @@ public class StatisticsRepository {
             + FULL_QUALIFIED_COLUMN_HISTOGRAM_NAME
             + " WHERE `id` = '${id}' AND `catalog_id` = '${catalogId}' AND `db_id` = '${dbId}'";
 
-    private static final String INSERT_INTO_COLUMN_STATISTICS_FOR_ALTER = "INSERT INTO "
-            + FULL_QUALIFIED_COLUMN_STATISTICS_NAME + " VALUES('${id}', ${catalogId}, ${dbId}, ${tblId}, '${idxId}',"
-            + "'${colId}', ${partId}, ${count}, ${ndv}, ${nullCount}, ${min}, ${max}, ${dataSize}, NOW())";
+    private static final String INSERT_INTO_COLUMN_STATISTICS_FOR_ALTER =
+            StatisticConstants.INSERT_INTO_COLUMN_STATS_PREFIX
+                    + "('${id}', ${catalogId}, ${dbId}, ${tblId}, '${idxId}',"
+                    + "'${colId}', ${partId}, ${count}, ${ndv}, ${nullCount}, ${min}, ${max}, ${dataSize}, NOW(), "
+                    + "${hotValues})";
 
     private static final String DELETE_TABLE_STATISTICS_BY_COLUMN_TEMPLATE = "DELETE FROM "
             + FeConstants.INTERNAL_DB_NAME + "." + StatisticConstants.TABLE_STATISTIC_TBL_NAME
@@ -134,7 +135,7 @@ public class StatisticsRepository {
             return columnStatistic;
         }
         try {
-            columnStatistic = ColumnStatistic.fromResultRow(resultRow);
+            columnStatistic = ColumnStatistic.fromResultRow(resultRow, true);
         } catch (Exception e) {
             LOG.warn("Failed to deserialize column statistics. reason: [{}]. Row [{}]", e.getMessage(), resultRow);
             if (LOG.isDebugEnabled()) {
@@ -324,6 +325,7 @@ public class StatisticsRepository {
         String min = alterColumnStatsCommand.getValue(StatsType.MIN_VALUE);
         String max = alterColumnStatsCommand.getValue(StatsType.MAX_VALUE);
         String dataSize = alterColumnStatsCommand.getValue(StatsType.DATA_SIZE);
+        String hotValues = alterColumnStatsCommand.getValue(StatsType.HOT_VALUES);
         long indexId = alterColumnStatsCommand.getIndexId();
         if (rowCount == null) {
             throw new RuntimeException("Row count is null.");
@@ -357,100 +359,16 @@ public class StatisticsRepository {
                 }
             }
         }
-
-        ColumnStatistic columnStatistic = builder.build();
-        Map<String, String> params = new HashMap<>();
-        params.put("id", constructId(objects.table.getId(), indexId, colName));
-        params.put("catalogId", String.valueOf(objects.catalog.getId()));
-        params.put("dbId", String.valueOf(objects.db.getId()));
-        params.put("idxId", String.valueOf(indexId));
-        params.put("tblId", String.valueOf(objects.table.getId()));
-        params.put("colId", String.valueOf(colName));
-        params.put("count", String.valueOf(columnStatistic.count));
-        params.put("ndv", String.valueOf(columnStatistic.ndv));
-        params.put("nullCount", String.valueOf(columnStatistic.numNulls));
-        params.put("min", min == null ? "NULL" : "'" + StatisticsUtil.escapeSQL(min) + "'");
-        params.put("max", max == null ? "NULL" : "'" + StatisticsUtil.escapeSQL(max) + "'");
-        params.put("dataSize", String.valueOf(columnStatistic.dataSize));
-
-        if (partitionIds.isEmpty()) {
-            // update table granularity statistics
-            params.put("partId", "NULL");
-            StatisticsUtil.execUpdate(INSERT_INTO_COLUMN_STATISTICS_FOR_ALTER, params);
-            ColStatsData data = new ColStatsData(constructId(objects.table.getId(), indexId, colName),
-                    objects.catalog.getId(), objects.db.getId(), objects.table.getId(), indexId, colName,
-                    null, columnStatistic);
-            Env.getCurrentEnv().getStatisticsCache().syncColStats(data);
-            AnalysisInfo mockedJobInfo = new AnalysisInfoBuilder()
-                    .setTblUpdateTime(objects.table.getUpdateTime())
-                    .setColName("")
-                    .setRowCount((long) Double.parseDouble(rowCount))
-                    .setJobColumns(Sets.newHashSet())
-                    .setUserInject(true)
-                    .setJobType(AnalysisInfo.JobType.MANUAL)
-                    .build();
-            if (objects.table instanceof OlapTable) {
-                indexId = indexId == -1 ? ((OlapTable) objects.table).getBaseIndexId() : indexId;
-                mockedJobInfo.addIndexRowCount(indexId, (long) Double.parseDouble(rowCount));
-            }
-            Env.getCurrentEnv().getAnalysisManager().updateTableStatsForAlterStats(mockedJobInfo, objects.table);
-        } else {
-            // update partition granularity statistics
-            for (Long partitionId : partitionIds) {
-                HashMap<String, String> partParams = Maps.newHashMap(params);
-                partParams.put("partId", String.valueOf(partitionId));
-                StatisticsUtil.execUpdate(INSERT_INTO_COLUMN_STATISTICS_FOR_ALTER, partParams);
-                // TODO cache partition granular statistics
-                // Env.getCurrentEnv().getStatisticsCache()
-                //         .updateColStatsCache(partitionId, -1, colName, builder.build());
-            }
-        }
-    }
-
-    public static void alterColumnStatistics(AlterColumnStatsStmt alterColumnStatsStmt) throws Exception {
-        TableName tableName = alterColumnStatsStmt.getTableName();
-        List<Long> partitionIds = alterColumnStatsStmt.getPartitionIds();
-        DBObjects objects = StatisticsUtil.convertTableNameToObjects(tableName);
-        String rowCount = alterColumnStatsStmt.getValue(StatsType.ROW_COUNT);
-        String ndv = alterColumnStatsStmt.getValue(StatsType.NDV);
-        String nullCount = alterColumnStatsStmt.getValue(StatsType.NUM_NULLS);
-        String min = alterColumnStatsStmt.getValue(StatsType.MIN_VALUE);
-        String max = alterColumnStatsStmt.getValue(StatsType.MAX_VALUE);
-        String dataSize = alterColumnStatsStmt.getValue(StatsType.DATA_SIZE);
-        long indexId = alterColumnStatsStmt.getIndexId();
-        if (rowCount == null) {
-            throw new RuntimeException("Row count is null.");
-        }
-        ColumnStatisticBuilder builder = new ColumnStatisticBuilder(Double.parseDouble(rowCount));
-        String colName = alterColumnStatsStmt.getColumnName();
-        Column column = objects.table.getColumn(colName);
         if (ndv != null) {
-            double dNdv = Double.parseDouble(ndv);
-            builder.setNdv(dNdv);
-            builder.setOriginal(null);
-        }
-        if (nullCount != null) {
-            builder.setNumNulls(Double.parseDouble(nullCount));
-        }
-        if (min != null) {
-            builder.setMinExpr(StatisticsUtil.readableValue(column.getType(), min));
-            builder.setMinValue(StatisticsUtil.convertToDouble(column.getType(), min));
-        }
-        if (max != null) {
-            builder.setMaxExpr(StatisticsUtil.readableValue(column.getType(), max));
-            builder.setMaxValue(StatisticsUtil.convertToDouble(column.getType(), max));
-        }
-        if (dataSize != null) {
-            double size = Double.parseDouble(dataSize);
-            double rows = Double.parseDouble(rowCount);
-            if (size > 0) {
-                builder.setDataSize(size);
-                if (rows > 0) {
-                    builder.setAvgSizeByte(size / rows);
+            try {
+                double avgOccurrences = 1 / Double.parseDouble(ndv);
+                builder.setHotValues(StatisticsUtil.getHotValues(hotValues, column.getType(), avgOccurrences));
+            } catch (Exception e) {
+                if (SessionVariable.isFeDebug()) {
+                    throw e;
                 }
             }
         }
-
         ColumnStatistic columnStatistic = builder.build();
         Map<String, String> params = new HashMap<>();
         params.put("id", constructId(objects.table.getId(), indexId, colName));
@@ -465,6 +383,7 @@ public class StatisticsRepository {
         params.put("min", min == null ? "NULL" : "'" + StatisticsUtil.escapeSQL(min) + "'");
         params.put("max", max == null ? "NULL" : "'" + StatisticsUtil.escapeSQL(max) + "'");
         params.put("dataSize", String.valueOf(columnStatistic.dataSize));
+        params.put("hotValues", "'" + StatisticsUtil.escapeSQL(hotValues) + "'");
 
         if (partitionIds.isEmpty()) {
             // update table granularity statistics
@@ -472,7 +391,7 @@ public class StatisticsRepository {
             StatisticsUtil.execUpdate(INSERT_INTO_COLUMN_STATISTICS_FOR_ALTER, params);
             ColStatsData data = new ColStatsData(constructId(objects.table.getId(), indexId, colName),
                     objects.catalog.getId(), objects.db.getId(), objects.table.getId(), indexId, colName,
-                    null, columnStatistic);
+                    null, hotValues, columnStatistic);
             Env.getCurrentEnv().getStatisticsCache().syncColStats(data);
             AnalysisInfo mockedJobInfo = new AnalysisInfoBuilder()
                     .setTblUpdateTime(objects.table.getUpdateTime())

@@ -18,15 +18,19 @@
 #pragma once
 
 #include <common/multi_version.h>
+#include <gen_cpp/olap_file.pb.h>
 
 #include <atomic>
 #include <map>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <vector>
 
+#include "common/config.h"
 #include "common/status.h"
+#include "exec/schema_scanner/schema_routine_load_job_scanner.h"
 #include "io/cache/fs_file_cache_storage.h"
 #include "olap/memtable_memory_limiter.h"
 #include "olap/options.h"
@@ -65,7 +69,14 @@ class HdfsMgr;
 namespace segment_v2 {
 class InvertedIndexSearcherCache;
 class InvertedIndexQueryCache;
+class ConditionCache;
 class TmpFileDirs;
+class EncodingInfoResolver;
+
+namespace inverted_index {
+class AnalysisFactoryMgr;
+}
+
 } // namespace segment_v2
 
 namespace kerberos {
@@ -95,6 +106,7 @@ class LoadStreamMgr;
 class LoadStreamMapPool;
 class StreamLoadExecutor;
 class RoutineLoadTaskExecutor;
+class StreamLoadRecorderManager;
 class SmallFileMgr;
 class BackendServiceClient;
 class TPaloBrokerServiceClient;
@@ -116,13 +128,19 @@ class LookupConnectionCache;
 class RowCache;
 class DummyLRUCache;
 class CacheManager;
+class IdManager;
 class ProcessProfile;
 class HeapProfiler;
 class WalManager;
 class DNSCache;
+class IndexPolicyMgr;
 struct SyncRowsetStats;
+class DeleteBitmapAggCache;
 
+// set to true when BE is shutting down
 inline bool k_doris_exit = false;
+// set to true after BE start ready
+inline bool k_is_server_ready = false;
 
 // Execution environment for queries/plan fragments.
 // Contains all required global structures, and handles to
@@ -155,10 +173,12 @@ public:
     // Requires ExenEnv ready
     static Result<BaseTabletSPtr> get_tablet(int64_t tablet_id,
                                              SyncRowsetStats* sync_stats = nullptr,
-                                             bool force_use_cache = false);
+                                             bool force_use_only_cached = false);
 
     static bool ready() { return _s_ready.load(std::memory_order_acquire); }
     static bool tracking_memory() { return _s_tracking_memory.load(std::memory_order_acquire); }
+    static bool get_is_upgrading() { return _s_upgrading.load(std::memory_order_acquire); }
+    static void set_is_upgrading() { _s_upgrading = true; }
     const std::string& token() const;
     ExternalScanContextMgr* external_scan_context_mgr() { return _external_scan_context_mgr; }
     vectorized::VDataStreamMgr* vstream_mgr() { return _vstream_mgr; }
@@ -168,7 +188,6 @@ public:
     ClientCache<FrontendServiceClient>* frontend_client_cache() { return _frontend_client_cache; }
     ClientCache<TPaloBrokerServiceClient>* broker_client_cache() { return _broker_client_cache; }
 
-    pipeline::TaskScheduler* pipeline_task_scheduler() { return _without_group_task_scheduler; }
     WorkloadGroupMgr* workload_group_mgr() { return _workload_group_manager; }
     WorkloadSchedPolicyMgr* workload_sched_policy_mgr() { return _workload_sched_mgr; }
     RuntimeQueryStatisticsMgr* runtime_query_statistics_mgr() {
@@ -232,8 +251,8 @@ public:
     ThreadPool* lazy_release_obj_pool() { return _lazy_release_obj_pool.get(); }
     ThreadPool* non_block_close_thread_pool();
     ThreadPool* s3_file_system_thread_pool() { return _s3_file_system_thread_pool.get(); }
+    ThreadPool* udf_close_workers_pool() { return _udf_close_workers_thread_pool.get(); }
 
-    Status init_pipeline_task_scheduler();
     void init_file_cache_factory(std::vector<doris::CachePath>& cache_paths);
     io::FileCacheFactory* file_cache_factory() { return _file_cache_factory; }
     UserFunctionCache* user_function_cache() { return _user_function_cache; }
@@ -275,6 +294,7 @@ public:
 
     kerberos::KerberosTicketMgr* kerberos_ticket_mgr() { return _kerberos_ticket_mgr; }
     io::HdfsMgr* hdfs_mgr() { return _hdfs_mgr; }
+    IndexPolicyMgr* index_policy_mgr() { return _index_policy_mgr; }
 
 #ifdef BE_TEST
     void set_tmp_file_dir(std::unique_ptr<segment_v2::TmpFileDirs> tmp_file_dirs) {
@@ -297,6 +317,7 @@ public:
     void set_cache_manager(CacheManager* cm) { this->_cache_manager = cm; }
     void set_process_profile(ProcessProfile* pp) { this->_process_profile = pp; }
     void set_tablet_schema_cache(TabletSchemaCache* c) { this->_tablet_schema_cache = c; }
+    void set_delete_bitmap_agg_cache(DeleteBitmapAggCache* c) { _delete_bitmap_agg_cache = c; }
     void set_tablet_column_object_pool(TabletColumnObjectPool* c) {
         this->_tablet_column_object_pool = c;
     }
@@ -315,6 +336,13 @@ public:
     void set_orc_memory_pool(orc::MemoryPool* pool) { _orc_memory_pool = pool; }
     void set_non_block_close_thread_pool(std::unique_ptr<ThreadPool>&& pool) {
         _non_block_close_thread_pool = std::move(pool);
+    }
+    void set_s3_file_upload_thread_pool(std::unique_ptr<ThreadPool>&& pool) {
+        _s3_file_upload_thread_pool = std::move(pool);
+    }
+    void set_file_cache_factory(io::FileCacheFactory* factory) { _file_cache_factory = factory; }
+    void set_file_cache_open_fd_cache(std::unique_ptr<io::FDCache>&& fd_cache) {
+        _file_cache_open_fd_cache = std::move(fd_cache);
     }
 #endif
     LoadStreamMapPool* load_stream_map_pool() { return _load_stream_map_pool.get(); }
@@ -335,6 +363,7 @@ public:
     LookupConnectionCache* get_lookup_connection_cache() { return _lookup_connection_cache; }
     RowCache* get_row_cache() { return _row_cache; }
     CacheManager* get_cache_manager() { return _cache_manager; }
+    IdManager* get_id_manager() { return _id_manager; }
     ProcessProfile* get_process_profile() { return _process_profile; }
     HeapProfiler* get_heap_profiler() { return _heap_profiler; }
     segment_v2::InvertedIndexSearcherCache* get_inverted_index_searcher_cache() {
@@ -342,6 +371,10 @@ public:
     }
     segment_v2::InvertedIndexQueryCache* get_inverted_index_query_cache() {
         return _inverted_index_query_cache;
+    }
+    segment_v2::ConditionCache* get_condition_cache() { return _condition_cache; }
+    segment_v2::EncodingInfoResolver* get_encoding_info_resolver() {
+        return _encoding_info_resolver;
     }
     QueryCache* get_query_cache() { return _query_cache; }
 
@@ -365,6 +398,9 @@ public:
     void set_stream_mgr(vectorized::VDataStreamMgr* vstream_mgr) { _vstream_mgr = vstream_mgr; }
     void clear_stream_mgr();
 
+    DeleteBitmapAggCache* delete_bitmap_agg_cache() { return _delete_bitmap_agg_cache; }
+    Status init_mem_env();
+
 private:
     ExecEnv();
 
@@ -373,13 +409,16 @@ private:
                                const std::set<std::string>& broken_paths);
     void _destroy();
 
-    Status _init_mem_env();
     Status _check_deploy_mode();
+
+    Status _create_internal_workload_group();
+    void _init_runtime_filter_timer_queue();
 
     inline static std::atomic_bool _s_ready {false};
     inline static std::atomic_bool _s_tracking_memory {false};
     std::vector<StorePath> _store_paths;
     std::vector<StorePath> _spill_store_paths;
+    inline static std::atomic_bool _s_upgrading {false};
 
     io::FileCacheFactory* _file_cache_factory = nullptr;
     UserFunctionCache* _user_function_cache = nullptr;
@@ -432,9 +471,10 @@ private:
     std::unique_ptr<ThreadPool> _lazy_release_obj_pool;
     std::unique_ptr<ThreadPool> _non_block_close_thread_pool;
     std::unique_ptr<ThreadPool> _s3_file_system_thread_pool;
+    // for java-udf to close
+    std::unique_ptr<ThreadPool> _udf_close_workers_thread_pool;
 
     FragmentMgr* _fragment_mgr = nullptr;
-    pipeline::TaskScheduler* _without_group_task_scheduler = nullptr;
     WorkloadGroupMgr* _workload_group_manager = nullptr;
 
     ResultCache* _result_cache = nullptr;
@@ -452,6 +492,7 @@ private:
 
     std::unique_ptr<StreamLoadExecutor> _stream_load_executor;
     RoutineLoadTaskExecutor* _routine_load_task_executor = nullptr;
+    StreamLoadRecorderManager* _stream_load_recorder_manager = nullptr;
     SmallFileMgr* _small_file_mgr = nullptr;
     HeartbeatFlags* _heartbeat_flags = nullptr;
     vectorized::ScannerScheduler* _scanner_scheduler = nullptr;
@@ -483,17 +524,22 @@ private:
     LookupConnectionCache* _lookup_connection_cache = nullptr;
     RowCache* _row_cache = nullptr;
     CacheManager* _cache_manager = nullptr;
+    IdManager* _id_manager = nullptr;
     ProcessProfile* _process_profile = nullptr;
     HeapProfiler* _heap_profiler = nullptr;
     segment_v2::InvertedIndexSearcherCache* _inverted_index_searcher_cache = nullptr;
     segment_v2::InvertedIndexQueryCache* _inverted_index_query_cache = nullptr;
+    segment_v2::ConditionCache* _condition_cache = nullptr;
+    segment_v2::EncodingInfoResolver* _encoding_info_resolver = nullptr;
     QueryCache* _query_cache = nullptr;
     std::unique_ptr<io::FDCache> _file_cache_open_fd_cache;
+    DeleteBitmapAggCache* _delete_bitmap_agg_cache {nullptr};
 
     pipeline::RuntimeFilterTimerQueue* _runtime_filter_timer_queue = nullptr;
     vectorized::DictionaryFactory* _dict_factory = nullptr;
 
     WorkloadSchedPolicyMgr* _workload_sched_mgr = nullptr;
+    IndexPolicyMgr* _index_policy_mgr = nullptr;
 
     RuntimeQueryStatisticsMgr* _runtime_query_statistics_mgr = nullptr;
 

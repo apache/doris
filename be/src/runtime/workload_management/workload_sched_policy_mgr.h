@@ -43,7 +43,7 @@ private:
 
     std::shared_mutex _stop_lock;
     CountDownLatch _stop_latch;
-    scoped_refptr<Thread> _thread;
+    std::shared_ptr<Thread> _thread;
     ExecEnv* _exec_env;
 };
 

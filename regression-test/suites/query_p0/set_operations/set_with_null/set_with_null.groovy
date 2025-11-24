@@ -52,4 +52,183 @@ suite("set_with_null") {
         select null
     )
    """
+
+    sql " drop table if exists d_table;"
+    sql """
+    create table d_table (
+        k1 int null
+    )
+    duplicate key (k1)
+    distributed BY hash(k1) buckets 3
+    properties("replication_num" = "1");
+    """
+   sql "insert into d_table values (null),(1);"
+
+    qt_test """
+    (
+        select k1
+        from d_table
+    )
+    intersect
+    (
+        select null
+    )
+    intersect
+    (
+        select null
+    )
+   """
+
+    qt_test """
+    (
+        select k1
+        from d_table
+    )
+    intersect
+    (
+        select null
+    )
+    intersect
+    (
+        select null
+    )
+    intersect
+    (
+        select null
+    )
+   """
+
+    qt_test """
+    (
+        select k1
+        from d_table
+    )
+    intersect
+    (
+        select null
+    )
+    intersect
+    (
+        select null
+    )
+    intersect
+    (
+        select null
+    )
+    intersect
+    (
+        select null
+    )
+   """
+
+    qt_test """
+    (
+        select k1
+        from d_table
+    )
+    intersect
+    (
+        select null
+    )
+    intersect
+    (
+        select null
+    )
+    intersect
+    (
+        select null
+    )
+    intersect
+    (
+        select null
+    )
+    intersect
+    (
+        select null
+    )
+   """
+
+    qt_test """
+    (
+        select k1
+        from d_table
+    )
+    except
+    (
+        select null
+    )
+    except
+    (
+        select null
+    )
+   """
+
+    qt_test """
+    (
+        select k1
+        from d_table
+    )
+    except
+    (
+        select null
+    )
+    except
+    (
+        select null
+    )
+    except
+    (
+        select null
+    )
+   """
+
+    qt_test """
+    (
+        select k1
+        from d_table
+    )
+    except
+    (
+        select null
+    )
+    except
+    (
+        select null
+    )
+    except
+    (
+        select null
+    )
+    except
+    (
+        select null
+    )
+   """
+
+    qt_test """
+    (
+        select k1
+        from d_table
+    )
+    except
+    (
+        select null
+    )
+    except
+    (
+        select null
+    )
+    except
+    (
+        select null
+    )
+    except
+    (
+        select null
+    )
+    except
+    (
+        select null
+    )
+   """
 }

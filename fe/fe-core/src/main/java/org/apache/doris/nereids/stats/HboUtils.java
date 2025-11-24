@@ -350,7 +350,7 @@ public class HboUtils {
         HboPlanStatisticsManager hboManager = Env.getCurrentEnv().getHboPlanStatisticsManager();
         HboPlanInfoProvider planInfoProvider = hboManager.getHboPlanInfoProvider();
 
-        if (hboManager != null && planInfoProvider != null) {
+        if (planInfoProvider != null) {
             String queryId = DebugUtil.printId(connectContext.queryId());
             Map<RelationId, Set<Expression>> scanToFilterMap = planInfoProvider.getScanToFilterMap(queryId);
             // here allows scanToFilterMap is empty when no filter on the scan and upper plan node
@@ -424,16 +424,12 @@ public class HboUtils {
      * @return whether this filter is on logical scan.
      */
     public static boolean isLogicalFilterOnLogicalScan(Filter filter) {
-        if (filter instanceof LogicalFilter
-                && ((LogicalFilter) filter).child() instanceof GroupPlan
-                && ((GroupPlan) ((LogicalFilter) filter).child()).getGroup() != null
-                && !((GroupPlan) ((LogicalFilter) filter).child()).getGroup().getLogicalExpressions().isEmpty()
-                && ((GroupPlan) ((LogicalFilter) filter).child()).getGroup().getLogicalExpressions().get(0)
-                .getPlan() instanceof LogicalOlapScan) {
-            return true;
-        } else {
-            return false;
-        }
+        return filter instanceof LogicalFilter
+                && ((LogicalFilter<?>) filter).child() instanceof GroupPlan
+                && ((GroupPlan) ((LogicalFilter<?>) filter).child()).getGroup() != null
+                && !((GroupPlan) ((LogicalFilter<?>) filter).child()).getGroup().getLogicalExpressions().isEmpty()
+                && ((GroupPlan) ((LogicalFilter<?>) filter).child()).getGroup().getLogicalExpressions().get(0)
+                .getPlan() instanceof LogicalOlapScan;
     }
 
     /**
@@ -442,16 +438,12 @@ public class HboUtils {
      * @return whether this filter is on physical scan.
      */
     public static boolean isPhysicalFilterOnPhysicalScan(Filter filter) {
-        if (filter instanceof PhysicalFilter
-                && ((PhysicalFilter) filter).child() instanceof GroupPlan
-                && ((GroupPlan) ((PhysicalFilter) filter).child()).getGroup() != null
-                && !((GroupPlan) ((PhysicalFilter) filter).child()).getGroup().getPhysicalExpressions().isEmpty()
-                && ((GroupPlan) ((PhysicalFilter) filter).child()).getGroup().getPhysicalExpressions().get(0)
-                .getPlan() instanceof PhysicalOlapScan) {
-            return true;
-        } else {
-            return false;
-        }
+        return filter instanceof PhysicalFilter
+                && ((PhysicalFilter<?>) filter).child() instanceof GroupPlan
+                && ((GroupPlan) ((PhysicalFilter<?>) filter).child()).getGroup() != null
+                && !((GroupPlan) ((PhysicalFilter<?>) filter).child()).getGroup().getPhysicalExpressions().isEmpty()
+                && ((GroupPlan) ((PhysicalFilter<?>) filter).child()).getGroup().getPhysicalExpressions().get(0)
+                .getPlan() instanceof PhysicalOlapScan;
     }
 
     /**
@@ -462,10 +454,10 @@ public class HboUtils {
     public static AbstractPlan getScanUnderFilterNode(Filter filterNode) {
         AbstractPlan scanNodePlan;
         if (isLogicalFilterOnLogicalScan(filterNode)) {
-            scanNodePlan = (LogicalOlapScan) ((GroupPlan) ((LogicalFilter) filterNode).child())
+            scanNodePlan = (LogicalOlapScan) ((GroupPlan) ((LogicalFilter<?>) filterNode).child())
                     .getGroup().getLogicalExpressions().get(0).getPlan();
         } else if (isPhysicalFilterOnPhysicalScan(filterNode)) {
-            scanNodePlan = (PhysicalOlapScan) ((GroupPlan) ((PhysicalFilter) filterNode).child())
+            scanNodePlan = (PhysicalOlapScan) ((GroupPlan) ((PhysicalFilter<?>) filterNode).child())
                     .getGroup().getPhysicalExpressions().get(0).getPlan();
         } else {
             throw new AnalysisException("unexpected filter type");

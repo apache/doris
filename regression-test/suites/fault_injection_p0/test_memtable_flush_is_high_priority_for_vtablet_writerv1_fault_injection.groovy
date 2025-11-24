@@ -48,9 +48,9 @@ suite("test_memtable_flush_is_high_priority_for_vtablet_writerV1", "nonConcurren
     """
     try {
         GetDebugPoint().enableDebugPointForAllBEs("VTabletWriter._init.is_high_priority")
-        result = sql "show VARIABLES like \'enable_memtable_on_sink_node\'"
+        def result = sql "show VARIABLES like \'enable_memtable_on_sink_node\'"
         log.info(result.toString())
-        original_status = result[0][1]       
+        def original_status = result[0][1]       
         sql """set enable_memtable_on_sink_node = false"""
         sql """drop table if exists ${testTable}"""
         sql testTableDDL

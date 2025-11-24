@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.hudi.source;
 
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 
 import com.google.common.collect.Maps;
@@ -111,18 +112,19 @@ public class HudiMetadataCacheMgr {
         }
     }
 
-    public void invalidateTableCache(long catalogId, String dbName, String tblName) {
+    public void invalidateTableCache(ExternalTable dorisTable) {
+        long catalogId = dorisTable.getCatalog().getId();
         HudiPartitionProcessor processor = partitionProcessors.get(catalogId);
         if (processor != null) {
-            processor.cleanTablePartitions(dbName, tblName);
+            processor.cleanTablePartitions(dorisTable);
         }
         HudiCachedFsViewProcessor fsViewProcessor = fsViewProcessors.get(catalogId);
         if (fsViewProcessor != null) {
-            fsViewProcessor.invalidateTableCache(dbName, tblName);
+            fsViewProcessor.invalidateTableCache(dorisTable);
         }
         HudiCachedMetaClientProcessor metaClientProcessor = metaClientProcessors.get(catalogId);
         if (metaClientProcessor != null) {
-            metaClientProcessor.invalidateTableCache(dbName, tblName);
+            metaClientProcessor.invalidateTableCache(dorisTable);
         }
     }
 

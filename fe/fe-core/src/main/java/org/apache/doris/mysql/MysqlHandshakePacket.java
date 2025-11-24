@@ -17,6 +17,8 @@
 
 package org.apache.doris.mysql;
 
+import org.apache.doris.qe.GlobalVariable;
+
 // MySQL protocol handshake packet.
 public class MysqlHandshakePacket extends MysqlPacket {
     private static final int SCRAMBLE_LENGTH = 20;
@@ -25,7 +27,7 @@ public class MysqlHandshakePacket extends MysqlPacket {
     // JDBC uses this version to check which protocol the server support
     // Set the patch version to 99 to prevent the vulnerability scanning tool from
     // falsely reporting MySQL vulnerabilities
-    public static final String SERVER_VERSION = "5.7.99";
+    public static final String DEFAULT_SERVER_VERSION = "5.7.99";
     // 33 stands for UTF-8 character set
     private static final int CHARACTER_SET = 33;
     // use default capability for all
@@ -53,7 +55,7 @@ public class MysqlHandshakePacket extends MysqlPacket {
         MysqlCapability capability = MysqlProto.SERVER_USE_SSL ? SSL_CAPABILITY : CAPABILITY;
 
         serializer.writeInt1(PROTOCOL_VERSION);
-        serializer.writeNulTerminateString(SERVER_VERSION);
+        serializer.writeNulTerminateString(GlobalVariable.version);
         serializer.writeInt4(connectionId);
         // first 8 bytes of auth plugin data
         serializer.writeBytes(authPluginData, 0, 8);

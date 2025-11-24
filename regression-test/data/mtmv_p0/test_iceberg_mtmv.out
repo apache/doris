@@ -59,10 +59,10 @@
 \N	8
 
 -- !test_iceberg_table_partition_ts --
-ts_day=20022	types: [DATETIMEV2]; keys: [2024-10-26 00:00:00]; 	types: [DATETIMEV2]; keys: [2024-10-27 00:00:00]; 
-ts_day=20023	types: [DATETIMEV2]; keys: [2024-10-27 00:00:00]; 	types: [DATETIMEV2]; keys: [2024-10-28 00:00:00]; 
-ts_day=20024	types: [DATETIMEV2]; keys: [2024-10-28 00:00:00]; 	types: [DATETIMEV2]; keys: [2024-10-29 00:00:00]; 
-ts_day=null	types: [DATETIMEV2]; keys: [0000-01-01 00:00:00]; 	types: [DATETIMEV2]; keys: [0000-01-01 00:00:01]; 
+{"ts_day":null}
+{"ts_day":"2024-10-26"}
+{"ts_day":"2024-10-27"}
+{"ts_day":"2024-10-28"}
 
 -- !unpartition --
 2024-10-26T01:02:03	1
@@ -110,9 +110,9 @@ ts_day=null	types: [DATETIMEV2]; keys: [0000-01-01 00:00:00]; 	types: [DATETIMEV
 2024-10-28	7
 
 -- !test_iceberg_table_partition_d --
-d_month=655	types: [DATEV2]; keys: [2024-08-01]; 	types: [DATEV2]; keys: [2024-09-01]; 
-d_month=656	types: [DATEV2]; keys: [2024-09-01]; 	types: [DATEV2]; keys: [2024-10-01]; 
-d_month=657	types: [DATEV2]; keys: [2024-10-01]; 	types: [DATEV2]; keys: [2024-11-01]; 
+{"d_month":655}
+{"d_month":656}
+{"d_month":657}
 
 -- !refresh_one_partition --
 2024-01-01T00:00	4
@@ -130,21 +130,50 @@ d_month=657	types: [DATEV2]; keys: [2024-10-01]; 	types: [DATEV2]; keys: [2024-1
 2024-01-02T00:00	3
 
 -- !evolution2 --
-ts_day=20060	types: [DATETIMEV2]; keys: [2024-12-03 00:00:00]; 	types: [DATETIMEV2]; keys: [2024-12-04 00:00:00]; 
-ts_month=657	types: [DATETIMEV2]; keys: [2024-10-01 00:00:00]; 	types: [DATETIMEV2]; keys: [2024-11-01 00:00:00]; 
-ts_month=658	types: [DATETIMEV2]; keys: [2024-11-01 00:00:00]; 	types: [DATETIMEV2]; keys: [2024-12-01 00:00:00]; 
+{"ts_month":null, "ts_day":"2024-12-03"}
+{"ts_month":657, "ts_day":null}
+{"ts_month":658, "ts_day":null}
 
 -- !evolution3 --
-ts_day=20059	types: [DATETIMEV2]; keys: [2024-12-02 00:00:00]; 	types: [DATETIMEV2]; keys: [2024-12-03 00:00:00]; 
-ts_month=658	types: [DATETIMEV2]; keys: [2024-11-01 00:00:00]; 	types: [DATETIMEV2]; keys: [2024-12-01 00:00:00]; 
+{"ts_month":null, "ts_day":"2024-11-02"}
+{"ts_month":null, "ts_day":"2024-11-03"}
+{"ts_month":null, "ts_day":"2024-12-02"}
+{"ts_month":658, "ts_day":null}
 
 -- !evolution4 --
-ts_month=657	types: [DATETIMEV2]; keys: [2024-10-01 00:00:00]; 	types: [DATETIMEV2]; keys: [2024-11-01 00:00:00]; 
-ts_month=658	types: [DATETIMEV2]; keys: [2024-11-01 00:00:00]; 	types: [DATETIMEV2]; keys: [2024-12-01 00:00:00]; 
+{"ts_month":null, "ts_day":"2024-11-02"}
+{"ts_month":null, "ts_day":"2024-11-03"}
+{"ts_month":657, "ts_day":null}
+{"ts_month":658, "ts_day":null}
 
 -- !evolution5 --
-ts_day=20078	types: [DATETIMEV2]; keys: [2024-12-21 00:00:00]; 	types: [DATETIMEV2]; keys: [2024-12-22 00:00:00]; 
-ts_hour=482139	types: [DATETIMEV2]; keys: [2025-01-01 03:00:00]; 	types: [DATETIMEV2]; keys: [2025-01-01 04:00:00]; 
-ts_month=657	types: [DATETIMEV2]; keys: [2024-10-01 00:00:00]; 	types: [DATETIMEV2]; keys: [2024-11-01 00:00:00]; 
-ts_month=658	types: [DATETIMEV2]; keys: [2024-11-01 00:00:00]; 	types: [DATETIMEV2]; keys: [2024-12-01 00:00:00]; 
+{"ts_month":null, "ts_day":null, "ts_hour":481875}
+{"ts_month":null, "ts_day":null, "ts_hour":482139}
+{"ts_month":null, "ts_day":"2024-10-12", "ts_hour":null}
+{"ts_month":null, "ts_day":"2024-12-21", "ts_hour":null}
+{"ts_month":657, "ts_day":null, "ts_hour":null}
+{"ts_month":658, "ts_day":null, "ts_hour":null}
+
+-- !test1 --
+{"create_date1_month":null, "create_date2_year":53}
+{"create_date1_month":647, "create_date2_year":null}
+
+-- !test2 --
+{"create_date_bucket":2}
+{"create_date_bucket":5}
+
+-- !test3 --
+{"create_date_month":647}
+
+-- !test4 --
+{"create_date1_month":647, "create_date2_year":null}
+{"create_date1_month":647, "create_date2_year":53}
+
+-- !test5 --
+{"create_date_month":null}
+{"create_date_month":647}
+
+-- !test6 --
+{"create_date1_month":647, "create_date2_year":null}
+{"create_date1_month":647, "create_date2_year":53}
 

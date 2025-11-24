@@ -20,14 +20,12 @@ package org.apache.doris.nereids.trees.expressions;
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.UnboundException;
-import org.apache.doris.nereids.trees.expressions.functions.PropagateNullableOnDateLikeV2Args;
+import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.literal.Interval.TimeUnit;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
-import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.DateV2Type;
 
 import com.google.common.base.Preconditions;
@@ -43,7 +41,8 @@ import java.util.Objects;
  * Example: '1996-01-01' + INTERVAL '3' month;
  * TODO: we need to rethink this, and maybe need to add a new type of Interval then implement IntervalLiteral as others
  */
-public class TimestampArithmetic extends Expression implements BinaryExpression, PropagateNullableOnDateLikeV2Args {
+public class TimestampArithmetic extends Expression
+        implements BinaryExpression, PropagateNullable {
 
     private final String funcName;
     private final Operator op;
@@ -86,17 +85,11 @@ public class TimestampArithmetic extends Expression implements BinaryExpression,
         if (childType instanceof DateTimeV2Type) {
             return childType;
         }
-        if (childType instanceof DateV2Type) {
-            if (timeUnit.isDateTimeUnit()) {
-                return DateTimeV2Type.SYSTEM_DEFAULT;
-            }
-            return DateV2Type.INSTANCE;
+        // datev2
+        if (timeUnit.isDateTimeUnit()) {
+            return DateTimeV2Type.SYSTEM_DEFAULT;
         }
-        if (childType instanceof DateTimeType || timeUnit.isDateTimeUnit()) {
-            return DateTimeType.INSTANCE;
-        } else {
-            return DateType.INSTANCE;
-        }
+        return DateV2Type.INSTANCE;
     }
 
     public String getFuncName() {
@@ -126,6 +119,21 @@ public class TimestampArithmetic extends Expression implements BinaryExpression,
     @Override
     public String toString() {
         return toSql();
+    }
+
+    @Override
+    public String toDigest() {
+        StringBuilder sb = new StringBuilder();
+        if (funcName != null) {
+            sb.append(funcName.toUpperCase()).append("(");
+            sb.append(child(0).toDigest()).append(", ");
+            sb.append(child(1).toDigest()).append(")");
+        } else {
+            sb.append(child(0).toDigest());
+            sb.append(" ").append(op.toString()).append(" ");
+            sb.append(child(1).toDigest());
+        }
+        return sb.toString();
     }
 
     @Override

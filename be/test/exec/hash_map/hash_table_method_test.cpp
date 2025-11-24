@@ -27,7 +27,7 @@
 namespace doris::vectorized {
 
 template <typename HashMethodType>
-void test_insert(HashMethodType& method, ColumnPtrs column) {
+void test_insert(HashMethodType& method, Columns column) {
     using State = typename HashMethodType::State;
     ColumnRawPtrs key_raw_columns;
     for (auto column : column) {
@@ -49,8 +49,7 @@ void test_insert(HashMethodType& method, ColumnPtrs column) {
 }
 
 template <typename HashMethodType>
-void test_find(HashMethodType& method, ColumnPtrs column,
-               const std::vector<int64_t>& except_result) {
+void test_find(HashMethodType& method, Columns column, const std::vector<int64_t>& except_result) {
     using State = typename HashMethodType::State;
     ColumnRawPtrs key_raw_columns;
     for (auto column : column) {

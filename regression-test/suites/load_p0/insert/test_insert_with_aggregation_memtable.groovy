@@ -130,7 +130,7 @@ suite("test_insert_with_aggregation_memtable", "nonConcurrent") {
     sql """INSERT INTO ${table_name} SELECT *, '{"k1":1, "k2": "hello world", "k3" : [1234], "k4" : 1.10000, "k5" : [[123]]}' FROM numbers("number" = "4096")"""
     sql """INSERT INTO ${table_name} SELECT k, v from ${table_name}"""
     sql """INSERT INTO ${table_name} SELECT k, v from ${table_name}"""
-    createMV("""create materialized view var_cnt as select k, count(k) from ${table_name} group by k""")    
+    createMV("""create materialized view var_cnt as select k as a1, count(k) from ${table_name} group by k""")    
     sql """INSERT INTO ${table_name} SELECT k, v from ${table_name} limit 8101"""
     // insert with no duplicate
     sql """INSERT INTO ${table_name} SELECT *, '{"k1":1, "k2": "hello world", "k3" : [1234], "k4" : 1.10000, "k5" : [[123]]}' FROM numbers("number" = "4096"); """

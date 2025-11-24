@@ -47,13 +47,18 @@ public class BitmapAndNotCount extends ScalarFunction
         super("bitmap_and_not_count", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private BitmapAndNotCount(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public BitmapAndNotCount withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new BitmapAndNotCount(children.get(0), children.get(1));
+        return new BitmapAndNotCount(getFunctionParams(children));
     }
 
     @Override

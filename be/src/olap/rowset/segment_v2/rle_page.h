@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "common/cast_set.h"
 #include "olap/rowset/segment_v2/options.h"      // for PageBuilderOptions/PageDecoderOptions
 #include "olap/rowset/segment_v2/page_builder.h" // for PageBuilder
 #include "olap/rowset/segment_v2/page_decoder.h" // for PageDecoder
@@ -25,6 +26,7 @@
 #include "util/slice.h"                          // for OwnedSlice
 
 namespace doris {
+#include "common/compile_check_begin.h"
 namespace segment_v2 {
 
 enum { RLE_PAGE_HEADER_SIZE = 4 };
@@ -91,6 +93,7 @@ public:
         memcpy(&_last_value, &new_vals[*count - 1], SIZE_OF_TYPE);
 
         _count += *count;
+        _raw_data_size += *count * SIZE_OF_TYPE;
         return Status::OK();
     }
 
@@ -100,7 +103,7 @@ public:
         // here should Flush first and then encode the count header
         // or it will lead to a bug if the header is less than 8 byte and the data is small
         _rle_encoder->Flush();
-        encode_fixed32_le(&_buf[0], _count);
+        encode_fixed32_le(&_buf[0], cast_set<uint32_t>(_count));
         *slice = _buf.build();
         return Status::OK();
     }
@@ -109,6 +112,7 @@ public:
         RETURN_IF_CATCH_EXCEPTION({
             _count = 0;
             _finished = false;
+            _raw_data_size = 0;
             _rle_encoder->Clear();
             _rle_encoder->Reserve(RLE_PAGE_HEADER_SIZE, 0);
         });
@@ -118,6 +122,8 @@ public:
     size_t count() const override { return _count; }
 
     uint64_t size() const override { return _rle_encoder->len(); }
+
+    uint64_t get_raw_data_size() const override { return _raw_data_size; }
 
     Status get_first_value(void* value) const override {
         DCHECK(_finished);
@@ -156,6 +162,7 @@ private:
     faststring _buf;
     CppType _first_value;
     CppType _last_value;
+    uint64_t _raw_data_size = 0;
 };
 
 template <FieldType Type>
@@ -190,8 +197,9 @@ public:
         }
         }
 
-        _rle_decoder = RleDecoder<CppType>((uint8_t*)_data.data + RLE_PAGE_HEADER_SIZE,
-                                           _data.size - RLE_PAGE_HEADER_SIZE, _bit_width);
+        _rle_decoder =
+                RleDecoder<CppType>((uint8_t*)_data.data + RLE_PAGE_HEADER_SIZE,
+                                    cast_set<int>(_data.size - RLE_PAGE_HEADER_SIZE), _bit_width);
 
         RETURN_IF_ERROR(seek_to_position_in_page(0));
         return Status::OK();
@@ -203,18 +211,24 @@ public:
                 << "Tried to seek to " << pos << " which is > number of elements (" << _num_elements
                 << ") in the block!";
         // If the block is empty (e.g. the column is filled with nulls), there is no data to seek.
-        if (PREDICT_FALSE(_num_elements == 0)) {
-            return Status::OK();
+        if (_num_elements == 0) [[unlikely]] {
+            if (pos != 0) {
+                return Status::Error<ErrorCode::INTERNAL_ERROR, false>(
+                        "seek pos {} is larger than total elements  {}", pos, _num_elements);
+            } else {
+                return Status::OK();
+            }
         }
         if (_cur_index == pos) {
             // No need to seek.
             return Status::OK();
         } else if (_cur_index < pos) {
-            uint nskip = pos - _cur_index;
+            size_t nskip = pos - _cur_index;
             _rle_decoder.Skip(nskip);
         } else {
             _rle_decoder = RleDecoder<CppType>((uint8_t*)_data.data + RLE_PAGE_HEADER_SIZE,
-                                               _data.size - RLE_PAGE_HEADER_SIZE, _bit_width);
+                                               cast_set<int>(_data.size - RLE_PAGE_HEADER_SIZE),
+                                               _bit_width);
             _rle_decoder.Skip(pos);
         }
         _cur_index = pos;
@@ -223,7 +237,7 @@ public:
 
     Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst) override {
         DCHECK(_parsed);
-        if (PREDICT_FALSE(*n == 0 || _cur_index >= _num_elements)) {
+        if (*n == 0 || _cur_index >= _num_elements) [[unlikely]] {
             *n = 0;
             return Status::OK();
         }
@@ -247,7 +261,7 @@ public:
     Status read_by_rowids(const rowid_t* rowids, ordinal_t page_first_ordinal, size_t* n,
                           vectorized::MutableColumnPtr& dst) override {
         DCHECK(_parsed);
-        if (PREDICT_FALSE(*n == 0 || _cur_index >= _num_elements)) {
+        if (*n == 0 || _cur_index >= _num_elements) [[unlikely]] {
             *n = 0;
             return Status::OK();
         }
@@ -294,4 +308,5 @@ private:
 };
 
 } // namespace segment_v2
+#include "common/compile_check_end.h"
 } // namespace doris

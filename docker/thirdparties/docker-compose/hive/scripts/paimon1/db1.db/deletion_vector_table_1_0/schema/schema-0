@@ -1,0 +1,25 @@
+{
+  "version" : 3,
+  "id" : 0,
+  "fields" : [ {
+    "id" : 0,
+    "name" : "id",
+    "type" : "INT NOT NULL"
+  }, {
+    "id" : 1,
+    "name" : "name",
+    "type" : "VARCHAR(255)"
+  }, {
+    "id" : 2,
+    "name" : "age",
+    "type" : "INT"
+  } ],
+  "highestFieldId" : 2,
+  "partitionKeys" : [ ],
+  "primaryKeys" : [ "id" ],
+  "options" : {
+    "owner" : "suyiteng",
+    "deletion-vectors.enabled" : "true"
+  },
+  "timeMillis" : 1740119416591
+}

@@ -627,7 +627,7 @@ suite("test_show_data_with_compaction", "p2") {
     def backendId_to_backendHttpPort = [:]
     getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
 
-    backend_id = backendId_to_backendIP.keySet()[0]
+    def backend_id = backendId_to_backendIP.keySet()[0]
     def (code, out, err) = show_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id))
 
     logger.info("Show config: code=" + code + ", out=" + out + ", err=" + err)
@@ -644,8 +644,8 @@ suite("test_show_data_with_compaction", "p2") {
     }
 
     def set_be_config = { key, value ->
-        for (String backend_id: backendId_to_backendIP.keySet()) {
-            (code, out, err) = update_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), key, value)
+        for (String backend_id2 : backendId_to_backendIP.keySet()) {
+            (code, out, err) = update_be_config(backendId_to_backendIP.get(backend_id2), backendId_to_backendHttpPort.get(backend_id2), key, value)
             logger.info("update config: code=" + code + ", out=" + out + ", err=" + err)
         }
     }
@@ -803,6 +803,8 @@ suite("test_show_data_with_compaction", "p2") {
         load_httplogs_data.call(tableWithOutIndexCompaction, '8', 'true', 'json', 'documents-1000.json')
         load_httplogs_data.call(tableWithOutIndexCompaction, '9', 'true', 'json', 'documents-1000.json')
         load_httplogs_data.call(tableWithOutIndexCompaction, '10', 'true', 'json', 'documents-1000.json')
+
+        sql "sync"
 
         def another_with_index_size = wait_for_show_data_finish(tableWithOutIndexCompaction, 60000, 0)
         assertTrue(another_with_index_size != "wait_timeout")

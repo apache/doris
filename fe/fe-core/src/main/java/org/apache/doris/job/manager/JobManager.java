@@ -17,12 +17,14 @@
 
 package org.apache.doris.job.manager;
 
-import org.apache.doris.analysis.CancelLoadStmt;
 import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.cloud.proto.Cloud;
+import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CaseSensibility;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -33,21 +35,32 @@ import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.job.base.AbstractJob;
+import org.apache.doris.job.base.JobExecuteType;
+import org.apache.doris.job.common.FailureReason;
 import org.apache.doris.job.common.JobStatus;
 import org.apache.doris.job.common.JobType;
 import org.apache.doris.job.common.TaskType;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.extensions.insert.InsertJob;
+import org.apache.doris.job.extensions.insert.streaming.StreamingInsertJob;
+import org.apache.doris.job.extensions.mtmv.MTMVJob;
 import org.apache.doris.job.scheduler.JobScheduler;
+import org.apache.doris.job.scheduler.StreamingTaskScheduler;
 import org.apache.doris.load.loadv2.JobState;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.plans.commands.AlterJobCommand;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.rpc.RpcException;
 
 import com.google.common.collect.Lists;
+import lombok.Getter;
 import lombok.extern.log4j.Log4j2;
+import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -62,10 +75,16 @@ import java.util.stream.Collectors;
 
 @Log4j2
 public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
+    private static final Logger LOG = LogManager.getLogger(JobManager.class);
 
     private final ConcurrentHashMap<Long, T> jobMap = new ConcurrentHashMap<>(32);
 
     private JobScheduler<T, C> jobScheduler;
+
+    @Getter
+    private final StreamingTaskManager streamingTaskManager = new StreamingTaskManager();
+    @Getter
+    private StreamingTaskScheduler streamingTaskScheduler;
 
     // lock for job
     // lock is private and must use after db lock
@@ -90,8 +109,9 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
     public void start() {
         jobScheduler = new JobScheduler<T, C>(jobMap);
         jobScheduler.start();
+        streamingTaskScheduler = new StreamingTaskScheduler();
+        streamingTaskScheduler.start();
     }
-
 
     /**
      * get running job
@@ -103,28 +123,50 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
         return jobMap.get(jobId);
     }
 
+    /**
+     * get streaming running job
+     *
+     * @return running job
+     */
+    public int getStreamingJobCnt() {
+        int count = 0;
+        for (T job : jobMap.values()) {
+            if (job.getJobConfig().getExecuteType().equals(JobExecuteType.STREAMING)) {
+                count++;
+            }
+        }
+        return count;
+    }
+
     public void registerJob(T job) throws JobException {
+        job.initParams();
+        createJobInternal(job, false);
+        jobScheduler.scheduleOneJob(job);
+    }
+
+    public void createJobInternal(T job, boolean isReplay) throws JobException {
         writeLock();
         try {
-            job.onRegister();
-            job.checkJobParams();
-            checkJobNameExist(job.getJobName());
-            if (jobMap.get(job.getJobId()) != null) {
-                throw new JobException("job id exist, jobId:" + job.getJobId());
+            if (!isReplay) {
+                job.onRegister();
+                job.checkJobParams();
+                checkJobNameExist(job.getJobName());
+                if (jobMap.get(job.getJobId()) != null) {
+                    throw new JobException("job id exist, jobId:" + job.getJobId());
+                }
             }
             jobMap.put(job.getJobId(), job);
-            job.logCreateOperation();
+            if (isReplay) {
+                job.onReplayCreate();
+            }
+            if (!isReplay && job.needPersist()) {
+                job.logCreateOperation();
+            }
         } finally {
             writeUnlock();
         }
-        try {
-            //check its need to scheduler
-            jobScheduler.scheduleOneJob(job);
-        } catch (Exception e) {
-            // if scheduler job error, we need to unregister job
-            log.warn(("first schedule job error,unregister job, jobName:" + job.getJobName()), e);
-            unregisterJob(job.getJobId());
-            throw new JobException("register job error, jobName:" + job.getJobName());
+        if (!isReplay) {
+            jobScheduler.cycleTimerJobScheduler(job);
         }
     }
 
@@ -173,18 +215,53 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
         if (dropJob == null) {
             throw new JobException("job not exist, jobName:" + jobName);
         }
-        //is job status is running, we need to stop it and cancel all running task
-        // since job only running in master, we don't need to write update metadata log
-        if (dropJob.getJobStatus().equals(JobStatus.RUNNING)) {
-            dropJob.updateJobStatus(JobStatus.STOPPED);
+        dropJobInternal(dropJob, false);
+    }
+
+    public void dropJobInternal(T job, boolean isReplay) throws JobException {
+        if (!isReplay) {
+            // is job status is running, we need to stop it and cancel all running task
+            // since job only running in master, we don't need to write update metadata log
+            if (job.getJobStatus().equals(JobStatus.RUNNING)) {
+                job.updateJobStatus(JobStatus.STOPPED);
+            }
         }
         writeLock();
         try {
+            deleteStremingJob(job);
+            jobMap.remove(job.getJobId());
+            if (isReplay) {
+                job.onReplayEnd(job);
+            }
             // write delete log
-            dropJob.logDeleteOperation();
-            jobMap.remove(dropJob.getJobId());
+            if (!isReplay && job.needPersist()) {
+                job.logDeleteOperation();
+            }
         } finally {
             writeUnlock();
+        }
+    }
+
+    private void deleteStremingJob(AbstractJob<?, C> job) throws JobException {
+        if (!(Config.isCloudMode() && job instanceof StreamingInsertJob)) {
+            return;
+        }
+        StreamingInsertJob streamingJob = (StreamingInsertJob) job;
+        Cloud.DeleteStreamingJobResponse resp = null;
+        try {
+            Cloud.DeleteStreamingJobRequest req = Cloud.DeleteStreamingJobRequest.newBuilder()
+                    .setCloudUniqueId(Config.cloud_unique_id)
+                    .setDbId(streamingJob.getDbId())
+                    .setJobId(job.getJobId())
+                    .build();
+            resp = MetaServiceProxy.getInstance().deleteStreamingJob(req);
+            if (resp.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
+                log.warn("failed to delete streaming job, response: {}", resp);
+                throw new JobException("deleteJobKey failed for jobId=%s, dbId=%s, status=%s",
+                        job.getJobId(), job.getJobId(), resp.getStatus());
+            }
+        } catch (RpcException e) {
+            log.warn("failed to delete streaming job {}", resp, e);
         }
     }
 
@@ -192,24 +269,54 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
         checkJobExist(jobId);
         jobMap.get(jobId).updateJobStatus(status);
         if (status.equals(JobStatus.RUNNING)) {
-            jobScheduler.scheduleOneJob(jobMap.get(jobId));
+            jobScheduler.cycleTimerJobScheduler(jobMap.get(jobId));
         }
         jobMap.get(jobId).logUpdateOperation();
     }
 
-    public void alterJobStatus(String jobName, JobStatus jobStatus) throws JobException {
+    public void alterJob(AlterJobCommand alterJobCommand) throws JobException, AnalysisException {
+        T job = getJobByName(alterJobCommand.getJobName());
+        writeLock();
+        try {
+            if (job instanceof StreamingInsertJob) {
+                StreamingInsertJob streamingJob = (StreamingInsertJob) job;
+                streamingJob.alterJob(alterJobCommand);
+            } else {
+                throw new JobException("Unsupported job type for ALTER:" + job.getJobType());
+            }
+            job.logUpdateOperation();
+        } finally {
+            writeUnlock();
+        }
+        log.info("update job success, jobId: {}", job.getJobId());
+    }
+
+
+    public void alterJobStatus(String jobName, JobStatus jobStatus, FailureReason reason) throws JobException {
         for (T a : jobMap.values()) {
             if (a.getJobName().equals(jobName)) {
                 try {
-                    if (jobStatus.equals(a.getJobStatus())) {
-                        throw new JobException("Can't change job status to the same status");
-                    }
+                    checkSameStatus(a, jobStatus);
                     alterJobStatus(a.getJobId(), jobStatus);
+                    if (a instanceof StreamingInsertJob) {
+                        ((StreamingInsertJob) a).resetFailureInfo(reason);
+                    }
                 } catch (JobException e) {
                     throw new JobException("Alter job status error, jobName is %s, errorMsg is %s",
                             jobName, e.getMessage());
                 }
             }
+        }
+    }
+
+    private void checkSameStatus(T a, JobStatus newStatus) throws JobException {
+        if (newStatus.equals(a.getJobStatus())) {
+            throw new JobException("Can't change job status to the same status");
+        }
+        if (JobExecuteType.STREAMING.equals(a.getJobConfig().getExecuteType())
+                && a.getJobStatus().equals(JobStatus.RUNNING)
+                && JobStatus.isRunning(newStatus)) {
+            throw new JobException("Can't change job status to the same status, job already running");
         }
     }
 
@@ -271,19 +378,45 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
     }
 
     public void replayCreateJob(T job) throws JobException {
-        if (jobMap.containsKey(job.getJobId())) {
+        // mtmv has its own editLog to replay jobs, here it is to ignore the logs already generated by older versions.
+        if (!job.needPersist()) {
             return;
         }
-        jobMap.putIfAbsent(job.getJobId(), job);
-        job.onReplayCreate();
+        createJobInternal(job, true);
     }
 
     /**
      * Replay update load job.
      **/
     public void replayUpdateJob(T job) {
-        jobMap.put(job.getJobId(), job);
-        log.info(new LogBuilder(LogKey.SCHEDULER_JOB, job.getJobId())
+        Long jobId = job.getJobId();
+        // In previous versions, the job ID in MTMV was not fixed (a new ID would be generated each time the editLog
+        // was replayed), but the name was constant and unique. However, since job updates use jobId as the key,
+        // it is possible that this jobId no longer exists. Therefore, we now look up the ID based on the name.
+        if (!jobMap.containsKey(jobId) && job instanceof MTMVJob) {
+            List<T> jobs = queryJobs(JobType.MV, job.getJobName());
+            if (CollectionUtils.isEmpty(jobs) || jobs.size() != 1) {
+                LOG.warn("jobs by name: {} not normal,should have one job,but job num is: {}", job.getJobName(),
+                        jobs.size());
+                return;
+            }
+            jobId = jobs.get(0).getJobId();
+            job.setJobId(jobId);
+        }
+
+        if (!jobMap.containsKey(jobId)) {
+            LOG.warn("replayUpdateJob not normal, job: {}, jobId: {}, jobMap: {}", job, jobId, jobMap);
+            return;
+        }
+
+        if (job instanceof StreamingInsertJob) {
+            // for streaming job, we only update part properties
+            StreamingInsertJob currentJob = (StreamingInsertJob) jobMap.get(jobId);
+            currentJob.replayOnUpdated((StreamingInsertJob) job);
+        } else {
+            jobMap.put(jobId, job);
+        }
+        log.info(new LogBuilder(LogKey.SCHEDULER_JOB, jobId)
                 .add("msg", "replay update scheduler job").build());
     }
 
@@ -291,12 +424,11 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
      * Replay delete load job. we need to remove job from job map
      */
     public void replayDeleteJob(T replayJob) throws JobException {
-        T job = jobMap.get(replayJob.getJobId());
-        if (null == job) {
+        // mtmv has its own editLog to replay jobs, here it is to ignore the logs already generated by older version
+        if (!replayJob.needPersist()) {
             return;
         }
-        jobMap.remove(replayJob.getJobId());
-        job.onReplayEnd(replayJob);
+        dropJobInternal(replayJob, true);
     }
 
     /**
@@ -309,6 +441,9 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
      */
     public void cancelTaskById(String jobName, Long taskId) throws JobException {
         for (T job : jobMap.values()) {
+            if (job.getJobConfig().getExecuteType().equals(JobExecuteType.STREAMING)) {
+                throw new JobException("streaming job not support cancel task by id");
+            }
             if (job.getJobName().equals(jobName)) {
                 job.cancelTaskById(taskId);
                 job.logUpdateOperation();
@@ -340,7 +475,14 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
         int size = in.readInt();
         for (int i = 0; i < size; i++) {
             AbstractJob job = AbstractJob.readFields(in);
+            // for compatible
+            if (job instanceof MTMVJob) {
+                job.setJobId(((MTMVJob) job).getMtmvId());
+            }
             jobMap.putIfAbsent(job.getJobId(), (T) job);
+            if (job instanceof StreamingInsertJob && job.isJobRunning()) {
+                Env.getCurrentGlobalTransactionMgr().getCallbackFactory().addCallback((StreamingInsertJob) job);
+            }
         }
     }
 
@@ -348,6 +490,22 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
         return jobMap.get(jobId);
     }
 
+    public T getJobByName(String jobName) throws JobException {
+        T job = getJobByNameOrNull(jobName);
+        if (job == null) {
+            throw new JobException("job not exist, jobName: " + jobName);
+        }
+        return job;
+    }
+
+    public T getJobByNameOrNull(String jobName) {
+        for (T a : jobMap.values()) {
+            if (a.getJobName().equals(jobName)) {
+                return a;
+            }
+        }
+        return null;
+    }
 
     /**
      * get load info by db
@@ -430,64 +588,6 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
                 return jobState == JobState.FINISHED;
             default:
                 return false;
-        }
-    }
-
-    //todo it's not belong to JobManager
-    public void cancelLoadJob(CancelLoadStmt cs)
-            throws JobException, AnalysisException, DdlException {
-        String dbName = cs.getDbName();
-        String label = cs.getLabel();
-        String state = cs.getState();
-        CompoundPredicate.Operator operator = cs.getOperator();
-        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
-        // List of load jobs waiting to be cancelled
-        List<InsertJob> unfinishedLoadJob;
-        readLock();
-        try {
-            List<InsertJob> loadJobs = Env.getCurrentEnv().getLabelProcessor().getJobs(db);
-            List<InsertJob> matchLoadJobs = Lists.newArrayList();
-            addNeedCancelLoadJob(label, state, operator, loadJobs, matchLoadJobs);
-            if (matchLoadJobs.isEmpty()) {
-                throw new JobException("Load job does not exist");
-            }
-            // check state here
-            unfinishedLoadJob =
-                    matchLoadJobs.stream().filter(InsertJob::isRunning)
-                            .collect(Collectors.toList());
-            if (unfinishedLoadJob.isEmpty()) {
-                throw new JobException("There is no uncompleted job");
-            }
-        } finally {
-            readUnlock();
-        }
-        // check auth
-        if (unfinishedLoadJob.size() > 1 || unfinishedLoadJob.get(0).getTableNames().isEmpty()) {
-            if (Env.getCurrentEnv().getAccessManager()
-                    .checkDbPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, dbName,
-                            PrivPredicate.LOAD)) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_DBACCESS_DENIED_ERROR, "LOAD",
-                        ConnectContext.get().getQualifiedUser(),
-                        ConnectContext.get().getRemoteIP(), dbName);
-            }
-        } else {
-            for (String tableName : unfinishedLoadJob.get(0).getTableNames()) {
-                if (Env.getCurrentEnv().getAccessManager()
-                        .checkTblPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, dbName,
-                                tableName,
-                                PrivPredicate.LOAD)) {
-                    ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
-                            ConnectContext.get().getQualifiedUser(),
-                            ConnectContext.get().getRemoteIP(), dbName + ":" + tableName);
-                }
-            }
-        }
-        for (InsertJob loadJob : unfinishedLoadJob) {
-            try {
-                alterJobStatus(loadJob.getJobId(), JobStatus.STOPPED);
-            } catch (JobException e) {
-                log.warn("Fail to cancel job, its label: {}", loadJob.getLabelName());
-            }
         }
     }
 

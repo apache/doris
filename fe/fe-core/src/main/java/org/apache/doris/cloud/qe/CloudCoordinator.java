@@ -17,7 +17,6 @@
 
 package org.apache.doris.cloud.qe;
 
-import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cloud.catalog.CloudEnv;
@@ -29,6 +28,7 @@ import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.Coordinator;
+import org.apache.doris.resource.computegroup.ComputeGroupMgr;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Strings;
@@ -40,9 +40,9 @@ import java.util.List;
 public class CloudCoordinator extends Coordinator {
     private static final Logger LOG = LogManager.getLogger(Coordinator.class);
 
-    public CloudCoordinator(ConnectContext context, Analyzer analyzer,
+    public CloudCoordinator(ConnectContext context,
                             Planner planner, StatsErrorEstimator statsErrorEstimator) {
-        super(context, analyzer, planner, statsErrorEstimator);
+        super(context, planner, statsErrorEstimator);
     }
 
     public CloudCoordinator(Long jobId, TUniqueId queryId, DescriptorTable descTable, List<PlanFragment> fragments,
@@ -86,10 +86,8 @@ public class CloudCoordinator extends Coordinator {
 
         if (idToBackend == null || idToBackend.isEmpty()) {
             LOG.warn("no available backends, idToBackend {}", idToBackend);
-            String clusterName = ConnectContext.get() != null
-                    ? ConnectContext.get().getCloudCluster() : "ctx empty cant get clusterName";
-            throw new UserException("no available backends, the cluster maybe not be set or been dropped clusterName = "
-                + clusterName);
+            String computeGroupHints = ComputeGroupMgr.computeGroupNotFoundPromptMsg(cluster);
+            throw new UserException(computeGroupHints);
         }
     }
 }

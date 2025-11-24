@@ -42,14 +42,23 @@ public class ConcatWs extends ScalarFunction
                     .args(VarcharType.SYSTEM_DEFAULT, ArrayType.of(VarcharType.SYSTEM_DEFAULT)),
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT)
                     .varArgs(VarcharType.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT),
-            FunctionSignature.ret(StringType.INSTANCE).varArgs(StringType.INSTANCE, StringType.INSTANCE)
-    );
+            FunctionSignature.ret(StringType.INSTANCE).varArgs(StringType.INSTANCE, StringType.INSTANCE),
+            // This signature is for compatibility with the old implementation
+            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT)
+                    .varArgs(VarcharType.SYSTEM_DEFAULT, ArrayType.of(VarcharType.SYSTEM_DEFAULT)),
+            FunctionSignature.ret(StringType.INSTANCE)
+                    .varArgs(StringType.INSTANCE, ArrayType.of(StringType.INSTANCE)));
 
     /**
      * constructor with 2 or more arguments.
      */
     public ConcatWs(Expression arg0, Expression arg1, Expression... varArgs) {
         super("concat_ws", ExpressionUtils.mergeArguments(arg0, arg1, varArgs));
+    }
+
+    /** constructor for withChildren and reuse signature */
+    private ConcatWs(ScalarFunctionParams functionParams) {
+        super(functionParams);
     }
 
     /**
@@ -66,8 +75,7 @@ public class ConcatWs extends ScalarFunction
     @Override
     public ConcatWs withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() >= 2);
-        return new ConcatWs(children.get(0), children.get(1),
-                children.subList(2, children.size()).toArray(new Expression[0]));
+        return new ConcatWs(getFunctionParams(children));
     }
 
     @Override

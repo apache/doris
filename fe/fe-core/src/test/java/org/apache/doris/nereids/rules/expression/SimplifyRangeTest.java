@@ -23,7 +23,12 @@ import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.rules.analysis.ExpressionAnalyzer;
 import org.apache.doris.nereids.rules.expression.rules.RangeInference;
+import org.apache.doris.nereids.rules.expression.rules.RangeInference.CompoundValue;
 import org.apache.doris.nereids.rules.expression.rules.RangeInference.EmptyValue;
+import org.apache.doris.nereids.rules.expression.rules.RangeInference.IsNotNullValue;
+import org.apache.doris.nereids.rules.expression.rules.RangeInference.IsNullValue;
+import org.apache.doris.nereids.rules.expression.rules.RangeInference.NotDiscreteValue;
+import org.apache.doris.nereids.rules.expression.rules.RangeInference.RangeValue;
 import org.apache.doris.nereids.rules.expression.rules.RangeInference.UnknownValue;
 import org.apache.doris.nereids.rules.expression.rules.RangeInference.ValueDesc;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyRange;
@@ -57,37 +62,165 @@ public class SimplifyRangeTest extends ExpressionRewrite {
     private static final NereidsParser PARSER = new NereidsParser();
     private ExpressionRuleExecutor executor;
     private ExpressionRewriteContext context;
+    private final Map<String, Slot> commonMem;
 
     public SimplifyRangeTest() {
         CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(
                 new UnboundRelation(new RelationId(1), ImmutableList.of("tbl")));
         context = new ExpressionRewriteContext(cascadesContext);
+        commonMem = Maps.newHashMap();
     }
 
     @Test
     public void testRangeInference() {
         ValueDesc valueDesc = getValueDesc("TA IS NULL");
+        Assertions.assertInstanceOf(IsNullValue.class, valueDesc);
+        Assertions.assertEquals("TA", valueDesc.getReference().toSql());
+
+        valueDesc = getValueDesc("NULL");
         Assertions.assertInstanceOf(UnknownValue.class, valueDesc);
-        List<ValueDesc> sourceValues = ((UnknownValue) valueDesc).getSourceValues();
-        Assertions.assertEquals(0, sourceValues.size());
-        Assertions.assertEquals("TA IS NULL", valueDesc.getReference().toSql());
+        Assertions.assertEquals("NULL", valueDesc.getReference().toSql());
+
+        valueDesc = getValueDesc("TA IS NOT NULL");
+        Assertions.assertInstanceOf(IsNotNullValue.class, valueDesc);
+        Assertions.assertEquals("TA", valueDesc.getReference().toSql());
+
+        valueDesc = getValueDesc("TA != 10");
+        Assertions.assertInstanceOf(NotDiscreteValue.class, valueDesc);
+        Assertions.assertEquals("TA", valueDesc.getReference().toSql());
+
+        valueDesc = getValueDesc("TA IS NULL AND NULL");
+        Assertions.assertInstanceOf(EmptyValue.class, valueDesc);
+        Assertions.assertEquals("TA", valueDesc.getReference().toSql());
+
+        valueDesc = getValueDesc("TA IS NOT NULL OR NULL");
+        Assertions.assertInstanceOf(RangeValue.class, valueDesc);
+        Assertions.assertEquals("TA", valueDesc.getReference().toSql());
+        Assertions.assertTrue(((RangeValue) valueDesc).isRangeAll());
 
         valueDesc = getValueDesc("TA IS NULL AND TB IS NULL AND NULL");
-        Assertions.assertInstanceOf(UnknownValue.class, valueDesc);
-        sourceValues = ((UnknownValue) valueDesc).getSourceValues();
-        Assertions.assertEquals(3, sourceValues.size());
+        Assertions.assertInstanceOf(CompoundValue.class, valueDesc);
+        List<ValueDesc> sourceValues = ((CompoundValue) valueDesc).getSourceValues();
+        Assertions.assertEquals(2, sourceValues.size());
         Assertions.assertInstanceOf(EmptyValue.class, sourceValues.get(0));
         Assertions.assertInstanceOf(EmptyValue.class, sourceValues.get(1));
         Assertions.assertEquals("TA", sourceValues.get(0).getReference().toSql());
         Assertions.assertEquals("TB", sourceValues.get(1).getReference().toSql());
+
+        valueDesc = getValueDesc("L + RANDOM(1, 10) > 8 AND L + RANDOM(1, 10) <  1");
+        Assertions.assertInstanceOf(CompoundValue.class, valueDesc);
+        sourceValues = ((CompoundValue) valueDesc).getSourceValues();
+        Assertions.assertEquals(2, sourceValues.size());
+        for (ValueDesc value : sourceValues) {
+            Assertions.assertInstanceOf(RangeValue.class, value);
+            Assertions.assertEquals("(L + random(1, 10))", value.getReference().toSql());
+        }
     }
 
     @Test
-    public void testSimplify() {
+    public void testValueDescContainsAll() {
+        SlotReference xa = new SlotReference("xa", IntegerType.INSTANCE, false);
+
+        checkContainsAll(true, "TA is null and null", "TA is null and null");
+        checkContainsAll(false, "TA is null and null", "TA > 1");
+        checkContainsAll(false, "TA is null and null", "TA = 1");
+        checkContainsAll(false, "TA is null and null", "TA != 1");
+        checkContainsAll(false, "TA is null and null", "TA is null");
+        // XA is null and null will rewrite to 'FALSE'
+        // checkContainsAll(true, "XA is null and null", "XA is null");
+        Assertions.assertTrue(new EmptyValue(context, xa).containsAll(new IsNullValue(context, xa)));
+        checkContainsAll(false, "TA is null and null", "TA = 1 or TA > 10");
+
+        checkContainsAll(true, "TA > 1", "TA is null and null");
+        checkContainsAll(true, "TA > 1", "TA > 10");
+        checkContainsAll(false, "TA > 1", "TA > 0");
+        checkContainsAll(true, "TA >= 1", "TA > 1");
+        checkContainsAll(false, "TA > 1", "TA >= 1");
+        checkContainsAll(true, "TA > 1", "TA > 1");
+        checkContainsAll(true, "TA > 1", "TA > 1 and TA < 10");
+        checkContainsAll(false, "TA > 1", "TA >= 1 and TA < 10");
+        checkContainsAll(true, "TA > 0", "TA in (1, 2, 3)");
+        checkContainsAll(false, "TA > 0", "TA in (-1, 1, 2, 3)");
+        checkContainsAll(false, "TA > 1", "TA != 0");
+        checkContainsAll(false, "TA > 1", "TA != 1");
+        checkContainsAll(false, "TA > 1", "TA != 2");
+        checkContainsAll(true, "TA is not null or null", "TA != 2");
+        checkContainsAll(false, "TA is not null or null", "TA is null");
+        checkContainsAll(true, "TA is not null or null", "TA is not null");
+        checkContainsAll(true, "TA is not null or null", "TA is null and null");
+        checkContainsAll(false, "TA > 1", "TA is null");
+        checkContainsAll(false, "TA > 1", "TA is not null");
+        checkContainsAll(true, "TA > 1", "(TA > 2 and  TA < 5) or (TA > 7 and TA < 9)");
+        checkContainsAll(false, "TA > 1", "(TA >= 1 and  TA < 5) or (TA > 7 and TA < 9)");
+        checkContainsAll(true, "TA > 1", "TA > 5 and TA is not null");
+        checkContainsAll(true, "TA > 1", "(TA > 5 and TA < 8) and TA is not null");
+        checkContainsAll(true, "TA > 1", "TA > 5 and TA != 0");
+        checkContainsAll(false, "TA > 1", "TA > 5 or TA is not null");
+        checkContainsAll(false, "TA > 1", "TA > 5 or TA != 0");
+
+        checkContainsAll(true, "TA in (1, 2, 3)", "TA is null and null");
+        checkContainsAll(false, "TA in (1, 2, 3, 4)", "TA between 2 and 3");
+        checkContainsAll(true, "TA in (1, 2, 3)", "TA in (1, 2)");
+        checkContainsAll(false, "TA in (1, 2, 3)", "TA in (1, 2, 4)");
+        checkContainsAll(false, "TA in (1, 2, 3)", "TA not in (1, 2)");
+        checkContainsAll(false, "TA in (1, 2, 3)", "TA not in (5, 6)");
+        checkContainsAll(false, "TA in (1, 2, 3)", "TA is null");
+        checkContainsAll(false, "TA in (1, 2, 3)", "TA is not null");
+        checkContainsAll(true, "TA in (1, 2, 3)", "TA in (1, 2) and TA is not null");
+        checkContainsAll(true, "TA in (1, 2, 3)", "TA in (1, 2) and TA is null");
+        checkContainsAll(false, "TA in (1, 2, 3)", "TA != 1 and TA is not null");
+        checkContainsAll(false, "TA in (0, 1, 2, 3)", "TA between 1 and 2 and TA is not null");
+
+        checkContainsAll(true, "TA not in (1, 2)", "TA is null and null");
+        checkContainsAll(false, "TA not in (1, 2, 3, 4, 5)", "TA between 2 and 4");
+        checkContainsAll(false, "TA not in (1, 2, 3, 4, 5)", "TA is not null or null");
+        checkContainsAll(false, "TA not in (1, 2)", "TA in (1)");
+        checkContainsAll(false, "TA not in (1, 2)", "TA in (1, 2)");
+        checkContainsAll(true, "TA not in (1, 2)", "TA in (3, 4)");
+        checkContainsAll(false, "TA not in (1, 2, 3)", "TA in (1, 4)");
+        checkContainsAll(false, "TA not in (1, 2, 3)", "TA is null");
+        checkContainsAll(false, "TA not in (1, 2, 3)", "TA is not null");
+        checkContainsAll(false, "TA not in (1, 2, 3)", "TA is not null or null");
+        checkContainsAll(true, "TA not in (1, 2)", "(TA is not null or null) and (TA is null or TA > 10)");
+
+        checkContainsAll(false, "TA is null", "TA is null and null");
+        checkContainsAll(false, "TA is null", "TA > 10");
+        checkContainsAll(false, "TA is null", "TA = 10");
+        checkContainsAll(false, "TA is null", "TA != 10");
+        checkContainsAll(true, "TA is null", "TA is null");
+        checkContainsAll(false, "TA is null", "TA is not null");
+        checkContainsAll(true, "TA is null", "TA is null and (TA > 10)");
+        checkContainsAll(false, "TA is null", "TA is null or (TA > 10)");
+
+        checkContainsAll(false, "TA is not null", "TA is null and null");
+        checkContainsAll(false, "TA is not null", "TA > 10");
+        checkContainsAll(false, "TA is not null", "TA = 10");
+        checkContainsAll(false, "TA is not null", "TA != 10");
+        checkContainsAll(false, "TA is not null", "TA is null");
+        checkContainsAll(true, "TA is not null", "TA is not null");
+        checkContainsAll(false, "TA is not null", "TA is not null or null");
+        checkContainsAll(true, "TA is not null", "TA is not null and (TA > 10)");
+        checkContainsAll(false, "TA is not null", "TA is not null or (TA > 10)");
+
+        checkContainsAll(true, "TA < 1 or TA > 10", "TA is null and null");
+        checkContainsAll(true, "TA < 1 or TA > 10", "TA < 0");
+        checkContainsAll(false, "TA < 1 or TA > 10", "TA <= 1");
+        checkContainsAll(true, "TA < 1 or TA > 10", "TA = 0");
+        checkContainsAll(false, "TA < 1 or TA > 10", "TA in (0, 1)");
+        checkContainsAll(true, "TA not in (1, 2, 13) or TA > 10", "TA not in (1, 2, 13, 15)");
+    }
+
+    private void checkContainsAll(boolean isContains, String expr1, String expr2) {
+        Assertions.assertEquals(isContains, getValueDesc(expr1).containsAll(getValueDesc(expr2)));
+    }
+
+    @Test
+    public void testSimplifyNumeric() {
         executor = new ExpressionRuleExecutor(ImmutableList.of(
             bottomUp(SimplifyRange.INSTANCE)
         ));
         assertRewrite("TA", "TA");
+        assertRewrite("TA > 10 and (TA > 20 or TA < 10)", "TA > 20");
         assertRewrite("TA > 3 or TA > null", "TA > 3 OR NULL");
         assertRewrite("TA > 3 or TA < null", "TA > 3 OR NULL");
         assertRewrite("TA > 3 or TA = null", "TA > 3 OR NULL");
@@ -97,9 +230,10 @@ public class SimplifyRangeTest extends ExpressionRewrite {
                 "TA in (11, 12) OR TA <= 10 OR TA >= 13");
         assertRewrite("TA > 3 or TA <> null", "TA > 3 or null");
         assertRewrite("TA > 3 or TA <=> null", "TA > 3 or TA <=> null");
+        assertRewrite("TA >= 0 and TA <= 3", "TA >= 0 and TA <= 3");
         assertRewrite("(TA < 1 or TA > 2) or (TA >= 0 and TA <= 3)", "TA IS NOT NULL OR NULL");
         assertRewrite("TA between 10 and 20 or TA between 100 and 120 or TA between 15 and 25 or TA between 115 and 125",
-                "TA between 10 and 25 or TA between 100 and 125");
+                "TA >= 10 and TA <= 25 or TA >= 100 and TA <= 125");
         assertRewriteNotNull("TA > 3 and TA > null", "TA > 3 and NULL");
         assertRewriteNotNull("TA > 3 and TA < null", "TA > 3 and NULL");
         assertRewriteNotNull("TA > 3 and TA = null", "TA > 3 and NULL");
@@ -118,10 +252,51 @@ public class SimplifyRangeTest extends ExpressionRewrite {
         assertRewriteNotNull("TA = 1 and TA > 10", "FALSE");
         assertRewrite("TA = 1 and TA > 10", "TA is null and null");
         assertRewrite("TA >= 1 and TA <= 1", "TA = 1");
+        assertRewrite("TA = 1 and TA = 2", "TA IS NULL AND NULL");
+        assertRewriteNotNull("TA = 1 and TA = 2", "FALSE");
+        assertRewrite("TA not in (1) and TA not in (1)", "TA != 1");
+        assertRewrite("TA not in (1, 2, 3) and TA not in (1, 4, 5)", "TA not in (1, 2, 3, 4, 5)");
+        assertRewrite("TA = 1 and TA not in (2)", "TA = 1");
+        assertRewrite("TA = 1 and TA not in (1, 2)", "TA is null and null");
+        assertRewriteNotNull("TA = 1 and TA not in (1, 2)", "FALSE");
+        assertRewrite("TA > 10 and TA not in (1, 2, 3)", "TA > 10");
+        assertRewrite("TA > 10 and TA not in (1, 2, 3, 11)", "TA > 10 and TA != 11");
+        assertRewrite("TA > 10 and TA not in (1, 2, 3, 11, 12)", "TA > 10 and TA NOT IN (11, 12)");
+        assertRewrite("TA is null", "TA is null");
+        assertRewriteNotNull("TA is null", "TA is null");
+        assertRewrite("TA is not null", "TA is not null");
+        assertRewrite("TA is null and TA is not null", "FALSE");
+        assertRewriteNotNull("TA is null and TA is not null", "FALSE");
+        assertRewrite("TA = 1 and TA != 1 and TA is null", "TA is null and null");
+        assertRewriteNotNull("TA = 1 and TA != 1 and TA is null", "FALSE");
+        assertRewrite("TA = 1 and TA != 1 and TA is not null", "FALSE");
+        assertRewriteNotNull("TA = 1 and TA != 1 and TA is not null", "FALSE");
+        assertRewrite("TA = 1 and TA != 1 and (TA > 10 or TA < 5)", "TA is null and null");
+        assertRewriteNotNull("TA = 1 and TA != 1 and (TA > 10 or TA < 5)", "FALSE");
+        assertRewrite("TA = 1 and TA != 1 and (TA > 10 or TA is not null)", "TA is null and null");
+        assertRewrite("TA = 1 and TA != 1 and (TA > 10 or (TA < 5 and TA is not null))", "TA is null and null");
+        assertRewrite("TA = 1 and TA != 1 and (TA > 10 or (TA < 5 and TA is not null) or (TA > 7 and TA is not null))",
+                "TA is null and null");
         assertRewrite("TA > 5 or TA < 1", "TA < 1 or TA > 5");
         assertRewrite("TA > 5 or TA > 1 or TA > 10", "TA > 1");
         assertRewrite("TA > 5 or TA > 1 or TA < 10", "TA is not null or null");
         assertRewriteNotNull("TA > 5 or TA > 1 or TA < 10", "TRUE");
+        assertRewrite("TA != 1 or TA != 1", "TA != 1");
+        assertRewrite("TA != 1 or TA != 2", "TA is not null or null");
+        assertRewriteNotNull("TA != 1 or TA != 2", "TRUE");
+        assertRewrite("TA not in (1, 2, 3) or TA not in (1, 2, 4)", "TA not in (1, 2)");
+        assertRewrite("TA not in (1, 2) or TA in (2, 1)", "TA is not null or null");
+        assertRewrite("TA not in (1, 2) or TA in (1)", "TA != 2");
+        assertRewrite("TA not in (1, 2) or TA in (1, 2, 3)", "TA is not null or null");
+        assertRewrite("TA not in (1, 3) or TA < 2", "TA != 3");
+        assertRewrite("TA is null and null", "TA is null and null");
+        assertRewrite("TA is null", "TA is null");
+        assertRewrite("TA is null and null or TA = 1", "TA = 1");
+        assertRewrite("TA is null and null or TA is null", "TA is null");
+        assertRewrite("TA is null and null or (TA is null and TA > 10) ", "(TA > 10 and TA is null) or TA is null and null");
+        assertRewrite("TA is null and null or TA is not null", "TA is not null or TA is null and null");
+        assertRewriteNotNull("TA != 1 or TA != 2", "TRUE");
+        assertRewrite("TA is null or TA is not null", "TRUE");
         assertRewrite("TA > 5 and TA > 1 and TA > 10", "TA > 10");
         assertRewrite("TA > 5 and TA > 1 and TA < 10", "TA > 5 and TA < 10");
         assertRewrite("TA > 1 or TA < 1", "TA < 1 or TA > 1");
@@ -139,12 +314,14 @@ public class SimplifyRangeTest extends ExpressionRewrite {
         assertRewrite("(TA > 10 or TA > 20) and (TB > 10 and TB > 20)", "TA > 10 and TB > 20");
         assertRewrite("((TB > 30 and TA > 40) and TA > 20) and (TB > 10 and TB > 20)", "TB > 30 and TA > 40");
         assertRewrite("(TA > 10 and TB > 10) or (TB > 10 and TB > 20)", "TA > 10 and TB > 10 or TB > 20");
-        assertRewrite("((TA > 10 or TA > 5) and TB > 10) or (TB > 10 and (TB > 20 or TB < 10))", "(TA > 5 and TB > 10) or (TB > 10 and (TB < 10 or TB > 20))");
+        assertRewrite("((TA > 10 or TA > 5) and TB > 10) or (TB > 10 and (TB > 20 or TB < 10))", "(TA > 5 and TB > 10) or TB > 20");
         assertRewriteNotNull("TA in (1,2,3) and TA > 10", "FALSE");
         assertRewrite("TA in (1,2,3) and TA > 10", "TA is null and null");
         assertRewrite("TA in (1,2,3) and TA >= 1", "TA in (1,2,3)");
         assertRewrite("TA in (1,2,3) and TA > 1", "TA IN (2, 3)");
         assertRewrite("TA in (1,2,3) or TA >= 1", "TA >= 1");
+        assertRewrite("TA is null and (TA = 4 or TA = 5)", "TA in (4, 5) and TA is null");
+        assertRewrite("(TA != 3 or TA is null) and (TA = 4 or TA = 5)", "TA in (4, 5)");
         assertRewrite("TA in (1)", "TA in (1)");
         assertRewrite("TA in (1,2,3) and TA < 10", "TA in (1,2,3)");
         assertRewriteNotNull("TA in (1,2,3) and TA < 1", "FALSE");
@@ -169,7 +346,47 @@ public class SimplifyRangeTest extends ExpressionRewrite {
         assertRewrite("(TA > 3 and TA < 1) and (TB < 5 and TB = 6)", "TA is null and null and TB is null");
         assertRewrite("TA > 3 and TB < 5 and TA < 1", "TA is null and null and TB < 5");
         assertRewrite("(TA > 3 and TA < 1) or TB < 5", "(TA is null and null) or TB < 5");
-        assertRewrite("((IA = 1 AND SC ='1') OR SC = '1212') AND IA =1", "((IA = 1 AND SC ='1') OR SC = '1212') AND IA =1");
+
+        // A and (B or C) = A
+        assertRewrite("TA > 10 and (TA > 5 or (TA is not null and TA > 1))", "TA > 10");
+        assertRewrite("TA > 10 and (TA != 4 or (TA is not null and TA > 1))", "TA > 10");
+        assertRewrite("TA = 5 and (TA != 4 or (TA is not null and TA > 1))", "TA = 5");
+        assertRewrite("TA = 5 and (TA in (1, 2, 5) or (TA is not null and TA > 1))", "TA = 5");
+        assertRewrite("TA = 5 and (TA > 3 or (TA is not null and TA > 1))", "TA = 5");
+        assertRewrite("TA not in (1, 2) and (TA not in (1) or (TA is not null and TA > 1))", "TA not in (1, 2)");
+        assertRewrite("TA not in (1, 2) and (TA not in (1, 2) or (TA is not null and TA > 1))", "TA not in (1, 2)");
+        assertRewrite("TA not in (1, 2) and (TA not in (2, 3) or (TA is not null and TA > 1))", "TA not in (1, 2) and (TA not in (2, 3) or (TA > 1 and TA is not null))");
+        assertRewrite("TA is null and null and (TA = 10 or (TA is not null and TA > 1))", "TA is null and null");
+        assertRewrite("TA is null and null and (TA != 10 or (TA is not null and TA > 1))", "TA is null and null");
+        assertRewrite("TA is null and null and (TA > 20 or (TA is not null and TA > 1))", "TA is null and null");
+        assertRewrite("TA is null and null and (TA is null and null or (TA is not null and TA > 1))", "TA is null and null");
+        assertRewrite("TA is null and null and (TA is null or (TA is not null and TA > 1))", "TA is null and null");
+        assertRewrite("TA is null and (TA is null or (TA is not null and TA > 1))", "TA is null");
+        assertRewrite("TA is not null and (TA is not null or (TA is not null and TA > 1))", "TA is not null");
+
+        assertRewrite("TA is null and null", "TA is null and null");
+        assertRewriteNotNull("TA is null and null", "FALSE");
+        assertRewrite("TA is null", "TA is null");
+        assertRewriteNotNull("TA is null", "TA is null");
+        assertRewrite("TA is not null", "TA is not null");
+        assertRewriteNotNull("TA is not null", "TA is not null");
+        assertRewrite("TA is null and null or TA is null", "TA is null");
+        assertRewriteNotNull("TA is null and null or TA is null", "TA is null");
+        assertRewrite("TA is null and null or TA is not null", "TA is not null or TA is null and null");
+        assertRewriteNotNull("TA is null and null or TA is not null", "not TA is null");
+        assertRewrite("TA is null or TA is not null", "TRUE");
+        assertRewriteNotNull("TA is null or TA is not null", "TRUE");
+        assertRewrite("(TA is null and null) and TA is null", "TA is null and null");
+        assertRewriteNotNull("(TA is null and null) and TA is null", "FALSE");
+        assertRewrite("TA is null and null and TA is not null", "FALSE");
+        assertRewriteNotNull("TA is null and null and TA is not null", "FALSE");
+        assertRewrite("TA is null and TA is not null", "FALSE");
+        assertRewriteNotNull("TA is null and TA is not null", "FALSE");
+
+        assertRewrite("(TA is not null or null) and TA > 10", "TA > 10");
+        assertRewrite("(TA is not null or null) or TA > 10", "TA is not null or null");
+        assertRewrite("(TA is not null or null) or TA is null", "TRUE");
+        assertRewrite("TA is not null or null or TA is not null", "TA is not null or null");
 
         assertRewrite("TA + TC", "TA + TC");
         assertRewrite("(TA + TC >= 1 and TA + TC <=3 ) or (TA + TC > 5 and TA + TC < 7)", "(TA + TC >= 1 and TA + TC <=3 ) or (TA + TC > 5 and TA + TC < 7)");
@@ -198,7 +415,8 @@ public class SimplifyRangeTest extends ExpressionRewrite {
         assertRewrite("(TA + TC > 10 or TA + TC > 20) and (TB > 10 and TB > 20)", "TA + TC > 10 and TB > 20");
         assertRewrite("((TB > 30 and TA + TC > 40) and TA + TC > 20) and (TB > 10 and TB > 20)", "TB > 30 and TA + TC > 40");
         assertRewrite("(TA + TC > 10 and TB > 10) or (TB > 10 and TB > 20)", "TA + TC > 10 and TB > 10 or TB > 20");
-        assertRewrite("((TA + TC > 10 or TA + TC > 5) and TB > 10) or (TB > 10 and (TB > 20 or TB < 10))", "(TA + TC > 5 and TB > 10) or (TB > 10 and (TB < 10 or TB > 20))");
+        assertRewrite("((TA + TC > 10 or TA + TC > 5) and TB > 10) or (TB > 10 and (TB > 20 or TB < 10))",
+                "(TA + TC > 5 and TB > 10) or TB > 20");
         assertRewriteNotNull("TA + TC in (1,2,3) and TA + TC > 10", "FALSE");
         assertRewrite("TA + TC in (1,2,3) and TA + TC > 10", "(TA + TC) is null and null");
         assertRewrite("TA + TC in (1,2,3) and TA + TC >= 1", "TA + TC in (1,2,3)");
@@ -220,13 +438,29 @@ public class SimplifyRangeTest extends ExpressionRewrite {
         assertRewrite("TA + TC = 1 and TA + TC = 3", "(TA + TC) is null and null");
         assertRewriteNotNull("TA + TC in (1) and TA + TC in (3)", "FALSE");
         assertRewrite("TA + TC in (1) and TA + TC in (3)", "(TA + TC) is null and null");
-        assertRewrite("TA + TC in (1) and TA + TC in (1)", "TA + TC in (1)");
+        assertRewrite("TA + TC in (1) and TA + TC in (1)", "TA + TC = 1");
         assertRewriteNotNull("(TA + TC > 3 and TA + TC < 1) and TB < 5", "FALSE");
         assertRewrite("(TA + TC > 3 and TA + TC < 1) and TB < 5", "(TA + TC) is null and null and TB < 5");
         assertRewrite("(TA + TC > 3 and TA + TC < 1) or TB < 5", "((TA + TC) is null and null) OR TB < 5");
+        assertRewrite("(TA + TC > 3 OR TA < 1) AND TB = 2 AND IA =1", "(TA + TC > 3 OR TA < 1) AND TB = 2 AND IA =1");
 
-        assertRewrite("(TA + TC > 3 OR TA < 1) AND TB = 2) AND IA =1", "(TA + TC > 3 OR TA < 1) AND TB = 2) AND IA =1");
+        // random is non-foldable, so the two random(1, 10) are distinct, cann't merge range for them.
+        Expression expr = rewriteExpression("X + random(1, 10) > 10 AND  X + random(1, 10) < 1", true);
+        Assertions.assertEquals("AND[((X + random(1, 10)) > 10),((X + random(1, 10)) < 1)]", expr.toSql());
+        expr = rewrite("TA + random(1, 10) between 10 and 20", Maps.newHashMap());
+        Assertions.assertEquals("AND[((cast(TA as BIGINT) + random(1, 10)) >= 10),((cast(TA as BIGINT) + random(1, 10)) <= 20)]", expr.toSql());
+        expr = rewrite("TA + random(1, 10) between 20 and 10", Maps.newHashMap());
+        Assertions.assertEquals("AND[(cast(TA as BIGINT) + random(1, 10)) IS NULL,NULL]", expr.toSql());
+    }
 
+    @Test
+    public void testSimplifyString() {
+        executor = new ExpressionRuleExecutor(ImmutableList.of(
+                bottomUp(SimplifyRange.INSTANCE)
+        ));
+        assertRewrite("SA = '20250101' and SA < '20200101'", "SA is null and null");
+        assertRewrite("SA > '20250101' and SA > '20260110'", "SA > '20260110'");
+        assertRewrite("((IA = 1 AND SC ='1') OR SC = '1212') AND IA =1", "((IA = 1 AND SC ='1') OR SC = '1212') AND IA =1");
     }
 
     @Test
@@ -395,20 +629,24 @@ public class SimplifyRangeTest extends ExpressionRewrite {
     }
 
     private ValueDesc getValueDesc(String expression) {
-        Map<String, Slot> mem = Maps.newHashMap();
-        Expression parseExpression = replaceUnboundSlot(PARSER.parseExpression(expression), mem);
+        Expression parseExpression = replaceUnboundSlot(PARSER.parseExpression(expression), commonMem);
         parseExpression = typeCoercion(parseExpression);
         return (new RangeInference()).getValue(parseExpression, context);
     }
 
     private void assertRewrite(String expression, String expected) {
         Map<String, Slot> mem = Maps.newHashMap();
-        Expression needRewriteExpression = replaceUnboundSlot(PARSER.parseExpression(expression), mem);
-        needRewriteExpression = typeCoercion(needRewriteExpression);
+        Expression rewrittenExpression = rewrite(expression, mem);
         Expression expectedExpression = replaceUnboundSlot(PARSER.parseExpression(expected), mem);
         expectedExpression = typeCoercion(expectedExpression);
-        Expression rewrittenExpression = sortChildren(executor.rewrite(needRewriteExpression, context));
         Assertions.assertEquals(expectedExpression, rewrittenExpression);
+    }
+
+    private Expression rewrite(String expression, Map<String, Slot> mem) {
+        Expression rewriteExpression = replaceUnboundSlot(PARSER.parseExpression(expression), mem);
+        rewriteExpression = typeCoercion(rewriteExpression);
+        rewriteExpression = executor.rewrite(rewriteExpression, context);
+        return sortChildren(rewriteExpression);
     }
 
     private void assertRewriteNotNull(String expression, String expected) {
@@ -419,6 +657,14 @@ public class SimplifyRangeTest extends ExpressionRewrite {
         expectedExpression = typeCoercion(expectedExpression);
         Expression rewrittenExpression = executor.rewrite(needRewriteExpression, context);
         Assertions.assertEquals(expectedExpression, rewrittenExpression);
+    }
+
+    private Expression rewriteExpression(String expression, boolean nullable) {
+        Map<String, Slot> mem = Maps.newHashMap();
+        Expression needRewriteExpression = PARSER.parseExpression(expression);
+        needRewriteExpression = nullable ? replaceUnboundSlot(needRewriteExpression, mem) : replaceNotNullUnboundSlot(needRewriteExpression, mem);
+        needRewriteExpression = typeCoercion(needRewriteExpression);
+        return executor.rewrite(needRewriteExpression, context);
     }
 
     private Expression replaceUnboundSlot(Expression expression, Map<String, Slot> mem) {
@@ -433,7 +679,8 @@ public class SimplifyRangeTest extends ExpressionRewrite {
         }
         if (expression instanceof UnboundSlot) {
             String name = ((UnboundSlot) expression).getName();
-            mem.putIfAbsent(name, new SlotReference(name, getType(name.charAt(0))));
+            boolean notNullable = name.charAt(0) == 'X' || name.length() >= 2 && name.charAt(1) == 'X';
+            mem.putIfAbsent(name, new SlotReference(name, getType(name.charAt(0)), !notNullable));
             return mem.get(name);
         }
         return hasNewChildren ? expression.withChildren(children) : expression;

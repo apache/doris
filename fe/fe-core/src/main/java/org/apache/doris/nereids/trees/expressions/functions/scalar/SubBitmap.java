@@ -49,13 +49,18 @@ public class SubBitmap extends ScalarFunction
         super("sub_bitmap", arg0, arg1, arg2);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private SubBitmap(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public SubBitmap withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 3);
-        return new SubBitmap(children.get(0), children.get(1), children.get(2));
+        return new SubBitmap(getFunctionParams(children));
     }
 
     @Override

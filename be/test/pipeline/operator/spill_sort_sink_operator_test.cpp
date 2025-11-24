@@ -57,7 +57,7 @@ TEST_F(SpillSortSinkOperatorTest, Basic) {
     ASSERT_TRUE(shared_state != nullptr);
 
     LocalSinkStateInfo info {.task_idx = 0,
-                             .parent_profile = _helper.runtime_profile.get(),
+                             .parent_profile = _helper.operator_profile.get(),
                              .sender_id = 0,
                              .shared_state = shared_state.get(),
                              .shared_state_map = {},
@@ -75,8 +75,9 @@ TEST_F(SpillSortSinkOperatorTest, Basic) {
     ASSERT_EQ(sink_operator->get_reserve_mem_size(_helper.runtime_state.get(), false), 0);
     ASSERT_EQ(sink_operator->get_reserve_mem_size(_helper.runtime_state.get(), true), 0);
 
-    auto data_distribution = sink_operator->required_data_distribution();
-    auto inner_data_distribution = sink_operator->_sort_sink_operator->required_data_distribution();
+    auto data_distribution = sink_operator->required_data_distribution(_helper.runtime_state.get());
+    auto inner_data_distribution = sink_operator->_sort_sink_operator->required_data_distribution(
+            _helper.runtime_state.get());
     ASSERT_EQ(data_distribution.distribution_type, inner_data_distribution.distribution_type);
 
     ASSERT_EQ(sink_operator->require_data_distribution(),
@@ -109,7 +110,7 @@ TEST_F(SpillSortSinkOperatorTest, Sink) {
             sink_operator->operator_id(), sink_operator->node_id(), "SpillSortSinkOperatorTest");
 
     LocalSinkStateInfo info {.task_idx = 0,
-                             .parent_profile = _helper.runtime_profile.get(),
+                             .parent_profile = _helper.operator_profile.get(),
                              .sender_id = 0,
                              .shared_state = shared_state.get(),
                              .shared_state_map = {},
@@ -206,7 +207,7 @@ TEST_F(SpillSortSinkOperatorTest, SinkWithSpill) {
             sink_operator->operator_id(), sink_operator->node_id(), "SpillSortSinkOperatorTest");
 
     LocalSinkStateInfo info {.task_idx = 0,
-                             .parent_profile = _helper.runtime_profile.get(),
+                             .parent_profile = _helper.operator_profile.get(),
                              .sender_id = 0,
                              .shared_state = shared_state.get(),
                              .shared_state_map = {},
@@ -234,10 +235,6 @@ TEST_F(SpillSortSinkOperatorTest, SinkWithSpill) {
     st = sink_operator->revoke_memory(_helper.runtime_state.get(), nullptr);
     ASSERT_TRUE(st.ok()) << "revoke_memory failed: " << st.to_string();
 
-    while (sink_local_state->_spill_dependency->is_blocked_by(nullptr) != nullptr) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    }
-
     auto input_block2 = vectorized::ColumnHelper::create_block<vectorized::DataTypeInt32>(
             {1, 2, 3, 4, 5, 5, 4, 3, 2, 1});
 
@@ -255,10 +252,6 @@ TEST_F(SpillSortSinkOperatorTest, SinkWithSpill) {
     vectorized::Block empty_block;
     st = sink_operator->sink(_helper.runtime_state.get(), &empty_block, true);
     ASSERT_TRUE(st.ok()) << "sink failed: " << st.to_string();
-
-    while (sink_local_state->_spill_dependency->is_blocked_by(nullptr) != nullptr) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    }
 
     /// After the sink operator revoke memory, the source dependency should be ready.
     ASSERT_TRUE(source_dependency->is_blocked_by(nullptr) == nullptr);
@@ -284,7 +277,7 @@ TEST_F(SpillSortSinkOperatorTest, SinkWithSpill2) {
             sink_operator->operator_id(), sink_operator->node_id(), "SpillSortSinkOperatorTest");
 
     LocalSinkStateInfo info {.task_idx = 0,
-                             .parent_profile = _helper.runtime_profile.get(),
+                             .parent_profile = _helper.operator_profile.get(),
                              .sender_id = 0,
                              .shared_state = shared_state.get(),
                              .shared_state_map = {},
@@ -312,17 +305,12 @@ TEST_F(SpillSortSinkOperatorTest, SinkWithSpill2) {
     st = sink_operator->revoke_memory(_helper.runtime_state.get(), nullptr);
     ASSERT_TRUE(st.ok()) << "revoke_memory failed: " << st.to_string();
 
-    while (sink_local_state->_spill_dependency->is_blocked_by(nullptr) != nullptr) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    }
-
     ASSERT_EQ(sink_operator->revocable_mem_size(_helper.runtime_state.get()), 0);
 
     vectorized::Block empty_block;
     st = sink_operator->sink(_helper.runtime_state.get(), &empty_block, true);
     ASSERT_TRUE(st.ok()) << "sink failed: " << st.to_string();
 
-    ASSERT_TRUE(sink_local_state->_spill_dependency->is_blocked_by(nullptr) == nullptr);
     ASSERT_TRUE(source_dependency->is_blocked_by(nullptr) == nullptr);
 }
 
@@ -346,7 +334,7 @@ TEST_F(SpillSortSinkOperatorTest, SinkWithSpillError) {
                                            "SpillSortSinkOperatorTest");
 
     LocalSinkStateInfo info {.task_idx = 0,
-                             .parent_profile = _helper.runtime_profile.get(),
+                             .parent_profile = _helper.operator_profile.get(),
                              .sender_id = 0,
                              .shared_state = shared_state.get(),
                              .shared_state_map = {},
@@ -374,13 +362,8 @@ TEST_F(SpillSortSinkOperatorTest, SinkWithSpillError) {
     SpillableDebugPointHelper dp_helper("fault_inject::spill_stream::spill_block");
 
     st = sink_operator->revoke_memory(_helper.runtime_state.get(), nullptr);
-    ASSERT_TRUE(st.ok()) << "revoke_memory failed: " << st.to_string();
 
-    while (sink_local_state->_spill_dependency->is_blocked_by(nullptr) != nullptr) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    }
-
-    ASSERT_FALSE(dp_helper.get_spill_status().ok()) << "spilll status should be failed";
+    ASSERT_FALSE(st.ok()) << "spilll status should be failed";
 }
 
 } // namespace doris::pipeline

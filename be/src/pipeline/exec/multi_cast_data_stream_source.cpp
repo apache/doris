@@ -34,24 +34,20 @@ Status MultiCastDataStreamSourceLocalState::init(RuntimeState* state, LocalState
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_init_timer);
     auto& p = _parent->cast<Parent>();
-    _shared_state->multi_cast_data_streamer->set_source_profile(p._consumer_id,
-                                                                _runtime_profile.get());
+    // Pass operator profile to multi cast data streamer
+    // so that it could get common_profile and custom_profile as same time.
+    _shared_state->multi_cast_data_streamer->set_source_profile(p._consumer_id, operator_profile());
     _shared_state->multi_cast_data_streamer->set_dep_by_sender_idx(p._consumer_id, _dependency);
-    _wait_for_rf_timer = ADD_TIMER(_runtime_profile, "WaitForRuntimeFilter");
-    _filter_timer = ADD_TIMER(_runtime_profile, "FilterTime");
-    _get_data_timer = ADD_TIMER(_runtime_profile, "GetDataTime");
-    _materialize_data_timer = ADD_TIMER(_runtime_profile, "MaterializeDataTime");
+    _wait_for_rf_timer = ADD_TIMER(common_profile(), "WaitForRuntimeFilter");
+    _filter_timer = ADD_TIMER(custom_profile(), "FilterTime");
+    _get_data_timer = ADD_TIMER(custom_profile(), "GetDataTime");
+    _materialize_data_timer = ADD_TIMER(custom_profile(), "MaterializeDataTime");
+
+    // TODO: Not sure if runtime profile info shuold be added to common_profile or custom_profile
+    // init profile for runtime filter
     RETURN_IF_ERROR(_helper.init(state, false, p.dest_id_from_sink(), p.operator_id(),
                                  _filter_dependencies, p.get_name() + "_FILTER_DEPENDENCY"));
     return Status::OK();
-}
-
-std::vector<Dependency*> MultiCastDataStreamSourceLocalState::dependencies() const {
-    auto dependencies = Base::dependencies();
-    auto& p = _parent->cast<Parent>();
-    dependencies.emplace_back(
-            _shared_state->multi_cast_data_streamer->get_spill_read_dependency(p._consumer_id));
-    return dependencies;
 }
 
 Status MultiCastDataStreamSourceLocalState::open(RuntimeState* state) {
@@ -80,7 +76,7 @@ Status MultiCastDataStreamSourceLocalState::close(RuntimeState* state) {
         rf_time += dep->watcher_elapse_time();
     }
     COUNTER_SET(_wait_for_rf_timer, rf_time);
-    _helper.collect_realtime_profile(profile());
+    _helper.collect_realtime_profile(custom_profile());
     return Base::close(state);
 }
 
@@ -99,6 +95,11 @@ Status MultiCastDataStreamerSourceOperatorX::get_block(RuntimeState* state,
         RETURN_IF_ERROR(local_state._shared_state->multi_cast_data_streamer->pull(
                 state, _consumer_id, output_block, eos));
     }
+
+    int arrived_rf_num = 0;
+    RETURN_IF_ERROR(local_state._helper.try_append_late_arrival_runtime_filter(
+            state, &arrived_rf_num, local_state._conjuncts, _multi_cast_output_row_descriptor));
+
     if (!local_state._conjuncts.empty() && !output_block->empty()) {
         SCOPED_TIMER(local_state._filter_timer);
         RETURN_IF_ERROR(vectorized::VExprContext::filter_block(local_state._conjuncts, output_block,

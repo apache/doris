@@ -89,7 +89,7 @@ public:
         } else {
             // new value, copy value and insert new key->bitmap pair
             CppType new_value;
-            _type_info->deep_copy(&new_value, &value, &_arena);
+            _type_info->deep_copy(&new_value, &value, _arena);
             _mem_index.insert({new_value, roaring::Roaring::bitmapOf(1, _rid)});
             it = _mem_index.find(new_value);
         }
@@ -113,7 +113,7 @@ public:
             IndexedColumnWriterOptions options;
             options.write_ordinal_index = false;
             options.write_value_index = true;
-            options.encoding = EncodingInfo::get_default_encoding(_type_info, true);
+            options.encoding = EncodingInfo::get_default_encoding(_type_info->type(), true);
             options.compression = LZ4F;
 
             IndexedColumnWriter dict_column_writer(options, _type_info, file_writer);
@@ -144,11 +144,11 @@ public:
             }
 
             const auto* bitmap_type_info =
-                    get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_OBJECT>();
+                    get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_BITMAP>();
             IndexedColumnWriterOptions options;
             options.write_ordinal_index = true;
             options.write_value_index = false;
-            options.encoding = EncodingInfo::get_default_encoding(bitmap_type_info, false);
+            options.encoding = EncodingInfo::get_default_encoding(bitmap_type_info->type(), false);
             // we already store compressed bitmap, use NO_COMPRESSION to save some cpu
             options.compression = NO_COMPRESSION;
 

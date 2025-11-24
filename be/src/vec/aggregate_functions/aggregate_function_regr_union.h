@@ -18,12 +18,7 @@
 #pragma once
 
 #include <cmath>
-#include <cstdint>
-#include <string>
-#include <type_traits>
 
-#include "common/exception.h"
-#include "common/status.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
@@ -33,14 +28,13 @@
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
-#include "vec/io/io_helper.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
 template <PrimitiveType T>
 struct AggregateFunctionRegrData {
-    using Type = typename PrimitiveTypeTraits<T>::ColumnItemType;
+    static constexpr PrimitiveType Type = T;
     UInt64 count = 0;
     Float64 sum_x {};
     Float64 sum_y {};
@@ -48,19 +42,19 @@ struct AggregateFunctionRegrData {
     Float64 sum_of_x_squared {};
 
     void write(BufferWritable& buf) const {
-        write_binary(sum_x, buf);
-        write_binary(sum_y, buf);
-        write_binary(sum_of_x_mul_y, buf);
-        write_binary(sum_of_x_squared, buf);
-        write_binary(count, buf);
+        buf.write_binary(sum_x);
+        buf.write_binary(sum_y);
+        buf.write_binary(sum_of_x_mul_y);
+        buf.write_binary(sum_of_x_squared);
+        buf.write_binary(count);
     }
 
     void read(BufferReadable& buf) {
-        read_binary(sum_x, buf);
-        read_binary(sum_y, buf);
-        read_binary(sum_of_x_mul_y, buf);
-        read_binary(sum_of_x_squared, buf);
-        read_binary(count, buf);
+        buf.read_binary(sum_x);
+        buf.read_binary(sum_y);
+        buf.read_binary(sum_of_x_mul_y);
+        buf.read_binary(sum_of_x_squared);
+        buf.read_binary(count);
     }
 
     void reset() {
@@ -128,10 +122,9 @@ class AggregateFunctionRegrSimple
         : public IAggregateFunctionDataHelper<
                   RegrFunc, AggregateFunctionRegrSimple<RegrFunc, y_nullable, x_nullable>> {
 public:
-    using Type = typename RegrFunc::Type;
-    using XInputCol = ColumnVector<Type>;
-    using YInputCol = ColumnVector<Type>;
-    using ResultCol = ColumnVector<Float64>;
+    using XInputCol = typename PrimitiveTypeTraits<RegrFunc::Type>::ColumnType;
+    using YInputCol = XInputCol;
+    using ResultCol = ColumnFloat64;
 
     explicit AggregateFunctionRegrSimple(const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper<
@@ -147,7 +140,7 @@ public:
     }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
-             Arena*) const override {
+             Arena&) const override {
         bool y_null = false;
         bool x_null = false;
         const YInputCol* y_nested_column = nullptr;
@@ -179,16 +172,14 @@ public:
             return;
         }
 
-        Type y_value = y_nested_column->get_data()[row_num];
-        Type x_value = x_nested_column->get_data()[row_num];
-
-        this->data(place).add(y_value, x_value);
+        this->data(place).add(y_nested_column->get_data()[row_num],
+                              x_nested_column->get_data()[row_num]);
     }
 
     void reset(AggregateDataPtr __restrict place) const override { this->data(place).reset(); }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
-               Arena*) const override {
+               Arena&) const override {
         this->data(place).merge(this->data(rhs));
     }
 
@@ -197,7 +188,7 @@ public:
     }
 
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
-                     Arena*) const override {
+                     Arena&) const override {
         this->data(place).read(buf);
     }
 

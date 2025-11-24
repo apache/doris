@@ -74,17 +74,11 @@ Status SpillReader::open() {
     }
 
     size_t buff_size = std::max(block_count_ * sizeof(size_t), max_sub_block_size_);
-    try {
-        read_buff_.reset(new char[buff_size]);
-    } catch (const std::bad_alloc&) {
-        LOG(INFO) << "spill max block size: " << max_sub_block_size_
-                  << ", block count: " << block_count_ << ", buff size: " << buff_size;
-        return Status::InternalError("bad alloc");
-    }
+    read_buff_.reserve(buff_size);
 
     // read block start offsets
     size_t read_offset = file_size - (block_count_ + 2) * sizeof(size_t);
-    result.data = read_buff_.get();
+    result.data = read_buff_.data();
     result.size = block_count_ * sizeof(size_t);
 
     RETURN_IF_ERROR(file_reader_->read_at(read_offset, result, &bytes_read));
@@ -127,7 +121,7 @@ Status SpillReader::read(Block* block, bool* eos) {
         return Status::OK();
     }
 
-    Slice result(read_buff_.get(), bytes_to_read);
+    Slice result(read_buff_.data(), bytes_to_read);
     size_t bytes_read = 0;
     {
         SCOPED_TIMER(_read_file_timer);
@@ -148,7 +142,9 @@ Status SpillReader::read(Block* block, bool* eos) {
             if (!pb_block_.ParseFromArray(result.data, cast_set<int>(result.size))) {
                 return Status::InternalError("Failed to read spilled block");
             }
-            RETURN_IF_ERROR(block->deserialize(pb_block_));
+            size_t uncompressed_size = 0;
+            int64_t uncompressed_time = 0;
+            RETURN_IF_ERROR(block->deserialize(pb_block_, &uncompressed_size, &uncompressed_time));
         }
         COUNTER_UPDATE(_read_block_data_size, block->bytes());
         COUNTER_UPDATE(_read_rows_count, block->rows());

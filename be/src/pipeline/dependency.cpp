@@ -21,15 +21,19 @@
 #include <mutex>
 
 #include "common/logging.h"
+#include "exec/rowid_fetcher.h"
 #include "pipeline/exec/multi_cast_data_streamer.h"
 #include "pipeline/pipeline_fragment_context.h"
 #include "pipeline/pipeline_task.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime_filter/runtime_filter_consumer.h"
+#include "util/brpc_client_cache.h"
+#include "vec/exec/scan/file_scanner.h"
 #include "vec/exprs/vectorized_agg_fn.h"
 #include "vec/exprs/vslot_ref.h"
 #include "vec/spill/spill_stream_manager.h"
+#include "vec/utils/util.hpp"
 
 namespace doris::pipeline {
 #include "common/compile_check_begin.h"
@@ -68,20 +72,20 @@ void Dependency::set_ready() {
     if (_ready) {
         return;
     }
-    _watcher.stop();
     std::vector<std::weak_ptr<PipelineTask>> local_block_task {};
     {
         std::unique_lock<std::mutex> lc(_task_lock);
         if (_ready) {
             return;
         }
+        _watcher.stop();
         _ready = true;
         local_block_task.swap(_blocked_task);
     }
     for (auto task : local_block_task) {
         if (auto t = task.lock()) {
             std::unique_lock<std::mutex> lc(_task_lock);
-            THROW_IF_ERROR(t->wake_up(this));
+            THROW_IF_ERROR(t->wake_up(this, lc));
         }
     }
 }
@@ -92,7 +96,7 @@ Dependency* Dependency::is_blocked_by(std::shared_ptr<PipelineTask> task) {
     if (!ready && task) {
         _add_block_task(task);
         start_watcher();
-        THROW_IF_ERROR(task->blocked(this));
+        THROW_IF_ERROR(task->blocked(this, lc));
     }
     return ready ? nullptr : this;
 }
@@ -160,7 +164,7 @@ void RuntimeFilterTimerQueue::start() {
                 if (it.use_count() == 1) {
                     // `use_count == 1` means this runtime filter has been released
                 } else if (it->should_be_check_timeout()) {
-                    if (it->_parent->is_blocked_by()) {
+                    if (it->force_wait_timeout() || it->_parent->is_blocked_by()) {
                         // This means runtime filter is not ready, so we call timeout or continue to poll this timer.
                         int64_t ms_since_registration = MonotonicMillis() - it->registration_time();
                         if (ms_since_registration > it->wait_time_ms()) {
@@ -216,10 +220,10 @@ vectorized::MutableColumns AggSharedState::_get_keys_hash_table() {
                         auto& data = *agg_method.hash_table;
                         bool has_null_key = data.has_null_key_data();
                         const auto size = data.size() - has_null_key;
-                        using KeyType = std::decay_t<decltype(agg_method.iterator->get_first())>;
+                        using KeyType = std::decay_t<decltype(agg_method)>::Key;
                         std::vector<KeyType> keys(size);
 
-                        size_t num_rows = 0;
+                        uint32_t num_rows = 0;
                         auto iter = aggregate_data_container->begin();
                         {
                             while (iter != aggregate_data_container->end()) {
@@ -288,7 +292,8 @@ Status AggSharedState::reset_hash_table() {
                         auto& hash_table = *agg_method.hash_table;
                         using HashTableType = std::decay_t<decltype(hash_table)>;
 
-                        agg_method.reset();
+                        agg_method.arena.clear();
+                        agg_method.inited_iterator = false;
 
                         hash_table.for_each_mapped([&](auto& mapped) {
                             if (mapped) {
@@ -309,7 +314,6 @@ Status AggSharedState::reset_hash_table() {
                                  align_aggregate_states) *
                                         align_aggregate_states));
                         agg_method.hash_table.reset(new HashTableType());
-                        agg_arena_pool.reset(new vectorized::Arena);
                         return Status::OK();
                     }},
             agg_data->method_variant);
@@ -399,7 +403,7 @@ void SpillSortSharedState::close() {
 
 MultiCastSharedState::MultiCastSharedState(ObjectPool* pool, int cast_sender_count, int node_id)
         : multi_cast_data_streamer(std::make_unique<pipeline::MultiCastDataStreamer>(
-                  this, pool, cast_sender_count, node_id)) {}
+                  pool, cast_sender_count, node_id)) {}
 
 void MultiCastSharedState::update_spill_stream_profiles(RuntimeProfile* source_profile) {}
 

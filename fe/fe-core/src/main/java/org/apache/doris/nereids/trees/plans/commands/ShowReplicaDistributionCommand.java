@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
-import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
@@ -28,10 +27,10 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.info.TableRefInfo;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanType;
-import org.apache.doris.nereids.trees.plans.commands.info.TableRefInfo;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSet;
@@ -77,11 +76,8 @@ public class ShowReplicaDistributionCommand extends ShowCommand {
 
         List<List<String>> results;
         try {
-            PartitionNames partitionNames = (tableRefInfo.getPartitionNamesInfo() != null)
-                                    ? tableRefInfo.getPartitionNamesInfo().translateToLegacyPartitionNames() : null;
             results = MetadataViewer.getTabletDistribution(tableRefInfo.getTableNameInfo().getDb(),
-                                    tableRefInfo.getTableNameInfo().getTbl(),
-                                    partitionNames);
+                                    tableRefInfo.getTableNameInfo().getTbl(), tableRefInfo.getPartitionNamesInfo());
         } catch (DdlException e) {
             throw new AnalysisException(e.getMessage());
         }

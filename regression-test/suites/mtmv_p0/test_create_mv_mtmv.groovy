@@ -47,7 +47,7 @@ suite("test_create_mv_mtmv","mtmv") {
         """
 
     sql """
-        CREATE MATERIALIZED VIEW mv_mtmv1  as select k2 from ${mvName};
+        CREATE MATERIALIZED VIEW mv_mtmv1  as select k2 as a1 from ${mvName};
         """
 
     def max_try_secs = 60

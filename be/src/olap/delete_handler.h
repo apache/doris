@@ -126,7 +126,7 @@ private:
     bool _is_inited = false;
     // DeleteConditions in _del_conds are in 'OR' relationship
     std::vector<DeleteConditions> _del_conds;
-    std::unique_ptr<vectorized::Arena> _predicate_arena;
+    vectorized::Arena _predicate_arena;
 
     DISALLOW_COPY_AND_ASSIGN(DeleteHandler);
 };

@@ -26,8 +26,8 @@
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_string.h"
+#include "vec/columns/column_varbinary.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/core/field.h"
 #include "vec/data_types/data_type.h"
@@ -41,14 +41,24 @@ namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 constexpr uint64_t emtpy_value = 0xe28dbde7fe22e41c;
 
-template <typename ReturnType>
+template <PrimitiveType ReturnType, bool is_mmh64_v2 = false>
 struct MurmurHash3Impl {
-    static constexpr auto name =
-            std::is_same_v<ReturnType, Int32> ? "murmur_hash3_32" : "murmur_hash3_64";
+    static constexpr auto get_name() {
+        if constexpr (ReturnType == TYPE_INT) {
+            return "murmur_hash3_32";
+        } else if constexpr (is_mmh64_v2) {
+            return "murmur_hash3_64_v2";
+        } else {
+            return "murmur_hash3_64";
+        }
+    }
+    static constexpr auto name = get_name();
 
     static Status empty_apply(IColumn& icolumn, size_t input_rows_count) {
         ColumnVector<ReturnType>& vec_to = assert_cast<ColumnVector<ReturnType>&>(icolumn);
-        vec_to.get_data().assign(input_rows_count, static_cast<ReturnType>(emtpy_value));
+        vec_to.get_data().assign(
+                input_rows_count,
+                static_cast<typename PrimitiveTypeTraits<ReturnType>::ColumnItemType>(emtpy_value));
         return Status::OK();
     }
 
@@ -67,7 +77,7 @@ struct MurmurHash3Impl {
                           IColumn& col_to) {
         auto& to_column = assert_cast<ColumnVector<ReturnType>&>(col_to);
         if constexpr (first) {
-            if constexpr (std::is_same_v<ReturnType, Int32>) {
+            if constexpr (ReturnType == TYPE_INT) {
                 to_column.insert_many_vals(static_cast<Int32>(HashUtil::MURMUR3_32_SEED),
                                            input_rows_count);
             } else {
@@ -81,14 +91,14 @@ struct MurmurHash3Impl {
             size_t size = offsets.size();
             ColumnString::Offset current_offset = 0;
             for (size_t i = 0; i < size; ++i) {
-                if constexpr (std::is_same_v<ReturnType, Int32>) {
+                if constexpr (ReturnType == TYPE_INT) {
                     col_to_data[i] = HashUtil::murmur_hash3_32(
                             reinterpret_cast<const char*>(&data[current_offset]),
                             offsets[i] - current_offset, col_to_data[i]);
                 } else {
-                    murmur_hash3_x64_64(reinterpret_cast<const char*>(&data[current_offset]),
-                                        offsets[i] - current_offset, col_to_data[i],
-                                        col_to_data.data() + i);
+                    col_to_data[i] = HashUtil::murmur_hash3_64<is_mmh64_v2>(
+                            reinterpret_cast<const char*>(&data[current_offset]),
+                            offsets[i] - current_offset, col_to_data[i]);
                 }
                 current_offset = offsets[i];
             }
@@ -96,12 +106,12 @@ struct MurmurHash3Impl {
                            check_and_get_column_const_string_or_fixedstring(column)) {
             auto value = col_from_const->get_value<String>();
             for (size_t i = 0; i < input_rows_count; ++i) {
-                if constexpr (std::is_same_v<ReturnType, Int32>) {
+                if constexpr (ReturnType == TYPE_INT) {
                     col_to_data[i] =
                             HashUtil::murmur_hash3_32(value.data(), value.size(), col_to_data[i]);
                 } else {
-                    murmur_hash3_x64_64(value.data(), value.size(), col_to_data[i],
-                                        col_to_data.data() + i);
+                    col_to_data[i] = HashUtil::murmur_hash3_64<is_mmh64_v2>(
+                            value.data(), value.size(), col_to_data[i]);
                 }
             }
         } else {
@@ -113,16 +123,36 @@ struct MurmurHash3Impl {
     }
 };
 
-using FunctionMurmurHash3_32 = FunctionVariadicArgumentsBase<DataTypeInt32, MurmurHash3Impl<Int32>>;
-using FunctionMurmurHash3_64 = FunctionVariadicArgumentsBase<DataTypeInt64, MurmurHash3Impl<Int64>>;
+using FunctionMurmurHash3_32 =
+        FunctionVariadicArgumentsBase<DataTypeInt32, MurmurHash3Impl<TYPE_INT>>;
+using FunctionMurmurHash3_64 =
+        FunctionVariadicArgumentsBase<DataTypeInt64, MurmurHash3Impl<TYPE_BIGINT>>;
+using FunctionMurmurHash3_64_V2 =
+        FunctionVariadicArgumentsBase<DataTypeInt64, MurmurHash3Impl<TYPE_BIGINT, true>>;
 
-template <typename ReturnType>
+#ifdef BE_TEST
+const char* murmur_hash3_get_name_type_int_for_test() {
+    return MurmurHash3Impl<TYPE_INT>::get_name();
+}
+
+const char* murmur_hash3_get_name_type_bigint_for_test() {
+    return MurmurHash3Impl<TYPE_BIGINT>::get_name();
+}
+
+const char* murmur_hash3_get_name_type_bigint_v2_for_test() {
+    return MurmurHash3Impl<TYPE_BIGINT, true>::get_name();
+}
+#endif
+
+template <PrimitiveType ReturnType>
 struct XxHashImpl {
-    static constexpr auto name = std::is_same_v<ReturnType, Int32> ? "xxhash_32" : "xxhash_64";
+    static constexpr auto name = ReturnType == TYPE_INT ? "xxhash_32" : "xxhash_64";
 
     static Status empty_apply(IColumn& icolumn, size_t input_rows_count) {
         ColumnVector<ReturnType>& vec_to = assert_cast<ColumnVector<ReturnType>&>(icolumn);
-        vec_to.get_data().assign(input_rows_count, static_cast<ReturnType>(emtpy_value));
+        vec_to.get_data().assign(
+                input_rows_count,
+                static_cast<typename PrimitiveTypeTraits<ReturnType>::ColumnItemType>(emtpy_value));
         return Status::OK();
     }
 
@@ -150,7 +180,7 @@ struct XxHashImpl {
             size_t size = offsets.size();
             ColumnString::Offset current_offset = 0;
             for (size_t i = 0; i < size; ++i) {
-                if constexpr (std::is_same_v<ReturnType, Int32>) {
+                if constexpr (ReturnType == TYPE_INT) {
                     col_to_data[i] = HashUtil::xxHash32WithSeed(
                             reinterpret_cast<const char*>(&data[current_offset]),
                             offsets[i] - current_offset, col_to_data[i]);
@@ -165,12 +195,23 @@ struct XxHashImpl {
                            check_and_get_column_const_string_or_fixedstring(column)) {
             auto value = col_from_const->get_value<String>();
             for (size_t i = 0; i < input_rows_count; ++i) {
-                if constexpr (std::is_same_v<ReturnType, Int32>) {
+                if constexpr (ReturnType == TYPE_INT) {
                     col_to_data[i] =
                             HashUtil::xxHash32WithSeed(value.data(), value.size(), col_to_data[i]);
                 } else {
                     col_to_data[i] =
                             HashUtil::xxHash64WithSeed(value.data(), value.size(), col_to_data[i]);
+                }
+            }
+        } else if (const auto* vb_col = check_and_get_column<ColumnVarbinary>(column)) {
+            for (size_t i = 0; i < input_rows_count; ++i) {
+                auto data_ref = vb_col->get_data_at(i);
+                if constexpr (ReturnType == TYPE_INT) {
+                    col_to_data[i] = HashUtil::xxHash32WithSeed(data_ref.data, data_ref.size,
+                                                                col_to_data[i]);
+                } else {
+                    col_to_data[i] = HashUtil::xxHash64WithSeed(data_ref.data, data_ref.size,
+                                                                col_to_data[i]);
                 }
             }
         } else {
@@ -182,13 +223,15 @@ struct XxHashImpl {
     }
 };
 
-using FunctionXxHash_32 = FunctionVariadicArgumentsBase<DataTypeInt32, XxHashImpl<Int32>>;
-using FunctionXxHash_64 = FunctionVariadicArgumentsBase<DataTypeInt64, XxHashImpl<Int64>>;
+using FunctionXxHash_32 = FunctionVariadicArgumentsBase<DataTypeInt32, XxHashImpl<TYPE_INT>>;
+using FunctionXxHash_64 = FunctionVariadicArgumentsBase<DataTypeInt64, XxHashImpl<TYPE_BIGINT>>;
 
 void register_function_hash(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionMurmurHash3_32>();
     factory.register_function<FunctionMurmurHash3_64>();
+    factory.register_function<FunctionMurmurHash3_64_V2>();
     factory.register_function<FunctionXxHash_32>();
     factory.register_function<FunctionXxHash_64>();
+    factory.register_alias("xxhash_64", "xxhash3_64");
 }
 } // namespace doris::vectorized

@@ -23,13 +23,14 @@ import org.apache.doris.analysis.AlterTableClause;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
@@ -51,6 +52,14 @@ public class AddColumnsOp extends AlterTableOp {
         this.properties = properties;
     }
 
+    public AddColumnsOp(String rollupName, Map<String, String> properties, List<Column> columns) {
+        super(AlterOpType.SCHEMA_CHANGE);
+        this.columnDefs = Collections.emptyList();
+        this.rollupName = rollupName;
+        this.properties = properties;
+        this.columns = columns;
+    }
+
     public List<Column> getColumns() {
         return columns;
     }
@@ -68,7 +77,9 @@ public class AddColumnsOp extends AlterTableOp {
             AddColumnOp.validateColumnDef(tableName, colDef, null, rollupName);
         }
 
-        Table table = Env.getCurrentInternalCatalog().getDbOrDdlException(tableName.getDb())
+        TableIf table = Env.getCurrentEnv().getCatalogMgr()
+                .getCatalogOrDdlException(tableName.getCtl())
+                .getDbOrDdlException(tableName.getDb())
                 .getTableOrDdlException(tableName.getTbl());
         if (table instanceof OlapTable) {
             boolean seeValueColumn = false;

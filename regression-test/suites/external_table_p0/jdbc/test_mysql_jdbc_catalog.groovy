@@ -20,8 +20,8 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
     String s3_endpoint = getS3Endpoint()
     String bucket = getS3BucketName()
-    String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-java-8.0.25.jar"
-    // String driver_url = "mysql-connector-java-8.0.25.jar"
+    String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-j-8.4.0.jar"
+    // String driver_url = "mysql-connector-j-8.4.0.jar"
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
         return;
     }
@@ -30,7 +30,7 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
         if (driver_class.equals("com.mysql.jdbc.Driver")) {
             driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-java-5.1.49.jar"
         } else  {
-            driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-java-8.0.25.jar"
+            driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-j-8.4.0.jar"
         }
         String user = "test_jdbc_user";
         String pwd = '123456';
@@ -72,6 +72,7 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
         String dt_null = "dt_null";
         String test_zd = "test_zd"
 
+        sql """switch internal"""
         try_sql("DROP USER ${user}")
         sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}'"""
 
@@ -96,7 +97,7 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
             "driver_class" = "${driver_class}"
         );"""
 
-        sql """use ${internal_db_name}"""
+        sql """use internal.${internal_db_name}"""
         sql  """ drop table if exists ${internal_db_name}.${inDorisTable} """
         sql  """
               CREATE TABLE ${internal_db_name}.${inDorisTable} (
@@ -325,14 +326,14 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
         qt_mysql_all_types """select * from all_types order by tinyint_u;"""
 
         // test insert into internal.db.table select * from all_types
-        sql """ insert into internal.${internal_db_name}.${test_insert_all_types} select * from all_types; """
+        sql """ insert into internal.${internal_db_name}.${test_insert_all_types} select * EXCEPT(`binary`,`varbinary`),"binary_col","varbinary_col" from all_types; """
         order_qt_select_insert_all_types """ select * from internal.${internal_db_name}.${test_insert_all_types} order by tinyint_u; """
 
         // test CTAS
         sql  """ drop table if exists internal.${internal_db_name}.${test_ctas} """
         sql """ create table internal.${internal_db_name}.${test_ctas}
                 PROPERTIES("replication_num" = "1")
-                AS select * from all_types;
+                AS select * EXCEPT(`binary`,`varbinary`) from all_types;
             """
 
         order_qt_ctas """select * from internal.${internal_db_name}.${test_ctas} order by tinyint_u;"""
@@ -393,18 +394,18 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
             contains "QUERY: SELECT `timestamp0` FROM `doris_test`.`dt` WHERE (`timestamp0` > '2022-01-01 00:00:00')"
         }
         explain {
-            sql ("select k6, k8 from test1 where nvl(k6, null) = 1;")
+            sql ("select k6, k8 from test1 where nvl(k6, 1) = k6;")
 
-            contains "QUERY: SELECT `k6`, `k8` FROM `doris_test`.`test1` WHERE ((ifnull(`k6`, NULL) = 1))"
+            contains "QUERY: SELECT `k6`, `k8` FROM `doris_test`.`test1` WHERE ((ifnull(`k6`, 1) = `k6`))"
         }
         explain {
-            sql ("select k6, k8 from test1 where nvl(nvl(k6, null),null) = 1;")
+            sql ("select k6, k8 from test1 where nvl(k6, nvl(k6, 1)) = k6;")
 
-            contains "QUERY: SELECT `k6`, `k8` FROM `doris_test`.`test1` WHERE ((ifnull(ifnull(`k6`, NULL), NULL) = 1))"
+            contains "QUERY: SELECT `k6`, `k8` FROM `doris_test`.`test1` WHERE ((ifnull(`k6`, ifnull(`k6`, 1)) = `k6`))"
         }
         sql """ set enable_ext_func_pred_pushdown = "false"; """
         explain {
-            sql ("select k6, k8 from test1 where nvl(k6, null) = 1 and k8 = 1;")
+            sql ("select k6, k8 from test1 where nvl(k6, 1) = k6 and k8 = 1;")
 
             contains "QUERY: SELECT `k6`, `k8` FROM `doris_test`.`test1` WHERE ((`k8` = 1))"
         }
@@ -653,6 +654,79 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
         // so need to test both.
         sql """drop catalog if exists mysql_conjuncts;"""
         sql """set enable_nereids_planner=true"""
+
+        
+        // test function rules
+        // test push down
+        sql """ drop catalog if exists mysql_function_rules"""
+        // test invalid config
+        test {
+            sql """create catalog if not exists mysql_function_rules properties(
+                "type"="jdbc",
+                "user"="root",
+                "password"="123456",
+                "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}/doris_test?useSSL=false&zeroDateTimeBehavior=convertToNull",
+                "driver_url" = "${driver_url}",
+                "driver_class" = "${driver_class}",
+                "metadata_refresh_interval_sec" = "5",
+                "function_rules" = '{"pushdown" : {"supported" : [null]}}'
+            );"""
+
+            exception """Failed to parse push down rules: {"pushdown" : {"supported" : [null]}}"""
+        }
+
+        sql """create catalog if not exists mysql_function_rules properties(
+            "type"="jdbc",
+            "user"="root",
+            "password"="123456",
+            "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}/doris_test?useSSL=false&zeroDateTimeBehavior=convertToNull",
+            "driver_url" = "${driver_url}",
+            "driver_class" = "${driver_class}",
+            "metadata_refresh_interval_sec" = "5",
+            "function_rules" = '{"pushdown" : {"supported" : ["date_trunc"]}}'
+        );"""
+
+        sql "use mysql_function_rules.doris_test"
+        explain {
+            sql """select tinyint_u from all_types where abs(tinyint_u) > 0 and date_trunc(`datetime`, "month") = "2013-10-01 00:00:00";"""
+            contains """QUERY: SELECT `tinyint_u`, `datetime` FROM `doris_test`.`all_types` WHERE (date_trunc(`datetime`, 'month') = '2013-10-01 00:00:00')"""
+            contains """PREDICATES: ((abs(tinyint_u[#0]) > 0) AND (date_trunc(datetime[#17], 'month') = '2013-10-01 00:00:00'))"""
+        }
+        sql """alter catalog mysql_function_rules set properties("function_rules" = '');"""
+        explain {
+            sql """select tinyint_u from all_types where abs(tinyint_u) > 0 and date_trunc(`datetime`, "month") = "2013-10-01 00:00:00";"""
+            contains """QUERY: SELECT `tinyint_u`, `datetime` FROM `doris_test`.`all_types` WHERE ((abs(`tinyint_u`) > 0))"""
+            contains """PREDICATES: ((abs(tinyint_u[#0]) > 0) AND (date_trunc(datetime[#17], 'month') = '2013-10-01 00:00:00'))"""
+        }
+
+        sql """alter catalog mysql_function_rules set properties("function_rules" = '{"pushdown" : {"supported": ["date_trunc"], "unsupported" : ["abs"]}}')"""         
+        explain {
+            sql """select tinyint_u from all_types where abs(tinyint_u) > 0 and date_trunc(`datetime`, "month") = "2013-10-01 00:00:00";"""
+            contains """QUERY: SELECT `tinyint_u`, `datetime` FROM `doris_test`.`all_types` WHERE (date_trunc(`datetime`, 'month') = '2013-10-01 00:00:00')"""
+            contains """PREDICATES: ((abs(tinyint_u[#0]) > 0) AND (date_trunc(datetime[#17], 'month') = '2013-10-01 00:00:00'))"""
+        }
+
+        // test rewrite
+        sql """alter catalog mysql_function_rules set properties("function_rules" = '{"pushdown" : {"supported": ["to_date"], "unsupported" : ["abs"]}, "rewrite" : {"to_date" : "date2"}}');"""
+        explain {
+            sql """select tinyint_u from all_types where to_date(`datetime`) = "2013-10-01" and abs(tinyint_u) > 0 and date_trunc(`datetime`, "month") = "2013-10-01 00:00:00";"""
+            contains """QUERY: SELECT `tinyint_u`, `datetime` FROM `doris_test`.`all_types` WHERE (date2(`datetime`) = '2013-10-01')"""
+            contains """PREDICATES: (((to_date(datetime[#17]) = '2013-10-01') AND (abs(tinyint_u[#0]) > 0)) AND (date_trunc(datetime[#17], 'month') = '2013-10-01 00:00:00'))"""
+        }
+
+        // reset function rules
+        sql """alter catalog mysql_function_rules set properties("function_rules" = '');"""
+        explain {
+            sql """select tinyint_u from all_types where to_date(`datetime`) = "2013-10-01" and abs(tinyint_u) > 0 and date_trunc(`datetime`, "month") = "2013-10-01 00:00:00";"""
+            contains """QUERY: SELECT `tinyint_u`, `datetime` FROM `doris_test`.`all_types` WHERE (date(`datetime`) = '2013-10-01') AND ((abs(`tinyint_u`) > 0))"""
+            contains """PREDICATES: (((to_date(datetime[#17]) = '2013-10-01') AND (abs(tinyint_u[#0]) > 0)) AND (date_trunc(datetime[#17], 'month') = '2013-10-01 00:00:00'))"""
+        }
+
+        // test invalid config
+        test {
+            sql """alter catalog mysql_function_rules set properties("function_rules" = 'invalid_json')"""
+            exception """Failed to parse push down rules: invalid_json"""
+        }
     }
 }
 

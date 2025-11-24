@@ -36,5 +36,15 @@ suite("test_hudi_catalog", "p2,external,hudi,external_remote,external_remote_hud
     sql """ set enable_fallback_to_original_planner=false """
     def tables = sql """ show tables; """
     assertTrue(tables.size() > 0)
+    try {
+        sql """ set force_jni_scanner = true;    """
+        qt_test_only_partition_columns """
+            select signup_date from user_activity_log_mor_partition order by signup_date limit 1;
+        """
+    } catch (Exception e) {
+        logger.error("Error occurred while executing query", e)
+    } finally {
+        sql """ set force_jni_scanner = false;    """
+    }
     sql """drop catalog if exists ${catalog_name};"""
 }

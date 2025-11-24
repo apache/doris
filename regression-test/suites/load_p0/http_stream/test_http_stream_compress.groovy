@@ -103,6 +103,7 @@ suite("test_http_stream_compress", "p0") {
         }
         sql "sync"
         qt_sql2 "select k1, k2, bitmap_union_count(v1), HLL_UNION_AGG(v2) from ${tableName2} group by k1, k2  order by k1"
+        qt_test "select HLL_CARDINALITY(hll_from_base64(hll_to_base64(v2))) from test_http_stream_bz4;"
     } finally {
         try_sq2 "DROP TABLE IF EXISTS ${tableName2}"
     }

@@ -17,8 +17,6 @@
 
 package org.apache.doris.persist;
 
-import org.apache.doris.catalog.Env;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -44,10 +42,6 @@ public class AnalyzeDeletionLog implements Writable {
     }
 
     public static AnalyzeDeletionLog read(DataInput in) throws IOException {
-        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_137) {
-            return new AnalyzeDeletionLog(in.readLong());
-        } else {
-            return GsonUtils.GSON.fromJson(Text.readString(in), AnalyzeDeletionLog.class);
-        }
+        return GsonUtils.GSON.fromJson(Text.readString(in), AnalyzeDeletionLog.class);
     }
 }

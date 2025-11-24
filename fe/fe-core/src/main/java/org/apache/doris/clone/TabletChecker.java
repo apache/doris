@@ -17,8 +17,6 @@
 
 package org.apache.doris.clone;
 
-import org.apache.doris.analysis.AdminCancelRepairTableStmt;
-import org.apache.doris.analysis.AdminRepairTableStmt;
 import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -505,14 +503,6 @@ public class TabletChecker extends MasterDaemon {
                 repairTabletInfo.dbId, repairTabletInfo.tblId, repairTabletInfo.partIds);
     }
 
-    public void repairTable(AdminRepairTableStmt stmt) throws DdlException {
-        RepairTabletInfo repairTabletInfo = getRepairTabletInfo(
-                stmt.getDbName(), stmt.getTblName(), stmt.getPartitions());
-        addPrios(repairTabletInfo, stmt.getTimeoutS() * 1000);
-        LOG.info("repair database: {}, table: {}, partition: {}",
-                repairTabletInfo.dbId, repairTabletInfo.tblId, repairTabletInfo.partIds);
-    }
-
     /*
      * handle ADMIN CANCEL REPAIR TABLE command send by user.
      * This operation will remove the specified partitions from 'prios'
@@ -520,14 +510,6 @@ public class TabletChecker extends MasterDaemon {
     public void cancelRepairTable(AdminCancelRepairTableCommand command) throws DdlException {
         RepairTabletInfo repairTabletInfo
                 = getRepairTabletInfo(command.getDbName(), command.getTblName(), command.getPartitions());
-        removePrios(repairTabletInfo);
-        LOG.info("cancel repair database: {}, table: {}, partition: {}",
-                repairTabletInfo.dbId, repairTabletInfo.tblId, repairTabletInfo.partIds);
-    }
-
-    public void cancelRepairTable(AdminCancelRepairTableStmt stmt) throws DdlException {
-        RepairTabletInfo repairTabletInfo
-                = getRepairTabletInfo(stmt.getDbName(), stmt.getTblName(), stmt.getPartitions());
         removePrios(repairTabletInfo);
         LOG.info("cancel repair database: {}, table: {}, partition: {}",
                 repairTabletInfo.dbId, repairTabletInfo.tblId, repairTabletInfo.partIds);

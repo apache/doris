@@ -17,10 +17,8 @@
 
 package org.apache.doris.persist;
 
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.cluster.ClusterNamespace;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.datasource.InternalCatalog;
@@ -42,6 +40,8 @@ public class CreateTableInfo implements Writable, GsonPostProcessable {
 
     @SerializedName(value = "ctl")
     private String ctlName;
+    @SerializedName(value = "dbId")
+    private long dbId = -1L;
     @SerializedName(value = "dbName")
     private String dbName;
     @SerializedName(value = "tbl")
@@ -54,8 +54,9 @@ public class CreateTableInfo implements Writable, GsonPostProcessable {
     }
 
     // for internal table
-    public CreateTableInfo(String dbName, Table table) {
+    public CreateTableInfo(String dbName, long dbId, Table table) {
         this.ctlName = InternalCatalog.INTERNAL_CATALOG_NAME;
+        this.dbId = dbId;
         this.dbName = dbName;
         this.tblName = table.getName();
         this.table = table;
@@ -76,6 +77,10 @@ public class CreateTableInfo implements Writable, GsonPostProcessable {
         return dbName;
     }
 
+    public long getDbId() {
+        return dbId;
+    }
+
     public String getTblName() {
         return tblName;
     }
@@ -90,19 +95,7 @@ public class CreateTableInfo implements Writable, GsonPostProcessable {
     }
 
     public static CreateTableInfo read(DataInput in) throws IOException {
-        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_137) {
-            CreateTableInfo createTableInfo = new CreateTableInfo();
-            createTableInfo.readFields(in);
-            return createTableInfo;
-        } else {
-            return GsonUtils.GSON.fromJson(Text.readString(in), CreateTableInfo.class);
-        }
-    }
-
-    @Deprecated
-    private void readFields(DataInput in) throws IOException {
-        dbName = ClusterNamespace.getNameFromFullName(Text.readString(in));
-        table = Table.read(in);
+        return GsonUtils.GSON.fromJson(Text.readString(in), CreateTableInfo.class);
     }
 
     @Override

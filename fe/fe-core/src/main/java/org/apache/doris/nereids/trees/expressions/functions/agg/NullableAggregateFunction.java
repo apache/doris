@@ -21,6 +21,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 
+import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 
@@ -29,43 +30,67 @@ import java.util.Objects;
  */
 public abstract class NullableAggregateFunction extends AggregateFunction implements
         PropagateNullable, AlwaysNullable {
+
     protected final boolean alwaysNullable;
-
-    protected NullableAggregateFunction(String name, Expression ...expressions) {
-        super(name, false, expressions);
-        this.alwaysNullable = false;
-    }
-
-    protected NullableAggregateFunction(String name, List<Expression> expressions) {
-        super(name, false, expressions);
-        this.alwaysNullable = false;
-    }
-
-    protected NullableAggregateFunction(String name, boolean distinct, Expression ...expressions) {
-        super(name, distinct, expressions);
-        this.alwaysNullable = false;
-    }
-
-    protected NullableAggregateFunction(String name, boolean distinct, List<Expression> expressions) {
-        super(name, distinct, expressions);
-        this.alwaysNullable = false;
-    }
 
     protected NullableAggregateFunction(String name, boolean distinct, boolean alwaysNullable,
             Expression ...expressions) {
-        super(name, distinct, expressions);
-        this.alwaysNullable = alwaysNullable;
+        this(name, distinct, alwaysNullable, false, Arrays.asList(expressions));
     }
 
     protected NullableAggregateFunction(String name, boolean distinct, boolean alwaysNullable,
             List<Expression> expressions) {
-        super(name, distinct, expressions);
+        this(name, distinct, alwaysNullable, false, expressions);
+    }
+
+    protected NullableAggregateFunction(String name, boolean distinct, boolean alwaysNullable, boolean isSkew,
+            Expression ...expressions) {
+        this(name, distinct, alwaysNullable, isSkew, Arrays.asList(expressions));
+    }
+
+    protected NullableAggregateFunction(String name, boolean distinct, boolean alwaysNullable, boolean isSkew,
+            List<Expression> expressions) {
+        super(name, distinct, isSkew, expressions);
         this.alwaysNullable = alwaysNullable;
+    }
+
+    /** constructor for withChildren and reuse signature */
+    protected NullableAggregateFunction(NullableAggregateFunctionParams functionParams) {
+        super(functionParams);
+        this.alwaysNullable = functionParams.alwaysNullable;
     }
 
     @Override
     public boolean nullable() {
         return alwaysNullable ? AlwaysNullable.super.nullable() : PropagateNullable.super.nullable();
+    }
+
+    @Override
+    public NullableAggregateFunctionParams getFunctionParams(List<Expression> arguments) {
+        return new NullableAggregateFunctionParams(
+                this, getName(), isDistinct(), isSkew(), alwaysNullable, arguments, isInferred()
+        );
+    }
+
+    @Override
+    public NullableAggregateFunctionParams getFunctionParams(boolean isDistinct, List<Expression> arguments) {
+        return new NullableAggregateFunctionParams(
+                this, getName(), isDistinct, isSkew(), alwaysNullable, arguments, isInferred()
+        );
+    }
+
+    @Override
+    public NullableAggregateFunctionParams getFunctionParams(
+            boolean isDistinct, boolean isSkew, List<Expression> arguments) {
+        return new NullableAggregateFunctionParams(
+                this, getName(), isDistinct, isSkew, alwaysNullable, arguments, isInferred()
+        );
+    }
+
+    public NullableAggregateFunctionParams getAlwaysNullableFunctionParams(boolean alwaysNullable) {
+        return new NullableAggregateFunctionParams(
+                this, getName(), isDistinct(), isSkew(), alwaysNullable, children, isInferred()
+        );
     }
 
     public boolean isAlwaysNullable() {

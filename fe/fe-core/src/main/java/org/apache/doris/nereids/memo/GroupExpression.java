@@ -328,7 +328,12 @@ public class GroupExpression {
 
     @Override
     public int hashCode() {
-        return Objects.hash(children, plan);
+        long hashCode = 1;
+        for (int i = 0; i < children.size(); i++) {
+            hashCode = 31 * hashCode + children.get(i).hashCode();
+        }
+        hashCode = hashCode * 31 + plan.hashCode();
+        return (int) hashCode;
     }
 
     public Statistics childStatistics(int idx) {
@@ -354,7 +359,7 @@ public class GroupExpression {
             builder.append("#").append(ownerGroup.getGroupId().asInt());
         }
         if (cost != null) {
-            builder.append(" cost=").append(cost.getValue() + " " + cost);
+            builder.append(" cost=").append(format.format(cost.getValue()) + " " + cost);
         } else {
             builder.append(" cost=null");
         }

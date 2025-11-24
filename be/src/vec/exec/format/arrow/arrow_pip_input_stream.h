@@ -54,7 +54,8 @@ private:
     io::FileReaderSPtr _file_reader;
     int64_t _pos;
     bool _begin;
-    uint8_t* _read_buf;
+    // The read buf is very small, so use stack memory directly.
+    uint8_t _read_buf[4];
 };
 
 } // namespace vectorized

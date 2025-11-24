@@ -21,7 +21,8 @@ import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.FromSecondMonotonic;
-import org.apache.doris.nereids.trees.expressions.functions.PropagateNullableOnDateLikeV2Args;
+import org.apache.doris.nereids.trees.expressions.functions.PropagateNullLiteral;
+import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
@@ -36,20 +37,26 @@ import java.util.List;
  * ScalarFunction 'from_second'.
  */
 public class FromSecond extends ScalarFunction
-        implements BinaryExpression, ExplicitlyCastableSignature, PropagateNullableOnDateLikeV2Args,
+        implements BinaryExpression, ExplicitlyCastableSignature, PropagateNullLiteral, PropagateNullable,
         FromSecondMonotonic {
 
+    public static final int RESULT_SCALE = 0;
     private static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(DateTimeV2Type.SYSTEM_DEFAULT).args(BigIntType.INSTANCE));
+            FunctionSignature.ret(DateTimeV2Type.of(RESULT_SCALE)).args(BigIntType.INSTANCE));
 
     public FromSecond(Expression arg0) {
         super("from_second", arg0);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private FromSecond(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public FromSecond withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new FromSecond(children.get(0));
+        return new FromSecond(getFunctionParams(children));
     }
 
     @Override

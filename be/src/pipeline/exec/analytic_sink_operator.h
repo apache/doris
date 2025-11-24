@@ -77,17 +77,18 @@ private:
     friend class AnalyticSinkOperatorX;
     Status _execute_impl();
     // over(partition by k1 order by k2 range|rows unbounded preceding and unbounded following)
-    bool _get_next_for_partition(int64_t batch_rows, int64_t current_block_base_pos);
+    bool _get_next_for_partition(int64_t current_block_rows, int64_t current_block_base_pos);
     // over(partition by k1 order by k2 range between unbounded preceding and current row)
-    bool _get_next_for_unbounded_range(int64_t batch_rows, int64_t current_block_base_pos);
+    bool _get_next_for_unbounded_range(int64_t current_block_rows, int64_t current_block_base_pos);
     // over(partition by k1 order by k2 range between M preceding and N following)
-    bool _get_next_for_range_between(int64_t batch_rows, int64_t current_block_base_pos);
+    bool _get_next_for_range_between(int64_t current_block_rows, int64_t current_block_base_pos);
     // over(partition by k1 order by k2 rows between unbounded preceding and current row)
-    bool _get_next_for_unbounded_rows(int64_t batch_rows, int64_t current_block_base_pos);
+    bool _get_next_for_unbounded_rows(int64_t current_block_rows, int64_t current_block_base_pos);
     // over(partition by k1 order by k2 rows between M preceding and N following)
-    bool _get_next_for_sliding_rows(int64_t batch_rows, int64_t current_block_base_pos);
+    bool _get_next_for_sliding_rows(int64_t current_block_rows, int64_t current_block_base_pos);
 
     void _init_result_columns();
+    template <bool incremental = false>
     void _execute_for_function(int64_t partition_start, int64_t partition_end, int64_t frame_start,
                                int64_t frame_end);
     void _insert_result_info(int64_t start, int64_t end);
@@ -132,7 +133,7 @@ private:
     size_t _agg_functions_size = 0;
     bool _agg_functions_created = false;
     vectorized::AggregateDataPtr _fn_place_ptr = nullptr;
-    std::unique_ptr<vectorized::Arena> _agg_arena_pool = nullptr;
+    vectorized::Arena _agg_arena_pool;
     std::vector<vectorized::AggFnEvaluator*> _agg_functions;
     std::vector<size_t> _offsets_of_aggregate_states;
     std::vector<bool> _result_column_nullable_flags;
@@ -144,8 +145,11 @@ private:
     };
     executor _executor;
 
-    bool _current_window_empty = false;
+    std::vector<uint8_t> _use_null_result;
+    std::vector<uint8_t> _could_use_previous_result;
     bool _streaming_mode = false;
+    bool _support_incremental_calculate = true;
+    bool _need_more_data = false;
     int64_t _current_row_position = 0;
     int64_t _output_block_index = 0;
     std::vector<vectorized::MutableColumnPtr> _result_window_columns;
@@ -197,7 +201,7 @@ public:
     Status prepare(RuntimeState* state) override;
 
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
-    DataDistribution required_data_distribution() const override {
+    DataDistribution required_data_distribution(RuntimeState* /*state*/) const override {
         if (_partition_by_eq_expr_ctxs.empty()) {
             return {ExchangeType::PASSTHROUGH};
         } else {

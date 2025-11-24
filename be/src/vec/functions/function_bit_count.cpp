@@ -22,6 +22,7 @@
 
 #include "common/exception.h"
 #include "common/status.h"
+#include "runtime/define_primitive_type.h"
 #include "vec/core/types.h"
 #include "vec/functions/function_unary_arithmetic.h"
 #include "vec/functions/simple_function_factory.h"
@@ -36,14 +37,14 @@ template <typename T>
 struct BitCountImpl {
     // No unsigned type in Java. So we need signed number as return type
     // Int8_MAX = 127
-    using ResultType = std::conditional_t<sizeof(T) * 8 >= 128, Int16, Int8>;
-
-    static inline ResultType apply(T a) {
+    static constexpr PrimitiveType ResultType = sizeof(T) * 8 >= 128 ? TYPE_SMALLINT : TYPE_TINYINT;
+    using DataType = typename PrimitiveTypeTraits<ResultType>::DataType;
+    static inline typename PrimitiveTypeTraits<ResultType>::CppType apply(T a) {
         if constexpr (std::is_same_v<T, Int128> || std::is_same_v<T, Int64> ||
                       std::is_same_v<T, Int32> || std::is_same_v<T, Int16> ||
                       std::is_same_v<T, Int8>) {
             // ResultType already check the length
-            return cast_set<ResultType, int, false>(
+            return cast_set<typename PrimitiveTypeTraits<ResultType>::CppType, int, false>(
                     std::popcount(static_cast<std::make_unsigned_t<T>>(a)));
         } else {
             throw Exception(ErrorCode::INVALID_ARGUMENT,
@@ -52,10 +53,22 @@ struct BitCountImpl {
     }
 };
 
-using FunctionBitCount = FunctionUnaryArithmetic<BitCountImpl, NameBitCount>;
+using FunctionBitCountTinyInt =
+        FunctionUnaryArithmetic<BitCountImpl<Int8>, NameBitCount, TYPE_TINYINT>;
+using FunctionBitCountSmallInt =
+        FunctionUnaryArithmetic<BitCountImpl<Int16>, NameBitCount, TYPE_SMALLINT>;
+using FunctionBitCountInt = FunctionUnaryArithmetic<BitCountImpl<Int32>, NameBitCount, TYPE_INT>;
+using FunctionBitCountBigInt =
+        FunctionUnaryArithmetic<BitCountImpl<Int64>, NameBitCount, TYPE_BIGINT>;
+using FunctionBitCountLargeInt =
+        FunctionUnaryArithmetic<BitCountImpl<Int128>, NameBitCount, TYPE_LARGEINT>;
 
 void register_function_bit_count(SimpleFunctionFactory& factory) {
-    factory.register_function<FunctionBitCount>();
+    factory.register_function<FunctionBitCountTinyInt>();
+    factory.register_function<FunctionBitCountSmallInt>();
+    factory.register_function<FunctionBitCountInt>();
+    factory.register_function<FunctionBitCountBigInt>();
+    factory.register_function<FunctionBitCountLargeInt>();
 }
 
 } // namespace doris::vectorized

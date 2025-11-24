@@ -36,7 +36,6 @@
 
 #include "common/status.h"
 #include "gtest/gtest_pred_impl.h"
-#include "gutil/strings/numbers.h"
 #include "io/fs/local_file_system.h"
 #include "io/io_common.h"
 #include "json2pb/json_to_pb.h"
@@ -292,7 +291,7 @@ protected:
 
         TabletSchemaSPtr tablet_schema = create_schema(keys_type);
         // create input rowset
-        vector<RowsetSharedPtr> input_rowsets;
+        std::vector<RowsetSharedPtr> input_rowsets;
         SegmentsOverlapPB new_overlap = overlap;
         for (auto i = 0; i < num_input_rowset; i++) {
             if (overlap == OVERLAP_UNKNOWN) {
@@ -336,7 +335,7 @@ protected:
         TabletSharedPtr tablet = create_tablet(*tablet_schema, enable_unique_key_merge_on_write);
 
         // create input rowset reader
-        vector<RowsetReaderSharedPtr> input_rs_readers;
+        std::vector<RowsetReaderSharedPtr> input_rs_readers;
         for (auto& rowset : input_rowsets) {
             RowsetReaderSharedPtr rs_reader;
             EXPECT_TRUE(rowset->create_reader(&rs_reader).ok());
@@ -372,7 +371,7 @@ protected:
         std::vector<std::tuple<int64_t, int64_t>> output_data;
         do {
             vectorized::Block output_block = tablet_schema->create_block();
-            s = output_rs_reader->next_block(&output_block);
+            s = output_rs_reader->next_batch(&output_block);
             auto columns = output_block.get_columns_with_type_and_name();
             EXPECT_EQ(columns.size(), 2);
             for (auto i = 0; i < output_block.rows(); i++) {
@@ -384,7 +383,8 @@ protected:
         EXPECT_EQ(out_rowset->rowset_meta()->num_rows(), output_data.size());
         auto beta_rowset = std::dynamic_pointer_cast<BetaRowset>(out_rowset);
         std::vector<uint32_t> segment_num_rows;
-        EXPECT_TRUE(beta_rowset->get_segment_num_rows(&segment_num_rows).ok());
+        OlapReaderStatistics statistics;
+        EXPECT_TRUE(beta_rowset->get_segment_num_rows(&segment_num_rows, &statistics).ok());
         if (has_delete_handler) {
             // All keys less than 1000 are deleted by delete handler
             for (auto& item : output_data) {
@@ -470,7 +470,7 @@ protected:
 
 private:
     const std::string kTestDir = "/ut_dir/rowid_conversion_test";
-    string absolute_dir;
+    std::string absolute_dir;
 };
 
 TEST_F(TestRowIdConversion, Basic) {

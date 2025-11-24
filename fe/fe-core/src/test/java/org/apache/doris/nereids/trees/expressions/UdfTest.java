@@ -78,8 +78,8 @@ public class UdfTest extends TestWithFeService implements PlanPatternMatchSuppor
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .matches(
-                        logicalProject()
-                                .when(project -> project.getProjects().get(0).child(0).equals(expected))
+                        logicalOneRowRelation()
+                                .when(oneRow -> oneRow.getProjects().get(0).child(0).equals(expected))
                 );
 
         connectContext.setDatabase("test_1");
@@ -87,8 +87,8 @@ public class UdfTest extends TestWithFeService implements PlanPatternMatchSuppor
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .matches(
-                        logicalProject()
-                                .when(project -> project.getProjects().get(0).child(0).equals(expected1))
+                        logicalOneRowRelation()
+                                .when(oneRow -> oneRow.getProjects().get(0).child(0).equals(expected1))
                 );
 
         sql = "select test.f(3)";
@@ -96,8 +96,8 @@ public class UdfTest extends TestWithFeService implements PlanPatternMatchSuppor
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .matches(
-                        logicalProject()
-                                .when(project -> project.getProjects().get(0).child(0).equals(expected2))
+                        logicalOneRowRelation()
+                                .when(oneRow -> oneRow.getProjects().get(0).child(0).equals(expected2))
                 );
     }
 
@@ -105,22 +105,25 @@ public class UdfTest extends TestWithFeService implements PlanPatternMatchSuppor
     public void testNestedAliasFunction() throws Exception {
         createFunction("create global alias function f1(int) with parameter(n) as hours_add(now(3), n)");
         createFunction("create global alias function f2(int) with parameter(n) as dayofweek(days_add(f1(3), n))");
-        createFunction("create global alias function f3(date) with parameter(dt) as hours_sub(days_sub(dt, f2(3)), dayofmonth(f1(f2(4))))");
+        createFunction("create global alias function f3(datev2) with parameter(dt) as hours_sub(days_sub(dt, f2(3)), dayofmonth(f1(f2(4))))");
 
         Assertions.assertEquals(1, Env.getCurrentEnv().getFunctionRegistry()
                 .findUdfBuilder(connectContext.getDatabase(), "f3").size());
 
         String sql = "select f3(now(3))";
         Expression expected = new HoursSub(
-                new DaysSub(
-                        new Cast(new Now(new IntegerLiteral(3)), DateV2Type.INSTANCE),
-                        new Cast(new DayOfWeek(new DaysAdd(
-                                new HoursAdd(
-                                        new Now(new IntegerLiteral(3)),
-                                        new IntegerLiteral(3)
-                                ),
-                                new IntegerLiteral(3))
-                        ), IntegerType.INSTANCE)),
+                new Cast(
+                        new DaysSub(
+                                new Cast(new Now(new IntegerLiteral(3)), DateV2Type.INSTANCE),
+                                new Cast(new DayOfWeek(new DaysAdd(
+                                        new HoursAdd(
+                                                new Now(new IntegerLiteral(3)),
+                                                new IntegerLiteral(3)
+                                        ),
+                                        new IntegerLiteral(3))
+                                ), IntegerType.INSTANCE)
+                        ), DateTimeV2Type.SYSTEM_DEFAULT
+                ),
                 new Cast(new DayOfMonth(new HoursAdd(
                         new Now(new IntegerLiteral(3)),
                         new Cast(new DayOfWeek(new DaysAdd(
@@ -136,9 +139,9 @@ public class UdfTest extends TestWithFeService implements PlanPatternMatchSuppor
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .matches(
-                        logicalProject()
-                                .when(project -> project.getProjects().size() == 1
-                                        && project.getProjects().get(0).child(0).equals(expected))
+                        logicalOneRowRelation()
+                                .when(oneRow -> oneRow.getProjects().size() == 1
+                                        && oneRow.getProjects().get(0).child(0).equals(expected))
                 );
     }
 
@@ -179,9 +182,9 @@ public class UdfTest extends TestWithFeService implements PlanPatternMatchSuppor
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .matches(
-                        logicalProject()
-                                .when(project -> project.getProjects().size() == 1
-                                        && project.getProjects().get(0).child(0).equals(expected))
+                        logicalOneRowRelation()
+                                .when(oneRow -> oneRow.getProjects().size() == 1
+                                        && oneRow.getProjects().get(0).child(0).equals(expected))
                 );
     }
 

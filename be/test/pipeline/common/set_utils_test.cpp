@@ -68,16 +68,15 @@ TEST_F(SetUtilsTest, TestSetDataVariantsInitNumerics) {
     test_function<vectorized::UInt8, SetData<vectorized::UInt8>>(
             std::make_shared<vectorized::DataTypeUInt8>(), HashKeyType::int8_key);
     test_function<vectorized::UInt16, SetData<vectorized::UInt16>>(
-            std::make_shared<vectorized::DataTypeUInt16>(), HashKeyType::int16_key);
+            std::make_shared<vectorized::DataTypeInt16>(), HashKeyType::int16_key);
     test_function<vectorized::UInt32, SetData<vectorized::UInt32>>(
-            std::make_shared<vectorized::DataTypeUInt32>(), HashKeyType::int32_key);
+            std::make_shared<vectorized::DataTypeInt32>(), HashKeyType::int32_key);
     test_function<vectorized::UInt64, SetData<vectorized::UInt64>>(
-            std::make_shared<vectorized::DataTypeUInt64>(), HashKeyType::int64_key);
+            std::make_shared<vectorized::DataTypeInt64>(), HashKeyType::int64_key);
     test_function<vectorized::UInt128, SetData<vectorized::UInt128>>(
-            std::make_shared<vectorized::DataTypeUInt128>(), HashKeyType::int128_key);
+            std::make_shared<vectorized::DataTypeInt128>(), HashKeyType::int128_key);
     test_function<vectorized::UInt256, SetData<vectorized::UInt256>>(
-            std::make_shared<vectorized::DataTypeDecimal<vectorized::Decimal256>>(),
-            HashKeyType::int256_key);
+            std::make_shared<vectorized::DataTypeDecimal256>(), HashKeyType::int256_key);
 }
 
 TEST_F(SetUtilsTest, TestSetDataVariantsInitFixedKeys) {
@@ -116,24 +115,24 @@ TEST_F(SetUtilsTest, TestSetDataVariantsInitFixedKeys) {
                 std::make_shared<vectorized::DataTypeUInt8>()},
                HashKeyType::fixed64);
 
-    test_block({std::make_shared<vectorized::DataTypeUInt32>(),
-                std::make_shared<vectorized::DataTypeUInt32>()},
+    test_block({std::make_shared<vectorized::DataTypeInt32>(),
+                std::make_shared<vectorized::DataTypeInt32>()},
                HashKeyType::fixed64);
 
-    test_block({std::make_shared<vectorized::DataTypeUInt64>(),
+    test_block({std::make_shared<vectorized::DataTypeInt64>(),
                 std::make_shared<vectorized::DataTypeUInt8>()},
                HashKeyType::fixed128);
 
-    test_block({std::make_shared<vectorized::DataTypeUInt64>(),
-                std::make_shared<vectorized::DataTypeUInt64>()},
+    test_block({std::make_shared<vectorized::DataTypeInt64>(),
+                std::make_shared<vectorized::DataTypeInt64>()},
                HashKeyType::fixed128);
 
-    test_block({std::make_shared<vectorized::DataTypeUInt128>(),
+    test_block({std::make_shared<vectorized::DataTypeInt128>(),
                 std::make_shared<vectorized::DataTypeUInt8>()},
                HashKeyType::fixed136);
 
-    test_block({std::make_shared<vectorized::DataTypeUInt128>(),
-                std::make_shared<vectorized::DataTypeUInt128>()},
+    test_block({std::make_shared<vectorized::DataTypeInt128>(),
+                std::make_shared<vectorized::DataTypeInt128>()},
                HashKeyType::fixed256);
 }
 

@@ -20,13 +20,13 @@
 #include <bthread/bthread.h>
 #include <bthread/types.h>
 
-#include <chrono>
 #include <memory>
 #include <string>
 #include <thread>
 
 #include "common/exception.h"
 #include "common/logging.h"
+#include "common/macros.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/memory/thread_mem_tracker_mgr.h"
@@ -79,13 +79,6 @@
 //      LOG(INFO) << *peak_mem;
 #define SCOPED_PEAK_MEM(peak_mem) \
     auto VARNAME_LINENUM(scope_peak_mem) = doris::ScopedPeakMem(peak_mem)
-
-// Count a code segment memory (memory malloc - memory free) to MemTracker.
-// Compared to count `scope_mem`, MemTracker is easier to observe from the outside and is thread-safe.
-// Usage example: std::unique_ptr<MemTracker> tracker = std::make_unique<MemTracker>("first_tracker");
-//                { SCOPED_CONSUME_MEM_TRACKER_BY_HOOK(_mem_tracker.get()); xxx; xxx; }
-#define SCOPED_CONSUME_MEM_TRACKER_BY_HOOK(mem_tracker) \
-    auto VARNAME_LINENUM(add_mem_consumer) = doris::AddThreadMemTrackerConsumerByHook(mem_tracker)
 
 #define SCOPED_SKIP_MEMORY_CHECK() \
     auto VARNAME_LINENUM(scope_skip_memory_check) = doris::ScopeSkipMemoryCheck()
@@ -154,8 +147,6 @@ static std::string NO_THREAD_CONTEXT_MSG =
 // Is true after ThreadContext construction.
 inline thread_local bool pthread_context_ptr_init = false;
 inline thread_local constinit ThreadContext* thread_context_ptr = nullptr;
-// use mem hook to consume thread mem tracker.
-inline thread_local bool use_mem_hook = false;
 
 // The thread context saves some info about a working thread.
 // 2 required info:
@@ -300,7 +291,7 @@ static ThreadContext* thread_context() {
 
 class ScopedPeakMem {
 public:
-    explicit ScopedPeakMem(int64* peak_mem)
+    explicit ScopedPeakMem(int64_t* peak_mem)
             : _peak_mem(peak_mem),
               _mem_tracker("ScopedPeakMem:" + UniqueId::gen_uid().to_string()) {
         ThreadLocalHandle::create_thread_local_if_not_exits();
@@ -314,7 +305,7 @@ public:
     }
 
 private:
-    int64* _peak_mem;
+    int64_t* _peak_mem;
     MemTracker _mem_tracker;
 };
 
@@ -383,15 +374,6 @@ private:
     bool _need_pop = false;
 };
 
-class AddThreadMemTrackerConsumerByHook {
-public:
-    explicit AddThreadMemTrackerConsumerByHook(const std::shared_ptr<MemTracker>& mem_tracker);
-    ~AddThreadMemTrackerConsumerByHook();
-
-private:
-    std::shared_ptr<MemTracker> _mem_tracker;
-};
-
 class ScopeSkipMemoryCheck {
 public:
     explicit ScopeSkipMemoryCheck() {
@@ -406,54 +388,10 @@ public:
 };
 
 // Basic macros for mem tracker, usually do not need to be modified and used.
-
-// used to fix the tracking accuracy of caches.
-#define THREAD_MEM_TRACKER_TRANSFER_TO(size, tracker)                                             \
-    do {                                                                                          \
-        DCHECK(doris::k_doris_exit || !doris::config::enable_memory_orphan_check ||               \
-               doris::thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker()->label() != \
-                       "Orphan")                                                                  \
-                << doris::MEMORY_ORPHAN_CHECK_MSG;                                                \
-        doris::thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker()->transfer_to(      \
-                size, tracker);                                                                   \
-    } while (0)
-
-#define THREAD_MEM_TRACKER_TRANSFER_FROM(size, tracker)                                           \
-    do {                                                                                          \
-        DCHECK(doris::k_doris_exit || !doris::config::enable_memory_orphan_check ||               \
-               doris::thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker()->label() != \
-                       "Orphan")                                                                  \
-                << doris::MEMORY_ORPHAN_CHECK_MSG;                                                \
-        tracker->transfer_to(                                                                     \
-                size, doris::thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker());    \
-    } while (0)
-
-// Mem Hook to consume thread mem tracker
-#define CONSUME_THREAD_MEM_TRACKER_BY_HOOK(size)                            \
-    do {                                                                    \
-        if (doris::use_mem_hook) {                                          \
-            doris::thread_context()->thread_mem_tracker_mgr->consume(size); \
-        }                                                                   \
-    } while (0)
-#define RELEASE_THREAD_MEM_TRACKER_BY_HOOK(size) CONSUME_THREAD_MEM_TRACKER_BY_HOOK(-size)
-#define CONSUME_THREAD_MEM_TRACKER_BY_HOOK_WITH_FN(size_fn, ...)                            \
-    do {                                                                                    \
-        if (doris::use_mem_hook) {                                                          \
-            doris::thread_context()->thread_mem_tracker_mgr->consume(size_fn(__VA_ARGS__)); \
-        }                                                                                   \
-    } while (0)
-#define RELEASE_THREAD_MEM_TRACKER_BY_HOOK_WITH_FN(size_fn, ...)                             \
-    do {                                                                                     \
-        if (doris::use_mem_hook) {                                                           \
-            doris::thread_context()->thread_mem_tracker_mgr->consume(-size_fn(__VA_ARGS__)); \
-        }                                                                                    \
-    } while (0)
-
-// if use mem hook, avoid repeated consume.
 // must call create_thread_local_if_not_exits() before use thread_context().
 #define CONSUME_THREAD_MEM_TRACKER(size)                                                           \
     do {                                                                                           \
-        if (size == 0 || doris::use_mem_hook) {                                                    \
+        if (size == 0) {                                                                           \
             break;                                                                                 \
         }                                                                                          \
         if (doris::pthread_context_ptr_init) {                                                     \

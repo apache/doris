@@ -28,6 +28,7 @@
 #include "runtime/descriptors.h"
 #include "util/defer_op.h"
 #include "vec/core/block.h"
+#include "vec/data_types/data_type_number.h" // IWYU pragma: keep
 
 namespace doris {
 #include "common/compile_check_begin.h"
@@ -48,7 +49,7 @@ Status UnionSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
                 _parent->operator_id(), _parent->node_id(), _parent->get_name() + "_DEPENDENCY");
         _dependency = _only_const_dependency.get();
         _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(
-                _runtime_profile, "WaitForDependency[" + _dependency->name() + "]Time", 1);
+                common_profile(), "WaitForDependency[" + _dependency->name() + "]Time", 1);
         _dependency->set_ready();
     }
 
@@ -188,6 +189,18 @@ Status UnionSourceOperatorX::get_next_const(RuntimeState* state, vectorized::Blo
                        std::make_shared<vectorized::DataTypeUInt8>(), ""});
     }
     return Status::OK();
+}
+
+Status UnionSourceLocalState::close(RuntimeState* state) {
+    SCOPED_TIMER(exec_time_counter());
+    SCOPED_TIMER(_close_timer);
+    if (_closed) {
+        return Status::OK();
+    }
+    if (_shared_state) {
+        _shared_state->data_queue.terminate();
+    }
+    return Base::close(state);
 }
 
 } // namespace pipeline

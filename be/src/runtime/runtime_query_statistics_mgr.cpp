@@ -34,10 +34,12 @@
 #include <vector>
 
 #include "common/logging.h"
+#include "common/status.h"
 #include "exec/schema_scanner/schema_scanner_helper.h"
 #include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
 #include "util/debug_util.h"
+#include "util/threadpool.h"
 #include "util/thrift_client.h"
 #include "util/time.h"
 #include "util/uid_util.h"
@@ -112,9 +114,61 @@ static Status _do_report_exec_stats_rpc(const TNetworkAddress& coor_addr,
     return Status::OK();
 }
 
+static void _report_query_profiles_function(
+        std::unordered_map<
+                TUniqueId,
+                std::tuple<
+                        TNetworkAddress,
+                        std::unordered_map<int, std::vector<std::shared_ptr<TRuntimeProfileTree>>>>>
+                profile_copy,
+        std::unordered_map<std::pair<TUniqueId, int32_t>, std::shared_ptr<TRuntimeProfileTree>>
+                load_channel_profile_copy) {
+    // query_id -> {coordinator_addr, {fragment_id -> std::vectpr<pipeline_profile>}}
+    for (auto& entry : profile_copy) {
+        const auto& query_id = entry.first;
+        const auto& coor_addr = std::get<0>(entry.second);
+        auto& fragment_profile_map = std::get<1>(entry.second);
+
+        if (fragment_profile_map.empty()) {
+            auto msg = fmt::format("Query {} does not have profile", print_id(query_id));
+            DCHECK(false) << msg;
+            LOG_ERROR(msg);
+            continue;
+        }
+
+        std::vector<std::shared_ptr<TRuntimeProfileTree>> load_channel_profiles;
+        for (auto load_channel_profile : load_channel_profile_copy) {
+            if (load_channel_profile.second == nullptr) {
+                auto msg = fmt::format(
+                        "Register fragment profile {} {} failed, load channel profile is null",
+                        print_id(query_id), -1);
+                DCHECK(false) << msg;
+                LOG_ERROR(msg);
+                continue;
+            }
+
+            load_channel_profiles.push_back(load_channel_profile.second);
+        }
+
+        TReportExecStatusParams req = RuntimeQueryStatisticsMgr::create_report_exec_status_params(
+                query_id, std::move(fragment_profile_map), std::move(load_channel_profiles),
+                /*is_done=*/true);
+        TReportExecStatusResult res;
+
+        auto rpc_status = _do_report_exec_stats_rpc(coor_addr, req, res);
+
+        if (res.status.status_code != TStatusCode::OK || !rpc_status.ok()) {
+            LOG_WARNING("Query {} send profile to {} failed", print_id(query_id),
+                        PrintThriftNetworkAddress(coor_addr));
+        } else {
+            LOG_INFO("Send {} profile succeed", print_id(query_id));
+        }
+    }
+}
+
 TReportExecStatusParams RuntimeQueryStatisticsMgr::create_report_exec_status_params(
         const TUniqueId& query_id,
-        std::unordered_map<int32, std::vector<std::shared_ptr<TRuntimeProfileTree>>>
+        std::unordered_map<int32_t, std::vector<std::shared_ptr<TRuntimeProfileTree>>>
                 fragment_id_to_profile,
         std::vector<std::shared_ptr<TRuntimeProfileTree>> load_channel_profiles, bool is_done) {
     // This function will clear the data of fragment_id_to_profile and load_channel_profiles.
@@ -183,47 +237,45 @@ TReportExecStatusParams RuntimeQueryStatisticsMgr::create_report_exec_status_par
     return req;
 }
 
-void RuntimeQueryStatisticsMgr::start_report_thread() {
+Status RuntimeQueryStatisticsMgr::start_report_thread() {
     if (started.load()) {
         DCHECK(false) << "report thread has been started";
         LOG_ERROR("report thread has been started");
-        return;
+        return Status::InternalError("Report thread has been started");
     }
 
     started.store(true);
+    ThreadPoolBuilder profile_report_thread_pool_builder("ReportProfileThreadPool");
 
-    for (size_t i = 0; i < config::report_exec_status_thread_num; ++i) {
-        this->_report_profile_threads.emplace_back(std::make_unique<std::thread>(
-                &RuntimeQueryStatisticsMgr::report_query_profiles_thread, this));
-    }
+    return profile_report_thread_pool_builder.set_max_threads(config::report_exec_status_thread_num)
+            .build(&_thread_pool);
 }
 
-void RuntimeQueryStatisticsMgr::report_query_profiles_thread() {
-    while (true) {
-        {
-            std::unique_lock<std::mutex> lock(_report_profile_mutex);
+// 1. lock the profile_map.
+// 2. copy the profile_map and load_channel_profile_map to local variables.
+// 3. unlock the profile_map.
+// 4. create a profile reporting task and add it to the thread pool.
+void RuntimeQueryStatisticsMgr::trigger_profile_reporting() {
+    decltype(_profile_map) profile_copy;
+    decltype(_load_channel_profile_map) load_channel_profile_copy;
 
-            while (_profile_map.empty() && !_report_profile_thread_stop) {
-                _report_profile_cv.wait_for(lock, std::chrono::seconds(3));
-            }
-        }
-
-        _report_query_profiles_function();
-
-        {
-            std::lock_guard<std::mutex> lg(_report_profile_mutex);
-
-            if (_report_profile_thread_stop) {
-                LOG_INFO("Report profile thread stopped");
-                return;
-            }
-        }
+    {
+        std::unique_lock<std::mutex> lg(_profile_map_lock);
+        _profile_map.swap(profile_copy);
+        _load_channel_profile_map.swap(load_channel_profile_copy);
     }
-}
 
-void RuntimeQueryStatisticsMgr::trigger_report_profile() {
-    std::unique_lock<std::mutex> lock(_report_profile_mutex);
-    _report_profile_cv.notify_one();
+    // ATTN: Local variables are copied to avoid memory reclamation issues.
+    auto st = _thread_pool->submit_func([profile_copy, load_channel_profile_copy]() {
+        _report_query_profiles_function(profile_copy, load_channel_profile_copy);
+    });
+
+    if (!st.ok()) {
+        LOG_WARNING("Failed to submit profile reporting task, reason: {}", st.to_string());
+        // If the thread pool is full, we will not report the profile.
+        // The profile will be lost.
+        return;
+    }
 }
 
 void RuntimeQueryStatisticsMgr::stop_report_thread() {
@@ -231,24 +283,15 @@ void RuntimeQueryStatisticsMgr::stop_report_thread() {
         return;
     }
 
-    {
-        std::unique_lock<std::mutex> lock(_report_profile_mutex);
-        _report_profile_thread_stop = true;
-        LOG_INFO("All report threads are going to stop");
-        _report_profile_cv.notify_all();
-    }
-
-    for (const auto& thread : _report_profile_threads) {
-        thread->join();
-    }
-
+    LOG_INFO("All report threads are going to stop");
+    _thread_pool->shutdown();
     LOG_INFO("All report threads stopped");
 }
 
 void RuntimeQueryStatisticsMgr::register_fragment_profile(
         const TUniqueId& query_id, const TNetworkAddress& coor_addr, int32_t fragment_id,
         std::vector<std::shared_ptr<TRuntimeProfileTree>> p_profiles,
-        std::shared_ptr<TRuntimeProfileTree> load_channel_profile_x) {
+        std::shared_ptr<TRuntimeProfileTree> load_channel_profile) {
     for (const auto& p : p_profiles) {
         if (p == nullptr) {
             auto msg = fmt::format("Register fragment profile {} {} failed, profile is null",
@@ -259,7 +302,7 @@ void RuntimeQueryStatisticsMgr::register_fragment_profile(
         }
     }
 
-    std::lock_guard<std::shared_mutex> lg(_query_profile_map_lock);
+    std::unique_lock<std::mutex> lg(_profile_map_lock);
 
     if (!_profile_map.contains(query_id)) {
         _profile_map[query_id] = std::make_tuple(
@@ -271,65 +314,12 @@ void RuntimeQueryStatisticsMgr::register_fragment_profile(
             fragment_profile_map = std::get<1>(_profile_map[query_id]);
     fragment_profile_map.insert(std::make_pair(fragment_id, p_profiles));
 
-    if (load_channel_profile_x != nullptr) {
-        _load_channel_profile_map[std::make_pair(query_id, fragment_id)] = load_channel_profile_x;
+    if (load_channel_profile != nullptr) {
+        _load_channel_profile_map[std::make_pair(query_id, fragment_id)] = load_channel_profile;
     }
 
     LOG_INFO("register x profile done {}, fragment {}, profiles {}", print_id(query_id),
              fragment_id, p_profiles.size());
-}
-
-void RuntimeQueryStatisticsMgr::_report_query_profiles_function() {
-    decltype(_profile_map) profile_copy;
-    decltype(_load_channel_profile_map) load_channel_profile_copy;
-    VLOG_DEBUG << "Beging reporting profile";
-    {
-        std::lock_guard<std::shared_mutex> lg(_query_profile_map_lock);
-        _profile_map.swap(profile_copy);
-        _load_channel_profile_map.swap(load_channel_profile_copy);
-    }
-    VLOG_DEBUG << "After swap profile map";
-    // query_id -> {coordinator_addr, {fragment_id -> std::vectpr<pipeline_profile>}}
-    for (auto& entry : profile_copy) {
-        const auto& query_id = entry.first;
-        const auto& coor_addr = std::get<0>(entry.second);
-        auto& fragment_profile_map = std::get<1>(entry.second);
-
-        if (fragment_profile_map.empty()) {
-            auto msg = fmt::format("Query {} does not have profile", print_id(query_id));
-            DCHECK(false) << msg;
-            LOG_ERROR(msg);
-            continue;
-        }
-
-        std::vector<std::shared_ptr<TRuntimeProfileTree>> load_channel_profiles;
-        for (auto load_channel_profile : load_channel_profile_copy) {
-            if (load_channel_profile.second == nullptr) {
-                auto msg = fmt::format(
-                        "Register fragment profile {} {} failed, load channel profile is null",
-                        print_id(query_id), -1);
-                DCHECK(false) << msg;
-                LOG_ERROR(msg);
-                continue;
-            }
-
-            load_channel_profiles.push_back(load_channel_profile.second);
-        }
-
-        TReportExecStatusParams req = create_report_exec_status_params(
-                query_id, std::move(fragment_profile_map), std::move(load_channel_profiles),
-                /*is_done=*/true);
-        TReportExecStatusResult res;
-
-        auto rpc_status = _do_report_exec_stats_rpc(coor_addr, req, res);
-
-        if (res.status.status_code != TStatusCode::OK || !rpc_status.ok()) {
-            LOG_WARNING("Query {} send profile to {} failed", print_id(query_id),
-                        PrintThriftNetworkAddress(coor_addr));
-        } else {
-            LOG_INFO("Send {} profile succeed", print_id(query_id));
-        }
-    }
 }
 
 void RuntimeQueryStatisticsMgr::register_resource_context(
@@ -348,7 +338,8 @@ void RuntimeQueryStatisticsMgr::register_resource_context(
 void RuntimeQueryStatisticsMgr::report_runtime_query_statistics() {
     int64_t be_id = ExecEnv::GetInstance()->cluster_info()->backend_id;
     // 1 get query statistics map
-    std::map<TNetworkAddress, std::map<std::string, TQueryStatistics>> fe_qs_map;
+    // <fe_addr, <query_id, <query_statistics, is_query_finished>>>
+    std::map<TNetworkAddress, std::map<std::string, std::pair<TQueryStatistics, bool>>> fe_qs_map;
     std::map<std::string, std::pair<bool, bool>> qs_status; // <finished, timeout>
     {
         std::lock_guard<std::shared_mutex> write_lock(_resource_contexts_map_lock);
@@ -374,13 +365,14 @@ void RuntimeQueryStatisticsMgr::report_runtime_query_statistics() {
                 if (resource_ctx->task_controller()->query_type() != TQueryType::EXTERNAL) {
                     if (fe_qs_map.find(resource_ctx->task_controller()->fe_addr()) ==
                         fe_qs_map.end()) {
-                        std::map<std::string, TQueryStatistics> tmp_map;
+                        std::map<std::string, std::pair<TQueryStatistics, bool>> tmp_map;
                         fe_qs_map[resource_ctx->task_controller()->fe_addr()] = std::move(tmp_map);
                     }
 
                     TQueryStatistics ret_t_qs;
                     resource_ctx->to_thrift_query_statistics(&ret_t_qs);
-                    fe_qs_map.at(resource_ctx->task_controller()->fe_addr())[query_id] = ret_t_qs;
+                    fe_qs_map.at(resource_ctx->task_controller()->fe_addr())[query_id] =
+                            std::make_pair(ret_t_qs, is_query_finished);
                     qs_status[query_id] =
                             std::make_pair(is_query_finished, is_timeout_after_finish);
                 }
@@ -407,10 +399,27 @@ void RuntimeQueryStatisticsMgr::report_runtime_query_statistics() {
             continue;
         }
 
+        auto reopen_coord = [&coord]() -> Status {
+            std::this_thread::sleep_for(
+                    std::chrono::milliseconds(config::thrift_client_retry_interval_ms * 2));
+            // just reopen to disable this connection
+            return coord.reopen(config::thrift_rpc_timeout_ms);
+        };
+
         // 2.2 send report
         TReportWorkloadRuntimeStatusParams report_runtime_params;
         report_runtime_params.__set_backend_id(be_id);
-        report_runtime_params.__set_query_statistics_map(qs_map);
+
+        // Build the query statistics map with TQueryStatisticsResult
+        std::map<std::string, TQueryStatisticsResult> query_stats_result_map;
+        for (const auto& [query_id, query_stats_pair] : qs_map) {
+            TQueryStatisticsResult stats_result;
+            stats_result.__set_statistics(query_stats_pair.first);      // TQueryStatistics
+            stats_result.__set_query_finished(query_stats_pair.second); // is_query_finished
+            query_stats_result_map[query_id] = stats_result;
+        }
+
+        report_runtime_params.__set_query_statistics_result_map(query_stats_result_map);
 
         TReportExecStatusParams params;
         params.__set_report_workload_runtime_status(report_runtime_params);
@@ -423,43 +432,43 @@ void RuntimeQueryStatisticsMgr::report_runtime_query_statistics() {
                 coord->reportExecStatus(res, params);
                 rpc_result[addr] = true;
             } catch (apache::thrift::transport::TTransportException& e) {
+                rpc_status = reopen_coord();
 #ifndef ADDRESS_SANITIZER
                 LOG_WARNING(
                         "[report_query_statistics] report to fe {} failed, reason:{}, try reopen.",
                         add_str, e.what());
-                rpc_status = coord.reopen(config::thrift_rpc_timeout_ms);
-                if (!rpc_status.ok()) {
-                    LOG_WARNING(
-                            "[report_query_statistics]reopen thrift client failed when report "
-                            "workload runtime statistics to {}, reason: {}",
-                            add_str, rpc_status.to_string());
-                } else {
-                    coord->reportExecStatus(res, params);
-                    rpc_result[addr] = true;
-                }
 #else
                 std::cerr << "thrift error, reason=" << e.what();
 #endif
+                if (rpc_status.ok()) {
+                    coord->reportExecStatus(res, params);
+                    rpc_result[addr] = true;
+                }
             }
         } catch (apache::thrift::TApplicationException& e) {
             LOG_WARNING(
                     "[report_query_statistics]fe {} throw exception when report statistics, "
                     "reason:{}, you can see fe log for details.",
                     add_str, e.what());
+            rpc_status = reopen_coord();
         } catch (apache::thrift::TException& e) {
             LOG_WARNING(
                     "[report_query_statistics]report workload runtime statistics to {} failed,  "
                     "reason: {}",
                     add_str, e.what());
-            std::this_thread::sleep_for(
-                    std::chrono::milliseconds(config::thrift_client_retry_interval_ms * 2));
-            // just reopen to disable this connection
-            static_cast<void>(coord.reopen(config::thrift_rpc_timeout_ms));
+            rpc_status = reopen_coord();
         } catch (std::exception& e) {
             LOG_WARNING(
                     "[report_query_statistics]unknown exception when report workload runtime "
                     "statistics to {}, reason:{}. ",
                     add_str, e.what());
+        }
+
+        if (!rpc_status.ok()) {
+            LOG_WARNING(
+                    "[report_query_statistics]reopen thrift client failed when report "
+                    "workload runtime statistics to {}, reason: {}",
+                    add_str, rpc_status.to_string());
         }
     }
 
@@ -519,6 +528,19 @@ void RuntimeQueryStatisticsMgr::get_active_be_tasks_block(vectorized::Block* blo
         SchemaScannerHelper::insert_int64_value(13, tqs.spill_write_bytes_to_local_storage, block);
         SchemaScannerHelper::insert_int64_value(14, tqs.spill_read_bytes_from_local_storage, block);
     }
+}
+
+Status RuntimeQueryStatisticsMgr::get_query_statistics(const std::string& query_id,
+                                                       TQueryStatistics* query_stats) {
+    std::shared_lock<std::shared_mutex> read_lock(_resource_contexts_map_lock);
+
+    auto resource_ctx = _resource_contexts_map.find(query_id);
+    if (resource_ctx == _resource_contexts_map.end()) {
+        return Status::InternalError("failed to find query with id {}", query_id);
+    }
+
+    resource_ctx->second->to_thrift_query_statistics(query_stats);
+    return Status::OK();
 }
 
 void RuntimeQueryStatisticsMgr::get_tasks_resource_context(

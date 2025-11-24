@@ -121,7 +121,7 @@ if [[ "${HELP}" -eq 1 ]]; then
     usage
 fi
 
-if [[ -n "${DISABLE_BUILD_AZURE}" ]]; then
+if [[ "$(echo "${DISABLE_BUILD_AZURE}" | tr '[:lower:]' '[:upper:]')" == "ON" ]]; then
     BUILD_AZURE='OFF'
 fi
 
@@ -165,6 +165,12 @@ if [[ "${CC}" == *gcc ]]; then
     warning_array_parameter='-Wno-array-parameter'
     warning_narrowing='-Wno-narrowing'
     warning_dangling_reference='-Wno-dangling-reference'
+
+    gcc_major_version=$("${CC}" -dumpversion | cut -d. -f1)
+    if [[ "${gcc_major_version}" -ge 15 ]]; then
+        warning_deprecated_literal_operator='-Wno-deprecated-literal-operator'
+    fi
+
     boost_toolset='gcc'
 elif [[ "${CC}" == *clang ]]; then
     warning_uninitialized='-Wno-uninitialized'
@@ -343,8 +349,9 @@ build_libevent() {
     CFLAGS="-std=c99 -D_BSD_SOURCE -fno-omit-frame-pointer -g -ggdb -O2 -I${TP_INCLUDE_DIR}" \
         CPPLAGS="-I${TP_INCLUDE_DIR}" \
         LDFLAGS="-L${TP_LIB_DIR}" \
-        "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DEVENT__DISABLE_TESTS=ON \
-        -DEVENT__DISABLE_OPENSSL=ON -DEVENT__DISABLE_SAMPLES=ON -DEVENT__DISABLE_REGRESS=ON ..
+        "${CMAKE_CMD}" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+        -G "${GENERATOR}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DEVENT__DISABLE_TESTS=ON \
+        -DEVENT__DISABLE_SAMPLES=ON -DEVENT__DISABLE_REGRESS=ON ..
 
     "${BUILD_SYSTEM}" -j "${PARALLEL}"
     "${BUILD_SYSTEM}" install
@@ -434,7 +441,8 @@ build_protobuf() {
 
     CXXFLAGS="-O2 -I${TP_INCLUDE_DIR}" \
         LDFLAGS="${ldflags}" \
-        "${CMAKE_CMD}" -DCMAKE_BUILD_TYPE=Release \
+        "${CMAKE_CMD}" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+        -DCMAKE_BUILD_TYPE=Release \
         -DCMAKE_PREFIX_PATH="${TP_INSTALL_DIR}" \
         -Dprotobuf_USE_EXTERNAL_GTEST=ON \
         -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
@@ -461,7 +469,8 @@ build_gflags() {
 
     rm -rf CMakeCache.txt CMakeFiles/
 
-    "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
+    "${CMAKE_CMD}" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+        -G "${GENERATOR}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
         -DCMAKE_BUILD_TYPE=Release -DCMAKE_POSITION_INDEPENDENT_CODE=On ../
 
     "${BUILD_SYSTEM}" -j "${PARALLEL}"
@@ -487,13 +496,14 @@ build_glog() {
     elif [[ "${GLOG_SOURCE}" == "glog-0.6.0" ]]; then
         LDFLAGS="-L${TP_LIB_DIR}" \
             "${CMAKE_CMD}" -S . -B build -G "Unix Makefiles" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
+            -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
             -DWITH_UNWIND=OFF \
             -DBUILD_SHARED_LIBS=OFF \
             -DWITH_TLS=OFF
 
-        cmake --build build --target install
+        "${CMAKE_CMD}" --build build --target install
     fi
 
     strip_lib libglog.a
@@ -509,7 +519,8 @@ build_gtest() {
     cd "${BUILD_DIR}"
 
     rm -rf CMakeCache.txt CMakeFiles/
-    "${CMAKE_CMD}" ../ -G "${GENERATOR}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DCMAKE_POSITION_INDEPENDENT_CODE=On
+    "${CMAKE_CMD}" ../ -G "${GENERATOR}" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+      -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DCMAKE_POSITION_INDEPENDENT_CODE=On
     # -DCMAKE_CXX_FLAGS="$warning_uninitialized"
 
     "${BUILD_SYSTEM}" -j "${PARALLEL}"
@@ -527,7 +538,8 @@ build_rapidjson() {
 
     rm -rf CMakeCache.txt CMakeFiles/
 
-    "${CMAKE_CMD}" ../ -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DRAPIDJSON_BUILD_DOC=OFF \
+    "${CMAKE_CMD}" ../ -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+        -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DRAPIDJSON_BUILD_DOC=OFF \
         -DRAPIDJSON_BUILD_EXAMPLES=OFF -DRAPIDJSON_BUILD_TESTS=OFF
 
     make -j "${PARALLEL}"
@@ -545,6 +557,7 @@ build_snappy() {
     rm -rf CMakeCache.txt CMakeFiles/
 
     CFLAGS="-O3" CXXFLAGS="-O3" "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
+        -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
         -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
         -DCMAKE_INSTALL_INCLUDEDIR="${TP_INCLUDE_DIR}"/snappy \
         -DSNAPPY_BUILD_TESTS=0 ../
@@ -621,7 +634,8 @@ build_zstd() {
     mkdir -p "${BUILD_DIR}"
     cd "${BUILD_DIR}"
 
-    "${CMAKE_CMD}" -G "${GENERATOR}" -DBUILD_TESTING=OFF -DZSTD_BUILD_TESTS=OFF -DZSTD_BUILD_STATIC=ON \
+    "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+        -DBUILD_TESTING=OFF -DZSTD_BUILD_TESTS=OFF -DZSTD_BUILD_STATIC=ON \
         -DZSTD_BUILD_PROGRAMS=OFF -DZSTD_BUILD_SHARED=OFF -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" ..
 
     "${BUILD_SYSTEM}" -j "${PARALLEL}" install
@@ -685,7 +699,8 @@ build_re2() {
     check_if_source_exist "${RE2_SOURCE}"
     cd "${TP_SOURCE_DIR}/${RE2_SOURCE}"
 
-    "${CMAKE_CMD}" -DCMAKE_BUILD_TYPE=Release -G "${GENERATOR}" -DBUILD_SHARED_LIBS=0 -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+    "${CMAKE_CMD}" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+        -DCMAKE_BUILD_TYPE=Release -G "${GENERATOR}" -DBUILD_SHARED_LIBS=0 -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
         -DCMAKE_PREFIX_PATH="${TP_INSTALL_DIR}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}"
     "${BUILD_SYSTEM}" -j "${PARALLEL}" install
     strip_lib libre2.a
@@ -716,7 +731,8 @@ build_hyperscan() {
     cd "${BUILD_DIR}"
 
     CXXFLAGS="-D_HAS_AUTO_PTR_ETC=0" \
-        "${CMAKE_CMD}" -G "${GENERATOR}" -DBUILD_SHARED_LIBS=0 -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+        "${CMAKE_CMD}" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+        -G "${GENERATOR}" -DBUILD_SHARED_LIBS=0 -DCMAKE_BUILD_TYPE=RelWithDebInfo \
         -DBOOST_ROOT="${TP_INSTALL_DIR}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DBUILD_EXAMPLES=OFF ..
     "${BUILD_SYSTEM}" -j "${PARALLEL}" install
     strip_lib libhs.a
@@ -758,15 +774,16 @@ build_mysql() {
     fi
 
     if [[ "${KERNEL}" != 'Darwin' ]]; then
-        cflags='-static -pthread -lrt'
+        cflags='-static -pthread -lrt -std=gnu89'
         cxxflags='-static -pthread -lrt'
     else
-        cflags='-pthread'
+        cflags='-pthread -std=gnu89'
         cxxflags='-pthread'
     fi
 
     CFLAGS="${cflags}" CXXFLAGS="${cxxflags}" \
-        "${CMAKE_CMD}" -G "${GENERATOR}" ../ -DCMAKE_LINK_SEARCH_END_STATIC=1 \
+        "${CMAKE_CMD}" -G "${GENERATOR}" ../ -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+        -DCMAKE_LINK_SEARCH_END_STATIC=1 \
         -DWITH_BOOST="$(pwd)/${BOOST_SOURCE}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}/mysql" \
         -DWITHOUT_SERVER=1 -DWITH_ZLIB=1 -DZLIB_ROOT="${TP_INSTALL_DIR}" \
         -DCMAKE_CXX_FLAGS_RELWITHDEBINFO="-O3 -g -fabi-version=2 -fno-omit-frame-pointer -fno-strict-aliasing -std=gnu++11" \
@@ -797,7 +814,8 @@ build_leveldb() {
 
     rm -rf CMakeCache.txt CMakeFiles/
 
-    CXXFLAGS="-fPIC" "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DLEVELDB_BUILD_BENCHMARKS=OFF \
+    CXXFLAGS="-fPIC" "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+        -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DLEVELDB_BUILD_BENCHMARKS=OFF \
         -DLEVELDB_BUILD_TESTS=OFF ..
     "${BUILD_SYSTEM}" -j "${PARALLEL}" install
     strip_lib libleveldb.a
@@ -832,6 +850,7 @@ build_brpc() {
     # glog must be enabled, otherwise error: `flag 'v' was defined more than once` (in files 'glog-0.6.0/src/vlog_is_on.cc' and 'brpc-1.6.0/src/butil/logging.cc')
     LDFLAGS="${ldflags}" \
         "${CMAKE_CMD}" -G "${GENERATOR}" -DBUILD_SHARED_LIBS=ON -DWITH_GLOG=ON -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
+        -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
         -DCMAKE_LIBRARY_PATH="${TP_INSTALL_DIR}/lib64" -DCMAKE_INCLUDE_PATH="${TP_INSTALL_DIR}/include" \
         -DBUILD_BRPC_TOOLS=OFF \
         -DPROTOBUF_PROTOC_EXECUTABLE="${TP_INSTALL_DIR}/bin/protoc" ..
@@ -875,7 +894,7 @@ build_cyrus_sasl() {
     check_if_source_exist "${CYRUS_SASL_SOURCE}"
     cd "${TP_SOURCE_DIR}/${CYRUS_SASL_SOURCE}"
 
-    CFLAGS="-fPIC -Wno-implicit-function-declaration" \
+    CFLAGS="-fPIC -std=gnu89 -Wno-implicit-function-declaration" \
         CPPFLAGS="-I${TP_INCLUDE_DIR}" \
         LDFLAGS="-L${TP_LIB_DIR}" \
         LIBS="-lcrypto" \
@@ -919,7 +938,7 @@ build_odbc() {
 
     cd "${TP_SOURCE_DIR}/${ODBC_SOURCE}"
 
-    CFLAGS="-I${TP_INCLUDE_DIR} -Wno-int-conversion -Wno-implicit-function-declaration" \
+    CFLAGS="-I${TP_INCLUDE_DIR} -Wno-int-conversion -std=gnu89 -Wno-implicit-function-declaration" \
         LDFLAGS="-L${TP_LIB_DIR}" \
         ./configure --prefix="${TP_INSTALL_DIR}" --with-included-ltdl --enable-static=yes --enable-shared=no
 
@@ -945,6 +964,7 @@ build_flatbuffers() {
 
     LDFLAGS="${ldflags}" \
         "${CMAKE_CMD}" -G "${GENERATOR}" \
+        -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
         -DFLATBUFFERS_CXX_FLAGS="${warning_class_memaccess} ${warning_unused_but_set_variable}" \
         -DFLATBUFFERS_BUILD_TESTS=OFF \
         ..
@@ -963,7 +983,8 @@ build_cares() {
 
     mkdir -p build
     cd build
-    cmake -DCMAKE_BUILD_TYPE=Release \
+    cmake -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+        -DCMAKE_BUILD_TYPE=Release \
         -DCARES_STATIC=ON \
         -DCARES_SHARED=OFF \
         -DCARES_STATIC_PIC=ON \
@@ -980,8 +1001,15 @@ build_grpc() {
     mkdir -p cmake/build
     cd cmake/build
 
-    cmake -DgRPC_INSTALL=ON \
+    "${CMAKE_CMD}" -DgRPC_INSTALL=ON \
+        -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
         -DgRPC_BUILD_TESTS=OFF \
+        -Dgrpc_csharp_plugin=OFF \
+        -Dgrpc_node_plugin=OFF \
+        -Dgrpc_objective_c_plugin=OFF \
+        -Dgrpc_php_plugin=OFF \
+        -Dgrpc_python_plugin=OFF \
+        -Dgrpc_ruby_plugin=OFF \
         -DCMAKE_BUILD_TYPE=Release \
         -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
         -DgRPC_CARES_PROVIDER=package \
@@ -1034,7 +1062,8 @@ build_arrow() {
     fi
 
     LDFLAGS="${ldflags}" \
-        "${CMAKE_CMD}" -G "${GENERATOR}" -DARROW_PARQUET=ON -DARROW_IPC=ON -DARROW_BUILD_SHARED=OFF \
+        "${CMAKE_CMD}" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+        -G "${GENERATOR}" -DARROW_PARQUET=ON -DARROW_IPC=ON -DARROW_BUILD_SHARED=OFF \
         -DARROW_BUILD_STATIC=ON -DARROW_WITH_BROTLI=ON -DARROW_WITH_LZ4=ON -DARROW_USE_GLOG=ON \
         -DARROW_WITH_SNAPPY=ON -DARROW_WITH_ZLIB=ON -DARROW_WITH_ZSTD=ON -DARROW_JSON=ON \
         -DARROW_WITH_UTF8PROC=OFF -DARROW_WITH_RE2=ON -DARROW_ORC=ON \
@@ -1093,7 +1122,8 @@ build_abseil() {
     cd "${TP_SOURCE_DIR}/${ABSEIL_SOURCE}"
 
     LDFLAGS="-L${TP_LIB_DIR}" \
-        "${CMAKE_CMD}" -B "${BUILD_DIR}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
+        "${CMAKE_CMD}" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+        -B "${BUILD_DIR}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
         -DABSL_ENABLE_INSTALL=ON \
         -DBUILD_DEPS=ON \
         -DCMAKE_BUILD_TYPE=Release \
@@ -1101,8 +1131,8 @@ build_abseil() {
         -DABSL_PROPAGATE_CXX_STD=ON \
         -DBUILD_SHARED_LIBS=OFF
 
-    cmake --build "${BUILD_DIR}" -j "${PARALLEL}"
-    cmake --install "${BUILD_DIR}" --prefix "${TP_INSTALL_DIR}"
+    "${CMAKE_CMD}" --build "${BUILD_DIR}" -j "${PARALLEL}"
+    "${CMAKE_CMD}" --install "${BUILD_DIR}" --prefix "${TP_INSTALL_DIR}"
 }
 
 # s2
@@ -1116,7 +1146,8 @@ build_s2() {
     rm -rf CMakeCache.txt CMakeFiles/
 
     LDFLAGS="-L${TP_LIB_DIR}" \
-        ${CMAKE_CMD} -G "${GENERATOR}" -DBUILD_SHARED_LIBS=OFF -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
+        ${CMAKE_CMD} -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+        -G "${GENERATOR}" -DBUILD_SHARED_LIBS=OFF -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
         -DCMAKE_PREFIX_PATH="${TP_INSTALL_DIR}" \
         -DBUILD_SHARED_LIBS=OFF \
         -DWITH_GFLAGS=ON \
@@ -1228,7 +1259,8 @@ build_croaringbitmap() {
 
     CXXFLAGS="-O3" \
         LDFLAGS="${ldflags}" \
-        "${CMAKE_CMD}" -G "${GENERATOR}" ${avx_flag:+${avx_flag}} -DROARING_BUILD_STATIC=ON -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
+        "${CMAKE_CMD}" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+        -G "${GENERATOR}" ${avx_flag:+${avx_flag}} -DROARING_BUILD_STATIC=ON -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
         -DENABLE_ROARING_TESTS=OFF ..
 
     "${BUILD_SYSTEM}" -j "${PARALLEL}"
@@ -1245,7 +1277,8 @@ build_fmt() {
 
     rm -rf CMakeCache.txt CMakeFiles/
 
-    "${CMAKE_CMD}" -G "${GENERATOR}" -DBUILD_SHARED_LIBS=FALSE -DFMT_TEST=OFF -DFMT_DOC=OFF -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" ..
+    "${CMAKE_CMD}" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+     -G "${GENERATOR}" -DBUILD_SHARED_LIBS=FALSE -DFMT_TEST=OFF -DFMT_DOC=OFF -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" ..
     "${BUILD_SYSTEM}" -j"${PARALLEL}"
     "${BUILD_SYSTEM}" install
 }
@@ -1283,6 +1316,7 @@ build_orc() {
 
     CXXFLAGS="-O3 -Wno-array-bounds ${warning_reserved_identifier} ${warning_suggest_override}" \
         "${CMAKE_CMD}" -G "${GENERATOR}" ../ -DBUILD_JAVA=OFF \
+        -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
         -DPROTOBUF_HOME="${TP_INSTALL_DIR}" \
         -DSNAPPY_HOME="${TP_INSTALL_DIR}" \
         -DLZ4_HOME="${TP_INSTALL_DIR}" \
@@ -1310,7 +1344,10 @@ build_cctz() {
 
     rm -rf CMakeCache.txt CMakeFiles/
 
-    "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DBUILD_TESTING=OFF ..
+    # -Wno-elaborated-enum-base to make C++20 on MacOS happy
+    "${CMAKE_CMD}" -G "${GENERATOR}" \
+    -DCMAKE_CXX_FLAGS="$CMAKE_CXX_FLAGS -Wno-elaborated-enum-base" \
+    -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DBUILD_TESTING=OFF ..
     "${BUILD_SYSTEM}" -j "${PARALLEL}" install
 }
 
@@ -1349,10 +1386,11 @@ build_aws_sdk() {
 
     # -Wno-nonnull gcc-11
     "${CMAKE_CMD}" -G "${GENERATOR}" -B"${BUILD_DIR}" -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
+        -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
         -DCMAKE_PREFIX_PATH="${TP_INSTALL_DIR}" -DBUILD_SHARED_LIBS=OFF -DENABLE_TESTING=OFF \
         -DCURL_LIBRARY_RELEASE="${TP_INSTALL_DIR}/lib/libcurl.a" -DZLIB_LIBRARY_RELEASE="${TP_INSTALL_DIR}/lib/libz.a" \
         -DBUILD_ONLY="core;s3;s3-crt;transfer;identity-management;sts" \
-        -DCMAKE_CXX_FLAGS="-Wno-nonnull -Wno-deprecated-declarations ${warning_dangling_reference}" -DCPP_STANDARD=17
+        -DCMAKE_CXX_FLAGS="-Wno-nonnull -Wno-deprecated-literal-operator ${warning_deprecated_literal_operator} -Wno-deprecated-declarations ${warning_dangling_reference}" -DCPP_STANDARD=17
 
     cd "${BUILD_DIR}"
 
@@ -1471,7 +1509,7 @@ build_krb5() {
         with_crypto_impl='--with-crypto-impl=openssl'
     fi
 
-    CFLAGS="-fcommon -fPIC -I${TP_INSTALL_DIR}/include" LDFLAGS="-L${TP_INSTALL_DIR}/lib" \
+    CFLAGS="-fcommon -fPIC -I${TP_INSTALL_DIR}/include -std=gnu89" LDFLAGS="-L${TP_INSTALL_DIR}/lib" \
         ../configure --prefix="${TP_INSTALL_DIR}" --disable-shared --enable-static \
         --without-keyutils ${with_crypto_impl:+${with_crypto_impl}}
 
@@ -1493,7 +1531,8 @@ build_hdfs3() {
     else
         SSE_OPTION='-DENABLE_SSE=OFF'
     fi
-    cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
+    "${CMAKE_CMD}" -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
+        -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
         -DBUILD_STATIC_LIBS=ON -DBUILD_SHARED_LIBS=OFF -DBUILD_TEST=OFF "${SSE_OPTION}" \
         -DProtobuf_PROTOC_EXECUTABLE="${TP_INSTALL_DIR}/bin/protoc" \
         -DProtobuf_INCLUDE_DIR="${TP_INSTALL_DIR}/include" \
@@ -1560,7 +1599,7 @@ build_libunwind() {
         # LIBUNWIND_NO_HEAP: https://reviews.llvm.org/D11897
         # LIBUNWIND_IS_NATIVE_ONLY: https://lists.llvm.org/pipermail/cfe-commits/Week-of-Mon-20160523/159802.html
         # -nostdinc++ only required for gcc compilation
-        cflags="-I${TP_INCLUDE_DIR} -std=c99 -D_LIBUNWIND_NO_HEAP=1 -D_DEBUG -D_LIBUNWIND_IS_NATIVE_ONLY -O3 -fno-exceptions -funwind-tables -fno-sanitize=all -nostdinc++ -fno-rtti"
+        cflags="-I${TP_INCLUDE_DIR} -std=c99 -D_LIBUNWIND_NO_HEAP=1 -D_DEBUG -D_LIBUNWIND_IS_NATIVE_ONLY -O3 -fno-exceptions -funwind-tables -fno-sanitize=all -nostdinc++ -fno-rtti -Wno-error=incompatible-pointer-types"
         CFLAGS="${cflags}" LDFLAGS="-L${TP_LIB_DIR} -llzma" ../configure --prefix="${TP_INSTALL_DIR}" --disable-shared --enable-static
 
         make -j "${PARALLEL}"
@@ -1574,7 +1613,7 @@ build_benchmark() {
 
     cd "${TP_SOURCE_DIR}/${BENCHMARK_SOURCE}"
 
-    cmake -E make_directory "build"
+    "${CMAKE_CMD}" -E make_directory "build"
 
     if [[ "${KERNEL}" != 'Darwin' ]]; then
         cxxflags='-lresolv -pthread -lrt'
@@ -1603,6 +1642,7 @@ build_simdjson() {
 
     CXXFLAGS="-O3" CFLAGS="-O3" \
         "${CMAKE_CMD}" -DSIMDJSON_EXCEPTIONS=OFF \
+        -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
         -DSIMDJSON_DEVELOPER_MODE=OFF -DSIMDJSON_BUILD_STATIC=ON \
         -DSIMDJSON_JUST_LIBRARY=ON -DSIMDJSON_ENABLE_THREADS=ON ..
     "${CMAKE_CMD}" --build . --config Release
@@ -1619,7 +1659,8 @@ build_nlohmann_json() {
     mkdir -p "${BUILD_DIR}"
     cd "${BUILD_DIR}"
 
-    "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DCMAKE_PREFIX_PATH="${TP_INSTALL_DIR}" -DJSON_BuildTests=OFF ..
+    "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+        -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DCMAKE_PREFIX_PATH="${TP_INSTALL_DIR}" -DJSON_BuildTests=OFF ..
 
     "${BUILD_SYSTEM}" -j "${PARALLEL}"
     "${BUILD_SYSTEM}" install
@@ -1651,7 +1692,7 @@ build_binutils() {
     cd "${BUILD_DIR}"
 
     ../configure --prefix="${TP_INSTALL_DIR}/binutils" --includedir="${TP_INCLUDE_DIR}" --libdir="${TP_LIB_DIR}" \
-        --enable-install-libiberty --without-msgpack
+        --enable-install-libiberty --without-msgpack -with-system-zlib
     make -j "${PARALLEL}"
     make install-bfd install-libiberty install-binutils
 }
@@ -1704,6 +1745,24 @@ build_hadoop_libs() {
     find ./hadoop-dist/target/hadoop-3.3.6/lib/native/ -type l -exec cp -P {} "${TP_INSTALL_DIR}/lib/hadoop_hdfs/native/" \;
 }
 
+# hadoop_libs_3_4
+build_hadoop_libs_3_4() {
+    check_if_source_exist "${HADOOP_LIBS_3_4_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${HADOOP_LIBS_3_4_SOURCE}"
+    echo "THIRDPARTY_INSTALLED=${TP_INSTALL_DIR}" >env.sh
+    ./build.sh
+
+    rm -rf "${TP_INSTALL_DIR}/include/hadoop_hdfs_3_4/"
+    rm -rf "${TP_INSTALL_DIR}/lib/hadoop_hdfs_3_4/"
+    mkdir -p "${TP_INSTALL_DIR}/include/hadoop_hdfs_3_4/"
+    mkdir -p "${TP_INSTALL_DIR}/lib/hadoop_hdfs_3_4/"
+    cp -r ./hadoop-dist/target/hadoop-libhdfs-3.4.2/* "${TP_INSTALL_DIR}/lib/hadoop_hdfs_3_4/"
+    cp -r ./hadoop-dist/target/hadoop-libhdfs-3.4.2/include/hdfs.h "${TP_INSTALL_DIR}/include/hadoop_hdfs_3_4/"
+    rm -rf "${TP_INSTALL_DIR}/lib/hadoop_hdfs_3_4/native/*.a"
+    find ./hadoop-dist/target/hadoop-3.4.2/lib/native/ -type f ! -name '*.a' -exec cp {} "${TP_INSTALL_DIR}/lib/hadoop_hdfs_3_4/native/" \;
+    find ./hadoop-dist/target/hadoop-3.4.2/lib/native/ -type l -exec cp -P {} "${TP_INSTALL_DIR}/lib/hadoop_hdfs_3_4/native/" \;
+}
+
 # AvxToNeon
 build_avx2neon() {
     check_if_source_exist "${AVX2NEON_SOURCE}"
@@ -1721,7 +1780,8 @@ build_libdeflate() {
     mkdir -p "${BUILD_DIR}"
     cd "${BUILD_DIR}"
 
-    "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DCMAKE_BUILD_TYPE=Release ..
+    "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+    -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DCMAKE_BUILD_TYPE=Release ..
     "${BUILD_SYSTEM}" -j "${PARALLEL}"
     "${BUILD_SYSTEM}" install
 }
@@ -1735,7 +1795,8 @@ build_streamvbyte() {
     mkdir -p "${BUILD_DIR}"
     cd "${BUILD_DIR}"
 
-    "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DCMAKE_BUILD_TYPE=Release ..
+    "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+        -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DCMAKE_BUILD_TYPE=Release ..
     "${BUILD_SYSTEM}" -j "${PARALLEL}"
     "${BUILD_SYSTEM}" install
 }
@@ -1747,7 +1808,8 @@ build_jsoncpp() {
     rm -rf "${BUILD_DIR}"
     mkdir -p "${BUILD_DIR}"
     cd "${BUILD_DIR}"
-    "${CMAKE_CMD}" -G "${GENERATOR}" -DBUILD_STATIC_LIBS=ON -DBUILD_SHARED_LIBS=OFF -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" ..
+    "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+        -DJSONCPP_WITH_TESTS=OFF -DBUILD_STATIC_LIBS=ON -DBUILD_SHARED_LIBS=OFF -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" ..
     "${BUILD_SYSTEM}" -j "${PARALLEL}"
     "${BUILD_SYSTEM}" install
 }
@@ -1774,7 +1836,8 @@ build_ali_sdk() {
     CPPFLAGS="-I${TP_INCLUDE_DIR}" \
         CXXFLAGS="-I${TP_INCLUDE_DIR}" \
         LDFLAGS="-L${TP_LIB_DIR}" \
-        "${CMAKE_CMD}" -G "${GENERATOR}" -DBUILD_PRODUCT=core -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
+        "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+        -DBUILD_PRODUCT=core -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
         -DTP_INSTALL_DIR="${TP_INSTALL_DIR}" ..
     "${BUILD_SYSTEM}" -j "${PARALLEL}"
     "${BUILD_SYSTEM}" install
@@ -1789,7 +1852,8 @@ build_base64() {
     mkdir -p "${BUILD_DIR}"
     cd "${BUILD_DIR}"
 
-    "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DCMAKE_BUILD_TYPE=Release ..
+    "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+    -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DCMAKE_BUILD_TYPE=Release ..
     MACHINE_TYPE="$(uname -m)"
     if [[ "${MACHINE_TYPE}" == "aarch64" || "${MACHINE_TYPE}" == 'arm64' ]]; then
         CFLAGS="--target=aarch64-linux-gnu -march=armv8-a+crc" NEON64_CFLAGS=" "
@@ -1802,7 +1866,7 @@ build_base64() {
 
 # azure blob storage
 build_azure() {
-    if [[ "${BUILD_AZURE}" == "OFF" ]]; then
+    if [[ "${BUILD_AZURE}" == "OFF" || "$(uname -s)" == 'Darwin' ]]; then
         echo "Skip build azure"
     else
         check_if_source_exist "${AZURE_SOURCE}"
@@ -1817,7 +1881,8 @@ build_azure() {
         AZURE_PORTS="vcpkg-custom-ports"
         AZURE_MANIFEST_DIR="."
 
-        "${CMAKE_CMD}" -G "${GENERATOR}" -DVCPKG_MANIFEST_MODE=ON -DVCPKG_OVERLAY_PORTS="${azure_dir}/${AZURE_PORTS}" -DVCPKG_MANIFEST_DIR="${azure_dir}/${AZURE_MANIFEST_DIR}" -DWARNINGS_AS_ERRORS=FALSE -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DCMAKE_BUILD_TYPE=Release ..
+        "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+        -DCMAKE_CXX_FLAGS="-Wno-maybe-uninitialized" -DDISABLE_RUST_IN_BUILD=ON -DVCPKG_MANIFEST_MODE=ON -DVCPKG_OVERLAY_PORTS="${azure_dir}/${AZURE_PORTS}" -DVCPKG_MANIFEST_DIR="${azure_dir}/${AZURE_MANIFEST_DIR}" -DWARNINGS_AS_ERRORS=FALSE -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DCMAKE_BUILD_TYPE=Release ..
         "${BUILD_SYSTEM}" -j "${PARALLEL}"
         "${BUILD_SYSTEM}" install
     fi
@@ -1832,7 +1897,8 @@ build_dragonbox() {
     mkdir -p "${BUILD_DIR}"
     cd "${BUILD_DIR}"
 
-    "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DDRAGONBOX_INSTALL_TO_CHARS=ON ..
+    "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+    -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DDRAGONBOX_INSTALL_TO_CHARS=ON ..
 
     "${BUILD_SYSTEM}" -j "${PARALLEL}"
     "${BUILD_SYSTEM}" install
@@ -1877,72 +1943,13 @@ build_pugixml() {
     mkdir -p "${BUILD_DIR}"
     cd "${BUILD_DIR}"
 
-    "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DCMAKE_BUILD_TYPE=Release ..
+    "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+    -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DCMAKE_BUILD_TYPE=Release ..
     "${BUILD_SYSTEM}" -j "${PARALLEL}"
     "${BUILD_SYSTEM}" install
 
     cp "${TP_SOURCE_DIR}/${PUGIXML_SOURCE}/src/pugixml.hpp" "${TP_INSTALL_DIR}/include/"
     cp "${TP_SOURCE_DIR}/${PUGIXML_SOURCE}/src/pugiconfig.hpp" "${TP_INSTALL_DIR}/include/"
-}
-
-build_openblas() {
-    check_if_source_exist "${OPENBLAS_SOURCE}"
-    cd "${TP_SOURCE_DIR}/${OPENBLAS_SOURCE}"
-
-    rm -rf "${BUILD_DIR}"
-    mkdir -p "${BUILD_DIR}"
-    cd "${BUILD_DIR}"
-    OPENBLAS_CMAKE_OPTIONS=(
-        "-DCMAKE_PREFIX_PATH=${TP_INSTALL_DIR}"
-        "-DCMAKE_INSTALL_PREFIX=${TP_INSTALL_DIR}"
-        "-DCMAKE_BUILD_TYPE=Release"
-        "-DBUILD_WITHOUT_LAPACK=OFF"
-        "-DNO_SHARED=TRUE"
-        "-DNO_AVX512=TRUE"
-        "-DC_LAPACK=TRUE"
-        "-DUSE_OPENMP=TRUE"
-        "-DBUILD_STATIC_LIBS=ON"
-        "-DNOFORTRAN=TRUE"
-        "-DBUILD_TESTING=OFF"
-        "-DBUILD_RELAPACK=ON"
-        "-DBUILD_BENCHMARKS=OFF"
-    )
-
-    echo "Building openblas at $(pwd) with cmake parameters: ${OPENBLAS_CMAKE_OPTIONS[*]}"
-
-    "${CMAKE_CMD}" -G "${GENERATOR}" "${OPENBLAS_CMAKE_OPTIONS[@]}" ..
-    "${BUILD_SYSTEM}" -j "${PARALLEL}"
-    "${BUILD_SYSTEM}" install
-}
-
-build_faiss() {
-    check_if_source_exist "${FAISS_SOURCE}"
-    echo "Building faiss ${FAISS_SOURCE}"
-    cd "${TP_SOURCE_DIR}"
-    # if faiss dir not exists, create a symlink to faiss source dir
-    # this symlink is necessary since faiss source code must be compiled in a directory named faiss.
-    if [[ ! -d "${TP_SOURCE_DIR}/faiss" ]]; then
-        ln -s "${FAISS_SOURCE}" faiss
-    fi
-    cd "${TP_SOURCE_DIR}/faiss"
-
-    rm -rf "${BUILD_DIR}"
-    mkdir -p "${BUILD_DIR}"
-    cd "${BUILD_DIR}"
-
-    FAISS_CMAKE_OPTIONS=(
-        "-DDORIS_THIRD_LIB_INSTALL_DIR=${TP_INSTALL_DIR}"
-        "-DCMAKE_INSTALL_PREFIX=${TP_INSTALL_DIR}"
-        "-DCMAKE_BUILD_TYPE=Release"
-        "-DFAISS_ENABLE_GPU=OFF"
-        "-DFAISS_ENABLE_PYTHON=OFF"
-    )
-
-    echo "Building faiss at $(pwd) with cmake parameters: ${FAISS_CMAKE_OPTIONS[*]}"
-
-    "${CMAKE_CMD}" -G "${GENERATOR}" "${FAISS_CMAKE_OPTIONS[@]}" ..
-    "${BUILD_SYSTEM}" -j "${PARALLEL}"
-    "${BUILD_SYSTEM}" install
 }
 
 if [[ "${#packages[@]}" -eq 0 ]]; then
@@ -2013,7 +2020,6 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         ali_sdk
         base64
         azure
-        dragonbox
         brotli
         icu
         pugixml
@@ -2022,6 +2028,7 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         read -r -a packages <<<"binutils gettext ${packages[*]}"
     elif [[ "$(uname -s)" == 'Linux' ]]; then
         read -r -a packages <<<"${packages[*]} hadoop_libs"
+        read -r -a packages <<<"${packages[*]} hadoop_libs_3_4"
     fi
 fi
 

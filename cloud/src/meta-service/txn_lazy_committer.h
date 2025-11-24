@@ -22,7 +22,8 @@
 #include <atomic>
 
 #include "common/simple_thread_pool.h"
-#include "meta-service/txn_kv.h"
+#include "meta-store/txn_kv.h"
+#include "resource-manager/resource_manager.h"
 
 namespace doris::cloud {
 
@@ -53,11 +54,15 @@ private:
 class TxnLazyCommitter {
 public:
     TxnLazyCommitter(std::shared_ptr<TxnKv> txn_kv);
+    TxnLazyCommitter(std::shared_ptr<TxnKv> txn_kv, std::shared_ptr<ResourceManager> resource_mgr);
     std::shared_ptr<TxnLazyCommitTask> submit(const std::string& instance_id, int64_t txn_id);
     void remove(int64_t txn_id);
 
+    std::shared_ptr<ResourceManager>& resource_manager() { return resource_mgr_; }
+
 private:
     std::shared_ptr<TxnKv> txn_kv_;
+    std::shared_ptr<ResourceManager> resource_mgr_;
 
     std::unique_ptr<SimpleThreadPool> worker_pool_;
 

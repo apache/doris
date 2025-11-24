@@ -22,7 +22,8 @@ import org.apache.doris.thrift.TFileAttributes;
 import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TResultFileSinkOptions;
-import org.apache.doris.thrift.TTextSerdeType;
+
+import com.google.common.base.Strings;
 
 import java.util.Map;
 
@@ -73,12 +74,14 @@ public abstract class FileFormatProperties {
     public abstract TFileAttributes toTFileAttributes();
 
     public static FileFormatProperties createFileFormatProperties(String formatString) {
-        switch (formatString) {
+        if (formatString == null) {
+            throw new AnalysisException("formatString can not be null");
+        }
+        switch (formatString.toLowerCase()) {
             case FORMAT_CSV:
                 return new CsvFileFormatProperties(formatString);
             case FORMAT_HIVE_TEXT:
-                return new CsvFileFormatProperties(CsvFileFormatProperties.DEFAULT_HIVE_TEXT_COLUMN_SEPARATOR,
-                        TTextSerdeType.HIVE_TEXT_SERDE, formatString);
+                return new TextFileFormatProperties();
             case FORMAT_CSV_WITH_NAMES:
                 return new CsvFileFormatProperties(FORMAT_CSV_WITH_NAMES, formatString);
             case FORMAT_CSV_WITH_NAMES_AND_TYPES:
@@ -93,16 +96,24 @@ public abstract class FileFormatProperties {
                 return new AvroFileFormatProperties();
             case FORMAT_WAL:
                 return new WalFileFormatProperties();
+            case FORMAT_ARROW:
+                return new ArrowFileFormatProperties();
             default:
                 throw new AnalysisException("format:" + formatString + " is not supported.");
         }
     }
 
-    public static FileFormatProperties createFileFormatProperties(Map<String, String> formatProperties)
+    /**
+     * Create a FileFormatProperties
+     * If the format property is not specified, return a DeferredFileFormatProperties
+     */
+    public static FileFormatProperties createFileFormatPropertiesOrDeferred(String formatString)
             throws AnalysisException {
-        String formatString = formatProperties.getOrDefault(PROP_FORMAT, "")
-                .toLowerCase();
-        return createFileFormatProperties(formatString);
+        if (Strings.isNullOrEmpty(formatString)) {
+            return new DeferredFileFormatProperties();
+        } else {
+            return createFileFormatProperties(formatString);
+        }
     }
 
     protected String getOrDefault(Map<String, String> props, String key, String defaultValue,

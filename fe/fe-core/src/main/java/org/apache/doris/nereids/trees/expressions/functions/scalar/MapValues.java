@@ -51,13 +51,18 @@ public class MapValues extends ScalarFunction
         super("map_values", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private MapValues(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public MapValues withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new MapValues(children.get(0));
+        return new MapValues(getFunctionParams(children));
     }
 
     @Override

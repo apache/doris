@@ -22,7 +22,6 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -76,7 +75,8 @@ public class TransactionState implements Writable {
         BACKEND_STREAMING(2),         // streaming load use this type
         INSERT_STREAMING(3), // insert stmt (streaming type), update stmt use this type
         ROUTINE_LOAD_TASK(4), // routine load task use this type
-        BATCH_LOAD_JOB(5); // load job v2 for broker load
+        BATCH_LOAD_JOB(5), // load job v2 for broker load
+        STREAMING_JOB(6); // streaming job use this type
 
         @SerializedName("f")
         private final int flag;
@@ -101,6 +101,8 @@ public class TransactionState implements Writable {
                     return ROUTINE_LOAD_TASK;
                 case 5:
                     return BATCH_LOAD_JOB;
+                case 6:
+                    return STREAMING_JOB;
                 default:
                     return null;
             }
@@ -483,6 +485,10 @@ public class TransactionState implements Writable {
         return callbackId;
     }
 
+    public void setCallbackId(long callbackId) {
+        this.callbackId = callbackId;
+    }
+
     public long getTimeoutMs() {
         return timeoutMs;
     }
@@ -757,51 +763,8 @@ public class TransactionState implements Writable {
     }
 
     public static TransactionState read(DataInput in) throws IOException {
-        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_132) {
-            TransactionState transactionState = new TransactionState();
-            transactionState.readFields(in);
-            return transactionState;
-        } else {
-            String json = Text.readString(in);
-            return GsonUtils.GSON.fromJson(json, TransactionState.class);
-        }
-    }
-
-    @Deprecated
-    public void readFields(DataInput in) throws IOException {
-        transactionId = in.readLong();
-        label = Text.readString(in);
-        dbId = in.readLong();
-        int size = in.readInt();
-        for (int i = 0; i < size; i++) {
-            TableCommitInfo info = TableCommitInfo.read(in);
-            idToTableCommitInfos.put(info.getTableId(), info);
-        }
-        txnCoordinator = new TxnCoordinator(TxnSourceType.valueOf(in.readInt()), 0, Text.readString(in), 0);
-        transactionStatus = TransactionStatus.valueOf(in.readInt());
-        sourceType = LoadJobSourceType.valueOf(in.readInt());
-        prepareTime = in.readLong();
-        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_107) {
-            preCommitTime = in.readLong();
-        }
-        commitTime = in.readLong();
-        finishTime = in.readLong();
-        reason = Text.readString(in);
-        int errorReplicaNum = in.readInt();
-        for (int i = 0; i < errorReplicaNum; ++i) {
-            errorReplicas.add(in.readLong());
-        }
-
-        if (in.readBoolean()) {
-            txnCommitAttachment = TxnCommitAttachment.read(in);
-        }
-        callbackId = in.readLong();
-        timeoutMs = in.readLong();
-        tableIdList = Lists.newArrayList();
-        int tableListSize = in.readInt();
-        for (int i = 0; i < tableListSize; i++) {
-            tableIdList.add(in.readLong());
-        }
+        String json = Text.readString(in);
+        return GsonUtils.GSON.fromJson(json, TransactionState.class);
     }
 
     public Map<Long, Map<Long, Long>> getTableIdToTabletDeltaRows() {

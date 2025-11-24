@@ -27,7 +27,7 @@ import org.apache.doris.catalog.PrimitiveType;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
-import org.apache.commons.collections.map.CaseInsensitiveMap;
+import org.apache.commons.collections4.map.CaseInsensitiveMap;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -91,7 +91,8 @@ public class HashDistributionPrunerTest {
         filters.put("CHANNEL", channelFilter);
         filters.put("SHOP_TYPE", shopTypeFilter);
 
-        HashDistributionPruner pruner = new HashDistributionPruner(tabletIds, columns, filters, tabletIds.size(), true);
+        HashDistributionPruner pruner = new HashDistributionPruner(null, tabletIds, columns, filters, tabletIds.size(),
+                true);
 
         Collection<Long> results = pruner.prune();
         // 20 = 1 * 5 * 2 * 2 * 1 (element num of each filter)

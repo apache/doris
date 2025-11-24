@@ -169,6 +169,10 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
 
     @Override
     public PhysicalProperties visitPhysicalOlapScan(PhysicalOlapScan olapScan, PlanContext context) {
+        // make sure only one fragment when use point query
+        if (context.getStatementContext().isShortCircuitQuery() && olapScan.getSelectedTabletIds().size() == 1) {
+            return PhysicalProperties.GATHER;
+        }
         return new PhysicalProperties(olapScan.getDistributionSpec());
     }
 
@@ -315,17 +319,18 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
         return new PhysicalProperties(leftOutputProperty.getDistributionSpec());
     }
 
-    @Override
-    public PhysicalProperties visitPhysicalProject(PhysicalProject<? extends Plan> project, PlanContext context) {
-        // TODO: order spec do not process since we do not use it.
-        Preconditions.checkState(childrenOutputProperties.size() == 1);
-        PhysicalProperties childProperties = childrenOutputProperties.get(0);
+    /**
+     * Derive output properties for physical project.
+     */
+    public static PhysicalProperties computeProjectOutputProperties(
+            List<NamedExpression> projects,
+            PhysicalProperties childProperties) {
         DistributionSpec childDistributionSpec = childProperties.getDistributionSpec();
         OrderSpec childOrderSpec = childProperties.getOrderSpec();
         if (childDistributionSpec instanceof DistributionSpecHash) {
             Map<ExprId, ExprId> projections = Maps.newHashMap();
             Set<ExprId> obstructions = Sets.newHashSet();
-            for (NamedExpression namedExpression : project.getProjects()) {
+            for (NamedExpression namedExpression : projects) {
                 if (namedExpression instanceof Alias) {
                     Alias alias = (Alias) namedExpression;
                     Expression child = alias.child();
@@ -341,20 +346,40 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
                                         .map(NamedExpression::getExprId)
                                         .collect(Collectors.toSet()));
                     }
+                } else {
+                    // namedExpression is slot
+                    projections.put(namedExpression.getExprId(), namedExpression.getExprId());
                 }
             }
-            if (projections.entrySet().stream().allMatch(kv -> kv.getKey().equals(kv.getValue()))) {
-                return childrenOutputProperties.get(0);
-            }
+
             DistributionSpecHash childDistributionSpecHash = (DistributionSpecHash) childDistributionSpec;
+            boolean canUseChildProperties = true;
+            for (ExprId exprId : childDistributionSpecHash.getOrderedShuffledColumns()) {
+                if (!projections.containsKey(exprId) || !projections.get(exprId).equals(exprId)) {
+                    canUseChildProperties = false;
+                    break;
+                }
+            }
+
+            if (canUseChildProperties) {
+                return childProperties;
+            }
             DistributionSpec defaultAnySpec = childDistributionSpecHash.getShuffleType() == ShuffleType.NATURAL
                     ? DistributionSpecStorageAny.INSTANCE : DistributionSpecAny.INSTANCE;
             DistributionSpec outputDistributionSpec = childDistributionSpecHash.project(
                     projections, obstructions, defaultAnySpec);
             return new PhysicalProperties(outputDistributionSpec, childOrderSpec);
         } else {
-            return childrenOutputProperties.get(0);
+            return childProperties;
         }
+    }
+
+    @Override
+    public PhysicalProperties visitPhysicalProject(PhysicalProject<? extends Plan> project, PlanContext context) {
+        // TODO: order spec do not process since we do not use it.
+        Preconditions.checkState(childrenOutputProperties.size() == 1);
+        PhysicalProperties childProperties = childrenOutputProperties.get(0);
+        return computeProjectOutputProperties(project.getProjects(), childProperties);
     }
 
     @Override
@@ -368,9 +393,8 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
             if (!groupingSets.isEmpty()) {
                 Set<Expression> intersectGroupingKeys = Utils.fastToImmutableSet(groupingSets.get(0));
                 for (int i = 1; i < groupingSets.size() && !intersectGroupingKeys.isEmpty(); i++) {
-                    intersectGroupingKeys = Sets.intersection(
-                            intersectGroupingKeys, Utils.fastToImmutableSet(groupingSets.get(i))
-                    );
+                    intersectGroupingKeys = Sets.intersection(intersectGroupingKeys,
+                            Utils.fastToImmutableSet(groupingSets.get(i))).immutableCopy();
                 }
                 List<ExprId> orderedShuffledColumns = distributionSpecHash.getOrderedShuffledColumns();
                 Set<ExprId> intersectGroupingKeysId = new HashSet<>();
@@ -619,7 +643,7 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
         return new DistributionSpecHash(anotherSideOrderedExprIds, oneSideSpec.getShuffleType());
     }
 
-    private boolean isSameHashValue(DataType originType, DataType castType) {
+    private static boolean isSameHashValue(DataType originType, DataType castType) {
         if (originType.isStringLikeType() && (castType.isVarcharType() || castType.isStringType())
                 && (castType.width() >= originType.width() || castType.width() < 0)) {
             return true;

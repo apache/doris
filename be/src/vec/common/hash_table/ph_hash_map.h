@@ -159,6 +159,10 @@ public:
         _hash_map.lazy_emplace(key, [&](const auto& ctor) { ctor(key, value); });
     }
 
+    void insert(const iterator& other_iter) {
+        insert(other_iter->get_first(), other_iter->get_second());
+    }
+
     template <typename KeyHolder>
     LookupResult ALWAYS_INLINE find(KeyHolder&& key) {
         auto it = _hash_map.find(key);

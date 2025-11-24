@@ -47,13 +47,18 @@ public class ArrayMatchAny extends ScalarFunction
         super("array_match_any", arg instanceof Lambda ? new ArrayMap(arg) : arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ArrayMatchAny(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public ArrayMatchAny withChildren(List<Expression> children) {
         if (children.size() != 1) {
             throw new AnalysisException(
                     String.format("The number of args of %s must be 1 but is %d", getName(), children.size()));
         }
-        return new ArrayMatchAny(children.get(0));
+        return new ArrayMatchAny(getFunctionParams(children));
     }
 
     @Override

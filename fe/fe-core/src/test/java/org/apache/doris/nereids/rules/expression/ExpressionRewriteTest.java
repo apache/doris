@@ -41,12 +41,16 @@ import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
+import org.apache.doris.nereids.trees.plans.RelationId;
+import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.VarcharType;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
@@ -55,6 +59,14 @@ import java.math.BigDecimal;
  * all expr rewrite rule test case.
  */
 class ExpressionRewriteTest extends ExpressionRewriteTestHelper {
+
+    public ExpressionRewriteTest() {
+        super();
+        LogicalFilter<?> filter = new LogicalFilter<LogicalEmptyRelation>(ImmutableSet.of(),
+                new LogicalEmptyRelation(new RelationId(1), ImmutableList.of()));
+        // AddMinMax run in filter plan
+        context = new ExpressionRewriteContext(filter, cascadesContext);
+    }
 
     @Test
     void testNotRewrite() {
@@ -121,7 +133,7 @@ class ExpressionRewriteTest extends ExpressionRewriteTestHelper {
         assertRewriteAfterTypeCoercion("a is null and not a is null", "FALSE");
         assertRewriteAfterTypeCoercion("a is null or not a is null", "TRUE");
 
-        // not rewrite non-foldable expression
+        // random is non-foldable expression, the two RANDOM are not equals
         assertRewriteAfterTypeCoercion("a > b and not(a > b) and c > random(1, 10) and not (c > random(1, 10))",
                 "(a > b) IS NULL AND NULL AND c > random(1, 10) AND NOT (c > random(1, 10))");
     }
@@ -192,15 +204,6 @@ class ExpressionRewriteTest extends ExpressionRewriteTestHelper {
         assertRewrite("(a and b) or (a and b and c)", "a and b");
         assertRewrite("(a or b) and (a or b or c)", "a or b");
 
-        assertRewrite("a and true", "a");
-        assertRewrite("a or false", "a");
-
-        assertRewrite("a and false", "false");
-        assertRewrite("a or true", "true");
-
-        assertRewrite("a or false or false or false", "a");
-        assertRewrite("a and true and true and true", "a");
-
         assertRewrite("(a and b) or a ", "a");
         assertRewrite("(a or b) and a ", "a");
 
@@ -211,6 +214,17 @@ class ExpressionRewriteTest extends ExpressionRewriteTestHelper {
 
         assertRewrite("a and (b or ((a and e) or (a and f))) and (b or d)", "(b or ((a and (e or f)) and d)) and a");
 
+        assertRewrite("a = 1 and (b = 1 and d < 1 or c = 1 and b = 1 and d > 4)",
+                "a  = 1 and b = 1 and (d < 1 or c = 1 and d > 4)");
+
+        assertRewrite("a = 1 and (b = 1 and c = 1 and d < 1 or c = 1 and b = 1 and d > 4)",
+                "a  = 1 and b = 1 and c = 1 and (d < 1 or d > 4)");
+
+        assertRewrite("a = 1 and (b = 1 and c = 1 and d < 1 or c = 1 and b = 1 and d > 4) and (b = 1 and c = 1 and e < 1 or b = 1 and c = 1 and e > 4) ",
+                "a  = 1 and b = 1 and c = 1 and (d < 1 or d > 4) and (e < 1 or e > 4)");
+
+        assertRewrite("((a = 1 and b = 1) or (a = 1 and b = 2) or c < 1) and ((a = 1 and b = 1) or (a = 1 and b = 2) or c > 2)",
+                "a = 1 and (b = 1 or b = 2) or (c < 1 and c > 2)");
     }
 
     @Test
@@ -361,11 +375,11 @@ class ExpressionRewriteTest extends ExpressionRewriteTestHelper {
         assertRewriteAfterTypeCoercion("TA >= 8 and TB >= 1 and TA < 8 and TB <= 10",
                 "TA >= 8 and TB >= 1 and TA < 8 and TB <= 10");
         assertRewriteAfterTypeCoercion("(CA >= date '2024-01-01' and CA <= date '2024-01-03') or (CA > date '2024-01-05' and CA < date '2024-01-07')",
-                "(CA <= date '2024-01-03' or CA > date '2024-01-05') and CA >= date '2024-01-01' and CA < date '2024-01-07')");
+                "(CA <= date '2024-01-03' or CA > date '2024-01-05') and CA >= date '2024-01-01' and CA < date '2024-01-07'");
         assertRewriteAfterTypeCoercion("CA in (date '2024-01-01',date '2024-01-02',date '2024-01-03') or CA < date '2024-01-01'",
                 "(CA in (date '2024-01-01',date '2024-01-02',date '2024-01-03') or CA < date '2024-01-01') AND CA <= date '2024-01-03'");
         assertRewriteAfterTypeCoercion("(AA >= timestamp '2024-01-01 00:00:00' and AA <= timestamp '2024-01-03 00:00:00') or (AA > timestamp '2024-01-05 00:00:00' and AA < timestamp '2024-01-07 00:00:00')",
-                "(AA <= timestamp '2024-01-03 00:00:00' or AA > timestamp '2024-01-05 00:00:00') and AA >= timestamp '2024-01-01 00:00:00' and AA < timestamp '2024-01-07 00:00:00')");
+                "(AA <= timestamp '2024-01-03 00:00:00' or AA > timestamp '2024-01-05 00:00:00') and AA >= timestamp '2024-01-01 00:00:00' and AA < timestamp '2024-01-07 00:00:00'");
         assertRewriteAfterTypeCoercion("AA in (timestamp '2024-01-01 02:00:00',timestamp '2024-01-02 02:00:00',timestamp '2024-01-03 02:00:00') or AA < timestamp '2024-01-01 01:00:00'",
                 "(AA in (timestamp '2024-01-01 02:00:00',timestamp '2024-01-02 02:00:00',timestamp '2024-01-03 02:00:00') or AA < timestamp '2024-01-01 01:00:00' ) and AA <= timestamp '2024-01-03 02:00:00'");
 
@@ -387,26 +401,26 @@ class ExpressionRewriteTest extends ExpressionRewriteTestHelper {
         assertRewriteAfterTypeCoercion("ISNULL(TA) and TA between 20 and 10", "ISNULL(TA) and null");
         // assertRewriteAfterTypeCoercion("ISNULL(TA) and TA > 10", "ISNULL(TA) and null"); // should be, but not support now
         assertRewriteAfterTypeCoercion("ISNULL(TA) and TA > 10 and null", "ISNULL(TA) and null");
-        assertRewriteAfterTypeCoercion("ISNULL(TA) or TA > 10", "ISNULL(TA) or TA > 10");
+        assertRewriteAfterTypeCoercion("ISNULL(TA) or TA > 10", "TA > 10 or ISNULL(TA)");
         // assertRewriteAfterTypeCoercion("(TA < 30 or TA > 40) and TA between 20 and 10", "TA IS NULL AND NULL"); // should be, but not support because flatten and
         assertRewriteAfterTypeCoercion("(TA < 30 or TA > 40) and TA is null and null", "TA IS NULL AND NULL");
         assertRewriteAfterTypeCoercion("(TA < 30 or TA > 40) or TA between 20 and 10", "TA < 30 or TA > 40");
 
         assertRewriteAfterTypeCoercion("TA between 10 and 20 or TA between 30 and 40 or TA between 60 and 50",
-                "(TA <= 20 or TA >= 30) and TA >= 10 and TA <= 40");
+                "TA >= 10 and TA <= 40 and (TA <= 20 or TA >= 30)");
         // should be, but not support yet, because 'TA is null and null' => UnknownValue(EmptyValue(TA) and null)
         //assertRewriteAfterTypeCoercion("TA between 10 and 20 or TA between 30 and 40 or TA is null and null",
         //        "(TA <= 20 or TA >= 30) and TA >= 10 and TA <= 40");
         assertRewriteAfterTypeCoercion("TA between 10 and 20 or TA between 30 and 40 or TA is null and null",
-                "(TA <= 20 or TA >= 30 or TA is null and null) and TA >= 10 and TA <= 40");
+                "TA >= 10 and TA <= 40 and (TA <= 20 or TA >= 30)");
         assertRewriteAfterTypeCoercion("TA between 10 and 20 or TA between 30 and 40 or TA is null",
                 "TA >= 10 and TA <= 20 or TA >= 30 and TA <= 40 or TA is null");
         assertRewriteAfterTypeCoercion("ISNULL(TB) and (TA between 10 and 20 or TA between 30 and 40 or TA between 60 and 50)",
-                "ISNULL(TB) and ((TA <= 20 or TA >= 30) and TA >= 10 and TA <= 40)");
+                "ISNULL(TB) and TA >= 10 and TA <= 40 and (TA <= 20 or TA >= 30)");
         assertRewriteAfterTypeCoercion("ISNULL(TB) and (TA between 10 and 20 or TA between 30 and 40 or TA is null)",
                 "ISNULL(TB) and (TA >= 10 and TA <= 20 or TA >= 30 and TA <= 40 or TA is null)");
         assertRewriteAfterTypeCoercion("TB between 20 and 10 and (TA between 10 and 20 or TA between 30 and 40 or TA between 60 and 50)",
-                "TB IS NULL AND NULL and (TA <= 20 or TA >= 30) and TA >= 10 and TA <= 40");
+                "TB IS NULL AND NULL and TA >= 10 and TA <= 40 and (TA <= 20 or TA >= 30)");
         assertRewriteAfterTypeCoercion("TA between 10 and 20 and TB between 10 and 20 or TA between 30 and 40 and TB between 30 and 40 or TA between 60 and 50 and TB between 60 and 50",
                 "(TA <= 20 and TB <= 20 or TA >= 30 and TB >= 30 or TA is null and null and TB is null) and TA >= 10 and TA <= 40 and TB >= 10 and TB <= 40");
     }

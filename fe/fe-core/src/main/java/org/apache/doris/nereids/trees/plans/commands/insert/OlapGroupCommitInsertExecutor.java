@@ -22,6 +22,7 @@ import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
@@ -44,6 +45,7 @@ import org.apache.doris.system.Backend;
 import org.apache.doris.transaction.TransactionStatus;
 
 import com.google.common.base.Strings;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -63,8 +65,8 @@ public class OlapGroupCommitInsertExecutor extends OlapInsertExecutor {
 
     public OlapGroupCommitInsertExecutor(ConnectContext ctx, Table table,
             String labelName, NereidsPlanner planner, Optional<InsertCommandContext> insertCtx,
-            boolean emptyInsert, Backend backend) {
-        super(ctx, table, labelName, planner, insertCtx, emptyInsert);
+            boolean emptyInsert, Backend backend, long jobId) {
+        super(ctx, table, labelName, planner, insertCtx, emptyInsert, jobId);
         this.groupCommitBackend = backend;
     }
 
@@ -190,11 +192,18 @@ public class OlapGroupCommitInsertExecutor extends OlapInsertExecutor {
         String queryId = DebugUtil.printId(ctx.queryId());
         // if any throwable being thrown during insert operation, first we should abort this txn
         LOG.warn("insert [{}] with query id {} failed, url={}", labelName, queryId, coordinator.getTrackingUrl(), t);
-        StringBuilder sb = new StringBuilder(t.getMessage());
-        if (!Strings.isNullOrEmpty(coordinator.getTrackingUrl())) {
-            sb.append(". url: ").append(coordinator.getTrackingUrl());
+        String firstErrorMsgPart = "";
+        String urlPart = "";
+        if (!Strings.isNullOrEmpty(coordinator.getFirstErrorMsg())) {
+            firstErrorMsgPart = StringUtils.abbreviate(coordinator.getFirstErrorMsg(),
+                    Config.first_error_msg_max_length);
         }
-        ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, sb.toString());
+        if (!Strings.isNullOrEmpty(coordinator.getTrackingUrl())) {
+            urlPart = coordinator.getTrackingUrl();
+        }
+
+        String finalErrorMsg = InsertUtils.getFinalErrorMsg(errMsg, firstErrorMsgPart, urlPart);
+        ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, finalErrorMsg);
     }
 
     @Override

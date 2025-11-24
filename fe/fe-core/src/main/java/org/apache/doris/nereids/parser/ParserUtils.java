@@ -17,19 +17,69 @@
 
 package org.apache.doris.nereids.parser;
 
+import org.apache.doris.nereids.util.MoreFieldsThread;
+
 import org.antlr.v4.runtime.CharStream;
 import org.antlr.v4.runtime.ParserRuleContext;
 import org.antlr.v4.runtime.Token;
 import org.antlr.v4.runtime.misc.Interval;
 
+import java.util.Optional;
 import java.util.function.Supplier;
 
 /**
  * Utils for parser.
  */
 public class ParserUtils {
+    private static final ThreadLocal<Origin> slowThreadLocal = new ThreadLocal<>();
+
+    /** getOrigin */
+    public static Optional<Origin> getOrigin() {
+        Thread thread = Thread.currentThread();
+        Origin origin;
+        if (thread instanceof MoreFieldsThread) {
+            // fast path
+            origin = ((MoreFieldsThread) thread).getOrigin();
+        } else {
+            // slow path
+            origin = slowThreadLocal.get();
+        }
+        return Optional.ofNullable(origin);
+    }
+
+    /** withOrigin */
     public static <T> T withOrigin(ParserRuleContext ctx, Supplier<T> f) {
-        return f.get();
+        Token startToken = ctx.getStart();
+        Origin origin = new Origin(
+                Optional.of(startToken.getLine()),
+                Optional.of(startToken.getCharPositionInLine())
+        );
+
+        Thread thread = Thread.currentThread();
+        if (thread instanceof MoreFieldsThread) {
+            // fast path
+            MoreFieldsThread moreFieldsThread = (MoreFieldsThread) thread;
+            Origin outerOrigin = moreFieldsThread.getOrigin();
+            try {
+                moreFieldsThread.setOrigin(origin);
+                return f.get();
+            } finally {
+                moreFieldsThread.setOrigin(outerOrigin);
+            }
+        } else {
+            // slow path
+            Origin outerOrigin = slowThreadLocal.get();
+            try {
+                slowThreadLocal.set(origin);
+                return f.get();
+            } finally {
+                if (outerOrigin != null) {
+                    slowThreadLocal.set(outerOrigin);
+                } else {
+                    slowThreadLocal.remove();
+                }
+            }
+        }
     }
 
     public static String command(ParserRuleContext ctx) {

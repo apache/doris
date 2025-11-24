@@ -22,7 +22,7 @@ PhysicalResultSink
 --------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF3 RF4
 ------------------------------------PhysicalProject
 --------------------------------------filter((d1.d_month_seq <= 1231) and (d1.d_month_seq >= 1220))
-----------------------------------------PhysicalOlapScan[date_dim]
+----------------------------------------PhysicalOlapScan[date_dim(d1)]
 --------------------------------hashJoin[LEFT_SEMI_JOIN broadcast] hashCondition=((store.s_state = tmp1.s_state)) otherCondition=() build RFs:RF2 s_state->[s_state]
 ----------------------------------PhysicalProject
 ------------------------------------PhysicalOlapScan[store] apply RFs: RF2
@@ -44,6 +44,6 @@ PhysicalResultSink
 
 Hint log:
 Used: leading(store_sales d1 store ) leading(store_sales date_dim store )
-UnUsed: 
+UnUsed:
 SyntaxError:
 

@@ -20,6 +20,7 @@
 #include <stdint.h>
 
 #include <algorithm>
+#include <atomic>
 #include <vector>
 
 #include "common/status.h"
@@ -57,6 +58,12 @@ public:
     Scanner(RuntimeState* state, pipeline::ScanLocalStateBase* local_state, int64_t limit,
             RuntimeProfile* profile);
 
+    //only used for FileScanner read one line.
+    Scanner(RuntimeState* state, RuntimeProfile* profile)
+            : _state(state), _limit(1), _profile(profile), _total_rf_num(0), _has_prepared(false) {
+        DorisMetrics::instance()->scanner_cnt->increment(1);
+    };
+
     virtual ~Scanner() {
         SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_state->query_mem_tracker());
         _input_block.clear();
@@ -68,9 +75,11 @@ public:
         DorisMetrics::instance()->scanner_cnt->increment(-1);
     }
 
-    virtual Status init() { return Status::OK(); }
-    // Not virtual, all child will call this method explictly
-    virtual Status prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts);
+    virtual Status init(RuntimeState* state, const VExprContextSPtrs& conjuncts);
+    virtual Status prepare() {
+        _has_prepared = true;
+        return Status::OK();
+    }
     virtual Status open(RuntimeState* state) {
         _block_avg_bytes = state->batch_size() * 8;
         return Status::OK();
@@ -97,6 +106,11 @@ protected:
     // Update the counters before closing this scanner
     virtual void _collect_profile_before_close();
 
+    // Check if scanner is already closed, if not, mark it as closed.
+    // Returns true if the scanner was successfully marked as closed (first time).
+    // Returns false if the scanner was already closed.
+    bool _try_close();
+
     // Filter the output block finally.
     Status _filter_output_block(Block* block);
 
@@ -108,7 +122,7 @@ public:
     int64_t projection_time() const { return _projection_timer; }
     int64_t get_rows_read() const { return _num_rows_read; }
 
-    bool is_init() const { return _is_init; }
+    bool has_prepared() const { return _has_prepared; }
 
     Status try_append_late_arrival_runtime_filter();
 
@@ -129,6 +143,10 @@ public:
     int64_t get_scanner_wait_worker_timer() const { return _scanner_wait_worker_timer; }
 
     void update_scan_cpu_timer();
+
+    // Some counters need to be updated realtime, for example, workload group policy need
+    // scan bytes to cancel the query exceed limit.
+    virtual void update_realtime_counters() {}
 
     RuntimeState* runtime_state() { return _state; }
 
@@ -184,7 +202,7 @@ protected:
     Block _input_block;
 
     bool _is_open = false;
-    bool _is_closed = false;
+    std::atomic<bool> _is_closed {false};
     bool _need_to_close = false;
     Status _status;
 
@@ -228,7 +246,7 @@ protected:
 
     bool _is_load = false;
 
-    bool _is_init = true;
+    bool _has_prepared = false;
 
     ScannerCounter _counter;
     int64_t _per_scanner_timer = 0;

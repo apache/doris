@@ -25,6 +25,11 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
+import org.apache.doris.info.PartitionNamesInfo;
+import org.apache.doris.info.TableNameInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition;
+import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition.IndexType;
 
 import com.google.common.collect.Maps;
 
@@ -33,18 +38,19 @@ import java.util.Map;
 
 public class BuildIndexClause extends AlterTableClause {
     // in which table the index on, only used when alter = false
-    private TableName tableName;
+    private TableNameInfo tableName;
     // index definition class
-    private IndexDef indexDef;
+    private IndexDefinition indexDef;
     // when alter = true, clause like: alter table add index xxxx
     // when alter = false, clause like: create index xx on table xxxx
     private boolean alter;
     // index internal class
     private Index index;
     private String indexName;
-    private PartitionNames partitionNames;
+    private PartitionNamesInfo partitionNames;
 
-    public BuildIndexClause(TableName tableName, String indexName, PartitionNames partitionNames, boolean alter) {
+    public BuildIndexClause(TableNameInfo tableName, String indexName, PartitionNamesInfo partitionNames,
+                            boolean alter) {
         super(AlterOpType.SCHEMA_CHANGE);
         this.tableName = tableName;
         this.indexName = indexName;
@@ -53,7 +59,7 @@ public class BuildIndexClause extends AlterTableClause {
     }
 
     // for nereids
-    public BuildIndexClause(TableName tableName, IndexDef indexDef, Index index, boolean alter) {
+    public BuildIndexClause(TableNameInfo tableName, IndexDefinition indexDef, Index index, boolean alter) {
         super(AlterOpType.SCHEMA_CHANGE);
         this.tableName = tableName;
         this.indexDef = indexDef;
@@ -70,7 +76,7 @@ public class BuildIndexClause extends AlterTableClause {
         return index;
     }
 
-    public IndexDef getIndexDef() {
+    public IndexDefinition getIndexDef() {
         return indexDef;
     }
 
@@ -78,13 +84,13 @@ public class BuildIndexClause extends AlterTableClause {
         return alter;
     }
 
-    public TableName getTableName() {
+    public TableNameInfo getTableNameInfo() {
         return tableName;
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException {
-        tableName.analyze(analyzer);
+    public void analyze() throws AnalysisException {
+        tableName.analyze();
         DatabaseIf<Table> db = Env.getCurrentEnv().getCatalogMgr().getInternalCatalog()
                 .getDb(tableName.getDb()).orElse(null);
         if (db == null) {
@@ -105,8 +111,8 @@ public class BuildIndexClause extends AlterTableClause {
                 existedIdx = index;
                 if (!existedIdx.isLightIndexChangeSupported()) {
                     throw new AnalysisException("BUILD INDEX operation failed: The index "
-                        + existedIdx.getIndexName() + " of type " + existedIdx.getIndexType()
-                        + " does not support lightweight index changes.");
+                            + existedIdx.getIndexName() + " of type " + existedIdx.getIndexType()
+                            + " does not support lightweight index changes.");
                 }
                 break;
             }
@@ -115,20 +121,21 @@ public class BuildIndexClause extends AlterTableClause {
             throw new AnalysisException("Index[" + indexName + "] is not exist in table[" + tableName.getTbl() + "]");
         }
 
-        IndexDef.IndexType indexType = existedIdx.getIndexType();
-        if (!existedIdx.isLightIndexChangeSupported()) {
-            throw new AnalysisException(indexType.toString() + " index is not needed to build.");
+        IndexDefinition.IndexType indexType = existedIdx.getIndexType();
+        if ((Config.isNotCloudMode() && indexType == IndexDefinition.IndexType.NGRAM_BF)
+                || (Config.isCloudMode() && indexType == IndexType.INVERTED & !existedIdx.isInvertedIndexParserNone())
+                || indexType == IndexType.BLOOMFILTER) {
+            throw new AnalysisException("bloomfilter index is not needed to build.");
         }
-
-        indexDef = new IndexDef(indexName, partitionNames, indexType, true);
+        indexDef = new IndexDefinition(indexName, partitionNames, indexType);
         if (!table.isPartitionedTable()) {
             List<String> specifiedPartitions = indexDef.getPartitionNames();
             if (!specifiedPartitions.isEmpty()) {
                 throw new AnalysisException("table " + table.getName()
-                    + " is not partitioned, cannot build index with partitions.");
+                        + " is not partitioned, cannot build index with partitions.");
             }
         }
-        indexDef.analyze();
+        indexDef.validate();
         this.index = existedIdx.clone();
     }
 

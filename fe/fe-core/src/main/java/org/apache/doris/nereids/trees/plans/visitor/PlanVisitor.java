@@ -40,6 +40,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLoadProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPartitionTopN;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPostProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPreAggOnHint;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPreFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -69,6 +70,10 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalGenerate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalIntersect;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterialize;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterializeFileScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterializeOlapScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterializeTVFScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPartitionTopN;
@@ -168,7 +173,7 @@ public abstract class PlanVisitor<R, C> implements CommandVisitor<R, C>, Relatio
     }
 
     public R visitLogicalCTEConsumer(LogicalCTEConsumer cteConsumer, C context) {
-        return visit(cteConsumer, context);
+        return visitLogicalRelation(cteConsumer, context);
     }
 
     public R visitLogicalCTEProducer(LogicalCTEProducer<? extends Plan> cteProducer, C context) {
@@ -223,6 +228,10 @@ public abstract class PlanVisitor<R, C> implements CommandVisitor<R, C>, Relatio
         return visit(project, context);
     }
 
+    public R visitLogicalPostProject(LogicalPostProject<? extends Plan> project, C context) {
+        return visit(project, context);
+    }
+
     public R visitLogicalRepeat(LogicalRepeat<? extends Plan> repeat, C context) {
         return visit(repeat, context);
     }
@@ -269,6 +278,22 @@ public abstract class PlanVisitor<R, C> implements CommandVisitor<R, C>, Relatio
 
     public R visitLogicalDeferMaterializeTopN(LogicalDeferMaterializeTopN<? extends Plan> topN, C context) {
         return visit(topN, context);
+    }
+
+    public R visitPhysicalLazyMaterialize(PhysicalLazyMaterialize<? extends Plan> materialize, C context) {
+        return visit(materialize, context);
+    }
+
+    public R visitPhysicalLazyMaterializeFileScan(PhysicalLazyMaterializeFileScan scan, C context) {
+        return visit(scan, context);
+    }
+
+    public R visitPhysicalLazyMaterializeTVFScan(PhysicalLazyMaterializeTVFScan scan, C context) {
+        return visit(scan, context);
+    }
+
+    public R visitPhysicalLazyMaterializeOlapScan(PhysicalLazyMaterializeOlapScan scan, C context) {
+        return visit(scan, context);
     }
 
     public R visitLogicalWindow(LogicalWindow<? extends Plan> window, C context) {

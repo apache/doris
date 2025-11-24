@@ -36,6 +36,7 @@ import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DuplicatedRequestException;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.LoadException;
@@ -70,7 +71,7 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.tuple.Triple;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -121,10 +122,10 @@ public class DatabaseTransactionMgr {
     private final MonitoredReentrantReadWriteLock transactionLock = new MonitoredReentrantReadWriteLock(true);
 
     // transactionId -> running TransactionState
-    private final Map<Long, TransactionState> idToRunningTransactionState = Maps.newHashMap();
+    private final Map<Long, TransactionState> idToRunningTransactionState = Maps.newConcurrentMap();
 
     // transactionId -> final status TransactionState
-    private final Map<Long, TransactionState> idToFinalStatusTransactionState = Maps.newHashMap();
+    private final Map<Long, TransactionState> idToFinalStatusTransactionState = Maps.newConcurrentMap();
     private final Map<Long, Long> subTxnIdToTxnId = new ConcurrentHashMap<>();
 
     // The following 2 queues are to store transactionStates with final status
@@ -143,6 +144,10 @@ public class DatabaseTransactionMgr {
     // which means if a txn exist in idToRunningTransactionState or idToFinalStatusTransactionState
     // it must exists in dbIdToTxnLabels, and vice versa
     private final Map<String, Set<Long>> labelToTxnIds = Maps.newHashMap();
+
+    private final Map<Long, Long> tableCommittedTxnCount = Maps.newConcurrentMap();
+
+    private Long lastCommittedTxnCountUpdateTime = 0L;
 
     // count the number of running txns of database
     private volatile int runningTxnNums = 0;
@@ -192,12 +197,8 @@ public class DatabaseTransactionMgr {
     }
 
     protected TransactionState getTransactionState(Long transactionId) {
-        readLock();
-        try {
-            return unprotectedGetTransactionState(transactionId);
-        } finally {
-            readUnlock();
-        }
+        return unprotectedGetTransactionState(transactionId);
+
     }
 
     private TransactionState unprotectedGetTransactionState(Long transactionId) {
@@ -314,6 +315,11 @@ public class DatabaseTransactionMgr {
             long listenerId, long timeoutSecond)
             throws DuplicatedRequestException, LabelAlreadyUsedException, BeginTransactionException,
             AnalysisException, QuotaExceedException, MetaNotFoundException {
+
+        if (!Env.getCurrentEnv().isMaster() && !FeConstants.runningUnitTest) {
+            throw new BeginTransactionException("FE is not master");
+        }
+
         Database db = env.getInternalCatalog().getDbOrMetaException(dbId);
         if (!coordinator.isFromInternal) {
             InternalDatabaseUtil.checkDatabase(db.getFullName(), ConnectContext.get());
@@ -359,7 +365,7 @@ public class DatabaseTransactionMgr {
                 }
             }
 
-            checkRunningTxnExceedLimit();
+            checkRunningTxnExceedLimit(tableIdList);
 
             tid = idGenerator.getNextTransactionId();
             TransactionState transactionState = new TransactionState(dbId, tableIdList,
@@ -382,7 +388,7 @@ public class DatabaseTransactionMgr {
         Database db = env.getInternalCatalog().getDbOrMetaException(dbId);
 
         if (usedQuotaDataBytes == -1) {
-            usedQuotaDataBytes = db.getUsedDataQuotaWithLock();
+            usedQuotaDataBytes = db.getUsedDataQuota();
         }
 
         long dataQuotaBytes = db.getDataQuota();
@@ -1060,16 +1066,44 @@ public class DatabaseTransactionMgr {
     }
 
     protected List<TransactionState> getCommittedTxnList() {
+        List<TransactionState> committedTxnList = null;
         readLock();
         try {
             // only send task to committed transaction
-            return idToRunningTransactionState.values().stream()
-                    .filter(transactionState ->
-                            (transactionState.getTransactionStatus() == TransactionStatus.COMMITTED))
-                    .sorted(Comparator.comparing(TransactionState::getCommitTime))
-                    .collect(Collectors.toList());
+            committedTxnList = idToRunningTransactionState.values().stream()
+                                    .filter(transactionState ->
+                                            (transactionState.getTransactionStatus() == TransactionStatus.COMMITTED))
+                                    .sorted(Comparator.comparing(TransactionState::getCommitTime))
+                                    .collect(Collectors.toList());
         } finally {
             readUnlock();
+        }
+
+        updateCommittedTxnCountPerTable(committedTxnList);
+
+        return committedTxnList;
+    }
+
+    // given list of transactionstate, calculate committed trasactions for each table.
+    protected void updateCommittedTxnCountPerTable(List<TransactionState> txnList) {
+        // Control frequency by recording last update time
+        long now = System.currentTimeMillis();
+        // Only update if enough time has passed (e.g., 60 seconds)
+        if (now - this.lastCommittedTxnCountUpdateTime < 60000 || Config.max_publishing_txn_num_per_table < 0) {
+            return;
+        }
+
+        this.lastCommittedTxnCountUpdateTime = now;
+        tableCommittedTxnCount.clear();
+        for (TransactionState txn : txnList) {
+            if (txn.getTransactionStatus() == TransactionStatus.COMMITTED) {
+                List<Long> tableIds = txn.getTableIdList();
+                if (tableIds != null) {
+                    for (Long tableId : tableIds) {
+                        tableCommittedTxnCount.put(tableId, tableCommittedTxnCount.getOrDefault(tableId, 0L) + 1);
+                    }
+                }
+            }
         }
     }
 
@@ -2066,12 +2100,25 @@ public class DatabaseTransactionMgr {
         return infos;
     }
 
-    protected void checkRunningTxnExceedLimit()
+    protected void checkRunningTxnExceedLimit(List<Long> tableIdList)
             throws BeginTransactionException, MetaNotFoundException {
         long txnQuota = env.getInternalCatalog().getDbOrMetaException(dbId).getTransactionQuotaSize();
+
         if (runningTxnNums >= txnQuota) {
             throw new BeginTransactionException("current running txns on db " + dbId + " is "
                     + runningTxnNums + ", larger than limit " + txnQuota);
+        }
+
+        // Check if committed txn count on any table exceeds the configured limit
+        if (Config.max_publishing_txn_num_per_table >= 0) {
+            for (Long tableId : tableIdList) {
+                long committedTxnCount = tableCommittedTxnCount.getOrDefault(tableId, 0L);
+                if (committedTxnCount >= Config.max_publishing_txn_num_per_table) {
+                    throw new BeginTransactionException("current committed txns on table " + tableId
+                            + " is " + committedTxnCount + ", larger than limit "
+                            + Config.max_publishing_txn_num_per_table);
+                }
+            }
         }
     }
 
@@ -2258,6 +2305,10 @@ public class DatabaseTransactionMgr {
                             }
                             replica.updateVersionWithFailed(newVersion, lastFailedVersion, lastSuccessVersion);
                             if (newVersion == Partition.PARTITION_INIT_VERSION + 1) {
+                                if (LOG.isDebugEnabled()) {
+                                    LOG.debug("{}.{}, index {} first loaded, set reported to false.",
+                                            db.getName(), table.getName(), index.getId());
+                                }
                                 index.setRowCountReported(false);
                             }
                             long beId = replica.getBackendIdWithoutException();

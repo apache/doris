@@ -32,7 +32,6 @@
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
@@ -79,22 +78,20 @@ public:
         const auto& argument_column =
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
 
-        auto res_column = ColumnUInt8::create();
+        auto res_column = ColumnUInt8::create(input_rows_count, 0);
 
         if (auto* nullable_column = check_and_get_column<ColumnNullable>(*argument_column)) {
             auto null_map_column = ColumnUInt8::create();
 
             auto nested_column = nullable_column->get_nested_column_ptr();
-            auto data_column = assert_cast<const ColumnVector<Int32>*>(nested_column.get());
+            auto data_column = assert_cast<const ColumnInt32*>(nested_column.get());
 
             for (int i = 0; i < input_rows_count; i++) {
                 if (nullable_column->is_null_at(i)) {
-                    res_column->insert(Field::create_field<TYPE_BOOLEAN>(0));
                     null_map_column->insert(Field::create_field<TYPE_BOOLEAN>(1));
                 } else {
                     int seconds = data_column->get_data()[i];
                     std::this_thread::sleep_for(std::chrono::seconds(seconds));
-                    res_column->insert(Field::create_field<TYPE_BOOLEAN>(1));
                     null_map_column->insert(Field::create_field<TYPE_BOOLEAN>(0));
                 }
             }
@@ -102,12 +99,11 @@ public:
             block.replace_by_position(result, ColumnNullable::create(std::move(res_column),
                                                                      std::move(null_map_column)));
         } else {
-            auto data_column = assert_cast<const ColumnVector<Int32>*>(argument_column.get());
+            auto data_column = assert_cast<const ColumnInt32*>(argument_column.get());
 
             for (int i = 0; i < input_rows_count; i++) {
                 int seconds = data_column->get_element(i);
                 std::this_thread::sleep_for(std::chrono::seconds(seconds));
-                res_column->insert(Field::create_field<TYPE_BOOLEAN>(1));
             }
 
             block.replace_by_position(result, std::move(res_column));

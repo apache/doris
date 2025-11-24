@@ -110,7 +110,7 @@ suite("test_index_compaction_with_multi_index_segments_arr", "nonConcurrent") {
         * 4. insert 10 rows, again
         * 5. full compaction
         */
-        table_name = "test_index_compaction_with_multi_index_segments_dups_arr"
+        def table_name = "test_index_compaction_with_multi_index_segments_dups_arr"
         sql """ DROP TABLE IF EXISTS ${tableName}; """
         sql """
             CREATE TABLE ${tableName} (

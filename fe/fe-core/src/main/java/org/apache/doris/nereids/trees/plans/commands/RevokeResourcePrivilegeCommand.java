@@ -35,8 +35,8 @@ import org.apache.doris.qe.StmtExecutor;
 
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import org.apache.commons.collections.CollectionUtils;
-import org.apache.commons.collections.MapUtils;
+import org.apache.commons.collections4.CollectionUtils;
+import org.apache.commons.collections4.MapUtils;
 
 import java.util.List;
 import java.util.Map;
@@ -85,13 +85,13 @@ public class RevokeResourcePrivilegeCommand extends Command implements ForwardWi
      */
     public void validate() throws AnalysisException {
         if (Config.access_controller_type.equalsIgnoreCase("ranger-doris")) {
-            throw new AnalysisException("Grant is prohibited when Ranger is enabled.");
+            throw new AnalysisException("Revoke is prohibited when Ranger is enabled.");
         }
 
         if (userIdentity.isPresent()) {
             userIdentity.get().analyze();
         } else {
-            FeNameFormat.checkRoleName(role.get(), false /* can not be admin */, "Can not grant to role");
+            FeNameFormat.checkRoleName(role.get(), false /* can not be superuser */, "Can not revoke from role");
         }
 
         if (resourcePattern.isPresent()) {
@@ -114,10 +114,8 @@ public class RevokeResourcePrivilegeCommand extends Command implements ForwardWi
 
         if (resourcePattern.isPresent()) {
             PrivBitSet.convertResourcePrivToCloudPriv(resourcePattern.get(), privileges);
-            // modify when grantCommand merged
             GrantResourcePrivilegeCommand.checkResourcePrivileges(privileges, resourcePattern.get());
         } else if (workloadGroupPattern.isPresent()) {
-            // modify when grantCommand merged
             GrantResourcePrivilegeCommand.checkWorkloadGroupPrivileges(privileges, workloadGroupPattern.get());
         }
     }

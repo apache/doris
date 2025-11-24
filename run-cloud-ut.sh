@@ -47,13 +47,14 @@ Usage: $0 <options>
   Optional options:
      --clean            clean and build ut
      --run              build and run all ut
-     --coverage         coverage after run ut
+     --coverage         coverage after run ut, does not take if --gdb is specified
      --run --filter=x   build and run specified ut, filter x format is <binary_name>:<gtest_filter>,
                         a <binary_name> is the name of a cpp file without '.cpp' suffix.
                         e.g. binary_name of xxx_test.cpp is xxx_test
      --fdb              run with a specific fdb connection string, e.g fdb_cluster0:cluster0@192.168.1.100:4500
      -j                 build parallel
      -h                 print this help message
+     --gdb              debug with gdb, does not take effect if --run is not specified
 
   Eg.
     $0                                                                          build tests
@@ -67,11 +68,12 @@ Usage: $0 <options>
     $0 --run --coverage                                                         run with coverage report
     $0 --clean                                                                  clean and build tests
     $0 --clean --run                                                            clean, build and run all tests
+    $0 --clean --run --gdb --filter=recycler_test:FooTest.*-FooTest.Bar        clean, build, run all tests and debug FooTest with gdb
     "
     exit 1
 }
 
-if ! OPTS=$(getopt -n "$0" -o vhj:f: -l run,clean,filter:,fdb:,coverage -- "$@"); then
+if ! OPTS=$(getopt -n "$0" -o vhj:f: -l run,gdb,clean,filter:,fdb:,coverage -- "$@"); then
     usage
 fi
 
@@ -85,6 +87,8 @@ CLEAN=0
 RUN=0
 FILTER=""
 FDB=""
+GDB=""
+COVERAGE=""
 ENABLE_CLANG_COVERAGE=OFF
 BUILD_AZURE="ON"
 
@@ -100,8 +104,13 @@ if [[ $# != 1 ]]; then
             RUN=1
             shift
             ;;
+        --gdb)
+            GDB="--gdb"
+            shift
+            ;;
         --coverage)
             ENABLE_CLANG_COVERAGE="ON"
+            COVERAGE="--coverage"
             shift
             ;;
         --fdb)
@@ -170,10 +179,6 @@ if [[ -z "${USE_LIBCPP}" ]]; then
     fi
 fi
 
-if [[ -z "${USE_DWARF}" ]]; then
-    USE_DWARF=OFF
-fi
-
 if [[ -n "${DISABLE_BUILD_AZURE}" ]]; then
     BUILD_AZURE='OFF'
 fi
@@ -191,7 +196,7 @@ find . -name "*.gcda" -exec rm {} \;
     -DMAKE_TEST=ON \
     -DGLIBC_COMPATIBILITY="${GLIBC_COMPATIBILITY}" \
     -DUSE_LIBCPP="${USE_LIBCPP}" \
-    -DUSE_DWARF="${USE_DWARF}" \
+    -DENABLE_HDFS_STORAGE_VAULT=${ENABLE_HDFS_STORAGE_VAULT:-ON} \
     -DUSE_MEM_TRACKER=ON \
     -DUSE_JEMALLOC=OFF \
     -DSTRICT_MEMORY_USE=OFF \
@@ -229,8 +234,4 @@ cd test
 # FILTER: meta_service_test:DetachSchemaKVTest.*
 # ./run_all_tests.sh --test "\"$(echo "${FILTER}" | awk -F: '{print $1}')\"" --filter "\"$(echo "${FILTER}" | awk -F: '{print $2}')\"" --fdb "\"${FDB}\""
 set -euo pipefail
-if [[ "_${ENABLE_CLANG_COVERAGE}" == "_ON" ]]; then
-    bash -x ./run_all_tests.sh --coverage --test "$(echo "${FILTER}" | awk -F: '{print $1}')" --filter "$(echo "${FILTER}" | awk -F: '{print $2}')" --fdb "${FDB}"
-else
-    bash ./run_all_tests.sh --test "$(echo "${FILTER}" | awk -F: '{print $1}')" --filter "$(echo "${FILTER}" | awk -F: '{print $2}')" --fdb "${FDB}"
-fi
+bash -x ./run_all_tests.sh "${COVERAGE}" --test "$(echo "${FILTER}" | awk -F: '{print $1}')" --filter "$(echo "${FILTER}" | awk -F: '{print $2}')" --fdb "${FDB}" "${GDB}"

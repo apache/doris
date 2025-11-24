@@ -106,7 +106,8 @@ suite("dml_insert_and_overwrite") {
         ps_comment;""")
 
     // disable query rewrite by mv
-    sql "set enable_materialized_view_rewrite=false";
+    // todo: Temporarily turn off, otherwise usable materialized views will not be collected and will need to be changed back in the future
+    sql "set enable_materialized_view_rewrite=true";
     // enable dml rewrite by mv
     sql "set enable_dml_materialized_view_rewrite=true";
 
@@ -139,11 +140,11 @@ suite("dml_insert_and_overwrite") {
     """
     createMV(""" create materialized view ${insert_into_sync_mv_name}
         as select
-        ps_partkey,
-        ps_suppkey,
-        ps_availqty,
-        ps_supplycost,
-        ps_comment,
+        ps_partkey as a1,
+        ps_suppkey as a2,
+        ps_availqty as a3,
+        ps_supplycost as a4,
+        ps_comment as a5,
         count(*)
         from
         partsupp
@@ -155,7 +156,7 @@ suite("dml_insert_and_overwrite") {
         ps_comment;""")
 
     // disable query rewrite by mv
-    sql "set enable_materialized_view_rewrite=false";
+    sql "set enable_materialized_view_rewrite=true";
     // enable dml rewrite by mv
     sql "set enable_dml_materialized_view_rewrite=true";
 
@@ -203,7 +204,7 @@ suite("dml_insert_and_overwrite") {
         ps_comment;""")
 
     // disable query rewrite by mv
-    sql "set enable_materialized_view_rewrite=false";
+    sql "set enable_materialized_view_rewrite=true";
     // enable dml rewrite by mv
     sql "set enable_dml_materialized_view_rewrite=true";
 
@@ -249,7 +250,7 @@ suite("dml_insert_and_overwrite") {
         ps_comment;""")
 
     // disable query rewrite by mv
-    sql "set enable_materialized_view_rewrite=false";
+    sql "set enable_materialized_view_rewrite=true";
     // enable dml rewrite by mv
     sql "set enable_dml_materialized_view_rewrite=true";
 

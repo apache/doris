@@ -22,7 +22,10 @@ import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
+import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalIntersect;
@@ -62,9 +65,9 @@ import java.util.Set;
  * </pre>
  */
 public class InferPredicates extends DefaultPlanRewriter<JobContext> implements CustomRewriter {
-    private final PullUpPredicates pullUpPredicates = new PullUpPredicates(false);
+    private PullUpPredicates pullUpPredicates;
     // The role of pullUpAllPredicates is to prevent inference of redundant predicates
-    private final PullUpPredicates pullUpAllPredicates = new PullUpPredicates(true);
+    private PullUpPredicates pullUpAllPredicates;
 
     @Override
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
@@ -73,6 +76,8 @@ public class InferPredicates extends DefaultPlanRewriter<JobContext> implements 
         if (connectContext != null && connectContext.getCommand() == MysqlCommand.COM_STMT_PREPARE) {
             return plan;
         }
+        pullUpPredicates = new PullUpPredicates(false, jobContext.getCascadesContext());
+        pullUpAllPredicates = new PullUpPredicates(true, jobContext.getCascadesContext());
         return plan.accept(this, jobContext);
     }
 
@@ -113,9 +118,15 @@ public class InferPredicates extends DefaultPlanRewriter<JobContext> implements 
 
     @Override
     public Plan visitLogicalFilter(LogicalFilter<? extends Plan> filter, JobContext context) {
+        if (filter.getConjuncts().contains(BooleanLiteral.FALSE)) {
+            return new LogicalEmptyRelation(StatementScopeIdGenerator.newRelationId(), filter.getOutput());
+        }
         filter = visitChildren(this, filter, context);
         Set<Expression> filterPredicates = pullUpPredicates(filter);
         filterPredicates.removeAll(pullUpAllPredicates(filter.child()));
+        if (filterPredicates.isEmpty()) {
+            return filter.child();
+        }
         return new LogicalFilter<>(ImmutableSet.copyOf(filterPredicates), filter.child());
     }
 

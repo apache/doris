@@ -59,6 +59,11 @@ public class GroupBitmapXor extends NullableAggregateFunction
         super("group_bitmap_xor", false, alwaysNullable, arg0);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private GroupBitmapXor(NullableAggregateFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     protected List<DataType> intermediateTypes() {
         return ImmutableList.of(BitmapType.INSTANCE);
@@ -70,12 +75,12 @@ public class GroupBitmapXor extends NullableAggregateFunction
     @Override
     public GroupBitmapXor withDistinctAndChildren(boolean distinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new GroupBitmapXor(distinct, alwaysNullable, children.get(0));
+        return new GroupBitmapXor(getFunctionParams(distinct, children));
     }
 
     @Override
     public NullableAggregateFunction withAlwaysNullable(boolean alwaysNullable) {
-        return new GroupBitmapXor(distinct, alwaysNullable, children.get(0));
+        return new GroupBitmapXor(getAlwaysNullableFunctionParams(alwaysNullable));
     }
 
     @Override

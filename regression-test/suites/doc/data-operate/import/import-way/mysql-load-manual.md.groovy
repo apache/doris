@@ -86,7 +86,7 @@ EOF
         try {
             sql """show load warnings where label='b612907c-ccf4-4ac2-82fe-107ece655f0f';"""
         } catch (Exception e) {
-            if (!e.getMessage().contains("job is not exist")) {
+            if (!e.getMessage().contains("job does not exist")) {
                 logger.error("occurring other error is not in expected")
                 throw e
             }

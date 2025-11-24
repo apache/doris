@@ -18,7 +18,6 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.FunctionName;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -104,25 +103,7 @@ public class FunctionSearchDesc implements Writable {
         Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 
-    @Deprecated
-    public void readFields(DataInput in) throws IOException {
-        name = FunctionName.read(in);
-        // read args
-        argTypes = new Type[in.readShort()];
-        for (int i = 0; i < argTypes.length; ++i) {
-            argTypes[i] = ColumnType.read(in);
-        }
-        // read variadic
-        isVariadic = in.readBoolean();
-    }
-
     public static FunctionSearchDesc read(DataInput input) throws IOException {
-        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_135) {
-            FunctionSearchDesc function = new FunctionSearchDesc();
-            function.readFields(input);
-            return function;
-        } else {
-            return GsonUtils.GSON.fromJson(Text.readString(input), FunctionSearchDesc.class);
-        }
+        return GsonUtils.GSON.fromJson(Text.readString(input), FunctionSearchDesc.class);
     }
 }

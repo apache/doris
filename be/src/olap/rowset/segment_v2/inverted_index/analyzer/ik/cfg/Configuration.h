@@ -25,6 +25,7 @@ namespace doris::segment_v2 {
 class Configuration {
 private:
     bool use_smart_;
+    // TODO(ryan19929): delete config_->lower_case_, because it is always true(java version is same)
     bool enable_lowercase_;
     std::string dict_path_;
 

@@ -17,20 +17,22 @@
 
 package org.apache.doris.nereids.load;
 
-import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.Separator;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.trees.expressions.BinaryOperator;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.task.LoadTaskInfo;
 import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
+import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
 import org.apache.doris.thrift.TStreamLoadPutRequest;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.thrift.TUniqueKeyUpdateMode;
@@ -62,7 +64,7 @@ public class NereidsStreamLoadTask implements NereidsLoadTaskInfo {
     private Expression whereExpr;
     private Separator columnSeparator;
     private Separator lineDelimiter;
-    private PartitionNames partitions;
+    private PartitionNamesInfo partitionNamesInfo;
     private String path;
     private long fileSize = 0;
     private boolean negative;
@@ -80,6 +82,7 @@ public class NereidsStreamLoadTask implements NereidsLoadTaskInfo {
     private List<String> hiddenColumns;
     private boolean trimDoubleQuotes = false;
     private TUniqueKeyUpdateMode uniquekeyUpdateMode = TUniqueKeyUpdateMode.UPSERT;
+    private TPartialUpdateNewRowPolicy partialUpdateNewKeyPolicy = TPartialUpdateNewRowPolicy.APPEND;
 
     private int skipLines = 0;
     private boolean enableProfile = false;
@@ -92,6 +95,8 @@ public class NereidsStreamLoadTask implements NereidsLoadTaskInfo {
     private byte escape = 0;
 
     private String groupCommit;
+
+    private boolean emptyFieldAsNull = false;
 
     /**
      * NereidsStreamLoadTask
@@ -183,8 +188,8 @@ public class NereidsStreamLoadTask implements NereidsLoadTaskInfo {
         return loadToSingleTablet;
     }
 
-    public PartitionNames getPartitions() {
-        return partitions;
+    public PartitionNamesInfo getPartitionNamesInfo() {
+        return partitionNamesInfo;
     }
 
     public String getPath() {
@@ -311,6 +316,11 @@ public class NereidsStreamLoadTask implements NereidsLoadTaskInfo {
     }
 
     @Override
+    public TPartialUpdateNewRowPolicy getPartialUpdateNewRowPolicy() {
+        return partialUpdateNewKeyPolicy;
+    }
+
+    @Override
     public boolean isMemtableOnSinkNode() {
         return memtableOnSinkNode;
     }
@@ -326,6 +336,15 @@ public class NereidsStreamLoadTask implements NereidsLoadTaskInfo {
 
     public void setStreamPerNode(int streamPerNode) {
         this.streamPerNode = streamPerNode;
+    }
+
+    @Override
+    public boolean getEmptyFieldAsNull() {
+        return emptyFieldAsNull;
+    }
+
+    public void setEmptyFieldAsNull(boolean emptyFieldAsNull) {
+        this.emptyFieldAsNull = emptyFieldAsNull;
     }
 
     /**
@@ -350,7 +369,7 @@ public class NereidsStreamLoadTask implements NereidsLoadTaskInfo {
         this.mergeType = task.getMergeType();
         this.columnSeparator = task.getColumnSeparator();
         this.whereExpr = task.getWhereExpr() != null ? parseWhereExpr(task.getWhereExpr().toSqlWithoutTbl()) : null;
-        this.partitions = task.getPartitions();
+        this.partitionNamesInfo = task.getPartitionNamesInfo();
         this.deleteCondition = task.getDeleteCondition() != null
                 ? parseWhereExpr(task.getDeleteCondition().toSqlWithoutTbl())
                 : null;
@@ -390,9 +409,9 @@ public class NereidsStreamLoadTask implements NereidsLoadTaskInfo {
             String[] splitPartNames = request.getPartitions().trim().split(",");
             List<String> partNames = Arrays.stream(splitPartNames).map(String::trim).collect(Collectors.toList());
             if (request.isSetIsTempPartition()) {
-                partitions = new PartitionNames(request.isIsTempPartition(), partNames);
+                partitionNamesInfo = new PartitionNamesInfo(request.isIsTempPartition(), partNames);
             } else {
-                partitions = new PartitionNames(false, partNames);
+                partitionNamesInfo = new PartitionNamesInfo(false, partNames);
             }
         }
         switch (request.getFileType()) {
@@ -413,8 +432,11 @@ public class NereidsStreamLoadTask implements NereidsLoadTaskInfo {
         if (request.isSetStrictMode()) {
             strictMode = request.isStrictMode();
         }
+        // global time_zone if not set
         if (request.isSetTimezone()) {
             timezone = TimeUtils.checkTimeZoneValidAndStandardize(request.getTimezone());
+        } else if (ConnectContext.get() != null) {
+            timezone = ConnectContext.get().getSessionVariable().getTimeZone();
         }
         if (request.isSetExecMemLimit()) {
             execMemLimit = request.getExecMemLimit();
@@ -482,6 +504,9 @@ public class NereidsStreamLoadTask implements NereidsLoadTaskInfo {
                 uniquekeyUpdateMode = TUniqueKeyUpdateMode.UPSERT;
             }
         }
+        if (request.isSetPartialUpdateNewKeyPolicy()) {
+            partialUpdateNewKeyPolicy = request.getPartialUpdateNewKeyPolicy();
+        }
         if (request.isSetMemtableOnSinkNode()) {
             this.memtableOnSinkNode = request.isMemtableOnSinkNode();
         } else {
@@ -489,6 +514,9 @@ public class NereidsStreamLoadTask implements NereidsLoadTaskInfo {
         }
         if (request.isSetStreamPerNode()) {
             this.streamPerNode = request.getStreamPerNode();
+        }
+        if (request.isSetEmptyFieldAsNull()) {
+            emptyFieldAsNull = request.isEmptyFieldAsNull();
         }
     }
 

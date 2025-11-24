@@ -18,12 +18,10 @@
 package org.apache.doris.mtmv;
 
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.utframe.TestWithFeService;
 
-import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -42,7 +40,7 @@ public class AlterMTMVTest extends TestWithFeService {
                 + "DISTRIBUTED BY HASH(`sid`) BUCKETS 1\n"
                 + "PROPERTIES ('replication_allocation' = 'tag.location.default: 1')");
 
-        createMvByNereids("CREATE MATERIALIZED VIEW mv_a BUILD IMMEDIATE REFRESH COMPLETE ON COMMIT\n"
+        createMvByNereids("CREATE MATERIALIZED VIEW mv_a BUILD DEFERRED REFRESH COMPLETE ON COMMIT\n"
                 + "DISTRIBUTED BY HASH(`sid`) BUCKETS 1\n"
                 + "PROPERTIES ('replication_allocation' = 'tag.location.default: 1') "
                 + "AS select * from stu limit 1");
@@ -51,14 +49,14 @@ public class AlterMTMVTest extends TestWithFeService {
 
         MTMVRelationManager relationManager = Env.getCurrentEnv().getMtmvService().getRelationManager();
         Table table = Env.getCurrentInternalCatalog().getDb("test").get().getTableOrMetaException("stu");
-        Set<MTMV> allMTMVs = relationManager.getAllMTMVs(Lists.newArrayList(new BaseTableInfo(table)));
+        Set<BaseTableInfo> allMTMVs = relationManager.getMtmvsByBaseTable(new BaseTableInfo(table));
         boolean hasMvA = false;
         boolean hasMvB = false;
-        for (MTMV mtmv : allMTMVs) {
-            if ("mv_a".equals(mtmv.getName())) {
+        for (BaseTableInfo mtmv : allMTMVs) {
+            if ("mv_a".equals(mtmv.getTableName())) {
                 hasMvA = true;
             }
-            if ("mv_b".equals(mtmv.getName())) {
+            if ("mv_b".equals(mtmv.getTableName())) {
                 hasMvB = true;
             }
         }
@@ -74,6 +72,7 @@ public class AlterMTMVTest extends TestWithFeService {
 
         DdlException exception = Assertions.assertThrows(DdlException.class, () ->
                 alterTableSync("ALTER TABLE stu1 REPLACE WITH TABLE mv_b PROPERTIES('swap' = 'true')"));
-        Assertions.assertEquals("errCode = 2, detailMessage = replace table[mv_b] cannot be a materialized view", exception.getMessage());
+        Assertions.assertEquals("errCode = 2, detailMessage = replace table[mv_b] cannot be a materialized view",
+                exception.getMessage());
     }
 }

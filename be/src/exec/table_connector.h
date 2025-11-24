@@ -61,9 +61,6 @@ public:
                                    const vectorized::VExprContextSPtrs& _output_vexpr_ctxs,
                                    uint32_t* num_rows_sent) = 0;
 
-    virtual Status exec_write_sql(const std::u16string& insert_stmt,
-                                  const fmt::memory_buffer& _insert_stmt_buffer) = 0;
-
     //write data into table vectorized
     virtual Status append(vectorized::Block* block,
                           const vectorized::VExprContextSPtrs& _output_vexpr_ctxs,
@@ -76,7 +73,7 @@ public:
 
     Status convert_column_data(const vectorized::ColumnPtr& column_ptr,
                                const vectorized::DataTypePtr& type_ptr,
-                               const vectorized::DataTypePtr& type, int row,
+                               const vectorized::DataTypePtr& type, size_t row,
                                TOdbcTableType::type table_type);
 
     // Default max buffer size use in insert to: 50MB, normally a batch is smaller than the size

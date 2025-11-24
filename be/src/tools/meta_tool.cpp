@@ -27,40 +27,26 @@
 #include <string>
 
 #include "common/status.h"
-#include "gutil/strings/numbers.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/local_file_system.h"
 #include "json2pb/pb_to_json.h"
 #include "olap/data_dir.h"
-#include "olap/olap_define.h"
 #include "olap/options.h"
-#include "olap/rowset/segment_v2/binary_plain_page.h"
 #include "olap/rowset/segment_v2/column_reader.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet_meta.h"
 #include "olap/tablet_meta_manager.h"
-#include "olap/utils.h"
 #include "util/coding.h"
 #include "util/crc32c.h"
 
-using std::filesystem::path;
 using doris::DataDir;
 using doris::StorageEngine;
-using doris::OlapMeta;
 using doris::Status;
 using doris::TabletMeta;
 using doris::TabletMetaManager;
 using doris::Slice;
 using doris::segment_v2::SegmentFooterPB;
-using doris::segment_v2::ColumnReader;
-using doris::segment_v2::PageHandle;
-using doris::segment_v2::PagePointer;
-using doris::segment_v2::ColumnReaderOptions;
-using doris::segment_v2::ColumnIteratorOptions;
-using doris::segment_v2::PageFooterPB;
 using doris::io::FileReaderSPtr;
-
-const std::string HEADER_PREFIX = "tabletmeta_";
 
 DEFINE_string(root_path, "", "storage root path");
 DEFINE_string(operation, "get_meta",
@@ -102,7 +88,7 @@ void show_meta() {
     json2pb::Pb2JsonOptions json_options;
     json_options.pretty_json = true;
     doris::TabletMetaPB tablet_meta_pb;
-    tablet_meta.to_meta_pb(&tablet_meta_pb);
+    tablet_meta.to_meta_pb(&tablet_meta_pb, false);
     json2pb::ProtoMessageToJson(tablet_meta_pb, &json_meta, json_options);
     std::cout << json_meta << std::endl;
 }
@@ -179,7 +165,7 @@ void batch_delete_meta(const std::string& tablet_file) {
     std::unordered_map<std::string, std::unique_ptr<DataDir>> dir_map;
     while (std::getline(infile, line)) {
         total_num++;
-        std::vector<string> v = absl::StrSplit(line, ",");
+        std::vector<std::string> v = absl::StrSplit(line, ",");
         if (v.size() != 3) {
             std::cout << "invalid line in tablet_file: " << line << std::endl;
             err_num++;
@@ -197,7 +183,7 @@ void batch_delete_meta(const std::string& tablet_file) {
         if (dir_map.find(dir) == dir_map.end()) {
             // new data dir, init it
             std::unique_ptr<DataDir> data_dir_p;
-            Status st = init_data_dir(engine, dir, &data_dir_p);
+            st = init_data_dir(engine, dir, &data_dir_p);
             if (!st.ok()) {
                 std::cout << "invalid root path:" << FLAGS_root_path
                           << ", error: " << st.to_string() << std::endl;
@@ -216,13 +202,13 @@ void batch_delete_meta(const std::string& tablet_file) {
 
         // 2. get tablet id/schema_hash
         int64_t tablet_id;
-        if (!safe_strto64(v[1].c_str(), &tablet_id)) {
+        if (!absl::SimpleAtoi(v[1], &tablet_id)) {
             std::cout << "invalid tablet id: " << line << std::endl;
             err_num++;
             continue;
         }
         int64_t schema_hash;
-        if (!safe_strto64(v[2].c_str(), &schema_hash)) {
+        if (!absl::SimpleAtoi(v[2], &schema_hash)) {
             std::cout << "invalid schema hash: " << line << std::endl;
             err_num++;
             continue;
@@ -318,6 +304,7 @@ void show_segment_footer(const std::string& file_name) {
 }
 
 int main(int argc, char** argv) {
+    SCOPED_INIT_THREAD_CONTEXT();
     std::string usage = get_usage(argv[0]);
     gflags::SetUsageMessage(usage);
     google::ParseCommandLineFlags(&argc, &argv, true);

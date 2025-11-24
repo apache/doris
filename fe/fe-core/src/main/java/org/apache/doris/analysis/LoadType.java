@@ -17,34 +17,11 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.load.EtlJobType;
-
-import com.google.common.base.Preconditions;
-
-import java.util.EnumMap;
-
 public enum LoadType {
-
     UNKNOWN,
     NATIVE_INSERT,
     BROKER_LOAD,
-    SPARK_LOAD,
     MYSQL_LOAD,
     ROUTINE_LOAD,
     STREAM_LOAD;
-
-    private static final EnumMap<LoadType, EtlJobType> LOAD_TYPE_TO_ETL_TYPE = new EnumMap<>(LoadType.class);
-
-    static {
-        LOAD_TYPE_TO_ETL_TYPE.put(NATIVE_INSERT, EtlJobType.INSERT);
-        LOAD_TYPE_TO_ETL_TYPE.put(BROKER_LOAD, EtlJobType.BROKER);
-        LOAD_TYPE_TO_ETL_TYPE.put(SPARK_LOAD, EtlJobType.SPARK);
-        LOAD_TYPE_TO_ETL_TYPE.put(MYSQL_LOAD, EtlJobType.LOCAL_FILE);
-        // TODO(tsy): add routine load and stream load
-    }
-
-    public static EtlJobType getEtlJobType(LoadType loadType) {
-        return Preconditions.checkNotNull(LOAD_TYPE_TO_ETL_TYPE.get(loadType));
-    }
-
 }

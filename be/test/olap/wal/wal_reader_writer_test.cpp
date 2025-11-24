@@ -30,7 +30,6 @@
 #include "service/brpc.h"
 #include "testutil/test_util.h"
 #include "util/proto_util.h"
-#include "vec/columns/columns_number.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/runtime/vdata_stream_mgr.h"
 #include "vec/runtime/vdata_stream_recvr.h"
@@ -57,7 +56,7 @@ public:
     static std::string _s_test_data_path;
 };
 
-std::string WalReaderWriterTest::_s_test_data_path = "./log/wal_reader_writer_test";
+std::string WalReaderWriterTest::_s_test_data_path = "./log/wal_reader_writer_test/0/0";
 size_t block_rows = 1024;
 
 void covert_block_to_pb(
@@ -65,8 +64,10 @@ void covert_block_to_pb(
         segment_v2::CompressionTypePB compression_type = segment_v2::CompressionTypePB::SNAPPY) {
     size_t uncompressed_bytes = 0;
     size_t compressed_bytes = 0;
-    Status st = block.serialize(BeExecVersionManager::get_newest_version(), pblock,
-                                &uncompressed_bytes, &compressed_bytes, compression_type);
+    int64_t compressed_time = 0;
+    Status st =
+            block.serialize(BeExecVersionManager::get_newest_version(), pblock, &uncompressed_bytes,
+                            &compressed_bytes, &compressed_time, compression_type);
     EXPECT_TRUE(st.ok());
     EXPECT_TRUE(uncompressed_bytes >= compressed_bytes);
     EXPECT_EQ(compressed_bytes, pblock->column_values().size());
@@ -77,7 +78,7 @@ void covert_block_to_pb(
 }
 
 void generate_block(PBlock& pblock, int row_index) {
-    auto vec = vectorized::ColumnVector<int32_t>::create();
+    auto vec = vectorized::ColumnInt32::create();
     auto& data = vec->get_data();
     for (int i = 0; i < block_rows; ++i) {
         data.push_back(i + row_index);
@@ -91,7 +92,7 @@ void generate_block(PBlock& pblock, int row_index) {
 TEST_F(WalReaderWriterTest, TestWriteAndRead1) {
     std::string file_name = _s_test_data_path + "/abcd123.txt";
     auto wal_writer = WalWriter(file_name);
-    static_cast<void>(wal_writer.init());
+    static_cast<void>(wal_writer.init(io::global_local_filesystem()));
     size_t file_len = 0;
     int64_t file_size = -1;
     // add 1 block
@@ -133,7 +134,9 @@ TEST_F(WalReaderWriterTest, TestWriteAndRead1) {
             break;
         }
         vectorized::Block block;
-        EXPECT_TRUE(block.deserialize(pblock).ok());
+        size_t uncompress_size = 0;
+        int64_t uncompressed_time = 0;
+        EXPECT_TRUE(block.deserialize(pblock, &uncompress_size, &uncompressed_time).ok());
         EXPECT_EQ(block_rows, block.rows());
     }
     static_cast<void>(wal_reader.finalize());

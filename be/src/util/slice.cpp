@@ -27,4 +27,23 @@ Slice::Slice(const faststring& s)
           data((char*)(s.data())),
           size(s.size()) {}
 
+bool Slice::lhs_is_strictly_less_than_rhs(Slice X, bool X_is_truncated, Slice Y,
+                                          [[maybe_unused]] bool Y_is_truncated) {
+    // suppose X is a prefix of X', Y is a prefix of Y'
+    if (!X_is_truncated) {
+        // (X_is_truncated == false) means X' == X
+        // we have Y <= Y',
+        // so X < Y => X < Y',
+        // so X' = X < Y'
+        return X.compare(Y) < 0;
+    }
+
+    // let m = min(|X|,|Y|),
+    // we have Y[1..m] = Y'[1..m] <= Y'
+    // so X'[1..m] < Y[1..m] => X' < Y'
+    std::size_t m {std::min(X.get_size(), Y.get_size())};
+    Slice Y_to_cmp {Y.get_data(), m};
+    return X.compare(Y_to_cmp) < 0;
+}
+
 } // namespace doris

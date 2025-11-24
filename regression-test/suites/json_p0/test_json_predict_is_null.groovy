@@ -81,4 +81,60 @@ suite("test_json_predict_is_null", "p0") {
     qt_select_drop "alter table j_pred DROP COLUMN j"
 
     qt_select "select * from j_pred order by id"
+
+    sql "DROP TABLE IF EXISTS example"
+    sql """
+        CREATE TABLE example (
+        id INT,
+        value_json json
+        ) DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(`id`) BUCKETS AUTO
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1");
+    """
+    sql "DROP TABLE IF EXISTS example2"
+    sql """
+        CREATE TABLE example2 (
+        id INT,
+        value_json  json not null
+        ) DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(`id`) BUCKETS AUTO
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1");
+    """
+    sql """
+        INSERT INTO example VALUES
+        (1, '{"key1": "value1", "key2": "value2"}'),
+        (2, '{}'),
+        (3, NULL);
+    """
+
+    sql """ insert into example2 values
+        (1, '{"key1": "value1", "key2": "value2"}'),
+        (2, '{}');
+    """
+
+    qt_order """ 
+    SELECT id, k, v
+    FROM example
+    LATERAL VIEW explode_json_object(value_json) exploded_table AS k , v order by id, k;
+    """
+
+    qt_order """ 
+    SELECT id, k, v
+    FROM example
+    LATERAL VIEW explode_json_object_outer(value_json) exploded_table AS k, v order by id, k;
+    """
+
+    qt_order """ 
+    SELECT id, k, v
+    FROM example2
+    LATERAL VIEW explode_json_object(value_json) exploded_table AS k , v order by id, k;
+    """
+
+    qt_order """ 
+    SELECT id, k, v
+    FROM example2
+    LATERAL VIEW explode_json_object_outer(value_json) exploded_table AS k, v order by id, k;
+    """
 }

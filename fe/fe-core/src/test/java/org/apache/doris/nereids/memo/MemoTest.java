@@ -98,7 +98,7 @@ class MemoTest implements MemoPatternMatchSupported {
         GroupExpression srcParentExpression = new GroupExpression(fakePlan, Lists.newArrayList(srcGroup));
         Group srcParentGroup = new Group(new GroupId(0), srcParentExpression,
                 new LogicalProperties(ArrayList::new, () -> DataTrait.EMPTY_TRAIT));
-        srcParentGroup.setBestPlan(srcParentExpression, Cost.zeroV1(), PhysicalProperties.ANY);
+        srcParentGroup.setBestPlan(srcParentExpression, Cost.zero(), PhysicalProperties.ANY);
         GroupExpression dstParentExpression = new GroupExpression(fakePlan, Lists.newArrayList(dstGroup));
         Group dstParentGroup = new Group(new GroupId(1), dstParentExpression,
                 new LogicalProperties(ArrayList::new, () -> DataTrait.EMPTY_TRAIT));
@@ -212,7 +212,9 @@ class MemoTest implements MemoPatternMatchSupported {
         // when unboundRelation contains id, the case is illegal.
         LogicalJoin<UnboundRelation, UnboundRelation> topJoin = new LogicalJoin<>(JoinType.INNER_JOIN, scanA, scanA, null);
 
-        Assertions.assertThrows(IllegalStateException.class, () -> PlanChecker.from(connectContext, topJoin));
+        Assertions.assertThrows(IllegalStateException.class, () -> {
+            PlanChecker.from(connectContext, topJoin);
+        });
     }
 
     @Test

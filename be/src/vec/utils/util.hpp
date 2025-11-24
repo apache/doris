@@ -111,6 +111,20 @@ public:
         return columns_with_type_and_name;
     }
 
+    // Helper function to extract null map from column (including ColumnConst cases)
+    static const NullMap* get_null_map(const ColumnPtr& col) {
+        if (col->is_nullable()) {
+            return &static_cast<const ColumnNullable&>(*col).get_null_map_data();
+        }
+        // Handle Const(Nullable) case
+        if (const auto* const_col = check_and_get_column<ColumnConst>(col.get());
+            const_col != nullptr && const_col->is_concrete_nullable()) {
+            return &static_cast<const ColumnNullable&>(const_col->get_data_column())
+                            .get_null_map_data();
+        }
+        return nullptr;
+    };
+
     // is_single: whether src is null map of a ColumnConst
     static void update_null_map(NullMap& dst, const NullMap& src, bool is_single = false) {
         size_t size = dst.size();
@@ -157,6 +171,61 @@ public:
         }
         return true;
     }
+
+    // SIMD helper: find the first not null in the null map
+    static size_t find_first_valid_simd(const NullMap& null_map, size_t start_pos, size_t end_pos) {
+#ifdef __AVX2__
+        // search by simd
+        for (size_t pos = start_pos; pos + 31 < end_pos; pos += 32) {
+            __m256i null_vec = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(&null_map[pos]));
+            __m256i zero_vec = _mm256_setzero_si256();
+            __m256i cmp_result = _mm256_cmpeq_epi8(null_vec, zero_vec);
+
+            int mask = _mm256_movemask_epi8(cmp_result);
+            if (mask != 0) {
+                // find the first not null
+                return pos + __builtin_ctz(mask);
+            }
+        }
+
+        // handle the rest elements
+        for (size_t pos = start_pos + ((end_pos - start_pos) / 32) * 32; pos < end_pos; ++pos) {
+            if (!null_map[pos]) {
+                return pos;
+            }
+        }
+#else
+        // standard implementation
+        for (size_t pos = start_pos; pos < end_pos; ++pos) {
+            if (!null_map[pos]) {
+                return pos;
+            }
+        }
+#endif
+        return end_pos;
+    }
+
+    // SIMD helper: batch set non-null value with [start, end) to 1
+    static void range_set_nullmap_to_true_simd(NullMap& null_map, size_t start_pos,
+                                               size_t end_pos) {
+#ifdef __AVX2__
+        // batch set null map to 1 using SIMD (32 bytes at a time)
+        for (size_t pos = start_pos; pos + 31 < end_pos; pos += 32) {
+            __m256i ones_vec = _mm256_set1_epi8(1);
+            _mm256_storeu_si256(reinterpret_cast<__m256i*>(&null_map[pos]), ones_vec);
+        }
+
+        // handle the rest elements (less than 32 bytes)
+        for (size_t pos = start_pos + ((end_pos - start_pos) / 32) * 32; pos < end_pos; ++pos) {
+            null_map[pos] = 1;
+        }
+#else
+        // standard implementation
+        for (size_t pos = start_pos; pos < end_pos; ++pos) {
+            null_map[pos] = 1;
+        }
+#endif
+    }
 };
 
 inline bool match_suffix(const std::string& name, const std::string& suffix) {
@@ -175,35 +244,32 @@ inline std::string remove_suffix(const std::string& name, const std::string& suf
 inline ColumnPtr create_always_true_column(size_t size, bool is_nullable) {
     ColumnPtr res_data_column = ColumnUInt8::create(1, 1);
     if (is_nullable) {
-        auto null_map = ColumnVector<UInt8>::create(1, 0);
+        auto null_map = ColumnUInt8::create(1, 0);
         res_data_column = ColumnNullable::create(res_data_column, std::move(null_map));
     }
     return ColumnConst::create(std::move(res_data_column), size);
 }
 
 // change null element to true element
-inline void change_null_to_true(ColumnPtr column, ColumnPtr argument = nullptr) {
+inline void change_null_to_true(MutableColumnPtr column, ColumnPtr argument = nullptr) {
     size_t rows = column->size();
     if (is_column_const(*column)) {
-        change_null_to_true(assert_cast<const ColumnConst*>(column.get())->get_data_column_ptr());
+        change_null_to_true(
+                assert_cast<ColumnConst*>(column.get())->get_data_column_ptr()->assume_mutable());
     } else if (column->has_null()) {
-        auto* nullable =
-                const_cast<ColumnNullable*>(assert_cast<const ColumnNullable*>(column.get()));
+        auto* nullable = assert_cast<ColumnNullable*>(column.get());
         auto* __restrict data = assert_cast<ColumnUInt8*>(nullable->get_nested_column_ptr().get())
                                         ->get_data()
                                         .data();
-        auto* __restrict null_map = const_cast<uint8_t*>(nullable->get_null_map_data().data());
+        const NullMap& null_map = nullable->get_null_map_data();
         for (size_t i = 0; i < rows; ++i) {
             data[i] |= null_map[i];
         }
-        memset(null_map, 0, rows);
+        nullable->fill_false_to_nullmap(rows);
     } else if (argument && argument->has_null()) {
         const auto* __restrict null_map =
                 assert_cast<const ColumnNullable*>(argument.get())->get_null_map_data().data();
-        auto* __restrict data =
-                const_cast<ColumnUInt8*>(assert_cast<const ColumnUInt8*>(column.get()))
-                        ->get_data()
-                        .data();
+        auto* __restrict data = assert_cast<ColumnUInt8*>(column.get())->get_data().data();
         for (size_t i = 0; i < rows; ++i) {
             data[i] |= null_map[i];
         }
@@ -228,6 +294,16 @@ inline size_t calculate_false_number(ColumnPtr column) {
         const auto* data = assert_cast<const ColumnUInt8*>(column.get())->get_data().data();
         return simd::count_zero_num(reinterpret_cast<const int8_t* __restrict>(data), rows);
     }
+}
+
+template <typename T>
+T read_from_json(std::string& json_str) {
+    auto memBufferIn = std::make_shared<apache::thrift::transport::TMemoryBuffer>(
+            reinterpret_cast<uint8_t*>(json_str.data()), static_cast<uint32_t>(json_str.size()));
+    auto jsonProtocolIn = std::make_shared<apache::thrift::protocol::TJSONProtocol>(memBufferIn);
+    T params;
+    params.read(jsonProtocolIn.get());
+    return params;
 }
 
 } // namespace doris::vectorized

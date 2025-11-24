@@ -98,6 +98,8 @@ suite("test_delete_publish_skip_read", "nonConcurrent") {
         t1.join()
         t2.join()
 
+        sleep(2000)
+        sql "sync;"
         order_qt_sql "select * from ${table1};"
 
         sql "set skip_delete_sign=true;"

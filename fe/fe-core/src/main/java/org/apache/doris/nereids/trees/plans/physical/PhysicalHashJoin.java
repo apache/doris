@@ -220,6 +220,9 @@ public class PhysicalHashJoin<
             builder.append(" build RFs:").append(runtimeFilters.stream()
                     .map(rf -> rf.shapeInfo()).collect(Collectors.joining(";")));
         }
+        if (!runtimeFiltersV2.isEmpty()) {
+            builder.append(" RFV2: ").append(runtimeFiltersV2);
+        }
         return builder.toString();
     }
 

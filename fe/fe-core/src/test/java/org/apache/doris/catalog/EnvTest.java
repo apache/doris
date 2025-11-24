@@ -19,7 +19,6 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.io.CountingDataOutputStream;
-import org.apache.doris.load.Load;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.persist.meta.MetaHeader;
 
@@ -35,7 +34,6 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.FileWriter;
 import java.io.IOException;
-import java.lang.reflect.Field;
 import java.util.Random;
 
 public class EnvTest {
@@ -128,9 +126,6 @@ public class EnvTest {
         CountingDataOutputStream dos = new CountingDataOutputStream(new FileOutputStream(file));
         Env env = Env.getCurrentEnv();
         MetaContext.get().setMetaVersion(FeConstants.meta_version);
-        Field field = env.getClass().getDeclaredField("load");
-        field.setAccessible(true);
-        field.set(env, new Load());
 
         long checksum1 = env.saveHeader(dos, new Random().nextLong(), 0);
         env.clear();

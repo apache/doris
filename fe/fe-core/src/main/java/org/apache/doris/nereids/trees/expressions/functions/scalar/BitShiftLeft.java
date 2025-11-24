@@ -42,6 +42,11 @@ public class BitShiftLeft extends ScalarFunction
         super("bit_shift_left", arg1, arg2);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private BitShiftLeft(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public List<FunctionSignature> getSignatures() {
         return SIGNATURES;
@@ -55,6 +60,6 @@ public class BitShiftLeft extends ScalarFunction
     @Override
     public BitShiftLeft withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new BitShiftLeft(children.get(0), children.get(1));
+        return new BitShiftLeft(getFunctionParams(children));
     }
 }

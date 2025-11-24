@@ -50,13 +50,18 @@ public class MapSize extends ScalarFunction
         super("map_size", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private MapSize(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public MapSize withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new MapSize(children.get(0));
+        return new MapSize(getFunctionParams(children));
     }
 
     @Override

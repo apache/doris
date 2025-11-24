@@ -123,6 +123,7 @@ Status DeltaWriterV2::init() {
     context.data_dir = nullptr;
     context.partial_update_info = _partial_update_info;
     context.memtable_on_sink_support_index_v2 = true;
+    context.encrypt_algorithm = EncryptionAlgorithmPB::PLAINTEXT;
 
     _rowset_writer = std::make_shared<BetaRowsetWriterV2>(_streams);
     RETURN_IF_ERROR(_rowset_writer->init(context));
@@ -239,6 +240,7 @@ Status DeltaWriterV2::_build_current_tablet_schema(int64_t index_id,
     RETURN_IF_ERROR(_partial_update_info->init(
             _req.tablet_id, _req.txn_id, *_tablet_schema,
             table_schema_param->unique_key_update_mode(),
+            table_schema_param->partial_update_new_key_policy(),
             table_schema_param->partial_update_input_columns(),
             table_schema_param->is_strict_mode(), table_schema_param->timestamp_ms(),
             table_schema_param->nano_seconds(), table_schema_param->timezone(),

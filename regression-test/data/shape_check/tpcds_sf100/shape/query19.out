@@ -11,7 +11,7 @@ PhysicalResultSink
 ----------------PhysicalProject
 ------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_store_sk = store.s_store_sk)) otherCondition=(( not (substring(ca_zip, 1, 5) = substring(s_zip, 1, 5)))) build RFs:RF4 s_store_sk->[ss_store_sk]
 --------------------PhysicalProject
-----------------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((customer.c_current_addr_sk = customer_address.ca_address_sk)) otherCondition=() build RFs:RF3 c_current_addr_sk->[ca_address_sk]
+----------------------hashJoin[INNER_JOIN broadcast] hashCondition=((customer.c_current_addr_sk = customer_address.ca_address_sk)) otherCondition=() build RFs:RF3 c_current_addr_sk->[ca_address_sk]
 ------------------------PhysicalProject
 --------------------------PhysicalOlapScan[customer_address] apply RFs: RF3
 ------------------------PhysicalProject

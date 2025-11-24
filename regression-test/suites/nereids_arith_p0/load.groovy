@@ -106,6 +106,7 @@ suite("load") {
         properties("replication_num" = "1")
     """
 
+    sql """  drop table IF EXISTS `expr_test_not_nullable2` """
     sql """
         CREATE TABLE IF NOT EXISTS `expr_test_not_nullable2` (
             `id` int null,

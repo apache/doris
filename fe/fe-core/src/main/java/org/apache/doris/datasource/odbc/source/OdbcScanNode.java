@@ -17,7 +17,6 @@
 
 package org.apache.doris.datasource.odbc.source;
 
-import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprSubstitutionMap;
 import org.apache.doris.analysis.FunctionCallExpr;
@@ -25,18 +24,13 @@ import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.JdbcTable;
 import org.apache.doris.catalog.OdbcTable;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.ExternalScanNode;
 import org.apache.doris.datasource.jdbc.source.JdbcScanNode;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.statistics.StatisticalType;
-import org.apache.doris.statistics.StatsRecursiveDerive;
-import org.apache.doris.statistics.query.StatsDelta;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TOdbcScanNode;
 import org.apache.doris.thrift.TOdbcTableType;
@@ -44,7 +38,6 @@ import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
 
 import com.google.common.base.Joiner;
-import com.google.common.base.MoreObjects;
 import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -72,16 +65,11 @@ public class OdbcScanNode extends ExternalScanNode {
      * Constructs node to scan given data files of table 'tbl'.
      */
     public OdbcScanNode(PlanNodeId id, TupleDescriptor desc, OdbcTable tbl) {
-        super(id, desc, "SCAN ODBC", StatisticalType.ODBC_SCAN_NODE, false);
+        super(id, desc, "SCAN ODBC", false);
         connectString = tbl.getConnectString();
         odbcType = tbl.getOdbcTableType();
         tblName = JdbcTable.databaseProperName(odbcType, tbl.getOdbcTableName());
         this.tbl = tbl;
-    }
-
-    @Override
-    public void init(Analyzer analyzer) throws UserException {
-        super.init(analyzer);
     }
 
     /**
@@ -91,22 +79,7 @@ public class OdbcScanNode extends ExternalScanNode {
     public void init() throws UserException {
         super.init();
         numNodes = numNodes <= 0 ? 1 : numNodes;
-        StatsRecursiveDerive.getStatsRecursiveDerive().statsRecursiveDerive(this);
-        cardinality = (long) statsDeriveResult.getRowCount();
-    }
-
-    @Override
-    protected String debugString() {
-        MoreObjects.ToStringHelper helper = MoreObjects.toStringHelper(this);
-        return helper.addValue(super.debugString()).toString();
-    }
-
-    @Override
-    public void finalize(Analyzer analyzer) throws UserException {
-        // Convert predicates to Odbc columns and filters.
-        createOdbcColumns();
-        createOdbcFilters();
-        createScanRangeLocations();
+        cardinality = -1;
     }
 
     @Override
@@ -185,9 +158,6 @@ public class OdbcScanNode extends ExternalScanNode {
     private void createOdbcColumns() {
         columns.clear();
         for (SlotDescriptor slot : desc.getSlots()) {
-            if (!slot.isMaterialized()) {
-                continue;
-            }
             Column col = slot.getColumn();
             columns.add(JdbcTable.databaseProperName(odbcType, col.getName()));
         }
@@ -207,7 +177,7 @@ public class OdbcScanNode extends ExternalScanNode {
         ExprSubstitutionMap sMap = new ExprSubstitutionMap();
         for (SlotRef slotRef : slotRefs) {
             SlotRef tmpRef = (SlotRef) slotRef.clone();
-            tmpRef.setTblName(null);
+            tmpRef.setTableNameInfoToNull();
             tmpRef.setLabel(JdbcTable.databaseProperName(odbcType, tmpRef.getColumnName()));
             sMap.put(slotRef, tmpRef);
         }
@@ -233,23 +203,6 @@ public class OdbcScanNode extends ExternalScanNode {
 
         msg.odbc_scan_node = odbcScanNode;
         super.toThrift(msg);
-    }
-
-    @Override
-    public void computeStats(Analyzer analyzer) throws UserException {
-        super.computeStats(analyzer);
-        // even if current node scan has no data,at least on backend will be assigned when the fragment actually execute
-        numNodes = numNodes <= 0 ? 1 : numNodes;
-
-        StatsRecursiveDerive.getStatsRecursiveDerive().statsRecursiveDerive(this);
-        cardinality = (long) statsDeriveResult.getRowCount();
-    }
-
-    @Override
-    public StatsDelta genStatsDelta() throws AnalysisException {
-        return new StatsDelta(Env.getCurrentEnv().getCurrentCatalog().getId(),
-                Env.getCurrentEnv().getCurrentCatalog().getDbOrAnalysisException(tbl.getQualifiedDbName()).getId(),
-                tbl.getId(), -1L);
     }
 
     @Override

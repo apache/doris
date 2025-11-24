@@ -31,7 +31,6 @@
 #include "common/exception.h"
 #include "testutil/test_util.h"
 #include "vec/columns/column.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
@@ -40,67 +39,66 @@
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_number.h"
-#include "vec/io/reader_buffer.h"
 
 namespace doris::vectorized {
 static std::string test_data_dir;
 static std::string test_result_dir;
 
-static DataTypeDecimal<Decimal32> dt_decimal32_1(1, 0);
-static DataTypeDecimal<Decimal32> dt_decimal32_2(1, 1);
-static DataTypeDecimal<Decimal32> dt_decimal32_3(8, 3);
-static DataTypeDecimal<Decimal32> dt_decimal32_4(9, 0);
-static DataTypeDecimal<Decimal32> dt_decimal32_5(9, 9);
+static DataTypeDecimal32 dt_decimal32_1(1, 0);
+static DataTypeDecimal32 dt_decimal32_2(1, 1);
+static DataTypeDecimal32 dt_decimal32_3(8, 3);
+static DataTypeDecimal32 dt_decimal32_4(9, 0);
+static DataTypeDecimal32 dt_decimal32_5(9, 9);
 
-static DataTypeDecimal<Decimal64> dt_decimal64_1(18, 0);
-static DataTypeDecimal<Decimal64> dt_decimal64_2(18, 9);
-static DataTypeDecimal<Decimal64> dt_decimal64_3(18, 18);
+static DataTypeDecimal64 dt_decimal64_1(18, 0);
+static DataTypeDecimal64 dt_decimal64_2(18, 9);
+static DataTypeDecimal64 dt_decimal64_3(18, 18);
 
-static DataTypeDecimal<Decimal128V2> dt_decimal128v2(27, 9);
+static DataTypeDecimalV2 dt_decimal128v2(27, 9);
 
-static DataTypeDecimal<Decimal128V3> dt_decimal128v3_1(38, 0);
-static DataTypeDecimal<Decimal128V3> dt_decimal128v3_2(38, 30);
-static DataTypeDecimal<Decimal128V3> dt_decimal128v3_3(38, 38);
+static DataTypeDecimal128 dt_decimal128v3_1(38, 0);
+static DataTypeDecimal128 dt_decimal128v3_2(38, 30);
+static DataTypeDecimal128 dt_decimal128v3_3(38, 38);
 
-static DataTypeDecimal<Decimal256> dt_decimal256_1(76, 0);
-static DataTypeDecimal<Decimal256> dt_decimal256_2(76, 38);
-static DataTypeDecimal<Decimal256> dt_decimal256_3(76, 76);
+static DataTypeDecimal256 dt_decimal256_1(76, 0);
+static DataTypeDecimal256 dt_decimal256_2(76, 38);
+static DataTypeDecimal256 dt_decimal256_3(76, 76);
 
-static std::shared_ptr<DataTypeDecimal<Decimal32>> dt_decimal32_1_ptr =
-        std::make_shared<DataTypeDecimal<Decimal32>>(1, 0);
+static std::shared_ptr<DataTypeDecimal32> dt_decimal32_1_ptr =
+        std::make_shared<DataTypeDecimal32>(1, 0);
 
-static std::shared_ptr<DataTypeDecimal<Decimal32>> dt_decimal32_2_ptr =
-        std::make_shared<DataTypeDecimal<Decimal32>>(1, 1);
-static std::shared_ptr<DataTypeDecimal<Decimal32>> dt_decimal32_3_ptr =
-        std::make_shared<DataTypeDecimal<Decimal32>>(8, 3);
-static std::shared_ptr<DataTypeDecimal<Decimal32>> dt_decimal32_4_ptr =
-        std::make_shared<DataTypeDecimal<Decimal32>>(9, 0);
-static std::shared_ptr<DataTypeDecimal<Decimal32>> dt_decimal32_5_ptr =
-        std::make_shared<DataTypeDecimal<Decimal32>>(9, 9);
+static std::shared_ptr<DataTypeDecimal32> dt_decimal32_2_ptr =
+        std::make_shared<DataTypeDecimal32>(1, 1);
+static std::shared_ptr<DataTypeDecimal32> dt_decimal32_3_ptr =
+        std::make_shared<DataTypeDecimal32>(8, 3);
+static std::shared_ptr<DataTypeDecimal32> dt_decimal32_4_ptr =
+        std::make_shared<DataTypeDecimal32>(9, 0);
+static std::shared_ptr<DataTypeDecimal32> dt_decimal32_5_ptr =
+        std::make_shared<DataTypeDecimal32>(9, 9);
 
-static std::shared_ptr<DataTypeDecimal<Decimal64>> dt_decimal64_1_ptr =
-        std::make_shared<DataTypeDecimal<Decimal64>>(18, 0);
-static std::shared_ptr<DataTypeDecimal<Decimal64>> dt_decimal64_2_ptr =
-        std::make_shared<DataTypeDecimal<Decimal64>>(18, 9);
-static std::shared_ptr<DataTypeDecimal<Decimal64>> dt_decimal64_3_ptr =
-        std::make_shared<DataTypeDecimal<Decimal64>>(18, 18);
+static std::shared_ptr<DataTypeDecimal64> dt_decimal64_1_ptr =
+        std::make_shared<DataTypeDecimal64>(18, 0);
+static std::shared_ptr<DataTypeDecimal64> dt_decimal64_2_ptr =
+        std::make_shared<DataTypeDecimal64>(18, 9);
+static std::shared_ptr<DataTypeDecimal64> dt_decimal64_3_ptr =
+        std::make_shared<DataTypeDecimal64>(18, 18);
 
-static std::shared_ptr<DataTypeDecimal<Decimal128V2>> dt_decimal128v2_ptr =
-        std::make_shared<DataTypeDecimal<Decimal128V2>>(27, 9);
+static std::shared_ptr<DataTypeDecimalV2> dt_decimal128v2_ptr =
+        std::make_shared<DataTypeDecimalV2>(27, 9);
 
-static std::shared_ptr<DataTypeDecimal<Decimal128V3>> dt_decimal128v3_1_ptr =
-        std::make_shared<DataTypeDecimal<Decimal128V3>>(38, 0);
-static std::shared_ptr<DataTypeDecimal<Decimal128V3>> dt_decimal128v3_2_ptr =
-        std::make_shared<DataTypeDecimal<Decimal128V3>>(38, 30);
-static std::shared_ptr<DataTypeDecimal<Decimal128V3>> dt_decimal128v3_3_ptr =
-        std::make_shared<DataTypeDecimal<Decimal128V3>>(38, 38);
+static std::shared_ptr<DataTypeDecimal128> dt_decimal128v3_1_ptr =
+        std::make_shared<DataTypeDecimal128>(38, 0);
+static std::shared_ptr<DataTypeDecimal128> dt_decimal128v3_2_ptr =
+        std::make_shared<DataTypeDecimal128>(38, 30);
+static std::shared_ptr<DataTypeDecimal128> dt_decimal128v3_3_ptr =
+        std::make_shared<DataTypeDecimal128>(38, 38);
 
-static std::shared_ptr<DataTypeDecimal<Decimal256>> dt_decimal256_1_ptr =
-        std::make_shared<DataTypeDecimal<Decimal256>>(76, 0);
-static std::shared_ptr<DataTypeDecimal<Decimal256>> dt_decimal256_2_ptr =
-        std::make_shared<DataTypeDecimal<Decimal256>>(76, 38);
-static std::shared_ptr<DataTypeDecimal<Decimal256>> dt_decimal256_3_ptr =
-        std::make_shared<DataTypeDecimal<Decimal256>>(76, 76);
+static std::shared_ptr<DataTypeDecimal256> dt_decimal256_1_ptr =
+        std::make_shared<DataTypeDecimal256>(76, 0);
+static std::shared_ptr<DataTypeDecimal256> dt_decimal256_2_ptr =
+        std::make_shared<DataTypeDecimal256>(76, 38);
+static std::shared_ptr<DataTypeDecimal256> dt_decimal256_3_ptr =
+        std::make_shared<DataTypeDecimal256>(76, 76);
 
 static ColumnDecimal32::MutablePtr column_decimal32_1; // decimal32(1,0)
 static ColumnDecimal32::MutablePtr column_decimal32_2; // decimal32(1,1)
@@ -203,16 +201,12 @@ TEST_F(DataTypeDecimalTest, MetaInfoTest) {
             .family_name = tmp_dt->get_family_name(),
             .has_subtypes = false,
             .storage_field_type = doris::FieldType::OLAP_FIELD_TYPE_DECIMAL32,
-            .should_align_right_in_pretty_formats = true,
-            .text_can_contain_only_valid_utf8 = true,
             .have_maximum_size_of_value = true,
             .size_of_value_in_memory = sizeof(Decimal32),
             .precision = tmp_dt->get_precision(),
             .scale = tmp_dt->get_scale(),
             .is_null_literal = false,
-            .is_value_represented_by_number = true,
             .pColumnMeta = col_meta.get(),
-            .is_value_unambiguously_represented_in_contiguous_memory_region = true,
             .default_field = Field::create_field<TYPE_DECIMAL32>(
                     DecimalField<Decimal32>(0, tmp_dt->get_scale())),
     };
@@ -220,57 +214,49 @@ TEST_F(DataTypeDecimalTest, MetaInfoTest) {
 }
 TEST_F(DataTypeDecimalTest, ctor) {
     // check invalid precision: 0
-    EXPECT_THROW(DataTypeDecimal<Decimal32>(0, 10), Exception);
-    EXPECT_THROW(DataTypeDecimal<Decimal64>(0, 10), Exception);
-    EXPECT_THROW(DataTypeDecimal<Decimal128V2>(0, 10), Exception);
-    EXPECT_THROW(DataTypeDecimal<Decimal128V3>(0, 10), Exception);
-    EXPECT_THROW(DataTypeDecimal<Decimal256>(0, 10), Exception);
+    EXPECT_THROW(DataTypeDecimal32(0, 10), Exception);
+    EXPECT_THROW(DataTypeDecimal64(0, 10), Exception);
+    EXPECT_THROW(DataTypeDecimalV2(0, 10), Exception);
+    EXPECT_THROW(DataTypeDecimal128(0, 10), Exception);
+    EXPECT_THROW(DataTypeDecimal256(0, 10), Exception);
 
     // check invalid precision: bigger than max precision
-    EXPECT_THROW(DataTypeDecimal<Decimal32>(10, 10), Exception);
-    EXPECT_THROW(DataTypeDecimal<Decimal64>(19, 10), Exception);
-    EXPECT_THROW(DataTypeDecimal<Decimal128V2>(28, 10), Exception);
-    EXPECT_THROW(DataTypeDecimal<Decimal128V3>(39, 10), Exception);
-    EXPECT_THROW(DataTypeDecimal<Decimal256>(77, 10), Exception);
+    EXPECT_THROW(DataTypeDecimal32(10, 10), Exception);
+    EXPECT_THROW(DataTypeDecimal64(19, 10), Exception);
+    EXPECT_THROW(DataTypeDecimalV2(28, 10), Exception);
+    EXPECT_THROW(DataTypeDecimal128(39, 10), Exception);
+    EXPECT_THROW(DataTypeDecimal256(77, 10), Exception);
 
     // check invalid scale: bigger than precision
-    EXPECT_THROW(DataTypeDecimal<Decimal32>(9, 10), Exception);
-    EXPECT_THROW(DataTypeDecimal<Decimal64>(18, 19), Exception);
-    EXPECT_THROW(DataTypeDecimal<Decimal128V2>(27, 28), Exception);
-    EXPECT_THROW(DataTypeDecimal<Decimal128V3>(38, 39), Exception);
-    EXPECT_THROW(DataTypeDecimal<Decimal256>(76, 77), Exception);
+    EXPECT_THROW(DataTypeDecimal32(9, 10), Exception);
+    EXPECT_THROW(DataTypeDecimal64(18, 19), Exception);
+    EXPECT_THROW(DataTypeDecimalV2(27, 28), Exception);
+    EXPECT_THROW(DataTypeDecimal128(38, 39), Exception);
+    EXPECT_THROW(DataTypeDecimal256(76, 77), Exception);
 
     // check scale > precision
-    EXPECT_THROW(DataTypeDecimal<Decimal32>(8, 9), Exception);
-    EXPECT_THROW(DataTypeDecimal<Decimal64>(17, 18), Exception);
-    EXPECT_THROW(DataTypeDecimal<Decimal128V2>(26, 27), Exception);
-    EXPECT_THROW(DataTypeDecimal<Decimal128V3>(37, 38), Exception);
-    EXPECT_THROW(DataTypeDecimal<Decimal256>(75, 76), Exception);
+    EXPECT_THROW(DataTypeDecimal32(8, 9), Exception);
+    EXPECT_THROW(DataTypeDecimal64(17, 18), Exception);
+    EXPECT_THROW(DataTypeDecimalV2(26, 27), Exception);
+    EXPECT_THROW(DataTypeDecimal128(37, 38), Exception);
+    EXPECT_THROW(DataTypeDecimal256(75, 76), Exception);
 
     // decimal v2
-    EXPECT_THROW(DataTypeDecimal<Decimal128V2>(27, 9, 28, 9), Exception);
-    EXPECT_THROW(DataTypeDecimal<Decimal128V2>(27, 9, 27, 28), Exception);
-    EXPECT_THROW(DataTypeDecimal<Decimal128V2>(27, 9, 26, 27), Exception);
+    EXPECT_THROW(DataTypeDecimalV2(27, 9, 28, 9), Exception);
+    EXPECT_THROW(DataTypeDecimalV2(27, 9, 27, 28), Exception);
+    EXPECT_THROW(DataTypeDecimalV2(27, 9, 26, 27), Exception);
 }
 TEST_F(DataTypeDecimalTest, simple_func_test) {
     auto test_func = [](auto& dt) {
         using DataType = decltype(dt);
         using FieldType = typename std::remove_reference<DataType>::type::FieldType;
-        EXPECT_FALSE(dt.have_subtypes());
-        EXPECT_TRUE(dt.should_align_right_in_pretty_formats());
-        EXPECT_TRUE(dt.text_can_contain_only_valid_utf8());
-        EXPECT_TRUE(dt.is_comparable());
-        EXPECT_TRUE(dt.is_value_represented_by_number());
-        EXPECT_TRUE(dt.is_value_unambiguously_represented_in_contiguous_memory_region());
         EXPECT_TRUE(dt.have_maximum_size_of_value());
         EXPECT_EQ(dt.get_size_of_value_in_memory(), sizeof(FieldType));
-        EXPECT_FALSE(dt.can_be_inside_low_cardinality());
 
         EXPECT_FALSE(dt.is_null_literal());
 
         EXPECT_TRUE(dt.equals(dt));
 
-        EXPECT_EQ(std::string(dt.get_family_name()), std::string("Decimal"));
         EXPECT_EQ(dt.do_get_name(), "Decimal(" + std::to_string(dt.get_precision()) + ", " +
                                             std::to_string(dt.get_scale()) + ")");
         EXPECT_EQ(dt.get_format_scale(), dt.get_scale());
@@ -596,7 +582,7 @@ TEST_F(DataTypeDecimalTest, to_string) {
             ColumnType col_from_str(0, dt.get_scale());
             for (size_t i = 0; i != row_count; ++i) {
                 auto item = col_str_to_str.get_data_at(i);
-                ReadBuffer rb((char*)item.data, item.size);
+                StringRef rb((char*)item.data, item.size);
                 auto status = dt.from_string(rb, &col_from_str);
                 EXPECT_TRUE(status.ok());
                 EXPECT_EQ(col_from_str.get_element(i), source_column.get_element(i));
@@ -606,7 +592,7 @@ TEST_F(DataTypeDecimalTest, to_string) {
             ColumnType col_from_str(0, dt.get_scale());
             for (size_t i = 0; i != row_count; ++i) {
                 auto str = dt.to_string(source_column, i);
-                ReadBuffer rb(str.data(), str.size());
+                StringRef rb(str.data(), str.size());
                 auto status = dt.from_string(rb, &col_from_str);
                 EXPECT_TRUE(status.ok());
                 EXPECT_EQ(col_from_str.get_element(i), source_column.get_element(i));
@@ -616,7 +602,7 @@ TEST_F(DataTypeDecimalTest, to_string) {
             ColumnType col_from_str(0, dt.get_scale());
             for (size_t i = 0; i != row_count; ++i) {
                 auto str = dt.to_string(col_with_type->get_element(i));
-                ReadBuffer rb(str.data(), str.size());
+                StringRef rb(str.data(), str.size());
                 auto status = dt.from_string(rb, &col_from_str);
                 EXPECT_TRUE(status.ok());
                 EXPECT_EQ(col_from_str.get_element(i), source_column.get_element(i));
@@ -631,7 +617,7 @@ TEST_F(DataTypeDecimalTest, to_string) {
             ColumnType col_from_str(0, dt.get_scale());
             for (size_t i = 0; i != row_count; ++i) {
                 auto item = col_str_to_str.get_data_at(i);
-                ReadBuffer rb((char*)item.data, item.size);
+                StringRef rb((char*)item.data, item.size);
                 auto status = dt.from_string(rb, &col_from_str);
                 EXPECT_TRUE(status.ok());
                 EXPECT_EQ(col_from_str.get_element(i), source_column.get_element(i));
@@ -673,23 +659,23 @@ TEST_F(DataTypeDecimalTest, scale_factor_for) {
 
     EXPECT_THROW(dt_decimal128v3_2.scale_factor_for(dt_decimal256_2), Exception);
 
-    EXPECT_EQ(dt_decimal32_3.scale_factor_for(dt_decimal64_1).value, 1000);
-    EXPECT_EQ(dt_decimal32_3.scale_factor_for(dt_decimal256_1).value, 1000);
+    EXPECT_EQ(dt_decimal32_3.scale_factor_for(dt_decimal64_1), 1000);
+    EXPECT_EQ(dt_decimal32_3.scale_factor_for(dt_decimal256_1), 1000);
 
-    EXPECT_EQ(dt_decimal64_3.scale_factor_for(dt_decimal64_2).value,
+    EXPECT_EQ(dt_decimal64_3.scale_factor_for(dt_decimal64_2),
               std::pow(10, dt_decimal64_3.get_scale() - dt_decimal64_2.get_scale()));
 
     EXPECT_EQ(dt_decimal256_3.scale_factor_for(dt_decimal256_2),
-              DataTypeDecimal<Decimal256>::get_scale_multiplier(dt_decimal256_3.get_scale() -
-                                                                dt_decimal256_2.get_scale()));
+              DataTypeDecimal256::get_scale_multiplier(dt_decimal256_3.get_scale() -
+                                                       dt_decimal256_2.get_scale()));
 }
 
 TEST_F(DataTypeDecimalTest, decimal_result_type) {
     {
-        DataTypeDecimal<Decimal128V2> tmp_dt_decimal128v2(27, 9);
+        DataTypeDecimalV2 tmp_dt_decimal128v2(27, 9);
         auto res_type =
                 decimal_result_type(dt_decimal128v2, tmp_dt_decimal128v2, true, false, false);
-        const auto* result_acutal_type = check_decimal<Decimal128V2>(*res_type);
+        const auto* result_acutal_type = check_decimal<TYPE_DECIMALV2>(*res_type);
         EXPECT_EQ(result_acutal_type->get_precision(), 27);
         EXPECT_EQ(result_acutal_type->get_scale(), 9);
     }
@@ -697,21 +683,21 @@ TEST_F(DataTypeDecimalTest, decimal_result_type) {
         {
             // multiply
             auto res_type = decimal_result_type(dt_decimal32_1, dt_decimal32_1, true, false, false);
-            const auto* result_acutal_type = check_decimal<Decimal32>(*res_type);
+            const auto* result_acutal_type = check_decimal<TYPE_DECIMAL32>(*res_type);
             EXPECT_EQ(result_acutal_type->get_precision(), dt_decimal32_1.get_precision() * 2);
             EXPECT_EQ(result_acutal_type->get_scale(), dt_decimal32_1.get_scale() * 2);
         }
         {
             // divide
             auto res_type = decimal_result_type(dt_decimal32_1, dt_decimal32_1, false, true, false);
-            const auto* result_acutal_type = check_decimal<Decimal32>(*res_type);
+            const auto* result_acutal_type = check_decimal<TYPE_DECIMAL32>(*res_type);
             EXPECT_EQ(result_acutal_type->get_precision(), dt_decimal32_1.get_precision());
             EXPECT_EQ(result_acutal_type->get_scale(), dt_decimal32_1.get_scale());
         }
         {
             // plus and sub
             auto res_type = decimal_result_type(dt_decimal32_1, dt_decimal32_1, false, false, true);
-            const auto* result_acutal_type = check_decimal<Decimal32>(*res_type);
+            const auto* result_acutal_type = check_decimal<TYPE_DECIMAL32>(*res_type);
             EXPECT_EQ(result_acutal_type->get_precision(), 2);
             EXPECT_EQ(result_acutal_type->get_scale(), dt_decimal32_1.get_scale());
         }
@@ -739,9 +725,6 @@ TEST_F(DataTypeDecimalTest, get_decimal_scale) {
     EXPECT_EQ(get_decimal_scale(DataTypeInt64()), 0);
     EXPECT_EQ(get_decimal_scale(DataTypeInt128()), 0);
     EXPECT_EQ(get_decimal_scale(DataTypeUInt8()), 0);
-    EXPECT_EQ(get_decimal_scale(DataTypeUInt16()), 0);
-    EXPECT_EQ(get_decimal_scale(DataTypeUInt32()), 0);
-    EXPECT_EQ(get_decimal_scale(DataTypeUInt64()), 0);
     EXPECT_EQ(get_decimal_scale(DataTypeFloat32()), 0);
     EXPECT_EQ(get_decimal_scale(DataTypeFloat64()), 0);
 }
@@ -772,6 +755,15 @@ TEST_F(DataTypeDecimalTest, SerdeArrowTest) {
     test_func(dt_decimal256_1_ptr, column_decimal256_1);
     test_func(dt_decimal256_2_ptr, column_decimal256_2);
     test_func(dt_decimal256_3_ptr, column_decimal256_3);
+}
+
+TEST_F(DataTypeDecimalTest, GetFieldWithDataTypeTest) {
+    auto column_decimal128v3_1 = dt_decimal128v3_1.create_column();
+    Field field_decimal128v3_1 =
+            Field::create_field<TYPE_DECIMAL128I>(DecimalField<Decimal128V3>(1234567890, 0));
+    column_decimal128v3_1->insert(field_decimal128v3_1);
+    EXPECT_EQ(dt_decimal128v3_1.get_field_with_data_type(*column_decimal128v3_1, 0).field,
+              field_decimal128v3_1);
 }
 
 } // namespace doris::vectorized

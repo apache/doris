@@ -43,6 +43,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
@@ -78,6 +79,13 @@ public class SystemInfoService {
 
     public static final String NOT_USING_VALID_CLUSTER_MSG =
             "Not using valid cloud clusters, please use a cluster before issuing any queries";
+
+    public static final String ERROR_E230 = "E-230";
+
+    public static final ImmutableSet<String> NEED_REPLAN_ERRORS = ImmutableSet.of(
+            NO_SCAN_NODE_BACKEND_AVAILABLE_MSG,
+            ERROR_E230
+    );
 
     protected volatile ImmutableMap<Long, Backend> idToBackendRef = ImmutableMap.of();
     protected volatile ImmutableMap<Long, AtomicLong> idToReportVersionRef = ImmutableMap.of();
@@ -373,9 +381,14 @@ public class SystemInfoService {
 
     public List<Long> getAllBackendByCurrentCluster(boolean needAlive) {
         try {
-            return getBackendsByCurrentCluster()
-                .values().stream().filter(be -> !needAlive || be.isAlive())
-                .map(Backend::getId).collect(Collectors.toList());
+            ImmutableMap<Long, Backend> bes = getBackendsByCurrentCluster();
+            List<Long> beIds = new ArrayList<>(bes.size());
+            for (Backend be : bes.values()) {
+                if (!needAlive || be.isAlive()) {
+                    beIds.add(be.getId());
+                }
+            }
+            return beIds;
         } catch (AnalysisException e) {
             LOG.warn("failed to get backends by Current Cluster", e);
             return Lists.newArrayList();
@@ -477,7 +490,7 @@ public class SystemInfoService {
         long minBeTabletsNum = Long.MAX_VALUE;
         int minIndex = -1;
         for (int i = 0; i < beIds.size(); ++i) {
-            long tabletsNum = Env.getCurrentInvertedIndex().getTabletIdsByBackendId(beIds.get(i)).size();
+            long tabletsNum = Env.getCurrentInvertedIndex().getTabletSizeByBackendId(beIds.get(i));
             if (tabletsNum < minBeTabletsNum) {
                 minBeTabletsNum = tabletsNum;
                 minIndex = i;
@@ -993,17 +1006,11 @@ public class SystemInfoService {
             }
 
             if (alterClause.isQueryDisabled() != null) {
-                if (!alterClause.isQueryDisabled().equals(be.isQueryDisabled())) {
-                    be.setQueryDisabled(alterClause.isQueryDisabled());
-                    shouldModify = true;
-                }
+                shouldModify = be.setQueryDisabled(alterClause.isQueryDisabled());
             }
 
             if (alterClause.isLoadDisabled() != null) {
-                if (!alterClause.isLoadDisabled().equals(be.isLoadDisabled())) {
-                    be.setLoadDisabled(alterClause.isLoadDisabled());
-                    shouldModify = true;
-                }
+                shouldModify = be.setLoadDisabled(alterClause.isLoadDisabled());
             }
 
             if (shouldModify) {
@@ -1047,17 +1054,11 @@ public class SystemInfoService {
             }
 
             if (op.isQueryDisabled() != null) {
-                if (!op.isQueryDisabled().equals(be.isQueryDisabled())) {
-                    be.setQueryDisabled(op.isQueryDisabled());
-                    shouldModify = true;
-                }
+                shouldModify = be.setQueryDisabled(op.isQueryDisabled());
             }
 
             if (op.isLoadDisabled() != null) {
-                if (!op.isLoadDisabled().equals(be.isLoadDisabled())) {
-                    be.setLoadDisabled(op.isLoadDisabled());
-                    shouldModify = true;
-                }
+                shouldModify = be.setLoadDisabled(op.isLoadDisabled());
             }
 
             if (shouldModify) {
@@ -1138,14 +1139,12 @@ public class SystemInfoService {
         if (currentBackends.size() == 0) {
             return 1;
         }
-        int minPipelineExecutorSize = Integer.MAX_VALUE;
-        for (Backend be : currentBackends) {
-            int size = be.getPipelineExecutorSize();
-            if (size > 0) {
-                minPipelineExecutorSize = Math.min(minPipelineExecutorSize, size);
-            }
-        }
-        return minPipelineExecutorSize;
+
+        return currentBackends.stream()
+                .mapToInt(Backend::getPipelineExecutorSize)
+                .filter(size -> size > 0)
+                .min()
+                .orElse(1);
     }
 
     // CloudSystemInfoService override
@@ -1153,4 +1152,16 @@ public class SystemInfoService {
         return Env.getCurrentInvertedIndex().getTabletNumByBackendId(beId);
     }
 
+    // If the error msg contains certain keywords, we need to retry the query with re-plan.
+    public static boolean needRetryWithReplan(String errorMsg) {
+        if (Strings.isNullOrEmpty(errorMsg)) {
+            return false;
+        }
+        for (String keyword : NEED_REPLAN_ERRORS) {
+            if (errorMsg.contains(keyword)) {
+                return true;
+            }
+        }
+        return false;
+    }
 }

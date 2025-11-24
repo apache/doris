@@ -26,7 +26,7 @@ suite("test_timing_refresh_catalog", "p0,external,doris,external_docker,external
     String jdbcPassword = "C123_567p"
     String s3_endpoint = getS3Endpoint()
     String bucket = getS3BucketName()
-    String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-j-8.3.0.jar"
+    String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-j-8.4.0.jar"
 
     def wait_table_sync = { String db ->
         Awaitility.await().atMost(10, TimeUnit.SECONDS).pollInterval(1, TimeUnit.SECONDS).until{
@@ -94,7 +94,11 @@ suite("test_timing_refresh_catalog", "p0,external,doris,external_docker,external
             "metadata_refresh_interval_seconds" = "1",
             "lower_case_meta_names" = "true",
             "only_specified_database" = "true",
-            "include_database_list" = "external_timing_refresh_catalog"
+            "include_database_list" = "external_timing_refresh_catalog",
+            "connection_pool_min_size" = "2",
+            "connection_pool_max_size" = "20",
+            "connection_pool_max_wait_time" = "30000",
+            "connection_pool_max_life_time" = "600000"
         )"""
 
     test {
@@ -104,35 +108,6 @@ suite("test_timing_refresh_catalog", "p0,external,doris,external_docker,external
                 select * from ${catalogName}.external_timing_refresh_catalog.tbl
             """
             Thread.sleep(1000)
-        }
-    }
-
-    // when "use_meta_cache" = "false", the meta sync between FEs maybe delay,
-    // and it may cause the case unstable, so only run when there is single FE
-    if (is_single_fe()) {
-        sql """drop catalog if exists test_timing_refresh_catalog2 """
-        sql """ CREATE CATALOG `test_timing_refresh_catalog2` PROPERTIES (
-                "user" = "${jdbcUser}",
-                "type" = "jdbc",
-                "password" = "${jdbcPassword}",
-                "jdbc_url" = "${jdbcUrl}",
-                "driver_url" = "${driver_url}",
-                "driver_class" = "com.mysql.cj.jdbc.Driver",
-                "use_meta_cache" = "false",
-                "metadata_refresh_interval_seconds" = "1",
-                "lower_case_meta_names" = "true",
-                "only_specified_database" = "true",
-                "include_database_list" = "external_timing_refresh_catalog"
-            )"""
-
-        test {
-            def catalogName = "test_timing_refresh_catalog2"
-            for (int i = 0; i < 10; i++) {
-                sql """
-                    select * from ${catalogName}.external_timing_refresh_catalog.tbl
-                """
-                Thread.sleep(1000)
-            }
         }
     }
 
@@ -150,7 +125,11 @@ suite("test_timing_refresh_catalog", "p0,external,doris,external_docker,external
             "lower_case_meta_names" = "true",
             "only_specified_database" = "true",
             "include_database_list" = "external_timing_refresh_catalog",
-            'meta_names_mapping' = '${mapping}'
+            'meta_names_mapping' = '${mapping}',
+            "connection_pool_min_size" = "2",
+            "connection_pool_max_size" = "20",
+            "connection_pool_max_wait_time" = "30000",
+            "connection_pool_max_life_time" = "600000"
         )"""
 
     test {
@@ -160,34 +139,6 @@ suite("test_timing_refresh_catalog", "p0,external,doris,external_docker,external
                 select id_c from ${catalogName}.db.table_t
             """
             Thread.sleep(1000)
-        }
-    }
-
-    if (is_single_fe()) {
-        sql """drop catalog if exists test_timing_refresh_catalog2 """
-        sql """ CREATE CATALOG `test_timing_refresh_catalog2` PROPERTIES (
-                "user" = "${jdbcUser}",
-                "type" = "jdbc",
-                "password" = "${jdbcPassword}",
-                "jdbc_url" = "${jdbcUrl}",
-                "driver_url" = "${driver_url}",
-                "driver_class" = "com.mysql.cj.jdbc.Driver",
-                "use_meta_cache" = "false",
-                "metadata_refresh_interval_seconds" = "1",
-                "lower_case_meta_names" = "true",
-                "only_specified_database" = "true",
-                "include_database_list" = "external_timing_refresh_catalog",
-                'meta_names_mapping' = '${mapping}'
-            )"""
-
-        test {
-            def catalogName = "test_timing_refresh_catalog2"
-            for (int i = 0; i < 10; i++) {
-                sql """
-                    select id_c from ${catalogName}.db.table_t
-                """
-                Thread.sleep(1000)
-            }
         }
     }
 

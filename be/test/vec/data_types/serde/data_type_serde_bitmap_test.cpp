@@ -59,14 +59,16 @@ TEST(BitmapSerdeTest, writeOneCellToJsonb) {
     JsonbWriterT<JsonbOutStream> jsonb_writer;
     Arena pool;
     jsonb_writer.writeStartObject();
-    bitmap_serde->write_one_cell_to_jsonb(*column_bitmap, jsonb_writer, &pool, 0, 0);
+    bitmap_serde->write_one_cell_to_jsonb(*column_bitmap, jsonb_writer, pool, 0, 0);
     jsonb_writer.writeEndObject();
 
     auto jsonb_column = ColumnString::create();
     jsonb_column->insert_data(jsonb_writer.getOutput()->getBuffer(),
                               jsonb_writer.getOutput()->getSize());
     StringRef jsonb_data = jsonb_column->get_data_at(0);
-    auto* pdoc = JsonbDocument::checkAndCreateDocument(jsonb_data.data, jsonb_data.size);
+    JsonbDocument* pdoc = nullptr;
+    auto st = JsonbDocument::checkAndCreateDocument(jsonb_data.data, jsonb_data.size, &pdoc);
+    ASSERT_TRUE(st.ok()) << "checkAndCreateDocument failed: " << st.to_string();
     JsonbDocument& doc = *pdoc;
     for (auto it = doc->begin(); it != doc->end(); ++it) {
         bitmap_serde->read_one_cell_from_jsonb(*column_bitmap, it->value());
@@ -110,7 +112,6 @@ TEST(BitmapSerdeTest, serializeOneCellToJson) {
     column_bitmap->insert_value(BitmapValue(123));
     ASSERT_EQ(column_bitmap->size(), 2);
     DataTypeSerDe::FormatOptions formatOptions;
-    formatOptions.date_olap_format = true;
     auto ser_col = ColumnString::create();
     VectorBufferWriter buffer_writer(*ser_col.get());
     auto st = bitmap_serde->serialize_one_cell_to_json(*column_bitmap, 0, buffer_writer,
@@ -153,7 +154,6 @@ TEST(BitmapSerdeTest, serializeColumnToJson) {
     column_bitmap->insert_value(BitmapValue(123));
     ASSERT_EQ(column_bitmap->size(), 2);
     DataTypeSerDe::FormatOptions formatOptions;
-    formatOptions.date_olap_format = true;
     auto ser_col = ColumnString::create();
     VectorBufferWriter buffer_writer(*ser_col.get());
     auto st = bitmap_serde->serialize_column_to_json(*column_bitmap, 0, 2, buffer_writer,

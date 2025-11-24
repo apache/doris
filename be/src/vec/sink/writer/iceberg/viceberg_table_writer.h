@@ -116,6 +116,9 @@ private:
     TDataSink _t_sink;
     RuntimeState* _state = nullptr;
 
+    // Target file size in bytes for controlling when to split files
+    int64_t _target_file_size_bytes = 0;
+
     std::shared_ptr<doris::iceberg::Schema> _schema;
     std::unique_ptr<doris::iceberg::PartitionSpec> _partition_spec;
 

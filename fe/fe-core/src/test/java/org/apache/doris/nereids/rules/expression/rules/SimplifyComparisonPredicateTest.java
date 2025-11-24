@@ -596,6 +596,49 @@ class SimplifyComparisonPredicateTest extends ExpressionRewriteTestHelper {
                 new LessThan(bigIntSlot, new BigIntLiteral(13L)));
         assertRewrite(new LessThanEqual(new Cast(bigIntSlot, DoubleType.INSTANCE), new DoubleLiteral(12.3f)),
                 new LessThanEqual(bigIntSlot, new BigIntLiteral(12L)));
+
+        // int and float literal near no loss bound
+        float noLossBoundF = 16777216.0f; // 2^24
+        assertRewrite(new EqualTo(new Cast(intSlot, FloatType.INSTANCE), new FloatLiteral(-noLossBoundF)),
+                new EqualTo(new Cast(intSlot, FloatType.INSTANCE), new FloatLiteral(-noLossBoundF)));
+        assertRewrite(new EqualTo(new Cast(intSlot, FloatType.INSTANCE), new FloatLiteral(-16777215.0f)),
+                new EqualTo(intSlot, new IntegerLiteral(-16777215)));
+        assertRewrite(new EqualTo(new Cast(intSlot, FloatType.INSTANCE), new FloatLiteral(16777215.0f)),
+                new EqualTo(intSlot, new IntegerLiteral(16777215)));
+        assertRewrite(new EqualTo(new Cast(intSlot, FloatType.INSTANCE), new FloatLiteral(noLossBoundF)),
+                new EqualTo(new Cast(intSlot, FloatType.INSTANCE), new FloatLiteral(noLossBoundF)));
+
+        // big int and double literal near no loss bound
+        double noLossBoundD = 9007199254740992.0;
+        assertRewrite(new EqualTo(new Cast(bigIntSlot, DoubleType.INSTANCE), new DoubleLiteral(-noLossBoundD)),
+                new EqualTo(new Cast(bigIntSlot, DoubleType.INSTANCE), new DoubleLiteral(-noLossBoundD)));
+        assertRewrite(new EqualTo(new Cast(bigIntSlot, DoubleType.INSTANCE), new DoubleLiteral(-9007199254740991.0)),
+                new EqualTo(bigIntSlot, new BigIntLiteral(-9007199254740991L)));
+        assertRewrite(new EqualTo(new Cast(bigIntSlot, DoubleType.INSTANCE), new DoubleLiteral(9007199254740991.0)),
+                new EqualTo(bigIntSlot, new BigIntLiteral(9007199254740991L)));
+        assertRewrite(new EqualTo(new Cast(bigIntSlot, DoubleType.INSTANCE), new DoubleLiteral(noLossBoundD)),
+                new EqualTo(new Cast(bigIntSlot, DoubleType.INSTANCE), new DoubleLiteral(noLossBoundD)));
+    }
+
+    @Test
+    void testFloatNoLossBound() {
+        checkIntConvertFloatLikeLossBound(SimplifyComparisonPredicate.MIN_INT_TO_FLOAT_NO_LOSS, true);
+        checkIntConvertFloatLikeLossBound(SimplifyComparisonPredicate.MAX_INT_TO_FLOAT_NO_LOSS, true);
+        checkIntConvertFloatLikeLossBound(SimplifyComparisonPredicate.MIN_LONG_TO_DOUBLE_NO_LOSS, false);
+        checkIntConvertFloatLikeLossBound(SimplifyComparisonPredicate.MAX_LONG_TO_DOUBLE_NO_LOSS, false);
+    }
+
+    private void checkIntConvertFloatLikeLossBound(long bound, boolean isFloat) {
+        for (int i = 0; i < 100000; i++) {
+            long v = (Math.abs(bound) - i) * Long.signum(bound);
+            long vCast = isFloat ? (long) ((float) v) : (long) ((double) v);
+            Assertions.assertEquals(v, vCast);
+        }
+
+        long firstOutBound = (Math.abs(bound) + 1) * Long.signum(bound);
+        long firstOutBoundCast = isFloat ? (long) ((float) firstOutBound) : (long) ((double) firstOutBound);
+        Assertions.assertNotEquals(firstOutBound, firstOutBoundCast);
+        Assertions.assertEquals(bound, firstOutBoundCast);
     }
 
     @Test
@@ -610,95 +653,110 @@ class SimplifyComparisonPredicateTest extends ExpressionRewriteTestHelper {
         Expression bigIntSlot = new SlotReference("a", BigIntType.INSTANCE);
 
         // tiny int, literal not exceeds data type limit
-        assertRewrite(new EqualTo(new Cast(tinyIntSlot, DecimalV3Type.createDecimalV3Type(3, 1)), new DecimalV3Literal(new BigDecimal("12.0"))),
+        DecimalV3Type tinyDecimalType = DecimalV3Type.createDecimalV3Type(4, 1);
+        assertRewrite(new EqualTo(new Cast(tinyIntSlot, tinyDecimalType), new DecimalV3Literal(tinyDecimalType, new BigDecimal("12.0"))),
                 new EqualTo(tinyIntSlot, new TinyIntLiteral((byte) 12)));
-        assertRewrite(new EqualTo(new Cast(tinyIntSlot, DecimalV3Type.createDecimalV3Type(3, 1)), new DecimalV3Literal(new BigDecimal("12.3"))),
+        assertRewrite(new EqualTo(new Cast(tinyIntSlot, tinyDecimalType), new DecimalV3Literal(tinyDecimalType, new BigDecimal("12.3"))),
                 ExpressionUtils.falseOrNull(tinyIntSlot));
-        assertRewrite(new NullSafeEqual(new Cast(tinyIntSlot, DecimalV3Type.createDecimalV3Type(3, 1)), new DecimalV3Literal(new BigDecimal("12.3"))),
+        assertRewrite(new NullSafeEqual(new Cast(tinyIntSlot, tinyDecimalType), new DecimalV3Literal(tinyDecimalType, new BigDecimal("12.3"))),
                 BooleanLiteral.FALSE);
-        assertRewrite(new GreaterThan(new Cast(tinyIntSlot, DecimalV3Type.createDecimalV3Type(3, 1)), new DecimalV3Literal(new BigDecimal("12.3"))),
+        assertRewrite(new GreaterThan(new Cast(tinyIntSlot, tinyDecimalType), new DecimalV3Literal(tinyDecimalType, new BigDecimal("12.3"))),
                 new GreaterThan(tinyIntSlot, new TinyIntLiteral((byte) 12)));
-        assertRewrite(new GreaterThanEqual(new Cast(tinyIntSlot, DecimalV3Type.createDecimalV3Type(3, 1)), new DecimalV3Literal(new BigDecimal("12.3"))),
+        assertRewrite(new GreaterThanEqual(new Cast(tinyIntSlot, tinyDecimalType), new DecimalV3Literal(tinyDecimalType, new BigDecimal("12.3"))),
                 new GreaterThanEqual(tinyIntSlot, new TinyIntLiteral((byte) 13)));
-        assertRewrite(new LessThan(new Cast(tinyIntSlot, DecimalV3Type.createDecimalV3Type(3, 1)), new DecimalV3Literal(new BigDecimal("12.3"))),
+        assertRewrite(new LessThan(new Cast(tinyIntSlot, tinyDecimalType), new DecimalV3Literal(tinyDecimalType, new BigDecimal("12.3"))),
                 new LessThan(tinyIntSlot, new TinyIntLiteral((byte) 13)));
-        assertRewrite(new LessThanEqual(new Cast(tinyIntSlot, DecimalV3Type.createDecimalV3Type(3, 1)), new DecimalV3Literal(new BigDecimal("12.3"))),
+        assertRewrite(new LessThanEqual(new Cast(tinyIntSlot, tinyDecimalType), new DecimalV3Literal(tinyDecimalType, new BigDecimal("12.3"))),
                 new LessThanEqual(tinyIntSlot, new TinyIntLiteral((byte) 12)));
 
         // tiny int, literal exceeds data type limit
-        assertRewrite(new EqualTo(new Cast(tinyIntSlot, DecimalV3Type.createDecimalV3Type(4, 1)), new DecimalV3Literal(new BigDecimal("200.0"))),
+        assertRewrite(new EqualTo(new Cast(tinyIntSlot, tinyDecimalType), new DecimalV3Literal(new BigDecimal("200.0"))),
                 ExpressionUtils.falseOrNull(tinyIntSlot));
-        assertRewrite(new EqualTo(new Cast(tinyIntSlot, DecimalV3Type.createDecimalV3Type(4, 1)), new DecimalV3Literal(new BigDecimal("200.3"))),
+        assertRewrite(new EqualTo(new Cast(tinyIntSlot, tinyDecimalType), new DecimalV3Literal(new BigDecimal("200.3"))),
                 ExpressionUtils.falseOrNull(tinyIntSlot));
-        assertRewrite(new NullSafeEqual(new Cast(tinyIntSlot, DecimalV3Type.createDecimalV3Type(4, 1)), new DecimalV3Literal(new BigDecimal("200.3"))),
+        assertRewrite(new NullSafeEqual(new Cast(tinyIntSlot, tinyDecimalType), new DecimalV3Literal(new BigDecimal("200.3"))),
                 BooleanLiteral.FALSE);
-        assertRewrite(new GreaterThan(new Cast(tinyIntSlot, DecimalV3Type.createDecimalV3Type(4, 1)), new DecimalV3Literal(new BigDecimal("200.3"))),
+        assertRewrite(new GreaterThan(new Cast(tinyIntSlot, tinyDecimalType), new DecimalV3Literal(new BigDecimal("200.3"))),
                 ExpressionUtils.falseOrNull(tinyIntSlot));
-        assertRewrite(new GreaterThanEqual(new Cast(tinyIntSlot, DecimalV3Type.createDecimalV3Type(4, 1)), new DecimalV3Literal(new BigDecimal("200.3"))),
+        assertRewrite(new GreaterThanEqual(new Cast(tinyIntSlot, tinyDecimalType), new DecimalV3Literal(new BigDecimal("200.3"))),
                 ExpressionUtils.falseOrNull(tinyIntSlot));
-        assertRewrite(new LessThan(new Cast(tinyIntSlot, DecimalV3Type.createDecimalV3Type(4, 1)), new DecimalV3Literal(new BigDecimal("200.3"))),
+        assertRewrite(new LessThan(new Cast(tinyIntSlot, tinyDecimalType), new DecimalV3Literal(new BigDecimal("200.3"))),
                 ExpressionUtils.trueOrNull(tinyIntSlot));
-        assertRewrite(new LessThanEqual(new Cast(tinyIntSlot, DecimalV3Type.createDecimalV3Type(4, 1)), new DecimalV3Literal(new BigDecimal("200.3"))),
+        assertRewrite(new LessThanEqual(new Cast(tinyIntSlot, tinyDecimalType), new DecimalV3Literal(new BigDecimal("200.3"))),
                 ExpressionUtils.trueOrNull(tinyIntSlot));
 
         // small int
-        assertRewrite(new EqualTo(new Cast(smallIntSlot, DecimalV3Type.createDecimalV3Type(3, 1)), new DecimalV3Literal(new BigDecimal("12.0"))),
+        DecimalV3Type smallDecimalType = DecimalV3Type.createDecimalV3Type(6, 1);
+        assertRewrite(new EqualTo(new Cast(smallIntSlot, smallDecimalType), new DecimalV3Literal(smallDecimalType, new BigDecimal("12.0"))),
                 new EqualTo(smallIntSlot, new SmallIntLiteral((short) 12)));
-        assertRewrite(new EqualTo(new Cast(smallIntSlot, DecimalV3Type.createDecimalV3Type(3, 1)), new DecimalV3Literal(new BigDecimal("12.3"))),
+        assertRewrite(new EqualTo(new Cast(smallIntSlot, smallDecimalType), new DecimalV3Literal(smallDecimalType, new BigDecimal("12.3"))),
                 ExpressionUtils.falseOrNull(smallIntSlot));
-        assertRewrite(new NullSafeEqual(new Cast(smallIntSlot, DecimalV3Type.createDecimalV3Type(3, 1)), new DecimalV3Literal(new BigDecimal("12.3"))),
+        assertRewrite(new NullSafeEqual(new Cast(smallIntSlot, smallDecimalType), new DecimalV3Literal(smallDecimalType, new BigDecimal("12.3"))),
                 BooleanLiteral.FALSE);
-        assertRewrite(new GreaterThan(new Cast(smallIntSlot, DecimalV3Type.createDecimalV3Type(3, 1)), new DecimalV3Literal(new BigDecimal("12.3"))),
+        assertRewrite(new GreaterThan(new Cast(smallIntSlot, smallDecimalType), new DecimalV3Literal(smallDecimalType, new BigDecimal("12.3"))),
                 new GreaterThan(smallIntSlot, new SmallIntLiteral((short) 12)));
-        assertRewrite(new GreaterThanEqual(new Cast(smallIntSlot, DecimalV3Type.createDecimalV3Type(3, 1)), new DecimalV3Literal(new BigDecimal("12.3"))),
+        assertRewrite(new GreaterThanEqual(new Cast(smallIntSlot, smallDecimalType), new DecimalV3Literal(smallDecimalType, new BigDecimal("12.3"))),
                 new GreaterThanEqual(smallIntSlot, new SmallIntLiteral((short) 13)));
-        assertRewrite(new LessThan(new Cast(smallIntSlot, DecimalV3Type.createDecimalV3Type(3, 1)), new DecimalV3Literal(new BigDecimal("12.3"))),
+        assertRewrite(new LessThan(new Cast(smallIntSlot, smallDecimalType), new DecimalV3Literal(smallDecimalType, new BigDecimal("12.3"))),
                 new LessThan(smallIntSlot, new SmallIntLiteral((short) 13)));
-        assertRewrite(new LessThanEqual(new Cast(smallIntSlot, DecimalV3Type.createDecimalV3Type(3, 1)), new DecimalV3Literal(new BigDecimal("12.3"))),
+        assertRewrite(new LessThanEqual(new Cast(smallIntSlot, smallDecimalType), new DecimalV3Literal(smallDecimalType, new BigDecimal("12.3"))),
                 new LessThanEqual(smallIntSlot, new SmallIntLiteral((short) 12)));
 
         // int
-        assertRewrite(new EqualTo(new Cast(intSlot, DecimalV3Type.createDecimalV3Type(3, 1)), new DecimalV3Literal(new BigDecimal("12.0"))),
+        DecimalV3Type intDecimalType = DecimalV3Type.createDecimalV3Type(11, 1);
+        assertRewrite(new EqualTo(new Cast(intSlot, intDecimalType), new DecimalV3Literal(intDecimalType, new BigDecimal("12.0"))),
                 new EqualTo(intSlot, new IntegerLiteral(12)));
-        assertRewrite(new EqualTo(new Cast(intSlot, DecimalV3Type.createDecimalV3Type(3, 1)), new DecimalV3Literal(new BigDecimal("12.3"))),
+        assertRewrite(new EqualTo(new Cast(intSlot, intDecimalType), new DecimalV3Literal(intDecimalType, new BigDecimal("12.3"))),
                 ExpressionUtils.falseOrNull(intSlot));
-        assertRewrite(new NullSafeEqual(new Cast(intSlot, DecimalV3Type.createDecimalV3Type(3, 1)), new DecimalV3Literal(new BigDecimal("12.3"))),
+        assertRewrite(new NullSafeEqual(new Cast(intSlot, intDecimalType), new DecimalV3Literal(intDecimalType, new BigDecimal("12.3"))),
                 BooleanLiteral.FALSE);
-        assertRewrite(new GreaterThan(new Cast(intSlot, DecimalV3Type.createDecimalV3Type(3, 1)), new DecimalV3Literal(new BigDecimal("12.3"))),
+        assertRewrite(new GreaterThan(new Cast(intSlot, intDecimalType), new DecimalV3Literal(intDecimalType, new BigDecimal("12.3"))),
                 new GreaterThan(intSlot, new IntegerLiteral(12)));
-        assertRewrite(new GreaterThanEqual(new Cast(intSlot, DecimalV3Type.createDecimalV3Type(3, 1)), new DecimalV3Literal(new BigDecimal("12.3"))),
+        assertRewrite(new GreaterThanEqual(new Cast(intSlot, intDecimalType), new DecimalV3Literal(intDecimalType, new BigDecimal("12.3"))),
                 new GreaterThanEqual(intSlot, new IntegerLiteral(13)));
-        assertRewrite(new LessThan(new Cast(intSlot, DecimalV3Type.createDecimalV3Type(3, 1)), new DecimalV3Literal(new BigDecimal("12.3"))),
+        assertRewrite(new LessThan(new Cast(intSlot, intDecimalType), new DecimalV3Literal(intDecimalType, new BigDecimal("12.3"))),
                 new LessThan(intSlot, new IntegerLiteral(13)));
-        assertRewrite(new LessThanEqual(new Cast(intSlot, DecimalV3Type.createDecimalV3Type(3, 1)), new DecimalV3Literal(new BigDecimal("12.3"))),
+        assertRewrite(new LessThanEqual(new Cast(intSlot, intDecimalType), new DecimalV3Literal(intDecimalType, new BigDecimal("12.3"))),
                 new LessThanEqual(intSlot, new IntegerLiteral(12)));
 
         // big int
-        assertRewrite(new EqualTo(new Cast(bigIntSlot, DecimalV3Type.createDecimalV3Type(3, 1)), new DecimalV3Literal(new BigDecimal("12.0"))),
+        DecimalV3Type bigDecimalType = DecimalV3Type.createDecimalV3Type(20, 1);
+        assertRewrite(new EqualTo(new Cast(bigIntSlot, bigDecimalType), new DecimalV3Literal(bigDecimalType, new BigDecimal("12.0"))),
                 new EqualTo(bigIntSlot, new BigIntLiteral(12L)));
-        assertRewrite(new EqualTo(new Cast(bigIntSlot, DecimalV3Type.createDecimalV3Type(3, 1)), new DecimalV3Literal(new BigDecimal("12.3"))),
+        assertRewrite(new EqualTo(new Cast(bigIntSlot, bigDecimalType), new DecimalV3Literal(bigDecimalType, new BigDecimal("12.3"))),
                 ExpressionUtils.falseOrNull(bigIntSlot));
-        assertRewrite(new NullSafeEqual(new Cast(bigIntSlot, DecimalV3Type.createDecimalV3Type(3, 1)), new DecimalV3Literal(new BigDecimal("12.3"))),
+        assertRewrite(new NullSafeEqual(new Cast(bigIntSlot, bigDecimalType), new DecimalV3Literal(bigDecimalType, new BigDecimal("12.3"))),
                 BooleanLiteral.FALSE);
-        assertRewrite(new GreaterThan(new Cast(bigIntSlot, DecimalV3Type.createDecimalV3Type(3, 1)), new DecimalV3Literal(new BigDecimal("12.3"))),
+        assertRewrite(new GreaterThan(new Cast(bigIntSlot, bigDecimalType), new DecimalV3Literal(bigDecimalType, new BigDecimal("12.3"))),
                 new GreaterThan(bigIntSlot, new BigIntLiteral(12L)));
-        assertRewrite(new GreaterThanEqual(new Cast(bigIntSlot, DecimalV3Type.createDecimalV3Type(3, 1)), new DecimalV3Literal(new BigDecimal("12.3"))),
+        assertRewrite(new GreaterThanEqual(new Cast(bigIntSlot, bigDecimalType), new DecimalV3Literal(bigDecimalType, new BigDecimal("12.3"))),
                 new GreaterThanEqual(bigIntSlot, new BigIntLiteral(13L)));
-        assertRewrite(new LessThan(new Cast(bigIntSlot, DecimalV3Type.createDecimalV3Type(3, 1)), new DecimalV3Literal(new BigDecimal("12.3"))),
+        assertRewrite(new LessThan(new Cast(bigIntSlot, bigDecimalType), new DecimalV3Literal(bigDecimalType, new BigDecimal("12.3"))),
                 new LessThan(bigIntSlot, new BigIntLiteral(13L)));
-        assertRewrite(new LessThanEqual(new Cast(bigIntSlot, DecimalV3Type.createDecimalV3Type(3, 1)), new DecimalV3Literal(new BigDecimal("12.3"))),
+        assertRewrite(new LessThanEqual(new Cast(bigIntSlot, bigDecimalType), new DecimalV3Literal(bigDecimalType, new BigDecimal("12.3"))),
                 new LessThanEqual(bigIntSlot, new BigIntLiteral(12L)));
 
-        assertRewrite(new LessThan(new Cast(bigIntSlot, DecimalV3Type.createDecimalV3Type(20, 1)), new DecimalV3Literal(new BigDecimal("-9223372036854775808.1"))),
+        assertRewrite(new LessThan(new Cast(bigIntSlot, bigDecimalType), new DecimalV3Literal(new BigDecimal("-9223372036854775808.1"))),
                 ExpressionUtils.falseOrNull(bigIntSlot));
-        assertRewrite(new GreaterThanEqual(new Cast(bigIntSlot, DecimalV3Type.createDecimalV3Type(20, 1)), new DecimalV3Literal(new BigDecimal("-9223372036854775808.1"))),
+        assertRewrite(new GreaterThanEqual(new Cast(bigIntSlot, bigDecimalType), new DecimalV3Literal(new BigDecimal("-9223372036854775808.1"))),
                 ExpressionUtils.trueOrNull(bigIntSlot));
-        assertRewrite(new LessThan(new Cast(bigIntSlot, DecimalV3Type.createDecimalV3Type(20, 1)), new DecimalV3Literal(new BigDecimal("-9223372036854775807.1"))),
+        assertRewrite(new LessThan(new Cast(bigIntSlot, bigDecimalType), new DecimalV3Literal(new BigDecimal("-9223372036854775807.1"))),
                 new LessThan(bigIntSlot, new BigIntLiteral(-9223372036854775807L)));
-        assertRewrite(new GreaterThanEqual(new Cast(bigIntSlot, DecimalV3Type.createDecimalV3Type(20, 1)), new DecimalV3Literal(new BigDecimal("9223372036854775807.1"))),
+        assertRewrite(new GreaterThanEqual(new Cast(bigIntSlot, bigDecimalType), new DecimalV3Literal(new BigDecimal("9223372036854775807.1"))),
                 ExpressionUtils.falseOrNull(bigIntSlot));
-        assertRewrite(new LessThan(new Cast(bigIntSlot, DecimalV3Type.createDecimalV3Type(20, 1)), new DecimalV3Literal(new BigDecimal("9223372036854775806.1"))),
+        assertRewrite(new LessThan(new Cast(bigIntSlot, bigDecimalType), new DecimalV3Literal(new BigDecimal("9223372036854775806.1"))),
                 new LessThan(bigIntSlot, new BigIntLiteral(9223372036854775807L)));
+
+        // do not convert cast(int as decimal) if decimal's range < int's range
+        DecimalV3Type noConvertDecimalType = DecimalV3Type.createDecimalV3Type(3, 1);
+        assertRewrite(new EqualTo(new Cast(tinyIntSlot, noConvertDecimalType), new DecimalV3Literal(new BigDecimal("12.0"))),
+                new EqualTo(new Cast(tinyIntSlot, noConvertDecimalType), new DecimalV3Literal(new BigDecimal("12.0"))));
+        assertRewrite(new EqualTo(new Cast(smallIntSlot, noConvertDecimalType), new DecimalV3Literal(new BigDecimal("12.0"))),
+                new EqualTo(new Cast(smallIntSlot, noConvertDecimalType), new DecimalV3Literal(new BigDecimal("12.0"))));
+        assertRewrite(new EqualTo(new Cast(intSlot, noConvertDecimalType), new DecimalV3Literal(new BigDecimal("12.0"))),
+                new EqualTo(new Cast(intSlot, noConvertDecimalType), new DecimalV3Literal(new BigDecimal("12.0"))));
+        assertRewrite(new EqualTo(new Cast(bigIntSlot, noConvertDecimalType), new DecimalV3Literal(new BigDecimal("12.0"))),
+                new EqualTo(new Cast(bigIntSlot, noConvertDecimalType), new DecimalV3Literal(new BigDecimal("12.0"))));
     }
 
     @Test
@@ -861,6 +919,14 @@ class SimplifyComparisonPredicateTest extends ExpressionRewriteTestHelper {
         Assertions.assertInstanceOf(DecimalV3Literal.class, rewrittenExpression.child(1));
         Assertions.assertEquals(new BigDecimal("1.20000"),
                 ((DecimalV3Literal) rewrittenExpression.child(1)).getValue());
+
+        // don't convert for cast(b as decimal) if b's range > decimal's range
+        // or b's range = decimal's range and b's scale < decimal's scale
+        SlotReference decimalSlot = new SlotReference("slot", DecimalV3Type.createDecimalV3Type(5, 2), true);
+        assertRewrite(new EqualTo(new Cast(decimalSlot, DecimalV3Type.createDecimalV3Type(7, 5)), new DecimalV3Literal(new BigDecimal("12.34567"))),
+                new EqualTo(new Cast(decimalSlot, DecimalV3Type.createDecimalV3Type(7, 5)), new DecimalV3Literal(new BigDecimal("12.34567"))));
+        assertRewrite(new EqualTo(new Cast(decimalSlot, DecimalV3Type.createDecimalV3Type(4, 1)), new DecimalV3Literal(new BigDecimal("123.4"))),
+                new EqualTo(new Cast(decimalSlot, DecimalV3Type.createDecimalV3Type(4, 1)), new DecimalV3Literal(new BigDecimal("123.4"))));
     }
 
     private enum RangeLimitResult {

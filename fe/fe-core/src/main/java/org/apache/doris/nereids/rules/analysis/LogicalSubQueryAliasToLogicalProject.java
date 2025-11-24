@@ -20,9 +20,10 @@ package org.apache.doris.nereids.rules.analysis;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
-
-import com.google.common.collect.ImmutableList;
+import org.apache.doris.nereids.util.Utils;
 
 /**
  * Eliminate the logical sub query and alias node after analyze and before rewrite
@@ -34,11 +35,17 @@ public class LogicalSubQueryAliasToLogicalProject extends OneRewriteRuleFactory 
     @Override
     public Rule build() {
         return RuleType.LOGICAL_SUB_QUERY_ALIAS_TO_LOGICAL_PROJECT.build(
-                logicalSubQueryAlias().thenApply(ctx -> {
-                    LogicalProject project = new LogicalProject<>(
-                            ImmutableList.copyOf(ctx.root.getOutput()), ctx.root.child());
-                    return project;
-                })
-        );
+                    logicalSubQueryAlias().then(subQueryAlias -> {
+                        Plan child = subQueryAlias.child();
+                        String alias = subQueryAlias.getAlias();
+
+                        // If child is a LogicalCatalogRelation, set the tableAlias
+                        if (child instanceof LogicalCatalogRelation) {
+                            child = ((LogicalCatalogRelation) child).withTableAlias(alias);
+                        }
+
+                        return new LogicalProject<>(
+                                    Utils.fastToImmutableList(subQueryAlias.getOutput()), child);
+                    }));
     }
 }

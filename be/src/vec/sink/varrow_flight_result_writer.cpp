@@ -47,10 +47,12 @@ Status GetArrowResultBatchCtx::on_data(const std::shared_ptr<vectorized::Block>&
     if (_result != nullptr) {
         auto* arrow_buffer = assert_cast<ArrowFlightResultBlockBuffer*>(buffer);
         size_t uncompressed_bytes = 0, compressed_bytes = 0;
+        int64_t compressed_time = 0;
         SCOPED_TIMER(arrow_buffer->_serialize_batch_ns_timer);
-        RETURN_IF_ERROR(block->serialize(
-                arrow_buffer->_be_exec_version, _result->mutable_block(), &uncompressed_bytes,
-                &compressed_bytes, arrow_buffer->_fragment_transmission_compression_type, false));
+        RETURN_IF_ERROR(block->serialize(arrow_buffer->_be_exec_version, _result->mutable_block(),
+                                         &uncompressed_bytes, &compressed_bytes, &compressed_time,
+                                         arrow_buffer->_fragment_transmission_compression_type,
+                                         false));
         COUNTER_UPDATE(arrow_buffer->_uncompressed_bytes_counter, uncompressed_bytes);
         COUNTER_UPDATE(arrow_buffer->_compressed_bytes_counter, compressed_bytes);
         _result->set_packet_seq(packet_seq);

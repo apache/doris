@@ -25,7 +25,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.property.constants.AzureProperties;
+import org.apache.doris.datasource.property.storage.AzureProperties;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
@@ -91,17 +91,14 @@ public class CreateResourceInfo {
             throw new AnalysisException("Resource type can't be null");
         }
 
-        if (AzureProperties.checkAzureProviderPropertyExist(properties)) {
+        if (AzureProperties.guessIsMe(properties)) {
             resourceType = ResourceType.AZURE;
             return;
         }
 
         resourceType = ResourceType.fromString(type);
-        if (resourceType == ResourceType.UNKNOWN) {
+        if (resourceType == ResourceType.UNKNOWN || resourceType == ResourceType.SPARK) {
             throw new AnalysisException("Unsupported resource type: " + type);
-        }
-        if (resourceType == ResourceType.SPARK && !isExternal) {
-            throw new AnalysisException("Spark is external resource");
         }
         if (resourceType == ResourceType.ODBC_CATALOG) {
             throw new AnalysisException("ODBC table is deprecated, use JDBC instead.");

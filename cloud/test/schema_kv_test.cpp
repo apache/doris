@@ -24,11 +24,15 @@
 #include <random>
 
 #include "common/config.h"
+#include "common/defer.h"
 #include "cpp/sync_point.h"
-#include "meta-service/keys.h"
 #include "meta-service/meta_service.h"
-#include "meta-service/txn_kv.h"
-#include "meta-service/txn_kv_error.h"
+#include "meta-service/meta_service_schema.h"
+#include "meta-store/blob_message.h"
+#include "meta-store/document_message.h"
+#include "meta-store/keys.h"
+#include "meta-store/txn_kv.h"
+#include "meta-store/txn_kv_error.h"
 
 static std::string instance_id = "schema_kv_test";
 
@@ -114,8 +118,9 @@ TEST(DetachSchemaKVTest, TabletTest) {
     // meta_service->resource_mgr().reset(); // Do not use resource manager
 
     auto sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
     sp->set_call_back("get_instance_id", [&](auto&& args) {
         auto* ret = try_any_cast_ret<std::string>(args);
         ret->first = instance_id;
@@ -268,6 +273,65 @@ TEST(DetachSchemaKVTest, TabletTest) {
     }
 }
 
+TEST(DetachSchemaKVTest, PutSchemaKvTest) {
+    config::meta_schema_value_version = 1;
+    auto meta_service = get_meta_service();
+
+    int64_t index_id = 14221;
+    int64_t schema_version = 0;
+    std::string key = meta_schema_key({instance_id, index_id, schema_version});
+    std::string versioned_key = versioned::meta_schema_key({instance_id, index_id, schema_version});
+    doris::TabletSchemaCloudPB schema;
+    fill_schema(&schema, schema_version);
+
+    std::unique_ptr<Transaction> txn;
+    MetaServiceCode code = MetaServiceCode::OK;
+    std::string msg;
+    for (int i = 0; i < 2; ++i) {
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        put_schema_kv(code, msg, txn.get(), key, schema);
+        ASSERT_EQ(code, MetaServiceCode::OK);
+        put_versioned_schema_kv(code, msg, txn.get(), versioned_key, schema);
+        ASSERT_EQ(code, MetaServiceCode::OK);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        // verify the tablet schema is written
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        doris::TabletSchemaCloudPB saved_schema;
+        ValueBuf buf;
+        ASSERT_EQ(cloud::blob_get(txn.get(), key, &buf), TxnErrorCode::TXN_OK);
+
+        // verify the versioned tablet schema is written
+        ASSERT_EQ(document_get(txn.get(), versioned_key, &saved_schema), TxnErrorCode::TXN_OK);
+        EXPECT_EQ(saved_schema.schema_version(), schema_version);
+    }
+
+    {
+        // put new schema version
+        schema_version = 1;
+        schema.set_schema_version(schema_version);
+        key = meta_schema_key({instance_id, index_id, schema_version});
+        versioned_key = versioned::meta_schema_key({instance_id, index_id, schema_version});
+
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        put_schema_kv(code, msg, txn.get(), key, schema);
+        ASSERT_EQ(code, MetaServiceCode::OK);
+        put_versioned_schema_kv(code, msg, txn.get(), versioned_key, schema);
+        ASSERT_EQ(code, MetaServiceCode::OK);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        // verify the tablet schema is written
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        doris::TabletSchemaCloudPB saved_schema;
+        ValueBuf buf;
+        ASSERT_EQ(cloud::blob_get(txn.get(), key, &buf), TxnErrorCode::TXN_OK);
+
+        // verify the versioned tablet schema is written
+        ASSERT_EQ(document_get(txn.get(), versioned_key, &saved_schema), TxnErrorCode::TXN_OK);
+        EXPECT_EQ(saved_schema.schema_version(), schema_version);
+    }
+}
+
 static void begin_txn(MetaServiceProxy* meta_service, int64_t db_id, const std::string& label,
                       int64_t table_id, int64_t& txn_id) {
     brpc::Controller cntl;
@@ -396,8 +460,9 @@ TEST(DetachSchemaKVTest, RowsetTest) {
     // meta_service->resource_mgr().reset(); // Do not use resource manager
 
     auto sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
     sp->set_call_back("get_instance_id", [&](auto&& args) {
         auto* ret = try_any_cast_ret<std::string>(args);
         ret->first = instance_id;
@@ -527,9 +592,9 @@ TEST(DetachSchemaKVTest, RowsetTest) {
         }
         // check get rowset response
         auto get_rowset_res = google::protobuf::Arena::CreateMessage<GetRowsetResponse>(arena);
-        std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01, [&](int*) {
+        DORIS_CLOUD_DEFER {
             if (!arena) delete get_rowset_res;
-        });
+        };
         get_rowset(meta_service.get(), table_id, index_id, partition_id, tablet_id,
                    *get_rowset_res);
         ASSERT_EQ(get_rowset_res->rowset_meta_size(), schema_versions.size());
@@ -578,8 +643,9 @@ TEST(DetachSchemaKVTest, InsertExistedRowsetTest) {
     // meta_service->resource_mgr().reset(); // Do not use resource manager
 
     auto sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
     sp->set_call_back("get_instance_id", [&](auto&& args) {
         auto* ret = try_any_cast_ret<std::string>(args);
         ret->first = instance_id;
@@ -633,9 +699,9 @@ TEST(DetachSchemaKVTest, InsertExistedRowsetTest) {
                                               tablet_id, next_rowset_id(), 1));
         auto committed_rowset = create_rowset(txn_id, tablet_id, next_rowset_id(), 2, 2);
         auto res = google::protobuf::Arena::CreateMessage<CreateRowsetResponse>(arena);
-        std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01, [&](int*) {
+        DORIS_CLOUD_DEFER {
             if (!arena) delete res;
-        });
+        };
         prepare_rowset(meta_service.get(), committed_rowset, *res);
         ASSERT_EQ(res->status().code(), MetaServiceCode::OK);
         res->Clear();
@@ -671,8 +737,9 @@ TEST(SchemaKVTest, InsertExistedRowsetTest) {
     // meta_service->resource_mgr().reset(); // Do not use resource manager
 
     auto sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
     sp->set_call_back("get_instance_id", [&](auto&& args) {
         auto* ret = try_any_cast_ret<std::string>(args);
         ret->first = instance_id;

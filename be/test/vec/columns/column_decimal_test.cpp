@@ -24,11 +24,11 @@
 #include <cstddef>
 
 #include "vec/columns/column.h"
-#include "vec/columns/columns_number.h"
 #include "vec/columns/common_column_test.h"
+#include "vec/core/extended_types.h"
 #include "vec/core/types.h"
-#include "vec/core/wide_integer.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_nullable.h"
 
@@ -180,29 +180,23 @@ protected:
 
         test_func(column_decimal128v2_1->get_ptr(), dt_decimal128v2, "column_decimal128v2_1");
     }
-    template <typename T>
-    void _column_decimal_common_test_with_type(T callback, bool exclude_decimal128v2 = false) {
-        callback(Decimal32(), column_decimal32_1->get_ptr());
-        callback(Decimal32(), column_decimal32_2->get_ptr());
-        callback(Decimal32(), column_decimal32_3->get_ptr());
-        callback(Decimal32(), column_decimal32_4->get_ptr());
-        callback(Decimal32(), column_decimal32_5->get_ptr());
-
-        callback(Decimal64(), column_decimal64_1->get_ptr());
-        callback(Decimal64(), column_decimal64_2->get_ptr());
-        callback(Decimal64(), column_decimal64_3->get_ptr());
-
-        callback(Decimal128V3(), column_decimal128_1->get_ptr());
-        callback(Decimal128V3(), column_decimal128_2->get_ptr());
-        callback(Decimal128V3(), column_decimal128_3->get_ptr());
-
-        callback(Decimal256(), column_decimal256_1->get_ptr());
-        callback(Decimal256(), column_decimal256_2->get_ptr());
-        callback(Decimal256(), column_decimal256_3->get_ptr());
-
-        if (!exclude_decimal128v2) {
-            callback(Decimal128V2(), column_decimal128v2_1->get_ptr());
-        }
+#define _column_decimal_common_test_with_type(callback, exclude_decimal128v2)       \
+    callback<TYPE_DECIMAL32>(Decimal32(), column_decimal32_1->get_ptr());           \
+    callback<TYPE_DECIMAL32>(Decimal32(), column_decimal32_2->get_ptr());           \
+    callback<TYPE_DECIMAL32>(Decimal32(), column_decimal32_3->get_ptr());           \
+    callback<TYPE_DECIMAL32>(Decimal32(), column_decimal32_4->get_ptr());           \
+    callback<TYPE_DECIMAL32>(Decimal32(), column_decimal32_5->get_ptr());           \
+    callback<TYPE_DECIMAL64>(Decimal64(), column_decimal64_1->get_ptr());           \
+    callback<TYPE_DECIMAL64>(Decimal64(), column_decimal64_2->get_ptr());           \
+    callback<TYPE_DECIMAL64>(Decimal64(), column_decimal64_3->get_ptr());           \
+    callback<TYPE_DECIMAL128I>(Decimal128V3(), column_decimal128_1->get_ptr());     \
+    callback<TYPE_DECIMAL128I>(Decimal128V3(), column_decimal128_2->get_ptr());     \
+    callback<TYPE_DECIMAL128I>(Decimal128V3(), column_decimal128_3->get_ptr());     \
+    callback<TYPE_DECIMAL256>(Decimal256(), column_decimal256_1->get_ptr());        \
+    callback<TYPE_DECIMAL256>(Decimal256(), column_decimal256_2->get_ptr());        \
+    callback<TYPE_DECIMAL256>(Decimal256(), column_decimal256_3->get_ptr());        \
+    if (!exclude_decimal128v2) {                                                    \
+        callback<TYPE_DECIMALV2>(Decimal128V2(), column_decimal128v2_1->get_ptr()); \
     }
 };
 
@@ -229,19 +223,19 @@ TEST_F(ColumnDecimalTest, allocated_bytes) {
               column_decimal128v2_1->size() * sizeof(Decimal128V2));
 }
 TEST_F(ColumnDecimalTest, has_enough_capacity) {
-    _column_decimal_common_test_with_type(assert_column_vector_has_enough_capacity_callback);
+    _column_decimal_common_test_with_type(assert_column_vector_has_enough_capacity_callback, false);
 }
 TEST_F(ColumnDecimalTest, get_data_at) {
-    _column_decimal_common_test_with_type(assert_column_vector_get_data_at_callback);
+    _column_decimal_common_test_with_type(assert_column_vector_get_data_at_callback, false);
 }
 TEST_F(ColumnDecimalTest, field) {
-    _column_decimal_common_test_with_type(assert_column_vector_field_callback);
+    _column_decimal_common_test_with_type(assert_column_vector_field_callback, false);
 }
 TEST_F(ColumnDecimalTest, insert_from) {
-    _column_decimal_common_test_with_type(assert_column_vector_insert_from_callback);
+    _column_decimal_common_test_with_type(assert_column_vector_insert_from_callback, false);
 }
 TEST_F(ColumnDecimalTest, insert_indices_from) {
-    _column_decimal_common_test_with_type(assert_column_vector_insert_indices_from_callback);
+    _column_decimal_common_test_with_type(assert_column_vector_insert_indices_from_callback, false);
 }
 
 // decimal, vector, nullable, PredicateColumnType
@@ -251,31 +245,33 @@ TEST_F(ColumnDecimalTest, insert_many_fix_len_data) {
 }
 
 TEST_F(ColumnDecimalTest, insert_many_raw_data) {
-    _column_decimal_common_test_with_type(assert_column_vector_insert_many_raw_data_callback);
+    _column_decimal_common_test_with_type(assert_column_vector_insert_many_raw_data_callback,
+                                          false);
 }
 
 TEST_F(ColumnDecimalTest, insert_data) {
-    _column_decimal_common_test_with_type(assert_column_vector_insert_data_callback);
+    _column_decimal_common_test_with_type(assert_column_vector_insert_data_callback, false);
 }
 
 TEST_F(ColumnDecimalTest, insert_default) {
-    _column_decimal_common_test_with_type(assert_column_vector_insert_default_callback);
+    _column_decimal_common_test_with_type(assert_column_vector_insert_default_callback, false);
 }
 
 TEST_F(ColumnDecimalTest, insert_range_from) {
-    _column_decimal_common_test_with_type(assert_column_vector_insert_range_from_callback);
+    _column_decimal_common_test_with_type(assert_column_vector_insert_range_from_callback, false);
 }
 
 TEST_F(ColumnDecimalTest, insert_many_defaults) {
-    _column_decimal_common_test_with_type(assert_column_vector_insert_many_defaults_callback);
+    _column_decimal_common_test_with_type(assert_column_vector_insert_many_defaults_callback,
+                                          false);
 }
 
 TEST_F(ColumnDecimalTest, insert_many_from) {
-    _column_decimal_common_test_with_type(assert_column_vector_insert_many_from_callback);
+    _column_decimal_common_test_with_type(assert_column_vector_insert_many_from_callback, false);
 }
 
 TEST_F(ColumnDecimalTest, pop_back) {
-    _column_decimal_common_test_with_type(assert_column_vector_pop_back_callback);
+    _column_decimal_common_test_with_type(assert_column_vector_pop_back_callback, false);
 }
 
 TEST_F(ColumnDecimalTest, ser_deser) {
@@ -311,11 +307,12 @@ TEST_F(ColumnDecimalTest, ser_deser) {
     }
 }
 TEST_F(ColumnDecimalTest, ser_deser_vec) {
-    _column_decimal_common_test_with_type(assert_column_vector_serialize_vec_callback);
+    _column_decimal_common_test_with_type(assert_column_vector_serialize_vec_callback, false);
 }
 
 TEST_F(ColumnDecimalTest, get_max_row_byte_size) {
-    _column_decimal_common_test_with_type(assert_column_vector_get_max_row_byte_size_callback);
+    _column_decimal_common_test_with_type(assert_column_vector_get_max_row_byte_size_callback,
+                                          false);
 }
 TEST_F(ColumnDecimalTest, update_sip_hash_with_value) {
     hash_common_test("update_sip_hash_with_value",
@@ -513,14 +510,11 @@ TEST_F(ColumnDecimalTest, compare_at) {
     }
 }
 
-TEST_F(ColumnDecimalTest, get_bool) {
-    _column_decimal_common_test_with_type(assert_column_vector_get_bool_callback);
-}
 TEST_F(ColumnDecimalTest, get_int64) {
-    _column_decimal_common_test_with_type(assert_column_vector_get_int64_callback);
+    _column_decimal_common_test_with_type(assert_column_vector_get_int64_callback, false);
 }
 TEST_F(ColumnDecimalTest, filter) {
-    _column_decimal_common_test_with_type(assert_column_vector_filter_callback);
+    _column_decimal_common_test_with_type(assert_column_vector_filter_callback, false);
 }
 TEST_F(ColumnDecimalTest, get_permutation) {
     assert_column_permutations2(*column_decimal64_1, dt_decimal64_1);
@@ -541,7 +535,7 @@ TEST_F(ColumnDecimalTest, get_permutation) {
 }
 
 TEST_F(ColumnDecimalTest, clone_resized) {
-    _column_decimal_common_test_with_type(assert_column_vector_clone_resized_callback);
+    _column_decimal_common_test_with_type(assert_column_vector_clone_resized_callback, false);
 }
 TEST_F(ColumnDecimalTest, permute) {
     {
@@ -562,11 +556,7 @@ TEST_F(ColumnDecimalTest, permute) {
     assert_column_vector_permute(columns, UINT64_MAX);
 }
 
-TEST_F(ColumnDecimalTest, replicate) {
-    _column_decimal_common_test_with_type(assert_column_vector_replicate_callback);
-}
-
-template <typename T>
+template <PrimitiveType T>
 void insert_value_test(ColumnDecimal<T>* src_col) {
     auto col = src_col->clone_empty();
     auto* dec_col = assert_cast<ColumnDecimal<T>*>(col.get());
@@ -586,14 +576,15 @@ TEST_F(ColumnDecimalTest, insert_value) {
 }
 
 TEST_F(ColumnDecimalTest, replace_column_data) {
-    _column_decimal_common_test_with_type(assert_column_vector_replace_column_data_callback);
+    _column_decimal_common_test_with_type(assert_column_vector_replace_column_data_callback, false);
 }
 
 TEST_F(ColumnDecimalTest, replace_column_null_data) {
-    _column_decimal_common_test_with_type(assert_column_vector_replace_column_null_data_callback);
+    _column_decimal_common_test_with_type(assert_column_vector_replace_column_null_data_callback,
+                                          false);
 }
 TEST_F(ColumnDecimalTest, compare_internal) {
-    _column_decimal_common_test_with_type(assert_column_vector_compare_internal_callback);
+    _column_decimal_common_test_with_type(assert_column_vector_compare_internal_callback, false);
 }
 
 TEST_F(ColumnDecimalTest, get_scale) {
@@ -602,19 +593,9 @@ TEST_F(ColumnDecimalTest, get_scale) {
     EXPECT_EQ(column_decimal128_1->get_scale(), dt_decimal128_1->get_scale());
     EXPECT_EQ(column_decimal256_1->get_scale(), dt_decimal256_1->get_scale());
 }
-TEST_F(ColumnDecimalTest, get_scale_multiplier) {
-    EXPECT_EQ((int)column_decimal32_1->get_scale_multiplier(),
-              common::exp10_i32(dt_decimal32_1->get_scale()));
-    EXPECT_EQ((int64_t)column_decimal64_1->get_scale_multiplier(),
-              common::exp10_i64(dt_decimal64_1->get_scale()));
-    EXPECT_EQ((int128_t)column_decimal128_1->get_scale_multiplier(),
-              common::exp10_i128(dt_decimal128_1->get_scale()));
-    EXPECT_EQ((wide::Int256)column_decimal256_1->get_scale_multiplier(),
-              common::exp10_i256(dt_decimal256_1->get_scale()));
-}
 
 TEST_F(ColumnDecimalTest, sort_column) {
-    _column_decimal_common_test_with_type(assert_sort_column_callback);
+    _column_decimal_common_test_with_type(assert_sort_column_callback, false);
 }
 
 TEST_F(ColumnDecimalTest, ScalaTypeDecimalTesterase) {

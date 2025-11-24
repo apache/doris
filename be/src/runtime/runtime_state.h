@@ -49,7 +49,7 @@
 #include "runtime/workload_group/workload_group.h"
 #include "util/debug_util.h"
 #include "util/runtime_profile.h"
-#include "vec/columns/columns_number.h"
+#include "vec/runtime/vector_search_user_params.h"
 
 namespace doris {
 class RuntimeFilter;
@@ -69,6 +69,7 @@ class Dependency;
 class DescriptorTbl;
 class ObjectPool;
 class ExecEnv;
+class IdFileMap;
 class RuntimeFilterMgr;
 class MemTrackerLimiter;
 class QueryContext;
@@ -86,13 +87,19 @@ public:
                  ExecEnv* exec_env, QueryContext* ctx,
                  const std::shared_ptr<MemTrackerLimiter>& query_mem_tracker = nullptr);
 
-    RuntimeState(const TUniqueId& instance_id, const TUniqueId& query_id, int32 fragment_id,
+    RuntimeState(const TUniqueId& instance_id, const TUniqueId& query_id, int32_t fragment_id,
                  const TQueryOptions& query_options, const TQueryGlobals& query_globals,
                  ExecEnv* exec_env, QueryContext* ctx);
 
     // Used by pipeline. This runtime state is only used for setup.
-    RuntimeState(const TUniqueId& query_id, int32 fragment_id, const TQueryOptions& query_options,
+    RuntimeState(const TUniqueId& query_id, int32_t fragment_id, const TQueryOptions& query_options,
                  const TQueryGlobals& query_globals, ExecEnv* exec_env, QueryContext* ctx);
+
+    // Only used in the materialization phase of delayed materialization,
+    // when there may be no corresponding QueryContext.
+    RuntimeState(const TUniqueId& query_id, int32_t fragment_id, const TQueryOptions& query_options,
+                 const TQueryGlobals& query_globals, ExecEnv* exec_env,
+                 const std::shared_ptr<MemTrackerLimiter>& query_mem_tracker);
 
     // RuntimeState for executing expr in fe-support.
     RuntimeState(const TQueryGlobals& query_globals);
@@ -150,12 +157,19 @@ public:
                        : 1;
     }
 
+    // Support extended regex
+    // like look-around zero-width assertions(`?=`, `?!`, `?<=`, `?<!`)
+    bool enable_extended_regex() const {
+        return _query_options.__isset.enable_extended_regex && _query_options.enable_extended_regex;
+    }
+
     TQueryType::type query_type() const { return _query_options.query_type; }
     int64_t timestamp_ms() const { return _timestamp_ms; }
     int32_t nano_seconds() const { return _nano_seconds; }
     // if possible, use timezone_obj() rather than timezone()
     const std::string& timezone() const { return _timezone; }
     const cctz::time_zone& timezone_obj() const { return _timezone_obj; }
+    const std::string& lc_time_names() const { return _lc_time_names; }
     const std::string& user() const { return _user; }
     const TUniqueId& query_id() const { return _query_id; }
     const TUniqueId& fragment_instance_id() const { return _fragment_instance_id; }
@@ -176,6 +190,14 @@ public:
     bool check_overflow_for_decimal() const {
         return _query_options.__isset.check_overflow_for_decimal &&
                _query_options.check_overflow_for_decimal;
+    }
+
+    bool enable_strict_mode() const {
+        return _query_options.__isset.enable_strict_cast && _query_options.enable_strict_cast;
+    }
+
+    bool enable_insert_strict() const {
+        return _query_options.__isset.enable_insert_strict && _query_options.enable_insert_strict;
     }
 
     bool enable_decimal256() const {
@@ -269,12 +291,13 @@ public:
 
     std::string get_error_log_file_path();
 
+    std::string get_first_error_msg() const { return _first_error_msg; }
+
     // append error msg and error line to file when loading data.
     // is_summary is true, means we are going to write the summary line
     // If we need to stop the processing, set stop_processing to true
     Status append_error_msg_to_file(std::function<std::string()> line,
-                                    std::function<std::string()> error_msg,
-                                    bool is_summary = false);
+                                    std::function<std::string()> error_msg);
 
     int64_t num_bytes_load_total() { return _num_bytes_load_total.load(); }
 
@@ -375,6 +398,11 @@ public:
         return _query_options.return_object_data_as_binary;
     }
 
+    bool enable_fuzzy_blockable_task() const {
+        return _query_options.__isset.enable_fuzzy_blockable_task &&
+               _query_options.enable_fuzzy_blockable_task;
+    }
+
     segment_v2::CompressionTypePB fragement_transmission_compression_type() const {
         if (_query_options.__isset.fragment_transmission_compression_codec) {
             if (_query_options.fragment_transmission_compression_codec == "lz4") {
@@ -411,6 +439,20 @@ public:
     }
 
     bool enable_page_cache() const;
+
+    bool enable_prefer_cached_rowset() const {
+        return _query_options.__isset.enable_prefer_cached_rowset &&
+               _query_options.enable_prefer_cached_rowset;
+    }
+
+    int64_t query_freshness_tolerance_ms() const {
+        return _query_options.query_freshness_tolerance_ms;
+    }
+
+    bool enable_query_freshness_tolerance() const {
+        return _query_options.__isset.query_freshness_tolerance_ms &&
+               _query_options.query_freshness_tolerance_ms > 0;
+    }
 
     std::vector<TTabletCommitInfo> tablet_commit_infos() const {
         std::lock_guard<std::mutex> lock(_tablet_infos_mutex);
@@ -657,6 +699,15 @@ public:
 
     int profile_level() const { return _profile_level; }
 
+    std::shared_ptr<IdFileMap>& get_id_file_map() { return _id_file_map; }
+
+    void set_id_file_map();
+    VectorSearchUserParams get_vector_search_params() const {
+        return VectorSearchUserParams(_query_options.hnsw_ef_search,
+                                      _query_options.hnsw_check_relative_distance,
+                                      _query_options.hnsw_bounded_queue);
+    }
+
 private:
     Status create_error_log_file();
 
@@ -703,6 +754,7 @@ private:
     int32_t _nano_seconds;
     std::string _timezone;
     cctz::time_zone _timezone_obj;
+    std::string _lc_time_names;
 
     TUniqueId _query_id;
     // fragment id for each TPipelineFragmentParams
@@ -745,9 +797,9 @@ private:
     size_t _content_length = 0;
 
     // mini load
-    int64_t _error_row_number;
     std::string _error_log_file_path;
     std::unique_ptr<std::ofstream> _error_log_file; // error file path, absolute path
+    std::string _first_error_msg = "";
     mutable std::mutex _tablet_infos_mutex;
     std::vector<TTabletCommitInfo> _tablet_commit_infos;
     std::vector<TErrorTabletInfo> _error_tablet_infos;
@@ -783,6 +835,9 @@ private:
     // error file path on s3, ${bucket}/${prefix}/error_log/${label}_${fragment_instance_id}
     std::string _s3_error_log_file_path;
     std::mutex _s3_error_log_file_lock;
+
+    // used for encoding the global lazy materialize
+    std::shared_ptr<IdFileMap> _id_file_map = nullptr;
 };
 
 #define RETURN_IF_CANCELLED(state)               \

@@ -75,7 +75,24 @@ public class StorageBackend implements ParseNode {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws UserException {
+    public void analyze() throws UserException {
+        StorageBackend.StorageType storageType = storageDesc.getStorageType();
+        if (storageType != StorageType.BROKER && StringUtils.isEmpty(storageDesc.getName())) {
+            storageDesc.setName(storageType.name());
+        }
+        if (storageType != StorageType.BROKER && storageType != StorageType.S3
+                && storageType != StorageType.HDFS) {
+            throw new NotImplementedException(storageType.toString() + " is not support now.");
+        }
+        FeNameFormat.checkCommonName("repository", storageDesc.getName());
+
+        if (Strings.isNullOrEmpty(location)) {
+            throw new AnalysisException("You must specify a location on the repository");
+        }
+        checkPath(location, storageType, null);
+    }
+
+    public void validate() throws UserException {
         StorageBackend.StorageType storageType = storageDesc.getStorageType();
         if (storageType != StorageType.BROKER && StringUtils.isEmpty(storageDesc.getName())) {
             storageDesc.setName(storageType.name());
@@ -115,7 +132,8 @@ public class StorageBackend implements ParseNode {
         GFS("Tencent Goose File System"),
         JFS("Juicefs"),
         STREAM("Stream load pipe"),
-        AZURE("MicroSoft Azure Blob");
+        AZURE("MicroSoft Azure Blob"),
+        HTTP("HTTP");
 
         @SerializedName("desc")
         private final String description;
@@ -127,6 +145,16 @@ public class StorageBackend implements ParseNode {
         @Override
         public String toString() {
             return description;
+        }
+
+        public static StorageBackend.StorageType valueOfIgnoreCase(String name) {
+            for (StorageBackend.StorageType type : StorageBackend.StorageType.values()) {
+                if (type.name().equalsIgnoreCase(name)) {
+                    return type;
+                }
+            }
+            throw new IllegalArgumentException("No enum constant "
+                    + StorageBackend.StorageType.class.getCanonicalName() + "." + name);
         }
 
         public TStorageBackendType toThrift() {
@@ -162,21 +190,6 @@ public class StorageBackend implements ParseNode {
          */
         public static final Set<StorageType> REFACTOR_STORAGE_TYPES =
                 ImmutableSet.of(StorageType.S3, StorageType.HDFS, StorageType.OFS, StorageType.JFS, StorageType.AZURE);
-
-        public static StorageType convertToStorageType(String storageName) {
-            switch (storageName.toLowerCase()) {
-                case "hdfs":
-                    return StorageType.HDFS;
-                case "s3":
-                    return StorageType.S3;
-                case "jfs":
-                    return StorageType.JFS;
-                case "local":
-                    return StorageType.LOCAL;
-                default:
-                    throw new IllegalArgumentException("Invalid storage type: " + storageName);
-            }
-        }
     }
 
 }

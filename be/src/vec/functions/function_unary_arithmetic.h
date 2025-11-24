@@ -20,8 +20,10 @@
 
 #pragma once
 
+#include "runtime/define_primitive_type.h"
 #include "vec/columns/column_decimal.h"
 #include "vec/columns/column_vector.h"
+#include "vec/core/types.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/functions/cast_type_to_either.h"
@@ -30,12 +32,11 @@
 
 namespace doris::vectorized {
 
-template <typename A, typename Op>
+template <PrimitiveType A, typename Op>
 struct UnaryOperationImpl {
-    using ResultType = typename Op::ResultType;
-    using ColVecA = std::conditional_t<IsDecimalNumber<A>, ColumnDecimal<A>, ColumnVector<A>>;
-    using ColVecC = std::conditional_t<IsDecimalNumber<ResultType>, ColumnDecimal<ResultType>,
-                                       ColumnVector<ResultType>>;
+    static constexpr PrimitiveType ResultType = Op::ResultType;
+    using ColVecA = typename PrimitiveTypeTraits<A>::ColumnType;
+    using ColVecC = typename PrimitiveTypeTraits<ResultType>::ColumnType;
     using ArrayA = typename ColVecA::Container;
     using ArrayC = typename ColVecC::Container;
 
@@ -43,8 +44,6 @@ struct UnaryOperationImpl {
         size_t size = a.size();
         for (size_t i = 0; i < size; ++i) c[i] = Op::apply(a[i]);
     }
-
-    static void constant(A a, ResultType& c) { c = Op::apply(a); }
 };
 
 template <typename>
@@ -57,20 +56,22 @@ struct PositiveImpl;
 /// Used to indicate undefined operation
 struct InvalidType;
 
-template <template <typename> class Op, typename Name>
+template <typename Op, typename Name, PrimitiveType param_type>
 class FunctionUnaryArithmetic : public IFunction {
-    static constexpr bool allow_decimal = std::is_same_v<Op<Int8>, NegativeImpl<Int8>> ||
-                                          std::is_same_v<Op<Int8>, AbsImpl<Int8>> ||
-                                          std::is_same_v<Op<Int8>, PositiveImpl<Int8>>;
+    using ResultDataType = typename PrimitiveTypeTraits<param_type>::DataType;
+    static constexpr bool allow_decimal = std::string_view(Name::name) == "abs" ||
+                                          std::string_view(Name::name) == "negative" ||
+                                          std::string_view(Name::name) == "positive";
+    static constexpr bool not_variadic =
+            std::string_view(Name::name) == "degree" || std::string_view(Name::name) == "radian" ||
+            std::string_view(Name::name) == "sign" || std::string_view(Name::name) == "signbit";
 
     template <typename F>
     static bool cast_type(const IDataType* type, F&& f) {
-        return cast_type_to_either<DataTypeUInt8, DataTypeUInt16, DataTypeUInt32, DataTypeUInt64,
-                                   DataTypeInt8, DataTypeInt16, DataTypeInt32, DataTypeInt64,
-                                   DataTypeInt128, DataTypeFloat32, DataTypeFloat64,
-                                   DataTypeDecimal<Decimal32>, DataTypeDecimal<Decimal64>,
-                                   DataTypeDecimal<Decimal128V2>, DataTypeDecimal<Decimal128V3>,
-                                   DataTypeDecimal<Decimal256>>(type, std::forward<F>(f));
+        if (const auto* data_type = typeid_cast<const ResultDataType*>(type)) {
+            return f(*data_type);
+        }
+        return false;
     }
 
 public:
@@ -81,17 +82,30 @@ public:
 
     size_t get_number_of_arguments() const override { return 1; }
 
+    bool is_variadic() const override {
+        if constexpr (not_variadic) {
+            return false;
+        }
+        return true;
+    }
+
+    DataTypes get_variadic_argument_types_impl() const override {
+        if constexpr (not_variadic) {
+            return {};
+        }
+        return {std::make_shared<ResultDataType>()};
+    }
+
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         DataTypePtr result;
         bool valid = cast_type(arguments[0].get(), [&](const auto& type) {
             using DataType = std::decay_t<decltype(type)>;
-            using T0 = typename DataType::FieldType;
 
             if constexpr (IsDataTypeDecimal<DataType>) {
                 if constexpr (!allow_decimal) return false;
                 result = std::make_shared<DataType>(type.get_precision(), type.get_scale());
             } else {
-                result = std::make_shared<DataTypeNumber<typename Op<T0>::ResultType>>();
+                result = std::make_shared<typename PrimitiveTypeTraits<Op::ResultType>::DataType>();
             }
             return true;
         });
@@ -108,28 +122,31 @@ public:
         bool valid =
                 cast_type(block.get_by_position(arguments[0]).type.get(), [&](const auto& type) {
                     using DataType = std::decay_t<decltype(type)>;
-                    using T0 = typename DataType::FieldType;
 
                     if constexpr (IsDataTypeDecimal<DataType>) {
                         if constexpr (allow_decimal) {
-                            if (auto col = check_and_get_column<ColumnDecimal<T0>>(
+                            if (auto col = check_and_get_column<ColumnDecimal<DataType::PType>>(
                                         block.get_by_position(arguments[0]).column.get())) {
-                                auto col_res = ColumnDecimal<typename Op<T0>::ResultType>::create(
-                                        0, type.get_scale());
+                                auto col_res =
+                                        PrimitiveTypeTraits<Op::ResultType>::ColumnType::create(
+                                                0, type.get_scale());
                                 auto& vec_res = col_res->get_data();
                                 vec_res.resize(col->get_data().size());
-                                UnaryOperationImpl<T0, Op<T0>>::vector(col->get_data(), vec_res);
+                                UnaryOperationImpl<DataType::PType, Op>::vector(col->get_data(),
+                                                                                vec_res);
                                 block.replace_by_position(result, std::move(col_res));
                                 return true;
                             }
                         }
                     } else {
-                        if (auto col = check_and_get_column<ColumnVector<T0>>(
+                        if (auto col = check_and_get_column<ColumnVector<DataType::PType>>(
                                     block.get_by_position(arguments[0]).column.get())) {
-                            auto col_res = ColumnVector<typename Op<T0>::ResultType>::create();
+                            auto col_res =
+                                    PrimitiveTypeTraits<Op::ResultType>::ColumnType::create();
                             auto& vec_res = col_res->get_data();
                             vec_res.resize(col->get_data().size());
-                            UnaryOperationImpl<T0, Op<T0>>::vector(col->get_data(), vec_res);
+                            UnaryOperationImpl<DataType::PType, Op>::vector(col->get_data(),
+                                                                            vec_res);
                             block.replace_by_position(result, std::move(col_res));
                             return true;
                         }

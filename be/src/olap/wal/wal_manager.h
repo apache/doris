@@ -127,11 +127,11 @@ private:
 
     // wal back pressure
     std::vector<std::string> _wal_dirs;
-    scoped_refptr<Thread> _update_wal_dirs_info_thread;
+    std::shared_ptr<Thread> _update_wal_dirs_info_thread;
     std::unique_ptr<WalDirsInfo> _wal_dirs_info;
 
     // replay wal
-    scoped_refptr<Thread> _replay_thread;
+    std::shared_ptr<Thread> _replay_thread;
     std::unique_ptr<doris::ThreadPool> _thread_pool;
 
     std::shared_mutex _table_lock;

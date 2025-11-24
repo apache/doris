@@ -126,7 +126,7 @@ public:
                                               ._should_build_hash_table;
     }
 
-    DataDistribution required_data_distribution() const override {
+    DataDistribution required_data_distribution(RuntimeState* /*state*/) const override {
         if (_join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
             return {ExchangeType::NOOP};
         } else if (_is_broadcast_join) {
@@ -179,7 +179,7 @@ private:
 
 template <class HashTableContext>
 struct ProcessHashTableBuild {
-    ProcessHashTableBuild(size_t rows, vectorized::ColumnRawPtrs& build_raw_ptrs,
+    ProcessHashTableBuild(uint32_t rows, vectorized::ColumnRawPtrs& build_raw_ptrs,
                           HashJoinBuildSinkLocalState* parent, int batch_size, RuntimeState* state)
             : _rows(rows),
               _build_raw_ptrs(build_raw_ptrs),
@@ -246,7 +246,7 @@ struct ProcessHashTableBuild {
     }
 
 private:
-    const size_t _rows;
+    const uint32_t _rows;
     vectorized::ColumnRawPtrs& _build_raw_ptrs;
     HashJoinBuildSinkLocalState* _parent = nullptr;
     int _batch_size;

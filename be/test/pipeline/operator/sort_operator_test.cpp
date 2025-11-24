@@ -110,9 +110,9 @@ struct SortOperatorTest : public ::testing::Test {
             state->emplace_local_state(source->operator_id(), std::move(source_local_state_uptr));
         }
 
-        { EXPECT_TRUE(sink_local_state->open(state.get()).ok()); }
+        EXPECT_TRUE(sink_local_state->open(state.get()).ok());
 
-        { EXPECT_TRUE(source_local_state->open(state.get()).ok()); }
+        EXPECT_TRUE(source_local_state->open(state.get()).ok());
     }
 
     bool is_block(std::vector<Dependency*> deps) {
@@ -167,11 +167,17 @@ TEST_F(SortOperatorTest, test) {
         bool eos = false;
         auto st = source->get_block(state.get(), &block, &eos);
         EXPECT_TRUE(st.ok()) << st.msg();
-        EXPECT_TRUE(eos);
+        EXPECT_FALSE(eos);
         EXPECT_EQ(block.rows(), 3);
         std::cout << block.dump_data() << std::endl;
         EXPECT_TRUE(ColumnHelper::block_equal(
                 block, ColumnHelper::create_block<DataTypeInt64>({1, 2, 3})));
+
+        block.clear();
+        st = source->get_block(state.get(), &block, &eos);
+        EXPECT_TRUE(st.ok()) << st.msg();
+        EXPECT_TRUE(eos);
+        EXPECT_EQ(block.rows(), 0);
     }
 }
 
@@ -200,11 +206,17 @@ TEST_F(SortOperatorTest, test_dep) {
         bool eos = false;
         auto st = source->get_block(state.get(), &block, &eos);
         EXPECT_TRUE(st.ok()) << st.msg();
-        EXPECT_TRUE(eos);
+        EXPECT_FALSE(eos);
         EXPECT_EQ(block.rows(), 6);
         std::cout << block.dump_data() << std::endl;
         EXPECT_TRUE(ColumnHelper::block_equal(
                 block, ColumnHelper::create_block<DataTypeInt64>({1, 2, 3, 4, 5, 6})));
+
+        block.clear();
+        st = source->get_block(state.get(), &block, &eos);
+        EXPECT_TRUE(st.ok()) << st.msg();
+        EXPECT_TRUE(eos);
+        EXPECT_EQ(block.rows(), 0);
     }
 }
 

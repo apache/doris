@@ -21,8 +21,10 @@ import org.apache.doris.analysis.StmtType;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -55,8 +57,21 @@ public class GrantRoleCommand extends Command implements ForwardWithSync {
         Env.getCurrentEnv().getAuth().grantRoleCommand(this);
     }
 
+    /**
+     * validate
+     */
     public void validate() throws AnalysisException {
+        if (Config.access_controller_type.equalsIgnoreCase("ranger-doris")) {
+            throw new AnalysisException("Grant is prohibited when Ranger is enabled.");
+        }
+
         userIdentity.analyze();
+
+        for (int i = 0; i < roles.size(); i++) {
+            String originalRoleName = roles.get(i);
+            FeNameFormat.checkRoleName(originalRoleName, true /* can be admin */, "Can not grant role");
+        }
+
         checkRolePrivileges();
     }
 

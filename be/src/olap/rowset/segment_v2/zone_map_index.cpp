@@ -21,6 +21,7 @@
 #include <glog/logging.h>
 
 #include <algorithm>
+#include <limits>
 #include <type_traits>
 
 #include "olap/olap_common.h"
@@ -37,17 +38,18 @@
 #include "vec/data_types/data_type.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 struct uint24_t;
 
 namespace segment_v2 {
 
 template <PrimitiveType Type>
 TypedZoneMapIndexWriter<Type>::TypedZoneMapIndexWriter(Field* field) : _field(field) {
-    _page_zone_map.min_value = _field->allocate_zone_map_value(&_arena);
-    _page_zone_map.max_value = _field->allocate_zone_map_value(&_arena);
+    _page_zone_map.min_value = _field->allocate_zone_map_value(_arena);
+    _page_zone_map.max_value = _field->allocate_zone_map_value(_arena);
     _reset_zone_map(&_page_zone_map);
-    _segment_zone_map.min_value = _field->allocate_zone_map_value(&_arena);
-    _segment_zone_map.max_value = _field->allocate_zone_map_value(&_arena);
+    _segment_zone_map.min_value = _field->allocate_zone_map_value(_arena);
+    _segment_zone_map.max_value = _field->allocate_zone_map_value(_arena);
     _reset_zone_map(&_segment_zone_map);
 }
 
@@ -57,15 +59,44 @@ void TypedZoneMapIndexWriter<Type>::add_values(const void* values, size_t count)
         _page_zone_map.has_not_null = true;
     }
     using ValType = PrimitiveTypeTraits<Type>::StorageFieldType;
-    const ValType* vals = reinterpret_cast<const ValType*>(values);
-    auto [min, max] = std::minmax_element(vals, vals + count);
-    if (unaligned_load<ValType>(min) < unaligned_load<ValType>(_page_zone_map.min_value)) {
-        _field->type_info()->direct_copy_may_cut(_page_zone_map.min_value,
-                                                 reinterpret_cast<const void*>(min));
-    }
-    if (unaligned_load<ValType>(max) > unaligned_load<ValType>(_page_zone_map.max_value)) {
-        _field->type_info()->direct_copy_may_cut(_page_zone_map.max_value,
-                                                 reinterpret_cast<const void*>(max));
+    const auto* vals = reinterpret_cast<const ValType*>(values);
+    if constexpr (Type == TYPE_FLOAT || Type == TYPE_DOUBLE) {
+        ValType min = std::numeric_limits<ValType>::max();
+        ValType max = std::numeric_limits<ValType>::lowest();
+        for (size_t i = 0; i < count; ++i) {
+            if (std::isnan(vals[i])) {
+                _page_zone_map.has_nan = true;
+            } else if (vals[i] == std::numeric_limits<ValType>::infinity()) {
+                _page_zone_map.has_positive_inf = true;
+            } else if (vals[i] == -std::numeric_limits<ValType>::infinity()) {
+                _page_zone_map.has_negative_inf = true;
+            } else {
+                if (vals[i] < min) {
+                    min = vals[i];
+                }
+                if (vals[i] > max) {
+                    max = vals[i];
+                }
+            }
+        }
+        if (min < unaligned_load<ValType>(_page_zone_map.min_value)) {
+            _field->type_info()->direct_copy_may_cut(_page_zone_map.min_value,
+                                                     reinterpret_cast<const void*>(&min));
+        }
+        if (max > unaligned_load<ValType>(_page_zone_map.max_value)) {
+            _field->type_info()->direct_copy_may_cut(_page_zone_map.max_value,
+                                                     reinterpret_cast<const void*>(&max));
+        }
+    } else {
+        auto [min, max] = std::minmax_element(vals, vals + count);
+        if (unaligned_load<ValType>(min) < unaligned_load<ValType>(_page_zone_map.min_value)) {
+            _field->type_info()->direct_copy_may_cut(_page_zone_map.min_value,
+                                                     reinterpret_cast<const void*>(min));
+        }
+        if (unaligned_load<ValType>(max) > unaligned_load<ValType>(_page_zone_map.max_value)) {
+            _field->type_info()->direct_copy_may_cut(_page_zone_map.max_value,
+                                                     reinterpret_cast<const void*>(max));
+        }
     }
 }
 
@@ -76,7 +107,7 @@ void TypedZoneMapIndexWriter<Type>::moidfy_index_before_flush(
 }
 
 template <PrimitiveType Type>
-void TypedZoneMapIndexWriter<Type>::reset_page_zone_map() {
+void TypedZoneMapIndexWriter<Type>::invalid_page_zone_map() {
     _page_zone_map.pass_all = true;
 }
 
@@ -96,6 +127,15 @@ Status TypedZoneMapIndexWriter<Type>::flush() {
     }
     if (_page_zone_map.has_not_null) {
         _segment_zone_map.has_not_null = true;
+    }
+    if (_page_zone_map.has_positive_inf) {
+        _segment_zone_map.has_positive_inf = true;
+    }
+    if (_page_zone_map.has_negative_inf) {
+        _segment_zone_map.has_negative_inf = true;
+    }
+    if (_page_zone_map.has_nan) {
+        _segment_zone_map.has_nan = true;
     }
 
     ZoneMapPB zone_map_pb;
@@ -123,11 +163,11 @@ Status TypedZoneMapIndexWriter<Type>::finish(io::FileWriter* file_writer,
     _segment_zone_map.to_proto(meta->mutable_segment_zone_map(), _field);
 
     // write out zone map for each data pages
-    const auto* type_info = get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_OBJECT>();
+    const auto* type_info = get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_BITMAP>();
     IndexedColumnWriterOptions options;
     options.write_ordinal_index = true;
     options.write_value_index = false;
-    options.encoding = EncodingInfo::get_default_encoding(type_info, false);
+    options.encoding = EncodingInfo::get_default_encoding(type_info->type(), false);
     options.compression = NO_COMPRESSION; // currently not compressed
 
     IndexedColumnWriter writer(options, type_info, file_writer);
@@ -161,8 +201,8 @@ Status ZoneMapIndexReader::_load(bool use_page_cache, bool kept_in_memory,
     // read and cache all page zone maps
     for (int i = 0; i < reader.num_values(); ++i) {
         size_t num_to_read = 1;
-        // The type of reader is FieldType::OLAP_FIELD_TYPE_OBJECT.
-        // ColumnBitmap will be created when using FieldType::OLAP_FIELD_TYPE_OBJECT.
+        // The type of reader is FieldType::OLAP_FIELD_TYPE_BITMAP.
+        // ColumnBitmap will be created when using FieldType::OLAP_FIELD_TYPE_BITMAP.
         // But what we need actually is ColumnString.
         vectorized::MutableColumnPtr column = vectorized::ColumnString::create();
 
@@ -172,7 +212,7 @@ Status ZoneMapIndexReader::_load(bool use_page_cache, bool kept_in_memory,
         DCHECK(num_to_read == num_read);
 
         if (!_page_zone_maps[i].ParseFromArray(column->get_data_at(0).data,
-                                               column->get_data_at(0).size)) {
+                                               cast_set<int>(column->get_data_at(0).size))) {
             return Status::Corruption("Failed to parse zone map");
         }
         _pb_meta_size += _page_zone_maps[i].ByteSizeLong();
@@ -231,4 +271,5 @@ Status ZoneMapIndexWriter::create(Field* field, std::unique_ptr<ZoneMapIndexWrit
     }
 }
 } // namespace segment_v2
+#include "common/compile_check_end.h"
 } // namespace doris

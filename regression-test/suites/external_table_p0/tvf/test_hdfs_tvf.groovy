@@ -143,6 +143,16 @@ suite("test_hdfs_tvf","external,hive,tvf,external_docker") {
                         "strip_outer_array" = "false",
                         "read_json_by_line" = "true") order by id; """
 
+            uri = "${defaultFS}" + "/user/doris/preinstalled_data/json_format_test/simple_object_json.json.gz"
+            format = "json"
+            qt_json_compressed """ select * from HDFS(
+                        "uri" = "${uri}",
+                        "hadoop.username" = "${hdfsUserName}",
+                        "format" = "${format}",
+                        "compress_type" = "GZ",
+                        "strip_outer_array" = "false",
+                        "read_json_by_line" = "true") order by id; """
+
 
            uri = "${defaultFS}" + "/user/doris/preinstalled_data/json_format_test/simple_object_json.json"
             format = "json"
@@ -254,9 +264,10 @@ suite("test_hdfs_tvf","external,hive,tvf,external_docker") {
                         "read_json_by_line" = "true",
                         "json_root" = "\$.item") """
             sql "sync"
-            assertTrue(result2[0][0] == 4, "Insert should update 4 rows")
+            assertTrue(result2[0][0] == 5, "Insert should update 5 rows")
 
             try{
+                sql "set enable_insert_strict=true;"
                 sql "set insert_max_filter_ratio=0.1;"
                 def result3 = sql """ insert into ${testTable}(id,city,code)
                         select cast (id as INT) as id, city, cast (code as INT) as code
@@ -267,9 +278,10 @@ suite("test_hdfs_tvf","external,hive,tvf,external_docker") {
                             "strip_outer_array" = "false",
                             "read_json_by_line" = "true",
                             "json_root" = "\$.item") """
+                assertTrue(false, "should throw exception")
             } catch (Exception e) {
                 logger.info(e.getMessage())
-                assertTrue(e.getMessage().contains('Insert has too many filtered data 1/5 insert_max_filter_ratio is 0.100000.'))
+                assertTrue(e.getMessage().contains('Insert has filtered data in strict mode'))
             }
 
             try{

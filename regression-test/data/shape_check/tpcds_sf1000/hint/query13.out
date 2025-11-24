@@ -9,7 +9,7 @@ PhysicalResultSink
 ------------PhysicalProject
 --------------hashJoin[INNER_JOIN shuffle] hashCondition=((customer_demographics.cd_demo_sk = store_sales.ss_cdemo_sk)) otherCondition=(OR[AND[(household_demographics.hd_dep_count = 1),OR[AND[(customer_demographics.cd_marital_status = 'D'),(customer_demographics.cd_education_status = 'Primary'),(store_sales.ss_sales_price <= 100.00)],AND[(customer_demographics.cd_marital_status = 'W'),(customer_demographics.cd_education_status = '2 yr Degree'),(store_sales.ss_sales_price >= 150.00)]]],AND[(customer_demographics.cd_marital_status = 'M'),(customer_demographics.cd_education_status = 'College'),(store_sales.ss_sales_price >= 100.00),(store_sales.ss_sales_price <= 150.00),(household_demographics.hd_dep_count = 3)]]) build RFs:RF3 ss_cdemo_sk->[cd_demo_sk]
 ----------------PhysicalProject
-------------------filter(OR[AND[(customer_demographics.cd_marital_status = 'M'),(customer_demographics.cd_education_status = 'College')],AND[(customer_demographics.cd_marital_status = 'D'),(customer_demographics.cd_education_status = 'Primary')],AND[(customer_demographics.cd_marital_status = 'W'),(customer_demographics.cd_education_status = '2 yr Degree')]] and cd_education_status IN ('2 yr Degree', 'College', 'Primary') and cd_marital_status IN ('D', 'M', 'W'))
+------------------filter(OR[AND[(customer_demographics.cd_marital_status = 'D'),(customer_demographics.cd_education_status = 'Primary')],AND[(customer_demographics.cd_marital_status = 'W'),(customer_demographics.cd_education_status = '2 yr Degree')],AND[(customer_demographics.cd_marital_status = 'M'),(customer_demographics.cd_education_status = 'College')]] and cd_education_status IN ('2 yr Degree', 'College', 'Primary') and cd_marital_status IN ('D', 'M', 'W'))
 --------------------PhysicalOlapScan[customer_demographics] apply RFs: RF3
 ----------------PhysicalProject
 ------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_hdemo_sk = household_demographics.hd_demo_sk)) otherCondition=() build RFs:RF2 hd_demo_sk->[ss_hdemo_sk]
@@ -34,6 +34,6 @@ PhysicalResultSink
 
 Hint log:
 Used: leading(customer_demographics { store_sales customer_address date_dim household_demographics } store )
-UnUsed: 
+UnUsed:
 SyntaxError:
 

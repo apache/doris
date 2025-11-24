@@ -17,8 +17,8 @@
 
 package org.apache.doris.nereids.load;
 
-import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.Separator;
+import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.thrift.TFileCompressType;
@@ -36,24 +36,24 @@ public class NereidsBrokerLoadTask implements NereidsLoadTaskInfo {
     private int sendBatchParallelism;
     private boolean strictMode;
     private boolean memtableOnSinkNode;
-    private PartitionNames partitions;
+    private PartitionNamesInfo partitionNamesInfo;
 
     /**
      * NereidsBrokerLoadTask
      */
     public NereidsBrokerLoadTask(long txnId, int timeout, int sendBatchParallelism,
-            boolean strictMode, boolean memtableOnSinkNode, PartitionNames partitions) {
+            boolean strictMode, boolean memtableOnSinkNode, PartitionNamesInfo partitions) {
         this.txnId = txnId;
         this.timeout = timeout;
         this.sendBatchParallelism = sendBatchParallelism;
         this.strictMode = strictMode;
         this.memtableOnSinkNode = memtableOnSinkNode;
-        this.partitions = partitions;
+        this.partitionNamesInfo = partitions;
     }
 
     @Override
-    public PartitionNames getPartitions() {
-        return partitions;
+    public PartitionNamesInfo getPartitionNamesInfo() {
+        return partitionNamesInfo;
     }
 
     @Override
@@ -224,5 +224,10 @@ public class NereidsBrokerLoadTask implements NereidsLoadTaskInfo {
     @Override
     public byte getEscape() {
         return 0;
+    }
+
+    @Override
+    public boolean getEmptyFieldAsNull() {
+        return false;
     }
 }

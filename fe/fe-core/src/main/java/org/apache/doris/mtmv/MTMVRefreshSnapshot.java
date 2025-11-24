@@ -22,7 +22,7 @@ import org.apache.doris.catalog.MTMV;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
-import org.apache.commons.collections.MapUtils;
+import org.apache.commons.collections4.MapUtils;
 
 import java.util.Iterator;
 import java.util.Map;
@@ -36,25 +36,26 @@ public class MTMVRefreshSnapshot {
         this.partitionSnapshots = Maps.newConcurrentMap();
     }
 
-    public boolean equalsWithRelatedPartition(String mtmvPartitionName, String relatedPartitionName,
-            MTMVSnapshotIf relatedPartitionCurrentSnapshot) {
+    public boolean equalsWithPct(String mtmvPartitionName, String pctPartitionName,
+            MTMVSnapshotIf pctPartitionCurrentSnapshot, BaseTableInfo pctTableInfo) {
         MTMVRefreshPartitionSnapshot partitionSnapshot = partitionSnapshots.get(mtmvPartitionName);
         if (partitionSnapshot == null) {
             return false;
         }
-        MTMVSnapshotIf relatedPartitionSnapshot = partitionSnapshot.getPartitions().get(relatedPartitionName);
-        if (relatedPartitionSnapshot == null) {
+        MTMVSnapshotIf pctPartitionSnapshot = partitionSnapshot.getPctSnapshot(pctTableInfo)
+                .get(pctPartitionName);
+        if (pctPartitionSnapshot == null) {
             return false;
         }
-        return relatedPartitionSnapshot.equals(relatedPartitionCurrentSnapshot);
+        return pctPartitionSnapshot.equals(pctPartitionCurrentSnapshot);
     }
 
-    public Set<String> getSnapshotPartitions(String mtmvPartitionName) {
+    public Set<String> getPctSnapshots(String mtmvPartitionName, BaseTableInfo pctTableInfo) {
         MTMVRefreshPartitionSnapshot partitionSnapshot = partitionSnapshots.get(mtmvPartitionName);
         if (partitionSnapshot == null) {
             return Sets.newHashSet();
         }
-        return partitionSnapshot.getPartitions().keySet();
+        return partitionSnapshot.getPctSnapshot(pctTableInfo).keySet();
     }
 
     public boolean equalsWithBaseTable(String mtmvPartitionName, BaseTableInfo tableInfo,
@@ -84,6 +85,10 @@ public class MTMVRefreshSnapshot {
         }
     }
 
+    public Map<String, MTMVRefreshPartitionSnapshot> getPartitionSnapshots() {
+        return partitionSnapshots;
+    }
+
     @Override
     public String toString() {
         return "MTMVRefreshSnapshot{"
@@ -91,7 +96,7 @@ public class MTMVRefreshSnapshot {
                 + '}';
     }
 
-    public void compatible(MTMV mtmv) {
+    public void compatible(MTMV mtmv) throws Exception {
         if (MapUtils.isEmpty(partitionSnapshots)) {
             return;
         }

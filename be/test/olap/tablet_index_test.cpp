@@ -61,11 +61,11 @@ TEST_F(TabletIndexTest, test_inverted_index) {
 
     EXPECT_TRUE(tablet_schema->has_inverted_index());
     EXPECT_EQ(tablet_schema->inverted_indexes().size(), 2);
-    EXPECT_TRUE(tablet_schema->inverted_index(tablet_schema->column_by_uid(0)) != nullptr);
-    EXPECT_TRUE(tablet_schema->inverted_index(tablet_schema->column_by_uid(1)) != nullptr);
-    EXPECT_TRUE(tablet_schema->inverted_index(tablet_schema->column_by_uid(2)) == nullptr);
-    EXPECT_TRUE(tablet_schema->inverted_index(3) == nullptr);
-    EXPECT_TRUE(tablet_schema->inverted_index(4, "v1.a") == nullptr);
+    EXPECT_FALSE(tablet_schema->inverted_indexs(tablet_schema->column_by_uid(0)).empty());
+    EXPECT_FALSE(tablet_schema->inverted_indexs(tablet_schema->column_by_uid(1)).empty());
+    EXPECT_TRUE(tablet_schema->inverted_indexs(tablet_schema->column_by_uid(2)).empty());
+    EXPECT_TRUE(tablet_schema->inverted_indexs(3).empty());
+    EXPECT_TRUE(tablet_schema->inverted_indexs(4, "v1.a").empty());
 }
 
 TEST_F(TabletIndexTest, test_schema_index_diff) {

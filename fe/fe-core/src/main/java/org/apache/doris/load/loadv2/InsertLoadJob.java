@@ -24,7 +24,6 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.MetaNotFoundException;
-import org.apache.doris.common.annotation.LogException;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.FailMsg;
 import org.apache.doris.load.FailMsg.CancelType;
@@ -32,9 +31,9 @@ import org.apache.doris.load.FailMsg.CancelType;
 import com.google.common.base.Strings;
 import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
-import java.io.DataInput;
-import java.io.IOException;
 import java.util.Set;
 
 /**
@@ -43,6 +42,9 @@ import java.util.Set;
  * The state of insert load job is always finished, so it will never be scheduled by JobScheduler.
  */
 public class InsertLoadJob extends LoadJob {
+
+    private static final Logger LOG = LogManager.getLogger(InsertLoadJob.class);
+
     @SerializedName("tid")
     private long tableId;
 
@@ -51,32 +53,27 @@ public class InsertLoadJob extends LoadJob {
         super(EtlJobType.INSERT);
     }
 
-    public InsertLoadJob(String label, long transactionId, long dbId, long tableId,
-            long createTimestamp, String failMsg, String trackingUrl,
-            UserIdentity userInfo) throws MetaNotFoundException {
-        super(EtlJobType.INSERT, dbId, label);
-        this.tableId = tableId;
-        this.transactionId = transactionId;
-        this.createTimestamp = createTimestamp;
-        this.loadStartTimestamp = createTimestamp;
-        this.finishTimestamp = System.currentTimeMillis();
-        if (Strings.isNullOrEmpty(failMsg)) {
-            this.state = JobState.FINISHED;
-            this.progress = 100;
-        } else {
-            this.state = JobState.CANCELLED;
-            this.failMsg = new FailMsg(CancelType.LOAD_RUN_FAIL, failMsg);
-            this.progress = 0;
-        }
-        this.authorizationInfo = gatherAuthInfo();
-        this.loadingStatus.setTrackingUrl(trackingUrl);
-        this.userInfo = userInfo;
+    public InsertLoadJob(long dbId, String label, long jobId) {
+        super(EtlJobType.INSERT, dbId, label, jobId);
     }
 
     public InsertLoadJob(String label, long transactionId, long dbId, long tableId,
-                         long createTimestamp, String failMsg, String trackingUrl,
+            long createTimestamp, String failMsg, String trackingUrl, String firstErrorMsg,
+            UserIdentity userInfo) throws MetaNotFoundException {
+        super(EtlJobType.INSERT, dbId, label);
+        setJobProperties(transactionId, tableId, createTimestamp, failMsg, trackingUrl, firstErrorMsg, userInfo);
+    }
+
+    public InsertLoadJob(String label, long transactionId, long dbId, long tableId,
+                         long createTimestamp, String failMsg, String trackingUrl, String firstErrorMsg,
                          UserIdentity userInfo, Long jobId) throws MetaNotFoundException {
-        super(EtlJobType.INSERT_JOB, dbId, label, jobId);
+        super(EtlJobType.INSERT, dbId, label, jobId);
+        setJobProperties(transactionId, tableId, createTimestamp, failMsg, trackingUrl, firstErrorMsg, userInfo);
+    }
+
+    public void setJobProperties(long transactionId, long tableId, long createTimestamp,
+                                        String failMsg, String trackingUrl, String firstErrorMsg,
+                                        UserIdentity userInfo) throws MetaNotFoundException {
         this.tableId = tableId;
         this.transactionId = transactionId;
         this.createTimestamp = createTimestamp;
@@ -92,6 +89,7 @@ public class InsertLoadJob extends LoadJob {
         }
         this.authorizationInfo = gatherAuthInfo();
         this.loadingStatus.setTrackingUrl(trackingUrl);
+        this.loadingStatus.setFirstErrorMsg(firstErrorMsg);
         this.userInfo = userInfo;
     }
 
@@ -107,17 +105,15 @@ public class InsertLoadJob extends LoadJob {
         return Sets.newHashSet(name);
     }
 
-    @LogException
     @Override
     public Set<String> getTableNames() throws MetaNotFoundException {
-        Database database = Env.getCurrentInternalCatalog().getDbOrMetaException(dbId);
-        Table table = database.getTableOrMetaException(tableId);
-        return Sets.newHashSet(table.getName());
-    }
-
-    @Override
-    protected void readFields(DataInput in) throws IOException {
-        super.readFields(in);
-        tableId = in.readLong();
+        try {
+            Database database = Env.getCurrentInternalCatalog().getDbOrMetaException(dbId);
+            Table table = database.getTableOrMetaException(tableId);
+            return Sets.newHashSet(table.getName());
+        } catch (Exception e) {
+            LOG.warn(e);
+            throw e;
+        }
     }
 }

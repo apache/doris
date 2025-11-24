@@ -78,6 +78,11 @@ public class Avg extends NullableAggregateFunction
         super("avg", distinct, alwaysNullable, arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Avg(NullableAggregateFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public void checkLegalityBeforeTypeCoercion() {
         DataType argType = child().getDataType();
@@ -138,12 +143,12 @@ public class Avg extends NullableAggregateFunction
     @Override
     public Avg withDistinctAndChildren(boolean distinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Avg(distinct, alwaysNullable, children.get(0));
+        return new Avg(getFunctionParams(distinct, children));
     }
 
     @Override
     public NullableAggregateFunction withAlwaysNullable(boolean alwaysNullable) {
-        return new Avg(distinct, alwaysNullable, children.get(0));
+        return new Avg(getAlwaysNullableFunctionParams(alwaysNullable));
     }
 
     @Override

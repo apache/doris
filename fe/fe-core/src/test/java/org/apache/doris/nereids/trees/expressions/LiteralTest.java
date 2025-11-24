@@ -233,9 +233,7 @@ class LiteralTest {
         PValues.Builder resultContentBuilder = PValues.newBuilder();
         for (int i = 0; i < elementsArray.length; i = i + 2) {
             childBuilder1.addInt32Value(elementsArray[i]);
-            String strValue = "str" + (i + 1);
-            childBuilder2.addStringValue(strValue);
-            childBuilder2.addBytesValue(com.google.protobuf.ByteString.copyFromUtf8(strValue));
+            childBuilder2.addStringValue("str" + (i + 1));
         }
         childBuilder1.setType(childTypeBuilder1.build());
         childBuilder2.setType(childTypeBuilder2.build());
@@ -282,9 +280,7 @@ class LiteralTest {
         PValues.Builder resultContentBuilder = PValues.newBuilder();
         for (int i = 0; i < elementsArray.length; i = i + 2) {
             childBuilder1.addInt32Value(elementsArray[i]);
-            String strValue = "str" + (i + 1);
-            childBuilder2.addStringValue(strValue);
-            childBuilder2.addBytesValue(com.google.protobuf.ByteString.copyFromUtf8(strValue));
+            childBuilder2.addStringValue("str" + (i + 1));
         }
         childBuilder1.setType(childTypeBuilder1.build());
         childBuilder2.setType(childTypeBuilder2.build());

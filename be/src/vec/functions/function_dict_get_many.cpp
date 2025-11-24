@@ -25,11 +25,14 @@
 #include "vec/columns/column_struct.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
+#include "vec/data_types/data_type_decimal.h"
+#include "vec/data_types/data_type_number.h" // IWYU pragma: keep
 #include "vec/data_types/data_type_struct.h"
 #include "vec/functions/dictionary.h"
 #include "vec/functions/dictionary_factory.h"
 #include "vec/functions/function.h"
 #include "vec/functions/simple_function_factory.h"
+
 namespace doris::vectorized {
 
 struct DictGetState {
@@ -51,7 +54,7 @@ public:
     DataTypes get_variadic_argument_types_impl() const override { return {}; }
 
     DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
-        return std::make_shared<DataTypeDecimal<Decimal128V3>>();
+        return std::make_shared<DataTypeDecimal128>();
     }
 
     bool skip_return_type_check() const override { return true; }

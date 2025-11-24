@@ -17,8 +17,7 @@
 
 package org.apache.doris.nereids.parser;
 
-import org.apache.doris.nereids.trees.expressions.And;
-import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.Between;
 import org.apache.doris.nereids.trees.expressions.Expression;
 
 import org.junit.jupiter.api.Assertions;
@@ -31,10 +30,14 @@ public class BetweenTest {
     public void testBetween() {
         String expression = "A between 1 and 1"; //
         Expression result = PARSER.parseExpression(expression);
-        Assertions.assertInstanceOf(EqualTo.class, result);
+        Assertions.assertInstanceOf(Between.class, result);
 
         expression = "A between 1 and 2";
         result = PARSER.parseExpression(expression);
-        Assertions.assertInstanceOf(And.class, result);
+        Assertions.assertInstanceOf(Between.class, result);
+
+        expression = "A between random() and random()";
+        result = PARSER.parseExpression(expression);
+        Assertions.assertInstanceOf(Between.class, result);
     }
 }

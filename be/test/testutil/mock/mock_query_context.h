@@ -46,6 +46,21 @@ struct MockQueryContext : public QueryContext {
         ctx->init_query_task_controller();
         return ctx;
     }
+
+    void set_mock_ai_resource() {
+        TAIResource ai_resource;
+        ai_resource.provider_type = "MOCK";
+        ai_resource.model_name = "mock_model";
+        ai_resource.endpoint = "http://localhost";
+        ai_resource.api_key = "xxx";
+        ai_resource.temperature = 0.5;
+        ai_resource.max_tokens = 16;
+        ai_resource.max_retries = 1;
+        ai_resource.retry_delay_second = 1;
+        ai_resource.dimensions = 514;
+
+        set_ai_resources(std::map<std::string, TAIResource> {{"mock_resource", ai_resource}});
+    }
 };
 
 } // namespace doris

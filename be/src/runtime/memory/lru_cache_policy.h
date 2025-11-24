@@ -131,6 +131,10 @@ public:
         return _cache->insert(key, value, charge, priority);
     }
 
+    void for_each_entry(const std::function<void(const LRUHandle*)>& visitor) {
+        _cache->for_each_entry(visitor);
+    }
+
     Cache::Handle* lookup(const CacheKey& key) { return _cache->lookup(key); }
 
     void release(Cache::Handle* handle) { _cache->release(handle); }
@@ -241,8 +245,7 @@ public:
         }
     }
 
-    int64_t adjust_capacity_weighted(double adjust_weighted) override {
-        std::lock_guard<std::mutex> l(_lock);
+    int64_t adjust_capacity_weighted_unlocked(double adjust_weighted) {
         auto capacity =
                 static_cast<size_t>(static_cast<double>(_initial_capacity) * adjust_weighted);
         COUNTER_SET(_freed_entrys_counter, (int64_t)0);
@@ -272,6 +275,25 @@ public:
                 _adjust_capacity_weighted_number_counter->value());
         return _freed_entrys_counter->value();
     }
+
+    int64_t adjust_capacity_weighted(double adjust_weighted) override {
+        std::lock_guard<std::mutex> l(_lock);
+        return adjust_capacity_weighted_unlocked(adjust_weighted);
+    }
+
+    int64_t reset_initial_capacity(double adjust_weighted) override {
+        DCHECK(adjust_weighted != 0.0); // otherwise initial_capacity will always to be 0.
+        std::lock_guard<std::mutex> l(_lock);
+        int64_t prune_num = adjust_capacity_weighted_unlocked(adjust_weighted);
+        size_t old_capacity = _initial_capacity;
+        _initial_capacity =
+                static_cast<size_t>(static_cast<double>(_initial_capacity) * adjust_weighted);
+        LOG(INFO) << fmt::format(
+                "[MemoryGC] {} reset initial capacity, new capacity {}, old capacity {}, prune num "
+                "{}",
+                type_string(_type), _initial_capacity, old_capacity, prune_num);
+        return prune_num;
+    };
 
 protected:
     void _init_mem_tracker(const std::string& type_name) {

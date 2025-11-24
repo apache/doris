@@ -46,6 +46,7 @@ import org.apache.doris.qe.Coordinator;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.resource.computegroup.ComputeGroupMgr;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
@@ -107,7 +108,8 @@ public class CloudBrokerLoadJob extends BrokerLoadJob {
                     .getCloudClusterIdByName(clusterName);
             if (Strings.isNullOrEmpty(this.cloudClusterId)) {
                 LOG.warn("can not find compute group: {}", clusterName);
-                throw new MetaNotFoundException("can not find compute group: " + clusterName);
+                String computeGroupHints = ComputeGroupMgr.computeGroupNotFoundPromptMsg(clusterName);
+                throw new MetaNotFoundException(computeGroupHints);
             }
             sessionVariables.put(CLOUD_CLUSTER_ID, this.cloudClusterId);
         }
@@ -127,7 +129,6 @@ public class CloudBrokerLoadJob extends BrokerLoadJob {
             ConnectContext connectContext = new ConnectContext();
             connectContext.setCloudCluster(clusterName);
             connectContext.setCurrentUserIdentity(this.userInfo);
-            connectContext.setQualifiedUser(this.userInfo.getQualifiedUser());
             if (connectContext.getEnv() == null) {
                 connectContext.setEnv(Env.getCurrentEnv());
             }
@@ -135,7 +136,6 @@ public class CloudBrokerLoadJob extends BrokerLoadJob {
         } else {
             ConnectContext.get().setCloudCluster(clusterName);
             ConnectContext.get().setCurrentUserIdentity(this.userInfo);
-            ConnectContext.get().setQualifiedUser(this.userInfo.getQualifiedUser());
             if (ConnectContext.get().getEnv() == null) {
                 ConnectContext.get().setEnv(Env.getCurrentEnv());
             }
@@ -157,7 +157,8 @@ public class CloudBrokerLoadJob extends BrokerLoadJob {
         cloudClusterId = sessionVariables.get(CLOUD_CLUSTER_ID);
         LoadLoadingTask task = new CloudLoadLoadingTask(this.userInfo, db, table, brokerDesc,
                 brokerFileGroups, getDeadlineMs(), getExecMemLimit(),
-                isStrictMode(), isPartialUpdate(), transactionId, this, getTimeZone(), getTimeout(),
+                isStrictMode(), isPartialUpdate(), getPartialUpdateNewKeyPolicy(),
+                transactionId, this, getTimeZone(), getTimeout(),
                 getLoadParallelism(), getSendBatchParallelism(),
                 getMaxFilterRatio() <= 0, enableProfile ? jobProfile : null, isSingleTabletLoadPerSink(),
                 getPriority(), isEnableMemtableOnSinkNode, batchSize, cloudClusterId);

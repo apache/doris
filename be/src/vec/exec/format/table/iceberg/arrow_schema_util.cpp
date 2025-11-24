@@ -70,7 +70,9 @@ Status ArrowSchemaUtil::convert_to(const iceberg::NestedField& field,
         break;
 
     case iceberg::TypeID::TIMESTAMP: {
-        arrow_type = std::make_shared<arrow::TimestampType>(arrow::TimeUnit::MICRO, timezone);
+        iceberg::TimestampType* t_type = static_cast<iceberg::TimestampType*>(field.field_type());
+        std::string real_tz = t_type->should_adjust_to_utc() ? timezone : "";
+        arrow_type = std::make_shared<arrow::TimestampType>(arrow::TimeUnit::MICRO, real_tz);
         break;
     }
 

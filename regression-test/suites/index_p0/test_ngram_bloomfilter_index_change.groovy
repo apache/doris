@@ -23,6 +23,64 @@ suite("test_ngram_bloomfilter_index_change") {
     def alter_res = "null"
     def useTime = 0
 
+    // Helper functions to fetch profile via HTTP API
+    def getProfileList = {
+        def dst = 'http://' + context.config.feHttpAddress
+        def conn = new URL(dst + "/rest/v1/query_profile").openConnection()
+        conn.setRequestMethod("GET")
+        def encoding = Base64.getEncoder().encodeToString((context.config.feHttpUser + ":" + 
+                (context.config.feHttpPassword == null ? "" : context.config.feHttpPassword)).getBytes("UTF-8"))
+        conn.setRequestProperty("Authorization", "Basic ${encoding}")
+        return conn.getInputStream().getText()
+    }
+
+    def getProfile = { id ->
+        def dst = 'http://' + context.config.feHttpAddress
+        def conn = new URL(dst + "/api/profile/text/?query_id=$id").openConnection()
+        conn.setRequestMethod("GET")
+        def encoding = Base64.getEncoder().encodeToString((context.config.feHttpUser + ":" + 
+                (context.config.feHttpPassword == null ? "" : context.config.feHttpPassword)).getBytes("UTF-8"))
+        conn.setRequestProperty("Authorization", "Basic ${encoding}")
+        return conn.getInputStream().getText()
+    }
+
+    // Fetch profile text by token with retries for robustness
+    def getProfileWithToken = { token ->
+        String profileId = ""
+        int attempts = 0
+        while (attempts < 10 && (profileId == null || profileId == "")) {
+            List profileData = new JsonSlurper().parseText(getProfileList()).data.rows
+            for (def profileItem in profileData) {
+                if (profileItem["Sql Statement"].toString().contains(token)) {
+                    profileId = profileItem["Profile ID"].toString()
+                    break
+                }
+            }
+            if (profileId == null || profileId == "") {
+                Thread.sleep(300)
+            }
+            attempts++
+        }
+        assertTrue(profileId != null && profileId != "", "Failed to find profile for token: ${token}")
+        // ensure profile text is fully ready
+        Thread.sleep(800)
+        return getProfile(profileId).toString()
+    }
+
+    // Helper to extract RowsBloomFilterFiltered value from profile
+    def extractRowsBloomFilterFiltered = { String profileText ->
+        def lines = profileText.split("\n")
+        for (def line : lines) {
+            if (line.contains("RowsBloomFilterFiltered:")) {
+                def m = (line =~ /RowsBloomFilterFiltered:\s*([0-9]+)/)
+                if (m.find()) {
+                    return m.group(1).toInteger()
+                }
+            }
+        }
+        return null
+    }
+
     def wait_for_latest_op_on_table_finish = { table_name, OpTimeout ->
         for(int t = delta_time; t <= OpTimeout; t += delta_time){
             alter_res = sql """SHOW ALTER TABLE COLUMN WHERE TableName = "${table_name}" ORDER BY CreateTime DESC LIMIT 1;"""
@@ -54,135 +112,15 @@ suite("test_ngram_bloomfilter_index_change") {
         sql "sync"
     }
 
-    // Test setup
-    // 1. Create table
-    // 2. Insert test data
-    // 3. Add NGRAM Bloom Filter index
-    // 4. Build index
-    // 5. Insert more data
-    // 6. Drop index
-    sql "DROP TABLE IF EXISTS ${tableName}"
-    sql """
-    CREATE TABLE ${tableName} (
-    `sale_id` int NULL,
-    `sale_date` datetime NULL,
-    `product_name` varchar(100) NULL,
-    `customer_name` varchar(100) NULL,
-    `amount` decimal(10,2) NULL,
-    `region` char(50) NULL
-    ) ENGINE=OLAP
-    DUPLICATE KEY(`sale_id`)
-    PARTITION BY RANGE(`sale_date`) (
-    PARTITION p202310 VALUES [('2023-10-01 00:00:00'), ('2023-11-01 00:00:00')),
-    PARTITION p202311 VALUES [('2023-11-01 00:00:00'), ('2023-12-01 00:00:00')),
-    PARTITION p202312 VALUES [('2023-12-01 00:00:00'), ('2024-01-01 00:00:00'))
-    )
-    DISTRIBUTED BY HASH(`sale_id`) BUCKETS 1
-    PROPERTIES (
-    "replication_allocation" = "tag.location.default: 1",
-    "storage_format" = "V2",
-    "light_schema_change" = "true",
-    "disable_auto_compaction" = "false"
-    );
-    """
-    
-    // Insert first batch of data
-    insertTestData()
-
     // Test settings
     sql "set enable_function_pushdown=true"
+    sql "set enable_condition_cache=false"
     sql "set enable_profile=true"
     sql "set profile_level=2"
 
-    // Verify data loaded correctly
-    qt_select "SELECT * FROM ${tableName} ORDER BY sale_id"
-
-    // Define test query
-    def query = "SELECT /*+SET_VAR(enable_function_pushdown = true, enable_profile = true, profile_level = 2)*/  * FROM ${tableName} WHERE customer_name LIKE '%xxxx%' ORDER BY sale_id"
-    
-    // Test 1: without NGRAM Bloom Filter index
-    profile("sql_select_like_without_ngram_index") {
-        run {
-            sql "/* sql_select_like_without_ngram_index */ ${query}"
-            sleep(1000) // sleep 1s wait for the profile collection to be completed
-        }
-
-        check { profileString, exception ->
-            log.info(profileString)
-            assertTrue(profileString.contains("RowsBloomFilterFiltered:  0"))
-        }
-    }
-
-    // Test 2: After adding NGRAM Bloom Filter index
-    sql "ALTER TABLE ${tableName} ADD INDEX idx_ngram_customer_name(customer_name) USING NGRAM_BF PROPERTIES('bf_size' = '1024', 'gram_size' = '3');"
-    wait_for_latest_op_on_table_finish(tableName, timeout)
-    profile("sql_select_like_with_ngram_index_added") {
-        run {
-            sql "/* sql_select_like_with_ngram_index_added */ ${query}"
-            sleep(1000)
-        }
-
-        check { profileString, exception ->
-            log.info(profileString)
-            assertTrue(profileString.contains("RowsBloomFilterFiltered:  0"))
-        }
-    }
-
-    // Test 3: After building the index
-    sql "BUILD INDEX idx_ngram_customer_name ON ${tableName};"
-    wait_for_latest_op_on_table_finish(tableName, timeout)
-    profile("sql_select_like_with_ngram_index_built") {
-        run {
-            sql "/* sql_select_like_with_ngram_index_built */ ${query}"
-            sleep(1000)
-        }
-
-        check { profileString, exception ->
-            log.info(profileString)
-            assertTrue(profileString.contains("RowsBloomFilterFiltered:  10"))
-        }
-    }
-
-    // Insert second batch of data 
-    insertTestData()
-    // Verify data loaded correctly
-    qt_select "SELECT * FROM ${tableName} ORDER BY sale_id"
-
-    // Test 4: Verify filtering with more data
-    profile("sql_select_like_with_ngram_index_more_data") {
-        run {
-            sql "/* sql_select_like_with_ngram_index_more_data */ ${query}"
-            sleep(1000)
-        }
-
-        check { profileString, exception ->
-            log.info(profileString)
-            assertTrue(profileString.contains("RowsBloomFilterFiltered:  20"))
-        }
-    }
-
-    // Test 5: After dropping the index
-    sql "DROP INDEX idx_ngram_customer_name ON ${tableName};"
-    wait_for_latest_op_on_table_finish(tableName, timeout)
-    profile("sql_select_like_with_ngram_index_dropped") {
-        run {
-            sql "/* sql_select_like_with_ngram_index_dropped */ ${query}"
-            sleep(1000)
-        }
-
-        check { profileString, exception ->
-            log.info(profileString)
-            assertTrue(profileString.contains("RowsBloomFilterFiltered:  0"))
-        }
-    }
-
-    // recreate table
-    // 1. Create table
-    // 2. Add NGRAM Bloom Filter index
-    // 3. Insert data
-    // 4. Insert more data
-    // 5. Build index
-    // 6. Drop index
+    // Test Case 1: Test with enable_add_index_for_new_data = true
+    logger.info("=== Test Case 1: enable_add_index_for_new_data = true ===")
+    // Create table
     sql "DROP TABLE IF EXISTS ${tableName}"
     sql """
     CREATE TABLE ${tableName} (
@@ -204,83 +142,200 @@ suite("test_ngram_bloomfilter_index_change") {
     "replication_allocation" = "tag.location.default: 1",
     "storage_format" = "V2",
     "light_schema_change" = "true",
-    "disable_auto_compaction" = "false"
+    "disable_auto_compaction" = "true"
+    );
+    """
+    
+    // Insert test data
+    insertTestData()
+    // Verify data loaded correctly
+    qt_select_light_mode_init "SELECT * FROM ${tableName} ORDER BY sale_id"
+
+    // Test without NGRAM Bloom Filter index
+    def token1 = UUID.randomUUID().toString()
+    sql "SELECT /*+SET_VAR(enable_function_pushdown = true)*/ '${token1}', * FROM ${tableName} WHERE customer_name LIKE '%xxxx%' ORDER BY sale_id"
+    def profile1 = getProfileWithToken(token1)
+    def filtered1 = extractRowsBloomFilterFiltered(profile1)
+    logger.info("sql_select_like_without_ngram_index_light_mode: RowsBloomFilterFiltered = ${filtered1}")
+    assertTrue(filtered1 != null && filtered1 == 0, "Expected RowsBloomFilterFiltered = 0, but got ${filtered1}")
+    sql "set enable_add_index_for_new_data = true"
+
+    // Add NGRAM Bloom Filter index (should be immediate in light mode)
+    sql "ALTER TABLE ${tableName} ADD INDEX idx_ngram_customer_name(customer_name) USING NGRAM_BF PROPERTIES('bf_size' = '1024', 'gram_size' = '3');"
+
+    // In light mode, the index should be effective immediately, no need to wait for alter job
+    // But let's give it a moment to ensure metadata is updated
+    sleep(2000)
+
+    // Insert more data after index added
+    insertTestData()
+    // Verify more data loaded correctly
+    qt_select_light_mode_more_data "SELECT * FROM ${tableName} ORDER BY sale_id"
+
+    // Test with more data (should still filter correctly)
+    def token2 = UUID.randomUUID().toString()
+    sql "SELECT /*+SET_VAR(enable_function_pushdown = true)*/ '${token2}', * FROM ${tableName} WHERE customer_name LIKE '%xxxx%' ORDER BY sale_id"
+    def profile2 = getProfileWithToken(token2)
+    def filtered2 = extractRowsBloomFilterFiltered(profile2)
+    logger.info("sql_select_like_with_ngram_index_light_mode_more_data: RowsBloomFilterFiltered = ${filtered2}")
+    assertTrue(filtered2 != null && filtered2 == 10, "Expected RowsBloomFilterFiltered = 10, but got ${filtered2}")
+
+    // Drop index
+    sql "DROP INDEX idx_ngram_customer_name ON ${tableName};"
+    wait_for_latest_op_on_table_finish(tableName, timeout)
+    wait_for_last_build_index_finish(tableName, timeout)
+
+    // Test after dropping index
+    def token3 = UUID.randomUUID().toString()
+    sql "SELECT /*+SET_VAR(enable_function_pushdown = true)*/ '${token3}', * FROM ${tableName} WHERE customer_name LIKE '%xxxx%' ORDER BY sale_id"
+    def profile3 = getProfileWithToken(token3)
+    def filtered3 = extractRowsBloomFilterFiltered(profile3)
+    logger.info("sql_select_like_with_ngram_index_light_mode_dropped: RowsBloomFilterFiltered = ${filtered3}")
+    assertTrue(filtered3 != null && filtered3 == 0, "Expected RowsBloomFilterFiltered = 0, but got ${filtered3}")
+
+    // Test Case 2: Test with enable_add_index_for_new_data = false (schema change mode)
+    logger.info("=== Test Case 2: enable_add_index_for_new_data = false ===")
+    // Set enable_add_index_for_new_data = false
+    sql "set enable_add_index_for_new_data = false"
+    // Create new table
+    sql "DROP TABLE IF EXISTS ${tableName}"
+    sql """
+    CREATE TABLE ${tableName} (
+    `sale_id` int NULL,
+    `sale_date` datetime NULL,
+    `product_name` varchar(100) NULL,
+    `customer_name` varchar(100) NULL,
+    `amount` decimal(10,2) NULL,
+    `region` char(50) NULL
+    ) ENGINE=OLAP
+    DUPLICATE KEY(`sale_id`)
+    PARTITION BY RANGE(`sale_date`) (
+    PARTITION p202310 VALUES [('2023-10-01 00:00:00'), ('2023-11-01 00:00:00')),
+    PARTITION p202311 VALUES [('2023-11-01 00:00:00'), ('2023-12-01 00:00:00')),
+    PARTITION p202312 VALUES [('2023-12-01 00:00:00'), ('2024-01-01 00:00:00'))
+    )
+    DISTRIBUTED BY HASH(`sale_id`) BUCKETS 1
+    PROPERTIES (
+    "replication_allocation" = "tag.location.default: 1",
+    "storage_format" = "V2",
+    "light_schema_change" = "true",
+    "disable_auto_compaction" = "true"
+    );
+    """
+    // Insert test data
+    insertTestData()
+    // Verify data loaded correctly
+    qt_select_schema_change_mode_init "SELECT * FROM ${tableName} ORDER BY sale_id"
+
+    // Test without NGRAM Bloom Filter index
+    def token4 = UUID.randomUUID().toString()
+    sql "SELECT /*+SET_VAR(enable_function_pushdown = true)*/ '${token4}', * FROM ${tableName} WHERE customer_name LIKE '%xxxx%' ORDER BY sale_id"
+    def profile4 = getProfileWithToken(token4)
+    def filtered4 = extractRowsBloomFilterFiltered(profile4)
+    logger.info("sql_select_like_without_ngram_index_schema_change_mode: RowsBloomFilterFiltered = ${filtered4}")
+    assertTrue(filtered4 != null && filtered4 == 0, "Expected RowsBloomFilterFiltered = 0, but got ${filtered4}")
+
+    // Add NGRAM Bloom Filter index (will trigger schema change in this mode)
+    sql "ALTER TABLE ${tableName} ADD INDEX idx_ngram_customer_name(customer_name) USING NGRAM_BF PROPERTIES('bf_size' = '1024', 'gram_size' = '3');"
+    wait_for_latest_op_on_table_finish(tableName, timeout)
+    wait_for_last_build_index_finish(tableName, timeout)
+
+    // Test after adding NGRAM Bloom Filter index (should filter existing data)
+    def token5 = UUID.randomUUID().toString()
+    sql "SELECT /*+SET_VAR(enable_function_pushdown = true)*/ '${token5}', * FROM ${tableName} WHERE customer_name LIKE '%xxxx%' ORDER BY sale_id"
+    def profile5 = getProfileWithToken(token5)
+    def filtered5 = extractRowsBloomFilterFiltered(profile5)
+    logger.info("sql_select_like_with_ngram_index_schema_change_mode_added: RowsBloomFilterFiltered = ${filtered5}")
+    assertTrue(filtered5 != null && filtered5 == 10, "Expected RowsBloomFilterFiltered = 10, but got ${filtered5}")
+
+    // Insert more data after index is built
+    insertTestData()
+    // Verify more data loaded correctly
+    qt_select_schema_change_mode_more_data "SELECT * FROM ${tableName} ORDER BY sale_id"
+
+    // Test with more data (should filter all data)
+    def token6 = UUID.randomUUID().toString()
+    sql "SELECT /*+SET_VAR(enable_function_pushdown = true)*/ '${token6}', * FROM ${tableName} WHERE customer_name LIKE '%xxxx%' ORDER BY sale_id"
+    def profile6 = getProfileWithToken(token6)
+    def filtered6 = extractRowsBloomFilterFiltered(profile6)
+    logger.info("sql_select_like_with_ngram_index_schema_change_mode_more_data: RowsBloomFilterFiltered = ${filtered6}")
+    assertTrue(filtered6 != null && filtered6 == 20, "Expected RowsBloomFilterFiltered = 20, but got ${filtered6}")
+
+    // Drop index
+    sql "DROP INDEX idx_ngram_customer_name ON ${tableName};"
+    wait_for_latest_op_on_table_finish(tableName, timeout)
+    wait_for_last_build_index_finish(tableName, timeout)
+
+    // Test after dropping index
+    def token7 = UUID.randomUUID().toString()
+    sql "SELECT /*+SET_VAR(enable_function_pushdown = true)*/ '${token7}', * FROM ${tableName} WHERE customer_name LIKE '%xxxx%' ORDER BY sale_id"
+    def profile7 = getProfileWithToken(token7)
+    def filtered7 = extractRowsBloomFilterFiltered(profile7)
+    logger.info("sql_select_like_with_ngram_index_schema_change_mode_dropped: RowsBloomFilterFiltered = ${filtered7}")
+    assertTrue(filtered7 != null && filtered7 == 0, "Expected RowsBloomFilterFiltered = 0, but got ${filtered7}")
+
+    // Test Case 3: Test different scenarios for index lifecycle
+    logger.info("=== Test Case 3: Index lifecycle with enable_add_index_for_new_data = true ===")
+    // Set enable_add_index_for_new_data = true
+    sql "set enable_add_index_for_new_data = true"
+    // Create table and add index before inserting data
+    sql "DROP TABLE IF EXISTS ${tableName}"
+    sql """
+    CREATE TABLE ${tableName} (
+    `sale_id` int NULL,
+    `sale_date` datetime NULL,
+    `product_name` varchar(100) NULL,
+    `customer_name` varchar(100) NULL,
+    `amount` decimal(10,2) NULL,
+    `region` char(50) NULL
+    ) ENGINE=OLAP
+    DUPLICATE KEY(`sale_id`)
+    PARTITION BY RANGE(`sale_date`) (
+    PARTITION p202310 VALUES [('2023-10-01 00:00:00'), ('2023-11-01 00:00:00')),
+    PARTITION p202311 VALUES [('2023-11-01 00:00:00'), ('2023-12-01 00:00:00')),
+    PARTITION p202312 VALUES [('2023-12-01 00:00:00'), ('2024-01-01 00:00:00'))
+    )
+    DISTRIBUTED BY HASH(`sale_id`) BUCKETS 1
+    PROPERTIES (
+    "replication_allocation" = "tag.location.default: 1",
+    "storage_format" = "V2",
+    "light_schema_change" = "true",
+    "disable_auto_compaction" = "true"
     );
     """
 
-    // add ngram bf index 
+    // Add ngram bf index before data insertion
     sql "ALTER TABLE ${tableName} ADD INDEX idx_ngram_customer_name(customer_name) USING NGRAM_BF PROPERTIES('bf_size' = '1024', 'gram_size' = '3');"
     wait_for_latest_op_on_table_finish(tableName, timeout)
+    wait_for_last_build_index_finish(tableName, timeout)
 
-    // insert data
+    // Insert data after index creation
     insertTestData()
-
     // Verify data loaded correctly
-    qt_select "SELECT * FROM ${tableName} ORDER BY sale_id"
+    qt_select_lifecycle_after_data "SELECT * FROM ${tableName} ORDER BY sale_id"
 
-    // Test 6: Verify filtering with index added
-    profile("sql_select_like_with_ngram_index_recreated") {
-        run {
-            sql "/* sql_select_like_with_ngram_index_recreated */ ${query}"
-            sleep(1000)
-        }
+    // Test filtering with index added before data insertion
+    def token8 = UUID.randomUUID().toString()
+    sql "SELECT /*+SET_VAR(enable_function_pushdown = true)*/ '${token8}', * FROM ${tableName} WHERE customer_name LIKE '%xxxx%' ORDER BY sale_id"
+    def profile8 = getProfileWithToken(token8)
+    def filtered8 = extractRowsBloomFilterFiltered(profile8)
+    logger.info("sql_select_like_with_ngram_index_lifecycle_test: RowsBloomFilterFiltered = ${filtered8}")
+    assertTrue(filtered8 != null && filtered8 == 10, "Expected RowsBloomFilterFiltered = 10, but got ${filtered8}")
 
-        check { profileString, exception ->
-            log.info(profileString)
-            assertTrue(profileString.contains("RowsBloomFilterFiltered:  10"))
-        }
-    }
-
-    // insert more data
+    // Insert more data
     insertTestData()
-    
-    // Verify data loaded correctly
-    qt_select "SELECT * FROM ${tableName} ORDER BY sale_id"
+    // Verify more data loaded correctly
+    qt_select_lifecycle_final "SELECT * FROM ${tableName} ORDER BY sale_id"
 
-    // Test 7: Verify filtering with more data
-    profile("sql_select_like_with_ngram_index_recreated_more_data") {
-        run {
-            sql "/* sql_select_like_with_ngram_index_recreated_more_data */ ${query}"
-            sleep(1000)
-        }
+    // Test filtering with more data
+    def token9 = UUID.randomUUID().toString()
+    sql "SELECT /*+SET_VAR(enable_function_pushdown = true)*/ '${token9}', * FROM ${tableName} WHERE customer_name LIKE '%xxxx%' ORDER BY sale_id"
+    def profile9 = getProfileWithToken(token9)
+    def filtered9 = extractRowsBloomFilterFiltered(profile9)
+    logger.info("sql_select_like_with_ngram_index_lifecycle_final: RowsBloomFilterFiltered = ${filtered9}")
+    assertTrue(filtered9 != null && filtered9 == 20, "Expected RowsBloomFilterFiltered = 20, but got ${filtered9}")
 
-        check { profileString, exception ->
-            log.info(profileString)
-            assertTrue(profileString.contains("RowsBloomFilterFiltered:  20"))
-        }
-    }
-
-    // build index
-    sql "BUILD INDEX idx_ngram_customer_name ON ${tableName};"
-    wait_for_latest_op_on_table_finish(tableName, timeout)
-
-    // Test 8: Verify filtering with index built
-    profile("sql_select_like_with_ngram_index_recreated_built") {
-        run {
-            sql "/* sql_select_like_with_ngram_index_recreated_built */ ${query}"
-            sleep(1000)
-        }
-
-        check { profileString, exception ->
-            log.info(profileString)
-            assertTrue(profileString.contains("RowsBloomFilterFiltered:  20"))
-        }
-    }
-
-    // drop index
+    // Final cleanup
     sql "DROP INDEX idx_ngram_customer_name ON ${tableName};"
-    wait_for_latest_op_on_table_finish(tableName, timeout)
-
-    // Test 9: Verify filtering with index dropped
-    profile("sql_select_like_with_ngram_index_recreated_dropped") {
-        run {
-            sql "/* sql_select_like_with_ngram_index_recreated_dropped */ ${query}"
-            sleep(1000)
-        }
-
-        check { profileString, exception ->
-            log.info(profileString)
-            assertTrue(profileString.contains("RowsBloomFilterFiltered:  0"))
-        }
-    }
+    sleep(2000)
 }

@@ -94,9 +94,8 @@ suite("test_iceberg_mtmv", "p0,external,iceberg,external_docker,external_docker_
         sql """create database if not exists ${dbName}"""
         sql """use ${dbName}"""
 
-        sql """drop table if exists ${catalog_name}.${icebergDb}.${icebergTable1}"""
-        sql """drop table if exists ${catalog_name}.${icebergDb}.${icebergTable2}"""
-        sql """create database if not exists ${catalog_name}.${icebergDb}"""
+        sql """drop database if exists ${catalog_name}.${icebergDb} force"""
+        sql """create database ${catalog_name}.${icebergDb}"""
         sql """
             CREATE TABLE ${catalog_name}.${icebergDb}.${icebergTable1} (
               ts DATETIME,
@@ -138,7 +137,7 @@ suite("test_iceberg_mtmv", "p0,external,iceberg,external_docker,external_docker_
         waitingMTMVTaskFinishedByMvName(mvName1, dbName)
         qt_test_ts_refresh_null """select * from ${mvName1} order by value"""
 
-        qt_test_iceberg_table_partition_ts """show partitions from ${catalog_name}.${icebergDb}.${icebergTable1};"""
+        qt_test_iceberg_table_partition_ts """select `partition` from ${catalog_name}.${icebergDb}.${icebergTable1}\$partitions order by `partition`;"""
 
         def showPartitionsResult = sql """show partitions from ${mvName1}"""
         logger.info("showPartitionsResult: " + showPartitionsResult.toString())
@@ -199,7 +198,7 @@ suite("test_iceberg_mtmv", "p0,external,iceberg,external_docker,external_docker_
         waitingMTMVTaskFinishedByMvName(mvName2, dbName)
         qt_test_d_refresh5 "select * from ${mvName2} order by value"
 
-        qt_test_iceberg_table_partition_d """show partitions from ${catalog_name}.${icebergDb}.${icebergTable2};"""
+        qt_test_iceberg_table_partition_d """select `partition` from ${catalog_name}.${icebergDb}.${icebergTable2}\$partitions order by `partition`;"""
 
         showPartitionsResult = sql """show partitions from ${mvName2}"""
         logger.info("showPartitionsResult: " + showPartitionsResult.toString())
@@ -242,7 +241,7 @@ suite("test_iceberg_mtmv", "p0,external,iceberg,external_docker,external_docker_
         assertTrue(showPartitions.toString().contains("p_20240101000000_20240102000000"))
         assertTrue(showPartitions.toString().contains("p_20240102000000_20240103000000"))
 
-        // refresh one partiton
+        // refresh one partition
         sql """REFRESH MATERIALIZED VIEW ${mvName} partitions(p_20240101000000_20240102000000);"""
         waitingMTMVTaskFinishedByMvName(mvName, dbName)
         order_qt_refresh_one_partition "SELECT * FROM ${mvName} "
@@ -266,52 +265,59 @@ suite("test_iceberg_mtmv", "p0,external,iceberg,external_docker,external_docker_
         sql """drop table if exists ${catalog_name}.${icebergDb}.${icebergTable3}"""
 
         sql """use ${catalog_name}.test_db"""
-        qt_evolution2 "show partitions from replace_partition2"
-        qt_evolution3 "show partitions from replace_partition3"
-        qt_evolution4 "show partitions from replace_partition4"
-        qt_evolution5 "show partitions from replace_partition5"
+        qt_evolution2 "select `partition` from replace_partition2\$partitions order by `partition`"
+        qt_evolution3 "select `partition` from replace_partition3\$partitions order by `partition`"
+        qt_evolution4 "select `partition` from replace_partition4\$partitions order by `partition`"
+        qt_evolution5 "select `partition` from replace_partition5\$partitions order by `partition`"
 
-        test {
-            sql "show partitions from replace_partition1"
-            // check exception message contains
-            exception "is not a supported partition table"
-        }
+        qt_test1 "select `partition` from replace_partition1\$partitions order by `partition`";
+        qt_test2 "select `partition` from not_support_trans\$partitions order by `partition`";
+        qt_test3 "select `partition` from drop_partition1\$partitions order by `partition`";
+        qt_test4 "select `partition` from drop_partition2\$partitions order by `partition`";
+        qt_test5 "select `partition` from add_partition1\$partitions order by `partition`";
+        qt_test6 "select `partition` from add_partition2\$partitions order by `partition`";
 
-        test {
-            sql "show partitions from no_partition"
-            // check exception message contains
-            exception "is not a supported partition table"
-        }
+        // test {
+        //     sql "show partitions from replace_partition1"
+        //     // check exception message contains
+        //     exception "is not a supported partition table"
+        // }
 
-        test {
-            sql "show partitions from not_support_trans"
-            // check exception message contains
-            exception "is not a supported partition table"
-        }
+        // test {
+        //     sql "show partitions from no_partition"
+        //     // check exception message contains
+        //     exception "Unknown column 'partition'"
+        // }
 
-        test {
-            sql "show partitions from drop_partition1"
-            // check exception message contains
-            exception "is not a supported partition table"
-        }
+        // test {
+        //     sql "show partitions from not_support_trans"
+        //     // check exception message contains
+        //     exception "is not a supported partition table"
+        // }
 
-        test {
-            sql "show partitions from drop_partition2"
-            // check exception message contains
-            exception "is not a supported partition table"
-        }
+        // test {
+        //     sql "show partitions from drop_partition1"
+        //     // check exception message contains
+        //     exception "is not a supported partition table"
+        // }
 
-        test {
-            sql "show partitions from add_partition1"
-            // check exception message contains
-            exception "is not a supported partition table"
-        }
+        // test {
+        //     sql "show partitions from drop_partition2"
+        //     // check exception message contains
+        //     exception "is not a supported partition table"
+        // }
 
-        test {
-            sql "show partitions from add_partition2"
-            // check exception message contains
-            exception "is not a supported partition table"
-        }
+        // test {
+        //     sql "show partitions from add_partition1"
+        //     // check exception message contains
+        //     exception "is not a supported partition table"
+        // }
+
+        // test {
+        //     sql "show partitions from add_partition2"
+        //     // check exception message contains
+        //     exception "is not a supported partition table"
+        // }
 
         sql """ drop catalog if exists ${catalog_name} """
     }

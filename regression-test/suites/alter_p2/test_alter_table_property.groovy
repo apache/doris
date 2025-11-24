@@ -45,7 +45,7 @@ suite ("test_alter_table_property") {
         def result = sql "SHOW REPLICA DISTRIBUTION FROM ${tableName} PARTITION ${partitionName}"
         logger.info("${result}")
         int sum = 0
-        for (row in result) {
+        for (def row in result) {
             sum += row[1].toInteger()
         }
         sum
@@ -71,7 +71,7 @@ suite ("test_alter_table_property") {
     assertEquals(2, queryReplicaCount("p3"))
 
     sql """ ALTER TABLE ${tableName} MODIFY PARTITION p1 SET ( "replication_allocation" = "tag.location.default: 2" ) """
-    for (i = 0; i < 300; i++) {
+    for (def i = 0; i < 300; i++) {
         if (queryReplicaCount("p1") != 2) {
             Thread.sleep(3000)
         }

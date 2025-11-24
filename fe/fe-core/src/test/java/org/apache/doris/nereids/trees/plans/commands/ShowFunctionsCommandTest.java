@@ -17,9 +17,6 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
-import org.apache.doris.analysis.Analyzer;
-import org.apache.doris.analysis.CreateUserStmt;
-import org.apache.doris.analysis.GrantStmt;
 import org.apache.doris.analysis.TablePattern;
 import org.apache.doris.analysis.UserDesc;
 import org.apache.doris.analysis.UserIdentity;
@@ -27,23 +24,21 @@ import org.apache.doris.catalog.AccessPrivilege;
 import org.apache.doris.catalog.AccessPrivilegeWithCols;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.Auth;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateUserInfo;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Lists;
-import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Optional;
 
 public class ShowFunctionsCommandTest extends TestWithFeService {
     private Auth auth;
-    @Mocked
-    private Analyzer analyzer;
 
     @Override
     protected void runBeforeAll() throws Exception {
@@ -150,29 +145,17 @@ public class ShowFunctionsCommandTest extends TestWithFeService {
                 .newArrayList(new AccessPrivilegeWithCols(AccessPrivilege.SELECT_PRIV));
         UserIdentity user1 = new UserIdentity("cmy", "%");
         UserDesc userDesc = new UserDesc(user1, "12345", true);
-        CreateUserStmt createUserStmt = new CreateUserStmt(false, userDesc, null);
+
+        CreateUserCommand createUserCommand = new CreateUserCommand(new CreateUserInfo(userDesc));
+        createUserCommand.getInfo().validate();
+        auth.createUser(createUserCommand.getInfo());
+
+        GrantTablePrivilegeCommand grantTablePrivilegeCommand = new GrantTablePrivilegeCommand(privileges1, tablePattern1, Optional.of(user1), Optional.empty());
+
         try {
-            createUserStmt.analyze(analyzer);
+            grantTablePrivilegeCommand.validate();
+            auth.grantTablePrivilegeCommand(grantTablePrivilegeCommand);
         } catch (UserException e) {
-            e.printStackTrace();
-        }
-
-        try {
-            auth.createUser(createUserStmt);
-        } catch (DdlException e) {
-            e.printStackTrace();
-        }
-
-        GrantStmt grantStmt = new GrantStmt(user1, null, tablePattern1, privileges1);
-        try {
-            grantStmt.analyze(analyzer);
-        } catch (UserException e) {
-            e.printStackTrace();
-        }
-
-        try {
-            auth.grant(grantStmt);
-        } catch (DdlException e) {
             e.printStackTrace();
         }
 

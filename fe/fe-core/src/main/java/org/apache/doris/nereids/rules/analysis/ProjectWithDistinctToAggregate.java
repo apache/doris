@@ -19,10 +19,9 @@ package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.util.ExpressionUtils;
 
 /**
  * ProjectWithDistinctToAggregate.
@@ -46,12 +45,8 @@ public class ProjectWithDistinctToAggregate extends OneAnalysisRuleFactory {
         return RuleType.PROJECT_WITH_DISTINCT_TO_AGGREGATE.build(
             logicalProject()
                 .when(LogicalProject::isDistinct)
-                .whenNot(project -> project.getProjects().stream().anyMatch(this::hasAggregateFunction))
+                .whenNot(project -> ExpressionUtils.hasNonWindowAggregateFunction(project.getProjects()))
                 .then(project -> new LogicalAggregate<>(project.getProjects(), false, project.child()))
         );
-    }
-
-    private boolean hasAggregateFunction(Expression expression) {
-        return expression.anyMatch(AggregateFunction.class::isInstance);
     }
 }

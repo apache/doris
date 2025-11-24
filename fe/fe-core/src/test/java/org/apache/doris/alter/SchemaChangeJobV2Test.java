@@ -18,15 +18,12 @@
 package org.apache.doris.alter;
 
 import org.apache.doris.alter.AlterJobV2.JobState;
-import org.apache.doris.analysis.AccessTestUtil;
 import org.apache.doris.analysis.AddColumnClause;
 import org.apache.doris.analysis.AlterClause;
-import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.ColumnDef;
 import org.apache.doris.analysis.ColumnDef.DefaultValue;
 import org.apache.doris.analysis.ColumnPosition;
 import org.apache.doris.analysis.ModifyTablePropertiesClause;
-import org.apache.doris.analysis.TypeDef;
 import org.apache.doris.backup.CatalogMocker;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.CatalogTestUtil;
@@ -99,8 +96,7 @@ public class SchemaChangeJobV2Test {
     private static Env masterEnv;
     private static Env slaveEnv;
 
-    private static Analyzer analyzer;
-    private static ColumnDef newCol = new ColumnDef("add_v", new TypeDef(ScalarType.createType(PrimitiveType.INT)),
+    private static ColumnDef newCol = new ColumnDef("add_v", ScalarType.createType(PrimitiveType.INT),
             false, AggregateType.MAX, false, new DefaultValue(true, "1"), "");
     private static AddColumnClause addColumnClause = new AddColumnClause(newCol, new ColumnPosition("v"), null, null);
 
@@ -121,8 +117,7 @@ public class SchemaChangeJobV2Test {
         masterTransMgr.setEditLog(masterEnv.getEditLog());
         slaveTransMgr = (GlobalTransactionMgr) slaveEnv.getGlobalTransactionMgr();
         slaveTransMgr.setEditLog(slaveEnv.getEditLog());
-        analyzer = AccessTestUtil.fetchAdminAnalyzer(false);
-        addColumnClause.analyze(analyzer);
+        addColumnClause.analyze();
 
         FeConstants.runningUnitTest = true;
         AgentTaskQueue.clearAllTasks();
@@ -424,7 +419,7 @@ public class SchemaChangeJobV2Test {
         SchemaChangeJobV2 schemaChangeJobV2 = AlterJobV2Factory.createSchemaChangeJobV2(
                 "", 1, 1, 1, "test", 600000);
         schemaChangeJobV2.setStorageFormat(TStorageFormat.V2);
-        Deencapsulation.setField(schemaChangeJobV2, "jobState", AlterJobV2.JobState.FINISHED);
+        Deencapsulation.setField(schemaChangeJobV2, "jobState", JobState.FINISHED);
         Map<Long, SchemaVersionAndHash> indexSchemaVersionAndHashMap = Maps.newHashMap();
         indexSchemaVersionAndHashMap.put(Long.valueOf(1000), new SchemaVersionAndHash(10, 20));
         Deencapsulation.setField(schemaChangeJobV2, "indexSchemaVersionAndHashMap", indexSchemaVersionAndHashMap);
@@ -442,7 +437,7 @@ public class SchemaChangeJobV2Test {
         DataInputStream in = new DataInputStream(new FileInputStream(file));
         SchemaChangeJobV2 result = (SchemaChangeJobV2) AlterJobV2.read(in);
         Assert.assertEquals(1, result.getJobId());
-        Assert.assertEquals(AlterJobV2.JobState.FINISHED, result.getJobState());
+        Assert.assertEquals(JobState.FINISHED, result.getJobState());
         Assert.assertEquals(TStorageFormat.V2, Deencapsulation.getField(result, "storageFormat"));
 
         Assert.assertNotNull(Deencapsulation.getField(result, "partitionIndexMap"));

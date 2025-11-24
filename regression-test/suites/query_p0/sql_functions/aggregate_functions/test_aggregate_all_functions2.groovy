@@ -84,7 +84,67 @@ suite("test_aggregate_all_functions2") {
     qt_select_topn_array6 """ select topn_array(k11,3,100) from baseall; """ 
     qt_select_count1 """ select count(distinct k1,k2,k5) from baseall; """ 
     qt_select_count2 """ select count(distinct k1,k2,cast(k5 as decimalv3(38,18))) from baseall; """ 
+    qt_select_percentile_reservoir1 """ select percentile_reservoir(k8,0.5) from baseall; """ 
+    qt_select_percentile_reservoir2 """ select percentile_reservoir(k8,0.99) from baseall; """ 
+    qt_select_percentile_reservoir3 """ select percentile_reservoir(k8,0.5) from baseall group by k6 order by 1; """ 
+    qt_select_percentile_reservoir4 """ select percentile_reservoir(k8,0.99) from baseall group by k6 order by 1; """ 
+    qt_select_percentile_reservoir4 """ select percentile_reservoir(k1,1) from baseall; """ 
+    qt_select_percentile_reservoir5 """ select percentile_reservoir(k1,0.5) over(partition by k6) from baseall order by k1; """
+    sql """
+        select percentile_reservoir(number,0.5) from numbers("number" = "1000000");
+    """
+    test {
+        sql """ select percentile_reservoir(k8,k1) from baseall; """ 
+        exception "percentile_reservoir requires second parameter must be a constant"
+    }
 
+    test {
+        sql """ select percentile_reservoir(k8,2) from baseall; """ 
+        exception "percentile_reservoir level must be in [0, 1]"
+    }
+
+    qt_bool_and """SELECT bool_and(k0) FROM baseall;"""
+    qt_bool_and """SELECT bool_and(k1) FROM baseall;"""
+    qt_bool_and """SELECT bool_and(k8) over(partition by k6) from baseall order by k1;"""
+    qt_bool_and """SELECT booland_agg(k0) over(partition by k8) from baseall order by k1;"""
+    qt_bool_or """SELECT bool_or(k2) FROM baseall group by k6 order by 1;"""
+    qt_bool_or """SELECT bool_or(k3) FROM baseall;"""
+    qt_bool_or """SELECT boolor_agg(k4) over(partition by k9) from baseall order by k1;"""
+    qt_bool_xor """SELECT bool_xor(k4) FROM baseall;"""
+    qt_bool_xor """SELECT bool_xor(k5) FROM baseall group by k6 order by 1;"""
+    qt_bool_xor """SELECT boolxor_agg(k13) over(partition by k10) from baseall order by k1;"""
+
+    test {
+        sql """SELECT booland_agg(k7) FROM baseall;"""
+        exception "requires a boolean or numeric argument"
+    }
+
+    test {
+        sql """SELECT boolor_agg(k10) FROM baseall;"""
+        exception "requires a boolean or numeric argument"
+    }
+
+    qt_sem_bool """SELECT sem(k0) FROM baseall;"""        // 0.1333333333
+    qt_sem_tinyint """SELECT sem(k1) FROM baseall;"""     // 1.154700538
+    qt_sem_smallint """SELECT sem(k2) FROM baseall;"""    // 4529.188786
+    qt_sem_int """SELECT sem(k3) FROM baseall;"""         // 296380900.8
+    qt_sem_bigint """SELECT sem(k4) FROM baseall;"""      // 1272946277000000000
+    qt_sem_largeint """SELECT sem(k13) FROM baseall;"""   // 1.660407933e+37
+    qt_sem_float """SELECT sem(k9) FROM baseall;"""       // 5350.392064
+    qt_sem_double """SELECT sem(k8) FROM baseall;"""      // 66813.32469
+
+    qt_sem_distinct_double """SELECT sem(DISTINCT k8) FROM baseall;"""
+
+    qt_sem_window_double """SELECT sem(k8) OVER(PARTITION BY k6) FROM baseall ORDER BY k1;"""
+
+    qt_sem_null_double """SELECT sem(k8) FROM baseall WHERE k8 IS NULL OR k8 IS NOT NULL;"""
+
+    qt_sem_literal_single """SELECT sem(CAST(1.0 AS DOUBLE));"""  // 0.0
+    qt_sem_literal_multi """SELECT sem(CAST(x AS DOUBLE)) FROM (
+        SELECT 1.0 AS x
+        UNION ALL SELECT 2.0
+        UNION ALL SELECT 3.0
+    ) t;"""  // 0.5773502692
 
     sql "DROP DATABASE IF EXISTS metric_table"
     sql """

@@ -47,7 +47,8 @@ public class BetweenToEqual implements ExpressionPatternRuleFactory {
     @Override
     public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {
         return ImmutableList.of(
-            matchesType(And.class).then(BetweenToEqual::rewriteBetweenToEqual)
+            matchesType(And.class)
+                    .then(BetweenToEqual::rewriteBetweenToEqual)
                     .toRule(ExpressionRuleType.BETWEEN_TO_EQUAL)
         );
     }

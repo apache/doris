@@ -23,10 +23,6 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.PatternMatcherException;
-import org.apache.doris.common.io.Text;
-
-import java.io.DataInput;
-import java.io.IOException;
 
 public class DbPrivEntry extends CatalogPrivEntry {
     protected static final String ANY_DB = "*";
@@ -112,19 +108,6 @@ public class DbPrivEntry extends CatalogPrivEntry {
     public String toString() {
         return String.format("database privilege.ctl: %s, db: %s, priv: %s",
                 origCtl, origDb, privSet.toString());
-    }
-
-    @Deprecated
-    public void readFields(DataInput in) throws IOException {
-        super.readFields(in);
-
-        origDb = Text.readString(in);
-        try {
-            dbPattern = createDbPatternMatcher(origDb);
-        } catch (AnalysisException e) {
-            throw new IOException(e);
-        }
-        isAnyDb = origDb.equals(ANY_DB);
     }
 
     @Override

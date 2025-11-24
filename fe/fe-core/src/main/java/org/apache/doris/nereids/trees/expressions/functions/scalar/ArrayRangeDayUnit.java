@@ -38,8 +38,8 @@ import java.util.List;
 public class ArrayRangeDayUnit extends ScalarFunction
         implements BinaryExpression, ExplicitlyCastableSignature, AlwaysNullable {
     private static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(ArrayType.of(DateTimeV2Type.SYSTEM_DEFAULT))
-                .args(DateTimeV2Type.SYSTEM_DEFAULT, DateTimeV2Type.SYSTEM_DEFAULT, IntegerType.INSTANCE)
+            FunctionSignature.ret(ArrayType.of(DateTimeV2Type.WILDCARD))
+                .args(DateTimeV2Type.WILDCARD, DateTimeV2Type.WILDCARD, IntegerType.INSTANCE)
     );
 
     /**
@@ -49,13 +49,18 @@ public class ArrayRangeDayUnit extends ScalarFunction
         super("array_range_day_unit", arg0, arg1, arg2);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ArrayRangeDayUnit(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public ArrayRangeDayUnit withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 3);
-        return new ArrayRangeDayUnit(children.get(0), children.get(1), children.get(2));
+        return new ArrayRangeDayUnit(getFunctionParams(children));
     }
 
     @Override

@@ -151,9 +151,9 @@ Hit Dictionary::matchInQuantifierDict(const CharacterUtil::TypedRuneArray& typed
     return result;
 }
 
-void Dictionary::matchWithHit(const CharacterUtil::TypedRuneArray& typed_runes, int current_index,
-                              Hit& hit) {
-    if (auto matchedSegment = hit.getMatchedDictSegment()) {
+void Dictionary::matchWithHit(const CharacterUtil::TypedRuneArray& typed_runes,
+                              size_t current_index, Hit& hit) {
+    if (auto* matchedSegment = hit.getMatchedDictSegment()) {
         matchedSegment->match(typed_runes, current_index, 1, hit);
         return;
     }

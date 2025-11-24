@@ -22,14 +22,15 @@
 
 #include <iostream>
 
+#include "common/status.h"
 #include "runtime/jsonb_value.h"
 #include "runtime/runtime_state.h"
 #include "util/bitmap_value.h"
-#include "util/datetype_cast.hpp"
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_struct.h"
 #include "vec/common/assert_cast.h"
+#include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_array.h"
@@ -46,7 +47,10 @@
 #include "vec/data_types/data_type_string.h"
 #include "vec/data_types/data_type_struct.h"
 #include "vec/data_types/data_type_time.h"
+#include "vec/data_types/data_type_varbinary.h"
 #include "vec/exprs/table_function/table_function.h"
+#include "vec/functions/cast/cast_base.h"
+#include "vec/functions/cast/cast_to_time_impl.hpp"
 #include "vec/runtime/time_value.h"
 #include "vec/runtime/vdatetime_value.h"
 
@@ -86,11 +90,15 @@ static size_t type_index_to_data_type(const std::vector<AnyType>& input_types, s
         type = std::make_shared<DataTypeString>();
         desc = type;
         return 1;
+    case PrimitiveType::TYPE_VARBINARY:
+        type = std::make_shared<DataTypeVarbinary>();
+        desc = type;
+        return 1;
     case PrimitiveType::TYPE_JSONB:
         type = std::make_shared<DataTypeJsonb>();
         desc = type;
         return 1;
-    case PrimitiveType::TYPE_OBJECT:
+    case PrimitiveType::TYPE_BITMAP:
         type = std::make_shared<DataTypeBitMap>();
         desc = type;
         return 1;
@@ -139,29 +147,29 @@ static size_t type_index_to_data_type(const std::vector<AnyType>& input_types, s
         desc = type;
         return 1;
     case PrimitiveType::TYPE_DECIMALV2:
-        type = std::make_shared<DataTypeDecimal<Decimal128V2>>(input_types[index].precision_or(27),
-                                                               input_types[index].scale_or(9));
+        type = std::make_shared<DataTypeDecimalV2>(27, 9, input_types[index].precision_or(27),
+                                                   input_types[index].scale_or(9));
         desc = type;
         return 1;
     // for decimals in ut we set the default scale and precision. for more scales, we prefer test them in regression.
     case PrimitiveType::TYPE_DECIMAL32:
-        type = std::make_shared<DataTypeDecimal<Decimal32>>(input_types[index].precision_or(9),
-                                                            input_types[index].scale_or(5));
+        type = std::make_shared<DataTypeDecimal32>(input_types[index].precision_or(9),
+                                                   input_types[index].scale_or(5));
         desc = type;
         return 1;
     case PrimitiveType::TYPE_DECIMAL64:
-        type = std::make_shared<DataTypeDecimal<Decimal64>>(input_types[index].precision_or(18),
-                                                            input_types[index].scale_or(9));
+        type = std::make_shared<DataTypeDecimal64>(input_types[index].precision_or(18),
+                                                   input_types[index].scale_or(9));
         desc = type;
         return 1;
     case PrimitiveType::TYPE_DECIMAL128I:
-        type = std::make_shared<DataTypeDecimal<Decimal128V3>>(input_types[index].precision_or(38),
-                                                               input_types[index].scale_or(20));
+        type = std::make_shared<DataTypeDecimal128>(input_types[index].precision_or(38),
+                                                    input_types[index].scale_or(20));
         desc = type;
         return 1;
     case PrimitiveType::TYPE_DECIMAL256:
-        type = std::make_shared<DataTypeDecimal<Decimal256>>(input_types[index].precision_or(76),
-                                                             input_types[index].scale_or(40));
+        type = std::make_shared<DataTypeDecimal256>(input_types[index].precision_or(76),
+                                                    input_types[index].scale_or(40));
         desc = type;
         return 1;
     case PrimitiveType::TYPE_DATETIME:
@@ -290,28 +298,29 @@ bool parse_ut_data_type(const std::vector<AnyType>& input_types, ut_type::UTData
     return true;
 }
 
-template <typename DataType>
+template <PrimitiveType PType>
 bool insert_datetime_cell(MutableColumnPtr& column, DataTypePtr date_type_ptr, const AnyType& cell,
                           bool datetime_is_string_format) {
     bool result = true;
-    date_cast::TypeToValueTypeV<DataType> date_value;
+    typename PrimitiveTypeTraits<PType>::CppType date_value;
+    //TODO: remove string format. only accept value input.
     if (datetime_is_string_format) {
         // accept cell of type string
         auto datetime_str = any_cast<std::string>(cell);
 
-        if constexpr (std::is_same_v<DataType, DataTypeDateTimeV2>) {
+        if constexpr (PType == PrimitiveType::TYPE_DATETIMEV2) {
             result = date_value.from_date_str(datetime_str.c_str(), datetime_str.size(),
                                               date_type_ptr->get_scale());
         } else {
             result = date_value.from_date_str(datetime_str.c_str(), datetime_str.size());
         }
     } else {
-        date_value = any_cast<date_cast::TypeToValueTypeV<DataType>>(cell);
+        date_value = any_cast<typename PrimitiveTypeTraits<PType>::CppType>(cell);
     }
     // deal for v1
-    if constexpr (std::is_same_v<DataType, DataTypeDate>) {
+    if constexpr (PType == PrimitiveType::TYPE_DATE) {
         date_value.cast_to_date();
-    } else if constexpr (std::is_same_v<DataType, DataTypeDateTime>) {
+    } else if constexpr (PType == PrimitiveType::TYPE_DATETIME) {
         date_value.to_datetime();
     }
 
@@ -372,13 +381,23 @@ bool insert_cell(MutableColumnPtr& column, DataTypePtr type_ptr, const AnyType& 
             column->insert_data(str.c_str(), str.size());
             break;
         }
-        case PrimitiveType::TYPE_JSONB: {
-            auto str = any_cast<ut_type::STRING>(cell);
-            JsonBinaryValue jsonb_val(str.c_str(), str.size());
-            column->insert_data(jsonb_val.value(), jsonb_val.size());
+        case PrimitiveType::TYPE_VARBINARY: {
+            auto binary = any_cast<ut_type::VARBINARY>(cell);
+            column->insert_data(binary.data(), binary.size());
             break;
         }
-        case PrimitiveType::TYPE_OBJECT: {
+        case PrimitiveType::TYPE_JSONB: {
+            auto str = any_cast<ut_type::STRING>(cell);
+            JsonBinaryValue jsonb_val;
+            auto st = jsonb_val.from_json_string(str);
+            if (st.ok()) {
+                column->insert_data(jsonb_val.value(), jsonb_val.size());
+            } else {
+                column->insert_default();
+            }
+            break;
+        }
+        case PrimitiveType::TYPE_BITMAP: {
             auto* bitmap = any_cast<BitmapValue*>(cell);
             column->insert_data((char*)bitmap, sizeof(BitmapValue));
             break;
@@ -464,30 +483,32 @@ bool insert_cell(MutableColumnPtr& column, DataTypePtr type_ptr, const AnyType& 
             break;
         }
         case PrimitiveType::TYPE_DATE: {
-            RETURN_IF_FALSE((insert_datetime_cell<DataTypeDate>(column, type_ptr, cell,
-                                                                datetime_is_string_format)));
+            RETURN_IF_FALSE((insert_datetime_cell<PrimitiveType::TYPE_DATE>(
+                    column, type_ptr, cell, datetime_is_string_format)));
             break;
         }
         case PrimitiveType::TYPE_DATEV2: {
-            RETURN_IF_FALSE((insert_datetime_cell<DataTypeDateV2>(column, type_ptr, cell,
-                                                                  datetime_is_string_format)));
+            RETURN_IF_FALSE((insert_datetime_cell<PrimitiveType::TYPE_DATEV2>(
+                    column, type_ptr, cell, datetime_is_string_format)));
             break;
         }
         case PrimitiveType::TYPE_DATETIME: {
-            RETURN_IF_FALSE((insert_datetime_cell<DataTypeDateTime>(column, type_ptr, cell,
-                                                                    datetime_is_string_format)));
+            RETURN_IF_FALSE((insert_datetime_cell<PrimitiveType::TYPE_DATETIME>(
+                    column, type_ptr, cell, datetime_is_string_format)));
             break;
         }
         case PrimitiveType::TYPE_DATETIMEV2: {
-            RETURN_IF_FALSE((insert_datetime_cell<DataTypeDateTimeV2>(column, type_ptr, cell,
-                                                                      datetime_is_string_format)));
+            RETURN_IF_FALSE((insert_datetime_cell<PrimitiveType::TYPE_DATETIMEV2>(
+                    column, type_ptr, cell, datetime_is_string_format)));
             break;
         }
         case PrimitiveType::TYPE_TIMEV2: {
             TimeValue::TimeType time_value = 0;
             if (datetime_is_string_format) {
                 auto value = any_cast<std::string>(cell);
-                RETURN_IF_FALSE((TimeValue::try_as_time(value.c_str(), value.size(), time_value)));
+                CastParameters params {.status = Status::OK(), .is_strict = false};
+                RETURN_IF_FALSE(CastToTimeV2::from_string_strict_mode<false>(
+                        StringRef {value}, time_value, nullptr, type_ptr->get_scale(), params));
             } else {
                 time_value = any_cast<TimeValue::TimeType>(cell);
             }

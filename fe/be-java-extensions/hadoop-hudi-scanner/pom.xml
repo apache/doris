@@ -32,7 +32,6 @@ under the License.
     <properties>
         <doris.home>${basedir}/../../</doris.home>
         <fe_ut_parallel>1</fe_ut_parallel>
-        <hudi.version>0.15.0</hudi.version>
         <luben.zstd.jni.version>1.5.4-2</luben.zstd.jni.version>
         <hive-apache.version>3.1.2-22</hive-apache.version>
     </properties>
@@ -71,11 +70,6 @@ under the License.
         <dependency>
             <groupId>org.apache.hadoop</groupId>
             <artifactId>hadoop-mapreduce-client-core</artifactId>
-        </dependency>
-
-        <dependency>
-            <groupId>org.junit.jupiter</groupId>
-            <artifactId>junit-jupiter</artifactId>
         </dependency>
 
         <!-- https://mvnrepository.com/artifact/org.apache.hudi/hudi-common -->

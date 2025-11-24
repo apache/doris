@@ -21,11 +21,11 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.format.DateTimeChecker;
 import org.apache.doris.nereids.types.coercion.DateLikeType;
 import org.apache.doris.nereids.types.coercion.IntegralType;
-
-import com.google.common.base.Preconditions;
+import org.apache.doris.nereids.types.coercion.ScaleTimeType;
 
 import java.time.DateTimeException;
 import java.time.LocalDateTime;
@@ -35,17 +35,17 @@ import java.util.Objects;
 /**
  * Datetime type in Nereids.
  */
-public class DateTimeV2Type extends DateLikeType {
+public class DateTimeV2Type extends DateLikeType implements ScaleTimeType {
     public static final int MAX_SCALE = 6;
     public static final DateTimeV2Type SYSTEM_DEFAULT = new DateTimeV2Type(0);
     public static final DateTimeV2Type MAX = new DateTimeV2Type(MAX_SCALE);
+    public static final DateTimeV2Type WILDCARD = new DateTimeV2Type(-1);
 
     private static final int WIDTH = 8;
 
     private final int scale;
 
     private DateTimeV2Type(int scale) {
-        Preconditions.checkArgument(0 <= scale && scale <= MAX_SCALE);
         this.scale = scale;
     }
 
@@ -80,7 +80,25 @@ public class DateTimeV2Type extends DateLikeType {
                 || dataType instanceof DateTimeType || dataType instanceof DateType || dataType instanceof DateV2Type) {
             return SYSTEM_DEFAULT;
         }
+        if (dataType instanceof DecimalV3Type) {
+            return DateTimeV2Type.of(Math.min(((DecimalV3Type) dataType).getScale(), 6));
+        }
+        if (dataType instanceof DecimalV2Type) {
+            return DateTimeV2Type.of(Math.min(((DecimalV2Type) dataType).getScale(), 6));
+        }
+        if (dataType instanceof TimeV2Type) {
+            return DateTimeV2Type.of(((TimeV2Type) dataType).getScale());
+        }
         return MAX;
+    }
+
+    public ScaleTimeType scaleTypeForType(DataType dataType) {
+        return forType(dataType);
+    }
+
+    @Override
+    public ScaleTimeType forTypeFromString(StringLikeLiteral str) {
+        return forTypeFromString(str.getStringValue());
     }
 
     /**
@@ -137,6 +155,7 @@ public class DateTimeV2Type extends DateLikeType {
         return WIDTH;
     }
 
+    @Override
     public int getScale() {
         return scale;
     }

@@ -593,14 +593,16 @@ int main(int argc, char** argv) {
     std::shared_ptr<doris::flight::FlightSqlServer> flight_server =
             std::move(doris::flight::FlightSqlServer::create()).ValueOrDie();
     status = flight_server->init(doris::config::arrow_flight_sql_port);
+    stop_work_if_error(
+            status, "Arrow Flight Service did not start correctly, exiting, " + status.to_string());
 
     // 6. start daemon thread to do clean or gc jobs
     doris::Daemon daemon;
     daemon.start();
-    stop_work_if_error(
-            status, "Arrow Flight Service did not start correctly, exiting, " + status.to_string());
 
     exec_env->storage_engine().notify_listeners();
+
+    doris::k_is_server_ready = true;
 
     while (!doris::k_doris_exit) {
 #if defined(LEAK_SANITIZER)
@@ -608,6 +610,7 @@ int main(int argc, char** argv) {
 #endif
         sleep(3);
     }
+    doris::k_is_server_ready = false;
     LOG(INFO) << "Doris main exiting.";
 #if defined(LLVM_PROFILE)
     __llvm_profile_write_file();
@@ -615,6 +618,15 @@ int main(int argc, char** argv) {
 #endif
     // For graceful shutdown, need to wait for all running queries to stop
     exec_env->wait_for_all_tasks_done();
+
+    if (!doris::config::enable_graceful_exit_check) {
+        // If not in memleak check mode, no need to wait all objects de-constructed normally, just exit.
+        // It will make sure that graceful shutdown can be done definitely.
+        LOG(INFO) << "Doris main exited.";
+        google::FlushLogFiles(google::GLOG_INFO);
+        _exit(0); // Do not call exit(0), it will wait for all objects de-constructed normally
+        return 0;
+    }
     daemon.stop();
     flight_server.reset();
     LOG(INFO) << "Flight server stopped.";
@@ -633,7 +645,7 @@ int main(int argc, char** argv) {
     service.reset();
     LOG(INFO) << "Backend Service stopped";
     exec_env->destroy();
-    LOG(INFO) << "Doris main exited.";
+    LOG(INFO) << "All service stopped, doris main exited.";
     return 0;
 }
 

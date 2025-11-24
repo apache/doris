@@ -31,6 +31,7 @@ import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.task.AgentTask;
+import org.apache.doris.thrift.TStatusCode;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
@@ -109,6 +110,11 @@ public abstract class AlterJobV2 implements Writable {
     @SerializedName(value = "uid")
     protected UserIdentity userIdentity = null;
 
+    // for show alter table command, master fe change the job state to FINISHED before writing edit log.
+    // We set showJobState to FINISHED after writing edit log. otherwise, query to non master fe may read
+    // data before schema change finished.
+    protected JobState showJobState;
+
     public AlterJobV2(String rawSql, long jobId, JobType jobType, long dbId, long tableId, String tableName,
                       long timeoutMs) {
         this.rawSql = rawSql;
@@ -121,6 +127,7 @@ public abstract class AlterJobV2 implements Writable {
 
         this.createTimeMs = System.currentTimeMillis();
         this.jobState = JobState.PENDING;
+        this.showJobState = JobState.PENDING;
 
         if (ConnectContext.get() != null) {
             userIdentity = ConnectContext.get().getCurrentUserIdentity();
@@ -157,6 +164,7 @@ public abstract class AlterJobV2 implements Writable {
 
     public void setJobState(JobState jobState) {
         this.jobState = jobState;
+        this.showJobState = jobState;
     }
 
     public JobType getType() {
@@ -272,6 +280,16 @@ public abstract class AlterJobV2 implements Writable {
 
     public final synchronized boolean cancel(String errMsg) {
         return cancelImpl(errMsg);
+    }
+
+    protected int getRetryTimes(AgentTask task) {
+        int maxFailedTimes = 0;
+        if (Config.enable_schema_change_retry && task.getErrorCode() != null
+                && (task.getErrorCode().equals(TStatusCode.DELETE_BITMAP_LOCK_ERROR)
+                    || task.getErrorCode().equals(TStatusCode.NETWORK_ERROR))) {
+            maxFailedTimes = Config.schema_change_max_retry_time;
+        }
+        return maxFailedTimes;
     }
 
     /**

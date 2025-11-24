@@ -17,6 +17,11 @@
 
 #pragma once
 
+#ifdef __APPLE__
+#include <netinet/in.h>
+#include <sys/_types/_u_int.h>
+#endif
+
 #include <concurrentqueue.h>
 #include <sqltypes.h>
 
@@ -29,11 +34,13 @@
 
 #include "common/config.h"
 #include "common/logging.h"
+#include "gen_cpp/internal_service.pb.h"
 #include "pipeline/common/agg_utils.h"
 #include "pipeline/common/join_utils.h"
 #include "pipeline/common/set_utils.h"
 #include "pipeline/exec/data_queue.h"
 #include "pipeline/exec/join/process_hash_table_probe.h"
+#include "util/brpc_closure.h"
 #include "util/stack_util.h"
 #include "vec/common/sort/partition_sorter.h"
 #include "vec/common/sort/sorter.h"
@@ -82,9 +89,10 @@ struct BasicSharedState {
 
     virtual ~BasicSharedState() = default;
 
-    Dependency* create_source_dependency(int operator_id, int node_id, const std::string& name);
     void create_source_dependencies(int num_sources, int operator_id, int node_id,
                                     const std::string& name);
+    Dependency* create_source_dependency(int operator_id, int node_id, const std::string& name);
+
     Dependency* create_sink_dependency(int dest_id, int node_id, const std::string& name);
     std::vector<DependencySPtr> get_dep_by_channel_id(int channel_id) {
         DCHECK_LT(channel_id, source_deps.size());
@@ -176,12 +184,12 @@ public:
     CountedFinishDependency(int id, int node_id, std::string name)
             : Dependency(id, node_id, std::move(name), true) {}
 
-    void add() {
+    void add(uint32_t count = 1) {
         std::unique_lock<std::mutex> l(_mtx);
         if (!_counter) {
             block();
         }
-        _counter++;
+        _counter += count;
     }
 
     void sub() {
@@ -203,10 +211,11 @@ struct RuntimeFilterTimerQueue;
 class RuntimeFilterTimer {
 public:
     RuntimeFilterTimer(int64_t registration_time, int32_t wait_time_ms,
-                       std::shared_ptr<Dependency> parent)
+                       std::shared_ptr<Dependency> parent, bool force_wait_timeout = false)
             : _parent(std::move(parent)),
               _registration_time(registration_time),
-              _wait_time_ms(wait_time_ms) {}
+              _wait_time_ms(wait_time_ms),
+              _force_wait_timeout(force_wait_timeout) {}
 
     // Called by runtime filter producer.
     void call_ready();
@@ -224,6 +233,8 @@ public:
 
     bool should_be_check_timeout();
 
+    bool force_wait_timeout() { return _force_wait_timeout; }
+
 private:
     friend struct RuntimeFilterTimerQueue;
     std::shared_ptr<Dependency> _parent = nullptr;
@@ -231,6 +242,8 @@ private:
     std::mutex _lock;
     int64_t _registration_time;
     const int32_t _wait_time_ms;
+    // true only for group_commit_scan_operator
+    bool _force_wait_timeout;
 };
 
 struct RuntimeFilterTimerQueue {
@@ -270,10 +283,7 @@ struct RuntimeFilterTimerQueue {
 struct AggSharedState : public BasicSharedState {
     ENABLE_FACTORY_CREATOR(AggSharedState)
 public:
-    AggSharedState() {
-        agg_data = std::make_unique<AggregatedDataVariants>();
-        agg_arena_pool = std::make_unique<vectorized::Arena>();
-    }
+    AggSharedState() { agg_data = std::make_unique<AggregatedDataVariants>(); }
     ~AggSharedState() override {
         if (!probe_expr_ctxs.empty()) {
             _close_with_serialized_key();
@@ -295,7 +305,6 @@ public:
 
     AggregatedDataVariantsUPtr agg_data = nullptr;
     std::unique_ptr<AggregateDataContainer> aggregate_data_container;
-    ArenaUPtr agg_arena_pool;
     std::vector<vectorized::AggFnEvaluator*> aggregate_evaluators;
     // group by k1,k2
     vectorized::VExprContextSPtrs probe_expr_ctxs;
@@ -525,6 +534,8 @@ struct SpillSortSharedState : public BasicSharedState,
     SortSharedState* in_mem_shared_state = nullptr;
     bool enable_spill = false;
     bool is_spilled = false;
+    int64_t limit = -1;
+    int64_t offset = 0;
     std::atomic_bool is_closed = false;
     std::shared_ptr<BasicSharedState> in_mem_shared_state_sptr;
 
@@ -543,8 +554,8 @@ public:
     const int _child_count;
 };
 
-struct CacheSharedState : public BasicSharedState {
-    ENABLE_FACTORY_CREATOR(CacheSharedState)
+struct DataQueueSharedState : public BasicSharedState {
+    ENABLE_FACTORY_CREATOR(DataQueueSharedState)
 public:
     DataQueue data_queue;
 };
@@ -630,7 +641,7 @@ struct PartitionedHashJoinSharedState
     std::shared_ptr<HashJoinSharedState> inner_shared_state;
     std::vector<std::unique_ptr<vectorized::MutableBlock>> partitioned_build_blocks;
     std::vector<vectorized::SpillStreamSPtr> spilled_streams;
-    bool need_to_spill = false;
+    bool is_spilled = false;
 };
 
 struct NestedLoopJoinSharedState : public JoinSharedState {

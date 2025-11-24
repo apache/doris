@@ -51,13 +51,18 @@ public class ToBitmap extends ScalarFunction
         super("to_bitmap", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ToBitmap(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public ToBitmap withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new ToBitmap(children.get(0));
+        return new ToBitmap(getFunctionParams(children));
     }
 
     @Override

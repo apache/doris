@@ -14,6 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+import java.time.ZonedDateTime
+import java.time.format.DateTimeFormatter
+import java.time.ZoneId
 
 suite("drop_hdfs_policy") {
     def storage_exist = { name ->
@@ -74,13 +77,15 @@ suite("drop_hdfs_policy") {
             "dfs.client.failover.proxy.provider" = "org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider"
         );
         """
-
+        def zonedDateTime = ZonedDateTime.now(ZoneId.of("UTC")).plusYears(1)
+      
+        def futureTime = zonedDateTime.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))
 
         def create_succ_1 = try_sql """
             CREATE STORAGE POLICY ${use_policy}
             PROPERTIES(
             "storage_resource" = "${resource_table_use}",
-            "cooldown_datetime" = "2025-06-08 00:00:00"
+            "cooldown_datetime" = "${futureTime}"
             );
         """
         assertEquals(storage_exist.call(use_policy), true)
@@ -96,12 +101,11 @@ suite("drop_hdfs_policy") {
         """
         // can drop, no table use
         assertEquals(drop_policy_ret.size(), 1)
-
         def create_succ_2 = try_sql """
             CREATE STORAGE POLICY IF NOT EXISTS drop_policy_test_has_table_binded_hdfs
             PROPERTIES(
             "storage_resource" = "${resource_table_use}",
-            "cooldown_datetime" = "2025-06-08 00:00:00"
+            "cooldown_datetime" = "${futureTime}"
             );
         """
         assertEquals(storage_exist.call("drop_policy_test_has_table_binded_hdfs"), true)

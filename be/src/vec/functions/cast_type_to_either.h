@@ -32,4 +32,10 @@ bool cast_type_to_either(const IDataType* type, F&& f) {
     return ((typeid_cast<const Ts*>(type) ? f(*typeid_cast<const Ts*>(type)) : false) || ...);
 }
 
+template <PrimitiveType... Ts, typename F>
+bool cast_type_to_either(const PrimitiveType& type, F&& f) {
+    /// XXX can't use && here because gcc-7 complains about parentheses around && within ||
+    return ((type == Ts ? f(type) : false) || ...);
+}
+
 } // namespace doris::vectorized

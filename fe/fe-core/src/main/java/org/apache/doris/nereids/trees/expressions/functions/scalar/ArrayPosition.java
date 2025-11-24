@@ -18,12 +18,14 @@
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
 import org.apache.doris.nereids.types.coercion.FollowToAnyDataType;
 
@@ -55,13 +57,30 @@ public class ArrayPosition extends ScalarFunction
         super("array_position", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ArrayPosition(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public ArrayPosition withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new ArrayPosition(children.get(0), children.get(1));
+        return new ArrayPosition(getFunctionParams(children));
+    }
+
+    /**
+     * array_position needs to find the position of the sub-elements in the array.
+     * so the element type must be comparable.
+     */
+    @Override
+    public void checkLegalityBeforeTypeCoercion() {
+        DataType argType = child(0).getDataType();
+        if (argType.isArrayType() && ((ArrayType) argType).getItemType().isComplexType()) {
+            throw new AnalysisException("array_position does not support complex types: " + toSql());
+        }
     }
 
     @Override

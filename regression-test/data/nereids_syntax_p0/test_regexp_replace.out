@@ -38,3 +38,87 @@ Phone: 987-654-3210
 这是一个测试
 \N
 
+-- !replace_const --
+abc
+abc
+abc
+abc
+\N
+
+-- !replace_const --
+aabc123c
+a测试字符串456c
+aPhone: 987-654-3210c
+a这是一个测试c
+\N
+
+-- !replace_const --
+}
+}
+}
+}
+\N
+
+-- !replace_const --
+aabc123c123
+测试字符串456
+Phone: 987-654-3210
+这是一个测试
+\N
+
+-- !replace_const --
+abc
+abc
+abc
+abc
+\N
+
+-- !replace_const --
+abc123
+测试字符串456
+Phone: 987-654-3210
+这是一个测试
+\N
+
+-- !replace_const --
+abc
+abc
+abc
+abc
+\N
+
+-- !replace_const --
+aabc123c
+a测试字符串456c
+aPhone: 987-654-3210c
+a这是一个测试c
+\N
+
+-- !replace_const --
+}
+}
+}
+}
+\N
+
+-- !replace_const --
+aabc123c123
+测试字符串456
+Phone: 987-654-3210
+这是一个测试
+\N
+
+-- !replace_const --
+abc
+abc
+abc
+abc
+\N
+
+-- !replace_const --
+abc123
+测试字符串456
+Phone: 987-654-3210
+这是一个测试
+\N
+

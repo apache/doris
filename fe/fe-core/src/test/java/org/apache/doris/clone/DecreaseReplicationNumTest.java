@@ -148,8 +148,8 @@ public class DecreaseReplicationNumTest extends TestWithFeService {
                 List<Long> sortedValues = new ArrayList<>(beIdToTabletNum.values());
                 sortedValues.sort(Collections.reverseOrder());
                 // wait for scheduler
-                if (afterAlter.size() == 2 && beIdToTabletNum.containsValue(4L) && beIdToTabletNum.containsValue(3L)) {
-                    Assertions.assertEquals(Lists.newArrayList(4L, 4L, 4L, 3L, 3L), sortedValues);
+                if (sortedValues.equals(Lists.newArrayList(4L, 4L, 4L, 3L, 3L))) {
+                    Assertions.assertEquals(afterAlter.size(), 2);
                     succ = true;
                     break;
                 }

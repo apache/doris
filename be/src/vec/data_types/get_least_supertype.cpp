@@ -28,7 +28,7 @@
 
 #include "common/status.h"
 #include "vec/aggregate_functions/helpers.h"
-#include "vec/columns/column_object.h"
+#include "vec/columns/column_variant.h"
 #include "vec/common/typeid_cast.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
@@ -41,8 +41,8 @@
 #include "vec/data_types/data_type_nothing.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
-#include "vec/data_types/data_type_object.h"
 #include "vec/data_types/data_type_string.h"
+#include "vec/data_types/data_type_variant.h"
 
 namespace doris::vectorized {
 
@@ -59,22 +59,22 @@ void get_numeric_type(const PrimitiveTypeSet& types, DataTypePtr* type) {
         }
     };
 
-    for (const auto& type : types) {
-        if (type == PrimitiveType::TYPE_BOOLEAN) {
+    for (const auto& nested_type : types) {
+        if (nested_type == PrimitiveType::TYPE_BOOLEAN) {
             maximize(max_bits_of_unsigned_integer, 8);
-        } else if (type == PrimitiveType::TYPE_TINYINT) {
+        } else if (nested_type == PrimitiveType::TYPE_TINYINT) {
             maximize(max_bits_of_signed_integer, 8);
-        } else if (type == PrimitiveType::TYPE_SMALLINT) {
+        } else if (nested_type == PrimitiveType::TYPE_SMALLINT) {
             maximize(max_bits_of_signed_integer, 16);
-        } else if (type == PrimitiveType::TYPE_INT) {
+        } else if (nested_type == PrimitiveType::TYPE_INT) {
             maximize(max_bits_of_signed_integer, 32);
-        } else if (type == PrimitiveType::TYPE_BIGINT) {
+        } else if (nested_type == PrimitiveType::TYPE_BIGINT) {
             maximize(max_bits_of_signed_integer, 64);
-        } else if (type == PrimitiveType::TYPE_LARGEINT) {
+        } else if (nested_type == PrimitiveType::TYPE_LARGEINT) {
             maximize(max_bits_of_signed_integer, 128);
-        } else if (type == PrimitiveType::TYPE_FLOAT) {
+        } else if (nested_type == PrimitiveType::TYPE_FLOAT) {
             maximize(max_mantissa_bits_of_floating, 24);
-        } else if (type == PrimitiveType::TYPE_DOUBLE) {
+        } else if (nested_type == PrimitiveType::TYPE_DOUBLE) {
             maximize(max_mantissa_bits_of_floating, 53);
         } else {
             all_numbers = false;
@@ -147,14 +147,12 @@ void get_numeric_type(const PrimitiveTypeSet& types, DataTypePtr* type) {
             if (min_bit_width_of_integer <= 8) {
                 *type = std::make_shared<DataTypeUInt8>();
                 return;
-            } else if (min_bit_width_of_integer <= 16) {
-                *type = std::make_shared<DataTypeUInt16>();
-                return;
-            } else if (min_bit_width_of_integer <= 32) {
-                *type = std::make_shared<DataTypeUInt32>();
-                return;
             } else if (min_bit_width_of_integer <= 64) {
-                *type = std::make_shared<DataTypeUInt64>();
+                throw Exception(Status::InternalError(
+                        "min_bit_width_of_integer={}, max_bits_of_signed_integer={}, "
+                        "max_bits_of_unsigned_integer={}",
+                        min_bit_width_of_integer, max_bits_of_signed_integer,
+                        max_bits_of_unsigned_integer));
                 return;
             } else {
                 LOG(WARNING) << "Logical error: "
@@ -174,9 +172,9 @@ void get_least_supertype_jsonb(const DataTypes& types, DataTypePtr* type) {
         DataTypes non_nothing_types;
         non_nothing_types.reserve(types.size());
 
-        for (const auto& type : types) {
-            if (type->get_primitive_type() != PrimitiveType::INVALID_TYPE) {
-                non_nothing_types.emplace_back(type);
+        for (const auto& nested_type : types) {
+            if (nested_type->get_primitive_type() != PrimitiveType::INVALID_TYPE) {
+                non_nothing_types.emplace_back(nested_type);
             }
         }
 
@@ -191,13 +189,14 @@ void get_least_supertype_jsonb(const DataTypes& types, DataTypePtr* type) {
         DataTypes nested_types;
         nested_types.reserve(types.size());
 
-        for (const auto& type : types) {
-            if (const auto* type_nullable = typeid_cast<const DataTypeNullable*>(type.get())) {
+        for (const auto& nested_type : types) {
+            if (const auto* type_nullable =
+                        typeid_cast<const DataTypeNullable*>(nested_type.get())) {
                 have_nullable = true;
 
                 nested_types.emplace_back(type_nullable->get_nested_type());
             } else {
-                nested_types.emplace_back(type);
+                nested_types.emplace_back(nested_type);
             }
         }
 
@@ -215,8 +214,8 @@ void get_least_supertype_jsonb(const DataTypes& types, DataTypePtr* type) {
         bool all_arrays = true;
         DataTypes nested_types;
         nested_types.reserve(types.size());
-        for (const auto& type : types) {
-            if (const auto* type_array = typeid_cast<const DataTypeArray*>(type.get())) {
+        for (const auto& nested_type : types) {
+            if (const auto* type_array = typeid_cast<const DataTypeArray*>(nested_type.get())) {
                 have_array = true;
                 nested_types.emplace_back(type_array->get_nested_type());
             } else {
@@ -242,8 +241,12 @@ void get_least_supertype_jsonb(const DataTypes& types, DataTypePtr* type) {
     }
 
     phmap::flat_hash_set<PrimitiveType> type_ids;
-    for (const auto& type : types) {
-        type_ids.insert(type->get_primitive_type());
+    for (const auto& nested_type : types) {
+        type_ids.insert(nested_type->get_primitive_type());
+    }
+    if (type_ids.size() == 1) {
+        *type = types[0];
+        return;
     }
     get_least_supertype_jsonb(type_ids, type);
 }
@@ -294,9 +297,9 @@ void get_least_supertype_jsonb(const PrimitiveTypeSet& types, DataTypePtr* type)
         PrimitiveTypeSet non_nothing_types;
         non_nothing_types.reserve(types.size());
 
-        for (const auto& type : types) {
-            if (type != PrimitiveType::INVALID_TYPE) {
-                non_nothing_types.emplace(type);
+        for (const auto& nested_type : types) {
+            if (nested_type != PrimitiveType::INVALID_TYPE) {
+                non_nothing_types.emplace(nested_type);
             }
         }
 

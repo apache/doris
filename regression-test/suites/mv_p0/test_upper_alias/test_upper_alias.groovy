@@ -18,6 +18,8 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("test_upper_alias") {
+    // this mv rewrite would not be rewritten in RBO phase, so set TRY_IN_RBO explicitly to make case stable
+    sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
     sql """set enable_nereids_planner=true"""
     sql """SET enable_fallback_to_original_planner=false"""
     sql """ drop table if exists test_0401;"""
@@ -41,12 +43,12 @@ suite ("test_upper_alias") {
 
     createMV ("""
         create materialized view test_0401_mv as 
-        select d_b, sum(amt_b0) as amt_b0 from test_0401 group by d_b;
+        select d_b as a1, sum(amt_b0) as amt_b0x from test_0401 group by d_b;
     """)
 
     createMV ("""
         create materialized view test_0401_mv2 as 
-        select d_a,d_b from test_0401;
+        select d_a as a2,d_b as a3 from test_0401;
     """)
 
     sql "analyze table test_0401 with sync;"
@@ -70,5 +72,8 @@ suite ("test_upper_alias") {
     mv_rewrite_any_success("SELECT upper(d_b) AS d_bb FROM test_0401 GROUP BY upper(d_b) order by 1;",
             ["test_0401_mv", "test_0401_mv2"])
 
-    mv_rewrite_success("SELECT d_a AS d_b FROM test_0401 where d_a = 'xx' order by 1;", "test_0401_mv2")
+    mv_rewrite_success("SELECT d_a AS d_b FROM test_0401 where d_a = 'xx' order by 1;", "test_0401_mv2",
+            true, [TRY_IN_RBO, NOT_IN_RBO])
+    mv_rewrite_success_without_check_chosen("SELECT d_a AS d_b FROM test_0401 where d_a = 'xx' order by 1;",
+            "test_0401_mv2", [FORCE_IN_RBO])
 }

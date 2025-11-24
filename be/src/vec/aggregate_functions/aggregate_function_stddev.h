@@ -31,16 +31,15 @@
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_number.h"
-#include "vec/io/io_helper.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 class Arena;
 class BufferReadable;
 class BufferWritable;
-template <typename T>
+template <PrimitiveType T>
 class ColumnDecimal;
-template <typename>
+template <PrimitiveType T>
 class ColumnVector;
 
 template <PrimitiveType T, bool is_stddev>
@@ -49,15 +48,15 @@ struct BaseData {
     virtual ~BaseData() = default;
 
     void write(BufferWritable& buf) const {
-        write_binary(mean, buf);
-        write_binary(m2, buf);
-        write_binary(count, buf);
+        buf.write_binary(mean);
+        buf.write_binary(m2);
+        buf.write_binary(count);
     }
 
     void read(BufferReadable& buf) {
-        read_binary(mean, buf);
-        read_binary(m2, buf);
-        read_binary(count, buf);
+        buf.read_binary(mean);
+        buf.read_binary(m2);
+        buf.read_binary(count);
     }
 
     void reset() {
@@ -127,8 +126,7 @@ struct BaseData {
 
 template <PrimitiveType T, typename Name, bool is_stddev>
 struct PopData : BaseData<T, is_stddev>, Name {
-    using ColVecResult =
-            std::conditional_t<is_decimal(T), ColumnDecimal<Decimal128V2>, ColumnFloat64>;
+    using ColVecResult = std::conditional_t<is_decimal(T), ColumnDecimal128V2, ColumnFloat64>;
     void insert_result_into(IColumn& to) const {
         auto& col = assert_cast<ColVecResult&>(to);
         if constexpr (is_decimal(T)) {
@@ -138,7 +136,7 @@ struct PopData : BaseData<T, is_stddev>, Name {
         }
     }
 
-    static DataTypePtr get_return_type() { return std::make_shared<DataTypeNumber<Float64>>(); }
+    static DataTypePtr get_return_type() { return std::make_shared<DataTypeFloat64>(); }
 };
 
 // For this series of functions, the Decimal type is not supported
@@ -147,8 +145,7 @@ struct PopData : BaseData<T, is_stddev>, Name {
 
 template <PrimitiveType T, typename Name, bool is_stddev>
 struct SampData : BaseData<T, is_stddev>, Name {
-    using ColVecResult =
-            std::conditional_t<is_decimal(T), ColumnDecimal<Decimal128V2>, ColumnFloat64>;
+    using ColVecResult = std::conditional_t<is_decimal(T), ColumnDecimal128V2, ColumnFloat64>;
     void insert_result_into(IColumn& to) const {
         auto& col = assert_cast<ColVecResult&>(to);
         if (this->count == 1 || this->count == 0) {
@@ -162,7 +159,7 @@ struct SampData : BaseData<T, is_stddev>, Name {
         }
     }
 
-    static DataTypePtr get_return_type() { return std::make_shared<DataTypeNumber<Float64>>(); }
+    static DataTypePtr get_return_type() { return std::make_shared<DataTypeFloat64>(); }
 };
 
 struct StddevName {
@@ -180,7 +177,9 @@ struct StddevSampName {
 
 template <typename Data>
 class AggregateFunctionSampVariance
-        : public IAggregateFunctionDataHelper<Data, AggregateFunctionSampVariance<Data>> {
+        : public IAggregateFunctionDataHelper<Data, AggregateFunctionSampVariance<Data>>,
+          UnaryExpression,
+          NullableAggregateFunction {
 public:
     AggregateFunctionSampVariance(const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper<Data, AggregateFunctionSampVariance<Data>>(
@@ -191,14 +190,14 @@ public:
     DataTypePtr get_return_type() const override { return Data::get_return_type(); }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
-             Arena*) const override {
+             Arena&) const override {
         this->data(place).add(columns[0], row_num);
     }
 
     void reset(AggregateDataPtr __restrict place) const override { this->data(place).reset(); }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
-               Arena*) const override {
+               Arena&) const override {
         this->data(place).merge(this->data(rhs));
     }
 
@@ -207,7 +206,7 @@ public:
     }
 
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
-                     Arena*) const override {
+                     Arena&) const override {
         this->data(place).read(buf);
     }
 

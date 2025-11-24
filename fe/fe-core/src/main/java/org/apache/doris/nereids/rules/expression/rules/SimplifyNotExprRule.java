@@ -55,7 +55,8 @@ public class SimplifyNotExprRule implements ExpressionPatternRuleFactory {
     @Override
     public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {
         return ImmutableList.of(
-                matchesType(Not.class).then(SimplifyNotExprRule::simplify)
+                matchesType(Not.class)
+                        .then(SimplifyNotExprRule::simplify)
                         .toRule(ExpressionRuleType.SIMPLIFY_NOT_EXPR)
         );
     }

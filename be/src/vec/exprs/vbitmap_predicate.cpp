@@ -45,7 +45,7 @@ namespace doris::vectorized {
 class VExprContext;
 
 vectorized::VBitmapPredicate::VBitmapPredicate(const TExprNode& node)
-        : VExpr(node), _filter(nullptr), _expr_name("bitmap_predicate") {}
+        : VExpr(node), _filter(nullptr) {}
 
 doris::Status vectorized::VBitmapPredicate::prepare(doris::RuntimeState* state,
                                                     const RowDescriptor& desc,
@@ -75,23 +75,17 @@ doris::Status vectorized::VBitmapPredicate::open(doris::RuntimeState* state,
     return Status::OK();
 }
 
-doris::Status vectorized::VBitmapPredicate::execute(vectorized::VExprContext* context,
-                                                    doris::vectorized::Block* block,
-                                                    int* result_column_id) {
+Status VBitmapPredicate::execute_column(VExprContext* context, const Block* block,
+                                        ColumnPtr& result_column) const {
     DCHECK(_open_finished || _getting_const_col);
-    doris::vectorized::ColumnNumbers arguments(_children.size());
-    for (int i = 0; i < _children.size(); ++i) {
-        int column_id = -1;
-        RETURN_IF_ERROR(_children[i]->execute(context, block, &column_id));
-        arguments[i] = column_id;
-    }
-    // call function
-    uint32_t num_columns_without_result = block->columns();
-    auto res_data_column = ColumnVector<UInt8>::create(block->rows());
+    DCHECK_EQ(_children.size(), 1);
 
-    ColumnPtr argument_column =
-            block->get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+    ColumnPtr argument_column;
+    RETURN_IF_ERROR(_children[0]->execute_column(context, block, argument_column));
+    argument_column = argument_column->convert_to_full_column_if_const();
+
     size_t sz = argument_column->size();
+    auto res_data_column = ColumnUInt8::create(block->rows());
     res_data_column->resize(sz);
     auto* ptr = res_data_column->get_data().data();
 
@@ -101,19 +95,12 @@ doris::Status vectorized::VBitmapPredicate::execute(vectorized::VExprContext* co
         auto column_nullmap = assert_cast<const ColumnNullable*>(argument_column.get())
                                       ->get_null_map_column_ptr();
         _filter->find_batch(column_nested->get_raw_data().data,
-                            (uint8*)column_nullmap->get_raw_data().data, sz, ptr);
+                            (uint8_t*)column_nullmap->get_raw_data().data, sz, ptr);
     } else {
         _filter->find_batch(argument_column->get_raw_data().data, nullptr, sz, ptr);
     }
 
-    if (_data_type->is_nullable()) {
-        auto null_map = ColumnVector<UInt8>::create(block->rows(), 0);
-        block->insert({ColumnNullable::create(std::move(res_data_column), std::move(null_map)),
-                       _data_type, _expr_name});
-    } else {
-        block->insert({std::move(res_data_column), _data_type, _expr_name});
-    }
-    *result_column_id = num_columns_without_result;
+    result_column = std::move(res_data_column);
     return Status::OK();
 }
 
@@ -123,7 +110,7 @@ void vectorized::VBitmapPredicate::close(vectorized::VExprContext* context,
 }
 
 const std::string& vectorized::VBitmapPredicate::expr_name() const {
-    return _expr_name;
+    return EXPR_NAME;
 }
 
 void vectorized::VBitmapPredicate::set_filter(std::shared_ptr<BitmapFilterFuncBase> filter) {

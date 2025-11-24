@@ -51,11 +51,11 @@ suite("test_materialized_view") {
         """
 
     createMV("""
-    CREATE materialized VIEW amt_sum AS SELECT store_id, sum(sale_amt) FROM ${tbName1} GROUP BY store_id;
+    CREATE materialized VIEW amt_sum AS SELECT store_id as a1, sum(sale_amt) as a2 FROM ${tbName1} GROUP BY store_id;
     """)
 
     createMV("""
-    CREATE materialized VIEW seller_id_order AS SELECT store_id,seller_id, sale_amt FROM ${tbName2} ORDER BY store_id,seller_id;
+    CREATE materialized VIEW seller_id_order AS SELECT store_id as a3,seller_id as a4, sale_amt as a5 FROM ${tbName2} ORDER BY store_id,seller_id;
     """)
 
     sql "SHOW ALTER TABLE MATERIALIZED VIEW WHERE TableName='${tbName1}';"
@@ -78,7 +78,7 @@ suite("test_materialized_view") {
 
 
     createMV("""
-    CREATE materialized VIEW amt_count AS SELECT store_id, count(sale_amt) FROM ${tbName1} GROUP BY store_id;
+    CREATE materialized VIEW amt_count AS SELECT store_id as a6, count(sale_amt) as a7 FROM ${tbName1} GROUP BY store_id;
     """)
 
     sql "SELECT store_id, count(sale_amt) FROM ${tbName1} GROUP BY store_id;"

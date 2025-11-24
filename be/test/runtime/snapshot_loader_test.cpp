@@ -344,7 +344,7 @@ TEST_F(SnapshotLoaderTest, DirMoveTaskIsIdempotent) {
     std::cout << "version: " << version.first << ", " << version.second << std::endl;
 
     // 3. make a snapshot
-    string snapshot_path;
+    std::string snapshot_path;
     bool allow_incremental_clone = false; // not used
     TSnapshotRequest snapshot_request;
     snapshot_request.tablet_id = tablet_id;
@@ -399,7 +399,7 @@ TEST_F(SnapshotLoaderTest, TestLinkSameRowsetFiles) {
     std::cout << "Original version: " << version.first << ", " << version.second << std::endl;
 
     // 3. Make a snapshot of the tablet
-    string snapshot_path;
+    std::string snapshot_path;
     bool allow_incremental_clone = false;
     TSnapshotRequest snapshot_request;
     snapshot_request.tablet_id = tablet_id;

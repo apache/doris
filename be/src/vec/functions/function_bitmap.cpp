@@ -18,6 +18,7 @@
 // https://github.com/ClickHouse/ClickHouse/blob/master/src/Functions/FunctionBitmap.h
 // and modified by Doris
 
+#include <absl/strings/numbers.h>
 #include <absl/strings/str_split.h>
 #include <glog/logging.h>
 #include <stdint.h>
@@ -34,7 +35,6 @@
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
-#include "gutil/strings/numbers.h"
 #include "util/bitmap_value.h"
 #include "util/hash_util.hpp"
 #include "util/murmur_hash3.h"
@@ -48,7 +48,6 @@
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
@@ -236,7 +235,7 @@ struct BitmapFromString {
             auto res = absl::StrSplit(std::string_view {raw_str, str_size}, ",", absl::SkipEmpty());
             uint64_t value = 0;
             for (auto s : res) {
-                if (!safe_strtou64(std::string(s), &value)) {
+                if (!absl::SimpleAtoi(s, &value)) {
                     return false;
                 }
                 bits.push_back(value);
@@ -305,8 +304,8 @@ struct BitmapFromBase64 {
             } else {
                 BitmapValue bitmap_val;
                 if (!bitmap_val.deserialize(decode_buff.data())) {
-                    return Status::RuntimeError(
-                            fmt::format("bitmap_from_base64 decode failed: base64: {}", src_str));
+                    return Status::RuntimeError("bitmap_from_base64 decode failed: base64: {}",
+                                                std::string(src_str, src_size));
                 }
                 res.emplace_back(std::move(bitmap_val));
             }
@@ -635,7 +634,7 @@ struct BitmapAndNotCount {
     using T0 = typename LeftDataType::FieldType;
     using T1 = typename RightDataType::FieldType;
     using TData = std::vector<BitmapValue>;
-    using ResTData = typename ColumnVector<Int64>::Container::value_type;
+    using ResTData = typename ColumnInt64::Container::value_type;
 
     static void vector_vector(const TData& lvec, const TData& rvec, ResTData* res) {
         size_t size = lvec.size();
@@ -780,8 +779,7 @@ public:
     Status execute_impl_internal(FunctionContext* context, Block& block,
                                  const ColumnNumbers& arguments, uint32_t result,
                                  size_t input_rows_count) const {
-        using ResultType = typename ResultDataType::FieldType;
-        using ColVecResult = ColumnVector<ResultType>;
+        using ColVecResult = ColumnVector<ResultDataType::PType>;
 
         typename ColVecResult::MutablePtr col_res = ColVecResult::create();
         auto& vec_res = col_res->get_data();
@@ -833,8 +831,8 @@ struct BitmapContains {
     using T0 = typename LeftDataType::FieldType;
     using T1 = typename RightDataType::FieldType;
     using LTData = std::vector<BitmapValue>;
-    using RTData = typename ColumnVector<T1>::Container;
-    using ResTData = typename ColumnVector<UInt8>::Container;
+    using RTData = typename ColumnVector<RightDataType::PType>::Container;
+    using ResTData = typename ColumnUInt8::Container;
 
     static void vector_vector(const LTData& lvec, const RTData& rvec, ResTData& res) {
         size_t size = lvec.size();
@@ -866,7 +864,7 @@ struct BitmapRemove {
     using T0 = typename LeftDataType::FieldType;
     using T1 = typename RightDataType::FieldType;
     using LTData = std::vector<BitmapValue>;
-    using RTData = typename ColumnVector<T1>::Container;
+    using RTData = typename ColumnVector<RightDataType::PType>::Container;
     using ResTData = std::vector<BitmapValue>;
 
     static void vector_vector(const LTData& lvec, const RTData& rvec, ResTData& res) {
@@ -902,12 +900,12 @@ struct BitmapHasAny {
     using T0 = typename LeftDataType::FieldType;
     using T1 = typename RightDataType::FieldType;
     using TData = std::vector<BitmapValue>;
-    using ResTData = typename ColumnVector<UInt8>::Container;
+    using ResTData = typename ColumnUInt8::Container;
 
     static void vector_vector(const TData& lvec, const TData& rvec, ResTData& res) {
         size_t size = lvec.size();
         for (size_t i = 0; i < size; ++i) {
-            auto bitmap = const_cast<BitmapValue&>(lvec[i]);
+            auto bitmap = lvec[i];
             bitmap &= rvec[i];
             res[i] = bitmap.cardinality() != 0;
         }
@@ -915,7 +913,7 @@ struct BitmapHasAny {
     static void vector_scalar(const TData& lvec, const BitmapValue& rval, ResTData& res) {
         size_t size = lvec.size();
         for (size_t i = 0; i < size; ++i) {
-            auto bitmap = const_cast<BitmapValue&>(lvec[i]);
+            auto bitmap = lvec[i];
             bitmap &= rval;
             res[i] = bitmap.cardinality() != 0;
         }
@@ -923,7 +921,7 @@ struct BitmapHasAny {
     static void scalar_vector(const BitmapValue& lval, const TData& rvec, ResTData& res) {
         size_t size = rvec.size();
         for (size_t i = 0; i < size; ++i) {
-            auto bitmap = const_cast<BitmapValue&>(lval);
+            auto bitmap = lval;
             bitmap &= rvec[i];
             res[i] = bitmap.cardinality() != 0;
         }
@@ -940,13 +938,13 @@ struct BitmapHasAll {
     using T0 = typename LeftDataType::FieldType;
     using T1 = typename RightDataType::FieldType;
     using TData = std::vector<BitmapValue>;
-    using ResTData = typename ColumnVector<UInt8>::Container;
+    using ResTData = typename ColumnUInt8::Container;
 
     static void vector_vector(const TData& lvec, const TData& rvec, ResTData& res) {
         size_t size = lvec.size();
         for (size_t i = 0; i < size; ++i) {
             uint64_t lhs_cardinality = lvec[i].cardinality();
-            auto bitmap = const_cast<BitmapValue&>(lvec[i]);
+            auto bitmap = lvec[i];
             bitmap |= rvec[i];
             res[i] = bitmap.cardinality() == lhs_cardinality;
         }
@@ -955,16 +953,16 @@ struct BitmapHasAll {
         size_t size = lvec.size();
         for (size_t i = 0; i < size; ++i) {
             uint64_t lhs_cardinality = lvec[i].cardinality();
-            auto bitmap = const_cast<BitmapValue&>(lvec[i]);
+            auto bitmap = lvec[i];
             bitmap |= rval;
             res[i] = bitmap.cardinality() == lhs_cardinality;
         }
     }
     static void scalar_vector(const BitmapValue& lval, const TData& rvec, ResTData& res) {
         size_t size = rvec.size();
+        uint64_t lhs_cardinality = lval.cardinality();
         for (size_t i = 0; i < size; ++i) {
-            uint64_t lhs_cardinality = lval.cardinality();
-            auto bitmap = const_cast<BitmapValue&>(lval);
+            auto bitmap = lval;
             bitmap |= rvec[i];
             res[i] = bitmap.cardinality() == lhs_cardinality;
         }
@@ -977,7 +975,7 @@ struct NameBitmapToString {
 
 struct BitmapToString {
     using ReturnType = DataTypeString;
-    static constexpr auto PrimitiveTypeImpl = PrimitiveType::TYPE_OBJECT;
+    static constexpr auto PrimitiveTypeImpl = PrimitiveType::TYPE_BITMAP;
     using Type = DataTypeBitMap::FieldType;
     using ReturnColumnType = ColumnString;
     using Chars = ColumnString::Chars;
@@ -1000,7 +998,7 @@ struct NameBitmapToBase64 {
 
 struct BitmapToBase64 {
     using ReturnType = DataTypeString;
-    static constexpr auto PrimitiveTypeImpl = PrimitiveType::TYPE_OBJECT;
+    static constexpr auto PrimitiveTypeImpl = PrimitiveType::TYPE_BITMAP;
     using Type = DataTypeBitMap::FieldType;
     using ReturnColumnType = ColumnString;
     using Chars = ColumnString::Chars;
@@ -1012,7 +1010,7 @@ struct BitmapToBase64 {
         offsets.resize(size);
         size_t output_char_size = 0;
         for (size_t i = 0; i < size; ++i) {
-            BitmapValue& bitmap_val = const_cast<BitmapValue&>(data[i]);
+            const BitmapValue& bitmap_val = data[i];
             auto ser_size = bitmap_val.getSizeInBytes();
             output_char_size += (int)(4.0 * ceil((double)ser_size / 3.0));
         }
@@ -1025,7 +1023,7 @@ struct BitmapToBase64 {
         std::string ser_buff;
         size_t encoded_offset = 0;
         for (size_t i = 0; i < size; ++i) {
-            BitmapValue& bitmap_val = const_cast<BitmapValue&>(data[i]);
+            const BitmapValue& bitmap_val = data[i];
             cur_ser_size = bitmap_val.getSizeInBytes();
             if (cur_ser_size > last_ser_size) {
                 last_ser_size = cur_ser_size;
@@ -1047,7 +1045,7 @@ struct BitmapToBase64 {
 struct SubBitmap {
     static constexpr auto name = "sub_bitmap";
     using TData1 = std::vector<BitmapValue>;
-    using TData2 = typename ColumnVector<Int64>::Container;
+    using TData2 = typename ColumnInt64::Container;
 
     static void vector3(const TData1& bitmap_data, const TData2& offset_data,
                         const TData2& limit_data, NullMap& null_map, size_t input_rows_count,
@@ -1060,8 +1058,7 @@ struct SubBitmap {
                 null_map[i] = 1;
                 continue;
             }
-            if (const_cast<TData1&>(bitmap_data)[i].offset_limit(offset_data[i], limit_data[i],
-                                                                 &res[i]) == 0) {
+            if (bitmap_data[i].offset_limit(offset_data[i], limit_data[i], &res[i]) == 0) {
                 null_map[i] = 1;
             }
         }
@@ -1077,8 +1074,7 @@ struct SubBitmap {
                 null_map[i] = 1;
                 continue;
             }
-            if (const_cast<TData1&>(bitmap_data)[i].offset_limit(offset_data, limit_data,
-                                                                 &res[i]) == 0) {
+            if (bitmap_data[i].offset_limit(offset_data, limit_data, &res[i]) == 0) {
                 null_map[i] = 1;
             }
         }
@@ -1088,7 +1084,7 @@ struct SubBitmap {
 struct BitmapSubsetLimit {
     static constexpr auto name = "bitmap_subset_limit";
     using TData1 = std::vector<BitmapValue>;
-    using TData2 = typename ColumnVector<Int64>::Container;
+    using TData2 = typename ColumnInt64::Container;
 
     static void vector3(const TData1& bitmap_data, const TData2& offset_data,
                         const TData2& limit_data, NullMap& null_map, size_t input_rows_count,
@@ -1101,7 +1097,7 @@ struct BitmapSubsetLimit {
                 null_map[i] = 1;
                 continue;
             }
-            const_cast<TData1&>(bitmap_data)[i].sub_limit(offset_data[i], limit_data[i], &res[i]);
+            bitmap_data[i].sub_limit(offset_data[i], limit_data[i], &res[i]);
         }
     }
     static void vector_scalars(const TData1& bitmap_data, const Int64& offset_data,
@@ -1115,7 +1111,7 @@ struct BitmapSubsetLimit {
                 null_map[i] = 1;
                 continue;
             }
-            const_cast<TData1&>(bitmap_data)[i].sub_limit(offset_data, limit_data, &res[i]);
+            bitmap_data[i].sub_limit(offset_data, limit_data, &res[i]);
         }
     }
 };
@@ -1123,7 +1119,7 @@ struct BitmapSubsetLimit {
 struct BitmapSubsetInRange {
     static constexpr auto name = "bitmap_subset_in_range";
     using TData1 = std::vector<BitmapValue>;
-    using TData2 = typename ColumnVector<Int64>::Container;
+    using TData2 = typename ColumnInt64::Container;
 
     static void vector3(const TData1& bitmap_data, const TData2& range_start,
                         const TData2& range_end, NullMap& null_map, size_t input_rows_count,
@@ -1136,7 +1132,7 @@ struct BitmapSubsetInRange {
                 null_map[i] = 1;
                 continue;
             }
-            const_cast<TData1&>(bitmap_data)[i].sub_range(range_start[i], range_end[i], &res[i]);
+            bitmap_data[i].sub_range(range_start[i], range_end[i], &res[i]);
         }
     }
     static void vector_scalars(const TData1& bitmap_data, const Int64& range_start,
@@ -1150,7 +1146,7 @@ struct BitmapSubsetInRange {
                 null_map[i] = 1;
                 continue;
             }
-            const_cast<TData1&>(bitmap_data)[i].sub_range(range_start, range_end, &res[i]);
+            bitmap_data[i].sub_range(range_start, range_end, &res[i]);
         }
     }
 };
@@ -1188,8 +1184,8 @@ public:
         default_preprocess_parameter_columns(argument_columns, col_const, {1, 2}, block, arguments);
 
         auto bitmap_column = assert_cast<const ColumnBitmap*>(argument_columns[0].get());
-        auto offset_column = assert_cast<const ColumnVector<Int64>*>(argument_columns[1].get());
-        auto limit_column = assert_cast<const ColumnVector<Int64>*>(argument_columns[2].get());
+        auto offset_column = assert_cast<const ColumnInt64*>(argument_columns[1].get());
+        auto limit_column = assert_cast<const ColumnInt64*>(argument_columns[2].get());
 
         if (col_const[1] && col_const[2]) {
             Impl::vector_scalars(bitmap_column->get_data(), offset_column->get_element(0),
@@ -1237,8 +1233,7 @@ public:
         auto& arg_col = block.get_by_position(arguments[0]).column;
         auto bitmap_col = assert_cast<const ColumnBitmap*>(arg_col.get());
         const auto& bitmap_col_data = bitmap_col->get_data();
-        auto& nested_column_data =
-                assert_cast<ColumnVector<Int64>*>(dest_nested_column)->get_data();
+        auto& nested_column_data = assert_cast<ColumnInt64*>(dest_nested_column)->get_data();
         auto& dest_offsets = dest_array_column_ptr->get_offsets();
         dest_offsets.reserve(input_rows_count);
 

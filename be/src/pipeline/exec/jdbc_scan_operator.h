@@ -61,6 +61,7 @@ private:
     TupleId _tuple_id;
     std::string _query_string;
     TOdbcTableType::type _table_type;
+    bool _is_tvf;
 };
 
 #include "common/compile_check_end.h"

@@ -51,6 +51,7 @@ class Array;
 } // namespace arrow
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 class FromBlockConverter {
 public:
@@ -84,30 +85,34 @@ private:
 };
 
 Status FromBlockConverter::convert(std::shared_ptr<arrow::RecordBatch>* out) {
-    size_t num_fields = _schema->num_fields();
+    int num_fields = _schema->num_fields();
     if (_block.columns() != num_fields) {
         return Status::InvalidArgument("number fields not match");
     }
 
     _arrays.resize(num_fields);
 
-    for (size_t idx = 0; idx < num_fields; ++idx) {
+    for (int idx = 0; idx < num_fields; ++idx) {
         _cur_field_idx = idx;
         _cur_start = 0;
         _cur_rows = _block.rows();
         _cur_col = _block.get_by_position(idx).column;
         _cur_type = _block.get_by_position(idx).type;
+        auto column = _cur_col->convert_to_full_column_if_const();
+        auto arrow_type = _schema->field(idx)->type();
+        if (arrow_type->name() == "utf8" && column->byte_size() >= MAX_ARROW_UTF8) {
+            arrow_type = arrow::large_utf8();
+        }
         std::unique_ptr<arrow::ArrayBuilder> builder;
-        auto arrow_st = arrow::MakeBuilder(_pool, _schema->field(idx)->type(), &builder);
+        auto arrow_st = arrow::MakeBuilder(_pool, arrow_type, &builder);
         if (!arrow_st.ok()) {
             return to_doris_status(arrow_st);
         }
         _cur_builder = builder.get();
-        auto column = _cur_col->convert_to_full_column_if_const();
         try {
-            _cur_type->get_serde()->write_column_to_arrow(*column, nullptr, _cur_builder,
-                                                          _cur_start, _cur_start + _cur_rows,
-                                                          _timezone_obj);
+            RETURN_IF_ERROR(_cur_type->get_serde()->write_column_to_arrow(
+                    *column, nullptr, _cur_builder, _cur_start, _cur_start + _cur_rows,
+                    _timezone_obj));
         } catch (std::exception& e) {
             return Status::InternalError(
                     "Fail to convert block data to arrow data, type: {}, name: {}, error: {}",
@@ -130,4 +135,5 @@ Status convert_to_arrow_batch(const vectorized::Block& block,
     return converter.convert(result);
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris

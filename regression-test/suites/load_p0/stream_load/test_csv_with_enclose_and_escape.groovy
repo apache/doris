@@ -1,4 +1,3 @@
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -38,6 +37,8 @@ suite("test_csv_with_enclose_and_escape", "p0") {
     def normalCases = [
             'enclose_normal.csv',
             'enclose_with_escape.csv',
+            'enclose_with_escape_quote.csv',
+            'enclose_with_escape_doublequote.csv',
             'enclose_wrong_position.csv',
             'enclose_empty_values.csv'
     ]
@@ -46,7 +47,6 @@ suite("test_csv_with_enclose_and_escape", "p0") {
         streamLoad {
             table "${tableName}"
             set 'column_separator', ','
-            set 'trim_double_quotes', 'true'
             set 'enclose', "\""
             set 'escape', '\\'
 
@@ -57,7 +57,6 @@ suite("test_csv_with_enclose_and_escape", "p0") {
     streamLoad {
         table "${tableName}"
         set 'column_separator', ','
-        set 'trim_double_quotes', 'true'
         set 'enclose', "\""
         set 'escape', '\\'
         set 'max_filter_ratio', '0.5'
@@ -75,7 +74,6 @@ suite("test_csv_with_enclose_and_escape", "p0") {
     streamLoad {
         table "${tableName}"
         set 'column_separator', ','
-        set 'trim_double_quotes', 'true'
         set 'enclose', "\""
         set 'escape', '\\'
 
@@ -93,7 +91,6 @@ suite("test_csv_with_enclose_and_escape", "p0") {
         table "${tableName}"
         set 'column_separator', '@@'
         set 'line_delimiter', '$$$'
-        set 'trim_double_quotes', 'true'
         set 'enclose', "\""
         set 'escape', '\\'
 
@@ -103,11 +100,19 @@ suite("test_csv_with_enclose_and_escape", "p0") {
     streamLoad {
         table "${tableName}"
         set 'column_separator', ','
-        set 'trim_double_quotes', 'false'
         set 'enclose', "\""
         set 'escape', '\\'
 
         file "enclose_not_trim_quotes.csv"
+    }
+
+    streamLoad {
+        table "${tableName}"
+        set 'column_separator', ','
+        set 'enclose', "\""
+        set 'escape', '\"'
+
+        file "enclose_with_same_escape.csv"
     }
 
     sql "sync"

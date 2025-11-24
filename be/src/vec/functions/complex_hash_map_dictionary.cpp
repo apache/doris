@@ -21,11 +21,12 @@
 #include <vector>
 
 #include "common/status.h"
-#include "vec/columns/columns_number.h"
+#include "vec/data_types/data_type_decimal.h"
+#include "vec/data_types/data_type_number.h" // IWYU pragma: keep
 #include "vec/functions/dictionary.h"
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 ComplexHashMapDictionary::~ComplexHashMapDictionary() {
     if (_mem_tracker) {
         SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_mem_tracker);
@@ -69,7 +70,7 @@ void ComplexHashMapDictionary::load_data(const ColumnPtrs& key_columns, const Da
                            }
                            State state(key_raw_columns);
 
-                           const size_t rows = key_columns[0]->size();
+                           auto rows = uint32_t(key_columns[0]->size());
                            dict_method.init_serialized_keys(key_raw_columns, rows);
                            size_t input_rows = 0;
                            for (int i = 0; i < rows; i++) {
@@ -130,7 +131,7 @@ ColumnPtrs ComplexHashMapDictionary::get_tuple_columns(
                 "not nullable type");
     }
 
-    const size_t rows = key_columns[0]->size();
+    auto rows = uint32_t(key_columns[0]->size());
     IColumn::Selector value_index = IColumn::Selector(rows);
     // if key is not found, or key is null , wiil set true
     NullMap key_not_found = NullMap(rows, false);
@@ -228,5 +229,5 @@ ColumnPtr ComplexHashMapDictionary::get_single_value_column(
 
     return ColumnNullable::create(std::move(res_column), std::move(res_null));
 }
-
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

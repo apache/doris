@@ -123,8 +123,7 @@ ColumnPtr ColumnTypeConverter::get_column(const DataTypePtr& src_type, ColumnPtr
         // In order to share null map between parquet converted src column and dst column to avoid copying. It is very tricky that will
         // call mutable function `doris_nullable_column->get_null_map_column_ptr()` which will set `_need_update_has_null = true`.
         // Because some operations such as agg will call `has_null()` to set `_need_update_has_null = false`.
-        auto* doris_nullable_column =
-                const_cast<ColumnNullable*>(static_cast<const ColumnNullable*>(dst_column.get()));
+        auto* doris_nullable_column = static_cast<const ColumnNullable*>(dst_column.get());
         return ColumnNullable::create(_cached_src_column,
                                       doris_nullable_column->get_null_map_column_ptr());
     }
@@ -278,6 +277,23 @@ static std::unique_ptr<ColumnTypeConverter> _numeric_to_decimal_converter(
     }
 }
 
+static std::unique_ptr<ColumnTypeConverter> _datetime_to_numeric_converter(
+        const DataTypePtr& src_type, const DataTypePtr& dst_type) {
+    PrimitiveType dst_primitive_type = dst_type->get_primitive_type();
+
+    switch (dst_primitive_type) {
+#define DISPATCH(DST_TYPE)                                               \
+    case DST_TYPE: {                                                     \
+        return std::make_unique<DateTimeToNumericConverter<DST_TYPE>>(); \
+    }
+        FOR_LOGICAL_INTEGER_TYPES(DISPATCH)
+#undef DISPATCH
+    default: {
+        return std::make_unique<UnsupportedConverter>(src_type, dst_type);
+    }
+    };
+}
+
 static std::unique_ptr<ColumnTypeConverter> _decimal_to_numeric_converter(
         const DataTypePtr& src_type, const DataTypePtr& dst_type) {
     PrimitiveType src_primitive_type = src_type->get_primitive_type();
@@ -402,6 +418,11 @@ std::unique_ptr<ColumnTypeConverter> ColumnTypeConverter::get_converter(const Da
     }
     if (src_primitive_type == TYPE_DATETIMEV2 && dst_primitive_type == TYPE_DATEV2) {
         return std::make_unique<TimeV2Converter<TYPE_DATETIMEV2, TYPE_DATEV2>>();
+    }
+
+    // datetime to bigint (ms)
+    if (src_primitive_type == TYPE_DATETIMEV2 && _is_numeric_type(dst_primitive_type)) {
+        return _datetime_to_numeric_converter(src_type, dst_type);
     }
 
     // numeric to decimal

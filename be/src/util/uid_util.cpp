@@ -24,12 +24,13 @@
 
 #include <cstdlib>
 
+#include "common/cast_set.h"
 #include "util/hash_util.hpp"
 
 namespace doris {
-
+#include "common/compile_check_begin.h"
 size_t UniqueId::hash(size_t seed) const {
-    return doris::HashUtil::hash(this, sizeof(*this), seed);
+    return doris::HashUtil::hash(this, sizeof(*this), cast_set<uint32_t>(seed));
 }
 
 std::size_t hash_value(const doris::TUniqueId& id) {
@@ -44,6 +45,10 @@ std::ostream& operator<<(std::ostream& os, const UniqueId& uid) {
     return os;
 }
 
+std::string print_id(const UniqueId& id) {
+    return id.to_string();
+}
+
 std::string print_id(const TUniqueId& id) {
     return fmt::format(FMT_COMPILE("{:x}-{:x}"), static_cast<uint64_t>(id.hi),
                        static_cast<uint64_t>(id.lo));
@@ -54,27 +59,15 @@ std::string print_id(const PUniqueId& id) {
                        static_cast<uint64_t>(id.lo()));
 }
 
-bool parse_id(const std::string& s, TUniqueId* id) {
-    DCHECK(id != nullptr);
-
-    const char* hi_part = s.c_str();
-    char* colon = const_cast<char*>(strchr(hi_part, '-'));
-
-    if (colon == nullptr) {
+bool TUniqueId::operator<(const TUniqueId& rhs) const {
+    if (hi < rhs.hi) {
+        return true;
+    }
+    if (hi > rhs.hi) {
         return false;
     }
-
-    const char* lo_part = colon + 1;
-    *colon = '\0';
-
-    char* error_hi = nullptr;
-    char* error_lo = nullptr;
-    id->hi = strtoul(hi_part, &error_hi, 16);
-    id->lo = strtoul(lo_part, &error_lo, 16);
-
-    bool valid = *error_hi == '\0' && *error_lo == '\0';
-    *colon = ':';
-    return valid;
+    return lo < rhs.lo;
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris

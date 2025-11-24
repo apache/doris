@@ -34,6 +34,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterializeOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
@@ -190,6 +191,11 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
     }
 
     @Override
+    public Boolean visitPhysicalLazyMaterializeOlapScan(PhysicalLazyMaterializeOlapScan scan, PushDownContext ctx) {
+        return visitPhysicalRelation(scan, ctx);
+    }
+
+    @Override
     public Boolean visitPhysicalRelation(PhysicalRelation scan, PushDownContext ctx) {
         if (scan instanceof PhysicalSchemaScan) {
             return false;
@@ -263,7 +269,7 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
         probExprList.add(ctx.probeExpr);
         Pair<PhysicalRelation, Slot> srcPair = ctx.rfContext.getAliasTransferMap().get(ctx.srcExpr);
         PhysicalRelation srcNode = (srcPair == null) ? null : srcPair.first;
-        Pair<PhysicalRelation, Slot> targetPair = ctx.rfContext.getAliasTransferMap().get(ctx.probeExpr);
+        Pair<PhysicalRelation, Slot> targetPair = ctx.rfContext.getAliasTransferMap().get(ctx.probeSlot);
         if (targetPair == null) {
             /* cases for "targetPair is null"
              when probeExpr is output slot of setOperator, targetPair is null

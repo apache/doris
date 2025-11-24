@@ -42,4 +42,8 @@ public class SubTreePattern<TYPE extends Plan> extends Pattern<TYPE> {
     public boolean matchRoot(Plan plan) {
         return plan != null && subTreeNodeTypes.contains(plan.getClass());
     }
+
+    public Set<Class<? extends Plan>> getSubTreeNodeTypes() {
+        return subTreeNodeTypes;
+    }
 }

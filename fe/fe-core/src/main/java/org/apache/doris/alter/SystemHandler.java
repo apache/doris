@@ -21,8 +21,6 @@ import org.apache.doris.analysis.AddBackendClause;
 import org.apache.doris.analysis.AddFollowerClause;
 import org.apache.doris.analysis.AddObserverClause;
 import org.apache.doris.analysis.AlterClause;
-import org.apache.doris.analysis.CancelAlterSystemStmt;
-import org.apache.doris.analysis.CancelStmt;
 import org.apache.doris.analysis.DecommissionBackendClause;
 import org.apache.doris.analysis.DropBackendClause;
 import org.apache.doris.analysis.DropFollowerClause;
@@ -51,6 +49,7 @@ import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.AlterCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterSystemCommand;
+import org.apache.doris.nereids.trees.plans.commands.CancelDecommissionBackendCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.AddBackendOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AddBrokerOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AddFollowerOp;
@@ -593,19 +592,17 @@ public class SystemHandler extends AlterHandler {
         }
     }
 
-    @Override
-    public synchronized void cancel(CancelStmt stmt) throws DdlException {
-        CancelAlterSystemStmt cancelAlterSystemStmt = (CancelAlterSystemStmt) stmt;
+    public void cancel(CancelDecommissionBackendCommand command) throws DdlException {
         SystemInfoService infoService = Env.getCurrentSystemInfo();
         // check if backends is under decommission
-        List<HostInfo> hostInfos = cancelAlterSystemStmt.getHostInfos();
+        List<HostInfo> hostInfos = command.getHostInfos();
         if (hostInfos.isEmpty()) {
-            List<String> ids = cancelAlterSystemStmt.getIds();
+            List<String> ids = command.getIds();
             for (String id : ids) {
                 Backend backend = infoService.getBackend(Long.parseLong(id));
                 if (backend == null) {
                     throw new DdlException("Backend does not exist["
-                            + id + "]");
+                        + id + "]");
                 }
                 if (!backend.isDecommissioned()) {
                     // it's ok. just log
@@ -626,7 +623,7 @@ public class SystemHandler extends AlterHandler {
                         hostInfo.getPort());
                 if (backend == null) {
                     throw new DdlException("Backend does not exist["
-                            + NetUtils.getHostPortInAccessibleFormat(hostInfo.getHost(), hostInfo.getPort()) + "]");
+                        + NetUtils.getHostPortInAccessibleFormat(hostInfo.getHost(), hostInfo.getPort()) + "]");
                 }
 
                 if (!backend.isDecommissioned()) {

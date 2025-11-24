@@ -21,10 +21,10 @@
 package org.apache.doris.datasource.iceberg;
 
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.info.SimpleTableInfo;
-import org.apache.doris.datasource.ExternalCatalog;
+import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.iceberg.helper.IcebergWriterHelper;
-import org.apache.doris.nereids.trees.plans.commands.insert.BaseExternalTableInsertCommandContext;
+import org.apache.doris.nereids.trees.plans.commands.insert.IcebergInsertCommandContext;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertCommandContext;
 import org.apache.doris.thrift.TIcebergCommitData;
 import org.apache.doris.thrift.TUpdateMode;
@@ -33,11 +33,14 @@ import org.apache.doris.transaction.Transaction;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import org.apache.iceberg.AppendFiles;
+import org.apache.iceberg.DataFile;
 import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.OverwriteFiles;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.ReplacePartitions;
+import org.apache.iceberg.RewriteFiles;
+import org.apache.iceberg.SnapshotRef;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.io.WriteResult;
@@ -48,7 +51,6 @@ import java.io.IOException;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
-import java.util.Objects;
 import java.util.Optional;
 
 public class IcebergTransaction implements Transaction {
@@ -56,12 +58,18 @@ public class IcebergTransaction implements Transaction {
     private static final Logger LOG = LogManager.getLogger(IcebergTransaction.class);
 
     private final IcebergMetadataOps ops;
-    private SimpleTableInfo tableInfo;
     private Table table;
-
 
     private org.apache.iceberg.Transaction transaction;
     private final List<TIcebergCommitData> commitDataList = Lists.newArrayList();
+
+    private IcebergInsertCommandContext insertCtx;
+    private String branchName;
+
+    // Rewrite operation support
+    private final List<DataFile> filesToDelete = Lists.newArrayList();
+    private final List<DataFile> filesToAdd = Lists.newArrayList();
+    private boolean isRewriteMode = false;
 
     public IcebergTransaction(IcebergMetadataOps ops) {
         this.ops = ops;
@@ -73,22 +81,153 @@ public class IcebergTransaction implements Transaction {
         }
     }
 
-    public void beginInsert(SimpleTableInfo tableInfo) {
-        this.tableInfo = tableInfo;
-        this.table = getNativeTable(tableInfo);
-        this.transaction = table.newTransaction();
+    public void updateRewriteFiles(List<DataFile> filesToDelete) {
+        synchronized (this) {
+            this.filesToDelete.addAll(filesToDelete);
+        }
     }
 
-    public void finishInsert(SimpleTableInfo tableInfo, Optional<InsertCommandContext> insertCtx) {
+    public void beginInsert(ExternalTable dorisTable, Optional<InsertCommandContext> ctx) throws UserException {
+        ctx.ifPresent(c -> this.insertCtx = (IcebergInsertCommandContext) c);
+        try {
+            ops.getExecutionAuthenticator().execute(() -> {
+                // create and start the iceberg transaction
+                this.table = IcebergUtils.getIcebergTable(dorisTable);
+                // check branch
+                if (insertCtx != null && insertCtx.getBranchName().isPresent()) {
+                    this.branchName = insertCtx.getBranchName().get();
+                    SnapshotRef branchRef = table.refs().get(branchName);
+                    if (branchRef == null) {
+                        throw new RuntimeException(branchName + " is not founded in " + dorisTable.getName());
+                    } else if (!branchRef.isBranch()) {
+                        throw new RuntimeException(
+                                branchName
+                                        + " is a tag, not a branch. Tags cannot be targets for producing snapshots");
+                    }
+                }
+                this.transaction = table.newTransaction();
+            });
+        } catch (Exception e) {
+            throw new UserException("Failed to begin insert for iceberg table " + dorisTable.getName()
+                    + "because: " + e.getMessage(), e);
+        }
+
+    }
+
+    /**
+     * Begin rewrite transaction for data file rewrite operations
+     */
+    public void beginRewrite(ExternalTable dorisTable) throws UserException {
+        // For rewrite operations, we work directly on the main table
+        this.branchName = null;
+        this.isRewriteMode = true;
+
+        try {
+            ops.getExecutionAuthenticator().execute(() -> {
+                // create and start the iceberg transaction
+                this.table = IcebergUtils.getIcebergTable(dorisTable);
+
+                // For rewrite operations, we work directly on the main table
+                // No branch information needed
+                this.transaction = table.newTransaction();
+                LOG.info("Started rewrite transaction for table: {} (main table)",
+                        dorisTable.getName());
+                return null;
+            });
+        } catch (Exception e) {
+            throw new UserException("Failed to begin rewrite for iceberg table " + dorisTable.getName()
+                    + " because: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Finish rewrite operation by committing all file changes using RewriteFiles
+     * API
+     */
+    public void finishRewrite() {
+        // TODO: refactor IcebergTransaction to make code cleaner
+        convertCommitDataListToDataFilesToAdd();
+
         if (LOG.isDebugEnabled()) {
-            LOG.info("iceberg table {} insert table finished!", tableInfo);
+            LOG.debug("Finishing rewrite with {} files to delete and {} files to add",
+                    filesToDelete.size(), filesToAdd.size());
+        }
+
+        try {
+            ops.getExecutionAuthenticator().execute(() -> {
+                updateManifestAfterRewrite();
+                return null;
+            });
+        } catch (Exception e) {
+            LOG.error("Failed to finish rewrite transaction", e);
+            throw new RuntimeException(e);
+        }
+    }
+
+    private void convertCommitDataListToDataFilesToAdd() {
+        if (commitDataList.isEmpty()) {
+            LOG.debug("No commit data to convert for rewrite operation");
+            return;
+        }
+
+        // Get table specification information
+        PartitionSpec spec = transaction.table().spec();
+        FileFormat fileFormat = IcebergUtils.getFileFormat(transaction.table());
+
+        // Convert commit data to DataFile objects using the same logic as insert
+        WriteResult writeResult = IcebergWriterHelper.convertToWriterResult(fileFormat, spec, commitDataList);
+
+        // Add the generated DataFiles to filesToAdd list
+        synchronized (filesToAdd) {
+            for (DataFile dataFile : writeResult.dataFiles()) {
+                filesToAdd.add(dataFile);
+            }
+        }
+
+        LOG.info("Converted {} commit data entries to {} DataFiles for rewrite operation",
+                commitDataList.size(), writeResult.dataFiles().length);
+    }
+
+    private void updateManifestAfterRewrite() {
+        if (filesToDelete.isEmpty() && filesToAdd.isEmpty()) {
+            LOG.info("No files to rewrite, skipping commit");
+            return;
+        }
+
+        RewriteFiles rewriteFiles = transaction.newRewrite();
+
+        // For rewrite operations, we work directly on the main table
+        rewriteFiles = rewriteFiles.scanManifestsWith(ops.getThreadPoolWithPreAuth());
+
+        // Add files to delete
+        for (DataFile dataFile : filesToDelete) {
+            rewriteFiles.deleteFile(dataFile);
+        }
+
+        // Add files to add
+        for (DataFile dataFile : filesToAdd) {
+            rewriteFiles.addFile(dataFile);
+        }
+
+        // Commit the rewrite operation
+        rewriteFiles.commit();
+
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("Rewrite committed with {} files deleted and {} files added",
+                    filesToDelete.size(), filesToAdd.size());
+        }
+    }
+
+    public void finishInsert(NameMapping nameMapping) {
+        if (LOG.isDebugEnabled()) {
+            LOG.info("iceberg table {} insert table finished!", nameMapping.getFullLocalName());
         }
         try {
-            ops.getPreExecutionAuthenticator().execute(() -> {
+            ops.getExecutionAuthenticator().execute(() -> {
                 //create and start the iceberg transaction
                 TUpdateMode updateMode = TUpdateMode.APPEND;
-                if (insertCtx.isPresent()) {
-                    updateMode = ((BaseExternalTableInsertCommandContext) insertCtx.get()).isOverwrite()
+                if (insertCtx != null) {
+                    updateMode = insertCtx.isOverwrite()
                             ? TUpdateMode.OVERWRITE
                             : TUpdateMode.APPEND;
                 }
@@ -96,15 +235,15 @@ public class IcebergTransaction implements Transaction {
                 return null;
             });
         } catch (Exception e) {
-            LOG.warn("Failed to finish insert for iceberg table {}.", tableInfo, e);
+            LOG.warn("Failed to finish insert for iceberg table {}.", nameMapping.getFullLocalName(), e);
             throw new RuntimeException(e);
         }
 
     }
 
     private void updateManifestAfterInsert(TUpdateMode updateMode) {
-        PartitionSpec spec = table.spec();
-        FileFormat fileFormat = IcebergUtils.getFileFormat(table);
+        PartitionSpec spec = transaction.table().spec();
+        FileFormat fileFormat = IcebergUtils.getFileFormat(transaction.table());
 
         List<WriteResult> pendingResults;
         if (commitDataList.isEmpty()) {
@@ -117,9 +256,9 @@ public class IcebergTransaction implements Transaction {
         }
 
         if (updateMode == TUpdateMode.APPEND) {
-            commitAppendTxn(table, pendingResults);
+            commitAppendTxn(pendingResults);
         } else {
-            commitReplaceTxn(table, pendingResults);
+            commitReplaceTxn(pendingResults);
         }
     }
 
@@ -131,23 +270,65 @@ public class IcebergTransaction implements Transaction {
 
     @Override
     public void rollback() {
-        //do nothing
+        if (isRewriteMode) {
+            // Clear the collected files for rewrite mode
+            synchronized (filesToDelete) {
+                filesToDelete.clear();
+            }
+            synchronized (filesToAdd) {
+                filesToAdd.clear();
+            }
+            LOG.info("Rewrite transaction rolled back");
+        }
+        // For insert mode, do nothing as original implementation
     }
 
     public long getUpdateCnt() {
         return commitDataList.stream().mapToLong(TIcebergCommitData::getRowCount).sum();
     }
 
-
-    private synchronized Table getNativeTable(SimpleTableInfo tableInfo) {
-        Objects.requireNonNull(tableInfo);
-        ExternalCatalog externalCatalog = ops.getExternalCatalog();
-        return IcebergUtils.getRemoteTable(externalCatalog, tableInfo);
+    /**
+     * Get the number of files that will be deleted in rewrite operation
+     */
+    public int getFilesToDeleteCount() {
+        synchronized (filesToDelete) {
+            return filesToDelete.size();
+        }
     }
 
-    private void commitAppendTxn(Table table, List<WriteResult> pendingResults) {
+    /**
+     * Get the number of files that will be added in rewrite operation
+     */
+    public int getFilesToAddCount() {
+        synchronized (filesToAdd) {
+            return filesToAdd.size();
+        }
+    }
+
+    /**
+     * Get the total size of files to be deleted in rewrite operation
+     */
+    public long getFilesToDeleteSize() {
+        synchronized (filesToDelete) {
+            return filesToDelete.stream().mapToLong(DataFile::fileSizeInBytes).sum();
+        }
+    }
+
+    /**
+     * Get the total size of files to be added in rewrite operation
+     */
+    public long getFilesToAddSize() {
+        synchronized (filesToAdd) {
+            return filesToAdd.stream().mapToLong(DataFile::fileSizeInBytes).sum();
+        }
+    }
+
+    private void commitAppendTxn(List<WriteResult> pendingResults) {
         // commit append files.
-        AppendFiles appendFiles = table.newAppend();
+        AppendFiles appendFiles = transaction.newAppend().scanManifestsWith(ops.getThreadPoolWithPreAuth());
+        if (branchName != null) {
+            appendFiles = appendFiles.toBranch(branchName);
+        }
         for (WriteResult result : pendingResults) {
             Preconditions.checkState(result.referencedDataFiles().length == 0,
                     "Should have no referenced data files for append.");
@@ -156,16 +337,20 @@ public class IcebergTransaction implements Transaction {
         appendFiles.commit();
     }
 
-
-    private void commitReplaceTxn(Table table, List<WriteResult> pendingResults) {
+    private void commitReplaceTxn(List<WriteResult> pendingResults) {
         if (pendingResults.isEmpty()) {
             // such as : insert overwrite table `dst_tb` select * from `empty_tb`
             // 1. if dst_tb is a partitioned table, it will return directly.
             // 2. if dst_tb is an unpartitioned table, the `dst_tb` table will be emptied.
-            if (!table.spec().isPartitioned()) {
-                OverwriteFiles overwriteFiles = table.newOverwrite();
+            if (!transaction.table().spec().isPartitioned()) {
+                OverwriteFiles overwriteFiles = transaction.newOverwrite();
+                if (branchName != null) {
+                    overwriteFiles = overwriteFiles.toBranch(branchName);
+                }
+                overwriteFiles = overwriteFiles.scanManifestsWith(ops.getThreadPoolWithPreAuth());
                 try (CloseableIterable<FileScanTask> fileScanTasks = table.newScan().planFiles()) {
-                    fileScanTasks.forEach(f -> overwriteFiles.deleteFile(f.file()));
+                    OverwriteFiles finalOverwriteFiles = overwriteFiles;
+                    fileScanTasks.forEach(f -> finalOverwriteFiles.deleteFile(f.file()));
                 } catch (IOException e) {
                     throw new RuntimeException(e);
                 }
@@ -175,7 +360,11 @@ public class IcebergTransaction implements Transaction {
         }
 
         // commit replace partitions
-        ReplacePartitions appendPartitionOp = table.newReplacePartitions();
+        ReplacePartitions appendPartitionOp = transaction.newReplacePartitions();
+        if (branchName != null) {
+            appendPartitionOp = appendPartitionOp.toBranch(branchName);
+        }
+        appendPartitionOp = appendPartitionOp.scanManifestsWith(ops.getThreadPoolWithPreAuth());
         for (WriteResult result : pendingResults) {
             Preconditions.checkState(result.referencedDataFiles().length == 0,
                     "Should have no referenced data files.");

@@ -17,10 +17,8 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.datasource.InternalCatalog;
@@ -32,7 +30,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.gson.annotations.SerializedName;
 
-import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Objects;
@@ -106,14 +103,6 @@ public class TablePattern implements Writable, GsonPostProcessable {
         }
     }
 
-    public void analyze(Analyzer analyzer) throws AnalysisException {
-        if (ctl == null) {
-            analyze(analyzer.getDefaultCatalog());
-        } else {
-            analyze(ctl);
-        }
-    }
-
     private void analyze(String catalogName) throws AnalysisException {
         if (isAnalyzed) {
             return;
@@ -134,20 +123,6 @@ public class TablePattern implements Writable, GsonPostProcessable {
         if (db != null) {
             db = ClusterNamespace.getNameFromFullName(db);
         }
-    }
-
-    public static TablePattern read(DataInput in) throws IOException {
-        TablePattern tablePattern;
-        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_111) {
-            tablePattern = GsonUtils.GSON.fromJson(Text.readString(in), TablePattern.class);
-        } else {
-            String ctl = InternalCatalog.INTERNAL_CATALOG_NAME;
-            String db = Text.readString(in);
-            String tbl = Text.readString(in);
-            tablePattern = new TablePattern(ctl, db, tbl);
-        }
-        tablePattern.isAnalyzed = true;
-        return tablePattern;
     }
 
     @Override

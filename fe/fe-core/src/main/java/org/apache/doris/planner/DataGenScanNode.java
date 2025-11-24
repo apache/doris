@@ -17,13 +17,11 @@
 
 package org.apache.doris.planner;
 
-import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.common.NereidsException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.ExternalScanNode;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.tablefunction.DataGenTableValuedFunction;
 import org.apache.doris.tablefunction.TableValuedFunctionTask;
 import org.apache.doris.thrift.TDataGenScanNode;
@@ -35,8 +33,6 @@ import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
 
 import com.google.common.collect.Lists;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.stream.Collectors;
@@ -45,37 +41,17 @@ import java.util.stream.Collectors;
  * This scan node is used for data source generated from memory.
  */
 public class DataGenScanNode extends ExternalScanNode {
-    private static final Logger LOG = LogManager.getLogger(DataGenScanNode.class.getName());
 
     private DataGenTableValuedFunction tvf;
-    private boolean isFinalized = false;
 
     public DataGenScanNode(PlanNodeId id, TupleDescriptor desc, DataGenTableValuedFunction tvf) {
-        super(id, desc, "DataGenScanNode", StatisticalType.TABLE_VALUED_FUNCTION_NODE, false);
+        super(id, desc, "DataGenScanNode", false);
         this.tvf = tvf;
-    }
-
-    @Override
-    public void init(Analyzer analyzer) throws UserException {
-        super.init(analyzer);
-    }
-
-    public DataGenTableValuedFunction getTvf() {
-        return tvf;
     }
 
     @Override
     public List<TScanRangeLocations> getScanRangeLocations(long maxScanRangeLength) {
         return scanRangeLocations;
-    }
-
-    @Override
-    public void finalize(Analyzer analyzer) throws UserException {
-        if (isFinalized) {
-            return;
-        }
-        createScanRangeLocations();
-        isFinalized = true;
     }
 
     @Override
@@ -109,11 +85,6 @@ public class DataGenScanNode extends ExternalScanNode {
         } catch (UserException e) {
             throw new NereidsException("Can not compute shard locations for DataGenScanNode: " + e.getMessage(), e);
         }
-    }
-
-    @Override
-    public boolean needToCheckColumnPriv() {
-        return false;
     }
 
     // Currently DataGenScanNode is only used by DataGenTableValuedFunction, which is

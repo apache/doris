@@ -51,7 +51,6 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.load.Load;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -435,10 +434,6 @@ public class CatalogMocker {
                     catalog.getDbNames();
                     minTimes = 0;
                     result = Lists.newArrayList(TEST_DB_NAME);
-
-                    env.getLoadInstance();
-                    minTimes = 0;
-                    result = new Load();
 
                     env.getEditLog();
                     minTimes = 0;

@@ -21,13 +21,11 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.ColumnStats;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.thrift.TSlotDescriptor;
 
 import com.google.common.base.MoreObjects;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -42,6 +40,9 @@ public class SlotDescriptor {
     private Type type;
     private Column column;  // underlying column, if there is one
 
+    // used in explain verbose, caption is column name or alias name
+    private String caption;
+
     // for SlotRef.toSql() in the absence of a path
     private String label;
     // for variant column's sub column lables
@@ -55,52 +56,29 @@ public class SlotDescriptor {
     // path_ is set.
     private List<Expr> sourceExprs = Lists.newArrayList();
 
-    // if false, this slot doesn't need to be materialized in parent tuple
-    // (and physical layout parameters are invalid)
-    private boolean isMaterialized;
-
     // if false, this slot cannot be NULL
     private boolean isNullable;
 
-    // physical layout parameters
-    private int byteSize;
-    private int byteOffset = 0; // within tuple
-    private int slotIdx;          // index within tuple struct
-    private int slotOffset;       // index within slot array list
-
-    private ColumnStats stats;  // only set if 'column' isn't set
-    private boolean isAgg;
     // If set to false, then such slots will be ignored during
     // materialize them.Used to optimize to read less data and less memory usage
     private boolean needMaterialize = true;
     private boolean isAutoInc = false;
+    private Expr virtualColumn = null;
 
     public SlotDescriptor(SlotId id, TupleDescriptor parent) {
+
         this.id = id;
         this.parent = parent;
-        this.byteOffset = -1;  // invalid
-        this.isMaterialized = false;
         this.isNullable = true;
-        this.isAgg = false;
     }
 
     public SlotDescriptor(SlotId id, TupleDescriptor parent, SlotDescriptor src) {
         this.id = id;
         this.parent = parent;
-        this.byteOffset = src.byteOffset;
-        this.slotIdx = src.slotIdx;
-        this.isMaterialized = src.isMaterialized;
         this.column = src.column;
         this.isNullable = src.isNullable;
-        this.byteSize = src.byteSize;
-        this.isAgg = false;
-        this.stats = src.stats;
         this.type = src.type;
         this.sourceExprs.add(new SlotRef(src));
-    }
-
-    public boolean getIsAgg() {
-        return isAgg;
     }
 
     public void setNeedMaterialize(boolean needMaterialize) {
@@ -109,10 +87,6 @@ public class SlotDescriptor {
 
     public boolean isInvalid() {
         return !this.needMaterialize;
-    }
-
-    public void setIsAgg(boolean agg) {
-        isAgg = agg;
     }
 
     public SlotId getId() {
@@ -146,18 +120,11 @@ public class SlotDescriptor {
     public void setColumn(Column column) {
         this.column = column;
         this.type = column.getType();
+        this.caption = column.getName();
     }
 
     public void setSrcColumn(Column column) {
         this.column = column;
-    }
-
-    public boolean isMaterialized() {
-        return isMaterialized;
-    }
-
-    public void setIsMaterialized(boolean value) {
-        isMaterialized = value;
     }
 
     public boolean isAutoInc() {
@@ -168,22 +135,6 @@ public class SlotDescriptor {
         this.isAutoInc = isAutoInc;
     }
 
-    public void materializeSrcExpr() {
-        if (sourceExprs == null) {
-            return;
-        }
-        for (Expr expr : sourceExprs) {
-            if (!(expr instanceof SlotRef)) {
-                expr.materializeSrcExpr();
-                continue;
-            }
-            SlotRef slotRef = (SlotRef) expr;
-            SlotDescriptor slotDesc = slotRef.getDesc();
-            slotDesc.setIsMaterialized(true);
-            slotDesc.materializeSrcExpr();
-        }
-    }
-
     public boolean getIsNullable() {
         return isNullable;
     }
@@ -192,53 +143,8 @@ public class SlotDescriptor {
         isNullable = value;
     }
 
-    public int getByteSize() {
-        return byteSize;
-    }
-
-    public void setByteSize(int byteSize) {
-        this.byteSize = byteSize;
-    }
-
-    public int getByteOffset() {
-        return byteOffset;
-    }
-
-    public void setByteOffset(int byteOffset) {
-        this.byteOffset = byteOffset;
-    }
-
-    public void setSlotIdx(int slotIdx) {
-        this.slotIdx = slotIdx;
-    }
-
-    public void setStats(ColumnStats stats) {
-        this.stats = stats;
-    }
-
     public void setMaterializedColumnName(String name) {
         this.materializedColumnName = name;
-    }
-
-    public ColumnStats getStats() {
-        if (stats == null) {
-            if (column != null) {
-                stats = column.getStats();
-            } else {
-                stats = new ColumnStats();
-            }
-        }
-        // FIXME(dhc): mock ndv
-        stats.setNumDistinctValues((long) parent.getCardinality());
-        return stats;
-    }
-
-    public void setSlotOffset(int slotOffset) {
-        this.slotOffset = slotOffset;
-    }
-
-    public int getSlotOffset() {
-        return slotOffset;
     }
 
     public String getLabel() {
@@ -253,10 +159,6 @@ public class SlotDescriptor {
         sourceExprs = Collections.singletonList(expr);
     }
 
-    public void addSourceExpr(Expr expr) {
-        sourceExprs.add(expr);
-    }
-
     public List<Expr> getSourceExprs() {
         return sourceExprs;
     }
@@ -268,37 +170,12 @@ public class SlotDescriptor {
         return column.getUniqueId();
     }
 
-    /**
-     * Initializes a slot by setting its source expression information
-     */
-    public void initFromExpr(Expr expr) {
-        setIsNullable(expr.isNullable());
-        setLabel(expr.toSql());
-        Preconditions.checkState(sourceExprs.isEmpty());
-        setSourceExpr(expr);
-        setStats(ColumnStats.fromExpr(expr));
-        Preconditions.checkState(expr.getType().isValid());
-        setType(expr.getType());
+    public Expr getVirtualColumn() {
+        return virtualColumn;
     }
 
-    /**
-     * Return true if the physical layout of this descriptor matches the physical layout
-     * of the other descriptor, but not necessarily ids.
-     */
-    public boolean layoutEquals(SlotDescriptor other) {
-        if (!getType().equals(other.getType())) {
-            return false;
-        }
-        if (isNullable != other.isNullable) {
-            return false;
-        }
-        if (getByteSize() != other.getByteSize()) {
-            return false;
-        }
-        if (getByteOffset() != other.getByteOffset()) {
-            return false;
-        }
-        return true;
+    public void setVirtualColumn(Expr virtualColumn) {
+        this.virtualColumn = virtualColumn;
     }
 
     public TSlotDescriptor toThrift() {
@@ -306,8 +183,8 @@ public class SlotDescriptor {
         String colName = materializedColumnName != null ? materializedColumnName :
                                      ((column != null) ? column.getNonShadowName() : "");
         TSlotDescriptor tSlotDescriptor = new TSlotDescriptor(id.asInt(), parent.getId().asInt(), type.toThrift(), -1,
-                byteOffset, 0, getIsNullable() ? 0 : -1, colName, slotIdx,
-                isMaterialized);
+                0, 0, getIsNullable() ? 0 : -1, colName, -1,
+                true);
         tSlotDescriptor.setNeedMaterialize(needMaterialize);
         tSlotDescriptor.setIsAutoIncrement(isAutoInc);
         if (column != null) {
@@ -322,17 +199,51 @@ public class SlotDescriptor {
         if (subColPath != null) {
             tSlotDescriptor.setColumnPaths(subColPath);
         }
+        if (virtualColumn != null) {
+            tSlotDescriptor.setVirtualColumnExpr(virtualColumn.treeToThrift());
+        }
         return tSlotDescriptor;
     }
 
+    private String normalizeCaption(String caption) {
+        int maxLength = 15;
+        if (caption == null || caption.length() <= maxLength) {
+            return caption;
+        }
+
+        String normalized = caption.replaceAll("\\s+", " ");
+
+        if (normalized.length() <= maxLength) {
+            return normalized;
+        }
+
+        int lastHashIndex = normalized.lastIndexOf('#');
+
+        if (lastHashIndex == -1) {
+            return normalized.substring(0, maxLength);
+        }
+
+        String suffixWithHash = normalized.substring(lastHashIndex);
+        int prefixLength = maxLength - suffixWithHash.length();
+
+        if (prefixLength <= 0) {
+            return suffixWithHash;
+        }
+
+        return normalized.substring(0, prefixLength) + suffixWithHash;
+    }
+
+    public void setCaptionAndNormalize(String caption) {
+        this.caption = normalizeCaption(caption);
+    }
+
     public String debugString() {
-        String colStr = (column == null ? "null" : column.getName());
         String typeStr = (type == null ? "null" : type.toString());
         String parentTupleId = (parent == null) ? "null" : parent.getId().toString();
-        return MoreObjects.toStringHelper(this).add("id", id.asInt()).add("parent", parentTupleId).add("col", colStr)
-                .add("type", typeStr).add("materialized", isMaterialized).add("byteSize", byteSize)
-                .add("byteOffset", byteOffset).add("slotIdx", slotIdx).add("nullable", getIsNullable())
-                .add("isAutoIncrement", isAutoInc).add("subColPath", subColPath).toString();
+        return MoreObjects.toStringHelper(this).add("id", id.asInt()).add("parent", parentTupleId).add("col", caption)
+                .add("type", typeStr).add("nullable", getIsNullable())
+                .add("isAutoIncrement", isAutoInc).add("subColPath", subColPath)
+                .add("virtualColumn", virtualColumn == null ? null : virtualColumn.toSql()).toString();
     }
 
     @Override
@@ -344,12 +255,13 @@ public class SlotDescriptor {
         return new StringBuilder()
                 .append(prefix).append("SlotDescriptor{")
                 .append("id=").append(id)
-                .append(", col=").append(column == null ? "null" : column.getName())
+                .append(", col=").append(caption)
                 .append(", colUniqueId=").append(column == null ? "null" : column.getUniqueId())
                 .append(", type=").append(type == null ? "null" : type.toSql())
                 .append(", nullable=").append(isNullable)
                 .append(", isAutoIncrement=").append(isAutoInc)
                 .append(", subColPath=").append(subColPath)
+                .append(", virtualColumn=").append(virtualColumn == null ? null : virtualColumn.toSql())
                 .append("}")
                 .toString();
     }

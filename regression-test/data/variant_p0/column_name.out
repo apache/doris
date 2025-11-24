@@ -37,13 +37,25 @@ UPPER CASE	lower case
 \N
 \N
 \N
-""
-""
+
+
 1234566
 16
 8888888
-"UPPER CASE"
-"dkdkdkdkdkd"
-"ooaoaaaaaaa"
-"xmxxmmmmmm"
+UPPER CASE
+dkdkdkdkdkd
+ooaoaaaaaaa
+xmxxmmmmmm
+
+-- !sql_cnt_1 --
+0
+
+-- !sql_cnt_2 --
+0
+
+-- !sql_cnt_3 --
+0
+
+-- !sql_cnt_4 --
+0
 

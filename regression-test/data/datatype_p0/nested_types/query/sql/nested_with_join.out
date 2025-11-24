@@ -9,10 +9,10 @@
 0
 
 -- !nested_with_join_4 --
-max_allowed_packet	4194304	16777216	1
+0
 
 -- !nested_with_join_5 --
-0
+max_allowed_packet	4194304	16777216	1
 
 -- !nested_with_join_6 --
 0
@@ -51,37 +51,40 @@ max_allowed_packet	4194304	16777216	1
 0
 
 -- !nested_with_join_18 --
-10
+0
 
 -- !nested_with_join_19 --
-0
+10
 
 -- !nested_with_join_20 --
-10
+0
 
 -- !nested_with_join_21 --
-0
+10
 
 -- !nested_with_join_22 --
-15
+0
 
 -- !nested_with_join_23 --
-0
-
--- !nested_with_join_24 --
 15
 
--- !nested_with_join_25 --
+-- !nested_with_join_24 --
 0
+
+-- !nested_with_join_25 --
+15
 
 -- !nested_with_join_26 --
-10
-
--- !nested_with_join_27 --
 0
 
--- !nested_with_join_28 --
+-- !nested_with_join_27 --
 10
 
+-- !nested_with_join_28 --
+0
+
 -- !nested_with_join_29 --
+10
+
+-- !nested_with_join_30 --
 

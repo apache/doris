@@ -45,10 +45,12 @@ import org.apache.doris.thrift.TMoveDirReq;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPublishVersionRequest;
 import org.apache.doris.thrift.TPushCooldownConfReq;
+import org.apache.doris.thrift.TPushIndexPolicyReq;
 import org.apache.doris.thrift.TPushReq;
 import org.apache.doris.thrift.TPushStoragePolicyReq;
 import org.apache.doris.thrift.TReleaseSnapshotRequest;
 import org.apache.doris.thrift.TSnapshotRequest;
+import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TStorageMediumMigrateReq;
 import org.apache.doris.thrift.TTaskType;
 import org.apache.doris.thrift.TUpdateTabletMetaInfoReq;
@@ -222,6 +224,9 @@ public class AgentBatchTask implements Runnable {
                     List<AgentTask> tasks = this.backendIdToTasks.get(backendId);
                     for (AgentTask task : tasks) {
                         task.failedWithMsg(errMsg);
+                        if (errMsg.contains("Socket is closed")) {
+                            task.setErrorCode(TStatusCode.NETWORK_ERROR);
+                        }
                     }
                 }
             }
@@ -429,6 +434,15 @@ public class AgentBatchTask implements Runnable {
                     LOG.debug(request.toString());
                 }
                 tAgentTaskRequest.setPushStoragePolicyReq(request);
+                return tAgentTaskRequest;
+            }
+            case PUSH_INDEX_POLICY: {
+                PushIndexPolicyTask pushIndexPolicyTask = (PushIndexPolicyTask) task;
+                TPushIndexPolicyReq request = pushIndexPolicyTask.toThrift();
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug(request.toString());
+                }
+                tAgentTaskRequest.setPushIndexPolicyReq(request);
                 return tAgentTaskRequest;
             }
             case PUSH_COOLDOWN_CONF: {

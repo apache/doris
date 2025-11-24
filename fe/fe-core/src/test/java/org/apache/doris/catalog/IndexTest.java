@@ -17,7 +17,7 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.analysis.IndexDef;
+import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition.IndexType;
 
 import org.junit.Assert;
 import org.junit.Test;
@@ -52,7 +52,7 @@ public class IndexTest {
         List<String> indexColumns1 = new ArrayList<>();
         indexColumns1.add("col1");
         indexColumns1.add("col3");
-        Index index1 = new Index(1, "test_index1", indexColumns1, IndexDef.IndexType.BITMAP, null, null);
+        Index index1 = new Index(1, "test_index1", indexColumns1, IndexType.BITMAP, null, null);
 
         List<Integer> uniqueIds1 = index1.getColumnUniqueIds(schema);
         Assert.assertEquals(2, uniqueIds1.size());
@@ -63,7 +63,7 @@ public class IndexTest {
         List<String> indexColumns2 = new ArrayList<>();
         indexColumns2.add("CoL1");
         indexColumns2.add("COL3");
-        Index index2 = new Index(2, "test_index2", indexColumns2, IndexDef.IndexType.BITMAP, null, null);
+        Index index2 = new Index(2, "test_index2", indexColumns2, IndexType.BITMAP, null, null);
 
         List<Integer> uniqueIds2 = index2.getColumnUniqueIds(schema);
         Assert.assertEquals(2, uniqueIds2.size());
@@ -74,7 +74,7 @@ public class IndexTest {
         List<String> indexColumns3 = new ArrayList<>();
         indexColumns3.add("col1");
         indexColumns3.add("non_existent_column");
-        Index index3 = new Index(3, "test_index3", indexColumns3, IndexDef.IndexType.BITMAP, null, null);
+        Index index3 = new Index(3, "test_index3", indexColumns3, IndexType.BITMAP, null, null);
 
         List<Integer> uniqueIds3 = index3.getColumnUniqueIds(schema);
         Assert.assertEquals(1, uniqueIds3.size());
@@ -86,7 +86,7 @@ public class IndexTest {
 
         // Test case 5: Empty column list
         Index emptyColIndex = new Index(5, "empty_col_index", new ArrayList<>(),
-                IndexDef.IndexType.BITMAP, null, null);
+                IndexType.BITMAP, null, null);
         List<Integer> emptyColUniqueIds = emptyColIndex.getColumnUniqueIds(schema);
         Assert.assertEquals(0, emptyColUniqueIds.size());
 
@@ -99,7 +99,7 @@ public class IndexTest {
         dupColumns.add("col1");
         dupColumns.add("col1");  // Duplicated
         dupColumns.add("col2");
-        Index dupIndex = new Index(7, "dup_index", dupColumns, IndexDef.IndexType.BITMAP, null, null);
+        Index dupIndex = new Index(7, "dup_index", dupColumns, IndexType.BITMAP, null, null);
 
         List<Integer> dupUniqueIds = dupIndex.getColumnUniqueIds(schema);
         Assert.assertEquals(3, dupUniqueIds.size());
@@ -110,7 +110,7 @@ public class IndexTest {
         // Test case 8: Special characters in column names
         List<String> specialColList = new ArrayList<>();
         specialColList.add("special-name!@#");
-        Index specialIndex = new Index(8, "special_index", specialColList, IndexDef.IndexType.BITMAP, null, null);
+        Index specialIndex = new Index(8, "special_index", specialColList, IndexType.BITMAP, null, null);
 
         List<Integer> specialUniqueIds = specialIndex.getColumnUniqueIds(schema);
         Assert.assertEquals(1, specialUniqueIds.size());
@@ -119,7 +119,7 @@ public class IndexTest {
         // Test case 9: Mixed case column name
         List<String> mixedCaseList = new ArrayList<>();
         mixedCaseList.add("mixed_case");  // Testing case insensitivity with underscores
-        Index mixedCaseIndex = new Index(9, "mixed_case_index", mixedCaseList, IndexDef.IndexType.BITMAP, null, null);
+        Index mixedCaseIndex = new Index(9, "mixed_case_index", mixedCaseList, IndexType.BITMAP, null, null);
 
         List<Integer> mixedCaseUniqueIds = mixedCaseIndex.getColumnUniqueIds(schema);
         Assert.assertEquals(1, mixedCaseUniqueIds.size());
@@ -139,7 +139,7 @@ public class IndexTest {
             }
         }
 
-        Index largeIndex = new Index(10, "large_index", largeColumnList, IndexDef.IndexType.BITMAP, null, null);
+        Index largeIndex = new Index(10, "large_index", largeColumnList, IndexType.BITMAP, null, null);
         List<Integer> largeUniqueIds = largeIndex.getColumnUniqueIds(largeSchema);
 
         Assert.assertEquals(500, largeUniqueIds.size());
@@ -153,7 +153,7 @@ public class IndexTest {
         reverseOrderColumns.add("col2");
         reverseOrderColumns.add("col1");
 
-        Index reverseIndex = new Index(11, "reverse_index", reverseOrderColumns, IndexDef.IndexType.BITMAP, null, null);
+        Index reverseIndex = new Index(11, "reverse_index", reverseOrderColumns, IndexType.BITMAP, null, null);
         List<Integer> reverseUniqueIds = reverseIndex.getColumnUniqueIds(schema);
 
         Assert.assertEquals(3, reverseUniqueIds.size());

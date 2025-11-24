@@ -17,13 +17,13 @@
 
 #pragma once
 
+#include <gen_cpp/segment_v2.pb.h>
 #include <stdint.h>
 
 #include <memory>
 #include <vector>
 
 #include "common/status.h"
-#include "gutil/macros.h"
 #include "olap/rowset/segment_v2/common.h"
 #include "util/slice.h"
 
@@ -39,9 +39,11 @@ namespace segment_v2 {
 // 5. Bitmap Index Page: store bitmap index of data
 class PageBuilder {
 public:
-    PageBuilder() {}
+    PageBuilder() = default;
+    PageBuilder(const PageBuilder&) = delete;
+    PageBuilder& operator=(const PageBuilder&) = delete;
 
-    virtual ~PageBuilder() {}
+    virtual ~PageBuilder() = default;
 
     // Init the internal state of the page builder.
     virtual Status init() = 0;
@@ -71,6 +73,14 @@ public:
         return Status::NotSupported("get_dictionary_page not implemented");
     }
 
+    virtual Status get_dictionary_page_encoding(EncodingTypePB* encoding) const {
+        return Status::NotSupported("get_dictionary_page_encoding not implemented");
+    }
+
+    virtual Status get_dict_word(uint32_t value_code, Slice* word) {
+        return Status::NotSupported("get_dict_word not implemented");
+    }
+
     // Reset the internal state of the page builder.
     //
     // Any data previously returned by finish may be invalidated by this call.
@@ -82,6 +92,10 @@ public:
     // Return the total bytes of pageBuilder that have been added to the page.
     virtual uint64_t size() const = 0;
 
+    // Return the uncompressed data size in bytes (raw data added via add() method).
+    // This is used to track the original data size before compression.
+    virtual uint64_t get_raw_data_size() const = 0;
+
     // Return the first value in this page.
     // This method could only be called between finish() and reset().
     // Status::Error<ENTRY_NOT_FOUND> if no values have been added.
@@ -91,9 +105,6 @@ public:
     // This method could only be called between finish() and reset().
     // Status::Error<ENTRY_NOT_FOUND> if no values have been added.
     virtual Status get_last_value(void* value) const = 0;
-
-private:
-    DISALLOW_COPY_AND_ASSIGN(PageBuilder);
 };
 
 template <typename Derived>

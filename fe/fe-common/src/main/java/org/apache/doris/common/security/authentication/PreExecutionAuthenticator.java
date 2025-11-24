@@ -53,6 +53,10 @@ public class PreExecutionAuthenticator {
         this.hadoopAuthenticator = HadoopAuthenticator.getHadoopAuthenticator(config);
     }
 
+    public PreExecutionAuthenticator(HadoopAuthenticator hadoopAuthenticator) {
+        this.hadoopAuthenticator = hadoopAuthenticator;
+    }
+
 
     /**
      * Executes the specified task with necessary authentication.

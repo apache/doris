@@ -71,7 +71,7 @@ suite("test_create_vault_with_kerberos", "nonConcurrent") {
 
     expectExceptionLike({
         sql """ insert into ${tableName} values(1, 1); """
-    }, "Permission denied: user=not_exist_user")
+    }, "open file failed")
 
     expectExceptionLike({
         sql """
@@ -84,7 +84,7 @@ suite("test_create_vault_with_kerberos", "nonConcurrent") {
                 "hadoop.security.authentication" = "kerberos"
             );
         """
-    }, "hadoop.kerberos.principal is required for kerberos")
+    }, "HDFS authentication type is kerberos, but principal or keytab is not set")
 
 
     sql """

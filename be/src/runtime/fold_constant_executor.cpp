@@ -33,6 +33,7 @@
 #include <utility>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/signal_handler.h"
 #include "common/status.h"
 #include "runtime/decimalv2_value.h"
 #include "runtime/define_primitive_type.h"
@@ -50,7 +51,6 @@
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
@@ -60,6 +60,7 @@
 #include "vec/data_types/data_type_number.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
+#include "vec/functions/cast/cast_to_string.h"
 #include "vec/runtime/vdatetime_value.h"
 
 namespace doris {
@@ -67,7 +68,7 @@ namespace doris {
 static std::unordered_set<PrimitiveType> PRIMITIVE_TYPE_SET {
         TYPE_BOOLEAN,  TYPE_TINYINT, TYPE_SMALLINT,   TYPE_INT,      TYPE_BIGINT,
         TYPE_LARGEINT, TYPE_FLOAT,   TYPE_DOUBLE,     TYPE_TIMEV2,   TYPE_CHAR,
-        TYPE_VARCHAR,  TYPE_STRING,  TYPE_HLL,        TYPE_OBJECT,   TYPE_DATE,
+        TYPE_VARCHAR,  TYPE_STRING,  TYPE_HLL,        TYPE_BITMAP,   TYPE_DATE,
         TYPE_DATETIME, TYPE_DATEV2,  TYPE_DATETIMEV2, TYPE_DECIMALV2};
 
 Status FoldConstantExecutor::fold_constant_vexpr(const TFoldConstantParams& params,
@@ -82,6 +83,7 @@ Status FoldConstantExecutor::fold_constant_vexpr(const TFoldConstantParams& para
     RETURN_IF_ERROR(_init(query_globals, params.query_options));
     // only after init operation, _mem_tracker is ready
     SCOPED_ATTACH_TASK(_mem_tracker);
+    signal::SignalTaskIdKeeper keeper(_query_id);
 
     for (const auto& m : expr_map) {
         PExprResultMap pexpr_result_map;
@@ -161,15 +163,11 @@ Status FoldConstantExecutor::_init(const TQueryGlobals& query_globals,
     TPlanFragmentExecParams params;
     params.fragment_instance_id = _query_id;
     params.query_id = _query_id;
-    TExecPlanFragmentParams fragment_params;
-    fragment_params.params = params;
-    fragment_params.protocol_version = PaloInternalServiceVersion::V1;
     _mem_tracker = MemTrackerLimiter::create_shared(
             MemTrackerLimiter::Type::OTHER,
             fmt::format("FoldConstant:query_id={}", print_id(_query_id)));
-    _runtime_state =
-            RuntimeState::create_unique(fragment_params.params, query_options, query_globals,
-                                        ExecEnv::GetInstance(), nullptr, _mem_tracker);
+    _runtime_state = RuntimeState::create_unique(params, query_options, query_globals,
+                                                 ExecEnv::GetInstance(), nullptr, _mem_tracker);
     DescriptorTbl* desc_tbl = nullptr;
     Status status =
             DescriptorTbl::create(_runtime_state->obj_pool(), TDescriptorTable(), &desc_tbl);
@@ -246,34 +244,26 @@ Status FoldConstantExecutor::_get_result(void* src, size_t size,
     case TYPE_VARCHAR:
     case TYPE_STRING:
     case TYPE_HLL:
-    case TYPE_OBJECT: {
+    case TYPE_BITMAP: {
         result = std::string((char*)src, size);
         break;
     }
     case TYPE_DATE:
     case TYPE_DATETIME: {
         auto* date_value = reinterpret_cast<VecDateTimeValue*>(src);
-        char str[MAX_DTVALUE_STR_LEN];
-        date_value->to_string(str);
-        result = std::string(str);
+        result = vectorized::CastToString::from_date_or_datetime(*date_value);
         break;
     }
     case TYPE_DATEV2: {
         DateV2Value<DateV2ValueType> value =
                 binary_cast<uint32_t, DateV2Value<DateV2ValueType>>(*(int32_t*)src);
-
-        char buf[64];
-        char* pos = value.to_string(buf);
-        result = std::string(buf, pos - buf - 1);
+        result = vectorized::CastToString::from_datev2(value);
         break;
     }
     case TYPE_DATETIMEV2: {
         DateV2Value<DateTimeV2ValueType> value =
                 binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(*(int64_t*)src);
-
-        char buf[64];
-        char* pos = value.to_string(buf, type->get_scale());
-        result = std::string(buf, pos - buf - 1);
+        result = vectorized::CastToString::from_datetimev2(value, type->get_scale());
         break;
     }
     case TYPE_DECIMALV2: {
@@ -283,22 +273,13 @@ Status FoldConstantExecutor::_get_result(void* src, size_t size,
     case TYPE_DECIMAL32:
     case TYPE_DECIMAL64:
     case TYPE_DECIMAL128I:
-    case TYPE_DECIMAL256: {
-        result = column_type->to_string(*column_ptr, 0);
-        break;
-    }
+    case TYPE_DECIMAL256:
     case TYPE_ARRAY:
     case TYPE_JSONB:
     case TYPE_MAP:
-    case TYPE_STRUCT: {
-        result = column_type->to_string(*column_ptr, 0);
-        break;
-    }
+    case TYPE_STRUCT:
     case TYPE_VARIANT:
-    case TYPE_QUANTILE_STATE: {
-        result = column_type->to_string(*column_ptr, 0);
-        break;
-    }
+    case TYPE_QUANTILE_STATE:
     case TYPE_IPV4:
     case TYPE_IPV6: {
         result = column_type->to_string(*column_ptr, 0);

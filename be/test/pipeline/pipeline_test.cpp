@@ -66,7 +66,8 @@ public:
         _query_ctx->runtime_filter_mgr()->set_runtime_filter_params(
                 TRuntimeFilterParamsBuilder().build());
         ExecEnv::GetInstance()->set_stream_mgr(_mgr.get());
-        _task_queue = std::make_unique<DummyTaskQueue>(1);
+        _task_scheduler = std::make_unique<MockTaskScheduler>();
+        _query_ctx->_task_scheduler = _task_scheduler.get();
     }
     void TearDown() override {}
 
@@ -88,7 +89,8 @@ private:
     std::shared_ptr<PipelineFragmentContext> _build_fragment_context() {
         int fragment_id = _next_fragment_id();
         _context.push_back(std::make_shared<PipelineFragmentContext>(
-                _query_id, fragment_id, _query_ctx, ExecEnv::GetInstance(), empty_function,
+                _query_id, TPipelineFragmentParams(), _query_ctx, ExecEnv::GetInstance(),
+                empty_function,
                 std::bind<Status>(std::mem_fn(&FragmentMgr::trigger_pipeline_context_report),
                                   ExecEnv::GetInstance()->fragment_mgr(), std::placeholders::_1,
                                   std::placeholders::_2)));
@@ -110,6 +112,8 @@ private:
         _query_ctx =
                 QueryContext::create(_query_id, ExecEnv::GetInstance(), _query_options, fe_address,
                                      true, fe_address, QuerySource::INTERNAL_FRONTEND);
+        _task_scheduler = std::make_unique<MockTaskScheduler>();
+        _query_ctx->_task_scheduler = _task_scheduler.get();
         _runtime_state.clear();
         _context.clear();
         _fragment_id = 0;
@@ -135,7 +139,7 @@ private:
     std::shared_ptr<QueryContext> _query_ctx;
     TUniqueId _query_id = TUniqueId();
     TQueryOptions _query_options;
-    std::unique_ptr<DummyTaskQueue> _task_queue;
+    std::unique_ptr<MockTaskScheduler> _task_scheduler;
 
     // Fragment level
     // Fragment0 -> Fragment1
@@ -279,7 +283,6 @@ TEST_F(PipelineTest, HAPPY_PATH) {
                 cur_pipe, task_id, local_runtime_state.get(), _context.back(),
                 _pipeline_profiles[cur_pipe->id()].get(), shared_state_map, task_id);
         cur_pipe->incr_created_tasks(task_id, task.get());
-        task->set_task_queue(_task_queue.get());
         _pipeline_tasks[cur_pipe->id()].push_back(std::move(task));
         _runtime_states[cur_pipe->id()].push_back(std::move(local_runtime_state));
     }
@@ -329,7 +332,8 @@ TEST_F(PipelineTest, HAPPY_PATH) {
     EXPECT_EQ(_pipeline_tasks[cur_pipe->id()].back()->_wait_to_start(), true);
     _query_ctx->get_execution_dependency()->set_ready();
     // Task is ready and be push into runnable task queue.
-    EXPECT_EQ(_task_queue->take(0) != nullptr, true);
+    EXPECT_EQ(((MockTaskScheduler*)_query_ctx->_task_scheduler)->_task_queue->take(0) != nullptr,
+              true);
     EXPECT_EQ(_pipeline_tasks[cur_pipe->id()].back()->_wait_to_start(), false);
 
     bool eos = false;
@@ -351,7 +355,8 @@ TEST_F(PipelineTest, HAPPY_PATH) {
     EXPECT_EQ(block.columns(), 0);
 
     // Task is ready since a new block reached.
-    EXPECT_EQ(_task_queue->take(0) != nullptr, true);
+    EXPECT_EQ(((MockTaskScheduler*)_query_ctx->_task_scheduler)->_task_queue->take(0) != nullptr,
+              true);
     EXPECT_EQ(std::all_of(read_deps.cbegin(), read_deps.cend(),
                           [](const auto& dep) { return dep->ready(); }),
               true);
@@ -379,7 +384,8 @@ TEST_F(PipelineTest, HAPPY_PATH) {
     EXPECT_EQ(block.columns(), 0);
 
     // Task is ready since a new block reached.
-    EXPECT_EQ(_task_queue->take(0) != nullptr, true);
+    EXPECT_EQ(((MockTaskScheduler*)_query_ctx->_task_scheduler)->_task_queue->take(0) != nullptr,
+              true);
     EXPECT_EQ(std::all_of(read_deps.cbegin(), read_deps.cend(),
                           [](const auto& dep) { return dep->ready(); }),
               true);
@@ -448,7 +454,8 @@ TEST_F(PipelineTest, HAPPY_PATH) {
 
     // Upstream task finished.
     local_state.stream_recvr->_sender_queues[0]->decrement_senders(0);
-    EXPECT_EQ(_task_queue->take(0) != nullptr, true);
+    EXPECT_EQ(((MockTaskScheduler*)_query_ctx->_task_scheduler)->_task_queue->take(0) != nullptr,
+              true);
     {
         // Blocked by exchange read dependency due to no data reached.
         EXPECT_EQ(_pipeline_tasks[cur_pipe->id()].back()->execute(&eos), Status::OK());
@@ -550,23 +557,29 @@ TEST_F(PipelineTest, PLAN_LOCAL_EXCHANGE) {
         EXPECT_EQ(cur_pipe->num_tasks(), parallelism);
     }
     {
-        cur_pipe->init_data_distribution();
+        cur_pipe->init_data_distribution(_runtime_state.back().get());
         EXPECT_EQ(cur_pipe->data_distribution().distribution_type, ExchangeType::HASH_SHUFFLE);
-        EXPECT_EQ(cur_pipe->sink()->required_data_distribution().distribution_type,
+        EXPECT_EQ(cur_pipe->sink()
+                          ->required_data_distribution(_runtime_state.back().get())
+                          .distribution_type,
                   ExchangeType::NOOP);
-        EXPECT_EQ(
-                cur_pipe->need_to_local_exchange(cur_pipe->sink()->required_data_distribution(), 1),
-                false);
+        EXPECT_EQ(cur_pipe->need_to_local_exchange(
+                          cur_pipe->sink()->required_data_distribution(_runtime_state.back().get()),
+                          1),
+                  false);
     }
     {
         cur_pipe->operators().front()->set_serial_operator();
-        cur_pipe->init_data_distribution();
+        cur_pipe->init_data_distribution(_runtime_state.back().get());
         EXPECT_EQ(cur_pipe->data_distribution().distribution_type, ExchangeType::NOOP);
-        EXPECT_EQ(cur_pipe->sink()->required_data_distribution().distribution_type,
+        EXPECT_EQ(cur_pipe->sink()
+                          ->required_data_distribution(_runtime_state.back().get())
+                          .distribution_type,
                   ExchangeType::PASSTHROUGH);
-        EXPECT_EQ(
-                cur_pipe->need_to_local_exchange(cur_pipe->sink()->required_data_distribution(), 1),
-                true);
+        EXPECT_EQ(cur_pipe->need_to_local_exchange(
+                          cur_pipe->sink()->required_data_distribution(_runtime_state.back().get()),
+                          1),
+                  true);
     }
 }
 
@@ -864,15 +877,20 @@ TEST_F(PipelineTest, PLAN_HASH_JOIN) {
     }
 
     for (int pip_idx = cast_set<int>(_pipelines.size()) - 1; pip_idx >= 0; pip_idx--) {
-        _pipelines[pip_idx]->init_data_distribution();
+        _pipelines[pip_idx]->init_data_distribution(_runtime_state.back().get());
         if (pip_idx == 1) {
             // Pipeline(ExchangeOperator(id=1, HASH_PARTITIONED) -> HashJoinBuildOperator(id=0))
             EXPECT_EQ(_pipelines[pip_idx]->data_distribution().distribution_type,
                       ExchangeType::HASH_SHUFFLE);
-            EXPECT_EQ(_pipelines[pip_idx]->sink()->required_data_distribution().distribution_type,
+            EXPECT_EQ(_pipelines[pip_idx]
+                              ->sink()
+                              ->required_data_distribution(_runtime_state.back().get())
+                              .distribution_type,
                       ExchangeType::HASH_SHUFFLE);
             EXPECT_EQ(_pipelines[pip_idx]->need_to_local_exchange(
-                              _pipelines[pip_idx]->sink()->required_data_distribution(), 1),
+                              _pipelines[pip_idx]->sink()->required_data_distribution(
+                                      _runtime_state.back().get()),
+                              1),
                       false);
         } else {
             // Pipeline(ExchangeOperator(id=2, HASH_PARTITIONED) -> HashJoinProbeOperator(id=0, UNPARTITIONED) -> ExchangeSinkOperatorX(id=3, UNPARTITIONED))
@@ -881,16 +899,19 @@ TEST_F(PipelineTest, PLAN_HASH_JOIN) {
             EXPECT_EQ(_pipelines[pip_idx]->data_distribution().distribution_type,
                       ExchangeType::HASH_SHUFFLE);
             EXPECT_EQ(_pipelines[pip_idx]->need_to_local_exchange(
-                              _pipelines[pip_idx]->sink()->required_data_distribution(), 2),
+                              _pipelines[pip_idx]->sink()->required_data_distribution(
+                                      _runtime_state.back().get()),
+                              2),
                       false);
             EXPECT_EQ(_pipelines[pip_idx]
                               ->operators()
                               .back()
-                              ->required_data_distribution()
+                              ->required_data_distribution(_runtime_state.back().get())
                               .distribution_type,
                       ExchangeType::HASH_SHUFFLE);
             EXPECT_EQ(_pipelines[pip_idx]->need_to_local_exchange(
-                              _pipelines[pip_idx]->operators().back()->required_data_distribution(),
+                              _pipelines[pip_idx]->operators().back()->required_data_distribution(
+                                      _runtime_state.back().get()),
                               1),
                       false);
         }
@@ -937,7 +958,6 @@ TEST_F(PipelineTest, PLAN_HASH_JOIN) {
                         _pipelines[i], task_id, local_runtime_state.get(), _context.back(),
                         _pipeline_profiles[_pipelines[i]->id()].get(), shared_state_map, j);
                 _pipelines[i]->incr_created_tasks(j, task.get());
-                task->set_task_queue(_task_queue.get());
                 _pipeline_tasks[_pipelines[i]->id()].push_back(std::move(task));
                 _runtime_states[_pipelines[i]->id()].push_back(std::move(local_runtime_state));
             }
@@ -993,7 +1013,9 @@ TEST_F(PipelineTest, PLAN_HASH_JOIN) {
         for (size_t i = 0; i < _pipelines.size(); i++) {
             for (int j = 0; j < parallelism; j++) {
                 // Task is ready and be push into runnable task queue.
-                EXPECT_EQ(_task_queue->take(0) != nullptr, true);
+                EXPECT_EQ(((MockTaskScheduler*)_query_ctx->_task_scheduler)->_task_queue->take(0) !=
+                                  nullptr,
+                          true);
             }
         }
         for (size_t i = 0; i < _pipelines.size(); i++) {
@@ -1056,9 +1078,11 @@ TEST_F(PipelineTest, PLAN_HASH_JOIN) {
         // Pipeline 0 is blocked by hash join dependency and is still waiting for upstream tasks done.
         for (int j = 0; j < parallelism; j++) {
             // Task is ready and be push into runnable task queue.
-            EXPECT_EQ(_task_queue->take(0) != nullptr, true);
+            EXPECT_EQ(((MockTaskScheduler*)_query_ctx->_task_scheduler)->_task_queue->take(0) !=
+                              nullptr,
+                      true);
         }
-        EXPECT_EQ(_task_queue->take(0), nullptr);
+        EXPECT_EQ(((MockTaskScheduler*)_query_ctx->_task_scheduler)->_task_queue->take(0), nullptr);
         for (int j = 0; j < parallelism; j++) {
             EXPECT_EQ(_pipeline_tasks[1][j]->_is_blocked(), false);
         }

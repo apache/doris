@@ -33,7 +33,7 @@ import org.apache.doris.job.task.AbstractTask;
 
 import io.netty.util.HashedWheelTimer;
 import lombok.extern.log4j.Log4j2;
-import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.collections4.CollectionUtils;
 
 import java.io.Closeable;
 import java.io.IOException;
@@ -109,7 +109,7 @@ public class JobScheduler<T extends AbstractJob<?, C>, C> implements Closeable {
     }
 
     public void scheduleOneJob(T job) throws JobException {
-        if (!job.getJobStatus().equals(JobStatus.RUNNING)) {
+        if (!job.isJobRunning()) {
             return;
         }
         // not-schedule task
@@ -138,6 +138,17 @@ public class JobScheduler<T extends AbstractJob<?, C>, C> implements Closeable {
         if (job.getJobConfig().isImmediate()) {
             job.getJobConfig().getTimerDefinition().setLatestSchedulerTimeMs(System.currentTimeMillis());
             schedulerInstantJob(job, TaskType.SCHEDULED, null);
+        }
+        //if it's timer job and trigger last window already start, we will scheduler it immediately
+        cycleTimerJobScheduler(job, System.currentTimeMillis());
+    }
+
+    public void cycleTimerJobScheduler(T job) {
+        if (!job.isJobRunning()) {
+            return;
+        }
+        if (!JobExecuteType.RECURRING.equals(job.getJobConfig().getExecuteType())) {
+            return;
         }
         //if it's timer job and trigger last window already start, we will scheduler it immediately
         cycleTimerJobScheduler(job, System.currentTimeMillis());
@@ -214,7 +225,7 @@ public class JobScheduler<T extends AbstractJob<?, C>, C> implements Closeable {
                 clearEndJob(job);
                 continue;
             }
-            if (job.getJobStatus().equals(JobStatus.RUNNING) && job.getJobConfig().checkIsTimerJob()) {
+            if (job.isJobRunning() && job.getJobConfig().checkIsTimerJob()) {
                 cycleTimerJobScheduler(job, lastTimeWindowMs);
             }
         }

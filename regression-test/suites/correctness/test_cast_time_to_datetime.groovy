@@ -16,7 +16,24 @@
 // under the License.
 
 suite("test_cast_time_to_datetime") {
+    waitUntilSafeExecutionTime("NOT_CROSS_DAY_BOUNDARY", 2)
     def result1 = sql """ select datediff(now(), from_unixtime(cast(1742194502 as bigint),'yyyy-MM-dd HH:mm:ss')); """
     def result2 = sql """ select datediff(current_time(), from_unixtime(cast(1742194502 as bigint),'yyyy-MM-dd HH:mm:ss')); """
     assertEquals(result1[0][0], result2[0][0], "The results of the two SQL queries should be the same.")
+    explain {
+        sql """select cast(cast("500:00:00" as time) as datetime)""" // not legal for date part
+        notContains "CAST"
+    }
+    explain {
+        sql """select cast(cast("10:10:10" as time) as datetime)""" // also legal for date part
+        notContains "CAST"
+    }
+    explain {
+        sql """select cast(cast("500:00:00" as time) as date)""" // not legal for date part
+        notContains "CAST"
+    }
+    explain {
+        sql """select cast(cast("10:10:10" as time) as date)""" // also legal for date part
+        notContains "CAST"
+    }
 }

@@ -118,6 +118,28 @@ public class QueryProcessor extends AbstractJobProcessor {
     }
 
     public RowBatch getNext() throws UserException, InterruptedException, TException, RpcException, ExecutionException {
+        try {
+            RowBatch resultBatch = doGetNext();
+
+            // if reached limit rows, cancel this query immediately
+            // to avoid BE from reading more data.
+            // ATTN: if change here, also need to change the same logic in Coordinator.getNext();
+            boolean reachedLimit = LimitUtils.cancelIfReachLimit(
+                    resultBatch, limitRows, numReceivedRows, coordinatorContext::cancelSchedule);
+            if (reachedLimit) {
+                resultBatch.setEos(true);
+            } else if (resultBatch.isEos()) {
+                tryFinishSchedule();
+            }
+            return resultBatch;
+        } catch (Throwable t) {
+            tryFinishSchedule();
+            throw t;
+        }
+    }
+
+    private RowBatch doGetNext()
+            throws UserException, InterruptedException, TException, RpcException, ExecutionException {
         Status status = new Status();
         RowBatch resultBatch = receiverConsumer.getNext(status);
         if (!status.ok()) {
@@ -132,8 +154,10 @@ public class QueryProcessor extends AbstractJobProcessor {
                 copyStatus.rewriteErrorMsg();
             }
             if (copyStatus.isRpcError()) {
+                tryFinishSchedule();
                 throw new RpcException(null, copyStatus.getErrorMsg());
             } else {
+                tryFinishSchedule();
                 String errMsg = copyStatus.getErrorMsg();
                 LOG.warn("query failed: {}", errMsg);
                 throw new UserException(errMsg);
@@ -142,21 +166,13 @@ public class QueryProcessor extends AbstractJobProcessor {
 
         ConnectContext connectContext = coordinatorContext.connectContext;
         if (connectContext != null && connectContext.getSessionVariable().dryRunQuery) {
-            if (resultBatch.isEos()) {
-                numReceivedRows += resultBatch.getQueryStatistics().getReturnedRows();
-            }
+            // In BE: vmysql_result_writer.cpp:GetResultBatchCtx::on_close()
+            //      statistics->set_returned_rows(returned_rows);
+            // In a multi-mysql_result_writer scenario, since each mysql_result_writer will set this rows, in order
+            // to avoid missing rows when dry_run_query = true, they should all be added up.
+            numReceivedRows += resultBatch.getQueryStatistics().getReturnedRows();
         } else if (resultBatch.getBatch() != null) {
             numReceivedRows += resultBatch.getBatch().getRowsSize();
-        }
-
-        // if reached limit rows, cancel this query immediately
-        // to avoid BE from reading more data.
-        // ATTN: if change here, also need to change the same logic in Coordinator.getNext();
-        boolean reachedLimit = LimitUtils.cancelIfReachLimit(
-                resultBatch, limitRows, numReceivedRows, coordinatorContext::cancelSchedule);
-
-        if (reachedLimit) {
-            resultBatch.setEos(true);
         }
         return resultBatch;
     }

@@ -37,19 +37,9 @@
 #include "vec/core/field.h"
 #include "vec/core/types.h"
 
+namespace doris {
 class SipHash;
-
-#define DO_CRC_HASHES_FUNCTION_COLUMN_IMPL()                                         \
-    if (null_data == nullptr) {                                                      \
-        for (size_t i = 0; i < s; i++) {                                             \
-            hashes[i] = HashUtil::zlib_crc_hash(&data[i], sizeof(T), hashes[i]);     \
-        }                                                                            \
-    } else {                                                                         \
-        for (size_t i = 0; i < s; i++) {                                             \
-            if (null_data[i] == 0)                                                   \
-                hashes[i] = HashUtil::zlib_crc_hash(&data[i], sizeof(T), hashes[i]); \
-        }                                                                            \
-    }
+}
 
 namespace doris::vectorized {
 
@@ -83,6 +73,11 @@ public:
 
     /// Name of a Column. It is used in info messages.
     virtual std::string get_name() const = 0;
+
+    // used to check the column data is valid or not.
+    virtual void sanity_check() const {
+        // do nothing by default, but some column may need to check
+    }
 
     /** If column isn't constant, returns nullptr (or itself).
       * If column is constant, transforms constant to full column (if column type allows such transform) and return it.
@@ -120,7 +115,7 @@ public:
     // for non-str col, will reach here(do nothing). only ColumnStr will really shrink itself.
     virtual void shrink_padding_chars() {}
 
-    // Only used in ColumnObject to handle lifecycle of variant. Other columns would do nothing.
+    // Only used in ColumnVariant to handle lifecycle of variant. Other columns would do nothing.
     virtual void finalize() {}
 
     // Only used on ColumnDictionary
@@ -326,38 +321,46 @@ public:
     /// Returns pointer to the position after the read data.
     virtual const char* deserialize_and_insert_from_arena(const char* pos) = 0;
 
+    // todo: Consider replacing stringref with slice.
+    virtual void serialize(StringRef* keys, size_t num_rows) const {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "Method serialize is not supported for " + get_name());
+    }
+
+    virtual void serialize_with_nullable(StringRef* keys, size_t num_rows, const bool has_null,
+                                         const uint8_t* __restrict null_map) const;
+
+    // This function deserializes group-by keys into column in the vectorized way.
+    virtual void deserialize(StringRef* keys, const size_t num_rows) {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "Method deserialize is not supported for " + get_name());
+    }
+
+    virtual void deserialize_with_nullable(StringRef* keys, const size_t num_rows,
+                                           PaddedPODArray<UInt8>& null_map);
+
+    /// The exact size to serialize the `row`-th row data in this column.
+    virtual size_t serialize_size_at(size_t row) const {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "Column {} should not be serialized.", get_name());
+    }
+    /// `serialize_impl` is the implementation to serialize a column into a continuous memory.
+    virtual size_t serialize_impl(char* pos, const size_t row) const {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "Method serialize_impl is not supported for " + get_name());
+    }
+    /// `deserialize_impl` will deserialize data which is serialized by `serialize_impl`.
+    virtual size_t deserialize_impl(const char* pos) {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "Method deserialize_impl is not supported for " + get_name());
+    }
+
     /// Return the size of largest row.
     /// This is for calculating the memory size for vectorized serialization of aggregation keys.
     virtual size_t get_max_row_byte_size() const {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "Method get_max_row_byte_size is not supported for " + get_name());
         return 0;
-    }
-
-    virtual void serialize_vec(StringRef* keys, size_t num_rows, size_t max_row_byte_size) const {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "Method serialize_vec is not supported for " + get_name());
-    }
-
-    virtual void serialize_vec_with_null_map(StringRef* keys, size_t num_rows,
-                                             const uint8_t* null_map) const {
-        throw doris::Exception(
-                ErrorCode::NOT_IMPLEMENTED_ERROR,
-                "Method serialize_vec_with_null_map is not supported for " + get_name());
-    }
-
-    // This function deserializes group-by keys into column in the vectorized way.
-    virtual void deserialize_vec(StringRef* keys, const size_t num_rows) {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "Method deserialize_vec is not supported for " + get_name());
-    }
-
-    // Used in ColumnNullable::deserialize_vec
-    virtual void deserialize_vec_with_null_map(StringRef* keys, const size_t num_rows,
-                                               const uint8_t* null_map) {
-        throw doris::Exception(
-                ErrorCode::NOT_IMPLEMENTED_ERROR,
-                "Method deserialize_vec_with_null_map is not supported for " + get_name());
     }
 
     /// TODO: SipHash is slower than city or xx hash, rethink we should have a new interface
@@ -439,7 +442,7 @@ public:
     /// Permutes elements using specified permutation. Is used in sortings.
     /// limit - if it isn't 0, puts only first limit elements in the result.
     using Permutation = PaddedPODArray<size_t>;
-    virtual Ptr permute(const Permutation& perm, size_t limit) const = 0;
+    virtual MutablePtr permute(const Permutation& perm, size_t limit) const = 0;
 
     /** Compares (*this)[n] and rhs[m]. Column rhs should have the same type.
       * Returns negative number, 0, or positive number (*this)[n] is less, equal, greater than rhs[m] respectively.
@@ -464,8 +467,8 @@ public:
      * @param filter this stores comparison results for all rows. filter[i] = 1 means row i is less than row rhs_row_id in rhs
      */
     virtual void compare_internal(size_t rhs_row_id, const IColumn& rhs, int nan_direction_hint,
-                                  int direction, std::vector<uint8>& cmp_res,
-                                  uint8* __restrict filter) const;
+                                  int direction, std::vector<uint8_t>& cmp_res,
+                                  uint8_t* __restrict filter) const;
 
     /** Returns a permutation that sorts elements of this column,
       *  i.e. perm[i]-th element of source column should be i-th element of sorted column.
@@ -479,17 +482,11 @@ public:
                                "get_permutation for " + get_name());
     }
 
-    /** Copies each element according offsets parameter.
-      * (i-th element should be copied offsets[i] - offsets[i - 1] times.)
-      * It is necessary in ARRAY JOIN operation.
-      */
-    virtual Ptr replicate(const Offsets& offsets) const = 0;
-
     /** Split column to smaller columns. Each value goes to column index, selected by corresponding element of 'selector'.
       * Selector must contain values from 0 to num_columns - 1.
       * For default implementation, see column_impl.h
       */
-    using ColumnIndex = UInt64;
+    using ColumnIndex = UInt32;
     using Selector = PaddedPODArray<ColumnIndex>;
 
     // The append_data_by_selector function requires the column to implement the insert_from function.
@@ -582,8 +579,8 @@ public:
     // true if column has null element
     virtual bool has_null() const { return false; }
 
-    // true if column has null element [0,size)
-    virtual bool has_null(size_t size) const { return false; }
+    // true if column has null element [begin, end)
+    virtual bool has_null(size_t begin, size_t end) const { return false; }
 
     virtual bool is_exclusive() const { return use_count() == 1; }
 
@@ -606,16 +603,11 @@ public:
       *
       * To avoid confusion between these cases, we don't have isContiguous method.
       */
-
+    // todo: We should support a non-const version of get_raw_data that returns a Slice.
     virtual StringRef get_raw_data() const {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "Column {} is not a contiguous block of memory", get_name());
-        return StringRef {};
     }
-
-    /// Returns ratio of values in column, that are equal to default value of column.
-    /// Checks only @sample_ratio ratio of rows.
-    virtual double get_ratio_of_default_rows(double sample_ratio = 1.0) const { return 0.0; }
 
     // Column is ColumnString/ColumnArray/ColumnMap or other variable length column at every row
     virtual bool is_variable_length() const { return false; }
@@ -663,34 +655,37 @@ public:
     // only wrok on column_vector and column column decimal, there will be no behavior when other columns type call this method
     virtual void replace_column_null_data(const uint8_t* __restrict null_map) {}
 
-    virtual bool is_date_type() const { return is_date; }
-    virtual bool is_datetime_type() const { return is_date_time; }
-
-    virtual void set_date_type() { is_date = true; }
-    virtual void set_datetime_type() { is_date_time = true; }
-
-    void copy_date_types(const IColumn& col) {
-        if (col.is_date_type()) {
-            set_date_type();
-        }
-        if (col.is_datetime_type()) {
-            set_datetime_type();
-        }
-    }
-
-    // todo(wb): a temporary implemention, need re-abstract here
-    bool is_date = false;
-    bool is_date_time = false;
+    // For float/double types, replace -0.0 with 0.0, set NaN to quiet NaN,
+    // used to ensure data hash equality for -0.0 and +0.0, e.g. aggregate and join
+    virtual void replace_float_special_values() {}
 
 protected:
     template <typename Derived>
-    void append_data_by_selector_impl(MutablePtr& res, const Selector& selector) const;
+    void append_data_by_selector_impl(MutablePtr& res, const Selector& selector) const {
+        append_data_by_selector_impl<Derived>(res, selector, 0, selector.size());
+    }
     template <typename Derived>
     void append_data_by_selector_impl(MutablePtr& res, const Selector& selector, size_t begin,
-                                      size_t end) const;
+                                      size_t end) const {
+        size_t num_rows = size();
+
+        if (num_rows < selector.size()) {
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                   "Size of selector: {} is larger than size of column: {}",
+                                   selector.size(), num_rows);
+        }
+        DCHECK_GE(end, begin);
+        DCHECK_LE(end, selector.size());
+        static_cast<Derived&>(*res).insert_indices_from(*this, &selector[begin], &selector[end]);
+    }
     template <typename Derived>
     void insert_from_multi_column_impl(const std::vector<const IColumn*>& srcs,
-                                       const std::vector<size_t>& positions);
+                                       const std::vector<size_t>& positions) {
+        reserve(size() + srcs.size());
+        for (size_t i = 0; i < srcs.size(); ++i) {
+            static_cast<Derived&>(*this).insert_from(*srcs[i], positions[i]);
+        }
+    }
 };
 
 using ColumnPtr = IColumn::Ptr;
@@ -721,8 +716,18 @@ const Type* check_and_get_column(const IColumn& column) {
 }
 
 template <typename Type>
+Type* check_and_get_column(IColumn& column) {
+    return typeid_cast<Type*>(&column);
+}
+
+template <typename Type>
 const Type* check_and_get_column(const IColumn* column) {
     return typeid_cast<const Type*>(column);
+}
+
+template <typename Type>
+Type* check_and_get_column(IColumn* column) {
+    return typeid_cast<Type*>(column);
 }
 
 template <typename Type>
@@ -743,7 +748,7 @@ ColumnType::Ptr check_and_get_column_ptr(const ColumnPtr& column) {
     if (raw_type_ptr == nullptr) {
         return nullptr;
     }
-    return typename ColumnType::Ptr(const_cast<ColumnType*>(raw_type_ptr));
+    return typename ColumnType::Ptr(raw_type_ptr);
 }
 
 /// True if column's an ColumnConst instance. It's just a syntax sugar for type check.

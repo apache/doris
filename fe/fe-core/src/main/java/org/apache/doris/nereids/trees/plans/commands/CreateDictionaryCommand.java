@@ -71,7 +71,7 @@ public class CreateDictionaryCommand extends Command implements ForwardWithSync 
             LOG.info("Created dictionary {} in {} from {}", createDictionaryInfo.getDictName(),
                     createDictionaryInfo.getDbName(), createDictionaryInfo.getSourceTableName());
         } catch (Exception e) {
-            LOG.warn("Failed to create dictionary: {}", e);
+            LOG.warn("Failed to create dictionary: {}", e.getMessage());
             throw new AnalysisException("Failed to create dictionary: " + e.getMessage());
         }
     }

@@ -29,6 +29,6 @@ PhysicalResultSink
 
 Hint log:
 Used: leading(web_sales date_dim warehouse ship_mode web_site )
-UnUsed: 
+UnUsed:
 SyntaxError:
 

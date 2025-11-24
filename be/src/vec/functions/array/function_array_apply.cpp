@@ -33,7 +33,6 @@
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/block.h"
@@ -196,10 +195,6 @@ private:
             break;                                                                            \
         case PrimitiveType::TYPE_DOUBLE:                                                      \
             *dst = _apply_internal<Float64, OP>(src_column, src_offsets, cmp);                \
-            break;                                                                            \
-        case PrimitiveType::TYPE_DATETIME:                                                    \
-        case PrimitiveType::TYPE_DATE:                                                        \
-            *dst = _apply_internal<Int64, OP>(src_column, src_offsets, cmp);                  \
             break;                                                                            \
         case PrimitiveType::TYPE_DATEV2:                                                      \
             *dst = _apply_internal<UInt32, OP>(src_column, src_offsets, cmp);                 \

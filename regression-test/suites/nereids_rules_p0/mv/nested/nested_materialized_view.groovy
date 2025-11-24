@@ -17,8 +17,6 @@
 
 suite("nested_materialized_view") {
 
-    sql "set disable_nereids_rules=ELIMINATE_CONST_JOIN_CONDITION"
-
     def compare_res = { def stmt ->
         sql "SET enable_materialized_view_rewrite=false"
         def origin_res = sql stmt
@@ -902,7 +900,14 @@ select * from (
 
     sql "SET enable_materialized_view_rewrite= true"
     sql "SET enable_materialized_view_nest_rewrite = true"
-    mv_rewrite_all_success(query2_0, ["mv_all_6_a", "mv_all_6_b", "mv_all_6_c", "mv_all_6_d"])
+    // DP Hyper can not use pre materialized view rewrite
+    sql """SET enable_dphyp_optimizer = false"""
+    mv_rewrite_all_success(query2_0, ["mv_all_6_a", "mv_all_6_b", "mv_all_6_c", "mv_all_6_d"],
+            true, [TRY_IN_RBO, FORCE_IN_RBO])
+    mv_rewrite_all_fail(query2_0, ["mv_all_6_a", "mv_all_6_b", "mv_all_6_c", "mv_all_6_d"],
+            [NOT_IN_RBO])
     // Compare result when before and after mv rewrite
+    // DP Hyper can not use pre materialized view rewrite
+    sql """SET enable_dphyp_optimizer = true"""
     compare_res(query2_0)
 }

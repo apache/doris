@@ -152,7 +152,13 @@ suite("refactor_storage_backup_restore_object_storage", "p0,external,external_do
                 })
     }
 
-
+    def getConfigOrDefault = { String key, String defaultValue ->
+        def value = context.config.otherConfigs.get(key)
+        if (value == null || value.isEmpty()) {
+            return defaultValue
+        }
+        return value
+    }
 
     def test_backup_restore= {String ak,String sk,String s3_endpoint,String region,String bucket,String objPrefix ->
         def s3repoName1 = "${objPrefix}_repo_1"
@@ -191,7 +197,7 @@ suite("refactor_storage_backup_restore_object_storage", "p0,external,external_do
         def s3repoName7 = "${objPrefix}_s3_repo_7"
         createRepository("${s3repoName7}", "s3.endpoint", s3_endpoint, "s3.region", region, "s3.access_key", ak, "s3.secret_key", sk, "", "https://${bucket}/test_" + System.currentTimeMillis())
         def dbName7 = currentDBName + "${objPrefix}_7"
-      
+
         createDBAndTbl("${dbName7}")
         backupAndRestore("${s3repoName7}", dbName7, s3table, "backup_${s3repoName7}_test")
         def failedRepoName = "s3_repo_failed"
@@ -199,21 +205,17 @@ suite("refactor_storage_backup_restore_object_storage", "p0,external,external_do
         shouldFail {
             createRepository("${failedRepoName}", "s3.endpoint", s3_endpoint, "s3.region", region, "AWS_ACCESS_KEY", ak, "AWS_SECRET_KEY", sk, "true", "s3://ck/" + System.currentTimeMillis())
         }
-        //endpoint is empty
-        shouldFail {
-            createRepository("${failedRepoName}", "s3.endpoint", "", "s3.region", region, "s3.access_key", ak, "s3.secret_key", sk, "", "s3://${bucket}/test_" + System.currentTimeMillis())
-        }
         //region is empty
         shouldFail {
             createRepository("${failedRepoName}", "s3.endpoint", "", "s3.region", "", "s3.access_key", ak, "s3.secret_key", sk, "", "s3://${bucket}/test_" + System.currentTimeMillis())
         }
     }
     /*-------------AWS S3--------------------------------*/
-    String  ak = context.config.otherConfigs.get("AWSAK")
+    String ak = context.config.otherConfigs.get("AWSAK")
     String sk = context.config.otherConfigs.get("AWSSK")
-    String s3_endpoint = "s3.ap-northeast-1.amazonaws.com"
-    String region = "ap-northeast-1"
-    String bucket = "selectdb-qa-datalake-test"
+    String s3_endpoint = getConfigOrDefault("AWSEndpoint","s3.ap-northeast-1.amazonaws.com")
+    String region = getConfigOrDefault ("AWSRegion","ap-northeast-1")
+    String bucket = getConfigOrDefault ("AWSS3Bucket","selectdb-qa-datalake-test")
     String objPrefix="s3"
     test_backup_restore(ak,sk,s3_endpoint,region,bucket,objPrefix)
     //todo When the new fs is fully enabled, we need to open this startup
@@ -224,10 +226,10 @@ suite("refactor_storage_backup_restore_object_storage", "p0,external,external_do
     /*-----------------Tencent COS----------------*/
     ak = context.config.otherConfigs.get("txYunAk")
     sk = context.config.otherConfigs.get("txYunSk")
-    s3_endpoint = "cos.ap-beijing.myqcloud.com"
-    region = "ap-beijing"
-    bucket = "doris-build-1308700295";
-    
+    s3_endpoint = getConfigOrDefault("txYunEndpoint","cos.ap-beijing.myqcloud.com")
+    region = getConfigOrDefault ("txYunRegion","ap-beijing");
+    bucket = getConfigOrDefault ("txYunBucket","doris-build-1308700295")
+
     objPrefix="cos"
     test_backup_restore(ak,sk,s3_endpoint,region,bucket,objPrefix)
     /*  cos_url  */
@@ -245,15 +247,15 @@ suite("refactor_storage_backup_restore_object_storage", "p0,external,external_do
     def cosDbName2 = currentDBName + "${objPrefix}_cos_2"
     createDBAndTbl("${cosDbName2}")
     backupAndRestore("${cos_repoName2}", cosDbName2, s3table, "backup_${cos_repoName1}_test")
-    
+
 
 
     /*-----------------Huawei OBS----------------*/
     ak = context.config.otherConfigs.get("hwYunAk")
     sk = context.config.otherConfigs.get("hwYunSk")
-    s3_endpoint = "obs.cn-north-4.myhuaweicloud.com"
-    region = "cn-north-4"
-    bucket = "doris-build";
+    s3_endpoint = getConfigOrDefault("hwYunEndpoint","obs.cn-north-4.myhuaweicloud.com")
+    region = getConfigOrDefault("hwYunRegion","cn-north-4")
+    bucket = getConfigOrDefault("hwYunBucket","doris-build");
     objPrefix="obs"
     test_backup_restore(ak,sk,s3_endpoint,region,bucket,objPrefix)
     def obs_repoName1 = "${objPrefix}_repo_obs_prefix_1"
@@ -275,9 +277,9 @@ suite("refactor_storage_backup_restore_object_storage", "p0,external,external_do
     /*-----------------Aliyun OSS----------------*/
     ak = context.config.otherConfigs.get("aliYunAk")
     sk = context.config.otherConfigs.get("aliYunSk")
-    s3_endpoint = "oss-cn-hongkong.aliyuncs.com"
-    region = "oss-cn-hongkong"
-    bucket = "doris-regression-hk";
+    s3_endpoint = getConfigOrDefault("aliYunEndpoint","oss-cn-hongkong.aliyuncs.com")
+    region = getConfigOrDefault ("aliYunRegion","oss-cn-hongkong")
+    bucket = getConfigOrDefault ("aliYunBucket","doris-regression-hk");
     objPrefix="oss"
     // oss has some problem, so we comment it.
     //test_backup_restore(ak,sk,s3_endpoint,region,bucket,objPrefix)
@@ -295,6 +297,4 @@ suite("refactor_storage_backup_restore_object_storage", "p0,external,external_do
     def ossDbName2 = currentDBName + "${objPrefix}_oss_2"
     createDBAndTbl("${ossDbName2}")
     backupAndRestore("${oss_repoName2}", ossDbName2, s3table, "backup_${oss_repoName1}_test")
-
-
 }

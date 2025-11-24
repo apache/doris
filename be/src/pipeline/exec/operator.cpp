@@ -24,6 +24,7 @@
 #include "pipeline/exec/analytic_sink_operator.h"
 #include "pipeline/exec/analytic_source_operator.h"
 #include "pipeline/exec/assert_num_rows_operator.h"
+#include "pipeline/exec/blackhole_sink_operator.h"
 #include "pipeline/exec/cache_sink_operator.h"
 #include "pipeline/exec/cache_source_operator.h"
 #include "pipeline/exec/datagen_operator.h"
@@ -43,6 +44,7 @@
 #include "pipeline/exec/jdbc_scan_operator.h"
 #include "pipeline/exec/jdbc_table_sink_operator.h"
 #include "pipeline/exec/local_merge_sort_source_operator.h"
+#include "pipeline/exec/materialization_opertor.h"
 #include "pipeline/exec/memory_scratch_sink_operator.h"
 #include "pipeline/exec/meta_scan_operator.h"
 #include "pipeline/exec/mock_operator.h"
@@ -104,22 +106,24 @@ Status OperatorBase::close(RuntimeState* state) {
 
 template <typename SharedStateArg>
 std::string PipelineXLocalState<SharedStateArg>::name_suffix() const {
-    return " (id=" + std::to_string(_parent->node_id()) + [&]() -> std::string {
-        if (_parent->nereids_id() == -1) {
-            return "";
-        }
-        return " , nereids_id=" + std::to_string(_parent->nereids_id());
-    }() + ")";
+    if (_parent->nereids_id() == -1) {
+        return fmt::format(operator_name_suffix, std::to_string(_parent->node_id()));
+    } else {
+        return fmt::format("(nereids_id={})" + operator_name_suffix,
+                           std::to_string(_parent->nereids_id()),
+                           std::to_string(_parent->node_id()));
+    }
 }
 
 template <typename SharedStateArg>
 std::string PipelineXSinkLocalState<SharedStateArg>::name_suffix() {
-    return " (id=" + std::to_string(_parent->node_id()) + [&]() -> std::string {
-        if (_parent->nereids_id() == -1) {
-            return "";
-        }
-        return " , nereids_id=" + std::to_string(_parent->nereids_id());
-    }() + ")";
+    if (_parent->nereids_id() == -1) {
+        return fmt::format(operator_name_suffix, std::to_string(_parent->node_id()));
+    } else {
+        return fmt::format("(nereids_id={})" + operator_name_suffix,
+                           std::to_string(_parent->nereids_id()),
+                           std::to_string(_parent->node_id()));
+    }
 }
 
 template <typename SharedStateArg>
@@ -131,14 +135,14 @@ Status PipelineXSinkLocalState<SharedStateArg>::terminate(RuntimeState* state) {
     return Status::OK();
 }
 
-DataDistribution OperatorBase::required_data_distribution() const {
+DataDistribution OperatorBase::required_data_distribution(RuntimeState* /*state*/) const {
     return _child && _child->is_serial_operator() && !is_source()
                    ? DataDistribution(ExchangeType::PASSTHROUGH)
                    : DataDistribution(ExchangeType::NOOP);
 }
 
-bool OperatorBase::require_shuffled_data_distribution() const {
-    return Pipeline::is_hash_exchange(required_data_distribution().distribution_type);
+bool OperatorBase::require_shuffled_data_distribution(RuntimeState* state) const {
+    return Pipeline::is_hash_exchange(required_data_distribution(state).distribution_type);
 }
 
 const RowDescriptor& OperatorBase::row_desc() const {
@@ -245,6 +249,12 @@ Status OperatorXBase::prepare(RuntimeState* state) {
     if (_child && !is_source()) {
         RETURN_IF_ERROR(_child->prepare(state));
     }
+
+    if (vectorized::VExpr::contains_blockable_function(_conjuncts) ||
+        vectorized::VExpr::contains_blockable_function(_projections)) {
+        _blockable = true;
+    }
+
     return Status::OK();
 }
 
@@ -280,6 +290,12 @@ Status PipelineXLocalStateBase::filter_block(const vectorized::VExprContextSPtrs
 
     _estimate_memory_usage += vectorized::VExprContext::get_memory_usage(expr_contexts);
     return Status::OK();
+}
+
+bool PipelineXLocalStateBase::is_blockable() const {
+    return std::any_of(
+            _projections.begin(), _projections.end(),
+            [&](vectorized::VExprContextSPtr expr) -> bool { return expr->is_blockable(); });
 }
 
 Status OperatorXBase::do_projections(RuntimeState* state, vectorized::Block* origin_block,
@@ -336,9 +352,9 @@ Status OperatorXBase::do_projections(RuntimeState* state, vectorized::Block* ori
         DCHECK_EQ(mutable_columns.size(), local_state->_projections.size()) << debug_string();
         for (int i = 0; i < mutable_columns.size(); ++i) {
             auto result_column_id = -1;
-            RETURN_IF_ERROR(local_state->_projections[i]->execute(&input_block, &result_column_id));
-            auto column_ptr = input_block.get_by_position(result_column_id)
-                                      .column->convert_to_full_column_if_const();
+            ColumnPtr column_ptr;
+            RETURN_IF_ERROR(local_state->_projections[i]->execute(&input_block, column_ptr));
+            column_ptr = column_ptr->convert_to_full_column_if_const();
             if (result_column_id >= origin_columns_count) {
                 bytes_usage += column_ptr->allocated_bytes();
             }
@@ -386,6 +402,7 @@ Status OperatorXBase::get_block_after_projects(RuntimeState* state, vectorized::
         return status;
     }
     status = get_block(state, block, eos);
+    RETURN_IF_ERROR(block->check_type_and_column());
     return status;
 }
 
@@ -493,11 +510,15 @@ PipelineXLocalStateBase::PipelineXLocalStateBase(RuntimeState* state, OperatorXB
 
 template <typename SharedStateArg>
 Status PipelineXLocalState<SharedStateArg>::init(RuntimeState* state, LocalStateInfo& info) {
-    _runtime_profile.reset(new RuntimeProfile(_parent->get_name() + name_suffix()));
-    _runtime_profile->set_metadata(_parent->node_id());
+    _operator_profile.reset(new RuntimeProfile(_parent->get_name() + name_suffix()));
+    _common_profile.reset(new RuntimeProfile("CommonCounters"));
+    _custom_profile.reset(new RuntimeProfile("CustomCounters"));
+    _operator_profile->set_metadata(_parent->node_id());
     // indent is false so that source operator will have same
     // indentation_level with its parent operator.
-    info.parent_profile->add_child(_runtime_profile.get(), /*indent=*/false, nullptr);
+    info.parent_profile->add_child(_operator_profile.get(), /*indent=*/false);
+    _operator_profile->add_child(_common_profile.get(), true);
+    _operator_profile->add_child(_custom_profile.get(), true);
     constexpr auto is_fake_shared = std::is_same_v<SharedStateArg, FakeSharedState>;
     if constexpr (!is_fake_shared) {
         if (info.shared_state_map.find(_parent->operator_id()) != info.shared_state_map.end()) {
@@ -507,7 +528,7 @@ Status PipelineXLocalState<SharedStateArg>::init(RuntimeState* state, LocalState
 
             _dependency = _shared_state->get_dep_by_channel_id(info.task_idx).front().get();
             _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(
-                    _runtime_profile, "WaitForDependency[" + _dependency->name() + "]Time", 1);
+                    _common_profile, "WaitForDependency[" + _dependency->name() + "]Time", 1);
         } else if (info.shared_state) {
             if constexpr (std::is_same_v<LocalExchangeSharedState, SharedStateArg>) {
                 DCHECK(false);
@@ -518,7 +539,7 @@ Status PipelineXLocalState<SharedStateArg>::init(RuntimeState* state, LocalState
             _dependency = _shared_state->create_source_dependency(
                     _parent->operator_id(), _parent->node_id(), _parent->get_name());
             _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(
-                    _runtime_profile, "WaitForDependency[" + _dependency->name() + "]Time", 1);
+                    _common_profile, "WaitForDependency[" + _dependency->name() + "]Time", 1);
         } else {
             if constexpr (std::is_same_v<LocalExchangeSharedState, SharedStateArg>) {
                 DCHECK(false);
@@ -531,16 +552,16 @@ Status PipelineXLocalState<SharedStateArg>::init(RuntimeState* state, LocalState
     }
 
     _rows_returned_counter =
-            ADD_COUNTER_WITH_LEVEL(_runtime_profile, "RowsProduced", TUnit::UNIT, 1);
+            ADD_COUNTER_WITH_LEVEL(_common_profile, "RowsProduced", TUnit::UNIT, 1);
     _blocks_returned_counter =
-            ADD_COUNTER_WITH_LEVEL(_runtime_profile, "BlocksProduced", TUnit::UNIT, 1);
-    _projection_timer = ADD_TIMER_WITH_LEVEL(_runtime_profile, "ProjectionTime", 1);
-    _init_timer = ADD_TIMER_WITH_LEVEL(_runtime_profile, "InitTime", 1);
-    _open_timer = ADD_TIMER_WITH_LEVEL(_runtime_profile, "OpenTime", 1);
-    _close_timer = ADD_TIMER_WITH_LEVEL(_runtime_profile, "CloseTime", 1);
-    _exec_timer = ADD_TIMER_WITH_LEVEL(_runtime_profile, "ExecTime", 1);
+            ADD_COUNTER_WITH_LEVEL(_common_profile, "BlocksProduced", TUnit::UNIT, 1);
+    _projection_timer = ADD_TIMER_WITH_LEVEL(_common_profile, "ProjectionTime", 2);
+    _init_timer = ADD_TIMER_WITH_LEVEL(_common_profile, "InitTime", 2);
+    _open_timer = ADD_TIMER_WITH_LEVEL(_common_profile, "OpenTime", 2);
+    _close_timer = ADD_TIMER_WITH_LEVEL(_common_profile, "CloseTime", 2);
+    _exec_timer = ADD_TIMER_WITH_LEVEL(_common_profile, "ExecTime", 1);
     _memory_used_counter =
-            _runtime_profile->AddHighWaterMarkCounter("MemoryUsage", TUnit::BYTES, "", 1);
+            _common_profile->AddHighWaterMarkCounter("MemoryUsage", TUnit::BYTES, "", 1);
     return Status::OK();
 }
 
@@ -589,9 +610,20 @@ Status PipelineXLocalState<SharedStateArg>::close(RuntimeState* state) {
 template <typename SharedState>
 Status PipelineXSinkLocalState<SharedState>::init(RuntimeState* state, LocalSinkStateInfo& info) {
     // create profile
-    _profile = state->obj_pool()->add(new RuntimeProfile(_parent->get_name() + name_suffix()));
-    _profile->set_metadata(_parent->node_id());
-    _wait_for_finish_dependency_timer = ADD_TIMER(_profile, "PendingFinishDependency");
+    _operator_profile =
+            state->obj_pool()->add(new RuntimeProfile(_parent->get_name() + name_suffix()));
+    _common_profile = state->obj_pool()->add(new RuntimeProfile("CommonCounters"));
+    _custom_profile = state->obj_pool()->add(new RuntimeProfile("CustomCounters"));
+
+    // indentation is true
+    // The parent profile of sink operator is usually a RuntimeProfile called PipelineTask.
+    // So we should set the indentation to true.
+    info.parent_profile->add_child(_operator_profile, /*indent=*/true);
+    _operator_profile->add_child(_common_profile, true);
+    _operator_profile->add_child(_custom_profile, true);
+
+    _operator_profile->set_metadata(_parent->node_id());
+    _wait_for_finish_dependency_timer = ADD_TIMER(_common_profile, "PendingFinishDependency");
     constexpr auto is_fake_shared = std::is_same_v<SharedState, FakeSharedState>;
     if constexpr (!is_fake_shared) {
         if (info.shared_state_map.find(_parent->dests_id().front()) !=
@@ -614,23 +646,20 @@ Status PipelineXSinkLocalState<SharedState>::init(RuntimeState* state, LocalSink
                     _parent->dests_id().front(), _parent->node_id(), _parent->get_name());
         }
         _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(
-                _profile, "WaitForDependency[" + _dependency->name() + "]Time", 1);
+                _common_profile, "WaitForDependency[" + _dependency->name() + "]Time", 1);
     }
 
     if (must_set_shared_state() && _shared_state == nullptr) {
         return Status::InternalError("must set shared state, in {}", _parent->get_name());
     }
 
-    _rows_input_counter = ADD_COUNTER_WITH_LEVEL(_profile, "InputRows", TUnit::UNIT, 1);
-    _init_timer = ADD_TIMER_WITH_LEVEL(_profile, "InitTime", 1);
-    _open_timer = ADD_TIMER_WITH_LEVEL(_profile, "OpenTime", 1);
-    _close_timer = ADD_TIMER_WITH_LEVEL(_profile, "CloseTime", 1);
-    _exec_timer = ADD_TIMER_WITH_LEVEL(_profile, "ExecTime", 1);
-    // indentation is true
-    // The parent profile of sink operator is usually a RuntimeProfile called PipelineTask.
-    // So we should set the indentation to true.
-    info.parent_profile->add_child(_profile, /*indent=*/true, nullptr);
-    _memory_used_counter = _profile->AddHighWaterMarkCounter("MemoryUsage", TUnit::BYTES, "", 1);
+    _rows_input_counter = ADD_COUNTER_WITH_LEVEL(_common_profile, "InputRows", TUnit::UNIT, 1);
+    _init_timer = ADD_TIMER_WITH_LEVEL(_common_profile, "InitTime", 2);
+    _open_timer = ADD_TIMER_WITH_LEVEL(_common_profile, "OpenTime", 2);
+    _close_timer = ADD_TIMER_WITH_LEVEL(_common_profile, "CloseTime", 2);
+    _exec_timer = ADD_TIMER_WITH_LEVEL(_common_profile, "ExecTime", 1);
+    _memory_used_counter =
+            _common_profile->AddHighWaterMarkCounter("MemoryUsage", TUnit::BYTES, "", 1);
     return Status::OK();
 }
 
@@ -695,7 +724,7 @@ Status AsyncWriterSink<Writer, Parent>::init(RuntimeState* state, LocalSinkState
                              _finish_dependency));
 
     _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(
-            _profile, "WaitForDependency[" + _async_writer_dependency->name() + "]Time", 1);
+            common_profile(), "WaitForDependency[" + _async_writer_dependency->name() + "]Time", 1);
     return Status::OK();
 }
 
@@ -708,7 +737,7 @@ Status AsyncWriterSink<Writer, Parent>::open(RuntimeState* state) {
         RETURN_IF_ERROR(
                 _parent->cast<Parent>()._output_vexpr_ctxs[i]->clone(state, _output_vexpr_ctxs[i]));
     }
-    RETURN_IF_ERROR(_writer->start_writer(state, _profile));
+    RETURN_IF_ERROR(_writer->start_writer(state, operator_profile()));
     return Status::OK();
 }
 
@@ -755,6 +784,7 @@ DECLARE_OPERATOR(OlapTableSinkV2LocalState)
 DECLARE_OPERATOR(HiveTableSinkLocalState)
 DECLARE_OPERATOR(IcebergTableSinkLocalState)
 DECLARE_OPERATOR(AnalyticSinkLocalState)
+DECLARE_OPERATOR(BlackholeSinkLocalState)
 DECLARE_OPERATOR(SortSinkLocalState)
 DECLARE_OPERATOR(SpillSortSinkLocalState)
 DECLARE_OPERATOR(LocalExchangeSinkLocalState)
@@ -819,6 +849,7 @@ template class StreamingOperatorX<SelectLocalState>;
 template class StatefulOperatorX<HashJoinProbeLocalState>;
 template class StatefulOperatorX<PartitionedHashJoinProbeLocalState>;
 template class StatefulOperatorX<RepeatLocalState>;
+template class StatefulOperatorX<MaterializationLocalState>;
 template class StatefulOperatorX<StreamingAggLocalState>;
 template class StatefulOperatorX<DistinctStreamingAggLocalState>;
 template class StatefulOperatorX<NestedLoopJoinProbeLocalState>;
@@ -839,7 +870,7 @@ template class PipelineXSinkLocalState<MultiCastSharedState>;
 template class PipelineXSinkLocalState<SetSharedState>;
 template class PipelineXSinkLocalState<LocalExchangeSharedState>;
 template class PipelineXSinkLocalState<BasicSharedState>;
-template class PipelineXSinkLocalState<CacheSharedState>;
+template class PipelineXSinkLocalState<DataQueueSharedState>;
 
 template class PipelineXLocalState<HashJoinSharedState>;
 template class PipelineXLocalState<PartitionedHashJoinSharedState>;
@@ -851,7 +882,7 @@ template class PipelineXLocalState<AggSharedState>;
 template class PipelineXLocalState<PartitionedAggSharedState>;
 template class PipelineXLocalState<FakeSharedState>;
 template class PipelineXLocalState<UnionSharedState>;
-template class PipelineXLocalState<CacheSharedState>;
+template class PipelineXLocalState<DataQueueSharedState>;
 template class PipelineXLocalState<MultiCastSharedState>;
 template class PipelineXLocalState<PartitionSortNodeSharedState>;
 template class PipelineXLocalState<SetSharedState>;

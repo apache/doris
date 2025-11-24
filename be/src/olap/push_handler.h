@@ -136,11 +136,11 @@ private:
     std::vector<TFileRangeDesc> _file_ranges;
 
     std::unique_ptr<io::FileCacheStatistics> _file_cache_statistics;
+    std::unique_ptr<io::FileReaderStats> _file_reader_stats;
     std::unique_ptr<io::IOContext> _io_ctx;
 
     // col names from _slot_descs
     std::vector<std::string> _all_col_names;
-    std::unordered_map<std::string, ColumnValueRangeType>* _colname_to_value_range;
     vectorized::VExprContextSPtrs _push_down_exprs;
     const std::unordered_map<std::string, int>* _col_name_to_slot_id;
     // single slot filter conjuncts

@@ -21,34 +21,44 @@
 
 CL_NS_USE(index)
 
+namespace doris::io {
+struct IOContext;
+} // namespace doris::io
+
 namespace doris::segment_v2 {
 
-class TermPositionIterator : public TermIterator {
+class TermPositionsIterator;
+using TermPositionsIterPtr = std::shared_ptr<TermPositionsIterator>;
+
+class TermPositionsIterator : public TermIterator {
 public:
-    TermPositionIterator() = default;
-    TermPositionIterator(TermPositions* term_positions)
-            : TermIterator(term_positions), _term_pos(term_positions) {}
-    ~TermPositionIterator() override = default;
+    TermPositionsIterator() = default;
+    TermPositionsIterator(std::wstring term, TermPositionsPtr term_positions)
+            : TermIterator(std::move(term), std::move(term_positions)) {
+        term_poss_ = dynamic_cast<TermPositions*>(term_docs_.get());
+    }
+    ~TermPositionsIterator() override = default;
 
-    int32_t next_position() const { return _term_pos->nextPosition(); }
+    MOCK_FUNCTION int32_t next_position() const { return term_poss_->nextPosition(); }
 
-    static TermPositions* ensure_term_position(IndexReader* reader, const std::wstring& field_name,
-                                               const std::string& term) {
-        std::wstring ws_term = StringUtil::string_to_wstring(term);
-        return ensure_term_position(reader, field_name, ws_term);
+    static TermPositionsIterPtr create(const io::IOContext* io_ctx, bool is_similarity,
+                                       lucene::index::IndexReader* reader,
+                                       const std::wstring& field_name, const std::string& term) {
+        return create(io_ctx, is_similarity, reader, field_name,
+                      StringUtil::string_to_wstring(term));
     }
 
-    static TermPositions* ensure_term_position(IndexReader* reader, const std::wstring& field_name,
-                                               const std::wstring& ws_term) {
-        auto* t = _CLNEW Term(field_name.c_str(), ws_term.c_str());
-        auto* term_pos = reader->termPositions(t);
-        _CLDECDELETE(t);
-        return term_pos;
+    static TermPositionsIterPtr create(const io::IOContext* io_ctx, bool is_similarity,
+                                       lucene::index::IndexReader* reader,
+                                       const std::wstring& field_name,
+                                       const std::wstring& ws_term) {
+        auto t = make_term_ptr(field_name.c_str(), ws_term.c_str());
+        auto term_pos = make_term_positions_ptr(reader, t.get(), is_similarity, io_ctx);
+        return std::make_shared<TermPositionsIterator>(ws_term, std::move(term_pos));
     }
 
 private:
-    TermPositions* _term_pos = nullptr;
+    TermPositions* term_poss_ = nullptr;
 };
-using TermPosIterPtr = std::shared_ptr<TermPositionIterator>;
 
 } // namespace doris::segment_v2

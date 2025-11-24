@@ -25,7 +25,6 @@ import org.apache.doris.common.io.Writable;
 
 import com.google.common.base.Strings;
 
-import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 
@@ -47,7 +46,7 @@ public class ClusterName implements Writable {
         return db;
     }
 
-    public void analyze(Analyzer analyzer) throws AnalysisException {
+    public void analyze() throws AnalysisException {
         if (Strings.isNullOrEmpty(cluster)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_CLUSTER_NO_CLUSTER_NAME);
         }
@@ -61,10 +60,5 @@ public class ClusterName implements Writable {
     public void write(DataOutput out) throws IOException {
         Text.writeString(out, cluster);
         Text.writeString(out, db);
-    }
-
-    public void readFields(DataInput in) throws IOException {
-        cluster = Text.readString(in);
-        db = Text.readString(in);
     }
 }

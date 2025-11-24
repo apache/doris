@@ -18,6 +18,8 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("aggOnAggMV7") {
+    // this mv rewrite would not be rewritten in RBO phase, so set TRY_IN_RBO explicitly to make case stable
+    sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
     sql "SET experimental_enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
     sql """ DROP TABLE IF EXISTS aggOnAggMV7; """
@@ -40,7 +42,7 @@ suite ("aggOnAggMV7") {
     sql """insert into aggOnAggMV7 values("2020-01-03",3,"c",3,3,3);"""
     sql """insert into aggOnAggMV7 values("2020-01-03",3,"c",3,3,3);"""
 
-    createMV("create materialized view aggOnAggMV7_mv as select deptno, commission, sum(salary) from aggOnAggMV7 group by deptno, commission;")
+    createMV("create materialized view aggOnAggMV7_mv as select deptno as a1, commission as a2, sum(salary) from aggOnAggMV7 group by deptno, commission;")
 
     sleep(3000)
 

@@ -25,7 +25,6 @@
 #include "runtime/query_context.h"
 #include "runtime/thread_context.h"
 #include "service/brpc.h"
-#include "util/brpc_closure.h"
 
 namespace doris {
 
@@ -37,6 +36,7 @@ public:
     using ResponseType = Response;
     DummyBrpcCallback() {
         cntl_ = std::make_shared<brpc::Controller>();
+        call_id_ = cntl_->call_id();
         response_ = std::make_shared<Response>();
     }
 
@@ -44,8 +44,11 @@ public:
 
     virtual void call() {}
 
-    virtual void join() { brpc::Join(cntl_->call_id()); }
+    virtual void join() { brpc::Join(call_id_); }
 
+    // according to brpc doc, we MUST save the call_id before rpc done. use this id to join.
+    // if a rpc is already done then we get the id and join, it's wrong.
+    brpc::CallId call_id_;
     // controller has to be the same lifecycle with the closure, because brpc may use
     // it in any stage of the rpc.
     std::shared_ptr<brpc::Controller> cntl_;
@@ -82,7 +85,7 @@ class AutoReleaseClosure : public google::protobuf::Closure {
 
 public:
     AutoReleaseClosure(std::shared_ptr<Request> req, std::shared_ptr<Callback> callback,
-                       std::weak_ptr<QueryContext> context = {})
+                       std::weak_ptr<QueryContext> context = {}, std::string_view error_msg = {})
             : request_(req), callback_(callback), context_(std::move(context)) {
         this->cntl_ = callback->cntl_;
         this->response_ = callback->response_;
@@ -113,10 +116,12 @@ public:
     // at any stage.
     std::shared_ptr<Request> request_;
     std::shared_ptr<ResponseType> response_;
+    std::string error_msg_;
 
 protected:
     virtual void _process_if_rpc_failed() {
-        std::string error_msg = "RPC meet failed: " + cntl_->ErrorText();
+        std::string error_msg =
+                fmt::format("RPC meet failed: {} {}", cntl_->ErrorText(), error_msg_);
         if (auto ctx = context_.lock(); ctx) {
             ctx->cancel(Status::NetworkError(error_msg));
         } else {

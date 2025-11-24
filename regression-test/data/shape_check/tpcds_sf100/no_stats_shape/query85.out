@@ -31,10 +31,10 @@ PhysicalResultSink
 ------------------------------------------PhysicalOlapScan[web_page]
 ------------------------------------PhysicalProject
 --------------------------------------filter(OR[AND[(cd1.cd_marital_status = 'M'),(cd1.cd_education_status = '4 yr Degree')],AND[(cd1.cd_marital_status = 'S'),(cd1.cd_education_status = 'Secondary')],AND[(cd1.cd_marital_status = 'W'),(cd1.cd_education_status = 'Advanced Degree')]] and cd_education_status IN ('4 yr Degree', 'Advanced Degree', 'Secondary') and cd_marital_status IN ('M', 'S', 'W'))
-----------------------------------------PhysicalOlapScan[customer_demographics] apply RFs: RF5 RF6
+----------------------------------------PhysicalOlapScan[customer_demographics(cd1)] apply RFs: RF5 RF6
 --------------------------------PhysicalProject
 ----------------------------------filter(cd_education_status IN ('4 yr Degree', 'Advanced Degree', 'Secondary') and cd_marital_status IN ('M', 'S', 'W'))
-------------------------------------PhysicalOlapScan[customer_demographics]
+------------------------------------PhysicalOlapScan[customer_demographics(cd2)]
 ----------------------------PhysicalProject
 ------------------------------filter((customer_address.ca_country = 'United States') and ca_state IN ('DE', 'FL', 'ID', 'IL', 'IN', 'MT', 'ND', 'OH', 'TX'))
 --------------------------------PhysicalOlapScan[customer_address]

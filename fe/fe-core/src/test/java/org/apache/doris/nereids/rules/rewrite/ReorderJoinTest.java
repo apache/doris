@@ -106,6 +106,25 @@ class ReorderJoinTest implements MemoPatternMatchSupported {
     }
 
     @Test
+    public void testLeftSemiMarkJoin() {
+        LogicalPlan plan = new LogicalPlanBuilder(scan1)
+                .markJoin(scan2, JoinType.LEFT_SEMI_JOIN, Pair.of(0, 0))
+                .join(scan3, JoinType.INNER_JOIN, Pair.of(0, 0))
+                .filter(new EqualTo(scan3.getOutput().get(0), scan1.getOutput().get(0)))
+                .build();
+        ConnectContext connectContext = MemoTestUtils.createConnectContext();
+        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
+        PlanChecker.from(connectContext, plan)
+                .applyBottomUp(new ReorderJoin())
+                .matchesFromRoot(
+                        logicalJoin(
+                                logicalJoin().when(join -> join.isMarkJoin()),
+                                logicalOlapScan()
+                        ).whenNot(join -> join.getJoinType().isCrossJoin())
+                );
+    }
+
+    @Test
     public void testRightSemiJoin() {
         LogicalPlan plan1 = new LogicalPlanBuilder(scan1)
                 .join(scan2, JoinType.RIGHT_SEMI_JOIN, Pair.of(0, 0))
@@ -134,7 +153,6 @@ class ReorderJoinTest implements MemoPatternMatchSupported {
                             logicalOlapScan()
                         ))
                 );
-
     }
 
     @Test

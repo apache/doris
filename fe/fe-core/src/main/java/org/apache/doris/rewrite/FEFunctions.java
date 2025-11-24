@@ -17,7 +17,6 @@
 
 package org.apache.doris.rewrite;
 
-import org.apache.doris.analysis.ArrayLiteral;
 import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.DecimalLiteral;
 import org.apache.doris.analysis.FloatLiteral;
@@ -62,20 +61,7 @@ public class FEFunctions {
     public static FloatLiteral timeDiff(LiteralExpr first, LiteralExpr second) throws AnalysisException {
         long firstTimestamp = ((DateLiteral) first).unixTimestamp(TimeUtils.getTimeZone());
         long secondTimestamp = ((DateLiteral) second).unixTimestamp(TimeUtils.getTimeZone());
-        return new FloatLiteral((double) (firstTimestamp - secondTimestamp) * 1000,
-                FloatLiteral.getDefaultTimeType(Type.TIMEV2));
-    }
-
-    @FEFunction(name = "datediff", argTypes = { "DATETIME", "DATETIME" }, returnType = "INT")
-    public static IntLiteral dateDiff(LiteralExpr first, LiteralExpr second) throws AnalysisException {
-        DateLiteral firstDate = ((DateLiteral) first);
-        DateLiteral secondDate = ((DateLiteral) second);
-        // DATEDIFF function only uses the date part for calculations and ignores the time part
-        firstDate.castToDate();
-        secondDate.castToDate();
-        long datediff = (firstDate.unixTimestamp(TimeUtils.getTimeZone())
-                - secondDate.unixTimestamp(TimeUtils.getTimeZone())) / 1000 / 60 / 60 / 24;
-        return new IntLiteral(datediff, Type.INT);
+        return new FloatLiteral((double) (firstTimestamp - secondTimestamp) * 1000, Type.TIMEV2);
     }
 
     @FEFunction(name = "dayofweek", argTypes = {"DATETIME"}, returnType = "TINYINT")
@@ -246,12 +232,6 @@ public class FEFunctions {
      public static DateLiteral secondsAdd(LiteralExpr date, LiteralExpr second) throws AnalysisException {
         DateLiteral dateLiteral = (DateLiteral) date;
         return dateLiteral.plusSeconds(second.getLongValue());
-    }
-
-    @FEFunction(name = "date_format", argTypes = { "DATETIME", "VARCHAR" }, returnType = "VARCHAR")
-    public static StringLiteral dateFormat(LiteralExpr date, StringLiteral fmtLiteral) throws AnalysisException {
-        String result = ((DateLiteral) date).dateFormat(fmtLiteral.getStringValue());
-        return new StringLiteral(result);
     }
 
     @FEFunction(name = "str_to_date", argTypes = { "VARCHAR", "VARCHAR" }, returnType = "DATETIMEV2")
@@ -426,18 +406,6 @@ public class FEFunctions {
         return new StringLiteral(dl.getStringValue());
     }
 
-    @FEFunction(name = "from_unixtime", argTypes = { "BIGINT", "VARCHAR" }, returnType = "VARCHAR")
-    public static StringLiteral fromUnixTime(LiteralExpr unixTime, StringLiteral fmtLiteral) throws AnalysisException {
-        // if unixTime < 0, we should return null, throw a exception and let BE process
-        // 32536771199L is max valid timestamp of mysql from_unix_time
-        if (unixTime.getLongValue() < 0 || unixTime.getLongValue() >= 32536771199L) {
-            throw new AnalysisException("unix timestamp out of range");
-        }
-        DateLiteral dl = new DateLiteral(unixTime.getLongValue() * 1000, TimeUtils.getTimeZone(),
-                Type.DATETIME);
-        return new StringLiteral(dl.dateFormat(fmtLiteral.getStringValue()));
-    }
-
     @FEFunction(name = "now", argTypes = {}, returnType = "DATETIME")
     public static DateLiteral now() throws AnalysisException {
         return  new DateLiteral(LocalDateTime.now(TimeUtils.getTimeZone().toZoneId()),
@@ -460,14 +428,13 @@ public class FEFunctions {
         return curDate();
     }
 
-    @FEFunction(name = "curtime", argTypes = {}, returnType = "TIME")
+    @FEFunction(name = "curtime", argTypes = {}, returnType = "TIMEV2")
     public static FloatLiteral curTime() throws AnalysisException {
         DateLiteral now = now();
-        return new FloatLiteral((double) (now.getHour() * 3600 + now.getMinute() * 60 + now.getSecond()),
-            FloatLiteral.getDefaultTimeType(Type.TIME));
+        return new FloatLiteral((double) (now.getHour() * 3600 + now.getMinute() * 60 + now.getSecond()), Type.TIMEV2);
     }
 
-    @FEFunction(name = "current_time", argTypes = {}, returnType = "TIME")
+    @FEFunction(name = "current_time", argTypes = {}, returnType = "TIMEV2")
     public static FloatLiteral currentTime() throws AnalysisException {
         return curTime();
     }
@@ -1050,25 +1017,6 @@ public class FEFunctions {
     })
     public static LiteralExpr nvl(LiteralExpr first, LiteralExpr second) throws AnalysisException {
         return first instanceof NullLiteral ? second : first;
-    }
-
-    @FEFunctionList({
-        @FEFunction(name = "array", argTypes = {"BOOLEAN"}, returnType = "ARRAY"),
-        @FEFunction(name = "array", argTypes = {"TINYINT"}, returnType = "ARRAY"),
-        @FEFunction(name = "array", argTypes = {"SMALLINT"}, returnType = "ARRAY"),
-        @FEFunction(name = "array", argTypes = {"INT"}, returnType = "ARRAY"),
-        @FEFunction(name = "array", argTypes = {"BIGINT"}, returnType = "ARRAY"),
-        @FEFunction(name = "array", argTypes = {"LARGEINT"}, returnType = "ARRAY"),
-        @FEFunction(name = "array", argTypes = {"DATETIME"}, returnType = "ARRAY"),
-        @FEFunction(name = "array", argTypes = {"DATE"}, returnType = "ARRAY"),
-        @FEFunction(name = "array", argTypes = {"FLOAT"}, returnType = "ARRAY"),
-        @FEFunction(name = "array", argTypes = {"DOUBLE"}, returnType = "ARRAY"),
-        @FEFunction(name = "array", argTypes = {"DECIMALV2"}, returnType = "ARRAY"),
-        @FEFunction(name = "array", argTypes = {"VARCHAR"}, returnType = "ARRAY"),
-        @FEFunction(name = "array", argTypes = {"STRING"}, returnType = "ARRAY")
-    })
-    public static ArrayLiteral array(LiteralExpr... exprs) throws AnalysisException {
-        return new ArrayLiteral(exprs);
     }
 
 }

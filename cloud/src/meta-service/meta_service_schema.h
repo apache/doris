@@ -27,6 +27,9 @@ struct ValueBuf;
 void put_schema_kv(MetaServiceCode& code, std::string& msg, Transaction* txn,
                    std::string_view schema_key, const doris::TabletSchemaCloudPB& schema);
 
+void put_versioned_schema_kv(MetaServiceCode& code, std::string& msg, Transaction* txn,
+                             std::string_view schema_key, const doris::TabletSchemaCloudPB& schema);
+
 // Return true if parse success
 [[nodiscard]] bool parse_schema_value(const ValueBuf& buf, doris::TabletSchemaCloudPB* schema);
 

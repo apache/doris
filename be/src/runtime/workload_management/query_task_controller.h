@@ -29,7 +29,7 @@ class QueryTaskController : public TaskController {
     ENABLE_FACTORY_CREATOR(QueryTaskController);
 
 public:
-    static std::unique_ptr<TaskController> create(QueryContext* query_ctx);
+    static std::unique_ptr<TaskController> create(std::shared_ptr<QueryContext> query_ctx);
     ~QueryTaskController() override = default;
 
     bool is_cancelled() const override;

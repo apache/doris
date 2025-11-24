@@ -63,6 +63,10 @@ suite("test_single_hive_kerberos", "p0,external,kerberos,external_docker,externa
                     "fs.defaultFS" = "hdfs://${externalEnvIp}:8520",
                     "hadoop.security.authentication" = "kerberos",
                     "hadoop.kerberos.principal"="presto-server/presto-master.docker.cluster@LABS.TERADATA.COM",
+                    "hadoop.security.auth_to_local" = "RULE:[2:\\\$1@\\\$0](.*@LABS.TERADATA.COM)s/@.*//
+                                   RULE:[2:\\\$1@\\\$0](.*@OTHERLABS.TERADATA.COM)s/@.*//
+                                   RULE:[2:\\\$1@\\\$0](.*@OTHERREALM.COM)s/@.*//
+                                   DEFAULT",
                     "hadoop.kerberos.keytab" = "${keytab_root_dir}/presto-server.keytab"
                 );
             """

@@ -20,12 +20,13 @@ package org.apache.doris.mtmv;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
-import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
-import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.collections4.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -36,8 +37,12 @@ import java.util.Set;
 
 public class MTMVRefreshPartitionSnapshot {
     private static final Logger LOG = LogManager.getLogger(MTMV.class);
+    // old version only support one pct table
+    @Deprecated
     @SerializedName("p")
     private Map<String, MTMVSnapshotIf> partitions;
+    @SerializedName("pcts")
+    private Map<BaseTableInfo, Map<String, MTMVSnapshotIf>> pcts;
     // old version only persist table id, we need `BaseTableInfo`, `tables` only for compatible old version
     @SerializedName("t")
     @Deprecated
@@ -47,12 +52,18 @@ public class MTMVRefreshPartitionSnapshot {
 
     public MTMVRefreshPartitionSnapshot() {
         this.partitions = Maps.newConcurrentMap();
+        this.pcts = Maps.newConcurrentMap();
         this.tables = Maps.newConcurrentMap();
         this.tablesInfo = Maps.newConcurrentMap();
     }
 
+    @Deprecated
     public Map<String, MTMVSnapshotIf> getPartitions() {
         return partitions;
+    }
+
+    public Map<String, MTMVSnapshotIf> getPctSnapshot(BaseTableInfo pctTable) {
+        return pcts.computeIfAbsent(pctTable, k -> Maps.newHashMap());
     }
 
     public MTMVSnapshotIf getTableSnapshot(BaseTableInfo table) {
@@ -69,6 +80,10 @@ public class MTMVRefreshPartitionSnapshot {
         tables.put(baseTableInfo.getTableId(), tableSnapshot);
     }
 
+    public Map<BaseTableInfo, Map<String, MTMVSnapshotIf>> getPcts() {
+        return pcts;
+    }
+
     @Override
     public String toString() {
         return "MTMVRefreshPartitionSnapshot{"
@@ -77,29 +92,23 @@ public class MTMVRefreshPartitionSnapshot {
                 + '}';
     }
 
-    public void compatible(MTMV mtmv) {
-        try {
-            // snapshot add partitionId resolve problem of insert overwrite
-            compatiblePartitions(mtmv);
-        } catch (Throwable e) {
-            LOG.warn("MTMV compatiblePartitions failed, mtmv: {}", mtmv.getName(), e);
-        }
-        try {
-            // change table id to BaseTableInfo
-            compatibleTables(mtmv);
-        } catch (Throwable e) {
-            LOG.warn("MTMV compatibleTables failed, mtmv: {}", mtmv.getName(), e);
-        }
-
-        try {
-            // snapshot add tableId resolve problem of recreate table
-            compatibleTablesSnapshot();
-        } catch (Throwable e) {
-            LOG.warn("MTMV compatibleTables failed, mtmv: {}", mtmv.getName(), e);
-        }
+    public void compatible(MTMV mtmv) throws Exception {
+        // snapshot add partitionId resolve problem of insert overwrite
+        compatiblePartitions(mtmv);
+        // change table id to BaseTableInfo
+        compatibleTables(mtmv);
+        // snapshot add tableId resolve problem of recreate table
+        compatibleTablesSnapshot();
     }
 
     private void compatiblePartitions(MTMV mtmv) throws AnalysisException {
+        if (mtmv.getMvPartitionInfo().getPartitionType().equals(MTMVPartitionType.SELF_MANAGE)) {
+            return;
+        }
+        // Only olapTable has historical data issues that require compatibility
+        if (mtmv.getMvPartitionInfo().getRelatedTableInfo().getCtlId() != InternalCatalog.INTERNAL_CATALOG_ID) {
+            return;
+        }
         MTMVRelatedTableIf relatedTableIf = mtmv.getMvPartitionInfo().getRelatedTable();
         // Only olapTable has historical data issues that require compatibility
         if (!(relatedTableIf instanceof OlapTable)) {
@@ -113,6 +122,8 @@ public class MTMVRefreshPartitionSnapshot {
             MTMVVersionSnapshot versionSnapshot = (MTMVVersionSnapshot) entry.getValue();
             if (versionSnapshot.getId() == 0) {
                 Partition partition = relatedTable.getPartition(entry.getKey());
+                // if not find partition, may be partition has been dropped,
+                // the impact is that MTMV will consider this partition to be async
                 if (partition != null) {
                     (versionSnapshot).setId(partition.getId());
                 }
@@ -136,12 +147,7 @@ public class MTMVRefreshPartitionSnapshot {
         for (Entry<BaseTableInfo, MTMVSnapshotIf> entry : tablesInfo.entrySet()) {
             MTMVVersionSnapshot versionSnapshot = (MTMVVersionSnapshot) entry.getValue();
             if (versionSnapshot.getId() == 0) {
-                try {
-                    TableIf table = MTMVUtil.getTable(entry.getKey());
-                    versionSnapshot.setId(table.getId());
-                } catch (AnalysisException e) {
-                    LOG.warn("MTMV compatibleTablesSnapshot failed, can not get table by: {}", entry.getKey());
-                }
+                versionSnapshot.setId(entry.getKey().getTableId());
             }
         }
     }
@@ -155,22 +161,26 @@ public class MTMVRefreshPartitionSnapshot {
         return false;
     }
 
-    private void compatibleTables(MTMV mtmv) {
+    private void compatibleTables(MTMV mtmv) throws Exception {
         if (tables.size() == tablesInfo.size()) {
             return;
         }
         MTMVRelation relation = mtmv.getRelation();
-        if (relation == null || CollectionUtils.isEmpty(relation.getBaseTablesOneLevel())) {
+        if (relation == null || CollectionUtils.isEmpty(relation.getBaseTablesOneLevelAndFromView())) {
             return;
         }
         for (Entry<Long, MTMVSnapshotIf> entry : tables.entrySet()) {
             Optional<BaseTableInfo> tableInfo = getByTableId(entry.getKey(),
-                    relation.getBaseTablesOneLevel());
+                    relation.getBaseTablesOneLevelAndFromView());
             if (tableInfo.isPresent()) {
                 tablesInfo.put(tableInfo.get(), entry.getValue());
             } else {
-                LOG.warn("MTMV compatibleTables failed, tableId: {}, relationTables: {}", entry.getKey(),
-                        relation.getBaseTablesOneLevel());
+                String msg = String.format(
+                        "Failed to get table info based on id during compatibility process, "
+                                + "tableId: %s, relationTables: %s",
+                        entry.getKey(), relation.getBaseTablesOneLevelAndFromView());
+                LOG.warn(msg);
+                throw new Exception(msg);
             }
         }
     }

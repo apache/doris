@@ -22,12 +22,7 @@ import org.apache.doris.nereids.rules.rewrite.InferPredicateByReplace;
 import org.apache.doris.nereids.rules.rewrite.UnequalPredicateInfer;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
-import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.GreaterThan;
-import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
-import org.apache.doris.nereids.trees.expressions.LessThan;
-import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.types.DataType;
@@ -63,19 +58,8 @@ public class PredicateInferUtils {
         return expr instanceof SlotReference || expr instanceof Literal;
     }
 
-    /**The inputs predicate is divided into two parts. One is the predicate directly reserved, which does not enter
-     *  the non equivalent derivation, and the other is the predicates entering the non equivalent derivation*/
-    public static void getComplexAndSimplePredicates(Set<Expression> inputs, Set<Expression> complex,
-            Set<ComparisonPredicate> simple) {
-        for (Expression input : inputs) {
-            if (input instanceof GreaterThan || input instanceof GreaterThanEqual
-                    || input instanceof EqualTo || input instanceof LessThan
-                    || input instanceof LessThanEqual) {
-                simple.add((ComparisonPredicate) input);
-            } else {
-                complex.add(input);
-            }
-        }
+    public static boolean isSlotOrNotNullLiteral(Expression expr) {
+        return isSlotOrLiteral(expr) && !expr.isNullLiteral();
     }
 
     /**The predicate derivation is based on the input predicate predicates, which is divided into two parts.

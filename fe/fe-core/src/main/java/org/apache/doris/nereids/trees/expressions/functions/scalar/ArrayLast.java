@@ -37,8 +37,18 @@ public class ArrayLast extends ElementAt
         super(new ArrayFilter(arg), new BigIntLiteral(-1));
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ArrayLast(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public List<FunctionSignature> getImplSignature() {
         return SIGNATURES;
+    }
+
+    @Override
+    public ElementAt withChildren(List<Expression> children) {
+        return new ArrayLast(getFunctionParams(children));
     }
 }

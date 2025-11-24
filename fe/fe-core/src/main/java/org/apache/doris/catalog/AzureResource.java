@@ -21,7 +21,9 @@ import org.apache.doris.backup.Status;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.proc.BaseProcResult;
 import org.apache.doris.common.util.PrintableMap;
-import org.apache.doris.datasource.property.constants.S3Properties;
+import org.apache.doris.datasource.property.storage.AzureProperties;
+import org.apache.doris.datasource.property.storage.S3Properties;
+import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.fs.obj.AzureObjStorage;
 import org.apache.doris.fs.obj.ObjStorage;
 import org.apache.doris.fs.obj.RemoteObjects;
@@ -85,12 +87,14 @@ public class AzureResource extends Resource {
             Map<String, String> newProperties) throws DdlException {
 
         Long timestamp = System.currentTimeMillis();
-        String testObj = "azure://" + bucketName + "/" + rootPath
-                + "/doris-test-object-valid-" + timestamp.toString() + ".txt";
+        //todo @zyk Azure connection test
+        String testObj = "s3://" + bucketName + "/" + rootPath
+                + "/doris-test-object-valid-" + timestamp + ".txt";
 
         byte[] contentData = new byte[2 * ObjStorage.CHUNK_SIZE];
         Arrays.fill(contentData, (byte) 'A');
-        AzureObjStorage azureObjStorage = new AzureObjStorage(newProperties);
+        AzureProperties azureProperties = (AzureProperties) StorageProperties.createPrimary(newProperties);
+        AzureObjStorage azureObjStorage = new AzureObjStorage(azureProperties);
 
         Status status = azureObjStorage.putObject(testObj, new ByteArrayInputStream(contentData), contentData.length);
         if (!Status.OK.equals(status)) {

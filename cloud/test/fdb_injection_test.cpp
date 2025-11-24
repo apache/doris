@@ -33,7 +33,7 @@
 #include "common/logging.h"
 #include "cpp/sync_point.h"
 #include "meta-service/meta_service.h"
-#include "meta-service/txn_kv.h"
+#include "meta-store/txn_kv.h"
 
 using namespace doris;
 
@@ -44,8 +44,10 @@ static std::unique_ptr<cloud::MetaServiceProxy> create_meta_service() {
     auto rate_limiter = std::make_shared<cloud::RateLimiter>();
     auto rc_mgr = std::make_shared<cloud::ResourceManager>(txn_kv);
     [&]() { ASSERT_EQ(rc_mgr->init(), 0); }();
+    auto snapshot_manager = std::make_shared<cloud::SnapshotManager>(txn_kv);
 
-    auto meta_service_impl = std::make_unique<cloud::MetaServiceImpl>(txn_kv, rc_mgr, rate_limiter);
+    auto meta_service_impl = std::make_unique<cloud::MetaServiceImpl>(txn_kv, rc_mgr, rate_limiter,
+                                                                      snapshot_manager);
     return std::make_unique<cloud::MetaServiceProxy>(std::move(meta_service_impl));
 }
 

@@ -39,6 +39,7 @@ message PQueryStatistics {
     optional int64 scan_bytes_from_remote_storage = 8;
     optional int64 spill_write_bytes_to_local_storage = 9;
     optional int64 spill_read_bytes_from_local_storage = 10;
+    optional int64 bytes_write_into_cache = 11;
 }
 
 message PRowBatch {
@@ -65,6 +66,8 @@ message PColumnMeta {
     optional bool result_is_nullable = 6;
     optional string function_name = 7;
     optional int32 be_exec_version = 8;
+    optional segment_v2.ColumnPathInfo column_path = 9;
+    optional int32 variant_max_subcolumns_count = 10 [default = 0];
 }
 
 message PBlock {

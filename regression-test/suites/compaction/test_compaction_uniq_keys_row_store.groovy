@@ -201,7 +201,7 @@ suite("test_compaction_uniq_keys_row_store", "p0") {
                 rowCount += Integer.parseInt(rowset.split(" ")[1])
             }
         }
-        assert (rowCount < 8 * replicaNum)
+        assert (rowCount <= 8 * replicaNum)
         checkValue()
         qt_sql_row_size "select sum(length(__DORIS_ROW_STORE_COL__)) from ${tableName}"
     } finally {

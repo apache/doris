@@ -17,13 +17,11 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
-import com.google.common.base.Predicates;
-import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.collections4.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -73,14 +71,14 @@ public class GroupByClause implements ParseNode {
 
     protected GroupByClause(GroupByClause other) {
         this.groupingType = other.groupingType;
-        this.groupingExprs = (other.groupingExprs != null) ? Expr.cloneAndResetList(other.groupingExprs) : null;
+        this.groupingExprs = (other.groupingExprs != null) ? Expr.cloneList(other.groupingExprs) : null;
         this.oriGroupingExprs =
-                (other.oriGroupingExprs != null) ? Expr.cloneAndResetList(other.oriGroupingExprs) : null;
+                (other.oriGroupingExprs != null) ? Expr.cloneList(other.oriGroupingExprs) : null;
 
         if (other.groupingSetList != null) {
             this.groupingSetList = new ArrayList<>();
             for (List<Expr> exprList : other.groupingSetList) {
-                this.groupingSetList.add(Expr.cloneAndResetList(exprList));
+                this.groupingSetList.add(Expr.cloneList(exprList));
             }
         }
     }
@@ -91,25 +89,6 @@ public class GroupByClause implements ParseNode {
 
     public GroupingType getGroupingType() {
         return groupingType;
-    }
-
-    public void reset() {
-        groupingExprs = new ArrayList<>();
-        analyzed = false;
-        exprGenerated = false;
-        if (oriGroupingExprs != null) {
-            Expr.resetList(oriGroupingExprs);
-            groupingExprs.addAll(oriGroupingExprs);
-        }
-        if (groupingSetList != null) {
-            for (List<Expr> s : groupingSetList) {
-                for (Expr e : s) {
-                    if (e != null) {
-                        e.reset();
-                    }
-                }
-            }
-        }
     }
 
     public List<Expr> getOriGroupingExprs() {
@@ -170,55 +149,7 @@ public class GroupByClause implements ParseNode {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException {
-        if (analyzed) {
-            return;
-        }
-        genGroupingExprs();
-
-        // disallow subqueries in the GROUP BY clause
-        for (Expr expr : groupingExprs) {
-            if (expr.contains(Predicates.instanceOf(Subquery.class))) {
-                throw new AnalysisException(
-                        "Subqueries are not supported in the GROUP BY clause.");
-            }
-        }
-        //TODO add the analysis for grouping and grouping_id functions
-        for (Expr groupingExpr : groupingExprs) {
-            groupingExpr.analyze(analyzer);
-            if (groupingExpr.contains(Expr.isAggregatePredicate())) {
-                // reference the original expr in the error msg
-                throw new AnalysisException(
-                        "GROUP BY expression must not contain aggregate functions: "
-                                + groupingExpr.toSql());
-            }
-            if (groupingExpr.contains(GroupingFunctionCallExpr.class)) {
-                throw new AnalysisException(
-                        "GROUP BY expression must not contain grouping scalar functions: "
-                                + groupingExpr.toSql());
-            }
-            if (groupingExpr.contains(AnalyticExpr.class)) {
-                // reference the original expr in the error msg
-                throw new AnalysisException(
-                        "GROUP BY expression must not contain analytic expressions: "
-                                + groupingExpr.toSql());
-            }
-
-            if (groupingExpr.type.isOnlyMetricType()) {
-                throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
-            }
-        }
-
-        if (isGroupByExtension() && groupingExprs != null && groupingExprs.size() > MAX_GROUPING_SETS_NUM) {
-            throw new AnalysisException("Too many sets in GROUP BY clause, the max grouping sets item is "
-                    + MAX_GROUPING_SETS_NUM);
-        }
-        analyzed = true;
-    }
-
-    // check if group by clause is contain grouping set/rollup/cube
-    public boolean isGroupByExtension() {
-        return groupingType != GroupingType.GROUP_BY;
+    public void analyze() throws AnalysisException {
     }
 
     @Override
@@ -282,23 +213,6 @@ public class GroupByClause implements ParseNode {
     @Override
     public GroupByClause clone() {
         return new GroupByClause(this);
-    }
-
-    public boolean isEmpty() {
-        return CollectionUtils.isEmpty(groupingExprs);
-    }
-
-    public void substituteGroupingExprs(Set<VirtualSlotRef> groupingSlots, ExprSubstitutionMap smap,
-                                        Analyzer analyzer) {
-        groupingExprs = Expr.substituteList(groupingExprs, smap, analyzer, true);
-        for (VirtualSlotRef vs : groupingSlots) {
-            ArrayList<Expr> exprs = Expr.substituteList(vs.getRealSlots(), smap, analyzer, true);
-            if (exprs != null) {
-                vs.setRealSlots(exprs);
-            } else {
-                vs.setRealSlots(new ArrayList<Expr>());
-            }
-        }
     }
 
     public enum GroupingType {

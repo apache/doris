@@ -18,14 +18,23 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("create_table_like") {
-    sql """ use @regression_cluster_name1 """
+    def custoBeConfig = [
+        enable_evict_file_cache_in_advance : false,
+        file_cache_enter_disk_resource_limit_mode_percent : 99
+    ]
+
+    setBeConfigTemporary(custoBeConfig) {
+    def clusters = sql " SHOW CLUSTERS; "
+    assertTrue(!clusters.isEmpty())
+    def validCluster = clusters[0][0]
+    sql """use @${validCluster};""";
     String[][] backends = sql """ show backends """
     String backendId;
     def backendIdToBackendIP = [:]
     def backendIdToBackendHttpPort = [:]
     def backendIdToBackendBrpcPort = [:]
     for (String[] backend in backends) {
-        if (backend[9].equals("true") && backend[19].contains("regression_cluster_name1")) {
+        if (backend[9].equals("true") && backend[19].contains("${validCluster}")) {
             backendIdToBackendIP.put(backend[0], backend[1])
             backendIdToBackendHttpPort.put(backend[0], backend[4])
             backendIdToBackendBrpcPort.put(backend[0], backend[5])
@@ -154,4 +163,5 @@ def clearFileCache = { check_func ->
     }
     sql new File("""${context.file.parent}/../ddl/customer_ttl_delete.sql""").text
     sql """ DROP TABLE IF EXISTS customer_ttl_like """
+    }
 }

@@ -89,6 +89,7 @@ suite('test_flexible_partial_update_filter_ratio') {
             set 'format', 'json'
             set 'read_json_by_line', 'true'
             set 'strict_mode', 'true'
+            // strict mode will affect the behavior of newly inserted rows
             set 'unique_key_update_mode', 'UPDATE_FLEXIBLE_COLUMNS'
             file "key_missing.json"
             time 20000
@@ -100,8 +101,7 @@ suite('test_flexible_partial_update_filter_ratio') {
                 assertEquals("fail", json.Status.toLowerCase())
                 assertTrue(json.Message.contains("[DATA_QUALITY_ERROR]too many filtered rows"))
                 assertEquals(5, json.NumberTotalRows)
-                // newly inserted rows will be counted into filtered rows
-                assertEquals(4, json.NumberFilteredRows)
+                assertEquals(3, json.NumberFilteredRows)
                 assertEquals(0, json.NumberLoadedRows)
             }
         }

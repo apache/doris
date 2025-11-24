@@ -23,11 +23,11 @@
 #include "vec/common/string_ref.h"
 #ifdef __AVX2__
 #include <immintrin.h>
-
-#include "gutil/macros.h"
+#elif defined(__ARM_NEON)
+#include <arm_neon.h>
 #endif
+
 #include "common/status.h"
-#include "fmt/format.h"
 #include "util/hash_util.hpp"
 #include "util/slice.h"
 
@@ -80,22 +80,6 @@ public:
         }
     }
 
-#ifdef __AVX2__
-
-    static inline ATTRIBUTE_ALWAYS_INLINE __attribute__((__target__("avx2"))) __m256i make_mark(
-            const uint32_t hash) {
-        const __m256i ones = _mm256_set1_epi32(1);
-        const __m256i rehash = _mm256_setr_epi32(BLOOM_HASH_CONSTANTS);
-        // Load hash into a YMM register, repeated eight times
-        __m256i hash_data = _mm256_set1_epi32(hash);
-        // Multiply-shift hashing ala Dietzfelbinger et al.: multiply 'hash' by eight different
-        // odd constants, then keep the 5 most significant bits from each product.
-        hash_data = _mm256_mullo_epi32(rehash, hash_data);
-        hash_data = _mm256_srli_epi32(hash_data, 27);
-        // Use these 5 bits to shift a single bit to a location in each 32-bit lane
-        return _mm256_sllv_epi32(ones, hash_data);
-    }
-#endif
     // Finds an element in the BloomFilter, returning true if it is found and false (with
     // high probability) if it is not.
     ALWAYS_INLINE bool find(uint32_t hash) const noexcept {
@@ -104,7 +88,7 @@ public:
         }
         const uint32_t bucket_idx = rehash32to32(hash) & _directory_mask;
 #ifdef __AVX2__
-        const __m256i mask = make_mark(hash);
+        const __m256i mask = make_mask(hash);
         const __m256i bucket = reinterpret_cast<__m256i*>(_directory)[bucket_idx];
         // We should return true if 'bucket' has a one wherever 'mask' does. _mm256_testc_si256
         // takes the negation of its first argument and ands that with its second argument. In
@@ -117,6 +101,7 @@ public:
         return bucket_find(bucket_idx, hash);
 #endif
     }
+
     // Same as above with convenience of hashing the key.
     bool find(const StringRef& key) const noexcept {
         if (key.data) {
@@ -124,39 +109,6 @@ public:
         }
         return false;
     }
-
-#ifdef __ARM_NEON
-    void make_find_mask(uint32_t key, uint32x4_t* masks) const noexcept {
-        uint32x4_t hash_data_1 = vdupq_n_u32(key);
-        uint32x4_t hash_data_2 = vdupq_n_u32(key);
-
-        uint32x4_t rehash_1 = vld1q_u32(&kRehash[0]);
-        uint32x4_t rehash_2 = vld1q_u32(&kRehash[4]);
-
-        //  masks[i] = key * kRehash[i];
-        hash_data_1 = vmulq_u32(rehash_1, hash_data_1);
-        hash_data_2 = vmulq_u32(rehash_2, hash_data_2);
-        //  masks[i] = masks[i] >> shift_num;
-        hash_data_1 = vshrq_n_u32(hash_data_1, shift_num);
-        hash_data_2 = vshrq_n_u32(hash_data_2, shift_num);
-
-        const uint32x4_t ones = vdupq_n_u32(1);
-
-        // masks[i] = 0x1 << masks[i];
-        masks[0] = vshlq_u32(ones, reinterpret_cast<int32x4_t>(hash_data_1));
-        masks[1] = vshlq_u32(ones, reinterpret_cast<int32x4_t>(hash_data_2));
-    }
-#else
-    void make_find_mask(uint32_t key, uint32_t* masks) const noexcept {
-        for (int i = 0; i < kBucketWords; ++i) {
-            masks[i] = key * kRehash[i];
-
-            masks[i] = masks[i] >> shift_num;
-
-            masks[i] = 0x1 << masks[i];
-        }
-    }
-#endif
 
     // Computes the logical OR of this filter with 'other' and stores the result in this
     // filter.
@@ -197,6 +149,7 @@ private:
     // log2(number of bits in a BucketWord)
     static constexpr int kLogBucketWordBits = 5;
     static constexpr BucketWord kBucketWordMask = (1 << kLogBucketWordBits) - 1;
+
     // (>> 27) is equivalent to (mod 32)
     static constexpr auto shift_num = ((1 << kLogBucketWordBits) - kLogBucketWordBits);
     // log2(number of bytes in a bucket)
@@ -225,9 +178,6 @@ private:
     // Helper function for public Init() variants.
     Status init_internal(int log_space_bytes, uint32_t hash_seed);
 
-    // Same as Insert(), but skips the CPU check and assumes that AVX2 is not available.
-    void insert_no_avx2(uint32_t hash) noexcept;
-
     // Does the actual work of Insert(). bucket_idx is the index of the bucket to insert
     // into and 'hash' is the value passed to Insert().
     void bucket_insert(uint32_t bucket_idx, uint32_t hash) noexcept;
@@ -244,9 +194,6 @@ private:
                                         uint8_t* __restrict__ out);
 
 #ifdef __AVX2__
-    // Same as Insert(), but skips the CPU check and assumes that AVX2 is available.
-    void insert_avx2(uint32_t hash) noexcept __attribute__((__target__("avx2")));
-
     // A faster SIMD version of BucketInsert().
     void bucket_insert_avx2(uint32_t bucket_idx, uint32_t hash) noexcept
             __attribute__((__target__("avx2")));
@@ -277,6 +224,54 @@ private:
         // Rehash32to32(hash2) is minimal.
         return (static_cast<uint64_t>(hash) * m + a) >> 32U;
     }
+
+#ifdef __AVX2__
+    static inline ALWAYS_INLINE __m256i make_mask(const uint32_t hash) noexcept {
+        const __m256i ones = _mm256_set1_epi32(1);
+        const __m256i rehash = _mm256_setr_epi32(BLOOM_HASH_CONSTANTS);
+        // Load hash into a YMM register, repeated eight times
+        __m256i hash_data = _mm256_set1_epi32(hash);
+        // Multiply-shift hashing ala Dietzfelbinger et al.: multiply 'hash' by eight different
+        // odd constants, then keep the 5 most significant bits from each product.
+        hash_data = _mm256_mullo_epi32(rehash, hash_data);
+        hash_data = _mm256_srli_epi32(hash_data, shift_num);
+        // Use these 5 bits to shift a single bit to a location in each 32-bit lane
+        return _mm256_sllv_epi32(ones, hash_data);
+    }
+#endif
+
+#ifdef __ARM_NEON
+    static inline ALWAYS_INLINE uint32x4x2_t make_mask(const uint32_t hash) noexcept {
+        const uint32x4_t ones = vdupq_n_u32(1);
+        const uint32x4x2_t rehash = vld1q_u32_x2(&kRehash[0]);
+        // Load hash, repeated 4 times.
+        uint32x4_t hash_data = vdupq_n_u32(hash);
+
+        // Multiply-shift hashing ala Dietzfelbinger et al.: multiply 'hash' by eight different
+        // odd constants, then keep the 5 most significant bits from each product.
+        int32x4x2_t t;
+        t.val[0] =
+                vreinterpretq_s32_u32(vshrq_n_u32(vmulq_u32(rehash.val[0], hash_data), shift_num));
+        t.val[1] =
+                vreinterpretq_s32_u32(vshrq_n_u32(vmulq_u32(rehash.val[1], hash_data), shift_num));
+
+        // Use these 5 bits to shift a single bit to a location in each 32-bit lane
+        uint32x4x2_t res;
+        res.val[0] = vshlq_u32(ones, t.val[0]);
+        res.val[1] = vshlq_u32(ones, t.val[1]);
+        return res;
+    }
+#else
+    static inline ALWAYS_INLINE void make_mask(uint32_t hash, uint32_t* masks) noexcept {
+        for (int i = 0; i < kBucketWords; ++i) {
+            masks[i] = hash * kRehash[i];
+
+            masks[i] = masks[i] >> shift_num;
+
+            masks[i] = 0x1 << masks[i];
+        }
+    }
+#endif
 };
 
 } // namespace doris

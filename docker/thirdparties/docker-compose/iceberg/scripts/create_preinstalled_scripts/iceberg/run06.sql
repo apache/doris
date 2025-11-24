@@ -1,3 +1,4 @@
+create database if not exists demo.test_db;
 use demo.test_db;
 
 drop table if exists dangling_delete_after_write;

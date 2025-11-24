@@ -26,7 +26,6 @@
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/block.h"
@@ -43,7 +42,7 @@ VExplodeNumbersTableFunction::VExplodeNumbersTableFunction() {
 
 Status VExplodeNumbersTableFunction::process_init(Block* block, RuntimeState* state) {
     CHECK(_expr_context->root()->children().size() == 1)
-            << "VExplodeSplitTableFunction must be have 1 children but have "
+            << "VExplodeNumbersTableFunction must be have 1 children but have "
             << _expr_context->root()->children().size();
 
     int value_column_idx = -1;

@@ -48,13 +48,18 @@ public class G extends ScalarFunction
         super("g", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private G(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public G withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new G(children.get(0));
+        return new G(getFunctionParams(children));
     }
 
     @Override

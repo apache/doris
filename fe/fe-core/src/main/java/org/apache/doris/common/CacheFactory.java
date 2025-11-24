@@ -46,7 +46,7 @@ import java.util.concurrent.ExecutorService;
  */
 public class CacheFactory {
 
-    private OptionalLong expireAfterWriteSec;
+    private OptionalLong expireAfterAccessSec;
     private OptionalLong refreshAfterWriteSec;
     private long maxSize;
     private boolean enableStats;
@@ -56,12 +56,12 @@ public class CacheFactory {
     private Ticker ticker;
 
     public CacheFactory(
-            OptionalLong expireAfterWriteSec,
+            OptionalLong expireAfterAccessSec,
             OptionalLong refreshAfterWriteSec,
             long maxSize,
             boolean enableStats,
             Ticker ticker) {
-        this.expireAfterWriteSec = expireAfterWriteSec;
+        this.expireAfterAccessSec = expireAfterAccessSec;
         this.refreshAfterWriteSec = refreshAfterWriteSec;
         this.maxSize = maxSize;
         this.enableStats = enableStats;
@@ -76,7 +76,27 @@ public class CacheFactory {
 
     // Build a loading cache, with executor, it will use given executor for refresh
     public <K, V> LoadingCache<K, V> buildCache(CacheLoader<K, V> cacheLoader,
-            RemovalListener<K, V> removalListener, ExecutorService executor) {
+            ExecutorService executor) {
+        Caffeine<Object, Object> builder = buildWithParams();
+        builder.executor(executor);
+        return builder.build(cacheLoader);
+    }
+
+    // Build cache with sync removal listener to prevent deadlock when listener calls invalidateAll()
+    public <K, V> LoadingCache<K, V> buildCacheWithSyncRemovalListener(CacheLoader<K, V> cacheLoader,
+            RemovalListener<K, V> removalListener) {
+        Caffeine<Object, Object> builder = buildWithParams();
+        if (removalListener != null) {
+            builder.removalListener(removalListener);
+        }
+        builder.executor(Runnable::run);  // Sync execution to avoid thread pool deadlock
+        return builder.build(cacheLoader);
+    }
+
+    // Build cache with async removal listener. Use with caution if listener may trigger nested operations
+    public <K, V> LoadingCache<K, V> buildCacheWithAsyncRemovalListener(CacheLoader<K, V> cacheLoader,
+            RemovalListener<K, V> removalListener,
+            ExecutorService executor) {
         Caffeine<Object, Object> builder = buildWithParams();
         builder.executor(executor);
         if (removalListener != null) {
@@ -98,8 +118,8 @@ public class CacheFactory {
         Caffeine<Object, Object> builder = Caffeine.newBuilder();
         builder.maximumSize(maxSize);
 
-        if (expireAfterWriteSec.isPresent()) {
-            builder.expireAfterWrite(Duration.ofSeconds(expireAfterWriteSec.getAsLong()));
+        if (expireAfterAccessSec.isPresent()) {
+            builder.expireAfterAccess(Duration.ofSeconds(expireAfterAccessSec.getAsLong()));
         }
         if (refreshAfterWriteSec.isPresent()) {
             builder.refreshAfterWrite(Duration.ofSeconds(refreshAfterWriteSec.getAsLong()));

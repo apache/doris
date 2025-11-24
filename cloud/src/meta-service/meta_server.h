@@ -25,11 +25,13 @@
 #include <mutex>
 
 #include "common/metric.h"
-#include "txn_kv.h"
+#include "meta-store/txn_kv.h"
 
 namespace doris::cloud {
 
+class MetaServerInstanceWatcher;
 class MetaServerRegister;
+class ResourceManager;
 
 class MetaServer {
 public:
@@ -48,7 +50,7 @@ public:
 private:
     std::shared_ptr<TxnKv> txn_kv_;
     std::unique_ptr<MetaServerRegister> server_register_;
-    std::unique_ptr<FdbMetricExporter> fdb_metric_exporter_;
+    std::unique_ptr<MetaServerInstanceWatcher> instance_watcher_;
 };
 
 class ServiceRegistryPB;
@@ -89,6 +91,54 @@ private:
     std::condition_variable cv_;
     std::string id_;
 
+    std::shared_ptr<TxnKv> txn_kv_; // Relies on other members, must be the
+                                    // first to destruct
+};
+
+// Watches instance updates and notifies resource manager to refresh instance info
+class MetaServerInstanceWatcher {
+public:
+    MetaServerInstanceWatcher(std::shared_ptr<TxnKv> txn_kv,
+                              std::shared_ptr<ResourceManager> resource_manager)
+            : running_(0),
+              resource_manager_(std::move(resource_manager)),
+              txn_kv_(std::move(txn_kv)) {}
+    ~MetaServerInstanceWatcher();
+
+    MetaServerInstanceWatcher(const MetaServerInstanceWatcher&) = delete;
+    MetaServerInstanceWatcher& operator=(const MetaServerInstanceWatcher&) = delete;
+
+    /**
+     * Starts watching instance updates
+     *
+     * @return 0 on success, otherwise failure.
+     */
+    int start();
+
+    /**
+     * Notifies all the threads to quit
+     */
+    void stop();
+
+private:
+    void watch_instance_loop();
+
+    TxnErrorCode watch_instance(std::unordered_map<std::string, std::string>& instance_kvs_,
+                                std::string& original_value);
+
+    // Scans all instance info and notify resource manager to refresh instance info
+    // if there is any update.
+    TxnErrorCode scan_and_notify_instance_updates(
+            std::unordered_map<std::string, std::string>& instance_kvs_);
+
+    TxnErrorCode trigger_instance_watch();
+
+    std::thread instance_watch_thread_;
+    std::atomic<int> running_;
+    std::mutex mtx_;
+    std::condition_variable cv_;
+
+    std::shared_ptr<ResourceManager> resource_manager_;
     std::shared_ptr<TxnKv> txn_kv_; // Relies on other members, must be the
                                     // first to destruct
 };

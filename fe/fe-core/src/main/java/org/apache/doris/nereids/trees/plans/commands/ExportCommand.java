@@ -18,12 +18,11 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.BrokerDesc;
-import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.analysis.OutFileClause;
 import org.apache.doris.analysis.Separator;
 import org.apache.doris.analysis.StmtType;
 import org.apache.doris.analysis.StorageBackend;
-import org.apache.doris.analysis.TableName;
+import org.apache.doris.analysis.StorageBackend.StorageType;
 import org.apache.doris.catalog.BrokerMgr;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
@@ -38,6 +37,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.load.ExportJob;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -60,6 +60,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 /**
  * EXPORT statement, export data to dirs by broker.
@@ -84,7 +85,7 @@ public class ExportCommand extends Command implements NeedAuditEncryption, Forwa
             .add(LABEL)
             .add(PARALLELISM)
             .add(DATA_CONSISTENCY)
-            .add(LoadStmt.KEY_IN_PARAM_COLUMNS)
+            .add(LoadCommand.KEY_IN_PARAM_COLUMNS)
             .add(OutFileClause.PROP_MAX_FILE_SIZE)
             .add(OutFileClause.PROP_DELETE_EXISTING_FILES)
             .add(PropertyAnalyzer.PROPERTIES_COLUMN_SEPARATOR)
@@ -127,17 +128,17 @@ public class ExportCommand extends Command implements NeedAuditEncryption, Forwa
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         // get tblName
         List<String> qualifiedTableName = RelationUtil.getQualifierName(ctx, this.nameParts);
-        TableName tblName = new TableName(qualifiedTableName.get(0), qualifiedTableName.get(1),
+        TableNameInfo tableNameInfo = new TableNameInfo(qualifiedTableName.get(0), qualifiedTableName.get(1),
                 qualifiedTableName.get(2));
 
         // check auth
         if (!Env.getCurrentEnv().getAccessManager()
-                .checkTblPriv(ctx, tblName.getCtl(), tblName.getDb(), tblName.getTbl(),
+                .checkTblPriv(ctx, tableNameInfo.getCtl(), tableNameInfo.getDb(), tableNameInfo.getTbl(),
                         PrivPredicate.SELECT)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "EXPORT",
                     ctx.getQualifiedUser(),
                     ctx.getRemoteIP(),
-                    tblName.getDb() + ": " + tblName.getTbl());
+                    tableNameInfo.getDb() + ": " + tableNameInfo.getTbl());
         }
 
         if (!Config.enable_outfile_to_local && path.startsWith(OutFileClause.LOCAL_FILE_PREFIX)) {
@@ -145,19 +146,19 @@ public class ExportCommand extends Command implements NeedAuditEncryption, Forwa
         }
 
         // check phases
-        checkAllParameters(ctx, tblName, fileProperties);
+        checkAllParameters(ctx, tableNameInfo, fileProperties);
 
-        ExportJob exportJob = generateExportJob(ctx, fileProperties, tblName);
+        ExportJob exportJob = generateExportJob(ctx, fileProperties, tableNameInfo);
         // register job
         ctx.getEnv().getExportMgr().addExportJobAndRegisterTask(exportJob);
     }
 
-    private void checkAllParameters(ConnectContext ctx, TableName tblName, Map<String, String> fileProperties)
+    private void checkAllParameters(ConnectContext ctx, TableNameInfo tableNameInfo, Map<String, String> fileProperties)
             throws UserException {
         checkPropertyKey(fileProperties);
-        checkPartitions(ctx, tblName);
+        checkPartitions(ctx, tableNameInfo);
         checkBrokerDesc(ctx);
-        checkFileProperties(ctx, fileProperties, tblName);
+        checkFileProperties(ctx, fileProperties, tableNameInfo);
     }
 
     // check property key
@@ -170,23 +171,24 @@ public class ExportCommand extends Command implements NeedAuditEncryption, Forwa
     }
 
     // check partitions specified by user are belonged to the table.
-    private void checkPartitions(ConnectContext ctx, TableName tblName) throws AnalysisException, UserException {
+    private void checkPartitions(ConnectContext ctx, TableNameInfo tableNameInfo)
+            throws AnalysisException, UserException {
         if (this.partitionsNames.isEmpty()) {
             return;
         }
 
-        CatalogIf catalog = ctx.getEnv().getCatalogMgr().getCatalogOrAnalysisException(tblName.getCtl());
+        CatalogIf catalog = ctx.getEnv().getCatalogMgr().getCatalogOrAnalysisException(tableNameInfo.getCtl());
         // As for external table, we do not support export PARTITION
         if (!InternalCatalog.INTERNAL_CATALOG_NAME.equals(catalog.getType())) {
-            throw new AnalysisException("Table[" + tblName.getTbl() + "] is EXTERNAL TABLE type, "
+            throw new AnalysisException("Table[" + tableNameInfo.getTbl() + "] is EXTERNAL TABLE type, "
                     + "do not support export PARTITION.");
         }
 
-        DatabaseIf db = catalog.getDbOrAnalysisException(tblName.getDb());
-        Table table = (Table) db.getTableOrAnalysisException(tblName.getTbl());
+        DatabaseIf db = catalog.getDbOrAnalysisException(tableNameInfo.getDb());
+        Table table = (Table) db.getTableOrAnalysisException(tableNameInfo.getTbl());
         if (table.isTemporary()) {
-            throw new AnalysisException("Table[" + tblName.getTbl() + "] is "
-                + "temporary table, do not support EXPORT.");
+            throw new AnalysisException("Table[" + tableNameInfo.getTbl() + "] is "
+                    + "temporary table, do not support EXPORT.");
         }
 
         if (this.partitionsNames.size() > Config.maximum_number_of_export_partitions) {
@@ -208,7 +210,7 @@ public class ExportCommand extends Command implements NeedAuditEncryption, Forwa
                     break;
                 case VIEW: // We support export view, so we do not need to check partition here.
                     if (this.partitionsNames.size() > 0) {
-                        throw new AnalysisException("Table[" + tblName.getTbl() + "] is " + tblType + " type, "
+                        throw new AnalysisException("Table[" + tableNameInfo.getTbl() + "] is " + tblType + " type, "
                                 + "do not support export PARTITION.");
                     }
                     return;
@@ -216,18 +218,18 @@ public class ExportCommand extends Command implements NeedAuditEncryption, Forwa
                 case SCHEMA:
                 case INLINE_VIEW:
                 default:
-                    throw new AnalysisException("Table[" + tblName.getTbl() + "] is "
+                    throw new AnalysisException("Table[" + tableNameInfo.getTbl() + "] is "
                             + tblType + " type, do not support EXPORT.");
             }
             // check table
             if (!table.isPartitionedTable()) {
-                throw new AnalysisException("Table[" + tblName.getTbl() + "] is not partitioned.");
+                throw new AnalysisException("Table[" + tableNameInfo.getTbl() + "] is not partitioned.");
             }
             for (String partitionName : this.partitionsNames) {
                 Partition partition = table.getPartition(partitionName);
                 if (partition == null) {
                     throw new AnalysisException("Partition [" + partitionName + "] does not exist "
-                            + "in Table[" + tblName.getTbl() + "]");
+                            + "in Table[" + tableNameInfo.getTbl() + "]");
                 }
             }
         } finally {
@@ -250,25 +252,28 @@ public class ExportCommand extends Command implements NeedAuditEncryption, Forwa
         }
     }
 
-    private ExportJob generateExportJob(ConnectContext ctx, Map<String, String> fileProperties, TableName tblName)
+    private ExportJob generateExportJob(ConnectContext ctx, Map<String, String> fileProperties,
+                                            TableNameInfo tableNameInfo)
             throws UserException {
         ExportJob exportJob = new ExportJob(Env.getCurrentEnv().getNextId());
         // set export job and check catalog/db/table
-        CatalogIf catalog = ctx.getEnv().getCatalogMgr().getCatalogOrAnalysisException(tblName.getCtl());
-        DatabaseIf db = catalog.getDbOrAnalysisException(tblName.getDb());
-        TableIf table = db.getTableOrAnalysisException(tblName.getTbl());
+        CatalogIf catalog = ctx.getEnv().getCatalogMgr().getCatalogOrAnalysisException(tableNameInfo.getCtl());
+        DatabaseIf db = catalog.getDbOrAnalysisException(tableNameInfo.getDb());
+        TableIf table = db.getTableOrAnalysisException(tableNameInfo.getTbl());
         if (table.isTemporary()) {
-            throw new AnalysisException("Table[" + tblName.getTbl() + "] is temporary table, do not support export.");
+            throw new AnalysisException("Table[" + tableNameInfo.getTbl() + "] is "
+                    + "temporary table, do not support export.");
         }
 
         exportJob.setDbId(db.getId());
-        exportJob.setTableName(tblName);
+        exportJob.setTableName(tableNameInfo);
         exportJob.setExportTable(table);
         exportJob.setTableId(table.getId());
         // set partitions
         exportJob.setPartitionNames(this.partitionsNames);
         // set where expression
         exportJob.setWhereExpression(this.expr);
+        exportJob.setWhereStr(this.expr.isPresent() ? this.expr.get().toSql() : "");
         // set path
         exportJob.setExportPath(this.path);
 
@@ -283,7 +288,7 @@ public class ExportCommand extends Command implements NeedAuditEncryption, Forwa
         exportJob.setLineDelimiter(lineDelimiter);
 
         // set format
-        exportJob.setFormat(fileProperties.getOrDefault(LoadStmt.KEY_IN_PARAM_FORMAT_TYPE, "csv")
+        exportJob.setFormat(fileProperties.getOrDefault(LoadCommand.KEY_IN_PARAM_FORMAT_TYPE, "csv")
                 .toLowerCase());
 
         // set withBom
@@ -305,14 +310,11 @@ public class ExportCommand extends Command implements NeedAuditEncryption, Forwa
 
         // set max_file_size
         exportJob.setMaxFileSize(fileProperties.getOrDefault(OutFileClause.PROP_MAX_FILE_SIZE, ""));
-        // set delete_existing_files
-        exportJob.setDeleteExistingFiles(fileProperties.getOrDefault(
-                OutFileClause.PROP_DELETE_EXISTING_FILES, ""));
 
         // null means not specified
         // "" means user specified zero columns
         // if fileProperties contains KEY_IN_PARAM_COLUMNS, the columns have been checked in check phases
-        String columns = fileProperties.getOrDefault(LoadStmt.KEY_IN_PARAM_COLUMNS, null);
+        String columns = fileProperties.getOrDefault(LoadCommand.KEY_IN_PARAM_COLUMNS, null);
         exportJob.setColumns(columns);
         if (columns != null) {
             Splitter split = Splitter.on(',').trimResults().omitEmptyStrings();
@@ -321,6 +323,23 @@ public class ExportCommand extends Command implements NeedAuditEncryption, Forwa
 
         // set broker desc
         exportJob.setBrokerDesc(this.brokerDesc.get());
+
+        // set delete_existing_files
+        exportJob.setDeleteExistingFiles(fileProperties.getOrDefault(
+                OutFileClause.PROP_DELETE_EXISTING_FILES, ""));
+
+        if (!Config.enable_delete_existing_files && exportJob.getDeleteExistingFiles().equalsIgnoreCase("true")) {
+            throw new AnalysisException(("Deleting existing files is not allowed."
+                    + " To enable this feature, you need to add `enable_delete_existing_files=true`"
+                    + " in fe.conf"));
+        }
+
+        if (exportJob.getDeleteExistingFiles().equalsIgnoreCase("true")
+                && (exportJob.getBrokerDesc() == null
+                || exportJob.getBrokerDesc().storageType() == StorageType.LOCAL)) {
+            throw new org.apache.doris.common.AnalysisException(
+                    "Local file system does not support delete existing files");
+        }
 
         // set sessions
         exportJob.setQualifiedUser(ctx.getQualifiedUser());
@@ -365,7 +384,7 @@ public class ExportCommand extends Command implements NeedAuditEncryption, Forwa
         return exportJob;
     }
 
-    private void checkFileProperties(ConnectContext ctx, Map<String, String> fileProperties, TableName tblName)
+    private void checkFileProperties(ConnectContext ctx, Map<String, String> fileProperties, TableNameInfo tblName)
             throws UserException {
         // check user specified label
         if (fileProperties.containsKey(LABEL)) {
@@ -379,6 +398,10 @@ public class ExportCommand extends Command implements NeedAuditEncryption, Forwa
 
     public List<String> getNameParts() {
         return this.nameParts;
+    }
+
+    public Optional<Expression> getExpr() {
+        return expr;
     }
 
     @Override
@@ -395,4 +418,17 @@ public class ExportCommand extends Command implements NeedAuditEncryption, Forwa
     public boolean needAuditEncryption() {
         return true;
     }
+
+    @Override
+    public String toDigest() {
+        StringBuilder sb = new StringBuilder("EXPORT TABLE ");
+        sb.append(nameParts.stream().collect(Collectors.joining(".")));
+        if (expr.isPresent()) {
+            sb.append(" WHERE ")
+                    .append(expr.get().toDigest());
+        }
+        sb.append(" TO ?");
+        return sb.toString();
+    }
 }
+

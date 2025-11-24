@@ -74,17 +74,18 @@ public class CollectList extends NotNullableAggregateFunction
         super("collect_list", distinct, arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private CollectList(AggregateFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withDistinctAndChildren.
      */
     @Override
     public CollectList withDistinctAndChildren(boolean distinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1 || children.size() == 2);
-        if (children.size() == 1) {
-            return new CollectList(distinct, children.get(0));
-        } else {
-            return new CollectList(distinct, children.get(0), children.get(1));
-        }
+        return new CollectList(getFunctionParams(distinct, children));
     }
 
     @Override

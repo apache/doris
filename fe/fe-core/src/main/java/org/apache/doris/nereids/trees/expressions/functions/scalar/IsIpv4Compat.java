@@ -46,13 +46,18 @@ public class IsIpv4Compat extends ScalarFunction
         super("is_ipv4_compat", arg0);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private IsIpv4Compat(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public IsIpv4Compat withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1,
                 "is_ipv4_compat accept 1 args, but got %s (%s)",
                 children.size(),
                 children);
-        return new IsIpv4Compat(children.get(0));
+        return new IsIpv4Compat(getFunctionParams(children));
     }
 
     @Override

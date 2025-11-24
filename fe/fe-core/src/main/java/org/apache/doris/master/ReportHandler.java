@@ -48,6 +48,7 @@ import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.cooldown.CooldownConf;
+import org.apache.doris.indexpolicy.IndexPolicy;
 import org.apache.doris.metric.GaugeMetric;
 import org.apache.doris.metric.Metric.MetricUnit;
 import org.apache.doris.metric.MetricRepo;
@@ -70,12 +71,14 @@ import org.apache.doris.task.DropReplicaTask;
 import org.apache.doris.task.MasterTask;
 import org.apache.doris.task.PublishVersionTask;
 import org.apache.doris.task.PushCooldownConfTask;
+import org.apache.doris.task.PushIndexPolicyTask;
 import org.apache.doris.task.PushStoragePolicyTask;
 import org.apache.doris.task.StorageMediaMigrationTask;
 import org.apache.doris.task.UpdateTabletMetaInfoTask;
 import org.apache.doris.task.UpdateVisibleVersionTask;
 import org.apache.doris.thrift.TBackend;
 import org.apache.doris.thrift.TDisk;
+import org.apache.doris.thrift.TIndexPolicy;
 import org.apache.doris.thrift.TMasterResult;
 import org.apache.doris.thrift.TPartitionVersionInfo;
 import org.apache.doris.thrift.TReportRequest;
@@ -99,7 +102,7 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Queues;
 import com.google.common.collect.SetMultimap;
 import com.google.common.collect.Sets;
-import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -125,7 +128,8 @@ public class ReportHandler extends Daemon {
     private enum ReportType {
         TASK,
         DISK,
-        TABLET
+        TABLET,
+        INDEX_POLICY,
     }
 
     public ReportHandler() {
@@ -192,6 +196,10 @@ public class ReportHandler extends Daemon {
             Env.getCurrentSystemInfo().updateBackendReportVersion(beId, reportVersion, -1L, -1L, false);
         }
 
+        if (request.isSetIndexPolicy()) {
+            reportType = ReportType.INDEX_POLICY;
+        }
+
         if (tablets == null) {
             numTablets = request.isSetNumTablets() ? request.getNumTablets() : 0;
         } else {
@@ -216,7 +224,8 @@ public class ReportHandler extends Daemon {
 
         ReportTask reportTask = new ReportTask(beId, reportType, tasks, disks, tablets, partitionsVersion,
                 reportVersion, request.getStoragePolicy(), request.getResource(), request.getNumCores(),
-                request.getPipelineExecutorSize(), numTablets);
+                request.getPipelineExecutorSize(), numTablets, request.getIndexPolicy(),
+                request.isSetRunningTasks() ? request.getRunningTasks() : -1);
         try {
             putToQueue(reportTask);
         } catch (Exception e) {
@@ -306,13 +315,15 @@ public class ReportHandler extends Daemon {
         private List<TStorageResource> storageResources;
         private int cpuCores;
         private int pipelineExecutorSize;
+        private long runningTasks;
         private long numTablets;
+        private List<TIndexPolicy> indexPolicys;
 
         public ReportTask(long beId, ReportType reportType, Map<TTaskType, Set<Long>> tasks,
                 Map<String, TDisk> disks, Map<Long, TTablet> tablets,
                 Map<Long, Long> partitionsVersion, long reportVersion,
                 List<TStoragePolicy> storagePolicies, List<TStorageResource> storageResources, int cpuCores,
-                int pipelineExecutorSize, long numTablets) {
+                int pipelineExecutorSize, long numTablets, List<TIndexPolicy> indexPolicys, long runningTasks) {
             this.beId = beId;
             this.reportType = reportType;
             this.tasks = tasks;
@@ -325,12 +336,14 @@ public class ReportHandler extends Daemon {
             this.cpuCores = cpuCores;
             this.pipelineExecutorSize = pipelineExecutorSize;
             this.numTablets = numTablets;
+            this.indexPolicys = indexPolicys;
+            this.runningTasks = runningTasks;
         }
 
         @Override
         protected void exec() {
             if (tasks != null) {
-                ReportHandler.taskReport(beId, tasks);
+                ReportHandler.taskReport(beId, tasks, runningTasks);
             }
             if (disks != null) {
                 ReportHandler.diskReport(beId, disks);
@@ -338,6 +351,9 @@ public class ReportHandler extends Daemon {
             }
             if (Config.enable_storage_policy && storagePolicies != null && storageResources != null) {
                 storagePolicyReport(beId, storagePolicies, storageResources);
+            }
+            if (indexPolicys != null) {
+                storageIndexPolicyReport(beId, indexPolicys);
             }
 
             if (tablets != null) {
@@ -449,6 +465,86 @@ public class ReportHandler extends Daemon {
             }
             if (!feHasIt) {
                 policyToDrop.add(tStoragePolicy.getId());
+            }
+        }
+    }
+
+    private static void handlePushIndexPolicy(long backendId,
+                                          List<IndexPolicy> policyToPush,
+                                          List<Long> policyToDrop) {
+        AgentBatchTask batchTask = new AgentBatchTask();
+        PushIndexPolicyTask pushIndexPolicyTask = new PushIndexPolicyTask(backendId,
+                policyToPush, policyToDrop);
+        batchTask.addTask(pushIndexPolicyTask);
+        AgentTaskExecutor.submit(batchTask);
+    }
+
+    private static void storageIndexPolicyReport(long backendId, List<TIndexPolicy> indexPoliciesInBe) {
+        List<IndexPolicy> policiesInFe = Env.getCurrentEnv().getIndexPolicyMgr().getCopiedIndexPolicies();
+
+        List<IndexPolicy> policyToPush = new ArrayList<>();
+        List<Long> policyToDrop = new ArrayList<>();
+
+        diffIndexPolicy(indexPoliciesInBe, policiesInFe, policyToPush, policyToDrop);
+
+        if (policyToPush.isEmpty() && policyToDrop.isEmpty()) {
+            return;
+        }
+
+        LOG.info("After diff index policy result - "
+                + "Policies to push[count={}, details={}], "
+                + "Policies to drop[count={}, details={}]",
+                policyToPush.size(),
+                policyToPush.stream()
+                        .map(p -> String.format(
+                                "IndexPolicy{id=%d, name='%s', type=%s}",
+                                p.getId(),
+                                p.getName(),
+                                p.getType()))
+                        .collect(Collectors.toList()),
+                policyToDrop.size(),
+                policyToDrop);
+
+        // send push rpc
+        handlePushIndexPolicy(backendId, policyToPush, policyToDrop);
+    }
+
+    private static void diffIndexPolicy(List<TIndexPolicy> indexPoliciesInBe,
+                                  List<IndexPolicy> policiesInFe,
+                                  List<IndexPolicy> policyToPush,
+                                  List<Long> policyToDrop) {
+        // fe - be: find policies that need to be pushed to BE
+        for (IndexPolicy policy : policiesInFe) {
+            if (policy.getId() <= 0) {
+                continue; // ignore policy with invalid id
+            }
+
+            boolean beHasIt = false;
+            for (TIndexPolicy tIndexPolicy : indexPoliciesInBe) {
+                if (policy.getId() == tIndexPolicy.getId()) {
+                    beHasIt = true;
+                    // Only check if BE has the policy, no version comparison
+                    break;
+                }
+            }
+            if (!beHasIt) {
+                // policy exists in FE but not in BE, need to push
+                policyToPush.add(policy);
+            }
+        }
+
+        // be - fe: find policies that need to be dropped from BE
+        for (TIndexPolicy tIndexPolicy : indexPoliciesInBe) {
+            boolean feHasIt = false;
+            for (IndexPolicy policy : policiesInFe) {
+                if (policy.getId() == tIndexPolicy.getId()) {
+                    feHasIt = true;
+                    break;
+                }
+            }
+            if (!feHasIt) {
+                // policy exists in BE but not in FE, need to drop
+                policyToDrop.add(tIndexPolicy.getId());
             }
         }
     }
@@ -611,7 +707,8 @@ public class ReportHandler extends Daemon {
         }
     }
 
-    private static void taskReport(long backendId, Map<TTaskType, Set<Long>> runningTasks) {
+    private static void taskReport(long backendId, Map<TTaskType, Set<Long>> runningTasks,
+            long numRunningTasks) {
         debugBlock();
         if (LOG.isDebugEnabled()) {
             LOG.debug("begin to handle task report from backend {}", backendId);
@@ -635,6 +732,7 @@ public class ReportHandler extends Daemon {
                 ? runningTasks.get(TTaskType.PUBLISH_VERSION).size() : 0;
         if (be != null) {
             be.setPublishTaskLastTimeAccumulated((long) publishTaskSize);
+            be.setRunningTasks(numRunningTasks);
         }
 
         List<AgentTask> diffTasks = AgentTaskQueue.getDiffTasks(backendId, runningTasks);
@@ -988,7 +1086,8 @@ public class ReportHandler extends Daemon {
                                             objectPool,
                                             olapTable.rowStorePageSize(),
                                             olapTable.variantEnableFlattenNested(),
-                                            olapTable.storagePageSize());
+                                            olapTable.storagePageSize(), olapTable.getTDEAlgorithm(),
+                                            olapTable.storageDictPageSize());
                                     createReplicaTask.setIsRecoverTask(true);
                                     createReplicaTask.setInvertedIndexFileStorageFormat(olapTable
                                                                 .getInvertedIndexFileStorageFormat());

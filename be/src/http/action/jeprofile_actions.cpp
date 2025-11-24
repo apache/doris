@@ -22,6 +22,7 @@
 
 #include <string>
 
+#include "agent/utils.h"
 #include "http/ev_http_server.h"
 #include "http/http_channel.h"
 #include "http/http_handler.h"
@@ -63,7 +64,7 @@ static bool compile_check(HttpRequest* req) {
 }
 
 static bool conf_check(HttpRequest* req) {
-    if (!HeapProfiler::instance()->check_heap_profiler()) {
+    if (!HeapProfiler::instance()->check_active_heap_profiler()) {
         HttpChannel::send_reply(req, HttpStatus::INTERNAL_SERVER_ERROR,
                                 "Jemalloc heap profiler is not enabled, refer to the following "
                                 "method to enable it.\n" +
@@ -87,6 +88,25 @@ void SetJeHeapProfileActiveActions::handle(HttpRequest* req) {
     }
 }
 
+void SetJeHeapProfileResetActions::handle(HttpRequest* req) {
+    req->add_output_header(HttpHeaders::CONTENT_TYPE, HEADER_JSON.c_str());
+    if (compile_check(req)) {
+        const auto& lg_sample_str = req->param("reset_value");
+        size_t lg_sample = std::stol(lg_sample_str);
+        if (lg_sample > 0 && HeapProfiler::instance()->check_enable_heap_profiler() &&
+            HeapProfiler::instance()->heap_profiler_reset(lg_sample)) {
+            HttpChannel::send_reply(req, HttpStatus::OK,
+                                    fmt::format("Jemalloc reset all memory profile statistics and "
+                                                "update the sample rate:{}\n",
+                                                lg_sample_str));
+        } else {
+            HttpChannel::send_reply(req, HttpStatus::OK,
+                                    "Jemalloc have not reset.\nThe `JEMALLOC_CONF` in "
+                                    "`be/conf/be.conf` must contain `prof:true`.\n");
+        }
+    }
+}
+
 void DumpJeHeapProfileToDotActions::handle(HttpRequest* req) {
     req->add_output_header(HttpHeaders::CONTENT_TYPE, HEADER_JSON.c_str());
     if (compile_check(req) && conf_check(req)) {
@@ -95,7 +115,11 @@ void DumpJeHeapProfileToDotActions::handle(HttpRequest* req) {
             HttpChannel::send_reply(req, HttpStatus::INTERNAL_SERVER_ERROR,
                                     "dump heap profile to dot failed, see be.INFO\n");
         } else {
+            std::string msg;
+            AgentUtils util;
             dot += "\n-------------------------------------------------------\n";
+            util.exec_cmd("type addr2line", &msg);
+            dot += "addr2line: " + msg + "\n";
             dot += "Copy the text after `digraph` in the above output to "
                    "http://www.webgraphviz.com to generate a dot graph.\n"
                    "after start heap profiler, if there is no operation, will print `No nodes to "

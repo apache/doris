@@ -19,6 +19,7 @@ package org.apache.doris.common.profile;
 
 import org.apache.doris.common.profile.SummaryProfile.SummaryBuilder;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.common.util.SafeStringBuilder;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.thrift.QueryState;
 import org.apache.doris.thrift.TUniqueId;
@@ -105,99 +106,6 @@ public class ProfilePersistentTest {
     }
 
     @Test
-    public void counterBasicTest() {
-        TUnit thriftType = TUnit.TIME_NS;
-        long value = 1000;
-        Counter counter = new Counter(thriftType, value);
-
-        ByteArrayOutputStream baos = new ByteArrayOutputStream();
-        DataOutput output = new DataOutputStream(baos);
-        boolean writeFailed = false;
-
-        try {
-            counter.write(output);
-        } catch (Exception e) {
-            writeFailed = true;
-        }
-
-        Assert.assertFalse(writeFailed);
-
-        byte[] data = baos.toByteArray();
-        ByteArrayInputStream bais = new ByteArrayInputStream(data);
-        DataInput input = new DataInputStream(bais);
-
-        boolean readFailed = false;
-        Counter deserializedCounter = null;
-        try {
-            deserializedCounter = Counter.read(input);
-        } catch (Exception e) {
-            readFailed = true;
-        }
-
-        Assert.assertFalse(readFailed);
-        Assert.assertEquals(deserializedCounter.getValue(), counter.getValue());
-        Assert.assertEquals(deserializedCounter.getType(), counter.getType());
-        Assert.assertEquals(deserializedCounter.toString(), counter.toString());
-    }
-
-    @Test
-    public void runtimeProfileBasicTest() {
-        RuntimeProfile profile = new RuntimeProfile("profile");
-        for (int i = 0; i < 5; i++) {
-            if (i == 0) {
-                profile.addCounter(String.valueOf(i), TUnit.BYTES, RuntimeProfile.ROOT_COUNTER);
-            } else {
-                profile.addCounter(String.valueOf(i), TUnit.BYTES, String.valueOf(i - 1));
-            }
-        }
-
-        // 1 second
-        profile.getCounterTotalTime().setValue(1000 * 1000 * 1000);
-        profile.computeTimeInProfile();
-
-        ByteArrayOutputStream baos = new ByteArrayOutputStream();
-        DataOutput output = new DataOutputStream(baos);
-        boolean writeFailed = false;
-
-        try {
-            profile.write(output);
-        } catch (Exception e) {
-            writeFailed = true;
-        }
-
-        Assert.assertFalse(writeFailed);
-
-        byte[] data = baos.toByteArray();
-        ByteArrayInputStream bais = new ByteArrayInputStream(data);
-        DataInput input = new DataInputStream(bais);
-
-        boolean readFailed = false;
-        RuntimeProfile deserializedProfile = null;
-        try {
-            deserializedProfile = RuntimeProfile.read(input);
-        } catch (Exception e) {
-            readFailed = true;
-        }
-
-        Assert.assertFalse(readFailed);
-        Assert.assertEquals(profile.getName(), deserializedProfile.getName());
-        Assert.assertEquals(profile.getCounterTotalTime(), deserializedProfile.getCounterTotalTime());
-
-        for (Entry<String, Counter> entry : profile.getCounterMap().entrySet()) {
-            String key = entry.getKey();
-            Counter counter = entry.getValue();
-            Counter deserializedCounter = deserializedProfile.getCounterMap().get(key);
-            Assert.assertEquals(counter, deserializedCounter);
-        }
-
-        StringBuilder builder1 = new StringBuilder();
-        profile.prettyPrint(builder1, "");
-        StringBuilder builder2 = new StringBuilder();
-        deserializedProfile.prettyPrint(builder2, "");
-        Assert.assertEquals(builder1.toString(), builder2.toString());
-    }
-
-    @Test
     public void summaryProfileBasicTest() {
         SummaryProfile summaryProfile = new SummaryProfile();
         summaryProfile.fuzzyInit();
@@ -228,9 +136,9 @@ public class ProfilePersistentTest {
         }
         Assert.assertFalse(readFailed);
 
-        StringBuilder builder1 = new StringBuilder();
+        SafeStringBuilder builder1 = new SafeStringBuilder();
         summaryProfile.prettyPrint(builder1);
-        StringBuilder builder2 = new StringBuilder();
+        SafeStringBuilder builder2 = new SafeStringBuilder();
         deserializedSummaryProfile.prettyPrint(builder2);
 
         Assert.assertNotEquals("", builder1.toString());
@@ -294,7 +202,7 @@ public class ProfilePersistentTest {
             Assert.assertEquals(profile.getQueryFinishTimestamp(), readProfile.getQueryFinishTimestamp());
 
             // Verify content is readable
-            StringBuilder builder = new StringBuilder();
+            SafeStringBuilder builder = new SafeStringBuilder();
             readProfile.getOnStorageProfile(builder);
             Assert.assertFalse(Strings.isNullOrEmpty(builder.toString()));
 
@@ -361,7 +269,7 @@ public class ProfilePersistentTest {
             // Test with corrupted file
             File profileFile = new File(profile.getProfileStoragePath());
             FileUtils.writeStringToFile(profileFile, "corrupted content", StandardCharsets.UTF_8);
-            StringBuilder corruptedContent = new StringBuilder();
+            SafeStringBuilder corruptedContent = new SafeStringBuilder();
             profile.getOnStorageProfile(corruptedContent);
             Assert.assertTrue(corruptedContent.toString().contains("Failed to read profile"));
 
@@ -474,7 +382,7 @@ public class ProfilePersistentTest {
         Path tempDir = Files.createTempDirectory("profile-persistent-test");
         try {
             // First get profile content before storage
-            StringBuilder beforeStorage = new StringBuilder();
+            SafeStringBuilder beforeStorage = new SafeStringBuilder();
             profile.getExecutionProfileContent(beforeStorage);
 
             // Write to storage
@@ -482,7 +390,7 @@ public class ProfilePersistentTest {
 
             // Test with non-stored profile
             Profile nonStoredProfile = constructRandomProfile(1);
-            StringBuilder nonStoredBuilder = new StringBuilder();
+            SafeStringBuilder nonStoredBuilder = new SafeStringBuilder();
             nonStoredProfile.getOnStorageProfile(nonStoredBuilder);
             Assert.assertEquals("", nonStoredBuilder.toString());
 
@@ -496,7 +404,7 @@ public class ProfilePersistentTest {
             zos.close();
             fos.close();
 
-            StringBuilder invalidBuilder = new StringBuilder();
+            SafeStringBuilder invalidBuilder = new SafeStringBuilder();
             profile.getOnStorageProfile(invalidBuilder);
             Assert.assertTrue(invalidBuilder.toString().contains("Failed to read profile"));
 

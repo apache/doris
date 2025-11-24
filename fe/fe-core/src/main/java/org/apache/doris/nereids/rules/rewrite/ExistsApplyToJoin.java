@@ -24,7 +24,7 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
-import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.LimitPhase;
@@ -127,7 +127,7 @@ public class ExistsApplyToJoin extends OneRewriteRuleFactory {
                 unapply.getMarkJoinSlotReference(),
                 (LogicalPlan) unapply.left(), newAgg, null);
         return new LogicalFilter<>(ImmutableSet.of(new EqualTo(newAgg.getOutput().get(0),
-                new IntegerLiteral(0))), newJoin);
+                new BigIntLiteral(0))), newJoin);
     }
 
     private Plan unCorrelatedExist(LogicalApply<?, ?> unapply) {

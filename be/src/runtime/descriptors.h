@@ -21,6 +21,7 @@
 #pragma once
 
 #include <gen_cpp/Descriptors_types.h>
+#include <gen_cpp/Exprs_types.h>
 #include <gen_cpp/Types_types.h>
 #include <glog/logging.h>
 #include <google/protobuf/stubs/port.h>
@@ -47,7 +48,7 @@ class RepeatedField;
 } // namespace google::protobuf
 
 namespace doris {
-
+#include "common/compile_check_begin.h"
 class ObjectPool;
 class PTupleDescriptor;
 class PSlotDescriptor;
@@ -76,7 +77,7 @@ public:
 
     vectorized::MutableColumnPtr get_empty_mutable_column() const;
 
-    int32_t col_unique_id() const { return _col_unique_id; }
+    MOCK_FUNCTION int32_t col_unique_id() const { return _col_unique_id; }
 
     bool is_key() const { return _is_key; }
     const std::vector<std::string>& column_paths() const { return _column_paths; };
@@ -88,6 +89,11 @@ public:
 
     const std::string& col_default_value() const { return _col_default_value; }
     PrimitiveType col_type() const;
+
+    std::shared_ptr<doris::TExpr> get_virtual_column_expr() const {
+        // virtual_column_expr need do prepare.
+        return virtual_column_expr;
+    }
 
 private:
     friend class DescriptorTbl;
@@ -103,7 +109,7 @@ private:
     MOCK_REMOVE(const) vectorized::DataTypePtr _type;
     const TupleId _parent;
     const int _col_pos;
-    const std::string _col_name;
+    MOCK_REMOVE(const) std::string _col_name;
     const std::string _col_name_lower_case;
 
     const int32_t _col_unique_id;
@@ -124,6 +130,8 @@ private:
 
     const bool _is_auto_increment;
     const std::string _col_default_value;
+
+    std::shared_ptr<doris::TExpr> virtual_column_expr = nullptr;
 
     SlotDescriptor(const TSlotDescriptor& tdesc);
     SlotDescriptor(const PSlotDescriptor& pdesc);
@@ -316,6 +324,15 @@ private:
     bool _connection_pool_keep_alive;
 };
 
+class RemoteDorisTableDescriptor : public TableDescriptor {
+public:
+    RemoteDorisTableDescriptor(const TTableDescriptor& tdesc);
+    ~RemoteDorisTableDescriptor() override;
+    std::string debug_string() const override;
+
+private:
+};
+
 class TupleDescriptor {
 public:
     TupleDescriptor(TupleDescriptor&&) = delete;
@@ -369,13 +386,18 @@ private:
 
 class DescriptorTbl {
 public:
+#ifdef BE_TEST
+    DescriptorTbl() = default;
+    virtual ~DescriptorTbl() = default;
+#endif
+
     // Creates a descriptor tbl within 'pool' from thrift_tbl and returns it via 'tbl'.
     // Returns OK on success, otherwise error (in which case 'tbl' will be unset).
     static Status create(ObjectPool* pool, const TDescriptorTable& thrift_tbl, DescriptorTbl** tbl);
 
     TableDescriptor* get_table_descriptor(TableId id) const;
     TupleDescriptor* get_tuple_descriptor(TupleId id) const;
-    SlotDescriptor* get_slot_descriptor(SlotId id) const;
+    MOCK_FUNCTION SlotDescriptor* get_slot_descriptor(SlotId id) const;
     const std::vector<TTupleId>& get_row_tuples() const { return _row_tuples; }
 
     // return all registered tuple descriptors
@@ -401,7 +423,9 @@ private:
     SlotDescriptorMap _slot_desc_map;
     std::vector<TTupleId> _row_tuples;
 
+#ifndef BE_TEST
     DescriptorTbl() = default;
+#endif
 };
 
 #define RETURN_IF_INVALID_TUPLE_IDX(tuple_id, tuple_idx)                                         \
@@ -499,4 +523,5 @@ private:
     int _num_materialized_slots = 0;
     int _num_slots = 0;
 };
+#include "common/compile_check_end.h"
 } // namespace doris

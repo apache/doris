@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.plans;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.PartitionDesc;
+import org.apache.doris.analysis.SinglePartitionDesc;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.catalog.AggregateType;
@@ -37,8 +38,15 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.commands.CreateMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.FixedRangePartition;
+import org.apache.doris.nereids.trees.plans.commands.info.InPartition;
+import org.apache.doris.nereids.trees.plans.commands.info.LessThanPartition;
+import org.apache.doris.nereids.trees.plans.commands.info.PartitionDefinition;
+import org.apache.doris.nereids.trees.plans.commands.info.PartitionTableInfo;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -773,7 +781,7 @@ public class CreateTableCommandTest extends TestWithFeService {
         Assertions.assertTrue(plan instanceof CreateTableCommand);
         CreateTableInfo createTableInfo = ((CreateTableCommand) plan).getCreateTableInfo();
         createTableInfo.validate(connectContext);
-        Assertions.assertNull(createTableInfo.translateToLegacyStmt().getPartitionDesc());
+        Assertions.assertNull(createTableInfo.getPartitionDesc());
 
         // test with multi partitions
         LogicalPlan plan2 = new NereidsParser().parseSingle(
@@ -782,7 +790,7 @@ public class CreateTableCommandTest extends TestWithFeService {
         Assertions.assertTrue(plan2 instanceof CreateTableCommand);
         CreateTableInfo createTableInfo2 = ((CreateTableCommand) plan2).getCreateTableInfo();
         createTableInfo2.validate(connectContext);
-        PartitionDesc partitionDesc2 = createTableInfo2.translateToLegacyStmt().getPartitionDesc();
+        PartitionDesc partitionDesc2 = createTableInfo2.getPartitionDesc();
         List<Expr> partitionFields2 = partitionDesc2.getPartitionExprs();
         Assertions.assertEquals(5, partitionFields2.size());
 
@@ -834,7 +842,7 @@ public class CreateTableCommandTest extends TestWithFeService {
         Assertions.assertTrue(plan instanceof CreateTableCommand);
         CreateTableInfo createTableInfo = ((CreateTableCommand) plan).getCreateTableInfo();
         createTableInfo.validate(connectContext);
-        return createTableInfo.translateToLegacyStmt().getPartitionDesc();
+        return createTableInfo.getPartitionDesc();
     }
 
     @Test
@@ -902,5 +910,217 @@ public class CreateTableCommandTest extends TestWithFeService {
         } catch (Exception e) {
             Assertions.assertEquals("The partition field must be at the end of the schema.", e.getMessage());
         }
+    }
+
+    @Test
+    public void testConvertToPartitionTableInfo() throws Exception {
+        testUnpartitionConvertToPartitionTableInfo();
+        testRangePartitionConvertToPartitionTableInfo();
+        testInPartitionConvertToPartitionTableInfo();
+        testLessThanPartitionConvertToPartitionTableInfo();
+    }
+
+    private void testUnpartitionConvertToPartitionTableInfo() throws Exception {
+        String partitionTable = "CREATE TABLE aa1 (\n"
+                + " `user_id` LARGEINT NOT NULL COMMENT '\\\"用户id\\\"',\n"
+                + " `date` DATE NOT NULL COMMENT '\\\"数据灌入日期时间\\\"',\n"
+                + " `num` SMALLINT NOT NULL COMMENT '\\\"数量\\\"'\n"
+                + " ) ENGINE=OLAP\n"
+                + " DUPLICATE KEY(`user_id`, `date`, `num`)\n"
+                + " COMMENT 'OLAP'\n"
+                + " PARTITION BY RANGE(`date`)\n"
+                + " (\n"
+                + " PARTITION `p201701` VALUES [(\"2017-01-01\"),  (\"2017-02-01\")),\n"
+                + " PARTITION `p201702` VALUES [(\"2017-02-01\"), (\"2017-03-01\")),\n"
+                + " PARTITION `p201703` VALUES [(\"2017-03-01\"), (\"2017-04-01\"))\n"
+                + " )\n"
+                + " DISTRIBUTED BY HASH(`user_id`) BUCKETS 2\n"
+                + " PROPERTIES ('replication_num' = '1') ;\n";
+        createTable(partitionTable);
+
+        String mv = "CREATE MATERIALIZED VIEW mtmv5\n"
+                + " BUILD DEFERRED REFRESH AUTO ON MANUAL\n"
+                + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
+                + " PROPERTIES ('replication_num' = '1')\n"
+                + " AS\n"
+                + " SELECT * FROM aa1;";
+
+        CreateMTMVInfo createMTMVInfo = getPartitionTableInfo(mv);
+        Assertions.assertEquals(PartitionTableInfo.EMPTY, createMTMVInfo.getPartitionTableInfo());
+    }
+
+    private void testRangePartitionConvertToPartitionTableInfo() throws Exception {
+        String fixedRangePartitionTable = "CREATE TABLE mm1 (\n"
+                + " `user_id` LARGEINT NOT NULL COMMENT '\\\"用户id\\\"',\n"
+                + " `date` DATE NOT NULL COMMENT '\\\"数据灌入日期时间\\\"',\n"
+                + " `num` SMALLINT NOT NULL COMMENT '\\\"数量\\\"'\n"
+                + " ) ENGINE=OLAP\n"
+                + " DUPLICATE KEY(`user_id`, `date`, `num`)\n"
+                + " COMMENT 'OLAP'\n"
+                + " PARTITION BY RANGE(`date`)\n"
+                + " (\n"
+                + " PARTITION `p201701` VALUES [(\"2017-01-01\"),  (\"2017-02-01\")),\n"
+                + " PARTITION `p201702` VALUES [(\"2017-02-01\"), (\"2017-03-01\")),\n"
+                + " PARTITION `p201703` VALUES [(\"2017-03-01\"), (\"2017-04-01\"))\n"
+                + " )\n"
+                + " DISTRIBUTED BY HASH(`user_id`) BUCKETS 2\n"
+                + " PROPERTIES ('replication_num' = '1') ;\n";
+
+        String mv = "CREATE MATERIALIZED VIEW mtmv1\n"
+                + " BUILD DEFERRED REFRESH AUTO ON MANUAL\n"
+                + " partition by(`date`)\n"
+                + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
+                + " PROPERTIES ('replication_num' = '1')\n"
+                + " AS\n"
+                + " SELECT * FROM mm1;";
+
+        check(fixedRangePartitionTable, mv);
+    }
+
+    private void testLessThanPartitionConvertToPartitionTableInfo() throws Exception {
+        String lessThanPartitionTable = "CREATE TABLE te2 (\n"
+                + " `user_id` LARGEINT NOT NULL COMMENT '\\\"用户id\\\"',\n"
+                + " `date` DATE NOT NULL COMMENT '\\\"数据灌入日期时间\\\"',\n"
+                + " `num` SMALLINT NOT NULL COMMENT '\\\"数量\\\"'\n"
+                + " ) ENGINE=OLAP\n"
+                + " DUPLICATE KEY(`user_id`, `date`, `num`)\n"
+                + " COMMENT 'OLAP'\n"
+                + " PARTITION BY RANGE(`date`)\n"
+                + "(\n"
+                + " PARTITION `p201701` VALUES LESS THAN (\"2017-02-01\"),\n"
+                + " PARTITION `p201702` VALUES LESS THAN (\"2017-03-01\"),\n"
+                + " PARTITION `p201703` VALUES LESS THAN (\"2017-04-01\"),\n"
+                + " PARTITION `p2018` VALUES [(\"2018-01-01\"), (\"2019-01-01\")),\n"
+                + " PARTITION `other` VALUES LESS THAN (MAXVALUE)\n"
+                + ")\n"
+                + " DISTRIBUTED BY HASH(`user_id`) BUCKETS 2\n"
+                + " PROPERTIES ('replication_num' = '1') ;";
+
+        String mv = "CREATE MATERIALIZED VIEW mtmv2\n"
+                + " BUILD DEFERRED REFRESH AUTO ON MANUAL\n"
+                + " partition by(`date`)\n"
+                + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
+                + " PROPERTIES ('replication_num' = '1')\n"
+                + " AS\n"
+                + " SELECT * FROM te2;";
+
+        check(lessThanPartitionTable, mv);
+    }
+
+    private void testInPartitionConvertToPartitionTableInfo() throws Exception {
+        String inPartitionTable = "CREATE TABLE cc1 (\n"
+                + "`user_id` LARGEINT NOT NULL COMMENT '\\\"用户id\\\"',\n"
+                + "`date` DATE NOT NULL COMMENT '\\\"数据灌入日期时间\\\"',\n"
+                + "`num` SMALLINT NOT NULL COMMENT '\\\"数量\\\"'\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(`user_id`, `date`, `num`)\n"
+                + "COMMENT 'OLAP'\n"
+                + "PARTITION BY LIST(`date`,`num`)\n"
+                + "(\n"
+                + " PARTITION p201701_1000 VALUES IN (('2017-01-01',1), ('2017-01-01',2)),\n"
+                + " PARTITION p201702_2000 VALUES IN (('2017-02-01',3), ('2017-02-01',4))\n"
+                + " )\n"
+                + " DISTRIBUTED BY HASH(`user_id`) BUCKETS 2\n"
+                + " PROPERTIES ('replication_num' = '1') ;";
+
+        String mv = "CREATE MATERIALIZED VIEW mtmv\n"
+                + "BUILD DEFERRED REFRESH AUTO ON MANUAL\n"
+                + "partition by(`date`)\n"
+                + "DISTRIBUTED BY RANDOM BUCKETS 2\n"
+                + "PROPERTIES ('replication_num' = '1')\n"
+                + "AS\n"
+                + "SELECT * FROM cc1;";
+
+        check(inPartitionTable, mv);
+    }
+
+    private void check(String sql, String mv) throws Exception {
+        createTable(sql);
+
+        CreateMTMVInfo createMTMVInfo = getPartitionTableInfo(mv);
+        PartitionTableInfo partitionTableInfo = createMTMVInfo.getPartitionTableInfo();
+        PartitionDesc partitionDesc = createMTMVInfo.getPartitionDesc();
+
+        List<PartitionDefinition> partitionDefs = partitionTableInfo.getPartitionDefs();
+        List<SinglePartitionDesc> singlePartitionDescs = partitionDesc.getSinglePartitionDescs();
+
+        assertPartitionInfo(partitionDefs, singlePartitionDescs);
+    }
+
+    private void assertPartitionInfo(List<PartitionDefinition> partitionDefs, List<SinglePartitionDesc> singlePartitionDescs) {
+        Assertions.assertEquals(singlePartitionDescs.size(), partitionDefs.size());
+
+        for (int i = 0; i < singlePartitionDescs.size(); i++) {
+            PartitionDefinition partitionDefinition = partitionDefs.get(i);
+            SinglePartitionDesc singlePartitionDesc = singlePartitionDescs.get(i);
+
+            if (partitionDefinition instanceof InPartition) {
+                InPartition inPartition = (InPartition) partitionDefinition;
+
+                Assertions.assertEquals(singlePartitionDesc.getPartitionName(), partitionDefinition.getPartitionName());
+                Assertions.assertEquals(singlePartitionDesc.getPartitionKeyDesc().getPartitionType().name(), "IN");
+                Assertions.assertEquals(singlePartitionDesc.getPartitionKeyDesc().getInValues().size(), inPartition.getValues().size());
+            } else if (partitionDefinition instanceof FixedRangePartition) {
+                FixedRangePartition fixedRangePartition = (FixedRangePartition) partitionDefinition;
+
+                Assertions.assertEquals(singlePartitionDesc.getPartitionName(), partitionDefinition.getPartitionName());
+                Assertions.assertEquals(singlePartitionDesc.getPartitionKeyDesc().getPartitionType().name(), "FIXED");
+                Assertions.assertEquals(fixedRangePartition.getLowerBounds().size(), singlePartitionDesc.getPartitionKeyDesc().getLowerValues().size());
+                Assertions.assertEquals(fixedRangePartition.getUpperBounds().size(), singlePartitionDesc.getPartitionKeyDesc().getUpperValues().size());
+            } else if (partitionDefinition instanceof LessThanPartition) {
+                LessThanPartition lessThanPartition = (LessThanPartition) partitionDefinition;
+
+                Assertions.assertEquals(singlePartitionDesc.getPartitionName(), partitionDefinition.getPartitionName());
+                Assertions.assertEquals(singlePartitionDesc.getPartitionKeyDesc().getPartitionType().name(), "LESS_THAN");
+                Assertions.assertEquals(lessThanPartition.getValues().size(), singlePartitionDesc.getPartitionKeyDesc().getUpperValues().size());
+            }
+        }
+    }
+
+    private CreateMTMVInfo getPartitionTableInfo(String sql) throws Exception {
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = nereidsParser.parseSingle(sql);
+        Assertions.assertTrue(logicalPlan instanceof CreateMTMVCommand);
+        CreateMTMVCommand command = (CreateMTMVCommand) logicalPlan;
+        command.getCreateMTMVInfo().analyze(connectContext);
+
+        return command.getCreateMTMVInfo();
+    }
+
+    @Test
+    public void testMTMVRejectVarbinary() throws Exception {
+        String mv = "CREATE MATERIALIZED VIEW mv_vb\n"
+                + " BUILD DEFERRED REFRESH AUTO ON MANUAL\n"
+                + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
+                + " PROPERTIES ('replication_num' = '1')\n"
+                + " AS SELECT X'AB' as vb;";
+
+        LogicalPlan plan = new NereidsParser().parseSingle(mv);
+        Assertions.assertTrue(plan instanceof CreateMTMVCommand);
+        CreateMTMVCommand cmd = (CreateMTMVCommand) plan;
+
+        org.apache.doris.nereids.exceptions.AnalysisException ex = Assertions.assertThrows(
+                org.apache.doris.nereids.exceptions.AnalysisException.class,
+                () -> cmd.getCreateMTMVInfo().analyze(connectContext));
+        System.out.println(ex.getMessage());
+        Assertions.assertTrue(ex.getMessage().contains("MTMV do not support varbinary type"));
+        Assertions.assertTrue(ex.getMessage().contains("vb"));
+    }
+
+    @Test
+    public void testVarBinaryModifyColumnRejected() throws Exception {
+        createTable("create table test.vb_alt (k1 int, v1 int)\n"
+                + "duplicate key(k1)\n"
+                + "distributed by hash(k1) buckets 1\n"
+                + "properties('replication_num' = '1');");
+
+        org.apache.doris.nereids.trees.plans.logical.LogicalPlan plan =
+                new org.apache.doris.nereids.parser.NereidsParser()
+                        .parseSingle("alter table test.vb_alt modify column v1 VARBINARY");
+        Assertions.assertTrue(
+                plan instanceof org.apache.doris.nereids.trees.plans.commands.AlterTableCommand);
+        org.apache.doris.nereids.trees.plans.commands.AlterTableCommand cmd2 =
+                (org.apache.doris.nereids.trees.plans.commands.AlterTableCommand) plan;
+        Assertions.assertThrows(Throwable.class, () -> cmd2.run(connectContext, null));
     }
 }

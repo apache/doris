@@ -29,7 +29,6 @@
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
@@ -105,9 +104,10 @@ public:
 
         auto inner_result = ColumnArray::create(src_data, std::move(col_offsets_inner));
         auto outer_result = ColumnArray::create(
-                ColumnNullable::create(inner_result, ColumnUInt8::create(inner_result->size(), 0)),
+                ColumnNullable::create(std::move(inner_result),
+                                       ColumnUInt8::create(inner_result->size(), 0)),
                 std::move(col_offsets_outer));
-        block.replace_by_position(result, outer_result);
+        block.replace_by_position(result, std::move(outer_result));
         return Status::OK();
     }
 

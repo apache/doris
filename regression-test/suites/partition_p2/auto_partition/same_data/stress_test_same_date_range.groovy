@@ -163,12 +163,12 @@ suite("stress_test_same_date_range", "p2,nonConcurrent") {
 
     def row_count_range = sql """select count(*) from ${tb_name2};"""
     def partition_res_range = sql """show partitions from ${tb_name2};"""
-    assertTrue(row_count_range[0][0] == partition_res_range.size)
+    assertEquals(row_count_range[0][0], partition_res_range.size())
     def part_context = []
 
-    for (int i = 0; i < partition_res_range.size; i++) {
+    for (int i = 0; i < partition_res_range.size(); i++) {
         part_context.add(partition_res_range[i][6])
     }
     def part_context_unique = part_context.clone().unique()
-    assertTrue(part_context.size == part_context_unique.size)
+    assertEquals(part_context.size(), part_context_unique.size())
 }

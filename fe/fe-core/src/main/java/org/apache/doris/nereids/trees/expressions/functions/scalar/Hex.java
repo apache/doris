@@ -51,13 +51,18 @@ public class Hex extends ScalarFunction
         super("hex", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Hex(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public Hex withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Hex(children.get(0));
+        return new Hex(getFunctionParams(children));
     }
 
     @Override

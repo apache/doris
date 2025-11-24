@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <arrow/api.h>
+#include <cctz/time_zone.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 #include <gtest/gtest.h>
@@ -28,7 +30,7 @@
 #include "util/slice.h"
 #include "util/string_util.h"
 #include "vec/columns/column.h"
-#include "vec/columns/columns_number.h"
+#include "vec/columns/column_decimal.h"
 #include "vec/common/assert_cast.h"
 #include "vec/core/types.h"
 #include "vec/data_types/common_data_type_serder_test.h"
@@ -39,25 +41,25 @@
 namespace doris::vectorized {
 static std::string test_data_dir;
 
-static auto serde_decimal32_1 = std::make_shared<DataTypeDecimalSerDe<Decimal32>>(1, 0);
-static auto serde_decimal32_2 = std::make_shared<DataTypeDecimalSerDe<Decimal32>>(1, 1);
-static auto serde_decimal32_3 = std::make_shared<DataTypeDecimalSerDe<Decimal32>>(8, 3);
-static auto serde_decimal32_4 = std::make_shared<DataTypeDecimalSerDe<Decimal32>>(9, 0);
-static auto serde_decimal32_5 = std::make_shared<DataTypeDecimalSerDe<Decimal32>>(9, 9);
+static auto serde_decimal32_1 = std::make_shared<DataTypeDecimalSerDe<TYPE_DECIMAL32>>(1, 0);
+static auto serde_decimal32_2 = std::make_shared<DataTypeDecimalSerDe<TYPE_DECIMAL32>>(1, 1);
+static auto serde_decimal32_3 = std::make_shared<DataTypeDecimalSerDe<TYPE_DECIMAL32>>(8, 3);
+static auto serde_decimal32_4 = std::make_shared<DataTypeDecimalSerDe<TYPE_DECIMAL32>>(9, 0);
+static auto serde_decimal32_5 = std::make_shared<DataTypeDecimalSerDe<TYPE_DECIMAL32>>(9, 9);
 
-static auto serde_decimal64_1 = std::make_shared<DataTypeDecimalSerDe<Decimal64>>(18, 0);
-static auto serde_decimal64_2 = std::make_shared<DataTypeDecimalSerDe<Decimal64>>(18, 9);
-static auto serde_decimal64_3 = std::make_shared<DataTypeDecimalSerDe<Decimal64>>(18, 18);
+static auto serde_decimal64_1 = std::make_shared<DataTypeDecimalSerDe<TYPE_DECIMAL64>>(18, 0);
+static auto serde_decimal64_2 = std::make_shared<DataTypeDecimalSerDe<TYPE_DECIMAL64>>(18, 9);
+static auto serde_decimal64_3 = std::make_shared<DataTypeDecimalSerDe<TYPE_DECIMAL64>>(18, 18);
 
-static auto serde_decimal128v2 = std::make_shared<DataTypeDecimalSerDe<Decimal128V2>>(27, 9);
+static auto serde_decimal128v2 = std::make_shared<DataTypeDecimalSerDe<TYPE_DECIMALV2>>(27, 9);
 
-static auto serde_decimal128v3_1 = std::make_shared<DataTypeDecimalSerDe<Decimal128V3>>(38, 0);
-static auto serde_decimal128v3_2 = std::make_shared<DataTypeDecimalSerDe<Decimal128V3>>(38, 30);
-static auto serde_decimal128v3_3 = std::make_shared<DataTypeDecimalSerDe<Decimal128V3>>(38, 38);
+static auto serde_decimal128v3_1 = std::make_shared<DataTypeDecimalSerDe<TYPE_DECIMAL128I>>(38, 0);
+static auto serde_decimal128v3_2 = std::make_shared<DataTypeDecimalSerDe<TYPE_DECIMAL128I>>(38, 30);
+static auto serde_decimal128v3_3 = std::make_shared<DataTypeDecimalSerDe<TYPE_DECIMAL128I>>(38, 38);
 
-static auto serde_decimal256_1 = std::make_shared<DataTypeDecimalSerDe<Decimal256>>(76, 0);
-static auto serde_decimal256_2 = std::make_shared<DataTypeDecimalSerDe<Decimal256>>(76, 38);
-static auto serde_decimal256_3 = std::make_shared<DataTypeDecimalSerDe<Decimal256>>(76, 76);
+static auto serde_decimal256_1 = std::make_shared<DataTypeDecimalSerDe<TYPE_DECIMAL256>>(76, 0);
+static auto serde_decimal256_2 = std::make_shared<DataTypeDecimalSerDe<TYPE_DECIMAL256>>(76, 38);
+static auto serde_decimal256_3 = std::make_shared<DataTypeDecimalSerDe<TYPE_DECIMAL256>>(76, 76);
 
 static ColumnDecimal32::MutablePtr column_decimal32_1; // decimal32(1,0)
 static ColumnDecimal32::MutablePtr column_decimal32_2; // decimal32(1,1)
@@ -240,7 +242,7 @@ TEST_F(DataTypeDecimalSerDeTest, serdes) {
             Arena pool;
 
             for (size_t j = 0; j != row_count; ++j) {
-                serde.write_one_cell_to_jsonb(*source_column, jsonb_writer, &pool, 0, j);
+                serde.write_one_cell_to_jsonb(*source_column, jsonb_writer, pool, 0, j);
             }
             jsonb_writer.writeEndObject();
 
@@ -248,8 +250,11 @@ TEST_F(DataTypeDecimalSerDeTest, serdes) {
             ser_col->reserve(row_count);
             MutableColumnPtr deser_column = source_column->clone_empty();
             const auto* deser_col_with_type = assert_cast<const ColumnType*>(deser_column.get());
-            auto* pdoc = JsonbDocument::checkAndCreateDocument(
-                    jsonb_writer.getOutput()->getBuffer(), jsonb_writer.getOutput()->getSize());
+            JsonbDocument* pdoc = nullptr;
+            auto st = JsonbDocument::checkAndCreateDocument(jsonb_writer.getOutput()->getBuffer(),
+                                                            jsonb_writer.getOutput()->getSize(),
+                                                            &pdoc);
+            EXPECT_TRUE(st.ok()) << "Failed to create JsonbDocument: " << st;
             JsonbDocument& doc = *pdoc;
             for (auto it = doc->begin(); it != doc->end(); ++it) {
                 serde.read_one_cell_from_jsonb(*deser_column, it->value());
@@ -288,4 +293,48 @@ TEST_F(DataTypeDecimalSerDeTest, serdes) {
 
     test_func(*serde_decimal128v2, column_decimal128_v2);
 }
+
+// Run with UBSan enabled to catch misalignment errors.
+TEST_F(DataTypeDecimalSerDeTest, ArrowMemNotAligned) {
+    // 1.Prepare the data.
+    arrow::Decimal128Builder builder(arrow::decimal(38, 30));
+    std::vector<std::string> decimal_strings = {"12345.67", "89.10", "1112.13", "1415.16",
+                                                "1718.19"};
+
+    for (const auto& str : decimal_strings) {
+        EXPECT_TRUE(builder.Append(arrow::Decimal128(str)).ok());
+    }
+
+    std::shared_ptr<arrow::Array> aligned_array;
+    EXPECT_TRUE(builder.Finish(&aligned_array).ok());
+    auto decimal_array = std::static_pointer_cast<arrow::DecimalArray>(aligned_array);
+
+    // 2.Create an unaligned memory buffer.
+    const int64_t num_elements = decimal_array->length();
+    const int64_t element_size = decimal_array->byte_width();
+
+    std::vector<uint8_t> data_storage(num_elements * element_size + 10);
+    uint8_t* unaligned_data = data_storage.data() + 1;
+
+    // 3. Copy data to unaligned memory
+    const uint8_t* original_data = decimal_array->raw_values();
+    memcpy(unaligned_data, original_data, num_elements * element_size);
+
+    // 4. Create Arrow array with unaligned memory
+    auto unaligned_buffer = arrow::Buffer::Wrap(unaligned_data, num_elements * element_size);
+
+    auto arr = std::make_shared<arrow::DecimalArray>(arrow::decimal(38, 30), num_elements,
+                                                     unaligned_buffer);
+
+    const auto* raw_values_ptr = arr->raw_values();
+    uintptr_t address = reinterpret_cast<uintptr_t>(raw_values_ptr);
+    EXPECT_EQ(address % 4, 1);
+
+    // 5.Test read_column_from_arrow
+    cctz::time_zone tz;
+    auto st = serde_decimal128v3_2->read_column_from_arrow(*column_decimal128v3_2, arr.get(), 0, 1,
+                                                           tz);
+    EXPECT_TRUE(st.ok());
+}
+
 } // namespace doris::vectorized

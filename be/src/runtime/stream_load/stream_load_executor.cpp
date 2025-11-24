@@ -69,6 +69,7 @@ Status StreamLoadExecutor::execute_plan_fragment(std::shared_ptr<StreamLoadConte
                                                  const TPipelineFragmentParamsList& parent) {
 // submit this params
 #ifndef BE_TEST
+    ctx->put_result.pipeline_params.query_options.__set_enable_strict_cast(false);
     ctx->start_write_data_nanos = MonotonicNanos();
     LOG(INFO) << "begin to execute stream load. label=" << ctx->label << ", txn_id=" << ctx->txn_id
               << ", query_id=" << ctx->id;
@@ -87,13 +88,13 @@ Status StreamLoadExecutor::execute_plan_fragment(std::shared_ptr<StreamLoadConte
         ctx->loaded_bytes = state->num_bytes_load_total();
         int64_t num_selected_rows = ctx->number_total_rows - ctx->number_unselected_rows;
         ctx->error_url = to_load_error_http_path(state->get_error_log_file_path());
-        if (!ctx->group_commit && num_selected_rows > 0 &&
+        if (status->ok() && !ctx->group_commit && num_selected_rows > 0 &&
             (double)ctx->number_filtered_rows / num_selected_rows > ctx->max_filter_ratio) {
             // NOTE: Do not modify the error message here, for historical reasons,
             // some users may rely on this error message.
             if (ctx->need_commit_self) {
                 *status =
-                        Status::DataQualityError("too many filtered rows, url: " + ctx->error_url);
+                        Status::DataQualityError("too many filtered rows, url: {}", ctx->error_url);
             } else {
                 *status = Status::DataQualityError("too many filtered rows");
             }
@@ -106,6 +107,7 @@ Status StreamLoadExecutor::execute_plan_fragment(std::shared_ptr<StreamLoadConte
             LOG(WARNING) << "fragment execute failed"
                          << ", err_msg=" << status->to_string() << ", " << ctx->brief();
             ctx->number_loaded_rows = 0;
+            ctx->first_error_msg = state->get_first_error_msg();
             // cancel body_sink, make sender known it
             if (ctx->body_sink != nullptr) {
                 ctx->body_sink->cancel(status->to_string());
@@ -142,14 +144,8 @@ Status StreamLoadExecutor::execute_plan_fragment(std::shared_ptr<StreamLoadConte
             }
         }
     };
-
-    if (ctx->put_result.__isset.params) {
-        st = _exec_env->fragment_mgr()->exec_plan_fragment(ctx->put_result.params,
-                                                           QuerySource::STREAM_LOAD, exec_fragment);
-    } else {
-        st = _exec_env->fragment_mgr()->exec_plan_fragment(
-                ctx->put_result.pipeline_params, QuerySource::STREAM_LOAD, exec_fragment, parent);
-    }
+    st = _exec_env->fragment_mgr()->exec_plan_fragment(
+            ctx->put_result.pipeline_params, QuerySource::STREAM_LOAD, exec_fragment, parent);
 
     if (!st.ok()) {
         // no need to check unref's return value

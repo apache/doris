@@ -5,9 +5,9 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----PhysicalProject
 ------hashJoin[INNER_JOIN shuffle] hashCondition=((ws1.ws_order_number = ws2.ws_order_number)) otherCondition=(( not (ws_warehouse_sk = ws_warehouse_sk))) build RFs:RF0 ws_order_number->[ws_order_number];RF1 ws_order_number->[ws_order_number]
 --------PhysicalProject
-----------PhysicalOlapScan[web_sales] apply RFs: RF0 RF1 RF14 RF15
+----------PhysicalOlapScan[web_sales(ws1)] apply RFs: RF0 RF1 RF14 RF15
 --------PhysicalProject
-----------PhysicalOlapScan[web_sales] apply RFs: RF14 RF15
+----------PhysicalOlapScan[web_sales(ws2)] apply RFs: RF14 RF15
 --PhysicalResultSink
 ----PhysicalLimit[GLOBAL]
 ------PhysicalLimit[LOCAL]
@@ -31,7 +31,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --------------------------------------PhysicalProject
 ----------------------------------------PhysicalOlapScan[web_returns] apply RFs: RF4 RF5
 ----------------------------------PhysicalProject
-------------------------------------PhysicalOlapScan[web_sales] apply RFs: RF8 RF9 RF10 RF11 RF12 RF13
+------------------------------------PhysicalOlapScan[web_sales(ws1)] apply RFs: RF8 RF9 RF10 RF11 RF12 RF13
 ------------------------------PhysicalProject
 --------------------------------filter((date_dim.d_date <= '1999-04-02') and (date_dim.d_date >= '1999-02-01'))
 ----------------------------------PhysicalOlapScan[date_dim]

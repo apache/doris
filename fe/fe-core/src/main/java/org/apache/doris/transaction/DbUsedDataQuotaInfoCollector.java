@@ -55,7 +55,7 @@ public class DbUsedDataQuotaInfoCollector extends MasterDaemon {
                 continue;
             }
             try {
-                long usedDataQuotaBytes = db.getUsedDataQuotaWithLock();
+                long usedDataQuotaBytes = db.getUsedDataQuota();
                 globalTransactionMgr.updateDatabaseUsedQuotaData(dbId, usedDataQuotaBytes);
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("Update database[{}] used data quota bytes : {}.", db.getFullName(), usedDataQuotaBytes);

@@ -56,6 +56,11 @@ public class QuantileUnion extends NotNullableAggregateFunction
         super("quantile_union", distinct, arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private QuantileUnion(AggregateFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public void checkLegalityBeforeTypeCoercion() {
         DataType inputType = getArgumentType(0);
@@ -71,7 +76,7 @@ public class QuantileUnion extends NotNullableAggregateFunction
     @Override
     public QuantileUnion withDistinctAndChildren(boolean distinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new QuantileUnion(distinct, children.get(0));
+        return new QuantileUnion(getFunctionParams(distinct, children));
     }
 
     @Override

@@ -23,6 +23,8 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.DateTimeType;
+import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.coercion.DateLikeType;
 import org.apache.doris.nereids.util.DateTimeFormatterUtils;
@@ -30,6 +32,7 @@ import org.apache.doris.nereids.util.DateUtils;
 
 import com.google.common.collect.ImmutableSet;
 
+import java.math.BigInteger;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.Year;
@@ -63,7 +66,7 @@ public class DateLiteral extends Literal implements ComparableLiteral {
         this(DateType.INSTANCE, s);
     }
 
-    protected DateLiteral(DateLikeType dataType, String s) throws AnalysisException {
+    public DateLiteral(DateLikeType dataType, String s) throws AnalysisException {
         super(dataType);
         init(s);
     }
@@ -273,7 +276,7 @@ public class DateLiteral extends Literal implements ComparableLiteral {
     }
 
     /** parseDateLiteral */
-    public static Result<DateLiteral, AnalysisException> parseDateLiteral(String s) {
+    public static Result<DateLiteral, AnalysisException> parseDateLiteral(String s, boolean isV2) {
         Result<TemporalAccessor, AnalysisException> parseResult = parseDateTime(s);
         if (parseResult.isError()) {
             return parseResult.cast();
@@ -286,7 +289,11 @@ public class DateLiteral extends Literal implements ComparableLiteral {
         if (checkDatetime(dateTime) || checkRange(year, month, day) || checkDate(year, month, day)) {
             return Result.err(() -> new AnalysisException("date/datetime literal [" + s + "] is out of range"));
         }
-        return Result.ok(new DateLiteral(year, month, day));
+        if (isV2) {
+            return Result.ok(new DateV2Literal(year, month, day));
+        } else {
+            return Result.ok(new DateLiteral(year, month, day));
+        }
     }
 
     /** parseDateTime */
@@ -454,6 +461,11 @@ public class DateLiteral extends Literal implements ComparableLiteral {
     }
 
     @Override
+    protected String castValueToString() {
+        return getStringValue();
+    }
+
+    @Override
     public int compareTo(ComparableLiteral other) {
         if (other instanceof DateLiteral) {
             int cmp = Long.compare(getValue(), ((DateLiteral) other).getValue());
@@ -589,6 +601,38 @@ public class DateLiteral extends Literal implements ComparableLiteral {
         } else {
             return toEndOfTheDay();
         }
+    }
+
+    @Override
+    protected Expression uncheckedCastTo(DataType targetType) throws AnalysisException {
+        if (this.dataType.equals(targetType)) {
+            return this;
+        }
+        int value = (int) (year * 10000 + month * 100 + day);
+        if (targetType.isIntegralType()) {
+            if (targetType.isIntegerType()) {
+                return new IntegerLiteral(value);
+            } else if (targetType.isBigIntType()) {
+                return new BigIntLiteral(value);
+            } else if (targetType.isLargeIntType()) {
+                return new LargeIntLiteral(new BigInteger(String.valueOf(value)));
+            } else {
+                throw new AnalysisException("Date can not cast to " + targetType);
+            }
+        } else if (targetType.isFloatType()) {
+            return new FloatLiteral(value);
+        } else if (targetType.isDoubleType()) {
+            return new DoubleLiteral(value);
+        } else if (targetType.isDateTimeV2Type()) {
+            return new DateTimeV2Literal((DateTimeV2Type) targetType, year, month, day, 0, 0, 0, 0);
+        } else if (targetType.isDateTimeType()) {
+            return new DateTimeLiteral((DateTimeType) targetType, year, month, day, 0, 0, 0, 0);
+        } else if (targetType.isDateV2Type()) {
+            return new DateV2Literal(year, month, day);
+        } else if (targetType.isDateType()) {
+            return new DateLiteral(year, month, day);
+        }
+        return super.uncheckedCastTo(targetType);
     }
 
     private static TemporalAccessor fastParseDate(String date) {

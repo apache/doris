@@ -33,7 +33,6 @@
 
 #include "common/be_mock_util.h"
 #include "common/status.h"
-#include "gutil/ref_counted.h"
 #include "http/rest_monitor_iface.h"
 #include "runtime/query_context.h"
 #include "runtime_filter/runtime_filter_mgr.h"
@@ -46,6 +45,7 @@ class IOBufAsZeroCopyInputStream;
 }
 
 namespace doris {
+#include "common/compile_check_begin.h"
 extern bvar::Adder<uint64_t> g_fragment_executing_count;
 extern bvar::Status<uint64_t> g_fragment_last_active_time;
 
@@ -55,7 +55,6 @@ class PipelineFragmentContext;
 class QueryContext;
 class ExecEnv;
 class ThreadPool;
-class TExecPlanFragmentParams;
 class PExecPlanFragmentStartRequest;
 class PMergeFilterRequest;
 class RuntimeProfile;
@@ -120,16 +119,12 @@ public:
     void stop();
 
     // execute one plan fragment
-    Status exec_plan_fragment(const TExecPlanFragmentParams& params, const QuerySource query_type);
 
     Status exec_plan_fragment(const TPipelineFragmentParams& params, const QuerySource query_type,
                               const TPipelineFragmentParamsList& parent);
 
     void remove_pipeline_context(std::pair<TUniqueId, int> key);
-
-    // TODO(zc): report this is over
-    Status exec_plan_fragment(const TExecPlanFragmentParams& params, const QuerySource query_type,
-                              const FinishCallback& cb);
+    void remove_query_context(const TUniqueId& key);
 
     Status exec_plan_fragment(const TPipelineFragmentParams& params, const QuerySource query_type,
                               const FinishCallback& cb, const TPipelineFragmentParamsList& parent);
@@ -171,7 +166,11 @@ public:
 
     ThreadPool* get_thread_pool() { return _thread_pool.get(); }
 
-    int32_t running_query_num() { return _query_ctx_map.num_items(); }
+    // When fragment mgr is going to stop, the _stop_background_threads_latch is set to 0
+    // and other module that use fragment mgr's thread pool should get this signal and exit.
+    bool shutting_down() { return _stop_background_threads_latch.count() == 0; }
+
+    int32_t running_query_num() { return cast_set<int32_t>(_query_ctx_map.num_items()); }
 
     std::string dump_pipeline_tasks(int64_t duration = 0);
     std::string dump_pipeline_tasks(TUniqueId& query_id);
@@ -180,6 +179,8 @@ public:
 
     Status get_realtime_exec_status(const TUniqueId& query_id,
                                     TReportExecStatusParams* exec_status);
+    // get the query statistics of with a given query id
+    Status get_query_statistics(const TUniqueId& query_id, TQueryStatistics* query_stats);
 
     std::shared_ptr<QueryContext> get_query_ctx(const TUniqueId& query_id);
 
@@ -188,9 +189,6 @@ private:
         TNetworkAddress network_address;
         std::vector<std::weak_ptr<QueryContext>> queries;
     };
-
-    template <typename Param>
-    void _set_scan_concurrency(const Param& params, QueryContext* query_ctx);
 
     Status _get_or_create_query_ctx(const TPipelineFragmentParams& params,
                                     const TPipelineFragmentParamsList& parent,
@@ -211,11 +209,10 @@ private:
 
     // query id -> QueryContext
     ConcurrentContextMap<TUniqueId, std::weak_ptr<QueryContext>, QueryContext> _query_ctx_map;
-    std::unordered_map<TUniqueId, std::unordered_map<int, int64_t>> _bf_size_map;
 
     CountDownLatch _stop_background_threads_latch;
-    scoped_refptr<Thread> _cancel_thread;
-    // every job is a pool
+    std::shared_ptr<Thread> _cancel_thread;
+    // This pool is used as global async task pool
     std::unique_ptr<ThreadPool> _thread_pool;
 
     std::shared_ptr<MetricEntity> _entity;
@@ -224,5 +221,5 @@ private:
 
 uint64_t get_fragment_executing_count();
 uint64_t get_fragment_last_active_time();
-
+#include "common/compile_check_end.h"
 } // namespace doris

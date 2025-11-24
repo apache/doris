@@ -96,7 +96,7 @@ public class FrontendsTableValuedFunction extends MetadataTableValuedFunction {
     }
 
     @Override
-    public TMetaScanRange getMetaScanRange() {
+    public TMetaScanRange getMetaScanRange(List<String> requiredFileds) {
         TMetaScanRange metaScanRange = new TMetaScanRange();
         metaScanRange.setMetadataType(TMetadataType.FRONTENDS);
         TFrontendsMetadataParams frontendsMetadataParams = new TFrontendsMetadataParams();

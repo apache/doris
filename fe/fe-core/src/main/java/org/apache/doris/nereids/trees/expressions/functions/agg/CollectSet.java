@@ -74,6 +74,11 @@ public class CollectSet extends NotNullableAggregateFunction
         this(arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private CollectSet(AggregateFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public FunctionSignature computeSignature(FunctionSignature signature) {
         signature = signature.withReturnType(ArrayType.of(getArgumentType(0)));
@@ -86,11 +91,7 @@ public class CollectSet extends NotNullableAggregateFunction
     @Override
     public CollectSet withDistinctAndChildren(boolean distinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1 || children.size() == 2);
-        if (children.size() == 1) {
-            return new CollectSet(distinct, children.get(0));
-        } else {
-            return new CollectSet(distinct, children.get(0), children.get(1));
-        }
+        return new CollectSet(getFunctionParams(distinct, children));
     }
 
     @Override

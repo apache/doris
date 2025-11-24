@@ -30,6 +30,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.processor.post.TopnFilterContext;
+import org.apache.doris.nereids.processor.post.runtimefilterv2.RuntimeFilterContextV2;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -37,13 +38,13 @@ import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEProducer;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.planner.CTEScanNode;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanFragmentId;
 import org.apache.doris.planner.PlanNode;
 import org.apache.doris.planner.PlanNodeId;
+import org.apache.doris.planner.RuntimeFilterId;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
@@ -54,7 +55,6 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
-import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -69,9 +69,10 @@ public class PlanTranslatorContext {
     private final ConnectContext connectContext;
     private final List<PlanFragment> planFragments = Lists.newArrayList();
 
-    private final DescriptorTable descTable = new DescriptorTable();
+    private DescriptorTable descTable;
 
     private final RuntimeFilterTranslator translator;
+
     private final TopnFilterContext topnFilterContext;
     /**
      * index from Nereids' slot to legacy slot.
@@ -98,11 +99,7 @@ public class PlanTranslatorContext {
 
     private final IdGenerator<PlanNodeId> nodeIdGenerator = PlanNodeId.createGenerator();
 
-    private final IdentityHashMap<PlanFragment, PhysicalHashAggregate> firstAggInFragment
-            = new IdentityHashMap<>();
-
     private final Map<ExprId, SlotRef> bufferedSlotRefForWindow = Maps.newHashMap();
-    private TupleDescriptor bufferedTupleForWindow = null;
 
     private final Map<CTEId, PlanFragment> cteProduceFragments = Maps.newHashMap();
 
@@ -115,18 +112,39 @@ public class PlanTranslatorContext {
     private final Map<RelationId, TPushAggOp> tablePushAggOp = Maps.newHashMap();
 
     private final Map<ScanNode, Set<SlotId>> statsUnknownColumnsMap = Maps.newHashMap();
+    private final RuntimeFilterContextV2 runtimeFilterV2Context;
+
+    private boolean isTopMaterializeNode = true;
+
+    private final Set<SlotId> virtualColumnIds = Sets.newHashSet();
 
     public PlanTranslatorContext(CascadesContext ctx) {
         this.connectContext = ctx.getConnectContext();
         this.translator = new RuntimeFilterTranslator(ctx.getRuntimeFilterContext());
         this.topnFilterContext = ctx.getTopnFilterContext();
+        this.runtimeFilterV2Context = ctx.getRuntimeFilterV2Context();
+        this.descTable = new DescriptorTable();
     }
 
+    public PlanTranslatorContext(CascadesContext ctx, DescriptorTable descTable) {
+        this.connectContext = ctx.getConnectContext();
+        this.translator = new RuntimeFilterTranslator(ctx.getRuntimeFilterContext());
+        this.topnFilterContext = ctx.getTopnFilterContext();
+        this.runtimeFilterV2Context = ctx.getRuntimeFilterV2Context();
+        this.descTable = descTable;
+    }
+
+    /**
+     * Constructor for testing purposes with default values.
+     */
     @VisibleForTesting
     public PlanTranslatorContext() {
         this.connectContext = null;
         this.translator = null;
         this.topnFilterContext = new TopnFilterContext();
+        IdGenerator<RuntimeFilterId> runtimeFilterIdGen = RuntimeFilterId.createGenerator();
+        this.runtimeFilterV2Context = new RuntimeFilterContextV2(runtimeFilterIdGen);
+        this.descTable = new DescriptorTable();
     }
 
     /**
@@ -263,20 +281,8 @@ public class PlanTranslatorContext {
         return scanNodes;
     }
 
-    public PhysicalHashAggregate getFirstAggregateInFragment(PlanFragment planFragment) {
-        return firstAggInFragment.get(planFragment);
-    }
-
-    public void setFirstAggregateInFragment(PlanFragment planFragment, PhysicalHashAggregate aggregate) {
-        firstAggInFragment.put(planFragment, aggregate);
-    }
-
     public Map<ExprId, SlotRef> getBufferedSlotRefForWindow() {
         return bufferedSlotRefForWindow;
-    }
-
-    public TupleDescriptor getBufferedTupleForWindow() {
-        return bufferedTupleForWindow;
     }
 
     /**
@@ -287,9 +293,12 @@ public class PlanTranslatorContext {
         SlotDescriptor slotDescriptor = this.addSlotDesc(tupleDesc);
         // Only the SlotDesc that in the tuple generated for scan node would have corresponding column.
         Optional<Column> column = slotReference.getOriginalColumn();
-        column.ifPresent(slotDescriptor::setColumn);
+        if (column.isPresent()) {
+            slotDescriptor.setColumn(column.get());
+        } else {
+            slotDescriptor.setCaptionAndNormalize(slotReference.toString());
+        }
         slotDescriptor.setType(slotReference.getDataType().toCatalogDataType());
-        slotDescriptor.setIsMaterialized(true);
         SlotRef slotRef;
         if (slotReference instanceof VirtualSlotReference) {
             slotRef = new VirtualSlotRef(slotDescriptor);
@@ -307,7 +316,6 @@ public class PlanTranslatorContext {
                             + "." + String.join(".", slotReference.getSubPath()));
             }
         }
-        slotRef.setTable(table);
         slotRef.setLabel(slotReference.getName());
         if (column.isPresent()) {
             slotDescriptor.setAutoInc(column.get().isAutoInc());
@@ -342,5 +350,21 @@ public class PlanTranslatorContext {
 
     public TPushAggOp getRelationPushAggOp(RelationId relationId) {
         return tablePushAggOp.getOrDefault(relationId, TPushAggOp.NONE);
+    }
+
+    public boolean isTopMaterializeNode() {
+        return isTopMaterializeNode;
+    }
+
+    public void setTopMaterializeNode(boolean topMaterializeNode) {
+        isTopMaterializeNode = topMaterializeNode;
+    }
+
+    public RuntimeFilterContextV2 getRuntimeFilterV2Context() {
+        return runtimeFilterV2Context;
+    }
+
+    public Set<SlotId> getVirtualColumnIds() {
+        return virtualColumnIds;
     }
 }

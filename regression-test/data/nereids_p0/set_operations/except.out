@@ -12,13 +12,13 @@
 
 -- !except_left_deep_shape --
 PhysicalResultSink
---PhysicalExcept
+--PhysicalExcept RFV2: RF0[a->a] RF1[a->a]
 ----filter((t1.__DORIS_DELETE_SIGN__ = 0))
 ------PhysicalOlapScan[t1]
 ----filter((t2.__DORIS_DELETE_SIGN__ = 0))
-------PhysicalOlapScan[t2]
+------PhysicalOlapScan[t2] RFV2: RF0
 ----filter((t3.__DORIS_DELETE_SIGN__ = 0))
-------PhysicalOlapScan[t3]
+------PhysicalOlapScan[t3] RFV2: RF1
 
 -- !except_right_deep --
 1	a
@@ -34,14 +34,14 @@ PhysicalResultSink
 
 -- !except_right_deep_shape --
 PhysicalResultSink
---PhysicalExcept
+--PhysicalExcept RFV2: RF0[a->a]
 ----filter((t1.__DORIS_DELETE_SIGN__ = 0))
 ------PhysicalOlapScan[t1]
-----PhysicalExcept
+----PhysicalExcept RFV2: RF1[a->a]
 ------filter((t2.__DORIS_DELETE_SIGN__ = 0))
 --------PhysicalOlapScan[t2]
 ------filter((t3.__DORIS_DELETE_SIGN__ = 0))
---------PhysicalOlapScan[t3]
+--------PhysicalOlapScan[t3] RFV2: RF0 RF1
 
 -- !except_left_deep_right_deep --
 1	a
@@ -56,16 +56,16 @@ PhysicalResultSink
 
 -- !except_left_deep_right_deep_shape --
 PhysicalResultSink
---PhysicalExcept
+--PhysicalExcept RFV2: RF0[a->a] RF1[a->a]
 ----filter((t1.__DORIS_DELETE_SIGN__ = 0))
 ------PhysicalOlapScan[t1]
 ----filter((t2.__DORIS_DELETE_SIGN__ = 0))
-------PhysicalOlapScan[t2]
-----PhysicalExcept
+------PhysicalOlapScan[t2] RFV2: RF0
+----PhysicalExcept RFV2: RF2[a->a]
 ------filter((t3.__DORIS_DELETE_SIGN__ = 0))
 --------PhysicalOlapScan[t3]
 ------filter((t2.__DORIS_DELETE_SIGN__ = 0))
---------PhysicalOlapScan[t2]
+--------PhysicalOlapScan[t2] RFV2: RF1 RF2
 
 -- !except_left_deep --
 1	a
@@ -82,7 +82,7 @@ PhysicalResultSink
 
 -- !except_left_deep_shape --
 PhysicalResultSink
---PhysicalExcept
+--PhysicalExcept RFV2: RF0[a->a]
 ----hashAgg[GLOBAL]
 ------hashAgg[LOCAL]
 --------PhysicalUnion
@@ -91,7 +91,7 @@ PhysicalResultSink
 ----------filter((t2.__DORIS_DELETE_SIGN__ = 0))
 ------------PhysicalOlapScan[t2]
 ----filter((t3.__DORIS_DELETE_SIGN__ = 0))
-------PhysicalOlapScan[t3]
+------PhysicalOlapScan[t3] RFV2: RF0
 
 -- !except_right_deep --
 1	a
@@ -106,7 +106,7 @@ PhysicalResultSink
 
 -- !except_right_deep_shape --
 PhysicalResultSink
---PhysicalExcept
+--PhysicalExcept RFV2: RF0[a->a]
 ----filter((t1.__DORIS_DELETE_SIGN__ = 0))
 ------PhysicalOlapScan[t1]
 ----hashAgg[GLOBAL]
@@ -115,7 +115,7 @@ PhysicalResultSink
 ----------filter((t2.__DORIS_DELETE_SIGN__ = 0))
 ------------PhysicalOlapScan[t2]
 ----------filter((t3.__DORIS_DELETE_SIGN__ = 0))
-------------PhysicalOlapScan[t3]
+------------PhysicalOlapScan[t3] RFV2: RF0
 
 -- !except_left_deep_right_deep --
 1	a
@@ -130,7 +130,7 @@ PhysicalResultSink
 
 -- !except_left_deep_right_deep_shape --
 PhysicalResultSink
---PhysicalExcept
+--PhysicalExcept RFV2: RF0[a->a]
 ----hashAgg[GLOBAL]
 ------hashAgg[LOCAL]
 --------PhysicalUnion
@@ -144,5 +144,5 @@ PhysicalResultSink
 ----------filter((t3.__DORIS_DELETE_SIGN__ = 0))
 ------------PhysicalOlapScan[t3]
 ----------filter((t2.__DORIS_DELETE_SIGN__ = 0))
-------------PhysicalOlapScan[t2]
+------------PhysicalOlapScan[t2] RFV2: RF0
 

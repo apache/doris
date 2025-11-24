@@ -30,7 +30,6 @@
 #include <vector>
 
 #include "common/status.h"
-#include "gutil/ref_counted.h"
 #include "util/countdown_latch.h"
 #include "util/hash_util.hpp"
 #include "vec/sink/varrow_flight_result_writer.h"
@@ -101,7 +100,7 @@ private:
     TimeoutMap _timeout_map;
 
     CountDownLatch _stop_background_threads_latch;
-    scoped_refptr<Thread> _clean_thread;
+    std::shared_ptr<Thread> _clean_thread;
 };
 
 } // namespace doris

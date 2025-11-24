@@ -18,6 +18,7 @@
 #include "IKTokenizer.h"
 
 namespace doris::segment_v2 {
+#include "common/compile_check_begin.h"
 
 IKTokenizer::IKTokenizer(std::shared_ptr<Configuration> config, bool lower_case, bool own_reader) {
     this->lowercase = lower_case;
@@ -32,14 +33,11 @@ Token* IKTokenizer::next(Token* token) {
     }
 
     std::string& token_text = tokens_text_[buffer_index_++];
+    // full-width to half-width, and lowercase
+    // TODO(ryan19929): do regularizeString in fillBuffer.
+    CharacterUtil::regularizeString(token_text, this->lowercase);
     size_t size = std::min(token_text.size(), static_cast<size_t>(LUCENE_MAX_WORD_LEN));
-    if (this->lowercase) {
-        if (!token_text.empty() && static_cast<uint8_t>(token_text[0]) < 0x80) {
-            std::transform(token_text.begin(), token_text.end(), token_text.begin(),
-                           [](char c) { return to_lower(c); });
-        }
-    }
-    token->setNoCopy(token_text.data(), 0, size);
+    token->setNoCopy(token_text.data(), 0, static_cast<int32_t>(size));
     return token;
 }
 
@@ -63,7 +61,8 @@ void IKTokenizer::reset(lucene::util::Reader* reader) {
         _CLTHROWT(CL_ERR_Runtime,
                   ("Uncaught exception in IKTokenizer: " + std::string(e.what())).c_str());
     }
-    data_length_ = tokens_text_.size();
+    data_length_ = static_cast<int32_t>(tokens_text_.size());
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2

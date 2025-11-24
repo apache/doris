@@ -20,9 +20,10 @@
 #include <gtest/gtest.h>
 
 #include "testutil/column_helper.h"
+#include "vec/columns/column.h"
+#include "vec/columns/column_const.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_nullable.h"
-#include "vec/data_types/data_type_number.h"
 
 namespace doris::vectorized {
 
@@ -30,11 +31,13 @@ TEST(ColumnWithTypeAndNameTest, get_nested_test) {
     ColumnWithTypeAndName column_with_type_and_name;
     auto null_column = ColumnNullable::create(ColumnHelper::create_column<DataTypeInt32>({1}),
                                               ColumnHelper::create_column<DataTypeUInt8>({true}));
-    column_with_type_and_name.column = ColumnConst::create(null_column, 3);
+    column_with_type_and_name.column = ColumnConst::create(std::move(null_column), 3);
     column_with_type_and_name.type =
             std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>());
     column_with_type_and_name.name = "column_with_type_and_name";
-    column_with_type_and_name.get_nested(true);
+    auto result = column_with_type_and_name.unnest_nullable(true);
+    EXPECT_TRUE(is_column_const(*result.column));
+    EXPECT_EQ(result.column->size(), 3);
 }
 
 } // namespace doris::vectorized

@@ -33,7 +33,6 @@
 #include "runtime/large_int_value.h"
 #include "testutil/test_util.h"
 #include "vec/columns/column.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/core/types.h"
 #include "vec/data_types/common_data_type_serder_test.h"
@@ -41,7 +40,6 @@
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_nullable.h"
-#include "vec/io/reader_buffer.h"
 
 namespace doris::vectorized {
 static std::string test_data_dir;
@@ -54,9 +52,6 @@ static DataTypeInt32 dt_int32;
 static DataTypeInt64 dt_int64;
 static DataTypeInt128 dt_int128;
 static DataTypeUInt8 dt_uint8;
-static DataTypeUInt16 dt_uint16;
-static DataTypeUInt32 dt_uint32;
-static DataTypeUInt64 dt_uint64;
 
 static ColumnFloat32::MutablePtr column_float32;
 static ColumnFloat64::MutablePtr column_float64;
@@ -66,9 +61,6 @@ static ColumnInt32::MutablePtr column_int32;
 static ColumnInt64::MutablePtr column_int64;
 static ColumnInt128::MutablePtr column_int128;
 static ColumnUInt8::MutablePtr column_uint8;
-static ColumnUInt16::MutablePtr column_uint16;
-static ColumnUInt32::MutablePtr column_uint32;
-static ColumnUInt64::MutablePtr column_uint64;
 
 class DataTypeNumberTest : public ::testing::Test {
 public:
@@ -87,9 +79,6 @@ public:
         column_int128 = ColumnInt128::create();
 
         column_uint8 = ColumnUInt8::create();
-        column_uint16 = ColumnUInt16::create();
-        column_uint32 = ColumnUInt32::create();
-        column_uint64 = ColumnUInt64::create();
 
         load_columns_data();
     }
@@ -114,9 +103,6 @@ public:
         test_func(column_int128->get_ptr(), dt_int128, "LARGEINT.csv");
 
         test_func(column_uint8->get_ptr(), dt_uint8, "TINYINT_UNSIGNED.csv");
-        test_func(column_uint16->get_ptr(), dt_uint16, "SMALLINT_UNSIGNED.csv");
-        test_func(column_uint32->get_ptr(), dt_uint32, "INT_UNSIGNED.csv");
-        test_func(column_uint64->get_ptr(), dt_uint64, "BIGINT_UNSIGNED.csv");
     }
     void SetUp() override { helper = std::make_unique<CommonDataTypeTest>(); }
     std::unique_ptr<CommonDataTypeTest> helper;
@@ -133,16 +119,12 @@ TEST_F(DataTypeNumberTest, MetaInfoTest) {
             .family_name = dt_int8.get_family_name(),
             .has_subtypes = false,
             .storage_field_type = doris::FieldType::OLAP_FIELD_TYPE_TINYINT,
-            .should_align_right_in_pretty_formats = true,
-            .text_can_contain_only_valid_utf8 = true,
             .have_maximum_size_of_value = true,
             .size_of_value_in_memory = sizeof(Int8),
             .precision = size_t(-1),
             .scale = size_t(-1),
             .is_null_literal = false,
-            .is_value_represented_by_number = true,
             .pColumnMeta = col_meta.get(),
-            .is_value_unambiguously_represented_in_contiguous_memory_region = true,
             .default_field = Field::create_field<TYPE_TINYINT>((Int8)0),
     };
     auto tmp_dt = DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_TINYINT, false);
@@ -378,15 +360,6 @@ TEST_F(DataTypeNumberTest, ser_deser) {
 
     test_func(DataTypeUInt8(), *column_uint8, USE_CONST_SERDE);
     test_func(DataTypeUInt8(), *column_uint8, AGGREGATION_2_1_VERSION);
-
-    test_func(DataTypeUInt16(), *column_uint16, USE_CONST_SERDE);
-    test_func(DataTypeUInt16(), *column_uint16, AGGREGATION_2_1_VERSION);
-
-    test_func(DataTypeUInt32(), *column_uint32, USE_CONST_SERDE);
-    test_func(DataTypeUInt32(), *column_uint32, AGGREGATION_2_1_VERSION);
-
-    test_func(DataTypeUInt64(), *column_uint64, USE_CONST_SERDE);
-    test_func(DataTypeUInt64(), *column_uint64, AGGREGATION_2_1_VERSION);
 }
 
 TEST_F(DataTypeNumberTest, to_string) {
@@ -408,7 +381,7 @@ TEST_F(DataTypeNumberTest, to_string) {
             ColumnType col_from_str;
             for (size_t i = 0; i != row_count; ++i) {
                 auto item = col_str_to_str.get_data_at(i);
-                ReadBuffer rb((char*)item.data, item.size);
+                StringRef rb((char*)item.data, item.size);
                 auto status = dt.from_string(rb, &col_from_str);
                 EXPECT_TRUE(status.ok());
                 EXPECT_EQ(col_from_str.get_element(i), source_column.get_element(i));
@@ -418,7 +391,7 @@ TEST_F(DataTypeNumberTest, to_string) {
             ColumnType col_from_str;
             for (size_t i = 0; i != row_count; ++i) {
                 auto str = dt.to_string(source_column, i);
-                ReadBuffer rb(str.data(), str.size());
+                StringRef rb(str.data(), str.size());
                 auto status = dt.from_string(rb, &col_from_str);
                 EXPECT_TRUE(status.ok());
                 EXPECT_EQ(col_from_str.get_element(i), source_column.get_element(i));
@@ -428,7 +401,7 @@ TEST_F(DataTypeNumberTest, to_string) {
             ColumnType col_from_str;
             for (size_t i = 0; i != row_count; ++i) {
                 auto str = dt.to_string(col_with_type->get_element(i));
-                ReadBuffer rb(str.data(), str.size());
+                StringRef rb(str.data(), str.size());
                 auto status = dt.from_string(rb, &col_from_str);
                 EXPECT_TRUE(status.ok());
                 EXPECT_EQ(col_from_str.get_element(i), source_column.get_element(i));
@@ -443,7 +416,7 @@ TEST_F(DataTypeNumberTest, to_string) {
             ColumnType col_from_str;
             for (size_t i = 0; i != row_count; ++i) {
                 auto item = col_str_to_str.get_data_at(i);
-                ReadBuffer rb((char*)item.data, item.size);
+                StringRef rb((char*)item.data, item.size);
                 auto status = dt.from_string(rb, &col_from_str);
                 EXPECT_TRUE(status.ok());
                 EXPECT_EQ(col_from_str.get_element(i), source_column.get_element(i));
@@ -457,23 +430,13 @@ TEST_F(DataTypeNumberTest, to_string) {
     test_func(dt_int128, *column_int128);
 
     test_func(dt_uint8, *column_uint8);
-    test_func(dt_uint16, *column_uint16);
-    test_func(dt_uint32, *column_uint32);
-    test_func(dt_uint64, *column_uint64);
 }
 TEST_F(DataTypeNumberTest, simple_func_test) {
     auto test_func = [](auto& dt) {
         using DataType = decltype(dt);
         using FieldType = typename std::remove_reference<DataType>::type::FieldType;
-        EXPECT_FALSE(dt.have_subtypes());
-        EXPECT_TRUE(dt.should_align_right_in_pretty_formats());
-        EXPECT_TRUE(dt.text_can_contain_only_valid_utf8());
-        EXPECT_TRUE(dt.is_comparable());
-        EXPECT_TRUE(dt.is_value_represented_by_number());
-        EXPECT_TRUE(dt.is_value_unambiguously_represented_in_contiguous_memory_region());
         EXPECT_TRUE(dt.have_maximum_size_of_value());
         EXPECT_EQ(dt.get_size_of_value_in_memory(), sizeof(FieldType));
-        EXPECT_TRUE(dt.can_be_inside_low_cardinality());
 
         EXPECT_FALSE(dt.is_null_literal());
         dt.set_null_literal(true);
@@ -492,8 +455,13 @@ TEST_F(DataTypeNumberTest, simple_func_test) {
     test_func(dt_int64);
     test_func(dt_int128);
     test_func(dt_uint8);
-    test_func(dt_uint16);
-    test_func(dt_uint32);
-    test_func(dt_uint64);
 }
+
+TEST_F(DataTypeNumberTest, GetFieldWithDataTypeTest) {
+    auto column_int8 = dt_int8.create_column();
+    column_int8->insert(Field::create_field<TYPE_TINYINT>(1));
+    EXPECT_EQ(dt_int8.get_field_with_data_type(*column_int8, 0).field,
+              Field::create_field<TYPE_TINYINT>(1));
+}
+
 } // namespace doris::vectorized

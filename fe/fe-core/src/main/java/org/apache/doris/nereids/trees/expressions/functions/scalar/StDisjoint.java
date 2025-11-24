@@ -51,13 +51,18 @@ public class StDisjoint extends ScalarFunction
         super("st_disjoint", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private StDisjoint(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public StDisjoint withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new StDisjoint(children.get(0), children.get(1));
+        return new StDisjoint(getFunctionParams(children));
     }
 
     @Override

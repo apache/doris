@@ -31,6 +31,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -71,9 +72,11 @@ public class PushDownAggThroughJoin implements RewriteRuleFactory {
     @Override
     public List<Rule> buildRules() {
         return ImmutableList.of(
-                logicalAggregate(innerLogicalJoin())
-                        .when(agg -> agg.child().getOtherJoinConjuncts().isEmpty())
-                        .whenNot(agg -> agg.child().children().stream().anyMatch(p -> p instanceof LogicalAggregate))
+                logicalAggregate(
+                        innerLogicalJoin()
+                        .when(join -> join.getOtherJoinConjuncts().isEmpty())
+                        .whenNot(join -> join.children().stream().anyMatch(p -> p instanceof LogicalAggregate))
+                )
                         .when(agg -> agg.getGroupByExpressions().stream().allMatch(e -> e instanceof Slot))
                         .when(agg -> {
                             Set<AggregateFunction> funcs = agg.getAggregateFunctions();
@@ -89,11 +92,16 @@ public class PushDownAggThroughJoin implements RewriteRuleFactory {
                             return pushAgg(agg, agg.child(), ImmutableList.of());
                         })
                         .toRule(RuleType.PUSH_DOWN_AGG_THROUGH_JOIN),
-                logicalAggregate(logicalProject(innerLogicalJoin()))
-                        .when(agg -> agg.child().isAllSlots())
-                        .when(agg -> agg.child().child().getOtherJoinConjuncts().isEmpty())
-                        .whenNot(agg -> agg.child().children().stream().anyMatch(p -> p instanceof LogicalAggregate))
-                        .when(agg -> agg.getGroupByExpressions().stream().allMatch(e -> e instanceof Slot))
+                logicalAggregate(
+                        logicalProject(
+                                innerLogicalJoin()
+                                        .when(join -> join.getOtherJoinConjuncts().isEmpty())
+                                        .whenNot(join -> join.children().stream()
+                                                .anyMatch(p -> p instanceof LogicalAggregate))
+                        ).when(LogicalProject::isAllSlots)
+                )
+                        .when(agg -> agg.getGroupByExpressions().stream()
+                                .allMatch(e -> e instanceof Slot))
                         .when(agg -> {
                             Set<AggregateFunction> funcs = agg.getAggregateFunctions();
                             return !funcs.isEmpty() && funcs.stream()
@@ -203,19 +211,23 @@ public class PushDownAggThroughJoin implements RewriteRuleFactory {
                 AggregateFunction func = (AggregateFunction) ((Alias) ne).child();
                 if (func instanceof Count && ((Count) func).isCountStar()) {
                     Preconditions.checkState(rightCnt != null && leftCnt != null);
-                    Expression expr = new Sum(new Multiply(leftCnt.toSlot(), rightCnt.toSlot()));
+                    Expression multiply = TypeCoercionUtils.processBinaryArithmetic(
+                            new Multiply(leftCnt.toSlot(), rightCnt.toSlot()));
+                    Expression expr = new Sum(multiply);
                     newOutputExprs.add((NamedExpression) ne.withChildren(expr));
                 } else {
                     Slot slot = (Slot) func.child(0);
                     if (leftSlotToOutput.containsKey(slot)) {
                         Preconditions.checkState(rightCnt != null);
-                        Expression expr = new Sum(
+                        Expression multiply = TypeCoercionUtils.processBinaryArithmetic(
                                 new Multiply(leftSlotToOutput.get(slot).toSlot(), rightCnt.toSlot()));
+                        Expression expr = new Sum(multiply);
                         newOutputExprs.add((NamedExpression) ne.withChildren(expr));
                     } else if (rightSlotToOutput.containsKey(slot)) {
                         Preconditions.checkState(leftCnt != null);
-                        Expression expr = new Sum(
+                        Expression multiply = TypeCoercionUtils.processBinaryArithmetic(
                                 new Multiply(rightSlotToOutput.get(slot).toSlot(), leftCnt.toSlot()));
+                        Expression expr = new Sum(multiply);
                         newOutputExprs.add((NamedExpression) ne.withChildren(expr));
                     } else {
                         throw new IllegalStateException("Slot " + slot + " not found in join output");

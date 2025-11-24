@@ -96,7 +96,7 @@ Status VRowDistribution::automatic_create_partition() {
     SCOPED_TIMER(_add_partition_request_timer);
     TCreatePartitionRequest request;
     TCreatePartitionResult result;
-    string be_endpoint = BackendOptions::get_be_endpoint();
+    std::string be_endpoint = BackendOptions::get_be_endpoint();
     request.__set_txn_id(_txn_id);
     request.__set_db_id(_vpartition->db_id());
     request.__set_table_id(_vpartition->table_id());
@@ -176,7 +176,7 @@ Status VRowDistribution::_replace_overwriting_partition() {
 
     request.__set_partition_ids(request_part_ids);
 
-    string be_endpoint = BackendOptions::get_be_endpoint();
+    std::string be_endpoint = BackendOptions::get_be_endpoint();
     request.__set_be_endpoint(be_endpoint);
 
     VLOG_NOTICE << "auto detect replace partition request: " << request;
@@ -209,7 +209,7 @@ Status VRowDistribution::_replace_overwriting_partition() {
 
 void VRowDistribution::_get_tablet_ids(vectorized::Block* block, int32_t index_idx,
                                        std::vector<int64_t>& tablet_ids) {
-    tablet_ids.reserve(block->rows());
+    tablet_ids.resize(block->rows());
     for (int row_idx = 0; row_idx < block->rows(); row_idx++) {
         if (_skip[row_idx]) {
             continue;
@@ -479,13 +479,14 @@ void VRowDistribution::_reset_row_part_tablet_ids(
 
 Status VRowDistribution::generate_rows_distribution(
         vectorized::Block& input_block, std::shared_ptr<vectorized::Block>& block,
-        int64_t& filtered_rows, bool& has_filtered_rows,
-        std::vector<RowPartTabletIds>& row_part_tablet_ids, int64_t& rows_stat_val) {
+        int64_t& filtered_rows, std::vector<RowPartTabletIds>& row_part_tablet_ids,
+        int64_t& rows_stat_val) {
     auto input_rows = input_block.rows();
     _reset_row_part_tablet_ids(row_part_tablet_ids, input_rows);
 
     int64_t prev_filtered_rows =
             _block_convertor->num_filtered_rows() + _tablet_finder->num_filtered_rows();
+    bool has_filtered_rows = false;
     RETURN_IF_ERROR(_block_convertor->validate_and_convert_block(
             _state, &input_block, block, *_vec_output_expr_ctxs, input_rows, has_filtered_rows));
 

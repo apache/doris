@@ -31,7 +31,6 @@
 #include "vec/columns/column_complex.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
@@ -105,7 +104,7 @@ namespace doris::vectorized {
                     res_nulls_data[row] = null_map_data[row];                                     \
                 }                                                                                 \
                 for (int i = 1; i < nullable_cols_count; ++i) {                                   \
-                    const auto* null_map_data = null_map_datas[i];                                \
+                    null_map_data = null_map_datas[i];                                            \
                     for (size_t row = 0; row < input_rows_count; ++row) {                         \
                         res_nulls_data[row] &= null_map_data[row];                                \
                     }                                                                             \
@@ -120,7 +119,7 @@ namespace doris::vectorized {
         static constexpr auto name = #FUNCTION_NAME;                                              \
         using ResultDataType = DataTypeInt64;                                                     \
         using TData = std::vector<BitmapValue>;                                                   \
-        using ResTData = typename ColumnVector<Int64>::Container;                                 \
+        using ResTData = typename ColumnInt64::Container;                                         \
         static Status vector_vector(ColumnPtr argument_columns[], size_t col_size,                \
                                     size_t input_rows_count, ResTData& res, IColumn* res_nulls) { \
             TData vals;                                                                           \
@@ -227,11 +226,10 @@ public:
                     block.get_by_position(arguments[i]).column->convert_to_full_column_if_const();
         }
 
-        using ResultDataType = typename Impl::ResultDataType;  //DataTypeBitMap or DataTypeInt64
-        using ResultType = typename ResultDataType::FieldType; //BitmapValue or Int64
-        using ColVecResult =
-                std::conditional_t<is_complex_v<ResultType>, ColumnComplexType<ResultType>,
-                                   ColumnVector<ResultType>>;
+        using ResultDataType = typename Impl::ResultDataType; //DataTypeBitMap or DataTypeInt64
+        using ColVecResult = std::conditional_t<is_complex_v<ResultDataType::PType>,
+                                                ColumnComplexType<ResultDataType::PType>,
+                                                ColumnVector<ResultDataType::PType>>;
         typename ColVecResult::MutablePtr col_res = nullptr;
 
         typename ColumnUInt8::MutablePtr col_res_nulls;

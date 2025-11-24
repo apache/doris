@@ -26,7 +26,7 @@ suite("test_cast_string_to_array", "nonConcurrent") {
     qt_sql """ select cast ("[1.34,2.001]" as array<double>) """
 
     // cast string to array<decimal>
-    qt_sql """ select cast ("[1.34,2.001]" as array<decimal(10, 3)>) """
+    qt_sql """ select cast ("[1.34,2.001]" as array<decimalv3(10, 3)>) """
 
     // cast string to array<date>
     qt_sql """ select cast ("[2022-09-01]" as array<date>) """
@@ -40,7 +40,7 @@ suite("test_cast_string_to_array", "nonConcurrent") {
     // cast empty value
     qt_sql """ select cast ("[1,2,3,,,]" as array<int>) """
     qt_sql """ select cast ("[a,b,c,,,]" as array<string>) """
-    qt_sql """ select cast ("[1.34,2.01,,,]" as array<decimal(10, 3)>) """
+    qt_sql """ select cast ("[1.34,2.01,,,]" as array<decimalv3(10, 3)>) """
 
     sql """ ADMIN SET FRONTEND CONFIG ("enable_date_conversion" = "false"); """
     qt_sql """ select cast ("[2022-09-01,,]" as array<date>) """

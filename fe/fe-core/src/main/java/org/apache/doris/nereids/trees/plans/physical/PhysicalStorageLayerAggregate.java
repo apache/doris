@@ -29,6 +29,7 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.statistics.Statistics;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 
 import java.util.List;
@@ -44,7 +45,7 @@ public class PhysicalStorageLayerAggregate extends PhysicalCatalogRelation {
 
     public PhysicalStorageLayerAggregate(PhysicalCatalogRelation relation, PushDownAggOp aggOp) {
         super(relation.getRelationId(), relation.getType(), relation.getTable(), relation.getQualifier(),
-                Optional.empty(), relation.getLogicalProperties());
+                Optional.empty(), relation.getLogicalProperties(), ImmutableList.of());
         this.relation = Objects.requireNonNull(relation, "relation cannot be null");
         this.aggOp = Objects.requireNonNull(aggOp, "aggOp cannot be null");
     }
@@ -53,7 +54,7 @@ public class PhysicalStorageLayerAggregate extends PhysicalCatalogRelation {
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
             PhysicalProperties physicalProperties, Statistics statistics) {
         super(relation.getRelationId(), relation.getType(), relation.getTable(), relation.getQualifier(),
-                groupExpression, logicalProperties, physicalProperties, statistics);
+                groupExpression, logicalProperties, physicalProperties, statistics, ImmutableList.of());
         this.relation = Objects.requireNonNull(relation, "relation cannot be null");
         this.aggOp = Objects.requireNonNull(aggOp, "aggOp cannot be null");
     }

@@ -49,6 +49,8 @@ DB_ADMIN_USER=${USER:-"root"}
 DB_ADMIN_PASSWD=$PASSWD
 # myself as IP or FQDN
 MYSELF=
+# doris mtat storage path
+DORIS_META_DIR=
 
 function log_stderr()
 {
@@ -110,6 +112,13 @@ collect_env_info()
     if [[ "x$query_port" != "x" ]] ; then
         QUERY_PORT=$query_port
     fi
+
+    # parse meta_dir
+    local doris_meta_path=`parse_confval_from_fe_conf "meta_dir"`
+    if [[ "x$doris_meta_path" == "x" ]] ; then
+        doris_meta_path="/opt/apache-doris/fe/doris-meta"
+    fi
+    DORIS_META_DIR=$doris_meta_path
 }
 
 # get all registered fe in cluster.
@@ -285,6 +294,7 @@ probe_master()
 
 function add_fqdn_config()
 {
+    echo "" >>${DORIS_HOME}/conf/fe.conf
     # TODO(user):since selectdb/doris.fe-ubuntu:2.0.2 , `enable_fqdn_mode` is forced to set `true` for starting doris. (enable_fqdn_mode = true).
     local enable_fqdn=`parse_confval_from_fe_conf "enable_fqdn_mode"`
     log_stderr "enable_fqdn is : $enable_fqdn"
@@ -395,8 +405,8 @@ start_fe_with_meta()
 # print the least 10 records of 'VLSN'. When fe failed to restart, user can select the fe of VLSN is the bigest to force restart.
 print_vlsn()
 {
-    local doirs_meta_path=`parse_confval_from_fe_conf "meta_dir"`
-    if [[ "x$doirs_meta_path" == "x" ]] ; then
+    local doris_meta_path=`parse_confval_from_fe_conf "meta_dir"`
+    if [[ "x$doris_meta_path" == "x" ]] ; then
         doris_meta_path="/opt/apache-doris/fe/doris-meta"
     fi
 
@@ -437,18 +447,21 @@ if [[ "x$fe_addrs" == "x" ]]; then
     exit
 fi
 
+#first upate config
 update_conf_from_configmap
+collect_env_info
 mount_kerberos_config
 # resolve password for root to manage nodes in doris.
 resolve_password_from_secret
-if [[ -f "/opt/apache-doris/fe/doris-meta/image/ROLE" ]]; then
+# if [[ -f "/opt/apache-doris/fe/doris-meta/image/ROLE" ]]; then
+doris_meta_dir=$(eval "echo \"$DORIS_META_DIR\"")
+if [[ -f "$doris_meta_dir/image/ROLE" ]]; then
     log_stderr "start fe with exist meta."
     ./doris-debug --component fe
     print_vlsn
     start_fe_with_meta
 else
     log_stderr "first start fe with meta not exist."
-    collect_env_info
     probe_master $fe_addrs
     #create account about node management
     create_account

@@ -18,6 +18,9 @@
 package org.apache.doris.fs;
 
 import org.apache.doris.backup.Status;
+import org.apache.doris.fs.io.DorisInputFile;
+import org.apache.doris.fs.io.DorisOutputFile;
+import org.apache.doris.fs.io.ParsedPath;
 import org.apache.doris.fs.remote.RemoteFile;
 
 import java.util.List;
@@ -60,6 +63,16 @@ public interface FileSystem {
         throw new UnsupportedOperationException("Unsupported operation rename dir on current file system.");
     }
 
+    default Status deleteAll(List<String> remotePaths) {
+        for (String remotePath : remotePaths) {
+            Status deleteStatus = delete(remotePath);
+            if (!deleteStatus.ok()) {
+                return deleteStatus;
+            }
+        }
+        return Status.OK;
+    }
+
     Status delete(String remotePath);
 
     default Status deleteDirectory(String dir) {
@@ -68,6 +81,17 @@ public interface FileSystem {
 
     Status makeDir(String remotePath);
 
+    /*
+     * List files in remotePath
+     * @param remotePath remote path
+     * @param recursive whether to list files recursively
+     * <pre>
+     * If the path is a directory,
+     *   if recursive is false, returns files in the directory;
+     *   if recursive is true, return files in the subtree rooted at the path.
+     * If the path is a file, return the file's status and block locations.
+     * </pre>
+     * */
     Status listFiles(String remotePath, boolean recursive, List<RemoteFile> result);
 
     /**
@@ -91,7 +115,33 @@ public interface FileSystem {
      */
     Status globList(String remotePath, List<RemoteFile> result, boolean fileNameOnly);
 
+    /**
+     * List files in remotePath <br/>
+     * @param remotePath remote path
+     * @param result All eligible files under the path
+     * @param startFile start file name
+     * @param fileSizeLimit limit the total size of files to be listed.
+     * @param fileNumLimit limit the total number of files to be listed.
+     * @return
+     */
+    default GlobListResult globListWithLimit(String remotePath, List<RemoteFile> result,
+            String startFile, long fileSizeLimit, long fileNumLimit) {
+        throw new UnsupportedOperationException("Unsupported operation glob list with limit on current file system.");
+    }
+
     default Status listDirectories(String remotePath, Set<String> result) {
         throw new UnsupportedOperationException("Unsupported operation list directories on current file system.");
+    }
+
+    default DorisOutputFile newOutputFile(ParsedPath path) {
+        throw new UnsupportedOperationException("Unsupported operation new output file on current file system.");
+    }
+
+    default DorisInputFile newInputFile(ParsedPath path) {
+        return newInputFile(path, -1);
+    }
+
+    default DorisInputFile newInputFile(ParsedPath path, long length) {
+        throw new UnsupportedOperationException("Unsupported operation new input file on current file system.");
     }
 }

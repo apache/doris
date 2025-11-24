@@ -23,21 +23,19 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.TimeUtils;
-import org.apache.doris.datasource.property.constants.S3Properties;
+import org.apache.doris.datasource.property.storage.BrokerProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
-import org.apache.doris.fsv2.FileSystemFactory;
-import org.apache.doris.fsv2.PersistentFileSystem;
-import org.apache.doris.fsv2.remote.BrokerFileSystem;
-import org.apache.doris.fsv2.remote.RemoteFile;
-import org.apache.doris.fsv2.remote.RemoteFileSystem;
-import org.apache.doris.fsv2.remote.S3FileSystem;
+import org.apache.doris.fs.FileSystemFactory;
+import org.apache.doris.fs.PersistentFileSystem;
+import org.apache.doris.fs.remote.BrokerFileSystem;
+import org.apache.doris.fs.remote.RemoteFile;
+import org.apache.doris.fs.remote.RemoteFileSystem;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.system.Backend;
@@ -48,6 +46,7 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.codec.digest.DigestUtils;
+import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.json.simple.JSONObject;
@@ -67,7 +66,6 @@ import java.nio.file.Paths;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.UUID;
 
 /*
@@ -132,28 +130,22 @@ public class Repository implements Writable, GsonPostProcessable {
     private String location;
 
     @SerializedName("fs")
-    private org.apache.doris.fs.PersistentFileSystem oldfs;
-
-    // Temporary field: currently still using the legacy fs config (oldfs).
-    // This field can be removed once the new fs configuration is fully enabled.
     private PersistentFileSystem fileSystem;
 
-    public org.apache.doris.fs.PersistentFileSystem getOldfs() {
-        return oldfs;
+    public PersistentFileSystem getFileSystem() {
+        return fileSystem;
     }
 
     private Repository() {
         // for persist
     }
 
-    public Repository(long id, String name, boolean isReadOnly, String location, RemoteFileSystem fileSystem,
-                      org.apache.doris.fs.PersistentFileSystem oldFs) {
+    public Repository(long id, String name, boolean isReadOnly, String location, RemoteFileSystem fileSystem) {
         this.id = id;
         this.name = name;
         this.isReadOnly = isReadOnly;
         this.location = location;
         this.fileSystem = fileSystem;
-        this.oldfs = oldFs;
         this.createTime = System.currentTimeMillis();
     }
 
@@ -204,61 +196,24 @@ public class Repository implements Writable, GsonPostProcessable {
     }
 
     public static Repository read(DataInput in) throws IOException {
-        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_137) {
-            Repository repo = new Repository();
-            repo.readFields(in);
-            return repo;
-        } else {
-            return GsonUtils.GSON.fromJson(Text.readString(in), Repository.class);
-        }
-    }
-
-    //todo why only support alter S3 properties
-    public Status alterRepositoryS3Properties(Map<String, String> properties) {
-        if (this.fileSystem instanceof S3FileSystem) {
-            Map<String, String> oldProperties = new HashMap<>(this.getRemoteFileSystem().getProperties());
-            oldProperties.remove(S3Properties.ACCESS_KEY);
-            oldProperties.remove(S3Properties.SECRET_KEY);
-            oldProperties.remove(S3Properties.SESSION_TOKEN);
-            oldProperties.remove(S3Properties.Env.ACCESS_KEY);
-            oldProperties.remove(S3Properties.Env.SECRET_KEY);
-            oldProperties.remove(S3Properties.Env.TOKEN);
-            for (Map.Entry<String, String> entry : properties.entrySet()) {
-                if (Objects.equals(entry.getKey(), S3Properties.ACCESS_KEY)
-                        || Objects.equals(entry.getKey(), S3Properties.Env.ACCESS_KEY)) {
-                    oldProperties.putIfAbsent(S3Properties.ACCESS_KEY, entry.getValue());
-                }
-                if (Objects.equals(entry.getKey(), S3Properties.SECRET_KEY)
-                        || Objects.equals(entry.getKey(), S3Properties.Env.SECRET_KEY)) {
-                    oldProperties.putIfAbsent(S3Properties.SECRET_KEY, entry.getValue());
-                }
-                if (Objects.equals(entry.getKey(), S3Properties.SESSION_TOKEN)
-                        || Objects.equals(entry.getKey(), S3Properties.Env.TOKEN)) {
-                    oldProperties.putIfAbsent(S3Properties.SESSION_TOKEN, entry.getValue());
-                }
-            }
-            properties.clear();
-            properties.putAll(oldProperties);
-            return Status.OK;
-        } else {
-            return new Status(ErrCode.COMMON_ERROR, "Only support alter s3 repository");
-        }
+        return GsonUtils.GSON.fromJson(Text.readString(in), Repository.class);
     }
 
     @Override
     public void gsonPostProcess() {
-        StorageBackend.StorageType type = StorageBackend.StorageType.BROKER;
-        if (this.oldfs.properties.containsKey(org.apache.doris.fs.PersistentFileSystem.STORAGE_TYPE)) {
-            type = StorageBackend.StorageType.valueOf(
-                    this.oldfs.properties.get(org.apache.doris.fs.PersistentFileSystem.STORAGE_TYPE));
-            this.oldfs.properties.remove(org.apache.doris.fs.PersistentFileSystem.STORAGE_TYPE);
-        }
-        this.oldfs = org.apache.doris.fs.FileSystemFactory.get(this.oldfs.getName(),
-                type,
-                this.oldfs.getProperties());
-        if (!type.equals(StorageBackend.StorageType.BROKER)) {
-            StorageProperties storageProperties = StorageProperties.createPrimary(this.oldfs.properties);
+        try {
+            StorageProperties storageProperties = StorageProperties.createPrimary(this.fileSystem.properties);
             this.fileSystem = FileSystemFactory.get(storageProperties);
+        } catch (RuntimeException exception) {
+            LOG.warn("File system initialization failed due to incompatible configuration parameters. "
+                            + "The system has reverted to BrokerFileSystem as a fallback. "
+                            + "However, the current configuration is not supported by this version and"
+                            + " cannot be used as is. "
+                            + "Please review the configuration and update it to match the supported parameter"
+                            + " format. Root cause: {}",
+                    ExceptionUtils.getRootCause(exception), exception);
+            BrokerProperties brokerProperties = BrokerProperties.of(this.fileSystem.name, this.fileSystem.properties);
+            this.fileSystem = FileSystemFactory.get(brokerProperties);
         }
     }
 
@@ -859,21 +814,5 @@ public class Repository implements Writable, GsonPostProcessable {
     @Override
     public void write(DataOutput out) throws IOException {
         Text.writeString(out, GsonUtils.GSON.toJson(this));
-    }
-
-    @Deprecated
-    public void readFields(DataInput in) throws IOException {
-        id = in.readLong();
-        name = Text.readString(in);
-        isReadOnly = in.readBoolean();
-        location = Text.readString(in);
-        oldfs = org.apache.doris.fs.PersistentFileSystem.read(in);
-        try {
-            fileSystem = FileSystemFactory.get(oldfs.getStorageType(), oldfs.getProperties());
-        } catch (UserException e) {
-            // do we ignore this exception?
-            throw new IOException("Failed to create file system: " + e.getMessage());
-        }
-        createTime = in.readLong();
     }
 }

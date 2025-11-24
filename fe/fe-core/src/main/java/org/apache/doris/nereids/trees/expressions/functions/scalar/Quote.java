@@ -48,13 +48,18 @@ public class Quote extends ScalarFunction
         super("quote", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Quote(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public Quote withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Quote(children.get(0));
+        return new Quote(getFunctionParams(children));
     }
 
     @Override

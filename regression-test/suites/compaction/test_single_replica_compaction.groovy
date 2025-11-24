@@ -114,7 +114,7 @@ suite("test_single_compaction_p2", "p2") {
 
         String command = sb.toString()
         logger.info(command)
-        process = command.execute()
+        def process = command.execute()
         code = process.waitFor()
         out = process.getText()
         logger.info("Get compaction status: code=" + code + ", out=" + out)
@@ -137,7 +137,8 @@ suite("test_single_compaction_p2", "p2") {
         PROPERTIES (
             "replication_num" = "2",
             "enable_single_replica_compaction" = "true",
-            "enable_unique_key_merge_on_write" = "false"
+            "enable_unique_key_merge_on_write" = "false",
+            "disable_auto_compaction" = "true"
         );
     """
 

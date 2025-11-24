@@ -36,6 +36,7 @@ enum class ObjStorageType : uint8_t {
     OSS,
     OBS,
     GCP,
+    TOS,
 };
 
 struct ObjectStoragePathOptions {

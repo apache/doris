@@ -33,13 +33,15 @@
 #include <thread>
 
 #include "common/config.h"
+#include "common/defer.h"
 #include "common/logging.h"
+#include "common/stats.h"
 #include "cpp/sync_point.h"
-#include "meta-service/keys.h"
-#include "meta-service/mem_txn_kv.h"
 #include "meta-service/meta_service.h"
-#include "meta-service/txn_kv.h"
-#include "meta-service/txn_kv_error.h"
+#include "meta-store/keys.h"
+#include "meta-store/mem_txn_kv.h"
+#include "meta-store/txn_kv.h"
+#include "meta-store/txn_kv_error.h"
 #include "mock_resource_manager.h"
 #include "rate-limiter/rate_limiter.h"
 #include "resource-manager/resource_manager.h"
@@ -62,7 +64,8 @@ int main(int argc, char** argv) {
 }
 
 namespace doris::cloud {
-void notify_refresh_instance(std::shared_ptr<TxnKv> txn_kv, const std::string& instance_id);
+void notify_refresh_instance(std::shared_ptr<TxnKv> txn_kv, const std::string& instance_id,
+                             KVStats* stats, bool include_self);
 } // namespace doris::cloud
 
 TEST(MetaServerTest, FQDNRefreshInstance) {
@@ -70,8 +73,9 @@ TEST(MetaServerTest, FQDNRefreshInstance) {
     public:
         MockMetaService(std::shared_ptr<TxnKv> txn_kv,
                         std::shared_ptr<ResourceManager> resource_mgr,
-                        std::shared_ptr<RateLimiter> rate_controller)
-                : MetaServiceImpl(txn_kv, resource_mgr, rate_controller) {}
+                        std::shared_ptr<RateLimiter> rate_controller,
+                        std::shared_ptr<SnapshotManager> snapshot_mgr)
+                : MetaServiceImpl(txn_kv, resource_mgr, rate_controller, snapshot_mgr) {}
         ~MockMetaService() override = default;
 
         void alter_instance(google::protobuf::RpcController* controller,
@@ -101,7 +105,9 @@ TEST(MetaServerTest, FQDNRefreshInstance) {
     std::shared_ptr<cloud::TxnKv> txn_kv = std::make_shared<cloud::MemTxnKv>();
     auto resource_mgr = std::make_shared<MockResourceManager>(txn_kv);
     auto rate_limiter = std::make_shared<cloud::RateLimiter>();
-    auto mock_service = std::make_unique<MockMetaService>(txn_kv, resource_mgr, rate_limiter);
+    auto snapshot_mgr = std::make_shared<cloud::SnapshotManager>(txn_kv);
+    auto mock_service =
+            std::make_unique<MockMetaService>(txn_kv, resource_mgr, rate_limiter, snapshot_mgr);
     MockMetaService* mock_service_ptr = mock_service.get();
     MetaServiceProxy meta_service(std::move(mock_service));
 
@@ -136,7 +142,7 @@ TEST(MetaServerTest, FQDNRefreshInstance) {
 
     // Refresh instance with FQDN endpoint.
     config::hostname = "";
-    notify_refresh_instance(txn_kv, "fqdn_instance_id");
+    notify_refresh_instance(txn_kv, "fqdn_instance_id", nullptr, false);
 
     bool refreshed = false;
     for (size_t i = 0; i < 100; ++i) {
@@ -144,13 +150,239 @@ TEST(MetaServerTest, FQDNRefreshInstance) {
             refreshed = true;
             break;
         }
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
 
     EXPECT_TRUE(refreshed);
 
     server.Stop(1);
     server.Join();
+}
+
+TEST(MetaServerTest, InstanceWatcherStartAndStop) {
+    class MockResourceManagerWithTracking : public MockResourceManager {
+    public:
+        MockResourceManagerWithTracking(std::shared_ptr<TxnKv> txn_kv)
+                : MockResourceManager(txn_kv) {}
+
+        std::pair<MetaServiceCode, std::string> refresh_instance(
+                const std::string& instance_id) override {
+            std::unique_lock<std::mutex> lock(mu_);
+            refreshed_instances_.insert(instance_id);
+            refresh_count_++;
+            cv_.notify_all();
+            return std::make_pair(MetaServiceCode::OK, "");
+        }
+
+        bool wait_for_refresh(const std::string& instance_id, int timeout_ms = 5000) {
+            std::unique_lock<std::mutex> lock(mu_);
+            return cv_.wait_for(lock, std::chrono::milliseconds(timeout_ms), [this, &instance_id] {
+                return refreshed_instances_.count(instance_id) > 0;
+            });
+        }
+
+        int get_refresh_count() {
+            std::unique_lock<std::mutex> lock(mu_);
+            return refresh_count_;
+        }
+
+        std::mutex mu_;
+        std::condition_variable cv_;
+        std::unordered_set<std::string> refreshed_instances_;
+        int refresh_count_ = 0;
+    };
+
+    std::shared_ptr<cloud::TxnKv> txn_kv = std::make_shared<cloud::MemTxnKv>();
+    auto resource_mgr = std::make_shared<MockResourceManagerWithTracking>(txn_kv);
+
+    // Test basic start and stop
+    {
+        auto watcher = std::make_unique<cloud::MetaServerInstanceWatcher>(txn_kv, resource_mgr);
+        ASSERT_EQ(watcher->start(), 0);
+        // Try to start again should fail
+        ASSERT_EQ(watcher->start(), -2);
+        watcher->stop();
+    }
+
+    // Test nullptr txn_kv
+    {
+        auto watcher = std::make_unique<cloud::MetaServerInstanceWatcher>(nullptr, resource_mgr);
+        ASSERT_EQ(watcher->start(), -1);
+    }
+}
+
+TEST(MetaServerTest, InstanceWatcherDetectInstanceUpdate) {
+    class MockResourceManagerWithTracking : public MockResourceManager {
+    public:
+        MockResourceManagerWithTracking(std::shared_ptr<TxnKv> txn_kv)
+                : MockResourceManager(txn_kv) {}
+
+        std::pair<MetaServiceCode, std::string> refresh_instance(
+                const std::string& instance_id) override {
+            std::unique_lock<std::mutex> lock(mu_);
+            refreshed_instances_.insert(instance_id);
+            refresh_count_++;
+            cv_.notify_all();
+            LOG(INFO) << "refresh_instance called for instance_id=" << instance_id
+                      << " total_count=" << refresh_count_;
+            return std::make_pair(MetaServiceCode::OK, "");
+        }
+
+        bool wait_for_refresh(const std::string& instance_id, int timeout_ms = 5000) {
+            std::unique_lock<std::mutex> lock(mu_);
+            return cv_.wait_for(lock, std::chrono::milliseconds(timeout_ms), [this, &instance_id] {
+                return refreshed_instances_.count(instance_id) > 0;
+            });
+        }
+
+        bool wait_for_refresh_count(int count, int timeout_ms = 5000) {
+            std::unique_lock<std::mutex> lock(mu_);
+            return cv_.wait_for(lock, std::chrono::milliseconds(timeout_ms),
+                                [this, count] { return refresh_count_ >= count; });
+        }
+
+        int get_refresh_count() {
+            std::unique_lock<std::mutex> lock(mu_);
+            return refresh_count_;
+        }
+
+        std::mutex mu_;
+        std::condition_variable cv_;
+        std::unordered_set<std::string> refreshed_instances_;
+        int refresh_count_ = 0;
+    };
+
+    std::shared_ptr<cloud::TxnKv> txn_kv = std::make_shared<cloud::MemTxnKv>();
+    auto resource_mgr = std::make_shared<MockResourceManagerWithTracking>(txn_kv);
+
+    auto watcher = std::make_unique<cloud::MetaServerInstanceWatcher>(txn_kv, resource_mgr);
+    ASSERT_EQ(watcher->start(), 0);
+
+    // Create instance in kv store
+    std::string instance_id = "test_instance_123";
+    cloud::InstanceKeyInfo key_info {instance_id};
+    std::string instance_key = cloud::instance_key(key_info);
+
+    cloud::InstanceInfoPB instance_pb;
+    instance_pb.set_instance_id(instance_id);
+    instance_pb.set_name("test_instance");
+    std::string instance_val = instance_pb.SerializeAsString();
+
+    {
+        std::unique_ptr<cloud::Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->put(instance_key, instance_val);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    // Trigger instance update
+    {
+        std::unique_ptr<cloud::Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->atomic_add(cloud::system_meta_service_instance_update_key(), 1);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    // Wait for watcher to detect and refresh
+    ASSERT_TRUE(resource_mgr->wait_for_refresh(instance_id, 5000))
+            << "Failed to detect instance update";
+
+    // Update instance again
+    instance_pb.set_name("test_instance_updated");
+    instance_val = instance_pb.SerializeAsString();
+    {
+        std::unique_ptr<cloud::Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->put(instance_key, instance_val);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    // Trigger instance update again
+    {
+        std::unique_ptr<cloud::Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->atomic_add(cloud::system_meta_service_instance_update_key(), 1);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    // Should detect the second update
+    ASSERT_TRUE(resource_mgr->wait_for_refresh_count(2, 5000))
+            << "Failed to detect second instance update";
+
+    watcher->stop();
+}
+
+TEST(MetaServerTest, InstanceWatcherMultipleInstances) {
+    class MockResourceManagerWithTracking : public MockResourceManager {
+    public:
+        MockResourceManagerWithTracking(std::shared_ptr<TxnKv> txn_kv)
+                : MockResourceManager(txn_kv) {}
+
+        std::pair<MetaServiceCode, std::string> refresh_instance(
+                const std::string& instance_id) override {
+            std::unique_lock<std::mutex> lock(mu_);
+            refreshed_instances_.insert(instance_id);
+            refresh_count_[instance_id]++;
+            cv_.notify_all();
+            LOG(INFO) << "refresh_instance called for instance_id=" << instance_id;
+            return std::make_pair(MetaServiceCode::OK, "");
+        }
+
+        bool wait_for_instances(const std::vector<std::string>& instance_ids,
+                                int timeout_ms = 5000) {
+            std::unique_lock<std::mutex> lock(mu_);
+            return cv_.wait_for(lock, std::chrono::milliseconds(timeout_ms), [this, &instance_ids] {
+                for (const auto& id : instance_ids) {
+                    if (refreshed_instances_.count(id) == 0) {
+                        return false;
+                    }
+                }
+                return true;
+            });
+        }
+
+        std::mutex mu_;
+        std::condition_variable cv_;
+        std::unordered_set<std::string> refreshed_instances_;
+        std::unordered_map<std::string, int> refresh_count_;
+    };
+
+    std::shared_ptr<cloud::TxnKv> txn_kv = std::make_shared<cloud::MemTxnKv>();
+    auto resource_mgr = std::make_shared<MockResourceManagerWithTracking>(txn_kv);
+
+    auto watcher = std::make_unique<cloud::MetaServerInstanceWatcher>(txn_kv, resource_mgr);
+    ASSERT_EQ(watcher->start(), 0);
+
+    // Create multiple instances
+    std::vector<std::string> instance_ids = {"instance_1", "instance_2", "instance_3"};
+
+    for (const auto& instance_id : instance_ids) {
+        cloud::InstanceKeyInfo key_info {instance_id};
+        std::string instance_key = cloud::instance_key(key_info);
+
+        cloud::InstanceInfoPB instance_pb;
+        instance_pb.set_instance_id(instance_id);
+        instance_pb.set_name("instance_" + instance_id);
+
+        std::unique_ptr<cloud::Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->put(instance_key, instance_pb.SerializeAsString());
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    // Trigger instance update
+    {
+        std::unique_ptr<cloud::Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->atomic_add(cloud::system_meta_service_instance_update_key(), 1);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    // Wait for all instances to be refreshed
+    ASSERT_TRUE(resource_mgr->wait_for_instances(instance_ids, 5000))
+            << "Failed to detect all instance updates";
+
+    watcher->stop();
 }
 
 TEST(MetaServerTest, StartAndStop) {
@@ -165,17 +397,16 @@ TEST(MetaServerTest, StartAndStop) {
 
     auto sp = SyncPoint::get_instance();
 
-    std::array<std::string, 3> sps {"MetaServer::start:1", "MetaServer::start:2",
-                                    "MetaServer::start:3"};
+    std::array<std::string, 2> sps {"MetaServer::start:1", "MetaServer::start:2"};
     // use structured binding for point alias (avoid multi lines of declaration)
-    auto [meta_server_start_1, meta_server_start_2, meta_server_start_3] = sps;
+    auto [meta_server_start_1, meta_server_start_2] = sps;
     sp->enable_processing();
-    std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01, [&](...) {
+    DORIS_CLOUD_DEFER {
         for (auto& i : sps) {
             sp->clear_call_back(i);
         } // redundant
         sp->disable_processing();
-    });
+    };
 
     auto foo = [](auto&& args) {
         auto* ret = try_any_cast<int*>(args[0]);
@@ -191,11 +422,6 @@ TEST(MetaServerTest, StartAndStop) {
     sp->set_call_back(meta_server_start_2, foo);
     ASSERT_EQ(server->start(&brpc_server), -1);
     sp->clear_call_back(meta_server_start_2);
-
-    // failed to start fdb metrics exporter
-    sp->set_call_back(meta_server_start_3, foo);
-    ASSERT_EQ(server->start(&brpc_server), -2);
-    sp->clear_call_back(meta_server_start_3);
 
     ASSERT_EQ(server->start(&brpc_server), 0);
     ASSERT_EQ(brpc_server.Start(0, &options), 0);

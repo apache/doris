@@ -47,13 +47,18 @@ public class Radians extends ScalarFunction
         super("radians", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Radians(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public Radians withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Radians(children.get(0));
+        return new Radians(getFunctionParams(children));
     }
 
     @Override

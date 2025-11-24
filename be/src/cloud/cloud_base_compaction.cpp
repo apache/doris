@@ -35,6 +35,8 @@ namespace doris {
 using namespace ErrorCode;
 
 bvar::Adder<uint64_t> base_output_size("base_compaction", "output_size");
+bvar::Adder<uint64_t> base_input_cached_size("base_compaction", "input_cached_size");
+bvar::Adder<uint64_t> base_input_size("base_compaction", "input_size");
 bvar::LatencyRecorder g_base_compaction_hold_delete_bitmap_lock_time_ms(
         "base_compaction_hold_delete_bitmap_lock_time_ms");
 
@@ -82,6 +84,8 @@ Status CloudBaseCompaction::prepare_compact() {
         _input_rowsets_data_size += rs->data_disk_size();
         _input_rowsets_index_size += rs->index_disk_size();
         _input_rowsets_total_size += rs->total_disk_size();
+        _input_rowsets_cached_data_size += rs->approximate_cached_data_size();
+        _input_rowsets_cached_index_size += rs->approximate_cache_index_size();
     }
     LOG_INFO("start CloudBaseCompaction, tablet_id={}, range=[{}-{}]", _tablet->tablet_id(),
              _input_rowsets.front()->start_version(), _input_rowsets.back()->end_version())
@@ -91,7 +95,11 @@ Status CloudBaseCompaction::prepare_compact() {
             .tag("input_segments", _input_segments)
             .tag("input_rowsets_data_size", _input_rowsets_data_size)
             .tag("input_rowsets_index_size", _input_rowsets_index_size)
-            .tag("input_rowsets_total_size", _input_rowsets_total_size);
+            .tag("input_rowsets_total_size", _input_rowsets_total_size)
+            .tag("input_rowsets_cached_data_size", _input_rowsets_cached_data_size)
+            .tag("input_rowsets_cached_index_size", _input_rowsets_cached_index_size);
+    base_input_cached_size << (_input_rowsets_cached_data_size + _input_rowsets_cached_index_size);
+    base_input_size << _input_rowsets_total_size;
     return Status::OK();
 }
 
@@ -200,9 +208,13 @@ Status CloudBaseCompaction::pick_rowsets_to_compact() {
 
     int score = 0;
     int rowset_cnt = 0;
+    int64_t max_compaction_score = _tablet->keys_type() == KeysType::UNIQUE_KEYS &&
+                                                   _tablet->enable_unique_key_merge_on_write()
+                                           ? config::mow_base_compaction_max_compaction_score
+                                           : config::base_compaction_max_compaction_score;
     while (rowset_cnt < _input_rowsets.size()) {
         score += _input_rowsets[rowset_cnt++]->rowset_meta()->get_compaction_score();
-        if (score > config::base_compaction_max_compaction_score) {
+        if (score > max_compaction_score) {
             break;
         }
     }
@@ -302,7 +314,11 @@ Status CloudBaseCompaction::execute_compact() {
             .tag("output_segments", _output_rowset->num_segments())
             .tag("output_rowset_data_size", _output_rowset->data_disk_size())
             .tag("output_rowset_index_size", _output_rowset->index_disk_size())
-            .tag("output_rowset_total_size", _output_rowset->total_disk_size());
+            .tag("output_rowset_total_size", _output_rowset->total_disk_size())
+            .tag("local_read_time_us", _stats.cloud_local_read_time)
+            .tag("remote_read_time_us", _stats.cloud_remote_read_time)
+            .tag("local_read_bytes", _local_read_bytes_total)
+            .tag("remote_read_bytes", _remote_read_bytes_total);
 
     //_compaction_succeed = true;
     _state = CompactionState::SUCCESS;
@@ -336,7 +352,7 @@ Status CloudBaseCompaction::modify_rowsets() {
     compaction_job->set_size_output_rowsets(_output_rowset->total_disk_size());
     compaction_job->set_num_input_segments(_input_segments);
     compaction_job->set_num_output_segments(_output_rowset->num_segments());
-    compaction_job->set_num_input_rowsets(_input_rowsets.size());
+    compaction_job->set_num_input_rowsets(num_input_rowsets());
     compaction_job->set_num_output_rowsets(1);
     compaction_job->add_input_versions(_input_rowsets.front()->start_version());
     compaction_job->add_input_versions(_input_rowsets.back()->end_version());
@@ -427,6 +443,7 @@ Status CloudBaseCompaction::modify_rowsets() {
                                                     stats.num_rows(), stats.data_size());
         }
     }
+    _tablet->prefill_dbm_agg_cache_after_compaction(_output_rowset);
     return Status::OK();
 }
 

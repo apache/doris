@@ -28,6 +28,20 @@ suite("test_hive_statistics_p0", "all_types,p0,external,hive,external_docker,ext
             String catalog_name = "test_${hivePrefix}_statistics_p0"
             String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
 
+            sql """drop catalog if exists ${catalog_name}_1"""
+            sql """create catalog if not exists ${catalog_name}_1 properties (
+                "type"="hms",
+                'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}'
+            );"""
+            sql """set fetch_hive_row_count_sync=true"""
+            sql """use ${catalog_name}_1.stats_test"""
+            explain {
+                sql "select count(2) from `${catalog_name}_1`.`statistics`.`statistics`;"
+                contains "cardinality=66"
+            }
+            sql """drop catalog if exists ${catalog_name}_1"""
+
+            sql """set fetch_hive_row_count_sync=false"""
             sql """drop catalog if exists ${catalog_name}"""
             sql """create catalog if not exists ${catalog_name} properties (
                 "type"="hms",
@@ -303,4 +317,3 @@ suite("test_hive_statistics_p0", "all_types,p0,external,hive,external_docker,ext
         }
     }
 }
-

@@ -79,7 +79,7 @@ public class BackendReplicasInfo implements Writable {
         MISSING_VERSION
     }
 
-    public static class ReplicaReportInfo implements Writable {
+    public static class ReplicaReportInfo {
         @SerializedName(value = "tabletId")
         public long tabletId;
         @SerializedName(value = "type")
@@ -91,22 +91,6 @@ public class BackendReplicasInfo implements Writable {
             this.tabletId = tabletId;
             this.lastFailedVersion = lastFailedVersion;
             this.type = type;
-        }
-
-        @Override
-        public void write(DataOutput out) throws IOException {
-            String json = GsonUtils.GSON.toJson(this);
-            Text.writeString(out, json);
-        }
-
-        public static ReplicaReportInfo read(DataInput in) throws IOException {
-            String json = Text.readString(in);
-            ReplicaReportInfo info = GsonUtils.GSON.fromJson(json, ReplicaReportInfo.class);
-            if (info.type == ReportInfoType.MISSING_VERSION && info.lastFailedVersion <= 0) {
-                // FIXME(cmy): Just for compatibility, should be remove in v1.2
-                info.lastFailedVersion = 1;
-            }
-            return info;
         }
     }
 

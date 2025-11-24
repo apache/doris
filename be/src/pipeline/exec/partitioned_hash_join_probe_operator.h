@@ -59,16 +59,24 @@ public:
     Status finish_spilling(uint32_t partition_index);
 
     template <bool spilled>
-    void update_build_profile(RuntimeProfile* child_profile);
+    void update_build_custom_profile(RuntimeProfile* child_profile);
 
     template <bool spilled>
-    void update_probe_profile(RuntimeProfile* child_profile);
+    void update_probe_custom_profile(RuntimeProfile* child_profile);
+
+    template <bool spilled>
+    void update_build_common_profile(RuntimeProfile* child_profile);
+
+    template <bool spilled>
+    void update_probe_common_profile(RuntimeProfile* child_profile);
 
     std::string debug_string(int indentation_level = 0) const override;
 
     MOCK_FUNCTION void update_profile_from_inner();
 
     void init_counters();
+
+    bool is_blockable() const override;
 
     friend class PartitionedHashJoinProbeOperatorX;
 
@@ -129,7 +137,7 @@ public:
                 bool* eos) const override;
 
     bool need_more_input_data(RuntimeState* state) const override;
-    DataDistribution required_data_distribution() const override {
+    DataDistribution required_data_distribution(RuntimeState* /*state*/) const override {
         if (_join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
             return {ExchangeType::NOOP};
         }

@@ -19,7 +19,7 @@
 
 #include "runtime/decimalv2_value.h"
 #include "vec/common/string_ref.h"
-#include "vec/core/wide_integer.h"
+#include "vec/core/extended_types.h"
 
 namespace doris {
 

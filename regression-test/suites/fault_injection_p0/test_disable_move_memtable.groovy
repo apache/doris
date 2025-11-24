@@ -228,9 +228,9 @@ suite("test_disable_move_memtable", "nonConcurrent") {
         }
 
         def check_load_result = {checklabel, testTablex, res ->
-            max_try_milli_secs = 10000
+            def max_try_milli_secs = 10000
             while(max_try_milli_secs) {
-                result = sql "show load where label = '${checklabel}'"
+                def result = sql "show load where label = '${checklabel}'"
                 log.info("result: ${result}")
                 if(result[0][2].toString() == "${res}".toString()) {
                     break
@@ -248,9 +248,9 @@ suite("test_disable_move_memtable", "nonConcurrent") {
             try {
                 GetDebugPoint().enableDebugPointForAllBEs(injection)
                 if (enableHdfs()) {
-                    brokerName = getBrokerName()
-                    hdfsUser = getHdfsUser()
-                    hdfsPasswd = getHdfsPasswd()
+                    def brokerName = getBrokerName()
+                    def hdfsUser = getHdfsUser()
+                    def hdfsPasswd = getHdfsPasswd()
                     def hdfs_csv_file_path = uploadToHdfs "load_p0/broker_load/broker_load_with_properties.json"
                     def test_load_label = UUID.randomUUID().toString().replaceAll("-", "")
                     load_from_hdfs_norm.call(tableName, test_load_label, hdfs_csv_file_path, "json",
@@ -262,19 +262,19 @@ suite("test_disable_move_memtable", "nonConcurrent") {
             }
         }
 
+        sql """ set enable_insert_strict = false """
         insert_into_value_with_injection("VTabletWriterV2._init._output_tuple_desc_null", "test", "unknown destination tuple descriptor")
         insert_into_value_with_injection("VTabletWriterV2._init._output_tuple_desc_null", "test1", "success")
-        sql """ set enable_insert_strict = false """
         sql """ set group_commit = sync_mode """
         insert_into_value_with_injection("VTabletWriterV2._init._output_tuple_desc_null", "test", "unknown destination tuple descriptor")
         insert_into_value_with_injection("VTabletWriterV2._init._output_tuple_desc_null", "test1", "success")
-        sql """ set enable_insert_strict = true """
         sql """ set group_commit = sync_mode """
         insert_into_value_with_injection("VTabletWriterV2._init._output_tuple_desc_null", "test", "unknown destination tuple descriptor")
         insert_into_value_with_injection("VTabletWriterV2._init._output_tuple_desc_null", "test1", "success")
         sql """ set group_commit = off_mode """
         insert_into_select_with_injection("VTabletWriterV2._init._output_tuple_desc_null", "test", "unknown destination tuple descriptor")
         insert_into_select_with_injection("VTabletWriterV2._init._output_tuple_desc_null", "test1", "success")
+        sql """ set enable_insert_strict = true """
 
         if (isGroupCommitMode()) {
             def ret = sql "SHOW FRONTEND CONFIG like '%stream_load_default_memtable_on_sink_node%';"

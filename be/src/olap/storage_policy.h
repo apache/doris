@@ -77,6 +77,7 @@ struct StorageResource {
                                     int64_t seg_id) const;
     std::string remote_segment_path(const RowsetMeta& rowset, int64_t seg_id) const;
     std::string remote_tablet_path(int64_t tablet_id) const;
+    std::string remote_delete_bitmap_path(int64_t tablet_id, std::string_view rowset_id) const;
 
     std::string remote_idx_v1_path(const RowsetMeta& rowset, int64_t seg_id, int64_t index_id,
                                    std::string_view index_suffix) const;
@@ -84,6 +85,9 @@ struct StorageResource {
 
     std::string cooldown_tablet_meta_path(int64_t tablet_id, int64_t replica_id,
                                           int64_t cooldown_term) const;
+
+    // Static function to parse tablet_id from remote segment path
+    static std::optional<int64_t> parse_tablet_id_from_path(const std::string& path);
 };
 
 // return nullptr if not found
@@ -103,6 +107,8 @@ void put_storage_resource(std::string resource_id, StorageResource resource, int
 void put_storage_resource(int64_t resource_id, StorageResource resource, int64_t version);
 
 void delete_storage_resource(int64_t resource_id);
+
+void clear_storage_resource();
 
 // return [id, version] of all resources
 std::vector<std::pair<std::string, int64_t>> get_storage_resource_ids();

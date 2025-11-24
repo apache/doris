@@ -54,10 +54,18 @@ public class DataTypeTest {
         VarcharType varcharType1 = new VarcharType(32);
         VarcharType varcharType2 = new VarcharType(32);
         VarcharType varcharType3 = new VarcharType(64);
+        VarcharType varcharType4 = new VarcharType(-1);
+        VarcharType varcharType5 = new VarcharType(65533);
         Assertions.assertEquals(varcharType1, varcharType2);
         Assertions.assertEquals(varcharType1.hashCode(), varcharType2.hashCode());
         Assertions.assertNotEquals(varcharType1, varcharType3);
         Assertions.assertNotEquals(varcharType1.hashCode(), varcharType3.hashCode());
+        Assertions.assertEquals(VarcharType.SYSTEM_DEFAULT, VarcharType.MAX_VARCHAR_TYPE);
+        Assertions.assertEquals(VarcharType.SYSTEM_DEFAULT.hashCode(), VarcharType.MAX_VARCHAR_TYPE.hashCode());
+        Assertions.assertEquals(VarcharType.SYSTEM_DEFAULT, varcharType4);
+        Assertions.assertEquals(VarcharType.SYSTEM_DEFAULT.hashCode(), varcharType4.hashCode());
+        Assertions.assertEquals(VarcharType.SYSTEM_DEFAULT, varcharType5);
+        Assertions.assertEquals(VarcharType.SYSTEM_DEFAULT.hashCode(), varcharType5.hashCode());
     }
 
     @Test
@@ -105,7 +113,7 @@ public class DataTypeTest {
         // datev2
         Assertions.assertEquals(DateV2Type.INSTANCE, DataType.convertFromString("datev2"));
         // time
-        Assertions.assertEquals(TimeType.INSTANCE, DataType.convertFromString("time"));
+        Assertions.assertEquals(TimeV2Type.SYSTEM_DEFAULT, DataType.convertFromString("time"));
 
         // datetime
         Assertions.assertEquals(DateTimeType.INSTANCE, DataType.convertFromString("datetime"));

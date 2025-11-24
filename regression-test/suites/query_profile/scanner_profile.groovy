@@ -41,6 +41,27 @@ def getProfile = { id ->
         return conn.getInputStream().getText()
 }
 
+def getProfileWithToken = { token ->
+    def wholeString = getProfileList()
+    List profileData = new JsonSlurper().parseText(wholeString).data.rows
+    String profileId = "";    
+    logger.info("{}", token)
+
+    for (def profileItem in profileData) {
+        if (profileItem["Sql Statement"].toString().contains(token)) {
+            profileId = profileItem["Profile ID"].toString()
+            logger.info("profileItem: {}", profileItem)
+        }
+    }
+
+    logger.info("$token: {}", profileId)
+    // Sleep 2 seconds to make sure profile collection is done
+    Thread.sleep(2000)
+
+    def String profile = getProfile(profileId).toString()
+    return profile;
+}
+
 suite('scanner_profile') {
     sql """
         DROP TABLE IF EXISTS scanner_profile;
@@ -74,36 +95,24 @@ suite('scanner_profile') {
         (1010, "A"),(2010, "B"),(3010, "C"),(4010, "D"),(5010,"E"),(6010,"F"),(7010,"G"),(8010,"H"),(9010,"K");
     """
 
-    def uuidString = UUID.randomUUID().toString()
     sql "set enable_profile=true"
     sql "set profile_level=2;"
-    // With Limit, MaxScannerThreadNum = 1
+    
+    def token = UUID.randomUUID().toString()
+
     sql """
-        select "with_limit_1_${uuidString}", * from scanner_profile limit 10;
+        select "${token}", * from scanner_profile limit 10;
     """
-    
-    def wholeString = getProfileList()
-    List profileData = new JsonSlurper().parseText(wholeString).data.rows
-    String queryIdWithLimit1 = "";
-    
 
-    logger.info("{}", uuidString)
-
-    for (def profileItem in profileData) {
-        if (profileItem["Sql Statement"].toString().contains("with_limit_1_${uuidString}")) {
-            queryIdWithLimit1 = profileItem["Profile ID"].toString()
-            logger.info("profileItem: {}", profileItem)
-        }
-    }
-
-    logger.info("queryIdWithLimit1_${uuidString}: {}", queryIdWithLimit1)
-
-    assertTrue(queryIdWithLimit1 != "")
-
-    // Sleep 2 seconds to make sure profile collection is done
-    Thread.sleep(2000)
-
-    def String profileWithLimit1 = getProfile(queryIdWithLimit1).toString()
-    logger.info("Profile of ${queryIdWithLimit1} ${profileWithLimit1}")
+    def String profileWithLimit1 = getProfileWithToken(token)
+    logger.info("Profile of ${token} ${profileWithLimit1}")
     assertTrue(profileWithLimit1.contains("- MaxScanConcurrency: 1"))
+
+    token = UUID.randomUUID().toString()
+    sql """
+        select "${token}", * from scanner_profile where id < 10;
+    """
+    def String profileWithFilter = getProfileWithToken(token)
+    logger.info("Profile of ${token} ${profileWithFilter}")
+    assertTrue(profileWithFilter.contains("actualRows=9"))
 }

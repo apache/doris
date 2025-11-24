@@ -24,7 +24,7 @@
 #include "common/status.h"
 #include "util/simd/bits.h"
 #include "vec/columns/column.h"
-#include "vec/columns/columns_number.h"
+#include "vec/columns/column_nullable.h"
 #include "vec/common/assert_cast.h"
 #include "vec/exprs/vectorized_fn_call.h"
 #include "vec/exprs/vexpr_context.h"
@@ -54,6 +54,10 @@ public:
                                  _fn.name.function_name, get_child_names(), _data_type->get_name());
     }
 
+#ifdef BE_TEST
+    VCompoundPred() = default;
+#endif
+
     const std::string& expr_name() const override { return _expr_name; }
 
     Status evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) override {
@@ -70,18 +74,19 @@ public:
                     all_pass = false;
                     continue;
                 }
-                if (context->get_inverted_index_context()->has_inverted_index_result_for_expr(
-                            child.get())) {
+                auto inverted_index_context = context->get_index_context();
+                if (inverted_index_context->has_index_result_for_expr(child.get())) {
                     const auto* index_result =
-                            context->get_inverted_index_context()
-                                    ->get_inverted_index_result_for_expr(child.get());
+                            inverted_index_context->get_index_result_for_expr(child.get());
                     if (res.is_empty()) {
                         res = *index_result;
                     } else {
                         res |= *index_result;
                     }
-                    if (res.get_data_bitmap()->cardinality() == segment_num_rows) {
-                        break; // Early exit if result is full
+                    if (inverted_index_context->get_score_runtime() == nullptr) {
+                        if (res.get_data_bitmap()->cardinality() == segment_num_rows) {
+                            break; // Early exit if result is full
+                        }
                     }
                 } else {
                     all_pass = false;
@@ -98,11 +103,9 @@ public:
                     all_pass = false;
                     continue;
                 }
-                if (context->get_inverted_index_context()->has_inverted_index_result_for_expr(
-                            child.get())) {
+                if (context->get_index_context()->has_index_result_for_expr(child.get())) {
                     const auto* index_result =
-                            context->get_inverted_index_context()
-                                    ->get_inverted_index_result_for_expr(child.get());
+                            context->get_index_context()->get_index_result_for_expr(child.get());
                     if (res.is_empty()) {
                         res = *index_result;
                     } else {
@@ -127,11 +130,9 @@ public:
                 return st;
             }
 
-            if (context->get_inverted_index_context()->has_inverted_index_result_for_expr(
-                        child.get())) {
+            if (context->get_index_context()->has_index_result_for_expr(child.get())) {
                 const auto* index_result =
-                        context->get_inverted_index_context()->get_inverted_index_result_for_expr(
-                                child.get());
+                        context->get_index_context()->get_index_result_for_expr(child.get());
                 roaring::Roaring full_result;
                 full_result.addRange(0, segment_num_rows);
                 res = index_result->op_not(&full_result);
@@ -146,28 +147,25 @@ public:
         }
 
         if (all_pass && !res.is_empty()) {
-            context->get_inverted_index_context()->set_inverted_index_result_for_expr(this, res);
+            context->get_index_context()->set_index_result_for_expr(this, res);
         }
         return Status::OK();
     }
 
-    Status execute(VExprContext* context, Block* block, int* result_column_id) override {
-        if (fast_execute(context, block, result_column_id)) {
+    Status execute_column(VExprContext* context, const Block* block,
+                          ColumnPtr& result_column) const override {
+        if (fast_execute(context, result_column)) {
             return Status::OK();
         }
         if (get_num_children() == 1 || _has_const_child()) {
-            return VectorizedFnCall::execute(context, block, result_column_id);
+            return VectorizedFnCall::execute_column(context, block, result_column);
         }
 
-        int lhs_id = -1;
-        int rhs_id = -1;
-        bool lhs_mem_can_reuse = _children[0]->is_compound_predicate();
-        bool rhs_mem_can_reuse = _children[1]->is_compound_predicate();
-
-        RETURN_IF_ERROR(_children[0]->execute(context, block, &lhs_id));
-        ColumnPtr lhs_column =
-                block->get_by_position(lhs_id).column->convert_to_full_column_if_const();
+        ColumnPtr lhs_column;
+        RETURN_IF_ERROR(_children[0]->execute_column(context, block, lhs_column));
+        lhs_column = lhs_column->convert_to_full_column_if_const();
         size_t size = lhs_column->size();
+
         bool lhs_is_nullable = lhs_column->is_nullable();
         auto [lhs_data_column, lhs_null_map] =
                 _get_raw_data_and_null_map(lhs_column, lhs_is_nullable);
@@ -182,8 +180,8 @@ public:
         }
 
         ColumnPtr rhs_column = nullptr;
-        uint8* __restrict rhs_data_column = nullptr;
-        uint8* __restrict rhs_null_map = nullptr;
+        uint8_t* __restrict rhs_data_column = nullptr;
+        uint8_t* __restrict rhs_null_map = nullptr;
         bool rhs_is_nullable = false;
         bool rhs_all_true = false;
         bool rhs_all_false = false;
@@ -191,10 +189,9 @@ public:
         bool result_is_nullable = _data_type->is_nullable();
 
         auto get_rhs_colum = [&]() {
-            if (rhs_id == -1) {
-                RETURN_IF_ERROR(_children[1]->execute(context, block, &rhs_id));
-                rhs_column =
-                        block->get_by_position(rhs_id).column->convert_to_full_column_if_const();
+            if (!rhs_column) {
+                RETURN_IF_ERROR(_children[1]->execute_column(context, block, rhs_column));
+                rhs_column = rhs_column->convert_to_full_column_if_const();
                 rhs_is_nullable = rhs_column->is_nullable();
                 auto rhs_nullable_column = _get_raw_data_and_null_map(rhs_column, rhs_is_nullable);
                 rhs_data_column = rhs_nullable_column.first;
@@ -210,27 +207,15 @@ public:
             return Status::OK();
         };
 
-        auto return_result_column_id = [&](ColumnPtr res_column, int res_id,
-                                           bool mem_reuse) -> int {
-            if (!mem_reuse) {
-                res_column = res_column->clone_resized(size);
+        auto return_result_column_id = [&](ColumnPtr& arg_column) {
+            result_column = std::move(*arg_column).mutate();
+            if (result_is_nullable && !result_column->is_nullable()) {
+                result_column = make_nullable(result_column);
             }
-
-            if (result_is_nullable && !res_column->is_nullable()) {
-                auto result_column =
-                        ColumnNullable::create(res_column, ColumnUInt8::create(size, 0));
-                res_id = block->columns();
-                block->insert({std::move(result_column), _data_type, _expr_name});
-            } else if (!mem_reuse) {
-                res_id = block->columns();
-                block->insert({std::move(res_column), _data_type, _expr_name});
-            }
-
-            return res_id;
         };
 
         auto create_null_map_column = [&](ColumnPtr& null_map_column,
-                                          uint8* __restrict null_map_data) {
+                                          uint8_t* __restrict null_map_data) {
             if (null_map_data == nullptr) {
                 null_map_column = ColumnUInt8::create(size, 0);
                 null_map_data = assert_cast<ColumnUInt8*>(null_map_column->assume_mutable().get())
@@ -241,20 +226,17 @@ public:
         };
 
         auto vector_vector = [&]<bool is_and_op>() {
-            if (lhs_mem_can_reuse) {
-                *result_column_id = lhs_id;
-            } else if (rhs_mem_can_reuse) {
-                *result_column_id = rhs_id;
-
+            if (lhs_column->use_count() == 1) {
+                result_column = lhs_column;
+            } else if (rhs_column->use_count() == 1) {
+                result_column = rhs_column;
                 auto tmp_column = rhs_data_column;
                 rhs_data_column = lhs_data_column;
                 lhs_data_column = tmp_column;
             } else {
-                *result_column_id = block->columns();
-
                 auto col_res = lhs_column->clone_resized(size);
                 lhs_data_column = assert_cast<ColumnUInt8*>(col_res.get())->get_data().data();
-                block->insert({std::move(col_res), _data_type, _expr_name});
+                result_column = std::move(col_res);
             }
 
             if constexpr (is_and_op) {
@@ -295,9 +277,7 @@ public:
                     res_datas[i] = lhs_data_column_tmp[i] | rhs_data_column_tmp[i];
                 }
             }
-            auto result_column = ColumnNullable::create(std::move(col_res), std::move(col_nulls));
-            *result_column_id = block->columns();
-            block->insert({std::move(result_column), _data_type, _expr_name});
+            result_column = ColumnNullable::create(std::move(col_res), std::move(col_nulls));
         };
 
         // false and NULL ----> 0
@@ -307,25 +287,23 @@ public:
             //2. nullable column: null map all is not null
             if ((lhs_all_false && !lhs_is_nullable) || (lhs_all_false && lhs_all_is_not_null)) {
                 // false and any = false, return lhs
-                *result_column_id = return_result_column_id(lhs_column, lhs_id, lhs_mem_can_reuse);
+                return_result_column_id(lhs_column);
             } else {
                 RETURN_IF_ERROR(get_rhs_colum());
 
                 if ((lhs_all_true && !lhs_is_nullable) ||    //not null column
                     (lhs_all_true && lhs_all_is_not_null)) { //nullable column
-                    // true and any = any, return rhs
-                    *result_column_id =
-                            return_result_column_id(rhs_column, rhs_id, rhs_mem_can_reuse);
+                                                             // true and any = any, return rhs
+
+                    return_result_column_id(rhs_column);
                 } else if ((rhs_all_false && !rhs_is_nullable) ||
                            (rhs_all_false && rhs_all_is_not_null)) {
                     // any and false = false, return rhs
-                    *result_column_id =
-                            return_result_column_id(rhs_column, rhs_id, rhs_mem_can_reuse);
+                    return_result_column_id(rhs_column);
                 } else if ((rhs_all_true && !rhs_is_nullable) ||
                            (rhs_all_true && rhs_all_is_not_null)) {
                     // any and true = any, return lhs
-                    *result_column_id =
-                            return_result_column_id(lhs_column, lhs_id, lhs_mem_can_reuse);
+                    return_result_column_id(lhs_column);
                 } else {
                     if (!result_is_nullable) {
                         vector_vector.template operator()<true>();
@@ -339,23 +317,20 @@ public:
             // false or NULL ----> NULL
             if ((lhs_all_true && !lhs_is_nullable) || (lhs_all_true && lhs_all_is_not_null)) {
                 // true or any = true, return lhs
-                *result_column_id = return_result_column_id(lhs_column, lhs_id, lhs_mem_can_reuse);
+                return_result_column_id(lhs_column);
             } else {
                 RETURN_IF_ERROR(get_rhs_colum());
                 if ((lhs_all_false && !lhs_is_nullable) || (lhs_all_false && lhs_all_is_not_null)) {
                     // false or any = any, return rhs
-                    *result_column_id =
-                            return_result_column_id(rhs_column, rhs_id, rhs_mem_can_reuse);
+                    return_result_column_id(rhs_column);
                 } else if ((rhs_all_true && !rhs_is_nullable) ||
                            (rhs_all_true && rhs_all_is_not_null)) {
                     // any or true = true, return rhs
-                    *result_column_id =
-                            return_result_column_id(rhs_column, rhs_id, rhs_mem_can_reuse);
+                    return_result_column_id(rhs_column);
                 } else if ((rhs_all_false && !rhs_is_nullable) ||
                            (rhs_all_false && rhs_all_is_not_null)) {
                     // any or false = any, return lhs
-                    *result_column_id =
-                            return_result_column_id(lhs_column, lhs_id, lhs_mem_can_reuse);
+                    return_result_column_id(lhs_column);
                 } else {
                     if (!result_is_nullable) {
                         vector_vector.template operator()<false>();
@@ -371,14 +346,12 @@ public:
         return Status::OK();
     }
 
-    bool is_compound_predicate() const override { return true; }
-
 private:
-    static inline constexpr uint8 apply_and_null(UInt8 a, UInt8 l_null, UInt8 b, UInt8 r_null) {
+    static inline constexpr uint8_t apply_and_null(UInt8 a, UInt8 l_null, UInt8 b, UInt8 r_null) {
         // (<> && false) is false, (true && NULL) is NULL
         return (l_null & r_null) | (r_null & (l_null ^ a)) | (l_null & (r_null ^ b));
     }
-    static inline constexpr uint8 apply_or_null(UInt8 a, UInt8 l_null, UInt8 b, UInt8 r_null) {
+    static inline constexpr uint8_t apply_or_null(UInt8 a, UInt8 l_null, UInt8 b, UInt8 r_null) {
         // (<> || true) is true, (false || NULL) is NULL
         return (l_null & r_null) | (r_null & (r_null ^ a)) | (l_null & (l_null ^ b));
     }
@@ -388,8 +361,8 @@ private:
                                    [](const VExprSPtr& arg) -> bool { return arg->is_constant(); });
     }
 
-    std::pair<uint8*, uint8*> _get_raw_data_and_null_map(ColumnPtr column,
-                                                         bool has_nullable_column) const {
+    std::pair<uint8_t*, uint8_t*> _get_raw_data_and_null_map(ColumnPtr column,
+                                                             bool has_nullable_column) const {
         if (has_nullable_column) {
             auto* nullable_column = assert_cast<ColumnNullable*>(column->assume_mutable().get());
             auto* data_column =

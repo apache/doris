@@ -50,13 +50,18 @@ public class StPolyfromtext extends ScalarFunction
         super("st_polyfromtext", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private StPolyfromtext(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public StPolyfromtext withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new StPolyfromtext(children.get(0));
+        return new StPolyfromtext(getFunctionParams(children));
     }
 
     @Override

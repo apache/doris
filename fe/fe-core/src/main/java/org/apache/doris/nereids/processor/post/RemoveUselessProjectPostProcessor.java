@@ -23,8 +23,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 
-import java.util.Set;
-import java.util.stream.Collectors;
+import org.roaringbitmap.RoaringBitmap;
 
 /**
  * Prune column for Join-Cluster
@@ -38,11 +37,13 @@ public class RemoveUselessProjectPostProcessor extends PlanPostProcessor {
         project = (PhysicalProject<? extends Plan>) super.visit(project, ctx);
         Plan child = project.child();
         if (project.isAllSlots()) {
-            Set<Slot> projects = project.getProjects().stream().map(Slot.class::cast).collect(Collectors.toSet());
-            Set<Slot> outputSet = child.getOutputSet();
-            if (outputSet.equals(projects)) {
-                return child;
+            RoaringBitmap usedSlotExprIds = project.getUsedSlotExprIds();
+            for (Slot slot : child.getOutput()) {
+                if (!usedSlotExprIds.contains(slot.getExprId().asInt())) {
+                    return project;
+                }
             }
+            return child;
         }
         return project;
     }

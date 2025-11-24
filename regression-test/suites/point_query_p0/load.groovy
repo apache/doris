@@ -218,7 +218,7 @@ suite("test_load_and_schema_change_row_store", "p0") {
         UNIQUE KEY(`k1`)
         COMMENT 'OLAP'
         DISTRIBUTED BY HASH(`k1`) BUCKETS 1
-        PROPERTIES("replication_num" = "1", "enable_unique_key_merge_on_write" = "true");
+        PROPERTIES("replication_num" = "1", "enable_unique_key_merge_on_write" = "true", "enable_mow_light_delete" = "false");
         """
     sql "insert into test_sclar_types_mow(k1,c_string) values (1,'123'), (2,'456')"
     sql """alter table test_sclar_types_mow set ("store_row_column" = "true")"""     

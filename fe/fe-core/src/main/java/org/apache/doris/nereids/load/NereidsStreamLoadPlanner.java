@@ -18,6 +18,8 @@
 package org.apache.doris.nereids.load;
 
 import org.apache.doris.analysis.BrokerDesc;
+import org.apache.doris.analysis.DescriptorTable;
+import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
@@ -41,6 +43,7 @@ import org.apache.doris.thrift.PaloInternalServiceVersion;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
 import org.apache.doris.thrift.TPipelineFragmentParams;
 import org.apache.doris.thrift.TPipelineInstanceParams;
 import org.apache.doris.thrift.TQueryGlobals;
@@ -53,6 +56,7 @@ import org.apache.doris.thrift.TUniqueKeyUpdateMode;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import org.apache.commons.collections4.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -188,7 +192,7 @@ public class NereidsStreamLoadPlanner {
                     }
                 }
 
-                if (!col.getGeneratedColumnsThatReferToThis().isEmpty()
+                if (CollectionUtils.isNotEmpty(col.getGeneratedColumnsThatReferToThis())
                         && col.getGeneratedColumnInfo() == null && !existInExpr) {
                     throw new UserException("Partial update should include"
                             + " all ordinary columns referenced"
@@ -237,14 +241,21 @@ public class NereidsStreamLoadPlanner {
         NereidsLoadScanProvider loadScanProvider = new NereidsLoadScanProvider(fileGroupInfo,
                 partialUpdateInputColumns);
         NereidsParamCreateContext context = loadScanProvider.createLoadContext();
-        LogicalPlan streamLoadPlan = NereidsLoadUtils.createLoadPlan(fileGroupInfo, dataDescription.getPartitionNames(),
-                context, uniquekeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS);
+        TPartialUpdateNewRowPolicy partialUpdateNewRowPolicy = taskInfo.getPartialUpdateNewRowPolicy();
+        LogicalPlan streamLoadPlan = NereidsLoadUtils.createLoadPlan(fileGroupInfo,
+                dataDescription.getPartitionNamesInfo(), context,
+                uniquekeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS, partialUpdateNewRowPolicy);
         NereidsLoadPlanInfoCollector planInfoCollector = new NereidsLoadPlanInfoCollector(destTable, taskInfo, loadId,
-                db.getId(), uniquekeyUpdateMode, partialUpdateInputColumns, context.exprMap);
-        NereidsLoadPlanInfoCollector.LoadPlanInfo loadPlanInfo = planInfoCollector.collectLoadPlanInfo(streamLoadPlan);
+                db.getId(), uniquekeyUpdateMode, partialUpdateNewRowPolicy, partialUpdateInputColumns,
+                context.exprMap);
+        DescriptorTable descriptorTable = new DescriptorTable();
+        TupleDescriptor scanTupleDesc = descriptorTable.createTupleDescriptor();
+        scanTupleDesc.setTable(destTable);
+        NereidsLoadPlanInfoCollector.LoadPlanInfo loadPlanInfo = planInfoCollector.collectLoadPlanInfo(streamLoadPlan,
+                descriptorTable, scanTupleDesc);
         FileLoadScanNode fileScanNode = new FileLoadScanNode(new PlanNodeId(0), loadPlanInfo.getDestTuple());
         fileScanNode.finalizeForNereids(loadId, Lists.newArrayList(fileGroupInfo), Lists.newArrayList(context),
-                loadPlanInfo);
+                Lists.newArrayList(loadPlanInfo));
         scanNode = fileScanNode;
 
         // for stream load, we only need one fragment, ScanNode -> DataSink.
@@ -258,7 +269,7 @@ public class NereidsStreamLoadPlanner {
         params.setProtocolVersion(PaloInternalServiceVersion.V1);
         params.setFragment(fragment.toThrift());
 
-        params.setDescTbl(loadPlanInfo.getDescriptorTable().toThrift());
+        params.setDescTbl(descriptorTable.toThrift());
         params.setCoord(new TNetworkAddress(FrontendOptions.getLocalHostAddress(), Config.rpc_port));
         params.setCurrentConnectFe(new TNetworkAddress(FrontendOptions.getLocalHostAddress(), Config.rpc_port));
 
@@ -295,12 +306,13 @@ public class NereidsStreamLoadPlanner {
         queryOptions.setLoadMemLimit(taskInfo.getMemLimit());
         // load
         queryOptions.setBeExecVersion(Config.be_exec_version);
-        queryOptions.setIsReportSuccess(taskInfo.getEnableProfile());
-        queryOptions.setEnableProfile(taskInfo.getEnableProfile());
+        queryOptions.setIsReportSuccess(taskInfo.getEnableProfile() || Config.enable_stream_load_profile);
+        queryOptions.setEnableProfile(taskInfo.getEnableProfile() || Config.enable_stream_load_profile);
         boolean enableMemtableOnSinkNode = destTable.getTableProperty().getUseSchemaLightChange()
                 ? taskInfo.isMemtableOnSinkNode()
                 : false;
         queryOptions.setEnableMemtableOnSinkNode(enableMemtableOnSinkNode);
+        queryOptions.setNewVersionUnixTimestamp(true);
         params.setQueryOptions(queryOptions);
         TQueryGlobals queryGlobals = new TQueryGlobals();
         queryGlobals.setNowString(TimeUtils.getDatetimeFormatWithTimeZone().format(LocalDateTime.now()));

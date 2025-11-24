@@ -30,7 +30,6 @@
 #include "level_decoder.h"
 #include "util/slice.h"
 #include "vec/columns/column_string.h"
-#include "vec/columns/columns_number.h"
 #include "vec/data_types/data_type.h"
 #include "vec/exec/format/parquet/parquet_common.h"
 #include "vparquet_page_reader.h"
@@ -90,7 +89,7 @@ public:
 
     ColumnChunkReader(io::BufferedStreamReader* reader, tparquet::ColumnChunk* column_chunk,
                       FieldSchema* field_schema, const tparquet::OffsetIndex* offset_index,
-                      cctz::time_zone* ctz, io::IOContext* io_ctx);
+                      const cctz::time_zone* ctz, io::IOContext* io_ctx);
     ~ColumnChunkReader() = default;
 
     // Initialize chunk reader, will generate the decoder and codec.
@@ -216,7 +215,7 @@ private:
     size_t _chunk_parsed_values = 0;
     uint32_t _remaining_num_values = 0;
     Slice _page_data;
-    std::unique_ptr<uint8_t[]> _decompress_buf;
+    DorisUniqueBufferPtr<uint8_t> _decompress_buf;
     size_t _decompress_buf_size = 0;
     Slice _v2_rep_levels;
     Slice _v2_def_levels;

@@ -15,11 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <cstdint>
 #ifndef _SCHEMA_SCANNER_HELPER_H_
 
 #include <stdint.h>
 
-#include <string>
+#include <string_view>
 #include <vector>
 
 #include "cctz/time_zone.h"
@@ -33,12 +34,16 @@ class Block;
 } // namespace vectorized
 class SchemaScannerHelper {
 public:
-    static void insert_string_value(int col_index, std::string str_val, vectorized::Block* block);
+    static void insert_string_value(int col_index, std::string_view str_val,
+                                    vectorized::Block* block);
     static void insert_datetime_value(int col_index, const std::vector<void*>& datas,
                                       vectorized::Block* block);
     static void insert_datetime_value(int col_index, int64_t timestamp, const cctz::time_zone& ctz,
                                       vectorized::Block* block);
 
+    static void insert_bool_value(int col_index, bool bool_val, vectorized::Block* block);
+
+    static void insert_int32_value(int col_index, int32_t int_val, vectorized::Block* block);
     static void insert_int64_value(int col_index, int64_t int_val, vectorized::Block* block);
     static void insert_double_value(int col_index, double double_val, vectorized::Block* block);
 };

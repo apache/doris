@@ -47,7 +47,7 @@ class SipHash;
             ColumnDecimal128V2, ColumnDecimal256
 #define ALL_COLUMNS_TIME ColumnDate, ColumnDateTime, ColumnDateV2, ColumnDateTimeV2
 #define ALL_COLUMNS_NUMERIC ALL_COLUMNS_NUMBER, ALL_COLUMNS_TIME
-#define ALL_COLUMNS_SIMPLE ALL_COLUMNS_NUMERIC, ColumnString
+#define ALL_COLUMNS_SIMPLE ALL_COLUMNS_NUMERIC, ColumnString, ColumnIPv4, ColumnIPv6
 
 namespace doris::vectorized {
 
@@ -96,12 +96,12 @@ public:
       */
     using Base = COWHelper<IColumn, ColumnArray>;
 
-    static Ptr create(const ColumnPtr& nested_column, const ColumnPtr& offsets_column) {
+    static MutablePtr create(const ColumnPtr& nested_column, const ColumnPtr& offsets_column) {
         return ColumnArray::create(nested_column->assume_mutable(),
                                    offsets_column->assume_mutable());
     }
 
-    static Ptr create(const ColumnPtr& nested_column) {
+    static MutablePtr create(const ColumnPtr& nested_column) {
         return ColumnArray::create(nested_column->assume_mutable());
     }
 
@@ -111,10 +111,15 @@ public:
         return Base::create(std::forward<Args>(args)...);
     }
 
+    void sanity_check() const override {
+        data->sanity_check();
+        offsets->sanity_check();
+    }
+
     void shrink_padding_chars() override;
 
     /** On the index i there is an offset to the beginning of the i + 1 -th element. */
-    using ColumnOffsets = ColumnVector<Offset64>;
+    using ColumnOffsets = ColumnOffset64;
 
     std::string get_name() const override;
     bool is_variable_length() const override { return true; }
@@ -153,15 +158,20 @@ public:
     void pop_back(size_t n) override;
     ColumnPtr filter(const Filter& filt, ssize_t result_size_hint) const override;
     size_t filter(const Filter& filter) override;
-    ColumnPtr permute(const Permutation& perm, size_t limit) const override;
+    MutableColumnPtr permute(const Permutation& perm, size_t limit) const override;
     int compare_at(size_t n, size_t m, const IColumn& rhs_, int nan_direction_hint) const override;
     void reserve(size_t n) override;
     size_t byte_size() const override;
     size_t allocated_bytes() const override;
     bool has_enough_capacity(const IColumn& src) const override;
-    ColumnPtr replicate(const IColumn::Offsets& replicate_offsets) const override;
     void insert_many_from(const IColumn& src, size_t position, size_t length) override;
-
+    void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
+                         IColumn::Permutation& res) const override;
+    void sort_column(const ColumnSorter* sorter, EqualFlags& flags, IColumn::Permutation& perms,
+                     EqualRange& range, bool last_column) const override;
+    void deserialize(StringRef* keys, const size_t num_rows) override;
+    size_t get_max_row_byte_size() const override;
+    void serialize(StringRef* keys, size_t num_rows) const override;
     /** More efficient methods of manipulation */
     IColumn& get_data() { return *data; }
     const IColumn& get_data() const { return *data; }
@@ -225,45 +235,20 @@ public:
 
     void erase(size_t start, size_t length) override;
 
+    size_t serialize_impl(char* pos, const size_t row) const override;
+    size_t deserialize_impl(const char* pos) override;
+    size_t serialize_size_at(size_t row) const override;
+
+    void replace_float_special_values() override;
+
+    template <bool positive>
+    struct less;
+
 private:
     // [2,1,5,9,1]\n[1,2,4] --> data column [2,1,5,9,1,1,2,4], offset[-1] = 0, offset[0] = 5, offset[1] = 8
     // [[2,1,5],[9,1]]\n[[1,2]] --> data column [3 column array], offset[-1] = 0, offset[0] = 2, offset[1] = 3
     WrappedPtr data;
     WrappedPtr offsets;
-
-    /// Multiply values if the nested column is ColumnVector<T>.
-    template <typename T>
-    ColumnPtr replicate_number(const IColumn::Offsets& replicate_offsets) const;
-
-    /// Multiply the values if the nested column is ColumnString. The code is too complicated.
-    ColumnPtr replicate_string(const IColumn::Offsets& replicate_offsets) const;
-
-    /** Non-constant arrays of constant values are quite rare.
-      * Most functions can not work with them, and does not create such columns as a result.
-      * An exception is the function `replicate` (see FunctionsMiscellaneous.h), which has service meaning for the implementation of lambda functions.
-      * Only for its sake is the implementation of the `replicate` method for ColumnArray(ColumnConst).
-      */
-    ColumnPtr replicate_const(const IColumn::Offsets& replicate_offsets) const;
-
-    /** The following is done by simply replicating of nested columns.
-      */
-    ColumnPtr replicate_nullable(const IColumn::Offsets& replicate_offsets) const;
-    ColumnPtr replicate_generic(const IColumn::Offsets& replicate_offsets) const;
-
-    /// Specializations for the filter function.
-    template <typename T>
-    ColumnPtr filter_number(const Filter& filt, ssize_t result_size_hint) const;
-
-    template <typename T>
-    size_t filter_number(const Filter& filter);
-
-    ColumnPtr filter_string(const Filter& filt, ssize_t result_size_hint) const;
-    ColumnPtr filter_nullable(const Filter& filt, ssize_t result_size_hint) const;
-    ColumnPtr filter_generic(const Filter& filt, ssize_t result_size_hint) const;
-
-    size_t filter_string(const Filter& filter);
-    size_t filter_nullable(const Filter& filter);
-    size_t filter_generic(const Filter& filter);
 };
 
 } // namespace doris::vectorized

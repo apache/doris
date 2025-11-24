@@ -28,6 +28,8 @@
 #include <string>
 
 #include "vec/columns/column.h"
+#include "vec/columns/column_const.h"
+#include "vec/columns/column_nothing.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_nullable.h"
@@ -90,15 +92,25 @@ void ColumnWithTypeAndName::to_pb_column_meta(PColumnMeta* col_meta) const {
     type->to_pb_column_meta(col_meta);
 }
 
-ColumnWithTypeAndName ColumnWithTypeAndName::get_nested(bool replace_null_data_to_default) const {
+ColumnWithTypeAndName ColumnWithTypeAndName::unnest_nullable(
+        bool replace_null_data_to_default) const {
     if (type->is_nullable()) {
-        auto nested_type = assert_cast<const DataTypeNullable*>(type.get())->get_nested_type();
+        auto nested_type =
+                assert_cast<const DataTypeNullable*, TypeCheckOnRelease::DISABLE>(type.get())
+                        ->get_nested_type();
         ColumnPtr nested_column = column;
         if (column) {
             // A column_ptr is needed here to ensure that the column in convert_to_full_column_if_const is not released.
-            auto column_ptr = nested_column->convert_to_full_column_if_const();
-            const auto* source_column = assert_cast<const ColumnNullable*>(column_ptr.get());
-            nested_column = source_column->get_nested_column_ptr();
+            auto [column_ptr, is_const] = unpack_if_const(column);
+            const auto* source_column =
+                    assert_cast<const ColumnNullable*, TypeCheckOnRelease::DISABLE>(
+                            column_ptr.get());
+            if (is_const) {
+                nested_column =
+                        ColumnConst::create(source_column->get_nested_column_ptr(), column->size());
+            } else {
+                nested_column = source_column->get_nested_column_ptr();
+            }
 
             if (replace_null_data_to_default) {
                 const auto& null_map = source_column->get_null_map_data();
@@ -115,4 +127,25 @@ ColumnWithTypeAndName ColumnWithTypeAndName::get_nested(bool replace_null_data_t
     }
 }
 
+Status ColumnWithTypeAndName::check_type_and_column_match() const {
+    if (!type) {
+        return Status::InternalError("ColumnWithTypeAndName type is nullptr");
+    }
+    if (!column) {
+        return Status::InternalError("ColumnWithTypeAndName column is nullptr");
+    }
+
+    if (check_and_get_column<ColumnNothing>(column.get())) {
+        return Status::OK();
+    }
+
+    auto st = type->check_column(*column);
+    if (!st.ok()) {
+        return Status::InternalError(
+                "ColumnWithTypeAndName check column type failed, column name: {}, type: {},  "
+                "column: {} , error: {}",
+                name, type->get_name(), column->get_name(), st.to_string());
+    }
+    return Status::OK();
+}
 } // namespace doris::vectorized

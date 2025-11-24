@@ -30,9 +30,9 @@ import java.util.Optional;
  * Expression rewrite entry, which contains all rewrite rules.
  */
 public class ExpressionRuleExecutor {
-    private final List<ExpressionRewriteRule> rules;
+    private final List<ExpressionRewriteRule<ExpressionRewriteContext>> rules;
 
-    public ExpressionRuleExecutor(List<ExpressionRewriteRule> rules) {
+    public ExpressionRuleExecutor(List<ExpressionRewriteRule<ExpressionRewriteContext>> rules) {
         this.rules = rules;
     }
 
@@ -49,7 +49,7 @@ public class ExpressionRuleExecutor {
      */
     public Expression rewrite(Expression root, ExpressionRewriteContext ctx) {
         Expression result = root;
-        for (ExpressionRewriteRule rule : rules) {
+        for (ExpressionRewriteRule<ExpressionRewriteContext> rule : rules) {
             result = applyRule(result, rule, ctx);
         }
         return result;
@@ -62,7 +62,8 @@ public class ExpressionRuleExecutor {
         return root.map(r -> this.rewrite(r, ctx));
     }
 
-    private Expression applyRule(Expression expr, ExpressionRewriteRule rule, ExpressionRewriteContext ctx) {
+    private Expression applyRule(
+            Expression expr, ExpressionRewriteRule<ExpressionRewriteContext> rule, ExpressionRewriteContext ctx) {
         return rule.rewrite(expr, ctx);
     }
 

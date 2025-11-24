@@ -18,11 +18,9 @@
 package org.apache.doris.tablefunction;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Env;
 import org.apache.doris.job.common.JobType;
 import org.apache.doris.job.extensions.insert.InsertJob;
 import org.apache.doris.job.extensions.mtmv.MTMVJob;
-import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TJobsMetadataParams;
@@ -65,11 +63,6 @@ public class JobsTableValuedFunction extends MetadataTableValuedFunction {
             throw new AnalysisException("Invalid job metadata query");
         }
         this.jobType = jobType;
-        if (jobType != JobType.MV) {
-            if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
-                throw new AnalysisException("only ADMIN priv can operate");
-            }
-        }
     }
 
     public static Integer getColumnIndexFromColumnName(String columnName, TMetadataTableRequestParams params)
@@ -98,7 +91,7 @@ public class JobsTableValuedFunction extends MetadataTableValuedFunction {
     }
 
     @Override
-    public TMetaScanRange getMetaScanRange() {
+    public TMetaScanRange getMetaScanRange(List<String> requiredFileds) {
         TMetaScanRange metaScanRange = new TMetaScanRange();
         metaScanRange.setMetadataType(TMetadataType.JOBS);
         TJobsMetadataParams jobParam = new TJobsMetadataParams();

@@ -16,12 +16,12 @@
 // under the License.
 
 suite("test_doris_all_types_select", "p0,external,doris,external_docker,external_docker_doris") {
-    String jdbcUrl = context.config.jdbcUrl + "&sessionVariables=return_object_data_as_binary=true"
+    String jdbcUrl = context.config.jdbcUrl + "&jdbcCompliantTruncation=false&sessionVariables=return_object_data_as_binary=true"
     String jdbcUser = context.config.jdbcUser
     String jdbcPassword = context.config.jdbcPassword
     String s3_endpoint = getS3Endpoint()
     String bucket = getS3BucketName()
-    String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-j-8.3.0.jar"
+    String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-j-8.4.0.jar"
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
 
     String doris_port = context.config.otherConfigs.get("doris_port");

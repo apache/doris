@@ -26,7 +26,7 @@ suite("tpcds_sf1_unique_p1_q46") {
     logger.info("${stats}")
     stats = sql "show column stats  customer_address"
     logger.info("${stats}")
-    ds46 = """
+    def ds46 = """
         SELECT
         c_last_name
         , c_first_name

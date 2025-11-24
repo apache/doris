@@ -30,21 +30,28 @@
 #include <utility>
 #include <vector>
 
+#include "common/be_mock_util.h"
 #include "common/status.h"
+#include "olap/rowset/segment_v2/ann_index/ann_search_params.h"
+#include "olap/rowset/segment_v2/column_reader.h"
+#include "olap/rowset/segment_v2/index_reader.h"
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/large_int_value.h"
 #include "runtime/types.h"
 #include "udf/udf.h"
+#include "util/date_func.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
+#include "vec/core/extended_types.h"
 #include "vec/core/types.h"
-#include "vec/core/wide_integer.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_ipv6.h"
+#include "vec/exprs/vexpr_context.h"
 #include "vec/exprs/vexpr_fwd.h"
+#include "vec/functions/cast/cast_to_string.h"
 #include "vec/functions/function.h"
 
 namespace doris {
@@ -55,9 +62,14 @@ class ObjectPool;
 class RowDescriptor;
 class RuntimeState;
 
+namespace segment_v2 {
+class IndexIterator;
+class ColumnIterator;
+struct AnnRangeSearchRuntime;
+}; // namespace segment_v2
+
 namespace vectorized {
 #include "common/compile_check_begin.h"
-
 #define RETURN_IF_ERROR_OR_PREPARED(stmt) \
     if (_prepared) {                      \
         return Status::OK();              \
@@ -119,7 +131,27 @@ public:
         return Status::InternalError(expr_name() + " is not ready when execute");
     }
 
-    virtual Status execute(VExprContext* context, Block* block, int* result_column_id) = 0;
+    virtual Status execute(VExprContext* context, Block* block, int* result_column_id) const {
+        ColumnPtr result_column;
+        RETURN_IF_ERROR(execute_column(context, block, result_column));
+        *result_column_id = block->columns();
+        block->insert({result_column, execute_type(block), expr_name()});
+        return Status::OK();
+    }
+
+    // execute current expr and return result column
+    virtual Status execute_column(VExprContext* context, const Block* block,
+                                  ColumnPtr& result_column) const = 0;
+
+    // Currently, due to fe planning issues, for slot-ref expressions the type of the returned Column may not match data_type.
+    // Therefore we need a function like this to return the actual type produced by execution.
+    virtual DataTypePtr execute_type(const Block* block) const { return _data_type; }
+
+    // `is_blockable` means this expr will be blocked in `execute` (e.g. AI Function, Remote Function)
+    [[nodiscard]] virtual bool is_blockable() const {
+        return std::any_of(_children.begin(), _children.end(),
+                           [](VExprSPtr child) { return child->is_blockable(); });
+    }
 
     // execute current expr with inverted index to filter block. Given a roaring bitmap of match rows
     virtual Status evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) {
@@ -133,9 +165,9 @@ public:
 
     // Only the 4th parameter is used in the runtime filter. In and MinMax need overwrite the
     // interface
-    virtual Status execute_runtime_fitler(VExprContext* context, Block* block,
-                                          int* result_column_id, ColumnNumbers& args) {
-        return execute(context, block, result_column_id);
+    virtual Status execute_runtime_filter(VExprContext* context, const Block* block,
+                                          ColumnPtr& result_column, ColumnPtr* arg_column) const {
+        return execute_column(context, block, result_column);
     };
 
     /// Subclasses overriding this function should call VExpr::Close().
@@ -147,13 +179,17 @@ public:
 
     DataTypePtr& data_type() { return _data_type; }
 
+    const DataTypePtr& data_type() const { return _data_type; }
+
     bool is_slot_ref() const { return _node_type == TExprNodeType::SLOT_REF; }
+
+    bool is_virtual_slot_ref() const { return _node_type == TExprNodeType::VIRTUAL_SLOT_REF; }
 
     bool is_column_ref() const { return _node_type == TExprNodeType::COLUMN_REF; }
 
     virtual bool is_literal() const { return false; }
 
-    TExprNodeType::type node_type() const { return _node_type; }
+    MOCK_FUNCTION TExprNodeType::type node_type() const { return _node_type; }
 
     TExprOpcode::type op() const { return _opcode; }
 
@@ -186,6 +222,11 @@ public:
     static Status clone_if_not_exists(const VExprContextSPtrs& ctxs, RuntimeState* state,
                                       VExprContextSPtrs& new_ctxs);
 
+    static bool contains_blockable_function(const VExprContextSPtrs& ctxs) {
+        return std::any_of(ctxs.begin(), ctxs.end(),
+                           [](const VExprContextSPtr& ctx) { return ctx->root()->is_blockable(); });
+    }
+
     bool is_nullable() const { return _data_type->is_nullable(); }
 
     PrimitiveType result_type() const { return _data_type->get_primitive_type(); }
@@ -207,8 +248,6 @@ public:
     void set_getting_const_col(bool val = true) { _getting_const_col = val; }
 
     bool is_and_expr() const { return _fn.name.function_name == "and"; }
-
-    virtual bool is_compound_predicate() const { return false; }
 
     const TFunction& fn() const { return _fn; }
 
@@ -253,8 +292,7 @@ public:
     }
 
     // fast_execute can direct copy expr filter result which build by apply index in segment_iterator
-    bool fast_execute(doris::vectorized::VExprContext* context, doris::vectorized::Block* block,
-                      int* result_column_id);
+    bool fast_execute(VExprContext* context, ColumnPtr& result_column) const;
 
     virtual bool can_push_down_to_index() const { return false; }
     virtual bool equals(const VExpr& other);
@@ -267,6 +305,30 @@ public:
         }
     }
 
+#ifdef BE_TEST
+    void set_node_type(TExprNodeType::type node_type) { _node_type = node_type; }
+#endif
+    virtual Status evaluate_ann_range_search(
+            const segment_v2::AnnRangeSearchRuntime& runtime,
+            const std::vector<std::unique_ptr<segment_v2::IndexIterator>>& cid_to_index_iterators,
+            const std::vector<ColumnId>& idx_to_cid,
+            const std::vector<std::unique_ptr<segment_v2::ColumnIterator>>& column_iterators,
+            roaring::Roaring& row_bitmap, segment_v2::AnnIndexStats& ann_index_stats);
+
+    // Prepare the runtime for ANN range search.
+    // AnnRangeSearchRuntime is used to store the runtime information of ann range search.
+    // suitable_for_ann_index is used to indicate whether the current expr can be used for ANN range search.
+    // If suitable_for_ann_index is false, the we will do exhausted search.
+    virtual void prepare_ann_range_search(const doris::VectorSearchUserParams& params,
+                                          segment_v2::AnnRangeSearchRuntime& range_search_runtime,
+                                          bool& suitable_for_ann_index);
+
+    bool ann_range_search_executedd();
+
+    bool ann_dist_is_fulfilled() const;
+
+    virtual uint64_t get_digest(uint64_t seed) const;
+
 protected:
     /// Simple debug string that provides no expr subclass-specific information
     std::string debug_string(const std::string& expr_name) const {
@@ -275,6 +337,7 @@ protected:
         return out.str();
     }
 
+    // used in expr name
     std::string get_child_names() {
         std::string res;
         for (auto child : _children) {
@@ -286,10 +349,23 @@ protected:
         return res;
     }
 
-    bool is_const_and_have_executed() { return (is_constant() && (_constant_col != nullptr)); }
+    // only for errmsg now
+    std::string get_child_type_names() {
+        std::string res;
+        for (auto child : _children) {
+            if (!res.empty()) {
+                res += ", ";
+            }
+            res += child->expr_name() + ": " + child->data_type()->get_name();
+        }
+        return res;
+    }
 
-    Status get_result_from_const(vectorized::Block* block, const std::string& expr_name,
-                                 int* result_column_id);
+    bool is_const_and_have_executed() const {
+        return (is_constant() && (_constant_col != nullptr));
+    }
+
+    ColumnPtr get_result_from_const(const Block* block) const;
 
     Status check_constant(const Block& block, ColumnNumbers arguments) const;
 
@@ -335,6 +411,13 @@ protected:
     // ensuring uniqueness during index traversal
     uint32_t _index_unique_id = 0;
     bool _enable_inverted_index_query = true;
+
+    // Indicates whether the expr row_bitmap has been updated.
+    bool _has_been_executed = false;
+    // Indicates whether the virtual column is fulfilled.
+    // NOTE, if there is no virtual column in the expr tree, and expr
+    // is evaluated by ann index, this flag is still true.
+    bool _virtual_column_is_fulfilled = false;
 };
 
 } // namespace vectorized
@@ -385,7 +468,7 @@ Status create_texpr_literal_node(const void* data, TExprNode* node, int precisio
         large_int_literal.__set_value(LargeIntValue::to_string(*origin_value));
         (*node).__set_large_int_literal(large_int_literal);
         (*node).__set_type(create_type_desc(PrimitiveType::TYPE_LARGEINT));
-    } else if constexpr ((T == TYPE_DATE) || (T == TYPE_DATETIME) || (T == TYPE_TIMEV2)) {
+    } else if constexpr ((T == TYPE_DATE) || (T == TYPE_DATETIME)) {
         const auto* origin_value = reinterpret_cast<const VecDateTimeValue*>(data);
         TDateLiteral date_literal;
         char convert_buffer[30];
@@ -397,8 +480,6 @@ Status create_texpr_literal_node(const void* data, TExprNode* node, int precisio
             (*node).__set_type(create_type_desc(PrimitiveType::TYPE_DATE));
         } else if (origin_value->type() == TimeType::TIME_DATETIME) {
             (*node).__set_type(create_type_desc(PrimitiveType::TYPE_DATETIME));
-        } else if (origin_value->type() == TimeType::TIME_TIME) {
-            (*node).__set_type(create_type_desc(PrimitiveType::TYPE_TIMEV2));
         }
     } else if constexpr (T == TYPE_DATEV2) {
         const auto* origin_value = reinterpret_cast<const DateV2Value<DateV2ValueType>*>(data);
@@ -492,9 +573,18 @@ Status create_texpr_literal_node(const void* data, TExprNode* node, int precisio
         const auto* origin_value = reinterpret_cast<const IPv6*>(data);
         (*node).__set_node_type(TExprNodeType::IPV6_LITERAL);
         TIPv6Literal literal;
-        literal.__set_value(vectorized::DataTypeIPv6::to_string(*origin_value));
+        literal.__set_value(vectorized::CastToString::from_ip(*origin_value));
         (*node).__set_ipv6_literal(literal);
         (*node).__set_type(create_type_desc(PrimitiveType::TYPE_IPV6));
+    } else if constexpr (T == TYPE_TIMEV2) {
+        // the code use for runtime filter but we dont support timev2 as predicate now
+        // so this part not used
+        const auto* origin_value = reinterpret_cast<const double*>(data);
+        TTimeV2Literal timev2_literal;
+        timev2_literal.__set_value(*origin_value);
+        (*node).__set_timev2_literal(timev2_literal);
+        (*node).__set_node_type(TExprNodeType::TIMEV2_LITERAL);
+        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_TIMEV2, precision, scale));
     } else {
         return Status::InvalidArgument("Invalid argument type!");
     }
@@ -504,6 +594,9 @@ Status create_texpr_literal_node(const void* data, TExprNode* node, int precisio
 
 TExprNode create_texpr_node_from(const void* data, const PrimitiveType& type, int precision = 0,
                                  int scale = 0);
+
+TExprNode create_texpr_node_from(const vectorized::Field& field, const PrimitiveType& type,
+                                 int precision, int scale);
 
 #include "common/compile_check_end.h"
 } // namespace doris

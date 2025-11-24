@@ -130,14 +130,14 @@ public class OptimizeGetAvailableMvsTest extends SqlTestBase {
                 connectContext
         );
         PlanChecker.from(c1)
+                .setIsQuery()
                 .analyze()
                 .rewrite()
+                .preMvRewrite()
                 .optimize()
                 .printlnBestPlanTree();
         Multimap<List<String>, Pair<RelationId, Set<String>>> tableUsedPartitionNameMap = c1.getStatementContext()
                 .getTableUsedPartitionNameMap();
-        Map<BaseTableInfo, Collection<Partition>> mvCanRewritePartitionsMap = c1.getStatementContext()
-                .getMvCanRewritePartitionsMap();
         Assertions.assertFalse(tableUsedPartitionNameMap.isEmpty());
 
         for (Map.Entry<List<String>, Pair<RelationId, Set<String>>> tableInfoEntry
@@ -151,6 +151,8 @@ public class OptimizeGetAvailableMvsTest extends SqlTestBase {
             }
         }
 
+        Map<BaseTableInfo, Collection<Partition>> mvCanRewritePartitionsMap = c1.getStatementContext()
+                .getMvCanRewritePartitionsMap();
         Assertions.assertEquals(1, mvCanRewritePartitionsMap.size());
         Assertions.assertTrue(mvCanRewritePartitionsMap.keySet().iterator().next().getTableName()
                 .equalsIgnoreCase("mv1"));
@@ -171,10 +173,10 @@ public class OptimizeGetAvailableMvsTest extends SqlTestBase {
 
         new MockUp<PartitionPruner>() {
             @Mock
-            public <K extends Comparable<K>> List<Long> prune(List<Slot> partitionSlots, Expression partitionPredicate,
+            public <K extends Comparable<K>> Pair<List<K>, Optional<Expression>> prune(List<Slot> partitionSlots, Expression partitionPredicate,
                     Map<K, PartitionItem> idToPartitions, CascadesContext cascadesContext,
                     PartitionTableType partitionTableType, Optional<SortedPartitionRanges<K>> sortedPartitionRanges) {
-                return Lists.newArrayList(1L);
+                return Pair.of((List) Lists.newArrayList(1L), Optional.empty());
             }
         };
 
@@ -241,8 +243,10 @@ public class OptimizeGetAvailableMvsTest extends SqlTestBase {
                 connectContext
         );
         PlanChecker.from(c1)
+                .setIsQuery()
                 .analyze()
                 .rewrite()
+                .preMvRewrite()
                 .optimize()
                 .printlnBestPlanTree();
         Multimap<List<String>, Pair<RelationId, Set<String>>> tableUsedPartitionNameMap = c1.getStatementContext()
