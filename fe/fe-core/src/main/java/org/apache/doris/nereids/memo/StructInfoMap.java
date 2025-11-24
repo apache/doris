@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
+import org.apache.doris.nereids.util.MoreFieldsThread;
 
 import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
@@ -80,8 +81,9 @@ public class StructInfoMap {
         }
         if (groupExpressionMap.containsKey(tableMap)) {
             Pair<GroupExpression, List<BitSet>> groupExpressionBitSetPair = getGroupExpressionWithChildren(tableMap);
-            structInfo = constructStructInfo(groupExpressionBitSetPair.first, groupExpressionBitSetPair.second,
-                    originPlan, cascadesContext);
+            structInfo = MoreFieldsThread.keepFunctionSignature(() ->
+                    constructStructInfo(groupExpressionBitSetPair.first, groupExpressionBitSetPair.second,
+                    originPlan, cascadesContext));
             infoMap.put(tableMap, structInfo);
         }
         return structInfo;
