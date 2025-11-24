@@ -89,8 +89,8 @@ TEST_F(RuntimeFilterConsumerHelperTest, basic) {
     ASSERT_EQ(conjuncts.size(), 0);
 
     std::shared_ptr<RuntimeFilterProducer> producer;
-    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(RuntimeFilterProducer::create(
-            _query_options, runtime_filter_descs.data(), &producer));
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
+            RuntimeFilterProducer::create(_query_options, runtime_filter_descs.data(), &producer));
     producer->set_wrapper_state_and_ready_to_publish(RuntimeFilterWrapper::State::READY);
     helper._consumers[0]->signal(producer.get());
 

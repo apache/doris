@@ -33,8 +33,7 @@ public:
                          RuntimeFilterWrapper::State second_expected_state) {
         std::shared_ptr<RuntimeFilterMerger> merger;
         auto desc = TRuntimeFilterDescBuilder().build();
-        FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
-                RuntimeFilterMerger::create(&desc, &merger));
+        FAIL_IF_ERROR_OR_CATCH_EXCEPTION(RuntimeFilterMerger::create(&desc, &merger));
         merger->set_expected_producer_num(2);
         ASSERT_FALSE(merger->ready());
         ASSERT_EQ(merger->_wrapper->_state, RuntimeFilterWrapper::State::UNINITED);
@@ -61,8 +60,7 @@ public:
                                                           .set_type(TRuntimeFilterType::IN_OR_BLOOM)
                                                           .build()) {
         std::shared_ptr<RuntimeFilterMerger> merger;
-        FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
-                RuntimeFilterMerger::create(&desc, &merger));
+        FAIL_IF_ERROR_OR_CATCH_EXCEPTION(RuntimeFilterMerger::create(&desc, &merger));
         merger->set_expected_producer_num(1);
         ASSERT_FALSE(merger->ready());
 
