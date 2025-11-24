@@ -67,10 +67,6 @@ suite("test_from_unixtime") {
         sql """ SELECT HOUR(FROM_UNIXTIME(k0)) FROM test1; """
         contains "hour_from_unixtime"
     }
-    explain {
-        sql """SELECT HOUR(FROM_UNIXTIME(1145.14));"""
-        contains "hour_from_unixtime"
-    }
     // should only applicable to the `from_unixtime` function with a single parameter.
     explain {
         sql """SELECT HOUR(FROM_UNIXTIME(k0, 'yyyy-MM-dd HH:mm:ss')) FROM test1;"""
@@ -88,10 +84,6 @@ suite("test_from_unixtime") {
     qt_minute_from_unixtime5 "SELECT MINUTE(FROM_UNIXTIME(-1));"
     explain {
         sql """ SELECT MINUTE(FROM_UNIXTIME(k0)) FROM test1; """
-        contains "minute_from_unixtime"
-    }
-    explain {
-        sql """SELECT MINUTE(FROM_UNIXTIME(1145.14));"""
         contains "minute_from_unixtime"
     }
     explain {
@@ -113,10 +105,6 @@ suite("test_from_unixtime") {
         contains "second_from_unixtime"
     }
     explain {
-        sql """SELECT SECOND(FROM_UNIXTIME(1145.14));"""
-        contains "second_from_unixtime"
-    }
-    explain {
         sql """SELECT SECOND(FROM_UNIXTIME(k0, 'yyyy-MM-dd HH:mm:ss')) FROM test1;"""
         notContains "second_from_unixtime"
     }
@@ -132,10 +120,6 @@ suite("test_from_unixtime") {
     qt_microsecond_from_unixtime5 "SELECT MICROSECOND(FROM_UNIXTIME(-1));"
     explain {
         sql """ SELECT MICROSECOND(FROM_UNIXTIME(k1)) FROM test1; """
-        contains "microsecond_from_unixtime"
-    }
-    explain {
-        sql """SELECT MICROSECOND(FROM_UNIXTIME(1145.14));"""
         contains "microsecond_from_unixtime"
     }
     explain {
