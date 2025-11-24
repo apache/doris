@@ -395,7 +395,8 @@ WorkloadGroupInfo WorkloadGroupInfo::parse_topic_info(
     }
 
     // 10 max remote scan thread num
-    int max_remote_scan_thread_num = vectorized::ScannerScheduler::get_remote_scan_thread_num();
+    int max_remote_scan_thread_num =
+            vectorized::SimplifiedScanScheduler::get_remote_scan_thread_num();
     if (tworkload_group_info.__isset.max_remote_scan_thread_num &&
         tworkload_group_info.max_remote_scan_thread_num > 0) {
         max_remote_scan_thread_num = tworkload_group_info.max_remote_scan_thread_num;
@@ -571,7 +572,7 @@ Status WorkloadGroup::upsert_thread_pool_no_lock(WorkloadGroupInfo* wg_info,
 
     if (_remote_scan_task_sched == nullptr) {
         int remote_scan_thread_queue_size =
-                vectorized::ScannerScheduler::get_remote_scan_thread_queue_size();
+                vectorized::SimplifiedScanScheduler::get_remote_scan_thread_queue_size();
         std::unique_ptr<vectorized::SimplifiedScanScheduler> remote_scan_scheduler;
         if (config::enable_task_executor_in_external_table) {
             remote_scan_scheduler =
