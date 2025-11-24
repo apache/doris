@@ -380,8 +380,13 @@ Status TimeSharingTaskExecutor::_try_create_thread(int thread_num, std::lock_gua
 }
 
 Status TimeSharingTaskExecutor::_do_submit(std::shared_ptr<PrioritizedSplitRunner> split) {
+    LOG(INFO) << "[TimeSharingTaskExecutor] _do_submit called, split_id: " << split->split_id()
+              << ", task_id: " << split->task_handle()->task_id().to_string()
+              << ", thread_name: " << _thread_name;
     std::unique_lock<std::mutex> l(_lock);
     if (!_pool_status.ok()) [[unlikely]] {
+        LOG(INFO) << "[TimeSharingTaskExecutor] pool_status not ok, split_id: " << split->split_id()
+                  << ", status: " << _pool_status.to_string();
         return _pool_status;
     }
 
@@ -390,10 +395,17 @@ Status TimeSharingTaskExecutor::_do_submit(std::shared_ptr<PrioritizedSplitRunne
                                                              _thread_name);
     }
 
+    LOG(INFO) << "submitting split, split_id: " << split->split_id()
+              << ", task_id: " << split->task_handle()->task_id().to_string();
+
     // Size limit check.
     int64_t capacity_remaining = static_cast<int64_t>(_max_threads) - _active_threads +
                                  static_cast<int64_t>(_max_queue_size) - _total_queued_tasks;
     if (capacity_remaining < 1) {
+        LOG(INFO) << "[TimeSharingTaskExecutor] capacity full, split_id: " << split->split_id()
+                  << ", active_threads: " << _active_threads << ", num_threads: " << _num_threads
+                  << ", max_threads: " << _max_threads << ", total_queued: " << _total_queued_tasks
+                  << ", max_queue: " << _max_queue_size;
         thread_pool_submit_failed->increment(1);
         return Status::Error<ErrorCode::SERVICE_UNAVAILABLE>(
                 "Thread pool {} is at capacity ({}/{} tasks running, {}/{} tasks queued)",
@@ -432,6 +444,12 @@ Status TimeSharingTaskExecutor::_do_submit(std::shared_ptr<PrioritizedSplitRunne
     DCHECK(state == SplitThreadPoolToken::State::IDLE ||
            state == SplitThreadPoolToken::State::RUNNING);
     split->submit_time_watch().start();
+    LOG(INFO) << "[TimeSharingTaskExecutor] offering split to queue, split_id: "
+              << split->split_id() << ", task_id: " << split->task_handle()->task_id().to_string()
+              << ", queue_size_before: " << _tokenless->_entries->size()
+              << ", total_queued_tasks: " << _total_queued_tasks
+              << ", active_threads: " << _active_threads
+              << ", idle_threads: " << _idle_threads.size();
     _tokenless->_entries->offer(std::move(split));
     if (state == SplitThreadPoolToken::State::IDLE) {
         _tokenless->transition(SplitThreadPoolToken::State::RUNNING);
@@ -453,8 +471,13 @@ Status TimeSharingTaskExecutor::_do_submit(std::shared_ptr<PrioritizedSplitRunne
     // processed by an active thread (or a thread we're about to create) at some
     // point in the future.
     if (!_idle_threads.empty()) {
+        LOG(INFO) << "[TimeSharingTaskExecutor] waking up idle thread, idle_threads_count: "
+                  << _idle_threads.size();
         _idle_threads.front().not_empty.notify_one();
         _idle_threads.pop_front();
+    } else {
+        LOG(INFO) << "[TimeSharingTaskExecutor] no idle threads, split queued, queue_size: "
+                  << _tokenless->_entries->size();
     }
     l.unlock();
 
@@ -511,6 +534,9 @@ void TimeSharingTaskExecutor::_dispatch_thread() {
         }
 
         if (_tokenless->_entries->size() == 0) {
+            LOG(INFO) << "[TimeSharingTaskExecutor] no work, going idle, active_threads: "
+                      << _active_threads << ", num_threads: " << _num_threads
+                      << ", total_queued: " << _total_queued_tasks;
             // There's no work to do, let's go idle.
             //
             // Note: if FIFO behavior is desired, it's as simple as changing this to push_back().
@@ -548,6 +574,9 @@ void TimeSharingTaskExecutor::_dispatch_thread() {
         // // Get the next token and task to execute.
         DCHECK_EQ(SplitThreadPoolToken::State::RUNNING, _tokenless->state());
         DCHECK(_tokenless->_entries->size() > 0);
+        LOG(INFO) << "[TimeSharingTaskExecutor] taking split from queue, queue_size_before: "
+                  << _tokenless->_entries->size() << ", active_threads: " << _active_threads
+                  << ", total_queued: " << _total_queued_tasks;
         std::shared_ptr<PrioritizedSplitRunner> split = _tokenless->_entries->take();
         thread_pool_task_wait_worker_time_ns_total->increment(
                 split->submit_time_watch().elapsed_time());
@@ -562,13 +591,15 @@ void TimeSharingTaskExecutor::_dispatch_thread() {
             std::lock_guard<std::mutex> guard(_mutex);
             _running_splits.insert(split);
         }
-        Defer defer {[&]() {
-            std::lock_guard<std::mutex> guard(_mutex);
-            _running_splits.erase(split);
-        }};
 
+        LOG(INFO) << "[TimeSharingTaskExecutor] processing split, split_id: " << split->split_id()
+                  << ", task_id: " << split->task_handle()->task_id().to_string()
+                  << ", active_threads: " << _active_threads;
         Result<SharedListenableFuture<Void>> blocked_future_result = split->process();
 
+        LOG(INFO) << "[TimeSharingTaskExecutor] split processed, split_id: " << split->split_id()
+                  << ", task_id: " << split->task_handle()->task_id().to_string()
+                  << ", has_error: " << !blocked_future_result.has_value();
         if (!blocked_future_result.has_value()) {
             LOG(WARNING) << "split process failed, split_id: " << split->split_id()
                          << ", status: " << blocked_future_result.error();
@@ -577,27 +608,51 @@ void TimeSharingTaskExecutor::_dispatch_thread() {
             auto blocked_future = blocked_future_result.value();
 
             if (split->is_finished()) {
-                {
-                    std::ostringstream _oss;
-                    _oss << std::this_thread::get_id();
-                }
+                LOG(INFO) << "[TimeSharingTaskExecutor] split finished, split_id: "
+                          << split->split_id()
+                          << ", task_id: " << split->task_handle()->task_id().to_string()
+                          << ", status: " << split->finished_status().to_string();
                 _split_finished(split, split->finished_status());
             } else {
+                LOG(INFO) << "[TimeSharingTaskExecutor] split not finished (blocked), split_id: "
+                          << split->split_id()
+                          << ", task_id: " << split->task_handle()->task_id().to_string()
+                          << ", is_auto_reschedule: " << split->is_auto_reschedule()
+                          << ", future_done: " << blocked_future.is_done();
                 if (split->is_auto_reschedule()) {
                     std::unique_lock<std::mutex> lock(_mutex);
                     if (blocked_future.is_done()) {
+                        LOG(INFO) << "[TimeSharingTaskExecutor] blocked future already done, "
+                                     "re-offering split, split_id: "
+                                  << split->split_id();
                         lock.unlock();
                         l.lock();
                         if (_tokenless->state() == SplitThreadPoolToken::State::RUNNING) {
+                            LOG(INFO) << "[TimeSharingTaskExecutor] re-offering split to queue, "
+                                         "split_id: "
+                                      << split->split_id()
+                                      << ", queue_size: " << _tokenless->_entries->size();
                             _tokenless->_entries->offer(split);
+                        } else {
+                            LOG(INFO) << "[TimeSharingTaskExecutor] token not running, cannot "
+                                         "re-offer, split_id: "
+                                      << split->split_id()
+                                      << ", token_state: " << _tokenless->state();
                         }
                         l.unlock();
                     } else {
+                        LOG(INFO) << "[TimeSharingTaskExecutor] registering callback for blocked "
+                                     "split, split_id: "
+                                  << split->split_id()
+                                  << ", blocked_splits_count: " << _blocked_splits.size();
                         _blocked_splits[split] = blocked_future;
 
                         _blocked_splits[split].add_callback([this, split](const Void& value,
                                                                           const Status& status) {
                             if (status.ok()) {
+                                LOG(INFO) << "[TimeSharingTaskExecutor] blocked split callback ok, "
+                                             "split_id: "
+                                          << split->split_id();
                                 {
                                     std::unique_lock<std::mutex> lock(_mutex);
                                     _blocked_splits.erase(split);
@@ -605,7 +660,16 @@ void TimeSharingTaskExecutor::_dispatch_thread() {
                                 split->reset_level_priority();
                                 std::unique_lock<std::mutex> l(_lock);
                                 if (_tokenless->state() == SplitThreadPoolToken::State::RUNNING) {
+                                    LOG(INFO) << "[TimeSharingTaskExecutor] re-offering unblocked "
+                                                 "split, split_id: "
+                                              << split->split_id()
+                                              << ", queue_size: " << _tokenless->_entries->size();
                                     _tokenless->_entries->offer(split);
+                                } else {
+                                    LOG(INFO) << "[TimeSharingTaskExecutor] token not running, "
+                                                 "cannot re-offer unblocked split, split_id: "
+                                              << split->split_id()
+                                              << ", token_state: " << _tokenless->state();
                                 }
                             } else {
                                 LOG(WARNING) << "blocked split is failed, split_id: "
@@ -624,7 +688,17 @@ void TimeSharingTaskExecutor::_dispatch_thread() {
         // objects, and we don't want to block submission of the SplitThreadPool.
         // In the worst case, the destructor might even try to do something
         // with this SplitThreadPool, and produce a deadlock.
-        // task.runnable.reset();
+        //
+        // IMPORTANT: We must explicitly release 'split' BEFORE acquiring _lock to avoid
+        // self-deadlock. The destructor chain (PrioritizedSplitRunner -> ScannerSplitRunner
+        // -> _scan_func lambda -> captured ScannerContext) may call remove_task() which
+        // tries to acquire _lock. Since _lock is not a recursive mutex, this would deadlock.
+        {
+            std::lock_guard<std::mutex> guard(_mutex);
+            _running_splits.erase(split);
+        }
+        split.reset();
+
         l.lock();
         thread_pool_task_execution_time_ns_total->increment(
                 task_execution_time_watch.elapsed_time());
@@ -642,11 +716,22 @@ void TimeSharingTaskExecutor::_dispatch_thread() {
         // handle shutdown && idle
         if (_tokenless->_active_threads == 0) {
             if (state == SplitThreadPoolToken::State::QUIESCING) {
+                LOG(INFO) << "[TimeSharingTaskExecutor] transitioning to QUIESCED, active_threads: "
+                             "0, queue_size: "
+                          << _tokenless->_entries->size();
                 DCHECK(_tokenless->_entries->size() == 0);
                 _tokenless->transition(SplitThreadPoolToken::State::QUIESCED);
             } else if (_tokenless->_entries->size() == 0) {
+                LOG(INFO) << "[TimeSharingTaskExecutor] transitioning to IDLE, active_threads: 0, "
+                             "queue_size: 0";
                 _tokenless->transition(SplitThreadPoolToken::State::IDLE);
             }
+        } else {
+            LOG(INFO)
+                    << "[TimeSharingTaskExecutor] token still has active threads, active_threads: "
+                    << _tokenless->_active_threads
+                    << ", queue_size: " << _tokenless->_entries->size()
+                    << ", state: " << _tokenless->state();
         }
 
         // We decrease _num_submitted_tasks holding lock, so the following DCHECK works.
@@ -731,6 +816,8 @@ Result<std::shared_ptr<TaskHandle>> TimeSharingTaskExecutor::create_task(
         const TaskId& task_id, std::function<double()> utilization_supplier,
         int initial_split_concurrency, std::chrono::nanoseconds split_concurrency_adjust_frequency,
         std::optional<int> max_concurrency_per_task) {
+    LOG(INFO) << "[TimeSharingTaskExecutor] create_task called, task_id: " << task_id.to_string()
+              << ", initial_split_concurrency: " << initial_split_concurrency;
     auto task_handle = std::make_shared<TimeSharingTaskHandle>(
             task_id, _tokenless->_entries, utilization_supplier, initial_split_concurrency,
             split_concurrency_adjust_frequency, max_concurrency_per_task);
@@ -753,6 +840,8 @@ Status TimeSharingTaskExecutor::add_task(const TaskId& task_id,
 
 Status TimeSharingTaskExecutor::remove_task(std::shared_ptr<TaskHandle> task_handle) {
     auto handle = std::dynamic_pointer_cast<TimeSharingTaskHandle>(task_handle);
+    LOG(INFO) << "[TimeSharingTaskExecutor] remove_task called, task_id: "
+              << handle->task_id().to_string();
     std::vector<std::shared_ptr<PrioritizedSplitRunner>> splits_to_destroy;
 
     {
@@ -808,6 +897,9 @@ Status TimeSharingTaskExecutor::remove_task(std::shared_ptr<TaskHandle> task_han
 Result<std::vector<SharedListenableFuture<Void>>> TimeSharingTaskExecutor::enqueue_splits(
         std::shared_ptr<TaskHandle> task_handle, bool intermediate,
         const std::vector<std::shared_ptr<SplitRunner>>& splits) {
+    LOG(INFO) << "[TimeSharingTaskExecutor] enqueue_splits called, task_id: "
+              << task_handle->task_id().to_string() << ", splits_count: " << splits.size()
+              << ", intermediate: " << intermediate;
     std::vector<std::shared_ptr<PrioritizedSplitRunner>> splits_to_destroy;
     Defer defer {[&]() {
         for (auto& split : splits_to_destroy) {
@@ -832,6 +924,8 @@ Result<std::vector<SharedListenableFuture<Void>>> TimeSharingTaskExecutor::enque
                     splits_to_destroy.push_back(prioritized_split);
                 }
             } else {
+                LOG(INFO) << "enqueueing split, split_id: " << prioritized_split->split_id()
+                          << ", task_id: " << handle->task_id().to_string();
                 if (handle->enqueue_split(prioritized_split)) {
                     _schedule_task_if_necessary(handle, lock);
                     _add_new_entrants(lock);
@@ -852,11 +946,16 @@ Status TimeSharingTaskExecutor::re_enqueue_split(std::shared_ptr<TaskHandle> tas
     std::shared_ptr<PrioritizedSplitRunner> prioritized_split =
             handle->get_split(split, intermediate);
     prioritized_split->reset_level_priority();
+    LOG(INFO) << "re-enqueueing split, split_id: " << prioritized_split->split_id()
+              << ", task_id: " << task_handle->task_id().to_string();
     return _do_submit(prioritized_split);
 }
 
 void TimeSharingTaskExecutor::_split_finished(std::shared_ptr<PrioritizedSplitRunner> split,
                                               const Status& status) {
+    LOG(INFO) << "[TimeSharingTaskExecutor] _split_finished called, split_id: " << split->split_id()
+              << ", task_id: " << split->task_handle()->task_id().to_string()
+              << ", status: " << status.to_string() << ", level: " << split->priority().level();
     _completed_splits_per_level[split->priority().level()]++;
     {
         std::unique_lock<std::mutex> lock(_mutex);
