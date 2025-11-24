@@ -51,8 +51,7 @@ public:
 
     ~LakeSoulJniReader() override = default;
 
-    Status init_reader(
-            const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range);
+    Status init_reader();
 
 private:
     const TLakeSoulFileDesc& _lakesoul_params;
