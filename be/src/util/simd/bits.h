@@ -22,7 +22,9 @@
 #include <type_traits>
 #include <vector>
 
-#if defined(__ARM_NEON) && defined(__aarch64__)
+#ifdef __ARM_FEATURE_SVE
+#include <arm_sve.h>
+#elif defined(__ARM_NEON)
 #include <arm_neon.h>
 #endif
 
@@ -130,7 +132,17 @@ template <typename T>
 inline T count_zero_num(const int8_t* __restrict data, T size) {
     T num = 0;
     const int8_t* end = data + size;
-#if defined(__SSE2__) && defined(__POPCNT__)
+#ifdef __ARM_FEATURE_SVE
+    const int8_t* ptr = data;
+    while (ptr < end) {
+        svbool_t pg = svwhilelt_b8(ptr - data, end - data);
+        svint8_t v = svld1_s8(pg, ptr);
+        svbool_t p0 = svcmpeq_n_s8(pg, v, 0);
+        num += static_cast<T>(svcntp_b8(svptrue_b8(), p0));
+        ptr += svcntb();
+    }
+    return num;
+#elif defined(__SSE2__) && defined(__POPCNT__)
     const __m128i zero16 = _mm_setzero_si128();
     const int8_t* end64 = data + (size / 64 * 64);
 
@@ -160,7 +172,22 @@ template <typename T>
 inline T count_zero_num(const int8_t* __restrict data, const uint8_t* __restrict null_map, T size) {
     T num = 0;
     const int8_t* end = data + size;
-#if defined(__SSE2__) && defined(__POPCNT__)
+#ifdef __ARM_FEATURE_SVE
+    const int8_t* ptr = data;
+    const uint8_t* nmp = null_map;
+    while (ptr < end) {
+        svbool_t pg = svwhilelt_b8(ptr - data, end - data);
+        svint8_t v = svld1_s8(pg, ptr);
+        svuint8_t nmv = svld1_u8(pg, nmp);
+        svbool_t p_zero = svcmpeq_n_s8(pg, v, 0);
+        svbool_t p_null = svcmpne_n_u8(pg, nmv, 0);
+        svbool_t p = svorr_b_z(pg, p_zero, p_null);
+        num += static_cast<T>(svcntp_b8(svptrue_b8(), p));
+        ptr += svcntb();
+        nmp += svcntb();
+    }
+    return num;
+#elif defined(__SSE2__) && defined(__POPCNT__)
     const __m128i zero16 = _mm_setzero_si128();
     const int8_t* end64 = data + (size / 64 * 64);
 
