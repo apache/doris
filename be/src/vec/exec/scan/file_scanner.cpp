@@ -105,13 +105,11 @@ FileScanner::FileScanner(
         RuntimeState* state, pipeline::FileScanLocalState* local_state, int64_t limit,
         std::shared_ptr<vectorized::SplitSourceConnector> split_source, RuntimeProfile* profile,
         ShardedKVCache* kv_cache,
-        const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
         const std::unordered_map<std::string, int>* colname_to_slot_id)
         : Scanner(state, local_state, limit, profile),
           _split_source(split_source),
           _cur_reader(nullptr),
           _cur_reader_eof(false),
-          _colname_to_value_range(colname_to_value_range),
           _kv_cache(kv_cache),
           _strict_mode(false),
           _col_name_to_slot_id(colname_to_slot_id) {
@@ -1015,34 +1013,34 @@ Status FileScanner::_get_next_reader() {
                 std::unique_ptr<MaxComputeJniReader> mc_reader = MaxComputeJniReader::create_unique(
                         mc_desc, range.table_format_params.max_compute_params, _file_slot_descs,
                         range, _state, _profile);
-                init_status = mc_reader->init_reader(_colname_to_value_range);
+                init_status = mc_reader->init_reader();
                 _cur_reader = std::move(mc_reader);
             } else if (range.__isset.table_format_params &&
                        range.table_format_params.table_format_type == "paimon") {
                 _cur_reader = PaimonJniReader::create_unique(_file_slot_descs, _state, _profile,
                                                              range, _params);
                 init_status = ((PaimonJniReader*)(_cur_reader.get()))
-                                      ->init_reader(_colname_to_value_range);
+                                      ->init_reader();
             } else if (range.__isset.table_format_params &&
                        range.table_format_params.table_format_type == "hudi") {
                 _cur_reader = HudiJniReader::create_unique(*_params,
                                                            range.table_format_params.hudi_params,
                                                            _file_slot_descs, _state, _profile);
                 init_status =
-                        ((HudiJniReader*)_cur_reader.get())->init_reader(_colname_to_value_range);
+                        ((HudiJniReader*)_cur_reader.get())->init_reader();
             } else if (range.__isset.table_format_params &&
                        range.table_format_params.table_format_type == "lakesoul") {
                 _cur_reader =
                         LakeSoulJniReader::create_unique(range.table_format_params.lakesoul_params,
                                                          _file_slot_descs, _state, _profile);
                 init_status = ((LakeSoulJniReader*)_cur_reader.get())
-                                      ->init_reader(_colname_to_value_range);
+                                      ->init_reader();
             } else if (range.__isset.table_format_params &&
                        range.table_format_params.table_format_type == "trino_connector") {
                 _cur_reader = TrinoConnectorJniReader::create_unique(_file_slot_descs, _state,
                                                                      _profile, range);
                 init_status = ((TrinoConnectorJniReader*)(_cur_reader.get()))
-                                      ->init_reader(_colname_to_value_range);
+                                      ->init_reader();
             }
             break;
         }
@@ -1128,7 +1126,7 @@ Status FileScanner::_get_next_reader() {
             _cur_reader = AvroJNIReader::create_unique(_state, _profile, *_params, _file_slot_descs,
                                                        range);
             init_status =
-                    ((AvroJNIReader*)(_cur_reader.get()))->init_reader(_colname_to_value_range);
+                    ((AvroJNIReader*)(_cur_reader.get()))->init_reader();
             break;
         }
         case TFileFormatType::FORMAT_WAL: {
@@ -1482,8 +1480,6 @@ Status FileScanner::prepare_for_read_lines(const TFileRangeDesc& range) {
     RETURN_IF_ERROR(_init_expr_ctxes());
 
     // Since only one column is read from the file, there is no need to filter, so set these variables to empty.
-    static std::unordered_map<std::string, ColumnValueRangeType> colname_to_value_range;
-    _colname_to_value_range = &colname_to_value_range;
     _push_down_conjuncts.clear();
     _not_single_slot_filter_conjuncts.clear();
     _slot_id_to_filter_conjuncts.clear();
