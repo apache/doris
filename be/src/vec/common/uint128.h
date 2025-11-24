@@ -70,7 +70,6 @@ struct UInt72 {
 };
 #pragma pack()
 
-
 #pragma pack(1)
 struct UInt136 {
     UInt8 a;
