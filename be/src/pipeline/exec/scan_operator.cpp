@@ -236,17 +236,6 @@ Status ScanLocalState<Derived>::_normalize_conjuncts(RuntimeState* state) {
         }
         ++it;
     }
-    for (auto& it : _slot_id_to_value_range) {
-        std::visit(
-                [&](auto&& range) {
-                    if (range.is_empty_value_range()) {
-                        _eos = true;
-                        _scan_dependency->set_ready();
-                    }
-                },
-                it.second.second);
-        _colname_to_value_range[it.second.first->col_name()] = it.second.second;
-    }
 
     return Status::OK();
 }
@@ -359,6 +348,10 @@ Status ScanLocalState<Derived>::_normalize_predicate(
                                 RETURN_IF_PUSH_DOWN(
                                         _normalize_function_filters(cur_expr, context, slot, &pdt),
                                         status);
+                            }
+                            if (value_range.is_empty_value_range()) {
+                                _eos = true;
+                                _scan_dependency->set_ready();
                             }
                         },
                         *range);
