@@ -31,5 +31,12 @@ suite("test_grant_auth","p0,auth") {
             exception "Unknown privilege type"
         }
 
+    test {
+            sql """
+               revoke INSERT_PRIV on *.*.* from ${user}
+                """
+            exception "Unknown privilege type"
+        }
+
     try_sql("DROP USER ${user}")
 }
