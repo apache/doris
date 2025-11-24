@@ -88,7 +88,7 @@ public class PostgreSQLJdbcExecutor extends BaseJdbcExecutor {
             case STRING:
                 return resultSet.getObject(columnIndex + 1);
             case VARBINARY:
-                return resultSet.getObject(columnIndex + 1, byte[].class);
+                return resultSet.getBytes(columnIndex + 1);
             case ARRAY:
                 java.sql.Array array = resultSet.getArray(columnIndex + 1);
                 return array == null ? null : convertArrayToList(array.getArray());
