@@ -295,6 +295,15 @@ void RowsetMeta::merge_rowset_meta(const RowsetMeta& other) {
     set_total_disk_size(data_disk_size() + index_disk_size());
     set_segments_key_bounds_truncated(is_segments_key_bounds_truncated() ||
                                       other.is_segments_key_bounds_truncated());
+    if (_rowset_meta_pb.segment_rows_size() > 0 && other._rowset_meta_pb.segment_rows_size() > 0) {
+        for (auto row_count : other._rowset_meta_pb.segment_rows()) {
+            _rowset_meta_pb.add_segment_rows(row_count);
+        }
+    } else {
+        // this may happen when a partial update load commits in low version
+        // and publishes with new segments in high version
+        _rowset_meta_pb.clear_segment_rows();
+    }
     for (auto&& key_bound : other.get_segments_key_bounds()) {
         add_segment_key_bounds(key_bound);
     }

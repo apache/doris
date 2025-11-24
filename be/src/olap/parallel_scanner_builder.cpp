@@ -187,19 +187,19 @@ Status ParallelScannerBuilder::_load() {
             auto prom = std::make_shared<std::promise<Status>>();
             proms.emplace_back(prom);
 
+            // although we persist the segment rows info in rowset meta, for historical rowsets,
+            // we still need to load segments to get the segment rows info. So we still fetch them concurrently.
             auto st = pool->submit_scan_task(SimplifiedScanTask(
                     [esc = enable_segment_cache, rowset, &bmtx, p = std::move(prom), this] {
-                        SegmentCacheHandle sch;
-                        auto task_st = SegmentLoader::instance()->load_segments(
-                                std::dynamic_pointer_cast<BetaRowset>(rowset), &sch, esc, false,
-                                &_builder_stats);
+                        std::vector<uint32_t> segment_rows;
+                        auto beta_rowset = std::dynamic_pointer_cast<BetaRowset>(rowset);
+                        Status task_st = beta_rowset->get_segment_num_rows(&segment_rows, esc,
+                                                                           &_builder_stats);
                         Defer defer([p, &task_st] { p->set_value(task_st); });
-                        if (!task_st.ok()) return;
 
                         std::unique_lock lck(bmtx);
-                        for (const auto& segment : sch.get_segments()) {
-                            _all_segments_rows[rowset->rowset_id()].emplace_back(
-                                    segment->num_rows());
+                        for (const auto& num_rows : segment_rows) {
+                            _all_segments_rows[rowset->rowset_id()].emplace_back(num_rows);
                         }
                         _total_rows += rowset->num_rows();
                     },

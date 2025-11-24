@@ -17,6 +17,7 @@
 
 #include "olap/rowset/beta_rowset.h"
 
+#include <butil/logging.h>
 #include <ctype.h>
 #include <errno.h>
 #include <fmt/format.h>
@@ -28,6 +29,7 @@
 #include <utility>
 
 #include "beta_rowset.h"
+#include "cloud/config.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
@@ -66,6 +68,43 @@ BetaRowset::~BetaRowset() = default;
 
 Status BetaRowset::init() {
     return Status::OK(); // no op
+}
+
+Status BetaRowset::get_segment_num_rows(std::vector<uint32_t>* segment_rows,
+                                        bool enable_segment_cache,
+                                        OlapReaderStatistics* read_stats) {
+    RETURN_IF_ERROR(_load_segment_rows_once.call([this, enable_segment_cache, read_stats] {
+        auto segment_count = num_segments();
+        if (!_rowset_meta->get_segment_rows().empty()) {
+            if (_rowset_meta->get_segment_rows().size() == segment_count) {
+                // use segment rows in rowset meta if eligible
+                _segments_rows.assign(_rowset_meta->get_segment_rows().cbegin(),
+                                      _rowset_meta->get_segment_rows().cend());
+                return Status::OK();
+            } else {
+                auto msg = fmt::format(
+                        "corrupted segment rows info in rowset meta. "
+                        "segment count: {}, segment rows size: {}, tablet={}, rowset={}",
+                        segment_count, _rowset_meta->get_segment_rows().size(),
+                        _rowset_meta->tablet_id(), _rowset_meta->rowset_id());
+                DCHECK(false) << msg;
+                LOG_EVERY_SECOND(WARNING) << msg;
+            }
+        }
+        // otherwise, read it from segment footer
+        SegmentCacheHandle segment_cache_handle;
+        auto self = shared_from_this();
+        RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(
+                std::dynamic_pointer_cast<BetaRowset>(self), &segment_cache_handle,
+                enable_segment_cache, false, read_stats));
+        for (const auto& segment : segment_cache_handle.get_segments()) {
+            _segments_rows.emplace_back(segment->num_rows());
+        }
+
+        return Status::OK();
+    }));
+    segment_rows->assign(_segments_rows.cbegin(), _segments_rows.cend());
+    return Status::OK();
 }
 
 Status BetaRowset::do_load(bool /*use_cache*/) {
@@ -325,7 +364,9 @@ Status BetaRowset::link_files_to(const std::string& dir, RowsetId new_rowset_id,
                 RETURN_IF_ERROR(local_fs->exists(inverted_index_src_file_path, &index_file_exists));
                 if (index_file_exists) {
                     DBUG_EXECUTE_IF(
-                            "fault_inject::BetaRowset::link_files_to::_link_inverted_index_file", {
+                            "fault_inject::BetaRowset::link_files_to::_link_inverted_index_"
+                            "file",
+                            {
                                 status = Status::Error<OS_ERROR>(
                                         "fault_inject link_file error from={}, to={}",
                                         inverted_index_src_file_path, inverted_index_dst_file_path);

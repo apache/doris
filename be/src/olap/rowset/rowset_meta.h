@@ -140,6 +140,17 @@ public:
 
     void set_num_rows(int64_t num_rows) { _rowset_meta_pb.set_num_rows(num_rows); }
 
+    void set_segment_rows(const std::vector<uint32_t>& segment_rows) {
+        _rowset_meta_pb.mutable_segment_rows()->Assign(segment_rows.cbegin(), segment_rows.cend());
+    }
+
+    void get_segment_rows(std::vector<uint32_t>* segment_rows) const {
+        segment_rows->assign(_rowset_meta_pb.segment_rows().cbegin(),
+                             _rowset_meta_pb.segment_rows().cend());
+    }
+
+    auto& get_segment_rows() const { return _rowset_meta_pb.segment_rows(); }
+
     int64_t total_disk_size() const { return _rowset_meta_pb.total_disk_size(); }
 
     void set_total_disk_size(int64_t total_disk_size) {
