@@ -127,9 +127,7 @@ Status LoadChannelMgr::_get_load_channel(std::shared_ptr<LoadChannel>& channel, 
                     LOG(INFO) << fmt::format(
                             "The channel has been cancelled, load_id = {}, error = {}",
                             print_id(load_id), cancel_reason);
-                    return Status::Cancelled(
-                            "Load channel has been cancelled previously: {}, reason: {}",
-                            load_id.to_string(), cancel_reason);
+                    return Status::Cancelled(cancel_reason);  
                 } else {
                     // in LoadChannelMgr::cancel, we make sure it will not reach here
                     // so do what we do in cancel()
@@ -224,17 +222,13 @@ Status LoadChannelMgr::cancel(const PTabletWriterCancelRequest& params) {
             if (params.has_cancel_reason() && !params.cancel_reason().empty()) {
                 std::unique_ptr<CacheValue> cancel_reason_ptr = std::make_unique<CacheValue>();
                 cancel_reason_ptr->_cancel_reason = params.cancel_reason();
-                size_t cache_capacity = cancel_reason_ptr->_cancel_reason.capacity();
+                size_t cache_capacity = cancel_reason_ptr->_cancel_reason.capacity() + sizeof(CacheValue);
                 auto* handle = _load_state_channels->insert(
                         load_id.to_string(), cancel_reason_ptr.get(), 1, cache_capacity);
                 cancel_reason_ptr.release();
                 _load_state_channels->release(handle);
                 LOG(INFO) << fmt::format("load_id = {}, record_error reason = {}",
                                          print_id(load_id), params.cancel_reason());
-            } else {
-                return Status::RpcError(
-                        "cancel_reason should not be empty or not set during load: {}",
-                        load_id.to_string());
             }
         } else {
             _load_state_channels->release(existing_handle);
