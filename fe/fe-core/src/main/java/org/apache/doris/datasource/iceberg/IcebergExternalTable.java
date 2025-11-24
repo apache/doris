@@ -66,6 +66,7 @@ import java.util.stream.Collectors;
 
 public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTableIf, MTMVBaseTableIf, MvccTable {
 
+    private boolean isValidRelatedTableCached = false;
     private boolean isValidRelatedTable = false;
     private boolean isView;
     private static final String ENGINE_PROP_NAME = "engine-name";
@@ -218,15 +219,20 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
     @Override
     public boolean isValidRelatedTable() {
         makeSureInitialized();
+        if (isValidRelatedTableCached) {
+            return isValidRelatedTable;
+        }
         isValidRelatedTable = false;
         Set<String> allFields = Sets.newHashSet();
         Table table = getIcebergTable();
         for (PartitionSpec spec : table.specs().values()) {
             if (spec == null) {
+                isValidRelatedTableCached = true;
                 return false;
             }
             List<PartitionField> fields = spec.fields();
             if (fields.size() != 1) {
+                isValidRelatedTableCached = true;
                 return false;
             }
             PartitionField partitionField = spec.fields().get(0);
@@ -235,10 +241,12 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
                     && !IcebergUtils.MONTH.equals(transformName)
                     && !IcebergUtils.DAY.equals(transformName)
                     && !IcebergUtils.HOUR.equals(transformName)) {
+                isValidRelatedTableCached = true;
                 return false;
             }
             allFields.add(table.schema().findColumnName(partitionField.sourceId()));
         }
+        isValidRelatedTableCached = true;
         isValidRelatedTable = allFields.size() == 1;
         return isValidRelatedTable;
     }
@@ -264,8 +272,17 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
     }
 
     @VisibleForTesting
+    public boolean isValidRelatedTableCached() {
+        return isValidRelatedTableCached;
+    }
+
+    @VisibleForTesting
     public boolean validRelatedTableCache() {
         return isValidRelatedTable;
+    }
+
+    public void setIsValidRelatedTableCached(boolean isCached) {
+        this.isValidRelatedTableCached = isCached;
     }
 
     @Override

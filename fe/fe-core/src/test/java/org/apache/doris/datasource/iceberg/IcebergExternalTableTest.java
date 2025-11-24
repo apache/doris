@@ -80,23 +80,32 @@ public class IcebergExternalTableTest {
         specs.put(0, null);
         Mockito.when(icebergTable.specs()).thenReturn(specs);
 
+        Assertions.assertFalse(spyTable.isValidRelatedTableCached());
         Assertions.assertFalse(spyTable.isValidRelatedTable());
 
         Mockito.verify(icebergTable, Mockito.times(1)).specs();
+        Assertions.assertTrue(spyTable.isValidRelatedTableCached());
         Assertions.assertFalse(spyTable.validRelatedTableCache());
 
         // Test spec fields are empty.
         specs.put(0, spec);
+        spyTable.setIsValidRelatedTableCached(false);
+        Assertions.assertFalse(spyTable.isValidRelatedTableCached());
+
         Mockito.when(icebergTable.specs()).thenReturn(specs);
         List<PartitionField> fields = Lists.newArrayList();
         Mockito.when(spec.fields()).thenReturn(fields);
 
         Assertions.assertFalse(spyTable.isValidRelatedTable());
         Mockito.verify(spec, Mockito.times(1)).fields();
+        Assertions.assertTrue(spyTable.isValidRelatedTableCached());
         Assertions.assertFalse(spyTable.validRelatedTableCache());
 
         // Test spec fields are more than 1.
         specs.put(0, spec);
+        spyTable.setIsValidRelatedTableCached(false);
+        Assertions.assertFalse(spyTable.isValidRelatedTableCached());
+
         Mockito.when(icebergTable.specs()).thenReturn(specs);
         fields.add(null);
         fields.add(null);
@@ -104,27 +113,37 @@ public class IcebergExternalTableTest {
 
         Assertions.assertFalse(spyTable.isValidRelatedTable());
         Mockito.verify(spec, Mockito.times(2)).fields();
+        Assertions.assertTrue(spyTable.isValidRelatedTableCached());
         Assertions.assertFalse(spyTable.validRelatedTableCache());
         fields.clear();
 
         // Test true
         fields.add(field);
+        spyTable.setIsValidRelatedTableCached(false);
+        Assertions.assertFalse(spyTable.isValidRelatedTableCached());
+
         Mockito.when(icebergTable.schema()).thenReturn(schema);
         Mockito.when(schema.findColumnName(ArgumentMatchers.anyInt())).thenReturn("col1");
         Mockito.when(field.transform()).thenReturn(new Hours());
         Mockito.when(field.sourceId()).thenReturn(1);
 
         Assertions.assertTrue(spyTable.isValidRelatedTable());
+        Assertions.assertTrue(spyTable.isValidRelatedTableCached());
         Assertions.assertTrue(spyTable.validRelatedTableCache());
         Mockito.verify(schema, Mockito.times(1)).findColumnName(ArgumentMatchers.anyInt());
 
         Mockito.when(field.transform()).thenReturn(new Days());
         Mockito.when(field.sourceId()).thenReturn(1);
+        spyTable.setIsValidRelatedTableCached(false);
+        Assertions.assertFalse(spyTable.isValidRelatedTableCached());
         Assertions.assertTrue(spyTable.isValidRelatedTable());
 
         Mockito.when(field.transform()).thenReturn(new Months());
         Mockito.when(field.sourceId()).thenReturn(1);
+        spyTable.setIsValidRelatedTableCached(false);
+        Assertions.assertFalse(spyTable.isValidRelatedTableCached());
         Assertions.assertTrue(spyTable.isValidRelatedTable());
+        Assertions.assertTrue(spyTable.isValidRelatedTableCached());
         Assertions.assertTrue(spyTable.validRelatedTableCache());
     }
 
