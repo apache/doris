@@ -31,6 +31,40 @@ CoordinatorContext::CoordinatorContext(TUniqueId query_id, TQueryOptions query_o
 }
 
 CoordinatorContext::~CoordinatorContext() {
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(query_mem_tracker());
+    // query mem tracker consumption is equal to 0, it means that after QueryContext is created,
+    // it is found that query already exists in _query_ctx_map, and query mem tracker is not used.
+    // query mem tracker consumption is not equal to 0 after use, because there is memory consumed
+    // on query mem tracker, released on other trackers.
+    std::string mem_tracker_msg;
+    if (query_mem_tracker()->peak_consumption() != 0) {
+        mem_tracker_msg = fmt::format(
+                "deregister query/load memory tracker, queryId={}, Limit={}, CurrUsed={}, "
+                "PeakUsed={}",
+                print_id(_query_id), PrettyPrinter::print_bytes(query_mem_tracker()->limit()),
+                PrettyPrinter::print_bytes(query_mem_tracker()->consumption()),
+                PrettyPrinter::print_bytes(query_mem_tracker()->peak_consumption()));
+    }
+    [[maybe_unused]] uint64_t group_id = 0;
+    if (_resource_ctx->workload_group()) {
+        group_id = _resource_ctx->workload_group()->id(); // before remove
+    }
+
+    _resource_ctx->task_controller()->finish();
+
+    // the only one msg shows query's end. any other msg should append to it if need.
+    LOG_INFO("Query {} deconstructed, mem_tracker: {}", print_id(this->_query_id), mem_tracker_msg);
+
+#ifndef BE_TEST
+    if (ExecEnv::GetInstance()->pipeline_tracer_context()->enabled()) [[unlikely]] {
+        try {
+            ExecEnv::GetInstance()->pipeline_tracer_context()->end_query(_query_id, group_id);
+        } catch (std::exception& e) {
+            LOG(WARNING) << "Dump trace log failed bacause " << e.what();
+        }
+    }
+#endif
+    _resource_ctx->memory_context()->mem_tracker();
     SCOPED_ATTACH_TASK(_resource_ctx);
     _merge_controller_handler.reset();
 }
@@ -69,6 +103,11 @@ TUniqueId CoordinatorContext::query_id() const {
 
 std::shared_ptr<ResourceContext> CoordinatorContext::resource_ctx() const {
     return _resource_ctx;
+}
+
+std::shared_ptr<MemTrackerLimiter> CoordinatorContext::query_mem_tracker() const {
+    DCHECK(_resource_ctx->memory_context()->mem_tracker() != nullptr);
+    return _resource_ctx->memory_context()->mem_tracker();
 }
 
 } // namespace doris

@@ -57,6 +57,8 @@ public:
 
     std::shared_ptr<ResourceContext> resource_ctx() const;
 
+    std::shared_ptr<MemTrackerLimiter> query_mem_tracker() const;
+
 private:
     TUniqueId _query_id;
     TQueryOptions _query_options;

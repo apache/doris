@@ -189,39 +189,10 @@ void QueryContext::init_query_task_controller() {
 
 QueryContext::~QueryContext() {
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(query_mem_tracker());
-    // query mem tracker consumption is equal to 0, it means that after QueryContext is created,
-    // it is found that query already exists in _query_ctx_map, and query mem tracker is not used.
-    // query mem tracker consumption is not equal to 0 after use, because there is memory consumed
-    // on query mem tracker, released on other trackers.
-    std::string mem_tracker_msg;
-    if (query_mem_tracker()->peak_consumption() != 0) {
-        mem_tracker_msg = fmt::format(
-                "deregister query/load memory tracker, queryId={}, Limit={}, CurrUsed={}, "
-                "PeakUsed={}",
-                print_id(_query_id), PrettyPrinter::print_bytes(query_mem_tracker()->limit()),
-                PrettyPrinter::print_bytes(query_mem_tracker()->consumption()),
-                PrettyPrinter::print_bytes(query_mem_tracker()->peak_consumption()));
-    }
-    [[maybe_unused]] uint64_t group_id = 0;
-    if (workload_group()) {
-        group_id = workload_group()->id(); // before remove
-    }
-
-    _resource_ctx->task_controller()->finish();
-
     if (enable_profile()) {
         _report_query_profile();
     }
 
-#ifndef BE_TEST
-    if (ExecEnv::GetInstance()->pipeline_tracer_context()->enabled()) [[unlikely]] {
-        try {
-            ExecEnv::GetInstance()->pipeline_tracer_context()->end_query(_query_id, group_id);
-        } catch (std::exception& e) {
-            LOG(WARNING) << "Dump trace log failed bacause " << e.what();
-        }
-    }
-#endif
     _runtime_filter_mgr.reset();
     _execution_dependency.reset();
     _runtime_predicates.clear();
@@ -230,8 +201,6 @@ QueryContext::~QueryContext() {
 
     DorisMetrics::instance()->query_ctx_cnt->increment(-1);
     ExecEnv::GetInstance()->fragment_mgr()->remove_query_context(this->_query_id);
-    // the only one msg shows query's end. any other msg should append to it if need.
-    LOG_INFO("Query {} deconstructed, mem_tracker: {}", print_id(this->_query_id), mem_tracker_msg);
 }
 
 void QueryContext::set_ready_to_execute(Status reason) {
