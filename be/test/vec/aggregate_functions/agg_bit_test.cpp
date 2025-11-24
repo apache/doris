@@ -25,21 +25,24 @@ namespace doris::vectorized {
 struct AggregateFunctionBitTest : public AggregateFunctiontest {};
 
 TEST_F(AggregateFunctionBitTest, test_group_bit_or) {
-    create_agg("group_bit_or", false, {std::make_shared<DataTypeInt64>()});
+    create_agg("group_bit_or", false, {std::make_shared<DataTypeInt64>()},
+               std::make_shared<DataTypeInt64>());
 
     execute(Block({ColumnHelper::create_column_with_name<DataTypeInt64>({31231, 214142, 123123})}),
             ColumnHelper::create_column_with_name<DataTypeInt64>({261631}));
 }
 
 TEST_F(AggregateFunctionBitTest, test_group_bit_and) {
-    create_agg("group_bit_and", false, {std::make_shared<DataTypeInt64>()});
+    create_agg("group_bit_and", false, {std::make_shared<DataTypeInt64>()},
+               std::make_shared<DataTypeInt64>());
 
     execute(Block({ColumnHelper::create_column_with_name<DataTypeInt64>({213123, 123123, 51431})}),
             ColumnHelper::create_column_with_name<DataTypeInt64>({16515}));
 }
 
 TEST_F(AggregateFunctionBitTest, test_group_bit_xor) {
-    create_agg("group_bit_xor", false, {std::make_shared<DataTypeInt64>()});
+    create_agg("group_bit_xor", false, {std::make_shared<DataTypeInt64>()},
+               std::make_shared<DataTypeInt64>());
 
     execute(Block({ColumnHelper::create_column_with_name<DataTypeInt64>(
                     {213123, 2131231, 23151521451})}),

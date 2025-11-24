@@ -216,7 +216,8 @@ TEST_F(VAggCollectTest, test_complex_data_type) {
 struct AggregateFunctionCollectTest : public AggregateFunctiontest {};
 
 TEST_F(AggregateFunctionCollectTest, test_collect_list_aint64) {
-    create_agg("collect_list", false, {std::make_shared<DataTypeInt64>()});
+    create_agg("collect_list", false, {std::make_shared<DataTypeInt64>()},
+               std::make_shared<DataTypeInt64>());
 
     auto data_type = std::make_shared<DataTypeInt64>();
     auto array_data_type = std::make_shared<DataTypeArray>(make_nullable(data_type));
@@ -240,7 +241,8 @@ TEST_F(AggregateFunctionCollectTest, test_collect_list_aint64) {
 
 TEST_F(AggregateFunctionCollectTest, test_collect_list_aint64_with_max_size) {
     create_agg("collect_list", false,
-               {std::make_shared<DataTypeInt64>(), std::make_shared<DataTypeInt32>()});
+               {std::make_shared<DataTypeInt64>(), std::make_shared<DataTypeInt32>()},
+               std::make_shared<DataTypeInt64>());
 
     auto data_type = std::make_shared<DataTypeInt64>();
     auto array_data_type = std::make_shared<DataTypeArray>(make_nullable(data_type));
@@ -264,7 +266,8 @@ TEST_F(AggregateFunctionCollectTest, test_collect_list_aint64_with_max_size) {
 }
 
 TEST_F(AggregateFunctionCollectTest, test_collect_set_aint64) {
-    create_agg("collect_set", false, {std::make_shared<DataTypeInt64>()});
+    create_agg("collect_set", false, {std::make_shared<DataTypeInt64>()},
+               std::make_shared<DataTypeInt64>());
 
     auto data_type = std::make_shared<DataTypeInt64>();
     auto array_data_type = std::make_shared<DataTypeArray>(make_nullable(data_type));
@@ -288,7 +291,8 @@ TEST_F(AggregateFunctionCollectTest, test_collect_set_aint64) {
 
 TEST_F(AggregateFunctionCollectTest, test_collect_set_aint64_with_max_size) {
     create_agg("collect_set", false,
-               {std::make_shared<DataTypeInt64>(), std::make_shared<DataTypeInt32>()});
+               {std::make_shared<DataTypeInt64>(), std::make_shared<DataTypeInt32>()},
+               std::make_shared<DataTypeInt64>());
 
     auto data_type = std::make_shared<DataTypeInt64>();
     auto array_data_type = std::make_shared<DataTypeArray>(make_nullable(data_type));
