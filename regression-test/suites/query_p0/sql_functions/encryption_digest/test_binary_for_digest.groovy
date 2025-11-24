@@ -24,7 +24,7 @@ suite("test_binary_for_digest", "p0,external,mysql,external_docker,external_dock
     
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String catalog_name = "mysql_varbinary_hash_catalog";
-        String ex_db_name = "doris_test";
+        String ex_db_name = "binary_for_digest_test";
         String mysql_port = context.config.otherConfigs.get("mysql_57_port");
         String test_table = "binary_test";
 
@@ -39,9 +39,11 @@ suite("test_binary_for_digest", "p0,external,mysql,external_docker,external_dock
             "driver_class" = "com.mysql.cj.jdbc.Driver"
         );"""
 
-        connect("root", "123456", "jdbc:mysql://${externalEnvIp}:${mysql_port}/doris_test?useSSL=false") {
-            try_sql """DROP TABLE IF EXISTS ${test_table}"""
-
+        connect("root", "123456", "jdbc:mysql://${externalEnvIp}:${mysql_port}?useSSL=false") {
+            try_sql """DROP DATABASE IF EXISTS ${ex_db_name}"""
+            sql """CREATE DATABASE ${ex_db_name}"""
+            sql """USE ${ex_db_name}"""
+            
             sql """CREATE TABLE ${test_table} (
                 id int,
                 vb varbinary(100),
@@ -137,8 +139,8 @@ suite("test_binary_for_digest", "p0,external,mysql,external_docker,external_dock
                 "Variadic xxHash64 should work with mixed VarBinary and VARCHAR arguments for row ${variadic_xxhash64_result[i][0]}")
         }
 
-        connect("root", "123456", "jdbc:mysql://${externalEnvIp}:${mysql_port}/doris_test?useSSL=false") {
-            try_sql """DROP TABLE IF EXISTS ${test_table}"""
+        connect("root", "123456", "jdbc:mysql://${externalEnvIp}:${mysql_port}?useSSL=false") {
+            try_sql """DROP DATABASE IF EXISTS ${ex_db_name}"""
         }
 
         sql """drop catalog if exists ${catalog_name}"""
