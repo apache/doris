@@ -104,8 +104,7 @@ static void fill_array_offset(FieldSchema* field, ColumnArray::Offsets64& offset
 }
 
 Status ParquetColumnReader::create(io::FileReaderSPtr file, FieldSchema* field,
-                                   const tparquet::RowGroup& row_group,
-                                   const std::vector<RowRange>& row_ranges,
+                                   const tparquet::RowGroup& row_group, const RowRanges& row_ranges,
                                    const cctz::time_zone* ctz, io::IOContext* io_ctx,
                                    std::unique_ptr<ParquetColumnReader>& reader,
                                    size_t max_buf_size, const tparquet::OffsetIndex* offset_index) {
@@ -152,28 +151,13 @@ Status ParquetColumnReader::create(io::FileReaderSPtr file, FieldSchema* field,
     return Status::OK();
 }
 
-void ParquetColumnReader::_generate_read_ranges(int64_t start_index, int64_t end_index,
-                                                std::list<RowRange>& read_ranges) {
+void ParquetColumnReader::_generate_read_ranges(RowRange page_row_range,
+                                                RowRanges* result_ranges) const {
+    result_ranges->add(page_row_range);
     if (_nested_column) {
-        read_ranges.emplace_back(start_index, end_index);
         return;
     }
-    int index = _row_range_index;
-    while (index < _row_ranges.size()) {
-        const RowRange& read_range = _row_ranges[index];
-        if (read_range.last_row <= start_index) {
-            index++;
-            _row_range_index++;
-            continue;
-        }
-        if (read_range.first_row >= end_index) {
-            break;
-        }
-        int64_t start = read_range.first_row < start_index ? start_index : read_range.first_row;
-        int64_t end = read_range.last_row < end_index ? read_range.last_row : end_index;
-        read_ranges.emplace_back(start, end);
-        index++;
-    }
+    RowRanges::ranges_intersection(*result_ranges, _row_ranges, result_ranges);
 }
 
 Status ScalarColumnReader::init(io::FileReaderSPtr file, FieldSchema* field, size_t max_buf_size) {
@@ -619,11 +603,12 @@ Status ScalarColumnReader::read_column_data(
         }
 
         // generate the row ranges that should be read
-        std::list<RowRange> read_ranges;
-        _generate_read_ranges(_current_row_index,
-                              _current_row_index + _chunk_reader->remaining_num_values(),
-                              read_ranges);
-        if (read_ranges.size() == 0) {
+        RowRanges read_ranges;
+        _generate_read_ranges(RowRange {_current_row_index,
+                                        _current_row_index + _chunk_reader->remaining_num_values()},
+                              &read_ranges);
+
+        if (read_ranges.count() == 0) {
             // skip the whole page
             _current_row_index += _chunk_reader->remaining_num_values();
             RETURN_IF_ERROR(_chunk_reader->skip_page());
@@ -634,10 +619,7 @@ Status ScalarColumnReader::read_column_data(
             // When the filtering effect is greater than 60%, it is possible to skip the page or batch.
             if (filter_map.has_filter() && filter_map.filter_ratio() > 0.6) {
                 // lazy read
-                size_t remaining_num_values = 0;
-                for (auto& range : read_ranges) {
-                    remaining_num_values += range.last_row - range.first_row;
-                }
+                size_t remaining_num_values = read_ranges.count();
                 if (batch_size >= remaining_num_values &&
                     filter_map.can_filter_all(remaining_num_values, _filter_map_index)) {
                     // We can skip the whole page if the remaining values is filtered by predicate columns
@@ -659,14 +641,15 @@ Status ScalarColumnReader::read_column_data(
             // load page data to decode or skip values
             RETURN_IF_ERROR(_chunk_reader->load_page_data_idempotent());
             size_t has_read = 0;
-            for (auto& range : read_ranges) {
+            for (size_t idx = 0; idx < read_ranges.range_size(); idx++) {
+                auto range = read_ranges.get_range(idx);
                 // generate the skipped values
-                size_t skip_values = range.first_row - _current_row_index;
+                size_t skip_values = range.from() - _current_row_index;
                 RETURN_IF_ERROR(_skip_values(skip_values));
                 _current_row_index += skip_values;
                 // generate the read values
                 size_t read_values =
-                        std::min((size_t)(range.last_row - range.first_row), batch_size - has_read);
+                        std::min((size_t)(range.to() - range.from()), batch_size - has_read);
                 if (skip_whole_batch) {
                     RETURN_IF_ERROR(_skip_values(read_values));
                 } else {
