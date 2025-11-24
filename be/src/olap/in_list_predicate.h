@@ -287,18 +287,7 @@ public:
         }
     }
 
-    bool evaluate_and(vectorized::ParquetPredicate::ColumnStat* statistic) const override {
-        if (!(*statistic->get_stat_func)(statistic, column_id())) {
-            return true;
-        }
-        vectorized::Field min_field;
-        vectorized::Field max_field;
-        if (!vectorized::ParquetPredicate::get_min_max_value(
-                     statistic->col_schema, statistic->encoded_min_value,
-                     statistic->encoded_max_value, *statistic->ctz, &min_field, &max_field)
-                     .ok()) {
-            return true;
-        };
+    bool camp_field(const vectorized::Field& min_field, const vectorized::Field& max_field) const {
         T min_value;
         T max_value;
         if constexpr (is_int_or_bool(Type) || is_float_or_double(Type)) {
@@ -321,6 +310,53 @@ public:
         } else {
             return true;
         }
+    }
+
+    bool evaluate_and(vectorized::ParquetPredicate::ColumnStat* statistic) const override {
+        if (!(*statistic->get_stat_func)(statistic, column_id())) {
+            return true;
+        }
+
+        vectorized::Field min_field;
+        vectorized::Field max_field;
+        if (!vectorized::ParquetPredicate::parse_min_max_value(
+                     statistic->col_schema, statistic->encoded_min_value,
+                     statistic->encoded_max_value, *statistic->ctz, &min_field, &max_field)
+                     .ok()) [[unlikely]] {
+            return true;
+        };
+
+        return camp_field(min_field, max_field);
+    }
+
+    bool evaluate_and(vectorized::ParquetPredicate::CachedPageIndexStat* statistic,
+                      RowRanges* row_ranges) const override {
+        vectorized::ParquetPredicate::PageIndexStat* stat = nullptr;
+        if (!(statistic->get_stat_func)(&stat, column_id())) {
+            return true;
+        }
+
+        for (int page_id = 0; page_id < stat->num_of_pages; page_id++) {
+            if (stat->is_all_null[page_id]) {
+                // all null page, not need read.
+                continue;
+            }
+
+            vectorized::Field min_field;
+            vectorized::Field max_field;
+            if (!vectorized::ParquetPredicate::parse_min_max_value(
+                         stat->col_schema, stat->encoded_min_value[page_id],
+                         stat->encoded_max_value[page_id], *statistic->ctz, &min_field, &max_field)
+                         .ok()) [[unlikely]] {
+                row_ranges->add(stat->ranges[page_id]);
+                continue;
+            };
+
+            if (camp_field(min_field, max_field)) {
+                row_ranges->add(stat->ranges[page_id]);
+            }
+        };
+        return row_ranges->count() > 0;
     }
 
     bool evaluate_and(const StringRef* dict_words, const size_t count) const override {

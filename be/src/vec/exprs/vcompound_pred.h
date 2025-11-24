@@ -74,10 +74,10 @@ public:
                     all_pass = false;
                     continue;
                 }
-                auto inverted_index_context = context->get_inverted_index_context();
-                if (inverted_index_context->has_inverted_index_result_for_expr(child.get())) {
+                auto inverted_index_context = context->get_index_context();
+                if (inverted_index_context->has_index_result_for_expr(child.get())) {
                     const auto* index_result =
-                            inverted_index_context->get_inverted_index_result_for_expr(child.get());
+                            inverted_index_context->get_index_result_for_expr(child.get());
                     if (res.is_empty()) {
                         res = *index_result;
                     } else {
@@ -103,11 +103,9 @@ public:
                     all_pass = false;
                     continue;
                 }
-                if (context->get_inverted_index_context()->has_inverted_index_result_for_expr(
-                            child.get())) {
+                if (context->get_index_context()->has_index_result_for_expr(child.get())) {
                     const auto* index_result =
-                            context->get_inverted_index_context()
-                                    ->get_inverted_index_result_for_expr(child.get());
+                            context->get_index_context()->get_index_result_for_expr(child.get());
                     if (res.is_empty()) {
                         res = *index_result;
                     } else {
@@ -132,11 +130,9 @@ public:
                 return st;
             }
 
-            if (context->get_inverted_index_context()->has_inverted_index_result_for_expr(
-                        child.get())) {
+            if (context->get_index_context()->has_index_result_for_expr(child.get())) {
                 const auto* index_result =
-                        context->get_inverted_index_context()->get_inverted_index_result_for_expr(
-                                child.get());
+                        context->get_index_context()->get_index_result_for_expr(child.get());
                 roaring::Roaring full_result;
                 full_result.addRange(0, segment_num_rows);
                 res = index_result->op_not(&full_result);
@@ -151,7 +147,7 @@ public:
         }
 
         if (all_pass && !res.is_empty()) {
-            context->get_inverted_index_context()->set_inverted_index_result_for_expr(this, res);
+            context->get_index_context()->set_index_result_for_expr(this, res);
         }
         return Status::OK();
     }

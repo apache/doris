@@ -116,9 +116,13 @@ public:
         std::swap(data, new_data);
     }
 
-    // Use this method only when you are certain index_by_name will not be used
-    // This is a temporary compromise; index_by_name may be removed in the future
-    void simple_insert(const ColumnWithTypeAndName& elem) { data.emplace_back(elem); }
+    std::unordered_map<std::string, uint32_t> get_name_to_pos_map() const {
+        std::unordered_map<std::string, uint32_t> name_to_index_map;
+        for (uint32_t i = 0; i < data.size(); ++i) {
+            name_to_index_map[data[i].name] = i;
+        }
+        return name_to_index_map;
+    }
 
     /// References are invalidated after calling functions above.
     ColumnWithTypeAndName& get_by_position(size_t position) {
@@ -143,11 +147,6 @@ public:
 
     ColumnWithTypeAndName& safe_get_by_position(size_t position);
     const ColumnWithTypeAndName& safe_get_by_position(size_t position) const;
-
-    // Get column by name. Throws an exception if there is no column with that name.
-    // ATTN: this method is O(N). better maintain name -> position map in caller if you need to call it frequently.
-    ColumnWithTypeAndName& get_by_name(const std::string& name);
-    const ColumnWithTypeAndName& get_by_name(const std::string& name) const;
 
     Container::iterator begin() { return data.begin(); }
     Container::iterator end() { return data.end(); }

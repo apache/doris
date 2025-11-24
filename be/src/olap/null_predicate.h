@@ -29,6 +29,7 @@
 #include "olap/rowset/segment_v2/bloom_filter.h"
 #include "olap/schema.h"
 #include "olap/wrapper_field.h"
+#include "vec/exec/format/parquet/parquet_predicate.h"
 
 namespace roaring {
 class Roaring;
@@ -79,6 +80,20 @@ public:
         } else {
             return !statistic->is_all_null;
         }
+    }
+
+    bool evaluate_and(vectorized::ParquetPredicate::CachedPageIndexStat* statistic,
+                      RowRanges* row_ranges) const override {
+        vectorized::ParquetPredicate::PageIndexStat* stat = nullptr;
+        if (!(statistic->get_stat_func)(&stat, column_id())) {
+            return true;
+        }
+        for (int page_id = 0; page_id < stat->num_of_pages; page_id++) {
+            if (_is_null || !stat->is_all_null[page_id]) {
+                row_ranges->add(stat->ranges[page_id]);
+            }
+        };
+        return row_ranges->count() > 0;
     }
 
     bool evaluate_del(const std::pair<WrapperField*, WrapperField*>& statistic) const override {
