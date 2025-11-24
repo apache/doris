@@ -1756,7 +1756,7 @@ interval
 
 unitIdentifier
 	: YEAR | QUARTER | MONTH | WEEK | DAY | HOUR | MINUTE | SECOND | DAY_SECOND | DAY_HOUR
-    | MINUTE_SECOND | SECOND_MICROSECOND
+    | MINUTE_SECOND
     ;
 
 dataTypeWithNullable
