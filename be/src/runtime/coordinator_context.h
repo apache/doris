@@ -22,25 +22,25 @@
 
 #include <memory>
 #include <string>
-#include <utility>
 
 #include "runtime/query_context.h"
 #include "runtime_filter/runtime_filter_mgr.h"
 
 namespace doris {
 
-class QueryHandle;
+class CoordinatorContext;
+class ResourceContext;
 
-// The role of QueryHandle is similar to QueryContext, but its lifecycle is longer than QueryContext.
-// QueryHandle will exist until the entire query ends, rather than being released as the current BE task ends like QueryContext.
+// The role of CoordinatorContext is similar to QueryContext, but its lifecycle is longer than QueryContext.
+// CoordinatorContext will exist until the entire query ends, rather than being released as the current BE task ends like QueryContext.
 // It is mainly used to store runtime states that need coordination between BEs, such as the MergeControllerHandler of RuntimeFilter.
-// This way, even if the QueryContext of one BE has been released, other BEs can still access these coordination states through QueryHandle to ensure the correctness and consistency of the query.
-// QueryContext hold shared_ptr of QueryHandle, and QueryHandle hold weak_ptr of QueryContext to avoid circular references.
-class QueryHandle {
+// This way, even if the QueryContext of one BE has been released, other BEs can still access these coordination states through CoordinatorContext to ensure the correctness and consistency of the query.
+// QueryContext hold shared_ptr of CoordinatorContext, and CoordinatorContext hold weak_ptr of QueryContext to avoid circular references.
+class CoordinatorContext {
 public:
-    QueryHandle(TUniqueId query_id, TQueryOptions query_options,
-                std::weak_ptr<QueryContext> query_ctx);
-    ~QueryHandle();
+    CoordinatorContext(TUniqueId query_id, TQueryOptions query_options,
+                       std::weak_ptr<QueryContext> query_ctx);
+    ~CoordinatorContext();
 
     std::string debug_string() const;
 

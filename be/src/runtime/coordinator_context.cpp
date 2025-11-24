@@ -15,14 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "runtime/query_handle.h"
+#include "runtime/coordinator_context.h"
 
 #include "runtime/query_context.h"
 
 namespace doris {
 
-QueryHandle::QueryHandle(TUniqueId query_id, TQueryOptions query_options,
-                         std::weak_ptr<QueryContext> query_ctx)
+CoordinatorContext::CoordinatorContext(TUniqueId query_id, TQueryOptions query_options,
+                                       std::weak_ptr<QueryContext> query_ctx)
         : _query_id(std::move(query_id)),
           _query_options(std::move(query_options)),
           _query_ctx(std::move(query_ctx)) {
@@ -30,41 +30,44 @@ QueryHandle::QueryHandle(TUniqueId query_id, TQueryOptions query_options,
     _resource_ctx = _query_ctx.lock()->_resource_ctx;
 }
 
-QueryHandle::~QueryHandle() = default;
+CoordinatorContext::~CoordinatorContext() {
+    SCOPED_ATTACH_TASK(_resource_ctx);
+    _merge_controller_handler.reset();
+}
 
-std::string QueryHandle::debug_string() const {
+std::string CoordinatorContext::debug_string() const {
     return fmt::format(
-            "QueryHandle(query_id={}): {}", print_id(_query_id),
+            "CoordinatorContext(query_id={}): {}", print_id(_query_id),
             _merge_controller_handler ? _merge_controller_handler->debug_string() : "null");
 }
 
-void QueryHandle::set_merge_controller_handler(
+void CoordinatorContext::set_merge_controller_handler(
         std::shared_ptr<RuntimeFilterMergeControllerEntity>& handler) {
     _merge_controller_handler = handler;
 }
-std::shared_ptr<RuntimeFilterMergeControllerEntity> QueryHandle::get_merge_controller_handler()
-        const {
+std::shared_ptr<RuntimeFilterMergeControllerEntity>
+CoordinatorContext::get_merge_controller_handler() const {
     return _merge_controller_handler;
 }
 
-const TQueryOptions& QueryHandle::query_options() const {
+const TQueryOptions& CoordinatorContext::query_options() const {
     return _query_options;
 }
 
-std::weak_ptr<QueryContext> QueryHandle::weak_query_ctx() const {
+std::weak_ptr<QueryContext> CoordinatorContext::weak_query_ctx() const {
     return _query_ctx;
 }
 
-int QueryHandle::execution_timeout() const {
+int CoordinatorContext::execution_timeout() const {
     return _query_options.__isset.execution_timeout ? _query_options.execution_timeout
                                                     : _query_options.query_timeout;
 }
 
-TUniqueId QueryHandle::query_id() const {
+TUniqueId CoordinatorContext::query_id() const {
     return _query_id;
 }
 
-std::shared_ptr<ResourceContext> QueryHandle::resource_ctx() const {
+std::shared_ptr<ResourceContext> CoordinatorContext::resource_ctx() const {
     return _resource_ctx;
 }
 

@@ -38,9 +38,9 @@ public:
         _query_ctx =
                 QueryContext::create(TUniqueId(), ExecEnv::GetInstance(), _query_options,
                                      fe_address, true, fe_address, QuerySource::INTERNAL_FRONTEND);
-        _query_handle =
-                std::make_shared<QueryHandle>(_query_ctx->query_id(), _query_options, _query_ctx);
-        _query_ctx->set_query_handle(_query_handle);
+        _coordinator_context = std::make_shared<CoordinatorContext>(_query_ctx->query_id(),
+                                                                    _query_options, _query_ctx);
+        _query_ctx->set_coordinator_context(_coordinator_context);
         _query_ctx->runtime_filter_mgr()->set_runtime_filter_params(
                 TRuntimeFilterParamsBuilder().build());
 
@@ -61,7 +61,7 @@ public:
 protected:
     RuntimeProfile _profile = RuntimeProfile("");
     std::shared_ptr<QueryContext> _query_ctx;
-    std::shared_ptr<QueryHandle> _query_handle;
+    std::shared_ptr<CoordinatorContext> _coordinator_context;
     TQueryOptions _query_options;
     const std::string LOCALHOST = BackendOptions::get_localhost();
     const int DUMMY_PORT = config::brpc_port;

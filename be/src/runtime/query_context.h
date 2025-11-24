@@ -31,9 +31,9 @@
 #include "common/config.h"
 #include "common/factory_creator.h"
 #include "common/object_pool.h"
+#include "runtime/coordinator_context.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker_limiter.h"
-#include "runtime/query_handle.h"
 #include "runtime/runtime_predicate.h"
 #include "runtime/workload_management/resource_context.h"
 #include "vec/exec/scan/scanner_scheduler.h"
@@ -41,7 +41,7 @@
 
 namespace doris {
 
-class QueryHandle;
+class CoordinatorContext;
 
 namespace pipeline {
 class PipelineFragmentContext;
@@ -284,13 +284,13 @@ public:
     void set_first_error_msg(std::string error_msg);
     std::string get_first_error_msg();
 
-    void set_query_handle(std::shared_ptr<QueryHandle> query_handle) {
-        _query_handle = query_handle;
+    void set_coordinator_context(std::shared_ptr<CoordinatorContext> coordinator_context) {
+        _coordinator_context = coordinator_context;
     }
 
 private:
     friend class QueryTaskController;
-    friend class QueryHandle;
+    friend class CoordinatorContext;
 
     int _timeout_second;
     TUniqueId _query_id;
@@ -363,7 +363,7 @@ private:
     std::string _load_error_url;
     std::string _first_error_msg;
 
-    std::shared_ptr<QueryHandle> _query_handle;
+    std::shared_ptr<CoordinatorContext> _coordinator_context;
 
 public:
     // when fragment of pipeline is closed, it will register its profile to this map by using add_fragment_profile

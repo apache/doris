@@ -32,10 +32,10 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
+#include "runtime/coordinator_context.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/query_context.h"
-#include "runtime/query_handle.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "runtime_filter/runtime_filter_consumer.h"
@@ -216,7 +216,8 @@ Status RuntimeFilterMergeControllerEntity::init(const TRuntimeFilterParams& runt
 }
 
 Status RuntimeFilterMergeControllerEntity::send_filter_size(
-        std::shared_ptr<QueryHandle> query_handle, const PSendFilterSizeRequest* request) {
+        std::shared_ptr<CoordinatorContext> coordinator_context,
+        const PSendFilterSizeRequest* request) {
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
 
     auto filter_id = request->filter_id();
@@ -236,9 +237,9 @@ Status RuntimeFilterMergeControllerEntity::send_filter_size(
     Status st = Status::OK();
     // After all runtime filters' size are collected, we should send response to all producers.
     if (cnt_val.merger->add_rf_size(request->filter_size())) {
-        auto ctx = query_handle->query_options().ignore_runtime_filter_error
+        auto ctx = coordinator_context->query_options().ignore_runtime_filter_error
                            ? std::weak_ptr<QueryContext> {}
-                           : query_handle->weak_query_ctx();
+                           : coordinator_context->weak_query_ctx();
         for (auto addr : cnt_val.source_addrs) {
             std::shared_ptr<PBackendService_Stub> stub(
                     ExecEnv::GetInstance()->brpc_internal_client_cache()->get_client(addr));
@@ -255,10 +256,10 @@ Status RuntimeFilterMergeControllerEntity::send_filter_size(
                                   DummyBrpcCallback<PSyncFilterSizeResponse>::create_shared(), ctx);
 
             auto* pquery_id = closure->request_->mutable_query_id();
-            pquery_id->set_hi(query_handle->query_id().hi);
-            pquery_id->set_lo(query_handle->query_id().lo);
+            pquery_id->set_hi(coordinator_context->query_id().hi);
+            pquery_id->set_lo(coordinator_context->query_id().lo);
             closure->cntl_->set_timeout_ms(
-                    get_execution_rpc_timeout_ms(query_handle->execution_timeout()));
+                    get_execution_rpc_timeout_ms(coordinator_context->execution_timeout()));
             if (config::execution_ignore_eovercrowded) {
                 closure->cntl_->ignore_eovercrowded();
             }
@@ -302,9 +303,9 @@ std::string RuntimeFilterMgr::debug_string() {
 }
 
 // merge data
-Status RuntimeFilterMergeControllerEntity::merge(std::shared_ptr<QueryHandle> query_handle,
-                                                 const PMergeFilterRequest* request,
-                                                 butil::IOBufAsZeroCopyInputStream* attach_data) {
+Status RuntimeFilterMergeControllerEntity::merge(
+        std::shared_ptr<CoordinatorContext> coordinator_context, const PMergeFilterRequest* request,
+        butil::IOBufAsZeroCopyInputStream* attach_data) {
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
     int64_t merge_time = 0;
     auto filter_id = request->filter_id();
@@ -327,7 +328,7 @@ Status RuntimeFilterMergeControllerEntity::merge(std::shared_ptr<QueryHandle> qu
             return Status::OK();
         }
         std::shared_ptr<RuntimeFilterProducer> tmp_filter;
-        RETURN_IF_ERROR(RuntimeFilterProducer::create(query_handle->query_options(),
+        RETURN_IF_ERROR(RuntimeFilterProducer::create(coordinator_context->query_options(),
                                                       &cnt_val.runtime_filter_desc, &tmp_filter));
 
         RETURN_IF_ERROR(tmp_filter->assign(*request, attach_data));
@@ -340,11 +341,11 @@ Status RuntimeFilterMergeControllerEntity::merge(std::shared_ptr<QueryHandle> qu
 
     if (is_ready) {
         return _send_rf_to_target(cnt_val,
-                                  query_handle->query_options().ignore_runtime_filter_error
+                                  coordinator_context->query_options().ignore_runtime_filter_error
                                           ? std::weak_ptr<QueryContext> {}
-                                          : query_handle->weak_query_ctx(),
+                                          : coordinator_context->weak_query_ctx(),
                                   merge_time, request->query_id(),
-                                  query_handle->execution_timeout());
+                                  coordinator_context->execution_timeout());
     }
     return Status::OK();
 }

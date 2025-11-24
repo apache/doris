@@ -55,7 +55,7 @@ class RuntimeFilterWrapper;
 class QueryContext;
 class ExecEnv;
 class RuntimeProfile;
-class QueryHandle;
+class CoordinatorContext;
 
 struct LocalMergeContext {
     std::mutex mtx;
@@ -142,10 +142,11 @@ public:
     Status init(const TRuntimeFilterParams& runtime_filter_params);
 
     // handle merge rpc
-    Status merge(std::shared_ptr<QueryHandle> query_handle, const PMergeFilterRequest* request,
+    Status merge(std::shared_ptr<CoordinatorContext> coordinator_context,
+                 const PMergeFilterRequest* request,
                  butil::IOBufAsZeroCopyInputStream* attach_data);
 
-    Status send_filter_size(std::shared_ptr<QueryHandle> query_handle,
+    Status send_filter_size(std::shared_ptr<CoordinatorContext> coordinator_context,
                             const PSendFilterSizeRequest* request);
 
     std::string debug_string();

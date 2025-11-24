@@ -64,12 +64,12 @@
 #include "io/fs/stream_load_pipe.h"
 #include "pipeline/pipeline_fragment_context.h"
 #include "runtime/client_cache.h"
+#include "runtime/coordinator_context.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/frontend_info.h"
 #include "runtime/primitive_type.h"
 #include "runtime/query_context.h"
-#include "runtime/query_handle.h"
 #include "runtime/runtime_query_statistics_mgr.h"
 #include "runtime/runtime_state.h"
 #include "runtime/stream_load/new_load_stream_mgr.h"
@@ -728,10 +728,10 @@ Status FragmentMgr::_get_or_create_query_ctx(const TPipelineFragmentParams& para
                         query_ctx = QueryContext::create(query_id, _exec_env, params.query_options,
                                                          params.coord, params.is_nereids,
                                                          params.current_connect_fe, query_source);
-                        auto query_handle = std::make_shared<QueryHandle>(
+                        auto coordinator_context = std::make_shared<CoordinatorContext>(
                                 query_id, parent.query_options, query_ctx);
-                        _query_handle_map.insert(query_id, query_handle);
-                        query_ctx->set_query_handle(query_handle);
+                        _coordinator_context_map.insert(query_id, coordinator_context);
+                        query_ctx->set_coordinator_context(coordinator_context);
                         SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(query_ctx->query_mem_tracker());
                         RETURN_IF_ERROR(DescriptorTbl::create(
                                 &(query_ctx->obj_pool), params.desc_tbl, &(query_ctx->desc_tbl)));
@@ -760,7 +760,7 @@ Status FragmentMgr::_get_or_create_query_ctx(const TPipelineFragmentParams& para
                                 auto handler =
                                         std::make_shared<RuntimeFilterMergeControllerEntity>();
                                 RETURN_IF_ERROR(handler->init(info.runtime_filter_params));
-                                query_handle->set_merge_controller_handler(handler);
+                                coordinator_context->set_merge_controller_handler(handler);
 
                                 query_ctx->runtime_filter_mgr()->set_runtime_filter_params(
                                         info.runtime_filter_params);
@@ -790,10 +790,11 @@ std::string FragmentMgr::dump_pipeline_tasks(int64_t duration) {
         timespec now;
         clock_gettime(CLOCK_MONOTONIC, &now);
 
-        _query_handle_map.apply(
-                [&](phmap::flat_hash_map<TUniqueId, std::shared_ptr<QueryHandle>>& map) -> Status {
+        _coordinator_context_map.apply(
+                [&](phmap::flat_hash_map<TUniqueId, std::shared_ptr<CoordinatorContext>>& map)
+                        -> Status {
                     for (auto& it : map) {
-                        fmt::format_to(debug_string_buffer, "QueryHandle: {}\n",
+                        fmt::format_to(debug_string_buffer, "CoordinatorContext: {}\n",
                                        it.second->debug_string());
                     }
                     return Status::OK();
@@ -920,7 +921,7 @@ void FragmentMgr::cancel_query(const TUniqueId query_id, const Status reason) {
     SCOPED_ATTACH_TASK(query_ctx->resource_ctx());
     query_ctx->cancel(reason);
     remove_query_context(query_id);
-    _query_handle_map.erase(query_id);
+    _coordinator_context_map.erase(query_id);
     LOG(INFO) << "Query " << print_id(query_id)
               << " is cancelled and removed. Reason: " << reason.to_string();
 }
@@ -1317,7 +1318,7 @@ Status FragmentMgr::send_filter_size(const PSendFilterSizeRequest* request) {
         return Status::EndOfFile("inject FragmentMgr::send_filter_size.return_eof");
     }
 
-    if (auto q_handle = _query_handle_map.find(query_id); q_handle != nullptr) {
+    if (auto q_handle = _coordinator_context_map.find(query_id); q_handle != nullptr) {
         return q_handle->get_merge_controller_handler()->send_filter_size(q_handle, request);
     } else {
         return Status::EndOfFile(
@@ -1354,7 +1355,7 @@ Status FragmentMgr::merge_filter(const PMergeFilterRequest* request,
     TUniqueId query_id;
     query_id.__set_hi(queryid.hi);
     query_id.__set_lo(queryid.lo);
-    if (auto q_handle = _query_handle_map.find(query_id); q_handle != nullptr) {
+    if (auto q_handle = _coordinator_context_map.find(query_id); q_handle != nullptr) {
         SCOPED_ATTACH_TASK(q_handle->resource_ctx());
         if (!q_handle->get_merge_controller_handler()) {
             return Status::InternalError("Merge filter failed: Merge controller handler is null");
