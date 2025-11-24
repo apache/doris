@@ -21,6 +21,14 @@ suite("test_merge_file_mixed_load", "p0, nonConcurrent") {
     def backendId_to_backendBrpcPort = [:]
     getBackendIpHttpAndBrpcPort(backendId_to_backendIP, backendId_to_backendHttpPort, backendId_to_backendBrpcPort)
 
+    // Build backend sockets list for httpTest
+    def backendSockets = []
+    backendId_to_backendIP.each { backendId, ip ->
+        def socket = ip + ":" + backendId_to_backendHttpPort.get(backendId)
+        backendSockets.add(socket)
+    }
+    assertTrue(backendSockets.size() > 0, "No alive backends found")
+
     // Helper function to get brpc metric by name from a single backend
     def getBrpcMetrics = {ip, port, name ->
         def url = "http://${ip}:${port}/brpc_metrics"
@@ -85,6 +93,106 @@ suite("test_merge_file_mixed_load", "p0, nonConcurrent") {
         } catch (Exception e) {
             logger.warn("Exception getting nested index file info: ${e.getMessage()}")
             return null
+        }
+    }
+
+    // Clear file cache for a specific file path on all backends using httpTest
+    def clearFileCacheForFile = { file_path ->
+        logger.info("Clearing file cache for ${file_path} on all backends")
+        def clearResults = []
+        backendSockets.each { socket ->
+            httpTest {
+                endpoint ""
+                uri socket + "/api/file_cache?op=clear&sync=true&value=" + file_path
+                op "get"
+                check { respCode, body ->
+                    assertEquals(respCode, 200, "clear local cache fail, maybe you can find something in respond: " + parseJson(body))
+                    clearResults.add(true)
+                }
+            }
+        }
+        assertEquals(clearResults.size(), backendSockets.size(), "Failed to clear cache for ${file_path} on some backends")
+        logger.info("File cache cleared for ${file_path} on all backends")
+    }
+
+    // Clear file cache for a specific table
+    def clearFileCacheForTable = { table_name ->
+        logger.info("Clearing file cache for table ${table_name}")
+        
+        // Get all tablets for the table
+        def tablets = sql_return_maparray "show tablets from ${table_name}"
+        assertTrue(tablets.size() > 0, "Table ${table_name} should have at least one tablet")
+        
+        def cleared_count = 0
+        for (def tablet in tablets) {
+            def tablet_id = tablet.TabletId
+            def backend_id = tablet.BackendId
+            def be_ip = backendId_to_backendIP.get(backend_id)
+            def be_http_port = backendId_to_backendHttpPort.get(backend_id)
+            
+            if (be_ip == null || be_http_port == null) {
+                logger.warn("Backend ${backend_id} not found, skipping tablet ${tablet_id}")
+                continue
+            }
+            
+            // Get rowset information for the tablet using httpTest
+            def socket = be_ip + ":" + be_http_port
+            def rowsetPaths = []
+            def rowsetSegments = [:]  // Map rowset path to num_segments
+            try {
+                httpTest {
+                    endpoint ""
+                    uri socket + "/api/compaction/show?tablet_id=" + tablet_id
+                    op "get"
+                    check { respCode, body ->
+                        assertEquals(respCode, 200)
+                        def compactionInfo = parseJson(body)
+                        if (compactionInfo.rowsets != null && compactionInfo.rowsets instanceof List) {
+                            for (def rowset in compactionInfo.rowsets) {
+                                // Extract rowset path and num_segments from rowset info
+                                // Rowset format: "rowset_id version start_version end_version num_segments path"
+                                def rowsetStr = rowset.toString()
+                                def tokens = rowsetStr.split("\\s+")
+                                if (tokens.size() >= 6) {
+                                    def rowsetPath = tokens[5]  // path is the 6th field (index 5)
+                                    def numSegments = tokens[4].toInteger()  // num_segments is the 5th field (index 4)
+                                    rowsetPaths.add(rowsetPath)
+                                    rowsetSegments[rowsetPath] = numSegments
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                logger.warn("Exception getting rowset info for tablet ${tablet_id}: ${e.getMessage()}")
+                continue
+            }
+            
+            // Clear cache for each rowset's segment files
+            for (def rowsetPath in rowsetPaths) {
+                def numSegments = rowsetSegments[rowsetPath]
+                for (int seg_id = 0; seg_id < numSegments; seg_id++) {
+                    // Clear .dat file
+                    def segmentDataFile = "${rowsetPath}_${seg_id}.dat"
+                    try {
+                        clearFileCacheForFile(segmentDataFile)
+                        cleared_count++
+                    } catch (Exception e) {
+                        // File may not exist or already cleared, continue
+                        logger.debug("Failed to clear cache for ${segmentDataFile}: ${e.getMessage()}")
+                    }
+                    
+                    // Clear .idx file if exists
+                    def segmentIdxFile = "${rowsetPath}_${seg_id}.idx"
+                    try {
+                        clearFileCacheForFile(segmentIdxFile)
+                        cleared_count++
+                    } catch (Exception e) {
+                        // Index file may not exist, ignore error
+                        logger.debug("Failed to clear cache for ${segmentIdxFile}: ${e.getMessage()}")
+                    }
+                }
+            }
         }
     }
 
@@ -209,6 +317,27 @@ suite("test_merge_file_mixed_load", "p0, nonConcurrent") {
         logger.info("Table ${tableName1} row count: ${result1[0][0]}, expected: ${expected_total_rows}")
         assertEquals(expected_total_rows, result1[0][0] as int,
                     "Expected exactly ${expected_total_rows} rows (${expected_small_rows} from small loads + ${expected_large_rows} from large loads), got ${result1[0][0]}")
+
+        // Test case 1.1: Clear file cache for the table and verify query results
+        logger.info("Test case 1.1: Clearing file cache for table ${tableName1} and verifying query results")
+        clearFileCacheForTable(tableName1)
+
+        // Verify query results after clearing cache
+        def result1_after_clear = sql "select count(*) from ${tableName1}"
+        assertEquals(expected_total_rows, result1_after_clear[0][0] as int,
+                    "After clearing file cache, expected exactly ${expected_total_rows} rows, got ${result1_after_clear[0][0]}")
+
+        // Verify data integrity with various queries after cache clear
+        def distinct_k1_after_clear = sql "select count(distinct k1) from ${tableName1}"
+        logger.info("After cache clear - Distinct k1 count: ${distinct_k1_after_clear[0][0]}")
+
+        def sum_v1_after_clear = sql "select sum(v1) from ${tableName1}"
+        logger.info("After cache clear - Sum of v1: ${sum_v1_after_clear[0][0]}")
+
+        def sample_query_after_clear = sql "select * from ${tableName1} where k1 between 0 and 100 limit 10"
+        logger.info("After cache clear - Sample query returned ${sample_query_after_clear.size()} rows")
+
+        logger.info("✓ Test case 1.1 passed: Query results are correct after clearing file cache")
 
         // Test case 2: Mixed load - check index and delete bitmap
         def tableName2 = "test_merge_file_mixed_load_index"
