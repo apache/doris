@@ -188,7 +188,7 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
                 .collect(ImmutableList.toImmutableList());
         LogicalAggregate<Plan> copiedAggregate = aggregate.withChildGroupByAndOutput(groupByExpressions,
                 outputExpressions, child);
-        Optional<LogicalRepeat<? extends Plan>> childRepeat =
+        Optional<LogicalRepeat<?>> childRepeat =
                 copiedAggregate.collectFirst(LogicalRepeat.class::isInstance);
         return childRepeat.isPresent() ? aggregate.withChildGroupByAndOutputAndSourceRepeat(
                 groupByExpressions, outputExpressions, child, childRepeat)
@@ -401,7 +401,11 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
         List<Slot> generatorOutput = generate.getGeneratorOutput().stream()
                 .map(o -> (Slot) ExpressionDeepCopier.INSTANCE.deepCopy(o, context))
                 .collect(ImmutableList.toImmutableList());
-        return new LogicalGenerate<>(generators, generatorOutput, generate.getExpandColumnAlias(), child);
+        List<Expression> conjuncts = generate.getConjuncts().stream()
+                .map(p -> ExpressionDeepCopier.INSTANCE.deepCopy(p, context))
+                .collect(ImmutableList.toImmutableList());
+        return new LogicalGenerate<>(generators, generatorOutput, generate.getExpandColumnAlias(),
+                conjuncts, child);
     }
 
     @Override
