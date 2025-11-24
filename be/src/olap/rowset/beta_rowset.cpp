@@ -33,6 +33,7 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
+#include "cpp/sync_point.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_system.h"
 #include "io/fs/local_file_system.h"
@@ -70,38 +71,81 @@ Status BetaRowset::init() {
     return Status::OK(); // no op
 }
 
+namespace {
+Status load_segment_rows_from_footer(BetaRowsetSharedPtr rowset,
+                                     std::vector<uint32_t>* segment_rows, bool enable_segment_cache,
+                                     OlapReaderStatistics* read_stats) {
+    SegmentCacheHandle segment_cache_handle;
+    RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(
+            rowset, &segment_cache_handle, enable_segment_cache, false, read_stats));
+    for (const auto& segment : segment_cache_handle.get_segments()) {
+        segment_rows->emplace_back(segment->num_rows());
+    }
+    return Status::OK();
+}
+
+Status check_segment_rows_consistency(const std::vector<uint32_t>& rows_from_meta,
+                                      const std::vector<uint32_t>& rows_from_footer,
+                                      int64_t tablet_id, const std::string& rowset_id) {
+    DCHECK_EQ(rows_from_footer.size(), rows_from_meta.size());
+    for (size_t i = 0; i < rows_from_footer.size(); i++) {
+        if (rows_from_footer[i] != rows_from_meta[i]) {
+            auto msg = fmt::format(
+                    "segment rows mismatch between rowset meta and segment footer. "
+                    "segment index: {}, meta rows: {}, footer rows: {}, tablet={}, rowset={}",
+                    i, rows_from_meta[i], rows_from_footer[i], tablet_id, rowset_id);
+            if (config::enable_segment_rows_check_core) {
+                CHECK(false) << msg;
+            }
+            return Status::InternalError(msg);
+        }
+    }
+    return Status::OK();
+}
+} // namespace
+
 Status BetaRowset::get_segment_num_rows(std::vector<uint32_t>* segment_rows,
                                         bool enable_segment_cache,
                                         OlapReaderStatistics* read_stats) {
     RETURN_IF_ERROR(_load_segment_rows_once.call([this, enable_segment_cache, read_stats] {
         auto segment_count = num_segments();
+
         if (!_rowset_meta->get_segment_rows().empty()) {
             if (_rowset_meta->get_segment_rows().size() == segment_count) {
                 // use segment rows in rowset meta if eligible
+                TEST_SYNC_POINT("BetaRowset::get_segment_num_rows:use_segment_rows_from_meta");
                 _segments_rows.assign(_rowset_meta->get_segment_rows().cbegin(),
                                       _rowset_meta->get_segment_rows().cend());
+                if (config::enable_segment_rows_consistency_check) {
+                    // verify segment rows from meta match segment footer
+                    std::vector<uint32_t> rows_from_footer;
+                    auto self = std::dynamic_pointer_cast<BetaRowset>(shared_from_this());
+                    auto load_status = load_segment_rows_from_footer(
+                            self, &rows_from_footer, enable_segment_cache, read_stats);
+                    if (load_status.ok()) {
+                        return check_segment_rows_consistency(
+                                _segments_rows, rows_from_footer, _rowset_meta->tablet_id(),
+                                _rowset_meta->rowset_id().to_string());
+                    }
+                }
                 return Status::OK();
             } else {
                 auto msg = fmt::format(
                         "corrupted segment rows info in rowset meta. "
                         "segment count: {}, segment rows size: {}, tablet={}, rowset={}",
                         segment_count, _rowset_meta->get_segment_rows().size(),
-                        _rowset_meta->tablet_id(), _rowset_meta->rowset_id());
-                DCHECK(false) << msg;
+                        _rowset_meta->tablet_id(), _rowset_meta->rowset_id().to_string());
+                if (config::enable_segment_rows_check_core) {
+                    CHECK(false) << msg;
+                }
                 LOG_EVERY_SECOND(WARNING) << msg;
             }
         }
         // otherwise, read it from segment footer
-        SegmentCacheHandle segment_cache_handle;
-        auto self = shared_from_this();
-        RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(
-                std::dynamic_pointer_cast<BetaRowset>(self), &segment_cache_handle,
-                enable_segment_cache, false, read_stats));
-        for (const auto& segment : segment_cache_handle.get_segments()) {
-            _segments_rows.emplace_back(segment->num_rows());
-        }
-
-        return Status::OK();
+        TEST_SYNC_POINT("BetaRowset::get_segment_num_rows:load_from_segment_footer");
+        auto self = std::dynamic_pointer_cast<BetaRowset>(shared_from_this());
+        return load_segment_rows_from_footer(self, &_segments_rows, enable_segment_cache,
+                                             read_stats);
     }));
     segment_rows->assign(_segments_rows.cbegin(), _segments_rows.cend());
     return Status::OK();
@@ -364,9 +408,7 @@ Status BetaRowset::link_files_to(const std::string& dir, RowsetId new_rowset_id,
                 RETURN_IF_ERROR(local_fs->exists(inverted_index_src_file_path, &index_file_exists));
                 if (index_file_exists) {
                     DBUG_EXECUTE_IF(
-                            "fault_inject::BetaRowset::link_files_to::_link_inverted_index_"
-                            "file",
-                            {
+                            "fault_inject::BetaRowset::link_files_to::_link_inverted_index_file", {
                                 status = Status::Error<OS_ERROR>(
                                         "fault_inject link_file error from={}, to={}",
                                         inverted_index_src_file_path, inverted_index_dst_file_path);

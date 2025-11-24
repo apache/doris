@@ -381,6 +381,9 @@ DEFINE_mInt32(trash_file_expire_time_sec, "0");
 // modify them upon necessity
 DEFINE_Int32(min_file_descriptor_number, "60000");
 DEFINE_mBool(disable_segment_cache, "false");
+// Enable checking segment rows consistency between rowset meta and segment footer
+DEFINE_mBool(enable_segment_rows_consistency_check, "false");
+DEFINE_mBool(enable_segment_rows_check_core, "false");
 DEFINE_String(row_cache_mem_limit, "20%");
 
 // Cache for storage page size

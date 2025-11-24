@@ -26,6 +26,7 @@
 #include "cloud/cloud_storage_engine.h"
 #include "common/logging.h"
 #include "common/status.h"
+#include "cpp/sync_point.h"
 #include "google/protobuf/util/message_differencer.h"
 #include "io/fs/encrypted_fs_factory.h"
 #include "io/fs/file_system.h"
@@ -322,6 +323,7 @@ void RowsetMeta::merge_rowset_meta(const RowsetMeta& other) {
     }
     // In partial update the rowset schema maybe updated when table contains variant type, so we need the newest schema to be updated
     // Otherwise the schema is stale and lead to wrong data read
+    TEST_SYNC_POINT_RETURN_WITH_VOID("RowsetMeta::merge_rowset_meta:skip_schema_merge");
     if (tablet_schema()->num_variant_columns() > 0) {
         // merge extracted columns
         TabletSchemaSPtr merged_schema;
