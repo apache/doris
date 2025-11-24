@@ -5735,7 +5735,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     private PartitionFieldInfo extractNewPartitionFieldInfo(ReplacePartitionFieldClauseContext ctx) {
         PartitionFieldInfo info = extractTransformInfo(ctx.newPartitionTransform);
-        return new PartitionFieldInfo(ctx.newPartitionFieldName.getText(), info.transformName, info.transformArg, info.columnName);
+        String partitionFieldName = ctx.newPartitionFieldName != null
+                ? ctx.newPartitionFieldName.getText()
+                : null;
+        return new PartitionFieldInfo(partitionFieldName,
+            info.transformName, info.transformArg, info.columnName);
     }
 
     private PartitionFieldInfo extractTransformInfo(PartitionTransformContext ctx) {
@@ -5766,8 +5770,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public AlterTableOp visitAddPartitionFieldClause(AddPartitionFieldClauseContext ctx) {
         PartitionFieldInfo info = extractTransformInfo(ctx.partitionTransform());
+        String partitionFieldName = ctx.partitionFieldName != null
+                ? ctx.partitionFieldName.getText()
+                : null;
         return new AddPartitionFieldOp(info.transformName, info.transformArg,
-                info.columnName, ctx.partitionFieldName.getText());
+                info.columnName, partitionFieldName);
     }
 
     @Override
