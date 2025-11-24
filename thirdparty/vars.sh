@@ -462,11 +462,11 @@ FAST_FLOAT_NAME=fast_float-3.9.0.tar.gz
 FAST_FLOAT_SOURCE=fast_float-3.9.0
 FAST_FLOAT_MD5SUM="5656b0d8b150a3b157cfb092d214f6ea"
 
-# libhdfs
-HADOOP_LIBS_DOWNLOAD="https://github.com/apache/doris-thirdparty/archive/refs/tags/hadoop-3.3.6.6-for-doris.tar.gz"
-HADOOP_LIBS_NAME="hadoop-3.3.6.6-for-doris.tar.gz"
-HADOOP_LIBS_SOURCE="doris-thirdparty-hadoop-3.3.6.6-for-doris"
-HADOOP_LIBS_MD5SUM="13b66d5f2abffd1740e692b65df5962e"
+# libhdfs 3.4
+HADOOP_LIBS_3_4_DOWNLOAD="https://github.com/apache/doris-thirdparty/archive/refs/tags/hadoop-3.4.2.2-for-doris.tar.gz"
+HADOOP_LIBS_3_4_NAME="hadoop-3.4.2.2-for-doris.tar.gz"
+HADOOP_LIBS_3_4_SOURCE="doris-thirdparty-hadoop-3.4.2.2-for-doris"
+HADOOP_LIBS_3_4_MD5SUM="b649508cdff5c8603abd659b754a2796"
 
 # libhdfs 3.4
 HADOOP_LIBS_3_4_DOWNLOAD="https://github.com/apache/doris-thirdparty/archive/refs/tags/hadoop-3.4.2.1-for-doris.tar.gz"
