@@ -123,6 +123,7 @@ suite('test_temp_table', 'p0') {
     assertFalse(hasTempTable)
 
     def info_tables = "select * from information_schema.tables where table_name = 't_test_temp_table2'"
+    logger.info("info_tables: " + info_tables.toString())
     assertEquals(0, info_tables.size())
     def info_columns = "select * from information_schema.columns  where table_name = 't_test_temp_table2'"
     assertEquals(0, info_columns.size())
