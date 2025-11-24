@@ -896,7 +896,8 @@ Status OlapScanLocalState::_build_key_ranges_and_filters() {
                 p._colname_to_slot_id.end()) {
                 break;
             }
-            auto iter = _slot_id_to_value_range.find(p._colname_to_slot_id[column_names[column_index]]);
+            auto iter =
+                    _slot_id_to_value_range.find(p._colname_to_slot_id[column_names[column_index]]);
             if (_slot_id_to_value_range.end() == iter) {
                 break;
             }
