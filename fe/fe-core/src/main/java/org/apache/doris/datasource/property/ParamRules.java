@@ -29,7 +29,7 @@ public class ParamRules {
     /**
      * Require that the given value is present (non-null and not empty).
      *
-     * @param value        the value to check
+     * @param value the value to check
      * @param errorMessage the error message to throw if validation fails
      * @return this ParamRules instance for chaining
      */
@@ -45,8 +45,8 @@ public class ParamRules {
     /**
      * Require that two parameters are mutually exclusive, i.e. both cannot be present at the same time.
      *
-     * @param value1       first value to check
-     * @param value2       second value to check
+     * @param value1 first value to check
+     * @param value2 second value to check
      * @param errorMessage error message to throw if both are present
      * @return this ParamRules instance for chaining
      */
@@ -63,9 +63,9 @@ public class ParamRules {
      * Require that the requiredValue is present if the conditionValue equals the expectedValue.
      *
      * @param conditionValue the value to compare
-     * @param expectedValue  the expected value for the condition
-     * @param requiredValue  the value required if condition matches
-     * @param errorMessage   error message to throw if requiredValue is missing
+     * @param expectedValue the expected value for the condition
+     * @param requiredValue the value required if condition matches
+     * @param errorMessage error message to throw if requiredValue is missing
      * @return this ParamRules instance for chaining
      */
     public ParamRules requireIf(String conditionValue, String expectedValue, String requiredValue,
@@ -82,9 +82,9 @@ public class ParamRules {
      * Require that the requiredValues are present if conditionValue is non-empty and equals expectedValue.
      *
      * @param conditionValue the value to check for presence and match
-     * @param expectedValue  the expected value to match against
+     * @param expectedValue the expected value to match against
      * @param requiredValues values that must be present if conditionValue matches expectedValue
-     * @param errorMessage   error message to throw if any required value is missing
+     * @param errorMessage error message to throw if any required value is missing
      * @return this ParamRules instance for chaining
      */
     public ParamRules requireIf(String conditionValue, String expectedValue, String[] requiredValues,
@@ -131,7 +131,7 @@ public class ParamRules {
      *
      * @param conditionValue the value whose presence triggers the requirement
      * @param requiredValues array of values all required if conditionValue is present
-     * @param errorMessage   error message to throw if any required value is missing
+     * @param errorMessage error message to throw if any required value is missing
      * @return this ParamRules instance for chaining
      */
     public ParamRules requireAllIfPresent(String conditionValue, String[] requiredValues, String errorMessage) {
@@ -150,10 +150,10 @@ public class ParamRules {
     /**
      * Require that if a is present and equals expectedValue, then none of the forbiddenValues may be present.
      *
-     * @param a               the condition value
-     * @param expectedValue   the expected value of a
+     * @param a the condition value
+     * @param expectedValue the expected value of a
      * @param forbiddenValues values that must not be present if a matches expectedValue
-     * @param errorMessage    the error message to throw if any forbiddenValue is present
+     * @param errorMessage the error message to throw if any forbiddenValue is present
      * @return this ParamRules instance for chaining
      */
     public ParamRules forbidIf(String a, String expectedValue, String[] forbiddenValues, String errorMessage) {
@@ -172,7 +172,7 @@ public class ParamRules {
     /**
      * Require that all values must either all exist or all be null/empty.
      *
-     * @param values       array of values to check
+     * @param values array of values to check
      * @param errorMessage error message if the requirement is violated
      * @return this ParamRules instance for chaining
      */
@@ -199,7 +199,7 @@ public class ParamRules {
     /**
      * Require that at least one value in the array is present (non-null and not empty).
      *
-     * @param values       array of values to check
+     * @param values array of values to check
      * @param errorMessage error message if none of the values are present
      * @return this ParamRules instance for chaining
      */
@@ -220,26 +220,17 @@ public class ParamRules {
     }
 
     /**
-     * A utility class for validating method parameters or any other values using a fluent API.
+     * Add a custom validation rule using a lambda expression.
      * <p>
-     * You can chain multiple validation rules together. If a rule fails, an
-     * {@link IllegalArgumentException} is thrown with the provided error message.
-     * <p>
-     * Supports built-in rules like {@link #require}, {@link #mutuallyExclusive}, etc.,
-     * and also allows custom lambda-based validations via {@link #check(BooleanSupplier, String)}.
-     * <p>
-     * <b>Example usage:</b>
-     * <pre>{@code
-     * ParamRules rules = new ParamRules();
+     * The validation rule will be executed when {@link #validate()} is called.
+     * If the condition evaluates to true, an {@link IllegalArgumentException} will be thrown
+     * with the provided error message.
      *
-     * String a = "foo";
-     * String b = "bar";
+     * @param condition a BooleanSupplier that returns true if validation should fail
+     * @param errorMessage the error message to throw if condition evaluates to true
+     * @return this ParamRules instance for chaining
      *
-     * rules.require(a, "a must not be empty")
-     *      .mutuallyExclusive(a, b, "a and b cannot both be present")
-     *      .check(() -> a.equals(b), "a and b cannot be equal") // custom lambda rule
-     *      .validate(); // executes all rules
-     * }</pre>
+     * @see #validate()
      */
     public ParamRules check(BooleanSupplier condition, String errorMessage) {
         rules.add(() -> {
