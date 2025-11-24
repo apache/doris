@@ -31,7 +31,6 @@ under the License.
         <module>avro-scanner</module>
         <!-- lakesoul-scanner module has been deprecated -->
         <!-- <module>lakesoul-scanner</module> -->
-        <module>preload-extensions</module>
         <module>trino-connector-scanner</module>
         <module>hadoop-deps</module>
     </modules>

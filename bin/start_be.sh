@@ -225,10 +225,7 @@ preload_jars+=("java-udf")
 DORIS_PRELOAD_JAR=
 for preload_jar_dir in "${preload_jars[@]}"; do
     for f in "${DORIS_HOME}/lib/java_extensions/${preload_jar_dir}"/*.jar; do
-        if [[ "${f}" == *"preload-extensions-project.jar" ]]; then
-            DORIS_PRELOAD_JAR="${f}"
-            continue
-        elif [[ -z "${DORIS_CLASSPATH}" ]]; then
+        if [[ -z "${DORIS_CLASSPATH}" ]]; then
             export DORIS_CLASSPATH="${f}"
         else
             export DORIS_CLASSPATH="${DORIS_CLASSPATH}:${f}"
