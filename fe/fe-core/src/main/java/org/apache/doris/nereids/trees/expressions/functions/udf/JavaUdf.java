@@ -26,7 +26,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.util.URI;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.Udf;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
@@ -39,7 +39,6 @@ import com.google.common.collect.ImmutableList;
 
 import java.util.Arrays;
 import java.util.List;
-import java.util.Optional;
 import java.util.stream.Collectors;
 
 /**
@@ -127,10 +126,9 @@ public class JavaUdf extends ScalarFunction implements ExplicitlyCastableSignatu
                 ? sigBuilder.varArgs(argTypes.toArray(new DataType[0]))
                 : sigBuilder.args(argTypes.toArray(new DataType[0]));
 
-        VirtualSlotReference[] virtualSlots = argTypes.stream()
-                .map(type -> new VirtualSlotReference(type.toString(), type, Optional.empty(),
-                        (shape) -> ImmutableList.of()))
-                .toArray(VirtualSlotReference[]::new);
+        SlotReference[] arguments = argTypes.stream()
+                .map(type -> new SlotReference(type.toString(), type))
+                .toArray(SlotReference[]::new);
 
         JavaUdf udf = new JavaUdf(fnName, scalar.getId(), dbName, scalar.getBinaryType(), sig,
                 scalar.getNullableMode(),
@@ -139,7 +137,7 @@ public class JavaUdf extends ScalarFunction implements ExplicitlyCastableSignatu
                 scalar.getPrepareFnSymbol(),
                 scalar.getCloseFnSymbol(),
                 scalar.getChecksum(), scalar.isStaticLoad(), scalar.getExpirationTime(),
-                virtualSlots);
+                arguments);
 
         JavaUdfBuilder builder = new JavaUdfBuilder(udf);
         Env.getCurrentEnv().getFunctionRegistry().addUdf(dbName, fnName, builder);

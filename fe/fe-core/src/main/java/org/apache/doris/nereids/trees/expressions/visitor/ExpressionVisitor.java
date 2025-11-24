@@ -83,7 +83,6 @@ import org.apache.doris.nereids.trees.expressions.UnaryArithmetic;
 import org.apache.doris.nereids.trees.expressions.UnaryOperator;
 import org.apache.doris.nereids.trees.expressions.Variable;
 import org.apache.doris.nereids.trees.expressions.VariableDesc;
-import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.WindowFrame;
@@ -457,10 +456,6 @@ public abstract class ExpressionVisitor<R, C>
 
     public R visitGroupingScalarFunction(GroupingScalarFunction groupingScalarFunction, C context) {
         return visit(groupingScalarFunction, context);
-    }
-
-    public R visitVirtualReference(VirtualSlotReference virtualSlotReference, C context) {
-        return visitSlotReference(virtualSlotReference, context);
     }
 
     public R visitArrayItemReference(ArrayItemReference arrayItemReference, C context) {

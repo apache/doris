@@ -27,7 +27,6 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
@@ -403,10 +402,6 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
 
     @Override
     public void computeUnique(DataTrait.Builder builder) {
-        if (groupByExpressions.stream().anyMatch(s -> s instanceof VirtualSlotReference)) {
-            // roll up may generate new data
-            return;
-        }
         DataTrait childFd = child(0).getLogicalProperties().getTrait();
         ImmutableSet<Slot> groupByKeys = groupByExpressions.stream()
                 .map(s -> (Slot) s)
@@ -438,11 +433,6 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
         // always propagate uniform
         DataTrait childFd = child(0).getLogicalProperties().getTrait();
         builder.addUniformSlot(childFd);
-
-        if (groupByExpressions.stream().anyMatch(s -> s instanceof VirtualSlotReference)) {
-            // roll up may generate new data
-            return;
-        }
         ImmutableSet<Slot> groupByKeys = groupByExpressions.stream()
                 .map(s -> (Slot) s)
                 .collect(ImmutableSet.toImmutableSet());

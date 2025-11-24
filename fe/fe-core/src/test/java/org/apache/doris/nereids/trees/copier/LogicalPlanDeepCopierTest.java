@@ -20,10 +20,12 @@ package org.apache.doris.nereids.trees.copier;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
+import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.util.PlanConstructor;
 
 import com.google.common.collect.ImmutableList;
@@ -55,9 +57,11 @@ public class LogicalPlanDeepCopierTest {
                 ImmutableList.of(groupingKeys.get(0)),
                 ImmutableList.of()
         );
+        SlotReference groupingId = new SlotReference("grouping_id", BigIntType.INSTANCE, false);
         LogicalRepeat<Plan> repeat = new LogicalRepeat<>(
                 groupingSets,
                 scan.getOutput().stream().map(NamedExpression.class::cast).collect(Collectors.toList()),
+                groupingId,
                 scan
         );
         List<? extends NamedExpression> groupByExprs = repeat.getOutput().subList(0, 1).stream()

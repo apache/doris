@@ -57,7 +57,7 @@ public class GroupingId extends GroupingScalarFunction implements CustomSignatur
     }
 
     @Override
-    public List<Long> computeVirtualSlotValue(GroupingSetShapes shapes) {
+    public List<Long> computeValue(GroupingSetShapes shapes) {
         List<Expression> arguments = getArguments();
         List<Integer> argumentIndexes = arguments.stream()
                 .map(shapes::indexOf)
