@@ -25,6 +25,7 @@
 
 #include "cctz/time_zone.h"
 #include "exec/olap_common.h"
+#include "olap/rowset/segment_v2/row_ranges.h"
 #include "parquet_common.h"
 #include "util/timezone_utils.h"
 #include "vec/common/endian.h"
@@ -161,9 +162,31 @@ public:
         std::function<bool(ParquetPredicate::ColumnStat*, const int)>* get_stat_func;
     };
 
-    static Status get_min_max_value(const FieldSchema* col_schema, const std::string& encoded_min,
-                                    const std::string& encoded_max, const cctz::time_zone& ctz,
-                                    Field* min_field, Field* max_field) {
+    struct PageIndexStat {
+        // Indicates whether the page index information in this column can be used.
+        bool available = false;
+        int64_t num_of_pages;
+        std::vector<std::string> encoded_min_value;
+        std::vector<std::string> encoded_max_value;
+        std::vector<bool> has_null;
+        std::vector<bool> is_all_null;
+        const FieldSchema* col_schema;
+
+        // Record the row range corresponding to each page.
+        std::vector<segment_v2::RowRange> ranges;
+    };
+
+    struct CachedPageIndexStat {
+        const cctz::time_zone* ctz;
+        std::map<int, PageIndexStat> stats;
+        std::function<bool(PageIndexStat**, int)> get_stat_func;
+    };
+
+    // The encoded Parquet min-max value is parsed into `fields`;
+    // Can be used in row groups and page index statistics.
+    static Status parse_min_max_value(const FieldSchema* col_schema, const std::string& encoded_min,
+                                      const std::string& encoded_max, const cctz::time_zone& ctz,
+                                      Field* min_field, Field* max_field) {
         auto logical_data_type = remove_nullable(col_schema->data_type);
         auto converter = parquet::PhysicalToLogicalConverter::get_converter(
                 col_schema, logical_data_type, logical_data_type, &ctz);
