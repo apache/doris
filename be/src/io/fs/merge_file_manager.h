@@ -22,10 +22,12 @@
 #include <glog/logging.h>
 
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <map>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <thread>
 #include <unordered_map>
@@ -130,6 +132,7 @@ private:
         int64_t create_time;
         int64_t upload_time = 0;
         std::chrono::steady_clock::time_point create_timestamp;
+        std::optional<std::chrono::steady_clock::time_point> first_append_timestamp;
         std::atomic<MergeFileStateEnum> state {MergeFileStateEnum::INIT};
         std::condition_variable upload_cv;
         std::mutex upload_mutex;

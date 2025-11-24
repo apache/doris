@@ -18,7 +18,8 @@
 #include "io/fs/merge_file_manager.h"
 
 #include <bvar/bvar.h>
-#include <bvar/passive_status.h>
+#include <bvar/recorder.h>
+#include <bvar/status.h>
 
 #include <algorithm>
 #include <chrono>
@@ -50,27 +51,10 @@ namespace {
 bvar::Adder<int64_t> g_merge_file_total_count("merge_file", "total_count");
 bvar::Adder<int64_t> g_merge_file_total_small_file_count("merge_file", "total_small_file_num");
 bvar::Adder<int64_t> g_merge_file_total_size_bytes("merge_file", "total_size_bytes");
-
-double merge_file_avg_small_file_num(void*) {
-    auto total = g_merge_file_total_count.get_value();
-    if (total == 0) {
-        return 0.0;
-    }
-    return static_cast<double>(g_merge_file_total_small_file_count.get_value()) / total;
-}
-
-double merge_file_avg_file_size(void*) {
-    auto total = g_merge_file_total_count.get_value();
-    if (total == 0) {
-        return 0.0;
-    }
-    return static_cast<double>(g_merge_file_total_size_bytes.get_value()) / total;
-}
-
-bvar::PassiveStatus<double> g_merge_file_avg_small_file_num("merge_file_avg_small_file_num",
-                                                            merge_file_avg_small_file_num, nullptr);
-bvar::PassiveStatus<double> g_merge_file_avg_file_size_bytes("merge_file_avg_file_size_bytes",
-                                                             merge_file_avg_file_size, nullptr);
+bvar::IntRecorder g_merge_file_small_file_num_recorder;
+bvar::IntRecorder g_merge_file_file_size_recorder;
+bvar::Status<double> g_merge_file_avg_small_file_num("merge_file_avg_small_file_num", 0.0);
+bvar::Status<double> g_merge_file_avg_file_size_bytes("merge_file_avg_file_size_bytes", 0.0);
 
 } // namespace
 
@@ -231,6 +215,9 @@ Status MergeFileManager::append(const std::string& path, const Slice& data,
     active_state->total_size += data.get_size();
 
     // Mark as active if this is the first write
+    if (!active_state->first_append_timestamp.has_value()) {
+        active_state->first_append_timestamp = std::chrono::steady_clock::now();
+    }
     if (active_state->state == MergeFileStateEnum::INIT) {
         active_state->state = MergeFileStateEnum::ACTIVE;
     }
@@ -397,13 +384,19 @@ void MergeFileManager::record_merge_file_metrics(const MergeFileState& merge_fil
     g_merge_file_total_count << 1;
     g_merge_file_total_small_file_count << static_cast<int64_t>(merge_file.index_map.size());
     g_merge_file_total_size_bytes << merge_file.total_size;
+    g_merge_file_small_file_num_recorder << static_cast<int64_t>(merge_file.index_map.size());
+    g_merge_file_file_size_recorder << merge_file.total_size;
+    g_merge_file_avg_small_file_num.set_value(
+            g_merge_file_small_file_num_recorder.get_value().get_average_double());
+    g_merge_file_avg_file_size_bytes.set_value(
+            g_merge_file_file_size_recorder.get_value().get_average_double());
 }
 
 void MergeFileManager::background_manager() {
     auto last_cleanup_time = std::chrono::steady_clock::now();
 
     while (!_stop_background_thread.load()) {
-        int64_t check_interval_ms = std::max<int64_t>(1, config::merge_file_time_threshold_ms / 2);
+        int64_t check_interval_ms = std::max<int64_t>(1, config::merge_file_time_threshold_ms / 10);
         std::this_thread::sleep_for(std::chrono::milliseconds(check_interval_ms));
 
         // Check if current merge file should be closed due to time threshold
@@ -417,9 +410,12 @@ void MergeFileManager::background_manager() {
                     if (!state || state->state != MergeFileStateEnum::ACTIVE) {
                         continue;
                     }
+                    if (!state->first_append_timestamp.has_value()) {
+                        continue;
+                    }
                     auto current_time = std::chrono::steady_clock::now();
                     auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-                                              current_time - state->create_timestamp)
+                                              current_time - *(state->first_append_timestamp))
                                               .count();
                     if (elapsed_ms >= config::merge_file_time_threshold_ms) {
                         resources_to_mark.push_back(resource_id);
@@ -699,6 +695,10 @@ void MergeFileManager::reset_merge_file_bvars_for_test() const {
     reset_adder(g_merge_file_total_count);
     reset_adder(g_merge_file_total_small_file_count);
     reset_adder(g_merge_file_total_size_bytes);
+    g_merge_file_small_file_num_recorder.reset();
+    g_merge_file_file_size_recorder.reset();
+    g_merge_file_avg_small_file_num.set_value(0.0);
+    g_merge_file_avg_file_size_bytes.set_value(0.0);
 }
 
 int64_t MergeFileManager::merge_file_total_count_for_test() const {
