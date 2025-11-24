@@ -101,11 +101,11 @@ using namespace ErrorCode;
 const std::string FileScanner::FileReadBytesProfile = "FileReadBytes";
 const std::string FileScanner::FileReadTimeProfile = "FileReadTime";
 
-FileScanner::FileScanner(
-        RuntimeState* state, pipeline::FileScanLocalState* local_state, int64_t limit,
-        std::shared_ptr<vectorized::SplitSourceConnector> split_source, RuntimeProfile* profile,
-        ShardedKVCache* kv_cache,
-        const std::unordered_map<std::string, int>* colname_to_slot_id)
+FileScanner::FileScanner(RuntimeState* state, pipeline::FileScanLocalState* local_state,
+                         int64_t limit,
+                         std::shared_ptr<vectorized::SplitSourceConnector> split_source,
+                         RuntimeProfile* profile, ShardedKVCache* kv_cache,
+                         const std::unordered_map<std::string, int>* colname_to_slot_id)
         : Scanner(state, local_state, limit, profile),
           _split_source(split_source),
           _cur_reader(nullptr),
@@ -1019,28 +1019,24 @@ Status FileScanner::_get_next_reader() {
                        range.table_format_params.table_format_type == "paimon") {
                 _cur_reader = PaimonJniReader::create_unique(_file_slot_descs, _state, _profile,
                                                              range, _params);
-                init_status = ((PaimonJniReader*)(_cur_reader.get()))
-                                      ->init_reader();
+                init_status = ((PaimonJniReader*)(_cur_reader.get()))->init_reader();
             } else if (range.__isset.table_format_params &&
                        range.table_format_params.table_format_type == "hudi") {
                 _cur_reader = HudiJniReader::create_unique(*_params,
                                                            range.table_format_params.hudi_params,
                                                            _file_slot_descs, _state, _profile);
-                init_status =
-                        ((HudiJniReader*)_cur_reader.get())->init_reader();
+                init_status = ((HudiJniReader*)_cur_reader.get())->init_reader();
             } else if (range.__isset.table_format_params &&
                        range.table_format_params.table_format_type == "lakesoul") {
                 _cur_reader =
                         LakeSoulJniReader::create_unique(range.table_format_params.lakesoul_params,
                                                          _file_slot_descs, _state, _profile);
-                init_status = ((LakeSoulJniReader*)_cur_reader.get())
-                                      ->init_reader();
+                init_status = ((LakeSoulJniReader*)_cur_reader.get())->init_reader();
             } else if (range.__isset.table_format_params &&
                        range.table_format_params.table_format_type == "trino_connector") {
                 _cur_reader = TrinoConnectorJniReader::create_unique(_file_slot_descs, _state,
                                                                      _profile, range);
-                init_status = ((TrinoConnectorJniReader*)(_cur_reader.get()))
-                                      ->init_reader();
+                init_status = ((TrinoConnectorJniReader*)(_cur_reader.get()))->init_reader();
             }
             break;
         }
@@ -1125,8 +1121,7 @@ Status FileScanner::_get_next_reader() {
         case TFileFormatType::FORMAT_AVRO: {
             _cur_reader = AvroJNIReader::create_unique(_state, _profile, *_params, _file_slot_descs,
                                                        range);
-            init_status =
-                    ((AvroJNIReader*)(_cur_reader.get()))->init_reader();
+            init_status = ((AvroJNIReader*)(_cur_reader.get()))->init_reader();
             break;
         }
         case TFileFormatType::FORMAT_WAL: {
