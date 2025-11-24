@@ -52,27 +52,8 @@
 
 namespace doris::vectorized {
 
-ScannerScheduler::ScannerScheduler() = default;
-
-ScannerScheduler::~ScannerScheduler() = default;
-
-void ScannerScheduler::stop() {
-    if (!_is_init) {
-        return;
-    }
-
-    _is_closed = true;
-
-    LOG(INFO) << "ScannerScheduler stopped";
-}
-
-Status ScannerScheduler::init(ExecEnv* env) {
-    _is_init = true;
-    return Status::OK();
-}
-
-Status ScannerScheduler::submit(std::shared_ptr<ScannerContext> ctx,
-                                std::shared_ptr<ScanTask> scan_task) {
+Status SimplifiedScanScheduler::submit(std::shared_ptr<ScannerContext> ctx,
+                                       std::shared_ptr<ScanTask> scan_task) {
     if (ctx->done()) {
         return Status::OK();
     }
@@ -90,7 +71,6 @@ Status ScannerScheduler::submit(std::shared_ptr<ScannerContext> ctx,
     scanner_delegate->_scanner->start_wait_worker_timer();
     TabletStorageType type = scanner_delegate->_scanner->get_storage_type();
     auto sumbit_task = [&]() {
-        SimplifiedScanScheduler* scan_sched = ctx->get_scan_scheduler();
         auto work_func = [scanner_ref = scan_task, ctx]() {
             auto status = [&] {
                 RETURN_IF_CATCH_EXCEPTION(_scanner_scan(ctx, scanner_ref));
@@ -105,7 +85,7 @@ Status ScannerScheduler::submit(std::shared_ptr<ScannerContext> ctx,
             return scanner_ref->is_eos();
         };
         SimplifiedScanTask simple_scan_task = {work_func, ctx, scan_task};
-        return scan_sched->submit_scan_task(simple_scan_task);
+        return this->submit_scan_task(simple_scan_task);
     };
 
     Status submit_status = sumbit_task();
@@ -144,8 +124,8 @@ void handle_reserve_memory_failure(RuntimeState* state, std::shared_ptr<ScannerC
     state->get_query_ctx()->set_low_memory_mode();
 }
 
-void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
-                                     std::shared_ptr<ScanTask> scan_task) {
+void SimplifiedScanScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
+                                            std::shared_ptr<ScanTask> scan_task) {
     auto task_lock = ctx->task_exec_ctx();
     if (task_lock == nullptr) {
         return;
@@ -355,7 +335,7 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
     ctx->push_back_scan_task(scan_task);
 }
 
-int ScannerScheduler::get_remote_scan_thread_num() {
+int SimplifiedScanScheduler::get_remote_scan_thread_num() {
     static int remote_max_thread_num = []() {
         int num = config::doris_max_remote_scanner_thread_pool_thread_num != -1
                           ? config::doris_max_remote_scanner_thread_pool_thread_num
@@ -365,11 +345,11 @@ int ScannerScheduler::get_remote_scan_thread_num() {
     return remote_max_thread_num;
 }
 
-int ScannerScheduler::get_remote_scan_thread_queue_size() {
+int SimplifiedScanScheduler::get_remote_scan_thread_queue_size() {
     return config::doris_remote_scanner_thread_pool_queue_size;
 }
 
-void ScannerScheduler::_make_sure_virtual_col_is_materialized(
+void SimplifiedScanScheduler::_make_sure_virtual_col_is_materialized(
         const std::shared_ptr<Scanner>& scanner, vectorized::Block* free_block) {
 #ifndef NDEBUG
     // Currently, virtual column can only be used on olap table.

@@ -55,36 +55,7 @@ class SimplifiedScanScheduler;
 //     the corresponding block queue.
 //     The corresponding ScanNode will act as a consumer to consume blocks from the block queue.
 //     After the block is consumed, the unfinished scanner will resubmit to this scheduler.
-class ScannerScheduler {
-public:
-    ScannerScheduler();
-    virtual ~ScannerScheduler();
-
-    [[nodiscard]] Status init(ExecEnv* env);
-
-    MOCK_FUNCTION Status submit(std::shared_ptr<ScannerContext> ctx,
-                                std::shared_ptr<ScanTask> scan_task);
-
-    void stop();
-
-    int remote_thread_pool_max_thread_num() const { return _remote_thread_pool_max_thread_num; }
-
-    static int get_remote_scan_thread_num();
-
-    static int get_remote_scan_thread_queue_size();
-
-private:
-    static void _scanner_scan(std::shared_ptr<ScannerContext> ctx,
-                              std::shared_ptr<ScanTask> scan_task);
-
-    static void _make_sure_virtual_col_is_materialized(const std::shared_ptr<Scanner>& scanner,
-                                                       vectorized::Block* block);
-
-    // true is the scheduler is closed.
-    std::atomic_bool _is_closed = {false};
-    bool _is_init = false;
-    int _remote_thread_pool_max_thread_num;
-};
+class ScannerScheduler {};
 
 struct SimplifiedScanTask {
     SimplifiedScanTask() = default;
@@ -135,6 +106,12 @@ class SimplifiedScanScheduler {
 public:
     virtual ~SimplifiedScanScheduler() {}
 
+    Status submit(std::shared_ptr<ScannerContext> ctx, std::shared_ptr<ScanTask> scan_task);
+
+    static int get_remote_scan_thread_num();
+
+    static int get_remote_scan_thread_queue_size();
+
     virtual Status start(int max_thread_num, int min_thread_num, int queue_size) = 0;
     virtual void stop() = 0;
     virtual Status submit_scan_task(SimplifiedScanTask scan_task) = 0;
@@ -153,6 +130,13 @@ public:
     virtual Status schedule_scan_task(std::shared_ptr<ScannerContext> scanner_ctx,
                                       std::shared_ptr<ScanTask> current_scan_task,
                                       std::unique_lock<std::mutex>& transfer_lock) = 0;
+
+private:
+    static void _scanner_scan(std::shared_ptr<ScannerContext> ctx,
+                              std::shared_ptr<ScanTask> scan_task);
+
+    static void _make_sure_virtual_col_is_materialized(const std::shared_ptr<Scanner>& scanner,
+                                                       vectorized::Block* block);
 };
 
 class ThreadPoolSimplifiedScanScheduler : public SimplifiedScanScheduler {

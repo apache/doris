@@ -165,8 +165,6 @@ public:
 
     RuntimeState* state() { return _state; }
 
-    SimplifiedScanScheduler* get_scan_scheduler() { return _scanner_scheduler; }
-
     void stop_scanners(RuntimeState* state);
 
     int batch_size() const { return _batch_size; }
@@ -230,7 +228,6 @@ protected:
     int64_t limit;
 
     int64_t _max_bytes_in_queue = 0;
-    doris::vectorized::ScannerScheduler* _scanner_scheduler_global = nullptr;
     SimplifiedScanScheduler* _scanner_scheduler = nullptr;
     // Using stack so that we can resubmit scanner in a LIFO order, maybe more cache friendly
     std::stack<std::shared_ptr<ScanTask>> _pending_scanners;
