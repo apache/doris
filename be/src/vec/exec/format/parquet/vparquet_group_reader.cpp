@@ -596,15 +596,10 @@ Status RowGroupReader::_do_lazy_read(Block* block, size_t batch_size, size_t* re
     {
         SCOPED_RAW_TIMER(&_predicate_filter_time);
         if (filter_map.has_filter()) {
-            if (block->columns() == origin_column_num) {
-                // the whole row group has been filtered by _lazy_read_ctx.vconjunct_ctx, and batch_eof is
-                // generated from next batch, so the filter column is removed ahead.
-                DCHECK_EQ(block->rows(), 0);
-            } else {
-                RETURN_IF_CATCH_EXCEPTION(Block::filter_block_internal(
-                        block, _lazy_read_ctx.all_predicate_col_ids, result_filter));
-                Block::erase_useless_column(block, origin_column_num);
-            }
+            RETURN_IF_CATCH_EXCEPTION(Block::filter_block_internal(
+                    block, _lazy_read_ctx.all_predicate_col_ids, result_filter));
+            Block::erase_useless_column(block, origin_column_num);
+
         } else {
             Block::erase_useless_column(block, origin_column_num);
         }
