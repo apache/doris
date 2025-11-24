@@ -828,7 +828,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
             executionAuthenticator.execute(() -> updateSpec.commit());
         } catch (Exception e) {
             throw new UserException("Failed to add partition field to table: " + icebergTable.name()
-                    + ", error message is: " + e.getMessage(), e);
+                    + ", error message is: " + ExceptionUtils.getRootCauseMessage(e), e);
         }
         refreshTable(dorisTable);
     }
@@ -854,7 +854,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
             executionAuthenticator.execute(() -> updateSpec.commit());
         } catch (Exception e) {
             throw new UserException("Failed to drop partition field from table: " + icebergTable.name()
-                    + ", error message is: " + e.getMessage(), e);
+                    + ", error message is: " + ExceptionUtils.getRootCauseMessage(e), e);
         }
         refreshTable(dorisTable);
     }
@@ -895,7 +895,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
             executionAuthenticator.execute(() -> updateSpec.commit());
         } catch (Exception e) {
             throw new UserException("Failed to replace partition field in table: " + icebergTable.name()
-                    + ", error message is: " + e.getMessage(), e);
+                    + ", error message is: " + ExceptionUtils.getRootCauseMessage(e), e);
         }
         refreshTable(dorisTable);
     }

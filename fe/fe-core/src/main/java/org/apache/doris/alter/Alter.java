@@ -194,6 +194,9 @@ public class Alter {
             if (clause instanceof DropPartitionFieldClause) {
                 throw new UserException("DROP PARTITION KEY is only supported for Iceberg tables");
             }
+            if (clause instanceof ReplacePartitionFieldClause) {
+                throw new UserException("REPLACE PARTITION KEY is only supported for Iceberg tables");
+            }
         }
 
         for (AlterClause clause : alterClauses) {
