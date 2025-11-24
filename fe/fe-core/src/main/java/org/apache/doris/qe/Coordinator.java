@@ -30,7 +30,6 @@ import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.ExecutionProfile;
 import org.apache.doris.common.profile.SummaryProfile;
-import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.ListUtil;
 import org.apache.doris.common.util.TimeUtils;
@@ -2442,14 +2441,6 @@ public class Coordinator implements CoordInterface {
                         DebugUtil.printId(queryId), params.getFragmentId(),
                         DebugUtil.printId(params.getFragmentInstanceId()),
                         params.getBackendId(), status.toString());
-                while (DebugPointUtil.isEnable("FE.Coordinator.updateFragmentExecStatus.block")) {
-                    try {
-                        Thread.sleep(1000);
-                    } catch (Throwable e) {
-                        LOG.warn("exec sql: {} catch unknown result. ", e);
-                    }
-                    LOG.info("block updateFragmentExecStatus");
-                }
                 updateStatus(status);
             }
         }
