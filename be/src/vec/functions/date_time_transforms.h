@@ -81,7 +81,7 @@ struct ToCenturyImpl {
     static constexpr auto name = "century";
 
     static inline auto execute(const NativeType& t) {
-        const auto& date_time_value = (typename PrimitiveTypeTraits<PType>::CppType&)(t);
+        const auto& date_time_value = assert_cast<typename PrimitiveTypeTraits<PType>::CppType&>(t);
         int year = date_time_value.year();
         return (year - 1) / 100 + 1;
     }
