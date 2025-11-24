@@ -19,13 +19,11 @@ package org.apache.doris.mysql;
 
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.X509TlsReloadableKeyManager;
+import org.apache.doris.common.util.X509TlsReloadableTrustManager;
 
-import io.grpc.util.AdvancedTlsX509TrustManager;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.Closeable;
-import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
@@ -38,8 +36,6 @@ import java.security.KeyStoreException;
 import java.security.NoSuchAlgorithmException;
 import java.security.UnrecoverableKeyException;
 import java.security.cert.CertificateException;
-import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
 import javax.net.ssl.KeyManager;
 import javax.net.ssl.KeyManagerFactory;
 import javax.net.ssl.SSLContext;
@@ -65,8 +61,6 @@ public class MysqlSslContext {
     private ByteBuffer serverNetData;
     private ByteBuffer clientAppData;
     private ByteBuffer clientNetData;
-    private Closeable trustManagerCloseable;
-    private Closeable keyManagerCloseable;
 
     public MysqlSslContext(String protocol) {
         this.protocol = protocol;
@@ -87,34 +81,14 @@ public class MysqlSslContext {
 
     private void initSSLContextForTLS() {
         try {
-            AdvancedTlsX509TrustManager trustManager = AdvancedTlsX509TrustManager.newBuilder()
-                    .setVerification(AdvancedTlsX509TrustManager.Verification.CERTIFICATE_AND_HOST_NAME_VERIFICATION)
-                    .build();
-            trustManagerCloseable = trustManager.updateTrustCredentialsFromFile(
-                    new File(Config.tls_ca_certificate_path),
-                    Config.tls_cert_refresh_interval_seconds, TimeUnit.SECONDS,
-                    Executors.newSingleThreadScheduledExecutor(r -> {
-                        Thread t = new Thread(r, "MysqlSSL-TrustManager");
-                        t.setDaemon(true);
-                        return t;
-                    })
-            );
+            X509TlsReloadableTrustManager trustManager = MysqlServer.getTrustManager();
+            X509TlsReloadableKeyManager keyManager = MysqlServer.getKeyManager();
 
-            X509TlsReloadableKeyManager keyManager = new X509TlsReloadableKeyManager();
-            keyManagerCloseable = keyManager.updateIdentityCredentialsFromFile(
-                    new File(Config.tls_private_key_path), new File(Config.tls_certificate_path),
-                    Config.tls_private_key_password, Config.tls_cert_refresh_interval_seconds, TimeUnit.SECONDS,
-                    Executors.newSingleThreadScheduledExecutor(r -> {
-                        Thread t = new Thread(r, "MysqlSSL-KeyManager");
-                        t.setDaemon(true);
-                        return t;
-                    })
-            );
             sslContext = SSLContext.getInstance(protocol);
             sslContext.init(new KeyManager[]{ keyManager },
                             new TrustManager[]{ trustManager },
                             null);
-        } catch (IOException | GeneralSecurityException e) {
+        } catch (GeneralSecurityException | RuntimeException e) {
             LOG.error("Failed to initialize MySQL SSL context", e);
             throw new RuntimeException("Failed to initialize MySQL SSL context: " + e.getMessage(), e);
         }
@@ -172,22 +146,7 @@ public class MysqlSslContext {
     }
 
     public void cleanup() {
-        if (trustManagerCloseable != null) {
-            try {
-                trustManagerCloseable.close();
-                LOG.debug("Closed TrustManager certificate reload task");
-            } catch (Exception e) {
-                LOG.warn("Failed to close TrustManager closeable", e);
-            }
-        }
-        if (keyManagerCloseable != null) {
-            try {
-                keyManagerCloseable.close();
-                LOG.debug("Closed KeyManager certificate reload task");
-            } catch (Exception e) {
-                LOG.warn("Failed to close KeyManager closeable", e);
-            }
-        }
+        return;
     }
 
     /*

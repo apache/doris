@@ -18,9 +18,9 @@
 package org.apache.doris.common;
 
 import org.apache.doris.common.util.X509TlsReloadableKeyManager;
+import org.apache.doris.common.util.X509TlsReloadableTrustManager;
 import org.apache.doris.thrift.TNetworkAddress;
 
-import io.grpc.util.AdvancedTlsX509TrustManager;
 import org.apache.commons.pool2.BaseKeyedPooledObjectFactory;
 import org.apache.commons.pool2.PooledObject;
 import org.apache.commons.pool2.impl.DefaultPooledObject;
@@ -54,7 +54,7 @@ public class GenericPool<VALUE extends org.apache.thrift.TServiceClient>  {
 
     // Global shared TLS managers for certificate hot-reload
     private static volatile X509TlsReloadableKeyManager sharedKeyManager;
-    private static volatile AdvancedTlsX509TrustManager sharedTrustManager;
+    private static volatile X509TlsReloadableTrustManager sharedTrustManager;
     private static volatile Closeable keyManagerCloseable;
     private static volatile Closeable trustManagerCloseable;
     private static final Object tlsInitLock = new Object();
@@ -83,11 +83,11 @@ public class GenericPool<VALUE extends org.apache.thrift.TServiceClient>  {
                 if (sharedKeyManager == null || sharedTrustManager == null) {
                     try {
                         // Initialize TrustManager with auto-reload
-                        sharedTrustManager = AdvancedTlsX509TrustManager.newBuilder()
+                        sharedTrustManager = X509TlsReloadableTrustManager.newBuilder()
                             .setVerification(
-                                    AdvancedTlsX509TrustManager.Verification.CERTIFICATE_AND_HOST_NAME_VERIFICATION)
+                                    X509TlsReloadableTrustManager.Verification.CERTIFICATE_AND_HOST_NAME_VERIFICATION)
                             .build();
-                        trustManagerCloseable = sharedTrustManager.updateTrustCredentialsFromFile(
+                        trustManagerCloseable = sharedTrustManager.updateTrustCredentials(
                                 new File(Config.tls_ca_certificate_path),
                                 Config.tls_cert_refresh_interval_seconds, TimeUnit.SECONDS,
                                 Executors.newSingleThreadScheduledExecutor(r -> {

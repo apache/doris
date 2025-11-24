@@ -142,13 +142,21 @@ public class X509TlsReloadableKeyManager extends X509ExtendedKeyManager {
         CertificateManager.FileWatcherState certState = new CertificateManager.FileWatcherState();
         UpdateResult result = this.readAndUpdate(keyFile, certFile, keyPassword, keyState, certState);
         if (!result.success) {
+            executor.shutdown();
             throw new GeneralSecurityException("Files were unmodified before their initial update. Probably a bug.");
-        } else {
-            final ScheduledFuture<?> future = executor.scheduleWithFixedDelay(
-                    new LoadFilePathExecution(keyFile, certFile, keyPassword, keyState, certState),
-                    period, period, unit);
-            return () -> future.cancel(false);
         }
+        if (period > 0) {
+            final ScheduledFuture<?> future = executor.scheduleWithFixedDelay(
+                new LoadFilePathExecution(keyFile, certFile, keyPassword, keyState, certState),
+                    period, period, unit);
+            return () -> {
+                future.cancel(false);
+                executor.shutdown();
+            };
+        }
+        LOG.warn("SSL certificate reload thread cancle because certificate_reload_interval_s<=0");
+        executor.shutdown();
+        return () -> {};
     }
 
     /**

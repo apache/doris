@@ -18,11 +18,11 @@
 package org.apache.doris.common;
 
 import org.apache.doris.common.util.X509TlsReloadableKeyManager;
+import org.apache.doris.common.util.X509TlsReloadableTrustManager;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.TNetworkAddress;
 
 import com.google.common.collect.Sets;
-import io.grpc.util.AdvancedTlsX509TrustManager;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TConfiguration;
@@ -126,11 +126,11 @@ public class ThriftServer {
         TServerSocket serverTransport;
         if (Config.enable_tls) {
             try {
-                AdvancedTlsX509TrustManager trustManager = AdvancedTlsX509TrustManager.newBuilder()
+                X509TlsReloadableTrustManager trustManager = X509TlsReloadableTrustManager.newBuilder()
                         .setVerification(
-                                AdvancedTlsX509TrustManager.Verification.CERTIFICATE_AND_HOST_NAME_VERIFICATION)
+                                X509TlsReloadableTrustManager.Verification.CERTIFICATE_AND_HOST_NAME_VERIFICATION)
                         .build();
-                trustManagerCloseable = trustManager.updateTrustCredentialsFromFile(
+                trustManagerCloseable = trustManager.updateTrustCredentials(
                         new File(Config.tls_ca_certificate_path),
                         Config.tls_cert_refresh_interval_seconds, TimeUnit.SECONDS,
                         Executors.newSingleThreadScheduledExecutor(r -> {
@@ -225,11 +225,11 @@ public class ThriftServer {
         TServerSocket serverTransport;
         if (Config.enable_tls) {
             try {
-                AdvancedTlsX509TrustManager trustManager = AdvancedTlsX509TrustManager.newBuilder()
+                X509TlsReloadableTrustManager trustManager = X509TlsReloadableTrustManager.newBuilder()
                         .setVerification(
-                                AdvancedTlsX509TrustManager.Verification.CERTIFICATE_AND_HOST_NAME_VERIFICATION)
+                                X509TlsReloadableTrustManager.Verification.CERTIFICATE_AND_HOST_NAME_VERIFICATION)
                         .build();
-                trustManagerCloseable = trustManager.updateTrustCredentialsFromFile(
+                trustManagerCloseable = trustManager.updateTrustCredentials(
                         new File(Config.tls_ca_certificate_path),
                         Config.tls_cert_refresh_interval_seconds, TimeUnit.SECONDS,
                         Executors.newSingleThreadScheduledExecutor(r -> {
