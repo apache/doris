@@ -852,6 +852,11 @@ DEFINE_mInt32(max_tablet_version_num, "2000");
 
 DEFINE_mInt32(time_series_max_tablet_version_num, "20000");
 
+// the max sleep time when meeting high pressure load task
+DEFINE_mInt64(max_load_back_pressure_version_wait_time_ms, "3000");
+// the threshold of rowset number gap that triggers back pressure
+DEFINE_mInt64(load_back_pressure_version_threshold, "80"); // 80%
+
 // Frontend mainly use two thrift sever type: THREAD_POOL, THREADED_SELECTOR. if fe use THREADED_SELECTOR model for thrift server,
 // the thrift_server_type_of_fe should be set THREADED_SELECTOR to make be thrift client to fe constructed with TFramedTransport
 DEFINE_String(thrift_server_type_of_fe, "THREAD_POOL");
