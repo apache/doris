@@ -8418,6 +8418,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         } else {
             String privilegeName = stripQuotes(ctx.name.getText());
             AccessPrivilege accessPrivilege = AccessPrivilege.fromName(privilegeName);
+            if (accessPrivilege == null) {
+                throw new AnalysisException("Unknown privilege type " + privilegeName);
+            }
             List<String> columns = ctx.identifierList() == null
                     ? ImmutableList.of() : visitIdentifierList(ctx.identifierList());
             accessPrivilegeWithCols = new AccessPrivilegeWithCols(accessPrivilege, columns);
