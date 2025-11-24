@@ -70,8 +70,7 @@ suite("test_dml_stream_load_auth","p0,auth_call") {
     proc.consumeProcessOutput(sout, serr)
     proc.waitForOrKill(7200000)
     logger.info("std out: " + sout + "std err: " + serr)
-    assertTrue(sout.toString().indexOf("denied") != -1)
-
+    order_qt_failed "select count(*)  from ${dbName}.${tableName}"
 
     sql """grant load_priv on ${dbName}.${tableName} to ${user}"""
 
