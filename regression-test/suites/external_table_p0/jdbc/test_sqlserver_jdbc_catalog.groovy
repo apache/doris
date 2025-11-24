@@ -98,6 +98,13 @@ suite("test_sqlserver_jdbc_catalog", "p0,external,sqlserver,external_docker,exte
 
         order_qt_sql """ show databases from ${catalog_name} """
 
+        sql """ switch ${catalog_name} """
+        sql """ use ${ex_db_name} """
+
+        order_qt_desc """ desc test_binary;  """
+        order_qt_query """ select * from test_binary order by id; """
+        sql """ insert into test_binary values (4, 4, X"ABAB", X"AB") """
+        order_qt_query_after_insert """ select * from test_binary order by id; """
         sql """ drop catalog if exists ${catalog_name} """
     }
 }
