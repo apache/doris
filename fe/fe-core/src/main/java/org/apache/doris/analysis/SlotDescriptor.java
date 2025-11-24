@@ -59,9 +59,6 @@ public class SlotDescriptor {
     // if false, this slot cannot be NULL
     private boolean isNullable;
 
-    // If set to false, then such slots will be ignored during
-    // materialize them.Used to optimize to read less data and less memory usage
-    private boolean needMaterialize = true;
     private boolean isAutoInc = false;
     private Expr virtualColumn = null;
 
@@ -79,14 +76,6 @@ public class SlotDescriptor {
         this.isNullable = src.isNullable;
         this.type = src.type;
         this.sourceExprs.add(new SlotRef(src));
-    }
-
-    public void setNeedMaterialize(boolean needMaterialize) {
-        this.needMaterialize = needMaterialize;
-    }
-
-    public boolean isInvalid() {
-        return !this.needMaterialize;
     }
 
     public SlotId getId() {
@@ -185,7 +174,6 @@ public class SlotDescriptor {
         TSlotDescriptor tSlotDescriptor = new TSlotDescriptor(id.asInt(), parent.getId().asInt(), type.toThrift(), -1,
                 0, 0, getIsNullable() ? 0 : -1, colName, -1,
                 true);
-        tSlotDescriptor.setNeedMaterialize(needMaterialize);
         tSlotDescriptor.setIsAutoIncrement(isAutoInc);
         if (column != null) {
             if (LOG.isDebugEnabled()) {

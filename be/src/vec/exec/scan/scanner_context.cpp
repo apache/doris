@@ -238,8 +238,7 @@ vectorized::BlockUPtr ScannerContext::get_free_block(bool force) {
         // The caller of get_free_block will increase the memory usage
     } else if (_block_memory_usage < _max_bytes_in_queue || force) {
         _newly_create_free_blocks_num->update(1);
-        block = vectorized::Block::create_unique(_output_tuple_desc->slots(), 0,
-                                                 true /*ignore invalid slots*/);
+        block = vectorized::Block::create_unique(_output_tuple_desc->slots(), 0);
     }
     return block;
 }
@@ -378,9 +377,6 @@ Status ScannerContext::get_block_from_queue(RuntimeState* state, vectorized::Blo
 Status ScannerContext::validate_block_schema(Block* block) {
     size_t index = 0;
     for (auto& slot : _output_tuple_desc->slots()) {
-        if (!slot->is_materialized()) {
-            continue;
-        }
         auto& data = block->get_by_position(index++);
         if (data.column->is_nullable() != data.type->is_nullable()) {
             return Status::Error<ErrorCode::INVALID_SCHEMA>(

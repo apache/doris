@@ -72,9 +72,6 @@ public:
         ColumnsWithTypeAndName columns_with_type_and_name;
         for (const auto& tuple_desc : row_desc.tuple_descriptors()) {
             for (const auto& slot_desc : tuple_desc->slots()) {
-                if (!slot_desc->is_materialized()) {
-                    continue;
-                }
                 columns_with_type_and_name.emplace_back(nullptr, slot_desc->get_data_type_ptr(),
                                                         slot_desc->col_name());
             }
@@ -86,23 +83,16 @@ public:
         NameAndTypePairs name_with_types;
         for (const auto& tuple_desc : row_desc.tuple_descriptors()) {
             for (const auto& slot_desc : tuple_desc->slots()) {
-                if (!slot_desc->is_materialized()) {
-                    continue;
-                }
                 name_with_types.emplace_back(slot_desc->col_name(), slot_desc->get_data_type_ptr());
             }
         }
         return name_with_types;
     }
 
-    static ColumnsWithTypeAndName create_empty_block(const RowDescriptor& row_desc,
-                                                     bool ignore_trivial_slot = true) {
+    static ColumnsWithTypeAndName create_empty_block(const RowDescriptor& row_desc) {
         ColumnsWithTypeAndName columns_with_type_and_name;
         for (const auto& tuple_desc : row_desc.tuple_descriptors()) {
             for (const auto& slot_desc : tuple_desc->slots()) {
-                if (ignore_trivial_slot && !slot_desc->is_materialized()) {
-                    continue;
-                }
                 columns_with_type_and_name.emplace_back(
                         slot_desc->get_data_type_ptr()->create_column(),
                         slot_desc->get_data_type_ptr(), slot_desc->col_name());

@@ -235,10 +235,6 @@ void FileScanner::_init_runtime_filter_partition_prune_ctxs() {
 void FileScanner::_init_runtime_filter_partition_prune_block() {
     // init block with empty column
     for (auto const* slot_desc : _real_tuple_desc->slots()) {
-        if (!slot_desc->is_materialized()) {
-            // should be ignored from reading
-            continue;
-        }
         _runtime_filter_partition_prune_block.insert(
                 ColumnWithTypeAndName(slot_desc->get_empty_mutable_column(),
                                       slot_desc->get_data_type_ptr(), slot_desc->col_name()));
@@ -293,10 +289,6 @@ Status FileScanner::_process_runtime_filters_partition_prune(bool& can_filter_al
     size_t index = 0;
     bool first_column_filled = false;
     for (auto const* slot_desc : _real_tuple_desc->slots()) {
-        if (!slot_desc->is_materialized()) {
-            // should be ignored from reading
-            continue;
-        }
         if (partition_slot_id_to_column.find(slot_desc->id()) !=
             partition_slot_id_to_column.end()) {
             auto data_type = slot_desc->get_data_type_ptr();
@@ -773,10 +765,7 @@ Status FileScanner::_convert_to_output_block(Block* block) {
 
     // for (auto slot_desc : _output_tuple_desc->slots()) {
     for (int j = 0; j < mutable_output_columns.size(); ++j) {
-        auto slot_desc = _output_tuple_desc->slots()[j];
-        if (!slot_desc->is_materialized()) {
-            continue;
-        }
+        auto* slot_desc = _output_tuple_desc->slots()[j];
         int dest_index = ctx_idx;
         vectorized::ColumnPtr column_ptr;
 
@@ -863,10 +852,7 @@ Status FileScanner::_truncate_char_or_varchar_columns(Block* block) {
         return Status::OK();
     }
     int idx = 0;
-    for (auto slot_desc : _real_tuple_desc->slots()) {
-        if (!slot_desc->is_materialized()) {
-            continue;
-        }
+    for (auto* slot_desc : _real_tuple_desc->slots()) {
         const auto& type = slot_desc->type();
         if (type->get_primitive_type() != TYPE_VARCHAR && type->get_primitive_type() != TYPE_CHAR) {
             ++idx;
@@ -1580,11 +1566,8 @@ Status FileScanner::_generate_partition_columns() {
 Status FileScanner::_generate_missing_columns() {
     _missing_col_descs.clear();
     if (!_missing_cols.empty()) {
-        for (auto slot_desc : _real_tuple_desc->slots()) {
-            if (!slot_desc->is_materialized()) {
-                continue;
-            }
-            if (_missing_cols.find(slot_desc->col_name()) == _missing_cols.end()) {
+        for (auto* slot_desc : _real_tuple_desc->slots()) {
+            if (!_missing_cols.contains(slot_desc->col_name())) {
                 continue;
             }
 
@@ -1644,8 +1627,7 @@ Status FileScanner::_init_expr_ctxes() {
             _file_col_names.push_back(it->second->col_name());
         }
 
-        if (partition_name_to_key_index_map.find(it->second->col_name()) !=
-            partition_name_to_key_index_map.end()) {
+        if (partition_name_to_key_index_map.contains(it->second->col_name())) {
             if (slot_info.is_file_slot) {
                 // If there is slot which is both a partition column and a file column,
                 // we should not fill the partition column from path.
@@ -1669,10 +1651,7 @@ Status FileScanner::_init_expr_ctxes() {
     }
 
     // set column name to default value expr map
-    for (auto slot_desc : _real_tuple_desc->slots()) {
-        if (!slot_desc->is_materialized()) {
-            continue;
-        }
+    for (auto* slot_desc : _real_tuple_desc->slots()) {
         vectorized::VExprContextSPtr ctx;
         auto it = _params->default_value_of_src_slot.find(slot_desc->id());
         if (it != std::end(_params->default_value_of_src_slot)) {
@@ -1690,10 +1669,7 @@ Status FileScanner::_init_expr_ctxes() {
         // follow desc expr map is only for load task.
         bool has_slot_id_map = _params->__isset.dest_sid_to_src_sid_without_trans;
         int idx = 0;
-        for (auto slot_desc : _output_tuple_desc->slots()) {
-            if (!slot_desc->is_materialized()) {
-                continue;
-            }
+        for (auto* slot_desc : _output_tuple_desc->slots()) {
             auto it = _params->expr_of_dest_slot.find(slot_desc->id());
             if (it == std::end(_params->expr_of_dest_slot)) {
                 return Status::InternalError("No expr for dest slot, id={}, name={}",
