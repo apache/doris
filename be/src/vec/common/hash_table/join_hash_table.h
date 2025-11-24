@@ -367,7 +367,7 @@ private:
         const auto batch_size = max_batch_size;
 
         auto do_the_probe = [&]() {
-            while (build_idx && matched_cnt < batch_size) {
+            while (build_idx) {
                 if (_eq(keys[probe_idx], build_keys[build_idx])) {
                     probe_idxs[matched_cnt] = probe_idx;
                     build_idxs[matched_cnt] = build_idx;
@@ -377,6 +377,10 @@ private:
                         if (!visited[build_idx]) {
                             visited[build_idx] = 1;
                         }
+                    }
+                    if (matched_cnt > batch_size) {
+                        build_idx = next[build_idx];
+                        break;
                     }
                 }
                 build_idx = next[build_idx];
