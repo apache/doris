@@ -318,8 +318,17 @@ public class CloudTabletRebalancer extends MasterDaemon {
         inited = true;
         long sleepSeconds = Config.cloud_tablet_rebalancer_interval_second;
         if (sleepSeconds < 0L) {
-            LOG.warn("cloud tablet rebalance interval second is negative, change it to default 20s");
-            sleepSeconds = 20L;
+            LOG.warn("cloud tablet rebalance interval second is negative, change it to default 1s");
+            sleepSeconds = 1L;
+        }
+        long balanceEnd = System.currentTimeMillis();
+        if (DebugPointUtil.isEnable("CloudTabletRebalancer.balanceEnd.tooLong")) {
+            LOG.info("debug pointCloudTabletRebalancer.balanceEnd.tooLong");
+            // slower the balance end time to trigger next balance immediately
+            balanceEnd += (Config.cloud_tablet_rebalancer_interval_second + 10L) * 1000L;
+        }
+        if (balanceEnd - start > Config.cloud_tablet_rebalancer_interval_second * 1000L) {
+            sleepSeconds = 0L;
         }
         setInterval(sleepSeconds * 1000L);
         LOG.info("finished to rebalancer. cost: {} ms, rebalancer sche interval {} s",
@@ -912,7 +921,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
                 LOG.warn("check pre tablets {} cache status {} {}", tabletIds, result.getStatus().getStatusCode(),
                         result.getStatus().getErrorMsgs());
             } else {
-                LOG.info("check pre tablets {} cache succ status {} {}", tabletIds, result.getStatus().getStatusCode(),
+                LOG.debug("check pre tablets {} cache succ status {} {}", tabletIds, result.getStatus().getStatusCode(),
                         result.getStatus().getErrorMsgs());
             }
             return result.getTaskDone();

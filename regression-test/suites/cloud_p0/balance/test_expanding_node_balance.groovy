@@ -26,6 +26,7 @@ suite('test_expanding_node_balance', 'docker') {
     def clusterOptions = [
         new ClusterOptions(),
         new ClusterOptions(),
+        new ClusterOptions(),
     ]
 
     for (options in clusterOptions) {
@@ -96,6 +97,14 @@ suite('test_expanding_node_balance', 'docker') {
 
     docker(clusterOptions[1]) {
         def command = 'admin set frontend config("cloud_tablet_rebalancer_interval_second"="0");' 
+        // assert < 50s
+        testCase(command, 50)
+    }
+
+    docker(clusterOptions[2]) {
+        GetDebugPoint().enableDebugPointForAllFEs("CloudTabletRebalancer.balanceEnd.tooLong")
+        // do nothing
+        def command = 'select 1'
         // assert < 50s
         testCase(command, 50)
     }
