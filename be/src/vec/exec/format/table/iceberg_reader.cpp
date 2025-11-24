@@ -541,7 +541,6 @@ ColumnIdResult IcebergParquetReader::_create_column_ids(const FieldDescriptor* f
         }
     }
     return ColumnIdResult(std::move(column_ids), std::move(filter_column_ids));
->>>>>>> f50cf6b3e42 ([feature](reader) Optimize Complex Type Column Reading with Column Pruning.)
 }
 
 Status IcebergParquetReader ::_read_position_delete_file(const TFileRangeDesc* delete_range,
@@ -694,7 +693,6 @@ ColumnIdResult IcebergOrcReader::_create_column_ids(const orc::Type* orc_type,
     }
 
     return ColumnIdResult(std::move(column_ids), std::move(filter_column_ids));
->>>>>>> f50cf6b3e42 ([feature](reader) Optimize Complex Type Column Reading with Column Pruning.)
 }
 
 Status IcebergOrcReader::_read_position_delete_file(const TFileRangeDesc* delete_range,

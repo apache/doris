@@ -206,7 +206,6 @@ ColumnIdResult HiveOrcReader::_create_column_ids_by_top_level_col_index(
     }
 
     return ColumnIdResult(std::move(column_ids), std::move(filter_column_ids));
->>>>>>> f50cf6b3e42 ([feature](reader) Optimize Complex Type Column Reading with Column Pruning.)
 }
 
 Status HiveParquetReader::init_reader(
@@ -407,7 +406,6 @@ ColumnIdResult HiveParquetReader::_create_column_ids_by_top_level_col_index(
     }
 
     return ColumnIdResult(std::move(column_ids), std::move(filter_column_ids));
->>>>>>> f50cf6b3e42 ([feature](reader) Optimize Complex Type Column Reading with Column Pruning.)
 }
 
 #include "common/compile_check_end.h"

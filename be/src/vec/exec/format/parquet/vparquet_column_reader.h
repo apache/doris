@@ -353,7 +353,7 @@ private:
 // This is used when a column is not needed but its structure is required (e.g., for map keys)
 class SkipReadingReader : public ParquetColumnReader {
 public:
-    SkipReadingReader(const std::vector<RowRange>& row_ranges, const cctz::time_zone* ctz,
+    SkipReadingReader(const RowRanges& row_ranges, const cctz::time_zone* ctz,
                       io::IOContext* io_ctx, FieldSchema* field_schema)
             : ParquetColumnReader(row_ranges, ctz, io_ctx) {
         _field_schema = field_schema; // Use inherited member from base class
@@ -394,7 +394,7 @@ public:
         return Status::OK();
     }
 
-    static std::unique_ptr<SkipReadingReader> create_unique(const std::vector<RowRange>& row_ranges,
+    static std::unique_ptr<SkipReadingReader> create_unique(const RowRanges& row_ranges,
                                                             cctz::time_zone* ctz,
                                                             io::IOContext* io_ctx,
                                                             FieldSchema* field_schema) {
