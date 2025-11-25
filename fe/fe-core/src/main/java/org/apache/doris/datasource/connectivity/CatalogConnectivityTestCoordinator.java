@@ -95,8 +95,10 @@ public class CatalogConnectivityTestCoordinator {
         try {
             metaTester.testConnection();
         } catch (Exception e) {
-            throw new DdlException(metaTester.getTestType() + " connectivity test failed: "
-                    + Util.getRootCauseMessage(e));
+            String hint = metaTester.getErrorHint();
+            String errorMsg = metaTester.getTestType() + " connectivity test failed: " + hint
+                    + " Root cause: " + Util.getRootCauseMessage(e);
+            throw new DdlException(errorMsg);
         }
 
         // Store warehouse location for later use
@@ -143,15 +145,20 @@ public class CatalogConnectivityTestCoordinator {
         try {
             tester.testFeConnection();
         } catch (Exception e) {
-            throw new DdlException(tester.getTestType() + " connectivity test failed: " + Util.getRootCauseMessage(e));
+            String hint = tester.getErrorHint();
+            String errorMsg = tester.getTestType() + " connectivity test failed: " + hint
+                    + " Root cause: " + Util.getRootCauseMessage(e);
+            throw new DdlException(errorMsg);
         }
 
         // Test BE connection
         try {
             tester.testBeConnection();
         } catch (Exception e) {
-            throw new DdlException(tester.getTestType()
-                    + " connectivity test failed (compute node): " + Util.getRootCauseMessage(e));
+            String hint = tester.getErrorHint();
+            String errorMsg = tester.getTestType() + " connectivity test failed (compute node): " + hint
+                    + " Root cause: " + Util.getRootCauseMessage(e);
+            throw new DdlException(errorMsg);
         }
     }
 
@@ -241,14 +248,20 @@ public class CatalogConnectivityTestCoordinator {
         try {
             tester.testFeConnection();
         } catch (Exception e) {
-            throw new DdlException("HDFS connectivity test failed: " + Util.getRootCauseMessage(e));
+            String hint = tester.getErrorHint();
+            String errorMsg = "HDFS connectivity test failed: " + hint
+                    + " Root cause: " + Util.getRootCauseMessage(e);
+            throw new DdlException(errorMsg);
         }
 
         // Test BE connection
         try {
             tester.testBeConnection();
         } catch (Exception e) {
-            throw new DdlException("HDFS connectivity test failed (compute node): " + Util.getRootCauseMessage(e));
+            String hint = tester.getErrorHint();
+            String errorMsg = "HDFS connectivity test failed (compute node): " + hint
+                    + " Root cause: " + Util.getRootCauseMessage(e);
+            throw new DdlException(errorMsg);
         }
     }
 

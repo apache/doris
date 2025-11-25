@@ -44,6 +44,12 @@ public class IcebergRestConnectivityTester extends AbstractIcebergConnectivityTe
     }
 
     @Override
+    public String getErrorHint() {
+        return "Please check Iceberg REST Catalog URI, authentication credentials (OAuth2 or SigV4), "
+                + "warehouse location, and endpoint connectivity";
+    }
+
+    @Override
     public void testConnection() throws Exception {
         Map<String, String> restProps = ((IcebergRestProperties) properties).getIcebergRestCatalogProperties();
 

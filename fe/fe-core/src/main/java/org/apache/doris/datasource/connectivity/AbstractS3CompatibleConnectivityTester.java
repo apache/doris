@@ -66,4 +66,10 @@ public abstract class AbstractS3CompatibleConnectivityTester implements StorageC
             client.headBucket(b -> b.bucket(s3Uri.getBucket()));
         }
     }
+
+    @Override
+    public String getErrorHint() {
+        return "Please check S3 credentials (access_key and secret_key or IAM role), "
+                + "region, and bucket (warehouse location) access permissions";
+    }
 }
