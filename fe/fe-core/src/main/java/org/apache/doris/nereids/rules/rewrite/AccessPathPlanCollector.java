@@ -19,7 +19,9 @@ package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.rules.rewrite.AccessPathExpressionCollector.CollectAccessPathResult;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
@@ -28,6 +30,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
@@ -51,6 +54,28 @@ public class AccessPathPlanCollector extends DefaultPlanVisitor<Void, StatementC
     public Map<Slot, List<CollectAccessPathResult>> collect(Plan root, StatementContext context) {
         root.accept(this, context);
         return scanSlotToAccessPaths;
+    }
+
+    @Override
+    public Void visitLogicalProject(LogicalProject<? extends Plan> project, StatementContext context) {
+        AccessPathExpressionCollector exprCollector
+                = new AccessPathExpressionCollector(context, allSlotToAccessPaths, false);
+        for (NamedExpression output : project.getProjects()) {
+            // e.g. select struct_element(s, 'city') from (select s from tbl)a;
+            // we will not treat the inner `s` access all path
+            if (output instanceof Slot && allSlotToAccessPaths.containsKey(output.getExprId().asInt())) {
+                continue;
+            } else if (output instanceof Alias && output.child(0) instanceof Slot
+                    && allSlotToAccessPaths.containsKey(output.getExprId().asInt())) {
+                Slot innerSlot = (Slot) output.child(0);
+                Collection<CollectAccessPathResult> outerSlotAccessPaths = allSlotToAccessPaths.get(
+                        output.getExprId().asInt());
+                allSlotToAccessPaths.putAll(innerSlot.getExprId().asInt(), outerSlotAccessPaths);
+            } else {
+                exprCollector.collect(output);
+            }
+        }
+        return project.child().accept(this, context);
     }
 
     @Override
