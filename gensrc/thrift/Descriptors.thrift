@@ -27,6 +27,49 @@ enum TPatternType {
   MATCH_NAME_GLOB = 2
 }
 
+enum TAccessPathType {
+  DATA = 1,
+  META = 2 // use to prune `where s.data is not null` by only scan the meta of s.data
+}
+
+struct TDataAccessPath {
+   // the specification of special path:
+   //   <empty>: access the whole complex column
+   //   *:
+   //     1. access every items when the type is array
+   //     2. access key and value when the type is map
+   //   KEYS: only access the keys of map
+   //   VALUES: only access the keys of map
+   //
+   // example:
+   //  s: struct<
+   //    data: array<
+   //      map<
+   //        int,
+   //        struct<
+   //          a: id
+   //          b: double
+   //        >
+   //      >
+   //    >
+   //  >
+   // if we want to access `map_keys(s.data[0])`, the path will be: ['s', 'data', '*', 'KEYS'],
+   // if we want to access `map_values(s.data[0])[0].b`, the path will be: ['s', 'data', '*', 'VALUES', 'b'],
+   // if we want to access `s.data[0]['k'].b`, the path will be ['s', 'data', '*', '*', 'b']
+   // if we want to access the whole struct of s, the path will be: ['s'],
+   1: required list<string> path
+}
+
+struct TMetaAccessPath {
+  1: required list<string> path
+}
+
+struct TColumnAccessPath {
+  1: required TAccessPathType type
+  2: optional TDataAccessPath data_access_path
+  3: optional TMetaAccessPath meta_access_path
+}
+
 struct TColumn {
     1: required string column_name
     2: required Types.TColumnType column_type
@@ -69,14 +112,17 @@ struct TSlotDescriptor {
   11: optional i32 col_unique_id = -1
   12: optional bool is_key = false
   // If set to false, then such slots will be ignored during
-  // materialize them.Used to optmize to read less data and less memory usage
+  // materialize them.Used to optimize to read less data and less memory usage
   13: optional bool need_materialize = true
   14: optional bool is_auto_increment = false;
   // subcolumn path info list for semi structure column(variant)
+  // deprecated: will be replaced to column_access_paths
   15: optional list<string> column_paths
   16: optional string col_default_value
   17: optional Types.TPrimitiveType primitive_type = Types.TPrimitiveType.INVALID_TYPE
   18: optional Exprs.TExpr virtual_column_expr
+  19: optional list<TColumnAccessPath> all_access_paths
+  20: optional list<TColumnAccessPath> predicate_access_paths
 }
 
 struct TTupleDescriptor {
@@ -162,6 +208,7 @@ enum TSchemaTableType {
     SCH_BLACKHOLE = 62;
     SCH_COLUMN_DATA_SIZES = 63;
     SCH_LOAD_JOBS = 64;
+    SCH_FILE_CACHE_INFO = 65;
 }
 
 enum THdfsCompression {
@@ -415,6 +462,12 @@ struct TLakeSoulTable {
 struct TDictionaryTable {
 }
 
+struct TRemoteDorisTable {
+  1: optional string db_name
+  2: optional string table_name
+  3: optional map<string, string> properties
+}
+
 // "Union" of all table types.
 struct TTableDescriptor {
   1: required Types.TTableId id
@@ -441,6 +494,7 @@ struct TTableDescriptor {
   22: optional TTrinoConnectorTable trinoConnectorTable
   23: optional TLakeSoulTable lakesoulTable
   24: optional TDictionaryTable dictionaryTable
+  25: optional TRemoteDorisTable remoteDorisTable
 }
 
 struct TDescriptorTable {

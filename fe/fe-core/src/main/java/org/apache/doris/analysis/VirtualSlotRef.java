@@ -54,9 +54,4 @@ public class VirtualSlotRef extends SlotRef {
     public String getExprName() {
         return super.getExprName();
     }
-
-    @Override
-    public boolean supportSerializable() {
-        return false;
-    }
 }

@@ -30,6 +30,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Lists;
 
 import java.util.ArrayList;
@@ -213,12 +214,18 @@ public class PushDownJoinOnAssertNumRows extends OneRewriteRuleFactory {
         return null;
     }
 
-    private LogicalProject<? extends Plan> projectAliasOnPlan(List<Alias> projections, Plan child) {
+    @VisibleForTesting
+    LogicalProject<? extends Plan> projectAliasOnPlan(List<Alias> projections, Plan child) {
         if (child instanceof LogicalProject) {
             LogicalProject<? extends Plan> project = (LogicalProject<? extends Plan>) child;
             List<NamedExpression> newProjections =
                     Lists.newArrayList(project.getProjects());
-            newProjections.addAll(projections);
+            for (Alias alias : projections) {
+                if (!project.getOutput().contains(alias.toSlot())) {
+                    NamedExpression expr = (NamedExpression) project.pushDownExpressionPastProject(alias);
+                    newProjections.add(expr);
+                }
+            }
             return project.withProjects(newProjections);
         } else {
             List<NamedExpression> newProjections = Lists.newArrayList(child.getOutput());

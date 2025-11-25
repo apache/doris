@@ -25,7 +25,7 @@ PhysicalResultSink
 ------------------------------filter(s_county IN ('Bronx County', 'Furnas County', 'Lea County', 'Pennington County'))
 --------------------------------PhysicalOlapScan[store]
 ------------------------PhysicalProject
---------------------------filter((household_demographics.hd_vehicle_count > 0) and (if((hd_vehicle_count > 0), (cast(hd_dep_count as DOUBLE) / cast(hd_vehicle_count as DOUBLE)), NULL) > 1.0) and hd_buy_potential IN ('5001-10000', '>10000'))
+--------------------------filter(((cast(hd_dep_count as DOUBLE) / cast(hd_vehicle_count as DOUBLE)) > 1.0) and (household_demographics.hd_vehicle_count > 0) and hd_buy_potential IN ('5001-10000', '>10000'))
 ----------------------------PhysicalOlapScan[household_demographics]
 ------------PhysicalProject
 --------------PhysicalOlapScan[customer]

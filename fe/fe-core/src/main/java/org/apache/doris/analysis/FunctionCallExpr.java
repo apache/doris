@@ -21,220 +21,29 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.AggregateFunction;
-import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionSet;
-import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.planner.normalize.Normalizer;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 
-import com.google.common.base.Joiner;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.text.StringCharacterIterator;
-import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 
 // TODO: for aggregations, we need to unify the code paths for builtins and UDAs.
 public class FunctionCallExpr extends Expr {
-    public static final ImmutableSet<String> STDDEV_FUNCTION_SET = new ImmutableSortedSet.Builder(
-            String.CASE_INSENSITIVE_ORDER)
-            .add("stddev").add("stddev_val").add("stddev_samp").add("stddev_pop").add("variance").add("variance_pop")
-            .add("variance_pop").add("var_samp").add("var_pop").add("variance_samp").add("avg_weighted")
-            .add("std").build();
-    public static final Map<String, java.util.function.BiFunction<ArrayList<Expr>, Type, Type>> PRECISION_INFER_RULE;
-    public static final java.util.function.BiFunction<ArrayList<Expr>, Type, Type> DEFAULT_PRECISION_INFER_RULE;
-    public static final ImmutableSet<String> ROUND_FUNCTION_SET = new ImmutableSortedSet.Builder(
-            String.CASE_INSENSITIVE_ORDER)
-            .add("round").add("round_bankers").add("ceil").add("floor")
-            .add("truncate").add("dround").add("dceil").add("dfloor").build();
-    public static final ImmutableSet<String> STRING_SEARCH_FUNCTION_SET = new ImmutableSortedSet.Builder(
-            String.CASE_INSENSITIVE_ORDER)
-            .add("multi_search_all_positions").add("multi_match_any").build();
-
-    static {
-        java.util.function.BiFunction<ArrayList<Expr>, Type, Type> sumRule = (children, returnType) -> {
-            Preconditions.checkArgument(children != null && children.size() > 0);
-            if (children.get(0).getType().isDecimalV3()) {
-                return ScalarType.createDecimalV3Type(ScalarType.MAX_DECIMAL128_PRECISION,
-                        ((ScalarType) children.get(0).getType()).getScalarScale());
-            } else {
-                return returnType;
-            }
-        };
-        DEFAULT_PRECISION_INFER_RULE = (children, returnType) -> {
-            if (children != null && children.size() > 0
-                    && children.get(0).getType().isDecimalV3() && returnType.isDecimalV3()) {
-                return children.get(0).getType();
-            } else if (children != null && children.size() > 0 && children.get(0).getType().isDatetimeV2()
-                    && returnType.isDatetimeV2()) {
-                return children.get(0).getType();
-            } else if (children != null && children.size() > 0 && children.get(0).getType().isDecimalV2()
-                    && returnType.isDecimalV2()) {
-                return children.get(0).getType();
-            } else {
-                return returnType;
-            }
-        };
-
-        java.util.function.BiFunction<ArrayList<Expr>, Type, Type> roundRule = (children, returnType) -> {
-            Preconditions.checkArgument(children != null && children.size() > 0);
-            if (children.size() == 1 && children.get(0).getType().isDecimalV3()) {
-                return ScalarType.createDecimalV3Type(children.get(0).getType().getPrecision(), 0);
-            } else if (children.size() == 2) {
-                Expr scaleExpr = children.get(1);
-                if (scaleExpr instanceof IntLiteral
-                        || (scaleExpr instanceof CastExpr && scaleExpr.getChild(0) instanceof IntLiteral)) {
-                    if (children.get(1) instanceof CastExpr && children.get(1).getChild(0) instanceof IntLiteral) {
-                        children.get(1).getChild(0).setType(children.get(1).getType());
-                        children.set(1, children.get(1).getChild(0));
-                    } else {
-                        children.get(1).setType(Type.INT);
-                    }
-                    int scaleArg = (int) (((IntLiteral) children.get(1)).getValue());
-                    return ScalarType.createDecimalV3Type(children.get(0).getType().getPrecision(),
-                            Math.min(Math.max(scaleArg, 0), ((ScalarType) children.get(0).getType()).decimalScale()));
-                } else {
-                    // Scale argument is a Column, always use same scale with input decimal
-                    return ScalarType.createDecimalV3Type(children.get(0).getType().getPrecision(),
-                            ((ScalarType) children.get(0).getType()).decimalScale());
-                }
-            } else {
-                return returnType;
-            }
-        };
-
-        java.util.function.BiFunction<ArrayList<Expr>, Type, Type> arrayDateTimeV2OrDecimalV3Rule
-                = (children, returnType) -> {
-                    Preconditions.checkArgument(children != null && children.size() > 0);
-                    if (children.get(0).getType().isArrayType() && (
-                            ((ArrayType) children.get(0).getType()).getItemType().isDecimalV3()
-                                    || ((ArrayType) children.get(0)
-                                    .getType()).getItemType().isDecimalV2() || ((ArrayType) children.get(0)
-                                    .getType()).getItemType().isDatetimeV2())) {
-                        return ((ArrayType) children.get(0).getType()).getItemType();
-                    } else {
-                        return returnType;
-                    }
-                };
-        java.util.function.BiFunction<ArrayList<Expr>, Type, Type> arrayDecimal128Rule
-                = (children, returnType) -> {
-                    Preconditions.checkArgument(children != null && children.size() > 0);
-                    if (children.get(0).getType().isArrayType() && (
-                            ((ArrayType) children.get(0).getType()).getItemType().isDecimalV3())) {
-                        return ScalarType.createDecimalV3Type(ScalarType.MAX_DECIMAL128_PRECISION,
-                                ((ScalarType) ((ArrayType) children.get(0).getType()).getItemType()).getScalarScale());
-                    } else {
-                        return returnType;
-                    }
-                };
-        java.util.function.BiFunction<ArrayList<Expr>, Type, Type> arrayDecimal128ArrayRule
-                = (children, returnType) -> {
-                    Preconditions.checkArgument(children != null && children.size() > 0);
-                    if (children.get(0).getType().isArrayType() && (
-                            ((ArrayType) children.get(0).getType()).getItemType().isDecimalV3())) {
-                        ArrayType childArrayType = (ArrayType) children.get(0).getType();
-                        Type itemType = ScalarType.createDecimalV3Type(ScalarType.MAX_DECIMAL128_PRECISION,
-                                ((ScalarType) childArrayType.getItemType()).getScalarScale());
-                        return ArrayType.create(itemType, childArrayType.getContainsNull());
-                    } else {
-                        return returnType;
-                    }
-                };
-        PRECISION_INFER_RULE = new HashMap<>();
-        PRECISION_INFER_RULE.put("sum", sumRule);
-        PRECISION_INFER_RULE.put("multi_distinct_sum", sumRule);
-        PRECISION_INFER_RULE.put("avg", (children, returnType) -> {
-            // TODO: how to set scale?
-            Preconditions.checkArgument(children != null && children.size() > 0);
-            if (children.get(0).getType().isDecimalV3()) {
-                return ScalarType.createDecimalV3Type(ScalarType.MAX_DECIMAL128_PRECISION,
-                        Math.max(((ScalarType) children.get(0).getType()).getScalarScale(), 4));
-            } else {
-                return returnType;
-            }
-        });
-        PRECISION_INFER_RULE.put("if", (children, returnType) -> {
-            Preconditions.checkArgument(children != null && children.size() == 3);
-            if (children.get(1).getType().isDecimalV3() && children.get(2).getType().isDecimalV3()) {
-                return Expr.getAssignmentCompatibleType(children.subList(1, children.size()));
-            } else if (children.get(1).getType().isDatetimeV2() && children.get(2).getType().isDatetimeV2()) {
-                return Expr.getAssignmentCompatibleType(children.subList(1, children.size()));
-            } else {
-                return returnType;
-            }
-        });
-
-        PRECISION_INFER_RULE.put("ifnull", (children, returnType) -> {
-            Preconditions.checkArgument(children != null && children.size() == 2);
-            if (children.get(0).getType().isDecimalV3() && children.get(1).getType().isDecimalV3()) {
-                return Expr.getAssignmentCompatibleType(children);
-            } else if (children.get(0).getType().isDatetimeV2() && children.get(1).getType().isDatetimeV2()) {
-                return Expr.getAssignmentCompatibleType(children);
-            } else {
-                return returnType;
-            }
-        });
-
-        PRECISION_INFER_RULE.put("coalesce", (children, returnType) -> {
-            boolean isDecimalV3 = true;
-            boolean isDateTimeV2 = true;
-
-            Type assignmentCompatibleType = Expr.getAssignmentCompatibleType(children);
-            for (Expr child : children) {
-                isDecimalV3 = isDecimalV3 && child.getType().isDecimalV3();
-                isDateTimeV2 = isDateTimeV2 && child.getType().isDatetimeV2();
-            }
-            if ((isDecimalV3 || isDateTimeV2) && assignmentCompatibleType.isValid()) {
-                return assignmentCompatibleType;
-            } else {
-                return returnType;
-            }
-        });
-
-        PRECISION_INFER_RULE.put("array_min", arrayDateTimeV2OrDecimalV3Rule);
-        PRECISION_INFER_RULE.put("array_max", arrayDateTimeV2OrDecimalV3Rule);
-        PRECISION_INFER_RULE.put("element_at", arrayDateTimeV2OrDecimalV3Rule);
-        PRECISION_INFER_RULE.put("%element_extract%", arrayDateTimeV2OrDecimalV3Rule);
-        PRECISION_INFER_RULE.put("array_avg", arrayDecimal128Rule);
-        PRECISION_INFER_RULE.put("array_sum", arrayDecimal128Rule);
-        PRECISION_INFER_RULE.put("array_product", arrayDecimal128Rule);
-        PRECISION_INFER_RULE.put("array_cum_sum", arrayDecimal128ArrayRule);
-        PRECISION_INFER_RULE.put("round", roundRule);
-        PRECISION_INFER_RULE.put("round_bankers", roundRule);
-        PRECISION_INFER_RULE.put("ceil", roundRule);
-        PRECISION_INFER_RULE.put("floor", roundRule);
-        PRECISION_INFER_RULE.put("dround", roundRule);
-        PRECISION_INFER_RULE.put("dceil", roundRule);
-        PRECISION_INFER_RULE.put("dfloor", roundRule);
-        PRECISION_INFER_RULE.put("truncate", roundRule);
-    }
-
-    public static final ImmutableSet<String> TIME_FUNCTIONS_WITH_PRECISION = new ImmutableSortedSet.Builder(
-            String.CASE_INSENSITIVE_ORDER)
-            .add("now").add("current_timestamp").add("localtime").add("localtimestamp").build();
-    public static final int STDDEV_DECIMAL_SCALE = 9;
-    private static final String ELEMENT_EXTRACT_FN_NAME = "%element_extract%";
-
-    private static final Logger LOG = LogManager.getLogger(FunctionCallExpr.class);
 
     @SerializedName("fnn")
     private FunctionName fnName;
@@ -262,8 +71,6 @@ public class FunctionCallExpr extends Expr {
     private int originChildSize;
     // Save the functionCallExpr in the original statement
     private Expr originStmtFnExpr;
-
-    private boolean isRewrote = false;
 
     // this field is set by nereids, so we would not get arg types by the children.
     private Optional<List<Type>> argTypesForNereids = Optional.empty();
@@ -317,36 +124,12 @@ public class FunctionCallExpr extends Expr {
         this(new FunctionName(functionName), new FunctionParams(false, params));
     }
 
-    public FunctionCallExpr(FunctionName fnName, List<Expr> params) {
-        this(fnName, new FunctionParams(false, params));
-    }
-
-    public FunctionCallExpr(FunctionName fnName, List<Expr> params, List<OrderByElement> orderByElements)
-            throws AnalysisException {
-        this(fnName, new FunctionParams(false, params), orderByElements);
-    }
-
     public FunctionCallExpr(String fnName, FunctionParams params) {
         this(new FunctionName(fnName), params, false);
     }
 
     public FunctionCallExpr(FunctionName fnName, FunctionParams params) {
         this(fnName, params, false);
-    }
-
-    public FunctionCallExpr(
-            FunctionName fnName, FunctionParams params, List<OrderByElement> orderByElements) throws AnalysisException {
-        this(fnName, params, false);
-        this.orderByElements = orderByElements;
-        if (!orderByElements.isEmpty()) {
-            if (!AggregateFunction.SUPPORT_ORDER_BY_AGGREGATE_FUNCTION_NAME_SET
-                    .contains(fnName.getFunction().toLowerCase())) {
-                throw new AnalysisException(
-                        "ORDER BY not support for the function:" + fnName.getFunction().toLowerCase());
-            }
-        }
-        setChildren();
-        originChildSize = children.size();
     }
 
     private FunctionCallExpr(
@@ -458,18 +241,6 @@ public class FunctionCallExpr extends Expr {
     @Override
     public Expr clone() {
         return new FunctionCallExpr(this);
-    }
-
-    @Override
-    public void resetAnalysisState() {
-        isAnalyzed = false;
-        // Resolving merge agg functions after substitution may fail e.g., if the
-        // intermediate agg type is not the same as the output type. Preserve the original
-        // fn_ such that analyze() hits the special-case code for merge agg fns that
-        // handles this case.
-        if (!isMergeAggFn) {
-            fn = null;
-        }
     }
 
     @Override
@@ -741,59 +512,6 @@ public class FunctionCallExpr extends Expr {
         return sb.toString();
     }
 
-    private String paramsToDigest() {
-        StringBuilder sb = new StringBuilder();
-        sb.append("(");
-
-        if (fnParams.isStar()) {
-            sb.append("*");
-        }
-        if (fnParams.isDistinct()) {
-            sb.append("DISTINCT ");
-        }
-        int len = children.size();
-        List<String> result = Lists.newArrayList();
-        if (fnName.getFunction().equalsIgnoreCase("aes_decrypt")
-                || fnName.getFunction().equalsIgnoreCase("aes_encrypt")
-                || fnName.getFunction().equalsIgnoreCase("sm4_decrypt")
-                || fnName.getFunction().equalsIgnoreCase("sm4_encrypt")) {
-            len = len - 1;
-        }
-        for (int i = 0; i < len; ++i) {
-            if (i == 1 && (fnName.getFunction().equalsIgnoreCase("aes_decrypt")
-                    || fnName.getFunction().equalsIgnoreCase("aes_encrypt")
-                    || fnName.getFunction().equalsIgnoreCase("sm4_decrypt"))) {
-                result.add("\'***\'");
-            } else {
-                result.add(children.get(i).toDigest());
-            }
-        }
-        sb.append(Joiner.on(", ").join(result)).append(")");
-        return sb.toString();
-    }
-
-    @Override
-    public String toDigestImpl() {
-        Expr expr;
-        if (originStmtFnExpr != null) {
-            expr = originStmtFnExpr;
-        } else {
-            expr = this;
-        }
-        StringBuilder sb = new StringBuilder();
-        sb.append(((FunctionCallExpr) expr).fnName);
-        sb.append(paramsToDigest());
-        if (fnName.getFunction().equalsIgnoreCase("json_quote")
-                || fnName.getFunction().equalsIgnoreCase("json_array")
-                || fnName.getFunction().equalsIgnoreCase("json_object")
-                || fnName.getFunction().equalsIgnoreCase("json_insert")
-                || fnName.getFunction().equalsIgnoreCase("json_replace")
-                || fnName.getFunction().equalsIgnoreCase("json_set")) {
-            return forJSON(sb.toString());
-        }
-        return sb.toString();
-    }
-
     @Override
     public String debugString() {
         return MoreObjects.toStringHelper(this)/*.add("op", aggOp)*/.add("name", fnName).add("isStar",
@@ -819,7 +537,8 @@ public class FunctionCallExpr extends Expr {
     protected void toThrift(TExprNode msg) {
         // TODO: we never serialize this to thrift if it's an aggregate function
         // except in test cases that do it explicitly.
-        if (isAggregate() || isAnalyticFnCall) {
+        if (this instanceof FunctionCallExpr && ((FunctionCallExpr) this).isAggregateFunction()
+                || isAnalyticFnCall) {
             msg.node_type = TExprNodeType.AGG_EXPR;
             if (aggFnParams == null) {
                 aggFnParams = fnParams;
@@ -985,18 +704,5 @@ public class FunctionCallExpr extends Expr {
 
     private void setChildren() {
         orderByElements.forEach(o -> addChild(o.getExpr()));
-    }
-
-    // eg: date_floor("0001-01-01 00:00:18",interval 5 second) convert to
-    // second_floor("0001-01-01 00:00:18", 5, "0001-01-01 00:00:00");
-    public static FunctionCallExpr functionWithIntervalConvert(String functionName, Expr str, Expr interval,
-            String timeUnitIdent) throws AnalysisException {
-        String newFunctionName = timeUnitIdent + "_" + functionName.split("_")[1];
-        List<Expr> params = new ArrayList<>();
-        Expr defaultDatetime = new DateLiteral(0001, 01, 01, 0, 0, 0, 0, Type.DATETIMEV2);
-        params.add(str);
-        params.add(interval);
-        params.add(defaultDatetime);
-        return new FunctionCallExpr(newFunctionName, params);
     }
 }

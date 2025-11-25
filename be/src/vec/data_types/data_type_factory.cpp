@@ -265,8 +265,9 @@ DataTypePtr DataTypeFactory::create_data_type(const PColumnMeta& pcolumn) {
                                                      pcolumn.decimal_param().scale());
         break;
     case PGenericType::DECIMAL128:
-        nested = std::make_shared<DataTypeDecimalV2>(pcolumn.decimal_param().precision(),
-                                                     pcolumn.decimal_param().scale());
+        nested = std::make_shared<DataTypeDecimalV2>(
+                BeConsts::MAX_DECIMALV2_PRECISION, BeConsts::MAX_DECIMALV2_SCALE,
+                pcolumn.decimal_param().precision(), pcolumn.decimal_param().scale());
         break;
     case PGenericType::DECIMAL128I:
         nested = std::make_shared<DataTypeDecimal128>(pcolumn.decimal_param().precision(),
@@ -459,8 +460,7 @@ DataTypePtr DataTypeFactory::create_data_type(const PrimitiveType primitive_type
         nested = std::make_shared<vectorized::DataTypeBitMap>();
         break;
     case TYPE_DECIMALV2:
-        nested = std::make_shared<vectorized::DataTypeDecimalV2>(
-                precision > 0 ? precision : 0, precision > 0 ? scale : 0, precision, scale);
+        nested = std::make_shared<vectorized::DataTypeDecimalV2>(27, 9, precision, scale);
         break;
     case TYPE_QUANTILE_STATE:
         nested = std::make_shared<vectorized::DataTypeQuantileState>();

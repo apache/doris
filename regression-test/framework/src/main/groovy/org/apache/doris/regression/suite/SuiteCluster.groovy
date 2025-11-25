@@ -70,6 +70,9 @@ class ClusterOptions {
     // just as `docker run --add-host myhost:192.168.10.10` do.
     List<String> extraHosts = []
 
+    // environment variables, each environment should be 'name=value'
+    List<String> environments = []
+
     boolean connectToFollower = false
 
     // 1. cloudMode = true, only create cloud cluster.
@@ -364,6 +367,10 @@ class SuiteCluster {
         if (!options.extraHosts.isEmpty()) {
             cmd += ['--extra-hosts']
             cmd += options.extraHosts
+        }
+        if (!options.environments.isEmpty()) {
+            cmd += ['--env']
+            cmd += options.environments
         }
         if (config.dockerCoverageOutputDir != null && config.dockerCoverageOutputDir != '') {
             cmd += ['--coverage-dir', config.dockerCoverageOutputDir]
@@ -778,9 +785,9 @@ class SuiteCluster {
             throw new Exception("Failed to parse clusterSnapshot JSON: ${e.message}")
         }
 
-        // Check is_succeed field
-        def isSucceed = snapshotObj.get('is_succeed')
-        assert isSucceed == true : "clusterSnapshot is_succeed field must be true, but got: ${isSucceed}"
+        // Check is_successor field
+        def isSuccessor = snapshotObj.get('is_successor')
+        assert isSuccessor == true : "clusterSnapshot is_successor field must be true, but got: ${isSuccessor}"
 
         // Extract instance_id from snapshot
         String instanceId = (String) snapshotObj.get('instance_id')

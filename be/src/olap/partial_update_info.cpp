@@ -311,9 +311,7 @@ Status FixedReadPlan::read_columns_by_plan(
         const signed char* __restrict cur_delete_signs) const {
     if (force_read_old_delete_signs) {
         // always read delete sign column from historical data
-        if (const vectorized::ColumnWithTypeAndName* old_delete_sign_column =
-                    block.try_get_by_name(DELETE_SIGN);
-            old_delete_sign_column == nullptr) {
+        if (block.get_position_by_name(DELETE_SIGN) == -1) {
             auto del_col_cid = tablet_schema.field_index(DELETE_SIGN);
             cids_to_read.emplace_back(del_col_cid);
             block.swap(tablet_schema.create_block_by_cids(cids_to_read));
@@ -384,7 +382,10 @@ Status FixedReadPlan::fill_missing_columns(
                                          old_value_block, &read_index, true, nullptr));
 
     const auto* old_delete_signs = BaseTablet::get_delete_sign_column_data(old_value_block);
-    DCHECK(old_delete_signs != nullptr);
+    if (old_delete_signs == nullptr) {
+        return Status::InternalError("old delete signs column not found, block: {}",
+                                     old_value_block.dump_structure());
+    }
     // build default value columns
     auto default_value_block = old_value_block.clone_empty();
     RETURN_IF_ERROR(BaseTablet::generate_default_value_block(
@@ -420,27 +421,30 @@ Status FixedReadPlan::fill_missing_columns(
             }
 
             if (should_use_default) {
-                // clang-format off
                 if (tablet_column.has_default_value()) {
                     missing_col->insert_from(*mutable_default_value_columns[i], 0);
                 } else if (tablet_column.is_nullable()) {
-                    auto* nullable_column = assert_cast<vectorized::ColumnNullable*, TypeCheckOnRelease::DISABLE>(missing_col.get());
+                    auto* nullable_column =
+                            assert_cast<vectorized::ColumnNullable*>(missing_col.get());
                     nullable_column->insert_many_defaults(1);
                 } else if (tablet_schema.auto_increment_column() == tablet_column.name()) {
-                    const auto& column = *DORIS_TRY(rowset_ctx->tablet_schema->column(tablet_column.name()));
+                    const auto& column =
+                            *DORIS_TRY(rowset_ctx->tablet_schema->column(tablet_column.name()));
                     DCHECK(column.type() == FieldType::OLAP_FIELD_TYPE_BIGINT);
                     auto* auto_inc_column =
-                            assert_cast<vectorized::ColumnInt64*, TypeCheckOnRelease::DISABLE>(missing_col.get());
-                    auto_inc_column->insert(vectorized::Field::create_field<TYPE_BIGINT>(
-assert_cast<const vectorized::ColumnInt64*, TypeCheckOnRelease::DISABLE>(
-block->get_by_name(BeConsts::PARTIAL_UPDATE_AUTO_INC_COL).column.get())->get_element(idx)));
+                            assert_cast<vectorized::ColumnInt64*>(missing_col.get());
+                    int pos = block->get_position_by_name(BeConsts::PARTIAL_UPDATE_AUTO_INC_COL);
+                    if (pos == -1) {
+                        return Status::InternalError("auto increment column not found in block {}",
+                                                     block->dump_structure());
+                    }
+                    auto_inc_column->insert_from(*block->get_by_position(pos).column.get(), idx);
                 } else {
                     // If the control flow reaches this branch, the column neither has default value
                     // nor is nullable. It means that the row's delete sign is marked, and the value
                     // columns are useless and won't be read. So we can just put arbitary values in the cells
                     missing_col->insert(tablet_column.get_vec_type()->get_default());
                 }
-                // clang-format on
             } else {
                 missing_col->insert_from(*old_value_block.get_by_position(i).column,
                                          pos_in_old_block);

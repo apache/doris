@@ -20,8 +20,6 @@ package org.apache.doris.nereids.trees.plans.commands.info;
 import org.apache.doris.alter.AlterOpType;
 import org.apache.doris.analysis.AlterTableClause;
 import org.apache.doris.analysis.BuildIndexClause;
-import org.apache.doris.analysis.IndexDef;
-import org.apache.doris.analysis.IndexDef.IndexType;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Index;
@@ -33,6 +31,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.info.TableNameInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition.IndexType;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Maps;
@@ -126,8 +125,8 @@ public class BuildIndexOp extends AlterTableOp {
                 existedIdx = index;
                 if (!existedIdx.isLightIndexChangeSupported()) {
                     throw new AnalysisException("BUILD INDEX operation failed: The index "
-                        + existedIdx.getIndexName() + " of type " + existedIdx.getIndexType()
-                        + " does not support lightweight index changes.");
+                            + existedIdx.getIndexName() + " of type " + existedIdx.getIndexType()
+                            + " does not support lightweight index changes.");
                 }
                 break;
             }
@@ -136,26 +135,31 @@ public class BuildIndexOp extends AlterTableOp {
             throw new AnalysisException("Index[" + indexName + "] is not exist in table[" + tableName.getTbl() + "]");
         }
 
-        IndexDef.IndexType indexType = existedIdx.getIndexType();
-        if ((Config.isNotCloudMode() && indexType == IndexDef.IndexType.NGRAM_BF)
-                || indexType == IndexDef.IndexType.BLOOMFILTER
+        IndexType indexType = existedIdx.getIndexType();
+        if ((Config.isNotCloudMode() && indexType == IndexType.NGRAM_BF)
+                || indexType == IndexType.BLOOMFILTER
                 || (Config.isCloudMode()
                 && indexType == IndexType.INVERTED & !existedIdx.isInvertedIndexParserNone())) {
             throw new AnalysisException(indexType + " index is not needed to build.");
         }
 
-        indexDef = new IndexDefinition(indexName, partitionNamesInfo, indexType);
+        if (indexType == IndexDefinition.IndexType.ANN) {
+            List<String> columns = existedIdx.getColumns();
+            Map<String, String> properties = existedIdx.getProperties();
+            String comment = existedIdx.getComment();
+            indexDef = new IndexDefinition(indexName, false, columns, "ANN", properties, comment);
+        } else {
+            indexDef = new IndexDefinition(indexName, partitionNamesInfo, indexType);
+        }
+
         if (!table.isPartitionedTable()) {
             List<String> specifiedPartitions = indexDef.getPartitionNames();
             if (!specifiedPartitions.isEmpty()) {
                 throw new AnalysisException("table " + table.getName()
-                    + " is not partitioned, cannot build index with partitions.");
+                        + " is not partitioned, cannot build index with partitions.");
             }
         }
-        if (indexDef.getIndexType() == IndexDef.IndexType.ANN) {
-            throw new AnalysisException(
-                "ANN index can only be created during table creation, not through BUILD INDEX.");
-        }
+
         indexDef.validate();
         this.index = existedIdx.clone();
     }
@@ -163,7 +167,7 @@ public class BuildIndexOp extends AlterTableOp {
     @Override
     public AlterTableClause translateToLegacyAlterClause() {
         indexDef.getIndexType();
-        return new BuildIndexClause(tableName, indexDef.translateToLegacyIndexDef(), index, alter);
+        return new BuildIndexClause(tableName, indexDef, index, alter);
     }
 
     @Override

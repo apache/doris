@@ -809,7 +809,7 @@ if [[ "${OUTPUT_BE_BINARY}" -eq 1 ]]; then
         "${DORIS_OUTPUT}/be/www" \
         "${DORIS_OUTPUT}/be/tools/FlameGraph"
 
-    cp -r -p "${DORIS_HOME}/bin"/*_be.sh "${DORIS_OUTPUT}/be/bin"/
+    cp -r -p "${DORIS_HOME}/be/output/bin"/* "${DORIS_OUTPUT}/be/bin"/
     cp -r -p "${DORIS_HOME}/be/output/conf"/* "${DORIS_OUTPUT}/be/conf"/
     cp -r -p "${DORIS_HOME}/be/output/dict" "${DORIS_OUTPUT}/be/"
 

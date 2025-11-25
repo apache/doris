@@ -26,7 +26,6 @@ import org.apache.doris.analysis.ColumnPosition;
 import org.apache.doris.analysis.DbName;
 import org.apache.doris.analysis.EncryptKeyName;
 import org.apache.doris.analysis.FunctionName;
-import org.apache.doris.analysis.LabelName;
 import org.apache.doris.analysis.LockTable;
 import org.apache.doris.analysis.PassVar;
 import org.apache.doris.analysis.PasswordOptions;
@@ -2138,7 +2137,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         String commentSpec = ctx.commentSpec() == null ? "''" : ctx.commentSpec().STRING_LITERAL().getText();
         String comment =
                 LogicalPlanBuilderAssistant.escapeBackSlash(commentSpec.substring(1, commentSpec.length() - 1));
-        return new LoadCommand(new LabelName(labelDbName, labelName), dataDescriptions, brokerDesc,
+        return new LoadCommand(new LabelNameInfo(labelDbName, labelName), dataDescriptions, brokerDesc,
                 resourceDesc, mutableProperties, comment);
     }
 
@@ -5252,6 +5251,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         SetType statementScope = visitStatementScope(ctx.statementScope());
         String name = stripQuotes(ctx.identifier().getText());
         Expression expression = ctx.expression() != null ? typedVisit(ctx.expression()) : null;
+        if (ctx.ON() != null) {
+            expression = new StringLiteral("on");
+        } else if (ctx.ALL() != null) {
+            expression = new StringLiteral("all");
+        }
         return new SetSessionVarOp(statementScope, name, expression);
     }
 
@@ -5260,6 +5264,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         SetType statementScope = visitStatementScope(ctx.statementScope());
         String name = stripQuotes(ctx.identifier().getText());
         Expression expression = ctx.expression() != null ? typedVisit(ctx.expression()) : null;
+        if (ctx.ON() != null) {
+            expression = new StringLiteral("on");
+        } else if (ctx.ALL() != null) {
+            expression = new StringLiteral("all");
+        }
         return new SetSessionVarOp(statementScope, name, expression);
     }
 
@@ -8419,6 +8428,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         } else {
             String privilegeName = stripQuotes(ctx.name.getText());
             AccessPrivilege accessPrivilege = AccessPrivilege.fromName(privilegeName);
+            if (accessPrivilege == null) {
+                throw new AnalysisException("Unknown privilege type " + privilegeName);
+            }
             List<String> columns = ctx.identifierList() == null
                     ? ImmutableList.of() : visitIdentifierList(ctx.identifierList());
             accessPrivilegeWithCols = new AccessPrivilegeWithCols(accessPrivilege, columns);

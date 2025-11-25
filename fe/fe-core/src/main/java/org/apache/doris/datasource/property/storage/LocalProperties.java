@@ -20,7 +20,7 @@ package org.apache.doris.datasource.property.storage;
 import org.apache.doris.common.UserException;
 
 import com.google.common.collect.ImmutableSet;
-import org.apache.commons.collections.MapUtils;
+import org.apache.commons.collections4.MapUtils;
 import org.apache.hadoop.conf.Configuration;
 
 import java.util.Map;

@@ -35,6 +35,7 @@ import software.amazon.awssdk.core.exception.SdkException;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.S3Configuration;
 import software.amazon.awssdk.services.s3.model.AbortMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
@@ -159,7 +160,9 @@ public class DefaultRemote extends RemoteBase {
             StaticCredentialsProvider scp = StaticCredentialsProvider.create(credentials);
             URI endpointUri = URI.create("http://" + obj.getEndpoint());
             s3Client = S3Client.builder().endpointOverride(endpointUri).credentialsProvider(scp)
-                    .region(Region.of(obj.getRegion())).build();
+                    .region(Region.of(obj.getRegion()))
+                    .serviceConfiguration(S3Configuration.builder().chunkedEncodingEnabled(false).build())
+                    .build();
         }
     }
 

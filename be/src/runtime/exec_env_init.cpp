@@ -93,6 +93,7 @@
 #include "runtime/small_file_mgr.h"
 #include "runtime/stream_load/new_load_stream_mgr.h"
 #include "runtime/stream_load/stream_load_executor.h"
+#include "runtime/stream_load/stream_load_recorder_manager.h"
 #include "runtime/thread_context.h"
 #include "runtime/user_function_cache.h"
 #include "runtime/workload_group/workload_group_manager.h"
@@ -241,6 +242,11 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
                               .set_max_threads(config::send_batch_thread_pool_thread_num)
                               .set_max_queue_size(config::send_batch_thread_pool_queue_size)
                               .build(&_send_batch_thread_pool));
+
+    static_cast<void>(ThreadPoolBuilder("UDFCloseWorkers")
+                              .set_min_threads(4)
+                              .set_max_threads(std::min(32, CpuInfo::num_cores()))
+                              .build(&_udf_close_workers_thread_pool));
 
     auto [buffered_reader_min_threads, buffered_reader_max_threads] =
             get_num_threads(config::num_buffered_reader_prefetch_thread_pool_min_thread,
@@ -391,6 +397,10 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
         LOG(ERROR) << "Failed to starge bg threads of storage engine, res=" << st;
         return st;
     }
+
+    // should start after storage_engine->open()
+    _stream_load_recorder_manager = new StreamLoadRecorderManager();
+    _stream_load_recorder_manager->start();
 
     // create internal workload group should be after storage_engin->open()
     RETURN_IF_ERROR(_create_internal_workload_group());
@@ -765,6 +775,7 @@ void ExecEnv::destroy() {
     SAFE_STOP(_group_commit_mgr);
     // _routine_load_task_executor should be stopped before _new_load_stream_mgr.
     SAFE_STOP(_routine_load_task_executor);
+    SAFE_STOP(_stream_load_recorder_manager);
     // stop workload scheduler
     SAFE_STOP(_workload_sched_mgr);
     // stop pipline step 2, cgroup execution
@@ -799,6 +810,7 @@ void ExecEnv::destroy() {
     SAFE_SHUTDOWN(_non_block_close_thread_pool);
     SAFE_SHUTDOWN(_s3_file_system_thread_pool);
     SAFE_SHUTDOWN(_send_batch_thread_pool);
+    SAFE_SHUTDOWN(_udf_close_workers_thread_pool);
     SAFE_SHUTDOWN(_send_table_stats_thread_pool);
 
     SAFE_DELETE(_load_channel_mgr);
@@ -831,6 +843,7 @@ void ExecEnv::destroy() {
     SAFE_DELETE(_file_meta_cache);
     SAFE_DELETE(_group_commit_mgr);
     SAFE_DELETE(_routine_load_task_executor);
+    SAFE_DELETE(_stream_load_recorder_manager);
     // _stream_load_executor
     SAFE_DELETE(_function_client_cache);
     SAFE_DELETE(_streaming_client_cache);
@@ -856,6 +869,7 @@ void ExecEnv::destroy() {
     _buffered_reader_prefetch_thread_pool.reset(nullptr);
     _s3_file_upload_thread_pool.reset(nullptr);
     _send_batch_thread_pool.reset(nullptr);
+    _udf_close_workers_thread_pool.reset(nullptr);
     _write_cooldown_meta_executors.reset(nullptr);
 
     SAFE_DELETE(_broker_client_cache);

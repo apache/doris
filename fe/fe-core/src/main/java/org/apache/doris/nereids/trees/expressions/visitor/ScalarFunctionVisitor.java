@@ -54,10 +54,12 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayEnumerat
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayExcept;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayExists;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayFilter;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayFirst;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayFirstIndex;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayFlatten;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayIntersect;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayJoin;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayLast;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayLastIndex;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayMap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayMatchAll;
@@ -175,6 +177,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.DateTrunc;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateV2;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DayCeil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DayFloor;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.DayHourAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DayName;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DayOfMonth;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DayOfWeek;
@@ -211,6 +214,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Even;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Exp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ExportSet;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ExtractUrlParameter;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Factorial;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Field;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FindInSet;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FirstSignificantSubdomain;
@@ -641,6 +645,10 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(arrayFilter, context);
     }
 
+    default R visitArrayFirst(ArrayFirst arrayFirst, C context) {
+        return visitElementAt(arrayFirst, context);
+    }
+
     default R visitArrayFirstIndex(ArrayFirstIndex arrayFirstIndex, C context) {
         return visitScalarFunction(arrayFirstIndex, context);
     }
@@ -651,6 +659,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitArrayJoin(ArrayJoin arrayJoin, C context) {
         return visitScalarFunction(arrayJoin, context);
+    }
+
+    default R visitArrayLast(ArrayLast arrayLast, C context) {
+        return visitElementAt(arrayLast, context);
     }
 
     default R visitArrayLastIndex(ArrayLastIndex arrayLastIndex, C context) {
@@ -757,8 +769,8 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(arrayFlatten, context);
     }
 
-    default R visitArrayMap(ArrayMap arraySort, C context) {
-        return visitScalarFunction(arraySort, context);
+    default R visitArrayMap(ArrayMap arrayMap, C context) {
+        return visitScalarFunction(arrayMap, context);
     }
 
     default R visitArrayMatchAll(ArrayMatchAll arrayMatchAll, C context) {
@@ -1130,6 +1142,10 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(daysDiff, context);
     }
 
+    default R visitDayHourAdd(DayHourAdd dayHourAdd, C context) {
+        return visitScalarFunction(dayHourAdd, context);
+    }
+
     default R visitDaysAdd(DaysAdd daysAdd, C context) {
         return visitScalarFunction(daysAdd, context);
     }
@@ -1292,6 +1308,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitExtractUrlParameter(ExtractUrlParameter extractUrlParameter, C context) {
         return visitScalarFunction(extractUrlParameter, context);
+    }
+
+    default R visitFactorial(Factorial factorial, C context) {
+        return visitScalarFunction(factorial, context);
     }
 
     default R visitField(Field field, C context) {

@@ -1,0 +1,145 @@
+{
+  "format-version" : 2,
+  "table-uuid" : "baf92432-1443-47fd-971a-0a9df2432e4a",
+  "location" : "hdfs://hdfs-cluster/user/hive/warehouse/cqtest.db/complex_user_profiles_iceberg",
+  "last-sequence-number" : 0,
+  "last-updated-ms" : 1758188914000,
+  "last-column-id" : 18,
+  "current-schema-id" : 0,
+  "schemas" : [ {
+    "type" : "struct",
+    "schema-id" : 0,
+    "fields" : [ {
+      "id" : 1,
+      "name" : "id",
+      "required" : false,
+      "type" : "long"
+    }, {
+      "id" : 2,
+      "name" : "name",
+      "required" : false,
+      "type" : "string"
+    }, {
+      "id" : 3,
+      "name" : "profile",
+      "required" : false,
+      "type" : {
+        "type" : "struct",
+        "fields" : [ {
+          "id" : 4,
+          "name" : "address",
+          "required" : false,
+          "type" : {
+            "type" : "struct",
+            "fields" : [ {
+              "id" : 7,
+              "name" : "street",
+              "required" : false,
+              "type" : "string"
+            }, {
+              "id" : 8,
+              "name" : "city",
+              "required" : false,
+              "type" : "string"
+            }, {
+              "id" : 9,
+              "name" : "coordinates",
+              "required" : false,
+              "type" : {
+                "type" : "struct",
+                "fields" : [ {
+                  "id" : 10,
+                  "name" : "lat",
+                  "required" : false,
+                  "type" : "double"
+                }, {
+                  "id" : 11,
+                  "name" : "lng",
+                  "required" : false,
+                  "type" : "double"
+                } ]
+              }
+            } ]
+          }
+        }, {
+          "id" : 5,
+          "name" : "contact",
+          "required" : false,
+          "type" : {
+            "type" : "struct",
+            "fields" : [ {
+              "id" : 12,
+              "name" : "email",
+              "required" : false,
+              "type" : "string"
+            }, {
+              "id" : 13,
+              "name" : "phone",
+              "required" : false,
+              "type" : {
+                "type" : "struct",
+                "fields" : [ {
+                  "id" : 14,
+                  "name" : "country_code",
+                  "required" : false,
+                  "type" : "string"
+                }, {
+                  "id" : 15,
+                  "name" : "number",
+                  "required" : false,
+                  "type" : "string"
+                } ]
+              }
+            } ]
+          }
+        }, {
+          "id" : 6,
+          "name" : "hobbies",
+          "required" : false,
+          "type" : {
+            "type" : "list",
+            "element-id" : 16,
+            "element" : {
+              "type" : "struct",
+              "fields" : [ {
+                "id" : 17,
+                "name" : "name",
+                "required" : false,
+                "type" : "string"
+              }, {
+                "id" : 18,
+                "name" : "level",
+                "required" : false,
+                "type" : "int"
+              } ]
+            },
+            "element-required" : false
+          }
+        } ]
+      }
+    } ]
+  } ],
+  "default-spec-id" : 0,
+  "partition-specs" : [ {
+    "spec-id" : 0,
+    "fields" : [ ]
+  } ],
+  "last-partition-id" : 999,
+  "default-sort-order-id" : 0,
+  "sort-orders" : [ {
+    "order-id" : 0,
+    "fields" : [ ]
+  } ],
+  "properties" : {
+    "owner" : "hive",
+    "write.format.default" : "parquet",
+    "write.parquet.compression-codec" : "zstd"
+  },
+  "current-snapshot-id" : -1,
+  "refs" : { },
+  "snapshots" : [ ],
+  "statistics" : [ ],
+  "partition-statistics" : [ ],
+  "snapshot-log" : [ ],
+  "metadata-log" : [ ]
+}
