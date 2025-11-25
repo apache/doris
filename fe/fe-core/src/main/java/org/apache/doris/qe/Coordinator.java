@@ -29,6 +29,7 @@ import org.apache.doris.common.Status;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.ExecutionProfile;
+import org.apache.doris.common.profile.RuntimeProfile;
 import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.ListUtil;
@@ -42,6 +43,7 @@ import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.stats.StatsErrorEstimator;
+import org.apache.doris.nereids.trees.expressions.functions.combinator.Combinator;
 import org.apache.doris.nereids.trees.plans.distribute.DistributedPlan;
 import org.apache.doris.nereids.trees.plans.distribute.FragmentIdMapping;
 import org.apache.doris.nereids.trees.plans.physical.TopnFilter;
@@ -77,9 +79,11 @@ import org.apache.doris.proto.Types;
 import org.apache.doris.proto.Types.PUniqueId;
 import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.qe.QueryStatisticsItem.FragmentInstanceInfo;
+import org.apache.doris.resource.computegroup.ComputeGroup;
 import org.apache.doris.resource.workloadgroup.QueryQueue;
 import org.apache.doris.resource.workloadgroup.QueueToken;
 import org.apache.doris.resource.workloadgroup.WorkloadGroup;
+import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.service.ExecuteEnv;
@@ -367,6 +371,19 @@ public class Coordinator implements CoordInterface {
             fragmentIds.add(fragment.getFragmentId().asInt());
         }
         this.executionProfile = new ExecutionProfile(queryId, fragmentIds);
+        ConnectContext ctx = getConnectContext();
+        try {
+            ComputeGroup cp = ctx.getComputeGroup();
+            WorkloadGroupMgr wgMgr = Env.getCurrentEnv().getWorkloadGroupMgr();
+            String wgName = cp.getName();
+            List<WorkloadGroup> wgs = cp.getWorkloadGroup(wgName, wgMgr);
+            WorkloadGroup wg = wgs.get(0);
+            executionProfile.setWorkloadGroupProfile(wg);
+        } catch (UserException e) {
+            throw new RuntimeException(e);
+        }
+
+
     }
 
     // Used for broker load task/export task/update coordinator

@@ -22,6 +22,7 @@ import org.apache.doris.common.Status;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.SafeStringBuilder;
 import org.apache.doris.planner.PlanFragmentId;
+import org.apache.doris.resource.workloadgroup.WorkloadGroup;
 import org.apache.doris.thrift.TDetailedReportParams;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TQueryProfile;
@@ -40,19 +41,21 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
+import static org.apache.doris.common.profile.SummaryProfile.WORKLOAD_GROUP;
+
 /**
  * root is used to collect profile of a complete query plan(including query or load).
  * Need to call addToProfileAsChild() to add it to the root profile.
  * It has the following structure:
- *  DetailProfile:
- *      Fragment 0:
- *          Pipeline 0:
- *          ...
- *      Fragment 1:
- *          Pipeine 0:
- *          ...
- *      ...
- *      LoadChannels:  // only for load job
+ * DetailProfile:
+ * Fragment 0:
+ * Pipeline 0:
+ * ...
+ * Fragment 1:
+ * Pipeine 0:
+ * ...
+ * ...
+ * LoadChannels:  // only for load job
  */
 public class ExecutionProfile {
     private static final Logger LOG = LogManager.getLogger(ExecutionProfile.class);
@@ -61,6 +64,7 @@ public class ExecutionProfile {
     private long queryFinishTime = 0L;
     // The root profile of this execution task
     private RuntimeProfile root;
+    private RuntimeProfile workloadGroupProfile;
     // Profiles for each fragment. And the InstanceProfile is the child of fragment profile.
     // Which will be added to fragment profile when calling Coordinator::sendFragment()
     // Could not use array list because fragment id is not continuous, planner may cut fragment
@@ -84,6 +88,8 @@ public class ExecutionProfile {
     public ExecutionProfile(TUniqueId queryId, List<Integer> fragmentIds) {
         this.queryId = queryId;
         root = new RuntimeProfile("DetailProfile(" + DebugUtil.printId(queryId) + ")");
+        workloadGroupProfile = new RuntimeProfile("workloadGroup");
+        root.addChild(workloadGroupProfile, true);
         RuntimeProfile fragmentsProfile = new RuntimeProfile("Fragments");
         root.addChild(fragmentsProfile, true);
         fragmentProfiles = Maps.newHashMap();
@@ -104,6 +110,27 @@ public class ExecutionProfile {
         root.addChild(loadChannelProfile, true);
     }
 
+
+
+
+    public void setWorkloadGroupProfile(WorkloadGroup wg) {
+        if (wg == null) {
+            return;
+        }
+
+        SafeStringBuilder table = new SafeStringBuilder();
+        table.append("+------+----------+-------------+--------------------------+\n");
+        table.append("| NAME | CPU_SHARE| MEMORY_LIMIT| ENABLE_MEMORY_OVERCOMMIT |\n");
+        table.append("+------+----------+-------------+--------------------------+\n");
+        table.append("| ").append(wg.getName())
+            .append(" | ").append(wg.CPU_SHARE)
+            .append(" | ").append(wg.MEMORY_LIMIT)
+            .append(" | ").append(wg.ENABLE_MEMORY_OVERCOMMIT)
+            .append(" |\n");
+        table.append("+------+----------+-------------+--------------------------+\n");
+        workloadGroupProfile.addInfoString("WorkloadGroup", table.toString());
+    }
+
     private List<List<RuntimeProfile>> getMultiBeProfile(int fragmentId) {
         multiBeProfileLock.readLock().lock();
         try {
@@ -121,7 +148,7 @@ public class ExecutionProfile {
                 } else {
                     if (pipelineSize != profileSingleBE.size()) {
                         LOG.warn("The profile sizes of the two BE are different, {} vs {}", pipelineSize,
-                                profileSingleBE.size());
+                            profileSingleBE.size());
                         pipelineSize = Math.max(pipelineSize, profileSingleBE.size());
                     }
                 }
@@ -136,7 +163,7 @@ public class ExecutionProfile {
                 }
                 if (allPipelineTask.isEmpty()) {
                     LOG.warn("None of the BEs have pipeline task profiles in fragmentId:{}  , pipelineIdx:{}",
-                            fragmentId, pipelineIdx);
+                        fragmentId, pipelineIdx);
                 }
                 allPipelines.add(allPipelineTask);
             }
@@ -147,7 +174,7 @@ public class ExecutionProfile {
     }
 
     protected void setMultiBeProfile(int fragmentId, TNetworkAddress backendHBAddress,
-                                List<RuntimeProfile> taskProfile) {
+                                     List<RuntimeProfile> taskProfile) {
         multiBeProfileLock.writeLock().lock();
         try {
             multiBeProfile.get(fragmentId).put(backendHBAddress, taskProfile);
@@ -170,13 +197,13 @@ public class ExecutionProfile {
                     // It is possible that the profile collection may be incomplete, so only part of
                     // the profile will be merged here.
                     mergedpipelineProfile = new RuntimeProfile(
-                            "Pipeline " + pipelineIdx + "(miss profile)",
-                            -pipelineIdx);
+                        "Pipeline " + pipelineIdx + "(miss profile)",
+                        -pipelineIdx);
                 } else {
                     mergedpipelineProfile = new RuntimeProfile(
-                            "Pipeline " + pipelineIdx + "(instance_num="
-                                    + allPipelineTask.size() + ")",
-                            allPipelineTask.get(0).nodeId());
+                        "Pipeline " + pipelineIdx + "(instance_num="
+                            + allPipelineTask.size() + ")",
+                        allPipelineTask.get(0).nodeId());
                     RuntimeProfile.mergeProfiles(allPipelineTask, mergedpipelineProfile, planNodeMap);
                 }
                 newFragmentProfile.addChild(mergedpipelineProfile, true);
@@ -192,31 +219,36 @@ public class ExecutionProfile {
             fragmentProfile.sortChildren();
         }
         /*
-            * Fragment 0
-            * ---Pipeline 0
-            * ------pipelineTask 0
-            * ------pipelineTask 0
-            * ------pipelineTask 0
-            * ---Pipeline 1
-            * ------pipelineTask 1
-            * ---Pipeline 2
-            * ------pipelineTask 2
-            * ------pipelineTask 2
-            * Fragment 1
-            * ---Pipeline 0
-            * ------......
-            * ---Pipeline 1
-            * ------......
-            * ---Pipeline 2
-            * ------......
-            * ......
-            */
+         * Fragment 0
+         * ---Pipeline 0
+         * ------pipelineTask 0
+         * ------pipelineTask 0
+         * ------pipelineTask 0
+         * ---Pipeline 1
+         * ------pipelineTask 1
+         * ---Pipeline 2
+         * ------pipelineTask 2
+         * ------pipelineTask 2
+         * Fragment 1
+         * ---Pipeline 0
+         * ------......
+         * ---Pipeline 1
+         * ------......
+         * ---Pipeline 2
+         * ------......
+         * ......
+         */
         return getPipelineAggregatedProfile(planNodeMap);
     }
 
     public RuntimeProfile getRoot() {
         return root;
     }
+
+    public RuntimeProfile getWorkGroupLoadProfile() {
+        return workloadGroupProfile;
+    }
+
 
     public Status updateProfile(TQueryProfile profile, TNetworkAddress backendHBAddress, boolean isDone) {
         if (!profile.isSetQueryId()) {
@@ -265,7 +297,7 @@ public class ExecutionProfile {
         }
 
         LOG.info("Profile update finished query: {} fragments: {} isDone: {}",
-                DebugUtil.printId(getQueryId()), profile.getFragmentIdToProfile().size(), isDone);
+            DebugUtil.printId(getQueryId()), profile.getFragmentIdToProfile().size(), isDone);
 
         if (profile.isSetLoadChannelProfiles()) {
             for (TRuntimeProfileTree loadChannelProfile : profile.getLoadChannelProfiles()) {
@@ -291,7 +323,7 @@ public class ExecutionProfile {
             // If any fragment is empty, it means BE does not report the profile, then the total
             // execution profile is not completed.
             if (fragmentProfile.isEmpty()
-                    || fragmentProfile.getChildList().size() < fragmentIdBeNum.get(element.getKey())) {
+                || fragmentProfile.getChildList().size() < fragmentIdBeNum.get(element.getKey())) {
                 return false;
             }
             for (Pair<RuntimeProfile, Boolean> runtimeProfile : fragmentProfile.getChildList()) {
