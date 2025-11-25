@@ -264,6 +264,10 @@ public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void
                 case LEFT_ANTI_JOIN:
                 case NULL_AWARE_LEFT_ANTI_JOIN: {
                     predicates.addAll(leftPredicates.get());
+                    if (join.getJoinType().isLeftOuterJoin()) {
+                        predicates.addAll(
+                                generateNullTolerantPredicates(rightPredicates.get(), join.right().getOutputSet()));
+                    }
                     break;
                 }
                 case RIGHT_OUTER_JOIN:
@@ -382,6 +386,31 @@ public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void
 
     private boolean supportPullUpAgg(Expression expr) {
         return supportAggFunctions.contains(expr.getClass());
+    }
+
+    private Set<Expression> generateNullTolerantPredicates(Set<Expression> predicates, Set<Slot> nullableSlots) {
+        if (predicates.isEmpty() || nullableSlots.isEmpty()) {
+            return predicates;
+        }
+        Set<Expression> tolerant = Sets.newLinkedHashSetWithExpectedSize(predicates.size());
+        for (Expression predicate : predicates) {
+            Set<Slot> predicateSlots = predicate.getInputSlots();
+            List<Expression> orChildren = new ArrayList<>();
+            for (Slot slot : predicateSlots) {
+                if (nullableSlots.contains(slot)) {
+                    orChildren.add(new IsNull(slot));
+                }
+            }
+            if (orChildren.isEmpty()) {
+                tolerant.add(predicate);
+            } else {
+                List<Expression> expandedOr = new ArrayList<>(orChildren.size() + 1);
+                expandedOr.add(predicate);
+                expandedOr.addAll(orChildren);
+                tolerant.add(ExpressionUtils.or(expandedOr));
+            }
+        }
+        return tolerant;
     }
 
     private ImmutableSet<Expression> getFiltersFromUnionChild(LogicalUnion union, Void context) {
