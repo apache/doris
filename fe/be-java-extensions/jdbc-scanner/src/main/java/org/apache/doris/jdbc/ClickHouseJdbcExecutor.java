@@ -88,8 +88,6 @@ public class ClickHouseJdbcExecutor extends BaseJdbcExecutor {
                 return resultSet.getObject(columnIndex + 1, String.class);
             case ARRAY:
                 return convertArrayToList(resultSet.getArray(columnIndex + 1).getArray());
-            case VARBINARY:
-                return resultSet.getObject(columnIndex + 1, byte[].class);
             default:
                 throw new IllegalArgumentException("Unsupported column type: " + type.getType());
         }

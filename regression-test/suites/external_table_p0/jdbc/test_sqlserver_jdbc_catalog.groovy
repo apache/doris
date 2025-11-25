@@ -108,7 +108,7 @@ suite("test_sqlserver_jdbc_catalog", "p0,external,sqlserver,external_docker,exte
                     "jdbc_url" = "jdbc:sqlserver://${externalEnvIp}:${sqlserver_port};encrypt=false;databaseName=doris_test;trustServerCertificate=false",
                     "driver_url" = "${driver_url}",
                     "driver_class" = "com.microsoft.sqlserver.jdbc.SQLServerDriver",
-                    "enable.mapping.binary" = "true"
+                    "enable.mapping.varbinary" = "true"
         );"""
         sql """ switch test_sqlserver_jdbc_catalog_binary """
         sql """ use ${ex_db_name} """
