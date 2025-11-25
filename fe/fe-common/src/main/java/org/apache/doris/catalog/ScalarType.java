@@ -33,14 +33,17 @@ import org.apache.logging.log4j.Logger;
 import java.util.Objects;
 
 /**
- * Describes a scalar type. For most types this class just wraps a PrimitiveType enum,
- * but for types like CHAR and DECIMAL, this class contain additional information.
+ * Describes a scalar type. For most types this class just wraps a PrimitiveType
+ * enum,
+ * but for types like CHAR and DECIMAL, this class contain additional
+ * information.
  *
- * Scalar types have a few ways they can be compared to other scalar types. They can be:
- *   1. completely identical,
- *   2. implicitly castable (convertible without loss of precision)
- *   3. subtype. For example, in the case of decimal, a type can be decimal(*, *)
- *   indicating that any decimal type is a subtype of the decimal type.
+ * Scalar types have a few ways they can be compared to other scalar types. They
+ * can be:
+ * 1. completely identical,
+ * 2. implicitly castable (convertible without loss of precision)
+ * 3. subtype. For example, in the case of decimal, a type can be decimal(*, *)
+ * indicating that any decimal type is a subtype of the decimal type.
  */
 public class ScalarType extends Type {
     // We use a fixed-length decimal type to represent a date time.
@@ -56,7 +59,7 @@ public class ScalarType extends Type {
 
     public static final int MAX_CHAR_LENGTH = 255;
 
-    // HLL DEFAULT LENGTH  2^14(registers) + 1(type)
+    // HLL DEFAULT LENGTH 2^14(registers) + 1(type)
     public static final int MAX_HLL_LENGTH = 16385;
 
     // Longest CHAR that we in line in the tuple.
@@ -82,7 +85,6 @@ public class ScalarType extends Type {
     public static final int MAX_PRECISION = MAX_DECIMAL256_PRECISION;
 
     private long byteSize = -1;
-
 
     /**
      * Set byte size of expression
@@ -556,7 +558,8 @@ public class ScalarType extends Type {
     public static ScalarType createVariantType() {
         // Not return ScalarType return VariantType instead for compatibility reason
         // In the past, variant metadata used the ScalarType type.
-        // Now, we use VariantType, which inherits from ScalarType, as the new metadata storage.
+        // Now, we use VariantType, which inherits from ScalarType, as the new metadata
+        // storage.
         return new VariantType();
     }
 
@@ -568,7 +571,8 @@ public class ScalarType extends Type {
     }
 
     public static ScalarType createVarcharType() {
-        // Because ScalarType is not an immutable class, it will call setLength() sometimes.
+        // Because ScalarType is not an immutable class, it will call setLength()
+        // sometimes.
         // So currently don't use DEFAULT_VARCHAR, will improve it in the future.
         return new ScalarType(PrimitiveType.VARCHAR);
     }
@@ -586,19 +590,19 @@ public class ScalarType extends Type {
                 return "character(" + MAX_CHAR_LENGTH + ")";
             }
             return "char(" + len + ")";
-        } else  if (type == PrimitiveType.DECIMALV2) {
+        } else if (type == PrimitiveType.DECIMALV2) {
             if (isWildcardDecimal()) {
                 return "decimal(*,*)";
             }
             return "decimal(" + precision + "," + scale + ")";
-        } else  if (type.isDecimalV3Type()) {
+        } else if (type.isDecimalV3Type()) {
             if (isWildcardDecimal()) {
                 return "decimalv3(*,*)";
             }
             return "decimalv3(" + precision + "," + scale + ")";
-        } else  if (type == PrimitiveType.DATETIMEV2) {
+        } else if (type == PrimitiveType.DATETIMEV2) {
             return "datetimev2(" + scale + ")";
-        } else  if (type == PrimitiveType.TIMEV2) {
+        } else if (type == PrimitiveType.TIMEV2) {
             return "timev2(" + scale + ")";
         } else if (type == PrimitiveType.VARCHAR) {
             if (isWildcardVarchar()) {
@@ -653,10 +657,10 @@ public class ScalarType extends Type {
                 String typeName = "decimalv3";
                 if (Strings.isNullOrEmpty(precisionStr)) {
                     stringBuilder.append(typeName).append("(").append(precision)
-                        .append(",").append(scale).append(")");
+                            .append(",").append(scale).append(")");
                 } else if (!Strings.isNullOrEmpty(precisionStr) && !Strings.isNullOrEmpty(scaleStr)) {
                     stringBuilder.append(typeName).append("(`").append(precisionStr)
-                        .append("`,`").append(scaleStr).append("`)");
+                            .append("`,`").append(scaleStr).append("`)");
                 } else {
                     stringBuilder.append(typeName).append("(`").append(precisionStr).append("`)");
                 }
@@ -957,259 +961,6 @@ public class ScalarType extends Type {
         return true;
     }
 
-    /**
-     * Returns the smallest decimal type that can safely store this type. Returns
-     * INVALID if this type cannot be stored as a decimal.
-     */
-    public ScalarType getMinResolutionDecimal() {
-        switch (type) {
-            case NULL_TYPE:
-                return Type.NULL;
-            case DECIMALV2:
-                return this;
-            case TINYINT:
-                return createDecimalType(3);
-            case SMALLINT:
-                return createDecimalType(5);
-            case INT:
-                return createDecimalType(10);
-            case BIGINT:
-                return createDecimalType(19);
-            case FLOAT:
-                return createDecimalTypeInternal(MAX_DECIMAL128_PRECISION, 9, false);
-            case DOUBLE:
-                return createDecimalTypeInternal(MAX_DECIMAL128_PRECISION, 17, false);
-            default:
-                return ScalarType.INVALID;
-        }
-    }
-
-    /**
-     * Returns true if this decimal type is a supertype of the other decimal type.
-     * e.g. (10,3) is a supertype of (3,3) but (5,4) is not a supertype of (3,0).
-     * To be a super type of another decimal, the number of digits before and after
-     * the decimal point must be greater or equal.
-     */
-    public boolean isSupertypeOf(ScalarType o) {
-        Preconditions.checkState(isDecimalV2() || isDecimalV3());
-        Preconditions.checkState(o.isDecimalV2() || o.isDecimalV3());
-        if (isWildcardDecimal()) {
-            return true;
-        }
-        if (o.isWildcardDecimal()) {
-            return false;
-        }
-        return scale >= o.scale && precision - scale >= o.precision - o.scale;
-    }
-
-    /**
-     * Return type t such that values from both t1 and t2 can be assigned to t.
-     * If strict, only return types when there will be no loss of precision.
-     * Returns INVALID_TYPE if there is no such type or if any of t1 and t2
-     * is INVALID_TYPE.
-     */
-    public static ScalarType getAssignmentCompatibleType(
-            ScalarType t1, ScalarType t2, boolean strict, boolean enableDecimal256) {
-        if (!t1.isValid() || !t2.isValid()) {
-            return INVALID;
-        }
-        if (t1.equals(t2)) {
-            return t1;
-        }
-        if (t1.isNull()) {
-            return t2;
-        }
-        if (t2.isNull()) {
-            return t1;
-        }
-
-        boolean t1IsHLL = t1.type == PrimitiveType.HLL;
-        boolean t2IsHLL = t2.type == PrimitiveType.HLL;
-        if (t1IsHLL || t2IsHLL) {
-            if (t1IsHLL && t2IsHLL) {
-                return createHllType();
-            }
-            return INVALID;
-        }
-
-        boolean t1IsBitMap = t1.type == PrimitiveType.BITMAP;
-        boolean t2IsBitMap = t2.type == PrimitiveType.BITMAP;
-        if (t1IsBitMap || t2IsBitMap) {
-            if (t1IsBitMap && t2IsBitMap) {
-                return BITMAP;
-            }
-            return INVALID;
-        }
-
-        // for cast all type
-        if (t1.type == PrimitiveType.ALL || t2.type == PrimitiveType.ALL) {
-            return Type.ALL;
-        }
-
-        if (t1.isStringType() || t2.isStringType()) {
-            if (t1.type == PrimitiveType.STRING || t2.type == PrimitiveType.STRING) {
-                return createStringType();
-            }
-            int minLength = Math.min(t1.len, t2.len);
-            if (minLength < 0) {
-                // If < 0 which means max length, use firstly
-                return createVarcharType(minLength);
-            }
-            int length = Math.max(t1.len, t2.len);
-            return createVarcharType(length == 0 ? MAX_VARCHAR_LENGTH : length);
-        }
-
-        if (((t1.isDecimalV3() || t1.isDecimalV2()) && (t2.isDateV2() || t2.isDate()))
-                || ((t2.isDecimalV3() || t2.isDecimalV2()) && (t1.isDateV2() || t1.isDate()))) {
-            return Type.DOUBLE;
-        }
-
-        if (t1.isDecimalV2() && t2.isDecimalV2()) {
-            return getAssignmentCompatibleDecimalV2Type(t1, t2);
-        }
-
-        if ((t1.isDecimalV3() && t2.isDecimalV2()) || (t2.isDecimalV3() && t1.isDecimalV2())) {
-            int scale = Math.max(t1.scale, t2.scale);
-            int integerPart = Math.max(t1.precision - t1.scale, t2.precision - t2.scale);
-            return ScalarType.createDecimalV3Type(integerPart + scale, scale);
-        }
-
-        if (t1.isDecimalV2() || t2.isDecimalV2()) {
-            if (t1.isFloatingPointType() || t2.isFloatingPointType()) {
-                return Type.DOUBLE;
-            }
-            return t1.isDecimalV2() ? t1 : t2;
-        }
-
-        if (t1.isDecimalV3() || t2.isDecimalV3()) {
-            if (t1.isFloatingPointType() || t2.isFloatingPointType()) {
-                return t1.isFloatingPointType() ? t1 : t2;
-            } else if (t1.isBoolean() || t2.isBoolean()) {
-                return t1.isDecimalV3()
-                        ? ScalarType.createDecimalV3Type(
-                        Math.max(t1.precision - t1.scale, 1) + Math.max(t1.scale, 0),
-                        Math.max(t1.scale, 0)) :
-                        ScalarType.createDecimalV3Type(
-                        Math.max(t2.precision - t2.scale, 1) + Math.max(t2.scale, 0),
-                        Math.max(t2.scale, 0));
-            }
-        }
-
-        if ((t1.isDecimalV3() && t2.isFixedPointType())
-                || (t2.isDecimalV3() && t1.isFixedPointType())) {
-            int precision;
-            int scale;
-            ScalarType intType;
-            if (t1.isDecimalV3()) {
-                precision = t1.precision;
-                scale = t1.scale;
-                intType = t2;
-            } else {
-                precision = t2.precision;
-                scale = t2.scale;
-                intType = t1;
-            }
-            int integerPart = precision - scale;
-            if (intType.isScalarType(PrimitiveType.TINYINT)
-                    || intType.isScalarType(PrimitiveType.SMALLINT)) {
-                integerPart = Math.max(integerPart, new BigDecimal(Short.MAX_VALUE).precision());
-            } else if (intType.isScalarType(PrimitiveType.INT)) {
-                integerPart = Math.max(integerPart, new BigDecimal(Integer.MAX_VALUE).precision());
-            } else {
-                integerPart = ScalarType.MAX_DECIMAL128_PRECISION - scale;
-            }
-            if (scale + integerPart <= ScalarType.MAX_DECIMAL128_PRECISION) {
-                return ScalarType.createDecimalV3Type(scale + integerPart, scale);
-            } else {
-                if (enableDecimal256) {
-                    return ScalarType.createDecimalV3Type(scale + integerPart, scale);
-                } else {
-                    return Type.DOUBLE;
-                }
-            }
-        }
-
-        if (t1.isDecimalV3() && t2.isDecimalV3()) {
-            ScalarType finalType = ScalarType.createDecimalV3Type(Math.max(t1.decimalPrecision() - t1.decimalScale(),
-                    t2.decimalPrecision() - t2.decimalScale()) + Math.max(t1.decimalScale(),
-                    t2.decimalScale()), Math.max(t1.decimalScale(), t2.decimalScale()));
-            if (finalType.getPrecision() > MAX_PRECISION) {
-                finalType = ScalarType.createDecimalV3Type(MAX_PRECISION, finalType.getScalarScale());
-            }
-            return finalType;
-        }
-
-        if (t1.isVariantType() && t2.isVariantType()) {
-            if (t1.equals(t2)) {
-                return t1;
-            } else {
-                return Type.UNSUPPORTED;
-            }
-        }
-
-        PrimitiveType smallerType =
-                (t1.type.ordinal() < t2.type.ordinal() ? t1.type : t2.type);
-        PrimitiveType largerType =
-                (t1.type.ordinal() > t2.type.ordinal() ? t1.type : t2.type);
-        PrimitiveType result = null;
-        if (t1.isDatetimeV2() && t2.isDatetimeV2()) {
-            return t1.scale > t2.scale ? t1 : t2;
-        }
-        if ((t1.isDatetimeV2() || t1.isDateV2()) && (t2.isDatetimeV2() || t2.isDateV2())) {
-            return t1.isDatetimeV2() ? t1 : t2;
-        }
-        if (strict) {
-            result = strictCompatibilityMatrix[smallerType.ordinal()][largerType.ordinal()];
-        }
-        if (result == null) {
-            result = compatibilityMatrix[smallerType.ordinal()][largerType.ordinal()];
-        }
-        Preconditions.checkNotNull(result,
-                "data type %s and %s is not compatible", t1, t2);
-        if (result == PrimitiveType.DECIMALV2) {
-            return Type.MAX_DECIMALV2_TYPE;
-        }
-        return createType(result);
-    }
-
-    public static ScalarType getAssignmentCompatibleDecimalV2Type(ScalarType t1, ScalarType t2) {
-        int targetScale = Math.max(t1.decimalScale(), t2.decimalScale());
-        int targetPrecision = Math.max(t1.decimalPrecision() - t1.decimalScale(), t2.decimalPrecision()
-                - t2.decimalScale()) + targetScale;
-        return ScalarType.createDecimalType(PrimitiveType.DECIMALV2,
-                targetPrecision, targetScale);
-    }
-
-    public static ScalarType getAssignmentCompatibleDecimalV3Type(ScalarType t1, ScalarType t2) {
-        int targetScale = Math.max(t1.decimalScale(), t2.decimalScale());
-        int targetPrecision = Math.max(t1.decimalPrecision() - t1.decimalScale(), t2.decimalPrecision()
-                - t2.decimalScale()) + targetScale;
-        return ScalarType.createDecimalV3Type(targetPrecision, targetScale);
-    }
-
-    /**
-     * Returns true t1 can be implicitly cast to t2, false otherwise.
-     * If strict is true, only consider casts that result in no loss of precision.
-     */
-    public static boolean isImplicitlyCastable(
-            ScalarType t1, ScalarType t2, boolean strict, boolean enableDecimal256) {
-        return getAssignmentCompatibleType(t1, t2, strict, enableDecimal256).matchesType(t2);
-    }
-
-    public static boolean canCastTo(ScalarType type, ScalarType targetType) {
-        return PrimitiveType.isImplicitCast(type.getPrimitiveType(), targetType.getPrimitiveType());
-    }
-
-    /**
-     * Decimal default precision is 9 and scale is 0, this method return whether this is
-     * default decimal v3 or v2
-     */
-    public boolean isDefaultDecimal() {
-        return (isDecimalV3() || isDecimalV2())
-                && DEFAULT_PRECISION == this.precision
-                && DEFAULT_SCALE == this.scale;
-    }
-
     @Override
     public TColumnType toColumnTypeThrift() {
         TColumnType thrift = new TColumnType();
@@ -1236,7 +987,8 @@ public class ScalarType extends Type {
 
     public int getVariantMaxSubcolumnsCount() {
         // In the past, variant metadata used the ScalarType type.
-        // Now, we use VariantType, which inherits from ScalarType, as the new metadata storage.
+        // Now, we use VariantType, which inherits from ScalarType, as the new metadata
+        // storage.
         if (this instanceof VariantType) {
             return ((VariantType) this).getVariantMaxSubcolumnsCount();
         }
@@ -1245,7 +997,8 @@ public class ScalarType extends Type {
 
     public boolean getVariantEnableTypedPathsToSparse() {
         // In the past, variant metadata used the ScalarType type.
-        // Now, we use VariantType, which inherits from ScalarType, as the new metadata storage.
+        // Now, we use VariantType, which inherits from ScalarType, as the new metadata
+        // storage.
         if (this instanceof VariantType) {
             return ((VariantType) this).getEnableTypedPathsToSparse();
         }
@@ -1254,7 +1007,8 @@ public class ScalarType extends Type {
 
     public int getVariantMaxSparseColumnStatisticsSize() {
         // In the past, variant metadata used the ScalarType type.
-        // Now, we use VariantType, which inherits from ScalarType, as the new metadata storage.
+        // Now, we use VariantType, which inherits from ScalarType, as the new metadata
+        // storage.
         if (this instanceof VariantType) {
             return ((VariantType) this).getVariantMaxSparseColumnStatisticsSize();
         }
@@ -1263,7 +1017,8 @@ public class ScalarType extends Type {
 
     public int getVariantSparseHashShardCount() {
         // In the past, variant metadata used the ScalarType type.
-        // Now, we use VariantType, which inherits from ScalarType, as the new metadata storage.
+        // Now, we use VariantType, which inherits from ScalarType, as the new metadata
+        // storage.
         if (this instanceof VariantType) {
             return ((VariantType) this).getVariantSparseHashShardCount();
         }

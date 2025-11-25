@@ -128,7 +128,6 @@ import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.util.MemoTestUtils;
-import org.checkerframework.nonapi.io.github.classgraph.utils.Assert;
 
 import com.google.common.collect.ImmutableList;
 import org.apache.commons.lang3.StringUtils;
