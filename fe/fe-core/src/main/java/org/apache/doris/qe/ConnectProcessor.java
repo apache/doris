@@ -375,7 +375,7 @@ public abstract class ConnectProcessor {
         }
     }
 
-    private List<StatementBase> parseFromSqlCache(String originStmt) throws UserException {
+    private List<StatementBase> parseFromSqlCache(String originStmt) {
         StatementContext statementContext = new StatementContext(ctx, new OriginStatement(originStmt, 0));
         ctx.setStatementContext(statementContext);
 
