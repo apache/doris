@@ -53,6 +53,14 @@ public interface StorageConnectivityTester {
         return "Storage";
     }
 
+    /**
+     * Returns error hint for this connectivity test.
+     * Subclasses can override to provide specific hints for troubleshooting.
+     */
+    default String getErrorHint() {
+        return "";
+    }
+
     default void testBeConnection() throws Exception {
         List<Long> aliveBeIds = Env.getCurrentSystemInfo().getAllBackendIds(true);
         if (aliveBeIds.isEmpty()) {
