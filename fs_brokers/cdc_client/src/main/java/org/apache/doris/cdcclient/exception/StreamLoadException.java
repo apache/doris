@@ -15,15 +15,30 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.cdcclient.constants;
+package org.apache.doris.cdcclient.exception;
 
-public class LoadConstants {
-    public static final String DB_SOURCE_TYPE = "db_source_type";
-    public static final String HOST = "host";
-    public static final String PORT = "port";
-    public static final String USERNAME = "username";
-    public static final String PASSWORD = "password";
-    public static final String DATABASE_NAME = "database";
-    public static final String INCLUDE_TABLES_LIST = "include_tables";
-    public static final String EXCLUDE_TABLES_LIST = "exclude_tables";
+public class StreamLoadException extends RuntimeException {
+    public StreamLoadException() {
+        super();
+    }
+
+    public StreamLoadException(String message) {
+        super(message);
+    }
+
+    public StreamLoadException(String message, Throwable cause) {
+        super(message, cause);
+    }
+
+    public StreamLoadException(Throwable cause) {
+        super(cause);
+    }
+
+    protected StreamLoadException(
+            String message,
+            Throwable cause,
+            boolean enableSuppression,
+            boolean writableStackTrace) {
+        super(message, cause, enableSuppression, writableStackTrace);
+    }
 }

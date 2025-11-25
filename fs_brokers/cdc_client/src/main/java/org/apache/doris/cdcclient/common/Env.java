@@ -17,58 +17,57 @@
 
 package org.apache.doris.cdcclient.common;
 
+import java.util.Locale;
+import java.util.Map;
+import java.util.Objects;
+import java.util.concurrent.ConcurrentHashMap;
+import lombok.Getter;
+import lombok.Setter;
 import org.apache.doris.cdcclient.source.factory.DataSource;
 import org.apache.doris.cdcclient.source.factory.SourceReaderFactory;
 import org.apache.doris.cdcclient.source.reader.SourceReader;
 
-import java.util.Map;
-import java.util.Objects;
-import java.util.concurrent.ConcurrentHashMap;
-
-/**
- * 负责管理以 jobId 为粒度的 SourceReader 及其配置，避免 Controller 手动维护状态。
- */
-public class JobManager {
-    private static volatile JobManager INSTANCE;
+public class Env {
+    private static volatile Env INSTANCE;
     private final Map<Long, JobContext> jobContexts;
+    @Getter @Setter private int beHttpPort;
 
-    private JobManager() {
+    private Env() {
         this.jobContexts = new ConcurrentHashMap<>();
     }
 
-    public static JobManager getInstance() {
+    public static Env getCurrentEnv() {
         if (INSTANCE == null) {
-            synchronized (JobManager.class) {
+            synchronized (Env.class) {
                 if (INSTANCE == null) {
-                    INSTANCE = new JobManager();
+                    INSTANCE = new Env();
                 }
             }
         }
         return INSTANCE;
     }
 
-
-    public SourceReader<?, ?> getOrCreateReader(Long jobId, DataSource dataSource) {
-        JobContext context = getOrCreateContext(jobId, dataSource);
-        return context.getOrCreateReader(dataSource);
+    public SourceReader<?, ?> getReader(Long jobId, String dataSource, Map<String, String> config) {
+        DataSource ds = resolveDataSource(dataSource);
+        Env manager = Env.getCurrentEnv();
+        return manager.getOrCreateReader(jobId, ds, config);
     }
 
-    public SourceReader<?, ?> getReader(Long jobId) {
-        JobContext context = jobContexts.get(jobId);
-        return context == null ? null : context.reader;
-    }
-
-    public void attachOptions(Long jobId, DataSource dataSource, Map<String, String> options) {
-        if (jobId == null || options == null) {
-            return;
+    private DataSource resolveDataSource(String source) {
+        if (source == null || source.trim().isEmpty()) {
+            throw new IllegalArgumentException("Missing dataSource");
         }
-        JobContext context = getOrCreateContext(jobId, dataSource);
-        context.setOptions(options);
+        try {
+            return DataSource.valueOf(source.trim().toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException ex) {
+            throw new IllegalArgumentException("Unsupported dataSource: " + source, ex);
+        }
     }
 
-    public Map<String, String> getOptions(Long jobId) {
-        JobContext context = jobContexts.get(jobId);
-        return context == null ? null : context.options;
+    private SourceReader<?, ?> getOrCreateReader(
+            Long jobId, DataSource dataSource, Map<String, String> config) {
+        JobContext context = getOrCreateContext(jobId, dataSource, config);
+        return context.getOrCreateReader(dataSource);
     }
 
     public void close(Long jobId) {
@@ -78,25 +77,23 @@ public class JobManager {
         }
     }
 
-    public void clearAll() {
-        jobContexts.keySet().forEach(this::close);
-    }
-
-    private JobContext getOrCreateContext(Long jobId, DataSource dataSource) {
+    private JobContext getOrCreateContext(
+            Long jobId, DataSource dataSource, Map<String, String> config) {
         Objects.requireNonNull(jobId, "jobId");
         Objects.requireNonNull(dataSource, "dataSource");
-        return jobContexts.computeIfAbsent(jobId, id -> new JobContext(id, dataSource));
+        return jobContexts.computeIfAbsent(jobId, id -> new JobContext(id, dataSource, config));
     }
 
     private static final class JobContext {
         private final long jobId;
         private volatile SourceReader<?, ?> reader;
-        private volatile Map<String, String> options;
+        private volatile Map<String, String> config;
         private volatile DataSource dataSource;
 
-        private JobContext(long jobId, DataSource dataSource) {
+        private JobContext(long jobId, DataSource dataSource, Map<String, String> config) {
             this.jobId = jobId;
             this.dataSource = dataSource;
+            this.config = config;
         }
 
         private synchronized SourceReader<?, ?> getOrCreateReader(DataSource source) {
@@ -111,10 +108,6 @@ public class JobManager {
                                 jobId, dataSource, source));
             }
             return reader;
-        }
-
-        private void setOptions(Map<String, String> options) {
-            this.options = options;
         }
 
         private void close() {

@@ -49,6 +49,9 @@
         <spotless.version>2.43.0</spotless.version>
         <checkstyle.version>8.14</checkstyle.version>
         <maven-checkstyle-plugin.version>2.17</maven-checkstyle-plugin.version>
+        <httpcomponents.version>4.5.13</httpcomponents.version>
+        <lombok.version>1.18.24</lombok.version>
+        <commons-codec.version>1.15</commons-codec.version>
     </properties>
 
     <dependencies>
@@ -124,16 +127,41 @@
             <version>${flink.version}</version>
         </dependency>
 
-                <dependency>
-                    <groupId>org.slf4j</groupId>
-                    <artifactId>slf4j-api</artifactId>
-                    <version>${slf4j.version}</version>
-                </dependency>
-                <dependency>
-                    <groupId>org.slf4j</groupId>
-                    <artifactId>slf4j-log4j12</artifactId>
-                    <version>${slf4j.version}</version>
-                </dependency>
+        <dependency>
+            <groupId>org.apache.httpcomponents</groupId>
+            <artifactId>httpclient</artifactId>
+            <version>${httpcomponents.version}</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>commons-codec</groupId>
+                    <artifactId>commons-codec</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+
+        <dependency>
+            <groupId>commons-codec</groupId>
+            <artifactId>commons-codec</artifactId>
+            <version>${commons-codec.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-api</artifactId>
+            <version>${slf4j.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-log4j12</artifactId>
+            <version>${slf4j.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <version>${lombok.version}</version>
+            <scope>provided</scope>
+        </dependency>
 
     </dependencies>
 

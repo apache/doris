@@ -15,36 +15,24 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.cdcclient.model;
+package org.apache.doris.cdcclient.model.req;
 
-import java.util.Map;
+import lombok.Data;
+import lombok.EqualsAndHashCode;
 
-public class FinishSplitsReq {
+@Data
+@EqualsAndHashCode(callSuper = true)
+public class FetchRecordReq extends BaseRecordReq {
+    private boolean reload;
+    private int fetchSize;
 
-    private String datasource;
-
-    private Map<String, Map<String, String>> finishedOffsets;
-
-    public FinishSplitsReq() {}
-
-    public FinishSplitsReq(String datasource, Map<String, Map<String, String>> finishedOffsets) {
-        this.datasource = datasource;
-        this.finishedOffsets = finishedOffsets;
+    @Override
+    public boolean isReload() {
+        return reload;
     }
 
-    public String getDatasource() {
-        return datasource;
-    }
-
-    public void setDatasource(String datasource) {
-        this.datasource = datasource;
-    }
-
-    public Map<String, Map<String, String>> getFinishedOffsets() {
-        return finishedOffsets;
-    }
-
-    public void setFinishedOffsets(Map<String, Map<String, String>> finishedOffsets) {
-        this.finishedOffsets = finishedOffsets;
+    @Override
+    public int getFetchSize() {
+        return fetchSize;
     }
 }

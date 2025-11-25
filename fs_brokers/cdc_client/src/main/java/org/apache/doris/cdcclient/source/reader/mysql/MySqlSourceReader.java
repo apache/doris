@@ -18,16 +18,19 @@
 package org.apache.doris.cdcclient.source.reader.mysql;
 
 import org.apache.doris.cdcclient.constants.LoadConstants;
-import org.apache.doris.cdcclient.model.FetchRecordReq;
 import org.apache.doris.cdcclient.model.JobConfig;
-import org.apache.doris.cdcclient.mysql.utils.ConfigUtil;
+import org.apache.doris.cdcclient.model.req.BaseRecordReq;
+import org.apache.doris.cdcclient.model.req.FetchRecordReq;
+import org.apache.doris.cdcclient.model.resp.RecordWithMeta;
+import org.apache.doris.cdcclient.source.deserialize.DebeziumJsonDeserializer;
+import org.apache.doris.cdcclient.source.deserialize.SourceRecordDeserializer;
+import org.apache.doris.cdcclient.source.reader.SourceReader;
+import org.apache.doris.cdcclient.source.reader.SplitReadResult;
 import org.apache.doris.cdcclient.source.reader.SplitRecords;
-import org.apache.doris.cdcclient.source.reader.RecordWithMeta;
-import org.apache.doris.cdcclient.source.serialize.DorisRecordSerializer;
-import org.apache.doris.cdcclient.source.serialize.JsonSerializer;
 import org.apache.doris.cdcclient.source.split.AbstractSourceSplit;
 import org.apache.doris.cdcclient.source.split.BinlogSplit;
 import org.apache.doris.cdcclient.source.split.SnapshotSplit;
+import org.apache.doris.cdcclient.utils.ConfigUtil;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -77,12 +80,13 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.NoSuchElementException;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
-public class MySqlSourceReader implements org.apache.doris.cdcclient.source.reader.SourceReader {
+public class MySqlSourceReader implements SourceReader<MySqlSplit, MySqlSplitState> {
     private static final Logger LOG = LoggerFactory.getLogger(MySqlSourceReader.class);
     private static ObjectMapper objectMapper = new ObjectMapper();
     private static final String SPLIT_ID = "splitId";
@@ -92,11 +96,11 @@ public class MySqlSourceReader implements org.apache.doris.cdcclient.source.read
     private static final String PURE_BINLOG_PHASE = "pureBinlogPhase";
     private static final FlinkJsonTableChangeSerializer TABLE_CHANGE_SERIALIZER =
             new FlinkJsonTableChangeSerializer();
-    private DorisRecordSerializer<SourceRecord, List<String>> serializer;
+    private SourceRecordDeserializer<SourceRecord, List<String>> serializer;
     private Map<Long, JobRuntimeContext> jobContexts;
 
     public MySqlSourceReader() {
-        this.serializer = new JsonSerializer();
+        this.serializer = new DebeziumJsonDeserializer();
         this.jobContexts = new ConcurrentHashMap<>();
     }
 
@@ -152,49 +156,35 @@ public class MySqlSourceReader implements org.apache.doris.cdcclient.source.read
     }
 
     /**
-     * 1. If the SplitRecords iterator has it, read the iterator directly. 2. If there is a
-     * binlogreader, poll it. 3. If there is none, resubmit split. 4. If reload is true, need to
-     * reset binlogSplitReader and submit split.
-     *
-     * @param fetchRecord
-     * @return
-     * @throws Exception
+     * 1. If the SplitRecords iterator has it, read the iterator directly.
+     * 2. If there is a binlogreader, poll it.
+     * 3. If there is none, resubmit split. 4. If reload is true, need to
+     *    reset binlogSplitReader and submit split.
      */
     @Override
     public RecordWithMeta read(FetchRecordReq fetchRecord) throws Exception {
+        SplitReadResult<MySqlSplit, MySqlSplitState> readResult = readSplitRecords(fetchRecord);
+
         JobConfig jobConfig =
-                new JobConfig(fetchRecord.getJobId(), fetchRecord.getDataSource(), fetchRecord.getConfig());
-        LOG.debug(
-                "Start read for jobId={}, dataSource={}, reload={}",
-                jobConfig.getJobId(),
-                jobConfig.getDataSource(),
-                fetchRecord.isReload());
-        RecordWithMeta recordResponse = new RecordWithMeta();
+                new JobConfig(
+                        fetchRecord.getJobId(),
+                        fetchRecord.getDataSource(),
+                        fetchRecord.getConfig());
         Map<String, String> offsetMeta = fetchRecord.getMeta();
-        if (offsetMeta.isEmpty()) {
-            throw new RuntimeException("miss meta offset");
-        }
+        RecordWithMeta recordResponse = new RecordWithMeta();
 
-        JobRuntimeContext jobRuntimeContext = getJobRuntimeContext(jobConfig.getJobId());
-        SplitProcessingContext processingContext =
-                prepareSplitProcessingContext(jobRuntimeContext, jobConfig, offsetMeta);
-
-        if (fetchRecord.isReload() && processingContext.getSplit() == null) {
-            processingContext =
-                    reloadSplitProcessingContext(jobRuntimeContext, jobConfig, offsetMeta);
-        }
-
-        return drainSplitRecords(
-                fetchRecord, jobConfig, offsetMeta, jobRuntimeContext, processingContext, recordResponse);
+        return buildRecordResponse(fetchRecord, jobConfig, offsetMeta, recordResponse, readResult);
     }
 
     /**
-     * 根据当前上下文准备 Split 信息：
-     * - 若已有正在消费的 split，直接复用；
-     * - 否则根据 offset 构造新的 snapshot/binlog split 并启动 reader。
+     * Prepare split information based on current context:
+     * - If there is an active split being consumed, reuse it directly;
+     * - Otherwise, create a new snapshot/binlog split based on offset and start the reader.
      */
     private SplitProcessingContext prepareSplitProcessingContext(
-            JobRuntimeContext jobRuntimeContext, JobConfig jobConfig, Map<String, String> offsetMeta)
+            JobRuntimeContext jobRuntimeContext,
+            JobConfig jobConfig,
+            Map<String, String> offsetMeta)
             throws Exception {
         SplitProcessingContext context = new SplitProcessingContext();
         SplitRecords currentSplitRecords = jobRuntimeContext.getCurrentSplitRecords();
@@ -227,10 +217,12 @@ public class MySqlSourceReader implements org.apache.doris.cdcclient.source.read
     }
 
     /**
-     * 当客户端请求 reload 时，重新构造 split 并重置 binlog reader。
+     * When a client requests a reload, the split is reconstructed and the binlog reader is reset.
      */
     private SplitProcessingContext reloadSplitProcessingContext(
-            JobRuntimeContext jobRuntimeContext, JobConfig jobConfig, Map<String, String> offsetMeta)
+            JobRuntimeContext jobRuntimeContext,
+            JobConfig jobConfig,
+            Map<String, String> offsetMeta)
             throws Exception {
         SplitProcessingContext context = new SplitProcessingContext();
         Tuple2<MySqlSplit, Boolean> splitFlag = createMySqlSplit(offsetMeta, jobConfig);
@@ -249,56 +241,106 @@ public class MySqlSourceReader implements org.apache.doris.cdcclient.source.read
         return context;
     }
 
-    /**
-     * 消费当前 split 中的记录并封装响应，同时更新元信息。
-     */
-    private RecordWithMeta drainSplitRecords(
-            FetchRecordReq fetchRecord,
-            JobConfig jobConfig,
-            Map<String, String> offsetMeta,
-            JobRuntimeContext jobRuntimeContext,
-            SplitProcessingContext processingContext,
-            RecordWithMeta recordResponse)
+    /** read split records. */
+    @Override
+    public SplitReadResult<MySqlSplit, MySqlSplitState> readSplitRecords(BaseRecordReq baseReq)
             throws Exception {
-        int count = 0;
-        int fetchSize = fetchRecord.getFetchSize();
+        JobConfig jobConfig =
+                new JobConfig(baseReq.getJobId(), baseReq.getDataSource(), baseReq.getConfig());
+        Map<String, String> offsetMeta = baseReq.getMeta();
+        if (offsetMeta == null || offsetMeta.isEmpty()) {
+            throw new RuntimeException("miss meta offset");
+        }
+
+        JobRuntimeContext jobRuntimeContext = getJobRuntimeContext(jobConfig.getJobId());
+        SplitProcessingContext processingContext =
+                prepareSplitProcessingContext(jobRuntimeContext, jobConfig, offsetMeta);
+
+        if (baseReq.isReload() && processingContext.getSplit() == null) {
+            processingContext =
+                    reloadSplitProcessingContext(jobRuntimeContext, jobConfig, offsetMeta);
+        }
+
+        return readSplitRecords(baseReq, jobRuntimeContext, processingContext);
+    }
+
+    private SplitReadResult<MySqlSplit, MySqlSplitState> readSplitRecords(
+            BaseRecordReq baseReq,
+            JobRuntimeContext jobRuntimeContext,
+            SplitProcessingContext processingContext) {
+        int fetchSize = baseReq.getFetchSize();
         SplitRecords currentSplitRecords = processingContext.getSplitRecords();
         boolean readBinlog = processingContext.isReadBinlog();
         boolean pureBinlogPhase = processingContext.isPureBinlogPhase();
         MySqlSplit split = processingContext.getSplit();
 
+        SplitReadResult<MySqlSplit, MySqlSplitState> result = new SplitReadResult<>();
         MySqlSplitState currentSplitState = null;
         if (!readBinlog && split != null) {
             currentSplitState = new MySqlSnapshotSplitState(split.asSnapshotSplit());
         }
-        if (currentSplitRecords != null && !currentSplitRecords.isEmpty()) {
-            Iterator<SourceRecord> recordIt = currentSplitRecords.getIterator();
-            while (recordIt.hasNext()) {
-                SourceRecord element = recordIt.next();
-                if (RecordUtils.isWatermarkEvent(element)) {
-                    BinlogOffset watermark = RecordUtils.getWatermark(element);
-                    if (RecordUtils.isHighWatermarkEvent(element) && currentSplitState != null) {
-                        currentSplitState.asSnapshotSplitState().setHighWatermark(watermark);
-                    }
-                } else if (RecordUtils.isHeartbeatEvent(element)) {
-                    LOG.debug("Receive heartbeat event: {}", element);
-                } else if (RecordUtils.isDataChangeRecord(element)) {
-                    count +=
-                            handleDataChangeRecord(
-                                    jobConfig,
-                                    recordResponse,
-                                    element,
-                                    readBinlog,
-                                    pureBinlogPhase);
-                    if (count >= fetchSize) {
-                        return recordResponse;
-                    }
-                } else {
-                    LOG.debug("Ignore event: {}", element);
+
+        Iterator<SourceRecord> filteredIterator =
+                new FilteredRecordIterator(
+                        currentSplitRecords,
+                        currentSplitState,
+                        fetchSize,
+                        readBinlog,
+                        pureBinlogPhase,
+                        result);
+
+        result.setRecordIterator(filteredIterator);
+        jobRuntimeContext.setCurrentSplitRecords(null);
+        result.setSplitState(currentSplitState);
+        result.setReadBinlog(readBinlog);
+        result.setPureBinlogPhase(pureBinlogPhase);
+        result.setSplit(split);
+
+        // set splitId and defaultOffset
+        if (split != null) {
+            result.setSplitId(split.splitId());
+            if (readBinlog && split instanceof MySqlBinlogSplit) {
+                result.setDefaultOffset(split.asBinlogSplit().getStartingOffset().getOffset());
+            }
+        } else if (readBinlog) {
+            result.setSplitId(BINLOG_SPLIT_ID);
+        }
+
+        return result;
+    }
+
+    /** build RecordWithMeta */
+    private RecordWithMeta buildRecordResponse(
+            FetchRecordReq fetchRecord,
+            JobConfig jobConfig,
+            Map<String, String> offsetMeta,
+            RecordWithMeta recordResponse,
+            SplitReadResult<MySqlSplit, MySqlSplitState> readResult)
+            throws Exception {
+        boolean readBinlog = readResult.isReadBinlog();
+        boolean pureBinlogPhase = readResult.isPureBinlogPhase();
+        MySqlSplit split = readResult.getSplit();
+        MySqlSplitState currentSplitState = readResult.getSplitState();
+
+        // Serialize records and add them to the response (collect from iterator)
+        Iterator<SourceRecord> iterator = readResult.getRecordIterator();
+        while (iterator != null && iterator.hasNext()) {
+            SourceRecord element = iterator.next();
+            List<String> serializedRecords = serializer.deserialize(jobConfig.getConfig(), element);
+            if (!CollectionUtils.isEmpty(serializedRecords)) {
+                recordResponse.getRecords().addAll(serializedRecords);
+
+                // update meta
+                Map<String, String> lastMeta = RecordUtils.getBinlogPosition(element).getOffset();
+                if (readBinlog) {
+                    lastMeta.put(SPLIT_ID, BINLOG_SPLIT_ID);
+                    lastMeta.put(PURE_BINLOG_PHASE, String.valueOf(pureBinlogPhase));
+                    recordResponse.setMeta(lastMeta);
                 }
             }
         }
-        jobRuntimeContext.setCurrentSplitRecords(null);
+
+        // Set meta information
         if (!readBinlog && currentSplitState != null) {
             BinlogOffset highWatermark =
                     currentSplitState.asSnapshotSplitState().getHighWatermark();
@@ -318,33 +360,12 @@ public class MySqlSourceReader implements org.apache.doris.cdcclient.source.read
             } else {
                 recordResponse.setMeta(fetchRecord.getMeta());
             }
+        } else if (readResult.getLastMeta() != null) {
+            // If there is meta from the last record, use it
+            recordResponse.setMeta(readResult.getLastMeta());
         }
-        return recordResponse;
-    }
 
-    private int handleDataChangeRecord(
-            JobConfig jobConfig,
-            RecordWithMeta recordResponse,
-            SourceRecord element,
-            boolean readBinlog,
-            boolean pureBinlogPhase)
-            throws Exception {
-        List<String> serialize = serializer.serialize(jobConfig.getConfig(), element);
-        if (CollectionUtils.isEmpty(serialize)) {
-            return 0;
-        }
-        LOG.debug(
-                "Job {} serialized {} records for split event",
-                jobConfig.getJobId(),
-                serialize.size());
-        Map<String, String> lastMeta = RecordUtils.getBinlogPosition(element).getOffset();
-        if (readBinlog) {
-            lastMeta.put(SPLIT_ID, BINLOG_SPLIT_ID);
-            lastMeta.put(PURE_BINLOG_PHASE, String.valueOf(pureBinlogPhase));
-            recordResponse.setMeta(lastMeta);
-        }
-        recordResponse.getRecords().addAll(serialize);
-        return serialize.size();
+        return recordResponse;
     }
 
     /**
@@ -674,9 +695,7 @@ public class MySqlSourceReader implements org.apache.doris.cdcclient.source.read
         return jobContexts.computeIfAbsent(jobId, JobRuntimeContext::new);
     }
 
-    /**
-     * 临时保存一次 read 调用中与 split 相关的状态，避免大量方法参数。
-     */
+    /** 临时保存一次 read 调用中与 split 相关的状态，避免大量方法参数。 */
     private static final class SplitProcessingContext {
         private SplitRecords splitRecords;
         private MySqlSplit split;
@@ -780,6 +799,91 @@ public class MySqlSourceReader implements org.apache.doris.cdcclient.source.read
             currentReader = null;
             currentSplitRecords = null;
             tableSchemas = null;
+        }
+    }
+
+    /**
+     * Filtered record iterator that only returns data change records, filtering out watermark, heartbeat and other events.
+     * This is a private static inner class that encapsulates record filtering logic, making the main method cleaner.
+     */
+    private static class FilteredRecordIterator implements Iterator<SourceRecord> {
+        private final Iterator<SourceRecord> sourceIterator;
+        private final MySqlSplitState splitState;
+        private final int fetchSize;
+        private final boolean readBinlog;
+        private final boolean pureBinlogPhase;
+        private final SplitReadResult<MySqlSplit, MySqlSplitState> result;
+
+        private SourceRecord nextRecord;
+        private int count = 0;
+
+        FilteredRecordIterator(
+                SplitRecords currentSplitRecords,
+                MySqlSplitState splitState,
+                int fetchSize,
+                boolean readBinlog,
+                boolean pureBinlogPhase,
+                SplitReadResult<MySqlSplit, MySqlSplitState> result) {
+            this.sourceIterator =
+                    currentSplitRecords != null && !currentSplitRecords.isEmpty()
+                            ? currentSplitRecords.getIterator()
+                            : null;
+            this.splitState = splitState;
+            this.fetchSize = fetchSize;
+            this.readBinlog = readBinlog;
+            this.pureBinlogPhase = pureBinlogPhase;
+            this.result = result;
+        }
+
+        @Override
+        public boolean hasNext() {
+            if (sourceIterator == null) {
+                return false;
+            }
+            if (nextRecord != null) {
+                return true;
+            }
+            if (count >= fetchSize) {
+                return false;
+            }
+
+            while (sourceIterator.hasNext()) {
+                SourceRecord element = sourceIterator.next();
+                if (RecordUtils.isWatermarkEvent(element)) {
+                    BinlogOffset watermark = RecordUtils.getWatermark(element);
+                    if (RecordUtils.isHighWatermarkEvent(element) && splitState != null) {
+                        splitState.asSnapshotSplitState().setHighWatermark(watermark);
+                    }
+                } else if (RecordUtils.isHeartbeatEvent(element)) {
+                    LOG.debug("Receive heartbeat event: {}", element);
+                } else if (RecordUtils.isDataChangeRecord(element)) {
+                    nextRecord = element;
+                    count++;
+
+                    // update meta
+                    Map<String, String> lastMeta =
+                            RecordUtils.getBinlogPosition(element).getOffset();
+                    if (readBinlog) {
+                        lastMeta.put(SPLIT_ID, BINLOG_SPLIT_ID);
+                        lastMeta.put(PURE_BINLOG_PHASE, String.valueOf(pureBinlogPhase));
+                        result.setLastMeta(lastMeta);
+                    }
+                    return true;
+                } else {
+                    LOG.debug("Ignore event: {}", element);
+                }
+            }
+            return false;
+        }
+
+        @Override
+        public SourceRecord next() {
+            if (!hasNext()) {
+                throw new NoSuchElementException();
+            }
+            SourceRecord record = nextRecord;
+            nextRecord = null;
+            return record;
         }
     }
 }

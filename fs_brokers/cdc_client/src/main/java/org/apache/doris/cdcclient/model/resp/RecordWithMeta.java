@@ -15,15 +15,21 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.cdcclient.constants;
+package org.apache.doris.cdcclient.model.resp;
 
-public class LoadConstants {
-    public static final String DB_SOURCE_TYPE = "db_source_type";
-    public static final String HOST = "host";
-    public static final String PORT = "port";
-    public static final String USERNAME = "username";
-    public static final String PASSWORD = "password";
-    public static final String DATABASE_NAME = "database";
-    public static final String INCLUDE_TABLES_LIST = "include_tables";
-    public static final String EXCLUDE_TABLES_LIST = "exclude_tables";
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import lombok.Data;
+
+@Data
+public class RecordWithMeta {
+    private Map<String, String> meta;
+    private List<String> records;
+
+    public RecordWithMeta() {
+        this.meta = new HashMap<>();
+        this.records = new ArrayList<>();
+    }
 }

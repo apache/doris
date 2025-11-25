@@ -15,14 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.cdcclient.source.serialize;
+package org.apache.doris.cdcclient.source.deserialize;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.debezium.data.Envelope;
 import io.debezium.data.SpecialValueDecimal;
 import io.debezium.data.VariableScaleDecimal;
-import io.debezium.relational.Tables;
 import io.debezium.time.Date;
 import io.debezium.time.MicroTimestamp;
 import io.debezium.time.NanoTimestamp;
@@ -50,18 +49,17 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-public class JsonSerializer implements DorisRecordSerializer<SourceRecord, List<String>> {
+public class DebeziumJsonDeserializer
+        implements SourceRecordDeserializer<SourceRecord, List<String>> {
     private static final long serialVersionUID = 1L;
-    private static final Logger LOG = LoggerFactory.getLogger(JsonSerializer.class);
+    private static final Logger LOG = LoggerFactory.getLogger(DebeziumJsonDeserializer.class);
     private static final String DELETE_SIGN_KEY = "__DORIS_DELETE_SIGN__";
     private static ObjectMapper objectMapper = new ObjectMapper();
-    private Map<String, String> config;
-    private transient Tables tables;
 
-    public JsonSerializer() {}
+    public DebeziumJsonDeserializer() {}
 
     @Override
-    public List<String> serialize(Map<String, String> context, SourceRecord record)
+    public List<String> deserialize(Map<String, String> context, SourceRecord record)
             throws IOException {
         if (RecordUtils.isDataChangeRecord(record)) {
             LOG.trace("Process data change record: {}", record);
@@ -79,19 +77,18 @@ public class JsonSerializer implements DorisRecordSerializer<SourceRecord, List<
         List<String> rows = new ArrayList<>();
         Envelope.Operation op = Envelope.operationFor(record);
         Struct value = (Struct) record.value();
-        String table = value.getStruct(Envelope.FieldName.SOURCE).getString("table");
         Schema valueSchema = record.valueSchema();
         if (Envelope.Operation.DELETE.equals(op)) {
             String deleteRow = extractBeforeRow(value, valueSchema);
             if (StringUtils.isNotEmpty(deleteRow)) {
-                rows.add(table + "|" + deleteRow);
+                rows.add(deleteRow);
             }
         } else if (Envelope.Operation.READ.equals(op)
                 || Envelope.Operation.CREATE.equals(op)
                 || Envelope.Operation.UPDATE.equals(op)) {
             String insertRow = extractAfterRow(value, valueSchema);
             if (StringUtils.isNotEmpty(insertRow)) {
-                rows.add(table + "|" + insertRow);
+                rows.add(insertRow);
             }
         }
         return rows;

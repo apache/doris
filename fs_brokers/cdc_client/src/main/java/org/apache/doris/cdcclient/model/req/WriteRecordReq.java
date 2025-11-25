@@ -15,13 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.cdcclient.source.serialize;
+package org.apache.doris.cdcclient.model.req;
 
-import java.io.IOException;
-import java.io.Serializable;
-import java.util.Map;
+import lombok.Data;
+import lombok.EqualsAndHashCode;
 
-public interface DorisRecordSerializer<T, C> extends Serializable {
-
-    C serialize(Map<String, String> context, T record) throws IOException;
-}
+@Data
+@EqualsAndHashCode(callSuper = true)
+public class WriteRecordReq extends BaseRecordReq {}

@@ -17,6 +17,8 @@
 
 package org.apache.doris.cdcclient;
 
+import java.util.Arrays;
+import org.apache.doris.cdcclient.common.Env;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.SpringApplication;
@@ -24,8 +26,6 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.web.servlet.ServletComponentScan;
 import org.springframework.boot.web.servlet.support.SpringBootServletInitializer;
-
-import java.util.Arrays;
 
 @SpringBootApplication
 @EnableConfigurationProperties
@@ -35,6 +35,7 @@ public class CdcClientApplication extends SpringBootServletInitializer {
 
     public static void main(String[] args) {
         LOG.info("args: {}, log.path: {}", Arrays.asList(args), System.getProperty("log.path"));
+        Env.getCurrentEnv().setBeHttpPort(8040);
         SpringApplication.run(CdcClientApplication.class, args);
     }
 }

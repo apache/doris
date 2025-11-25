@@ -18,42 +18,15 @@
 package org.apache.doris.cdcclient.model;
 
 import java.util.Map;
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
 
+@Data
+@AllArgsConstructor
+@NoArgsConstructor
 public class JobConfig {
-
     private Long jobId;
     private String dataSource;
     private Map<String, String> config;
-
-    public JobConfig() {}
-
-    public JobConfig(Long jobId, String dataSource, Map<String, String> config) {
-        this.jobId = jobId;
-        this.dataSource = dataSource;
-        this.config = config;
-    }
-
-    public Long getJobId() {
-        return jobId;
-    }
-
-    public void setJobId(Long jobId) {
-        this.jobId = jobId;
-    }
-
-    public String getDataSource() {
-        return dataSource;
-    }
-
-    public void setDataSource(String dataSource) {
-        this.dataSource = dataSource;
-    }
-
-    public Map<String, String> getConfig() {
-        return config;
-    }
-
-    public void setConfig(Map<String, String> config) {
-        this.config = config;
-    }
 }

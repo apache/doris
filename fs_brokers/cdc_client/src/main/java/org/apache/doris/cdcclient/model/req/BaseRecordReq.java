@@ -15,63 +15,26 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.cdcclient.model;
+package org.apache.doris.cdcclient.model.req;
+
+import lombok.Getter;
+import lombok.Setter;
 
 import java.util.Map;
 
-public class FetchRecordReq {
-    private boolean reload;
-    private int fetchSize;
+@Getter
+@Setter
+public abstract class BaseRecordReq {
     private long jobId;
     private String dataSource;
     private Map<String, String> meta;
     private Map<String, String> config;
 
     public boolean isReload() {
-        return reload;
-    }
-
-    public void setReload(boolean reload) {
-        this.reload = reload;
+        return false;
     }
 
     public int getFetchSize() {
-        return fetchSize;
-    }
-
-    public void setFetchSize(int fetchSize) {
-        this.fetchSize = fetchSize;
-    }
-
-    public long getJobId() {
-        return jobId;
-    }
-
-    public void setJobId(long jobId) {
-        this.jobId = jobId;
-    }
-
-    public String getDataSource() {
-        return dataSource;
-    }
-
-    public void setDataSource(String dataSource) {
-        this.dataSource = dataSource;
-    }
-
-    public Map<String, String> getMeta() {
-        return meta;
-    }
-
-    public void setMeta(Map<String, String> meta) {
-        this.meta = meta;
-    }
-
-    public Map<String, String> getConfig() {
-        return config;
-    }
-
-    public void setConfig(Map<String, String> config) {
-        this.config = config;
+        return Integer.MAX_VALUE;
     }
 }

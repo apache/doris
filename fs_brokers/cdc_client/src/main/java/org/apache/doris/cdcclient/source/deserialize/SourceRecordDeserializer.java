@@ -15,41 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.cdcclient.source.reader;
+package org.apache.doris.cdcclient.source.deserialize;
 
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
+import java.io.IOException;
+import java.io.Serializable;
 import java.util.Map;
 
-public class RecordWithMeta {
-    private Map<String, String> meta;
-    private List<String> records;
+public interface SourceRecordDeserializer<T, C> extends Serializable {
 
-    public RecordWithMeta() {
-        this.meta = new HashMap<>();
-        this.records = new ArrayList<>();
-    }
-
-    public RecordWithMeta(Map<String, String> meta, List<String> records) {
-        this.meta = meta;
-        this.records = records;
-    }
-
-    public Map<String, String> getMeta() {
-        return meta;
-    }
-
-    public void setMeta(Map<String, String> meta) {
-        this.meta = meta;
-    }
-
-    public List<String> getRecords() {
-        return records;
-    }
-
-    public void setRecords(List<String> records) {
-        this.records = records;
-    }
-
+    C deserialize(Map<String, String> context, T record) throws IOException;
 }

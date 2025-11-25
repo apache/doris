@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.cdcclient.mysql.utils;
+package org.apache.doris.cdcclient.utils;
 
 import org.apache.doris.cdcclient.constants.LoadConstants;
 import org.apache.doris.cdcclient.model.JobConfig;
@@ -45,8 +45,7 @@ public class ConfigUtil {
         configFactory.databaseList(databaseName);
         configFactory.serverId(String.valueOf(Math.abs(config.getJobId().hashCode())));
 
-        configFactory.includeSchemaChanges(
-                Boolean.parseBoolean(cdcConfig.get(LoadConstants.INCLUDE_SCHEMA_CHANGES)));
+        configFactory.includeSchemaChanges(false);
 
         String includingTables = cdcConfig.getOrDefault(LoadConstants.INCLUDE_TABLES_LIST, ".*");
         String includingPattern = String.format("(%s)\\.(%s)", databaseName, includingTables);

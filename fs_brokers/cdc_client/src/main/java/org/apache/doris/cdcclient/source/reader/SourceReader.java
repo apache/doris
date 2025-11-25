@@ -17,15 +17,21 @@
 
 package org.apache.doris.cdcclient.source.reader;
 
-import org.apache.doris.cdcclient.model.FetchRecordReq;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import java.util.List;
 import org.apache.doris.cdcclient.model.JobConfig;
+import org.apache.doris.cdcclient.model.req.BaseRecordReq;
+import org.apache.doris.cdcclient.model.req.FetchRecordReq;
+import org.apache.doris.cdcclient.model.resp.RecordWithMeta;
 import org.apache.doris.cdcclient.source.split.SourceSplit;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-
-import java.util.List;
-
-public interface SourceReader {
+/**
+ * SourceReader 接口，支持泛型以指定 Split 和 SplitState 类型。
+ *
+ * @param <Split> Split 类型（如 MySqlSplit）
+ * @param <SplitState> SplitState 类型（如 MySqlSplitState）
+ */
+public interface SourceReader<Split, SplitState> {
 
     /** Initialization, called when the program starts */
     void initialize();
@@ -45,6 +51,18 @@ public interface SourceReader {
      * @throws Exception
      */
     RecordWithMeta read(FetchRecordReq meta) throws Exception;
+
+    /**
+     * Reading Data for split reader
+     *
+     * @param baseReq 基础请求
+     * @return 读取结果，包含 SourceRecord 列表和状态信息
+     */
+    default SplitReadResult<Split, SplitState> readSplitRecords(BaseRecordReq baseReq)
+            throws Exception {
+        throw new UnsupportedOperationException(
+                "readSplitRecords is not supported by " + this.getClass().getName());
+    }
 
     /** Called when closing */
     void close(Long jobId);
