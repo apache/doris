@@ -908,6 +908,7 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
 }
 
 void FragmentMgr::cancel_query(const TUniqueId query_id, const Status reason) {
+    _coordinator_context_map.erase(query_id);
     std::shared_ptr<QueryContext> query_ctx = nullptr;
     {
         if (auto q_ctx = get_query_ctx(query_id)) {
@@ -921,7 +922,6 @@ void FragmentMgr::cancel_query(const TUniqueId query_id, const Status reason) {
     SCOPED_ATTACH_TASK(query_ctx->resource_ctx());
     query_ctx->cancel(reason);
     remove_query_context(query_id);
-    _coordinator_context_map.erase(query_id);
     LOG(INFO) << "Query " << print_id(query_id)
               << " is cancelled and removed. Reason: " << reason.to_string();
 }
@@ -970,6 +970,20 @@ void FragmentMgr::cancel_worker() {
 
         std::unordered_map<std::shared_ptr<PBackendService_Stub>, BrpcItem> brpc_stub_with_queries;
         {
+            _coordinator_context_map.apply(
+                    [&](phmap::flat_hash_map<TUniqueId, std::shared_ptr<CoordinatorContext>>& map)
+                            -> Status {
+                        for (auto& it : map) {
+                            if (auto coord_ctx = it.second; coord_ctx->is_timeout(now)) {
+                                LOG_WARNING(
+                                        "Query {} is timeout, but CoordinatorContext still exist",
+                                        print_id(it.first));
+                                queries_timeout.push_back(it.first);
+                            }
+                        }
+                        return Status::OK();
+                    });
+
             std::vector<std::shared_ptr<QueryContext>> contexts;
             _query_ctx_map.apply([&](phmap::flat_hash_map<TUniqueId, std::weak_ptr<QueryContext>>&
                                              map) -> Status {

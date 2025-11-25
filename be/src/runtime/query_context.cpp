@@ -88,23 +88,19 @@ QueryContext::QueryContext(TUniqueId query_id, ExecEnv* exec_env,
                            const TQueryOptions& query_options, TNetworkAddress coord_addr,
                            bool is_nereids, TNetworkAddress current_connect_fe,
                            QuerySource query_source)
-        : _timeout_second(-1),
-          _query_id(std::move(query_id)),
+        : _query_id(std::move(query_id)),
           _exec_env(exec_env),
           _is_nereids(is_nereids),
           _query_options(query_options),
           _query_source(query_source) {
     _init_resource_context();
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(query_mem_tracker());
-    _query_watcher.start();
     _execution_dependency =
             pipeline::Dependency::create_unique(-1, -1, "ExecutionDependency", false);
     _memory_sufficient_dependency =
             pipeline::Dependency::create_unique(-1, -1, "MemorySufficientDependency", true);
 
     _runtime_filter_mgr = std::make_unique<RuntimeFilterMgr>(true);
-
-    _timeout_second = query_options.execution_timeout;
 
     bool is_query_type_valid = query_options.query_type == TQueryType::SELECT ||
                                query_options.query_type == TQueryType::LOAD ||
@@ -456,6 +452,14 @@ TReportExecStatusParams QueryContext::get_realtime_exec_status() {
             /*is_done=*/false);
 
     return exec_status;
+}
+
+bool QueryContext::is_timeout(timespec now) const {
+    return _coordinator_context->is_timeout(now);
+}
+
+int64_t QueryContext::get_remaining_query_time_seconds() const {
+    return _coordinator_context->get_remaining_query_time_seconds();
 }
 
 } // namespace doris

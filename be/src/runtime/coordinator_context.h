@@ -59,6 +59,23 @@ public:
 
     std::shared_ptr<MemTrackerLimiter> query_mem_tracker() const;
 
+    bool is_timeout(timespec now) const {
+        if (_timeout_second <= 0) {
+            return false;
+        }
+        return _query_watcher.elapsed_time_seconds(now) > _timeout_second;
+    }
+
+    int64_t get_remaining_query_time_seconds() const {
+        timespec now;
+        clock_gettime(CLOCK_MONOTONIC, &now);
+        if (is_timeout(now)) {
+            return -1;
+        }
+        int64_t elapsed_seconds = _query_watcher.elapsed_time_seconds(now);
+        return _timeout_second - elapsed_seconds;
+    }
+
 private:
     TUniqueId _query_id;
     TQueryOptions _query_options;
@@ -69,6 +86,9 @@ private:
     // This shared ptr is never used. It is just a reference to hold the object.
     // There is a weak ptr in runtime filter manager to reference this object.
     std::shared_ptr<RuntimeFilterMergeControllerEntity> _merge_controller_handler;
+
+    MonotonicStopWatch _query_watcher;
+    int _timeout_second;
 };
 
 } // namespace doris

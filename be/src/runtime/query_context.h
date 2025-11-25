@@ -99,22 +99,9 @@ public:
 
     ExecEnv* exec_env() const { return _exec_env; }
 
-    bool is_timeout(timespec now) const {
-        if (_timeout_second <= 0) {
-            return false;
-        }
-        return _query_watcher.elapsed_time_seconds(now) > _timeout_second;
-    }
+    bool is_timeout(timespec now) const;
 
-    int64_t get_remaining_query_time_seconds() const {
-        timespec now;
-        clock_gettime(CLOCK_MONOTONIC, &now);
-        if (is_timeout(now)) {
-            return -1;
-        }
-        int64_t elapsed_seconds = _query_watcher.elapsed_time_seconds(now);
-        return _timeout_second - elapsed_seconds;
-    }
+    int64_t get_remaining_query_time_seconds() const;
 
     void set_ready_to_execute(Status reason);
 
@@ -292,10 +279,8 @@ private:
     friend class QueryTaskController;
     friend class CoordinatorContext;
 
-    int _timeout_second;
     TUniqueId _query_id;
     ExecEnv* _exec_env = nullptr;
-    MonotonicStopWatch _query_watcher;
     bool _is_nereids = false;
 
     std::shared_ptr<ResourceContext> _resource_ctx;

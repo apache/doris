@@ -25,7 +25,9 @@ CoordinatorContext::CoordinatorContext(TUniqueId query_id, TQueryOptions query_o
                                        std::weak_ptr<QueryContext> query_ctx)
         : _query_id(std::move(query_id)),
           _query_options(std::move(query_options)),
-          _query_ctx(std::move(query_ctx)) {
+          _query_ctx(std::move(query_ctx)),
+          _timeout_second(query_options.execution_timeout) {
+    _query_watcher.start();
     CHECK(_query_ctx.lock() != nullptr);
     _resource_ctx = _query_ctx.lock()->_resource_ctx;
 }
