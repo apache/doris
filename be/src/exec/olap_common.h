@@ -259,7 +259,8 @@ public:
         }
     }
 
-    void to_in_condition(std::vector<FilterOlapParam<TCondition>>& filters, bool is_in = true) const {
+    void to_in_condition(std::vector<FilterOlapParam<TCondition>>& filters,
+                         bool is_in = true) const {
         TCondition condition;
         condition.__set_column_name(_column_name);
         condition.__set_condition_op(is_in ? "*=" : "!*=");
