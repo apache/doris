@@ -49,7 +49,7 @@ suite("azure_blob_all_test", "p2,external,new_catalog_property") {
         sql """ 
          switch ${iceberg_fs_catalog_name} 
          """
-        def db_name = "${iceberg_fs_catalog_name}_db_test"
+        def db_name = "${iceberg_fs_catalog_name}_db_test"+ ThreadLocalRandom.current().nextInt(100);
         // Check if database exists
         def currentDbResult = sql """
         SHOW DATABASES LIKE "${db_name}";
