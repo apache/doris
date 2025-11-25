@@ -47,6 +47,9 @@ suite("test_cumulative_compaction_with_format_v2", "inverted_index_format_v2") {
         sb.append("curl -X GET ")
         sb.append(tablet.CompactionStatus)
         String command = sb.toString()
+        if ((context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false) {
+            command = command.replace("http://", "https://") + " --cert " + context.config.otherConfigs.get("trustCert") + " --cacert " + context.config.otherConfigs.get("trustCACert") + " --key " + context.config.otherConfigs.get("trustCAKey")
+        }
         // wait for cleaning stale_rowsets
         def process = command.execute()
         def code = process.waitFor()

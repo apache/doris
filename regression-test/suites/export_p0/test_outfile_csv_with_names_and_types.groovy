@@ -27,7 +27,7 @@ suite("test_outfile_csv_with_names_and_types") {
     sql "USE $dbName"
     StringBuilder strBuilder = new StringBuilder()
     strBuilder.append("curl --location-trusted -u " + context.config.jdbcUser + ":" + context.config.jdbcPassword)
-    if ((otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false) {
+    if ((context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false) { {
         strBuilder.append(" https://" + context.config.feHttpAddress + "/rest/v1/config/fe")
         strBuilder.append(" --cert " + context.config.otherConfigs.get("trustCert") + " --cacert " + context.config.otherConfigs.get("trustCACert") + " --key " + context.config.otherConfigs.get("trustCAKey"))
     } else {

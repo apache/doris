@@ -166,6 +166,9 @@ suite("test_index_change_with_full_compaction") {
             sb.append("curl -X GET ")
             sb.append(tablet.CompactionStatus)
             String command = sb.toString()
+            if ((context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false) {
+                command = command.replace("http://", "https://") + " --cert " + context.config.otherConfigs.get("trustCert") + " --cacert " + context.config.otherConfigs.get("trustCACert") + " --key " + context.config.otherConfigs.get("trustCAKey")
+            }
             // wait for cleaning stale_rowsets
             process = command.execute()
             code = process.waitFor()
