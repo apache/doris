@@ -251,6 +251,7 @@ struct MethodSerialized : public MethodBase<TData> {
             for (size_t i = 0; i < num_rows; ++i) {
                 input_keys[i].data =
                         reinterpret_cast<char*>(serialized_key_buffer + i * max_one_row_byte_size);
+                input_keys[i].size = 0;
             }
 
             for (const auto& column : key_columns) {
