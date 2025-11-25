@@ -68,9 +68,17 @@ logger.info("Added 'triggerRecycle' function to Suite")
 
 //cloud mode recycler plugin
 Suite.metaClass.checkRecycleTable = { String token, String instanceId, String cloudUniqueId, String tableName, 
-        Collection<String> tabletIdList /* param */ ->
+        Collection<String> tabletIdList, boolean isSkip = true /* param */ ->
     // which suite invoke current function?
     Suite suite = delegate as Suite
+
+    def enableMultiVersionStatus = context.config.enableMultiVersionStatus
+    def enableClusterSnapshot = context.config.enableClusterSnapshot
+
+    if((enableMultiVersionStatus || enableClusterSnapshot) && isSkip) {
+        logger.info("enableMultiVersionStatus or enableClusterSnapshot is true or isSkip is true, skip checkRecycleTable, it will test recycle in special cases")
+        return true
+    }
 
     // function body
     suite.getLogger().info("""Test plugin: suiteName: ${suite.name}, tableName: ${tableName}, instanceId: ${instanceId}, token:${token}, cloudUniqueId:${cloudUniqueId}""".toString())
