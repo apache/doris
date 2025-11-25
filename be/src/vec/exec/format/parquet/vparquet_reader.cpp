@@ -321,7 +321,8 @@ Status ParquetReader::init_reader(
         const std::unordered_map<std::string, int>* colname_to_slot_id,
         const VExprContextSPtrs* not_single_slot_filter_conjuncts,
         const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts,
-        std::shared_ptr<TableSchemaChangeHelper::Node> table_info_node_ptr, bool filter_groups) {
+        std::shared_ptr<TableSchemaChangeHelper::Node> table_info_node_ptr, bool filter_groups,
+        const std::set<uint64_t>& column_ids, const std::set<uint64_t>& filter_column_ids) {
     _tuple_descriptor = tuple_descriptor;
     _row_descriptor = row_descriptor;
     _colname_to_slot_id = colname_to_slot_id;
@@ -330,6 +331,8 @@ Status ParquetReader::init_reader(
     _colname_to_value_range = colname_to_value_range;
     _table_info_node_ptr = table_info_node_ptr;
     _filter_groups = filter_groups;
+    _column_ids = column_ids;
+    _filter_column_ids = filter_column_ids;
 
     RETURN_IF_ERROR(_open_file());
     _t_metadata = &(_file_metadata->to_thrift());
@@ -880,12 +883,12 @@ Status ParquetReader::_next_row_group_reader() {
                                   _profile, _file_reader, io_ranges, merged_read_slice_size)
                         : _file_reader;
     }
-    _current_group_reader.reset(
-            new RowGroupReader(_io_ctx ? std::make_shared<io::TracingFileReader>(
-                                                 group_file_reader, _io_ctx->file_reader_stats)
-                                       : group_file_reader,
-                               _read_table_columns, row_group_index.row_group_id, row_group, _ctz,
-                               _io_ctx, position_delete_ctx, _lazy_read_ctx, _state));
+    _current_group_reader.reset(new RowGroupReader(
+            _io_ctx ? std::make_shared<io::TracingFileReader>(group_file_reader,
+                                                              _io_ctx->file_reader_stats)
+                    : group_file_reader,
+            _read_table_columns, row_group_index.row_group_id, row_group, _ctz, _io_ctx,
+            position_delete_ctx, _lazy_read_ctx, _state, _column_ids, _filter_column_ids));
     _row_group_eof = false;
 
     _current_group_reader->set_current_row_group_idx(row_group_index);
@@ -967,27 +970,30 @@ std::vector<io::PrefetchRange> ParquetReader::_generate_random_access_ranges(
     size_t total_io_size = 0;
     std::function<void(const FieldSchema*, const tparquet::RowGroup&)> scalar_range =
             [&](const FieldSchema* field, const tparquet::RowGroup& row_group) {
-                if (field->data_type->get_primitive_type() == TYPE_ARRAY) {
-                    scalar_range(&field->children[0], row_group);
-                } else if (field->data_type->get_primitive_type() == TYPE_MAP) {
-                    scalar_range(&field->children[0].children[0], row_group);
-                    scalar_range(&field->children[0].children[1], row_group);
-                } else if (field->data_type->get_primitive_type() == TYPE_STRUCT) {
-                    for (int i = 0; i < field->children.size(); ++i) {
-                        scalar_range(&field->children[i], row_group);
+                if (_column_ids.empty() ||
+                    _column_ids.find(field->get_column_id()) != _column_ids.end()) {
+                    if (field->data_type->get_primitive_type() == TYPE_ARRAY) {
+                        scalar_range(&field->children[0], row_group);
+                    } else if (field->data_type->get_primitive_type() == TYPE_MAP) {
+                        scalar_range(&field->children[0], row_group);
+                        scalar_range(&field->children[1], row_group);
+                    } else if (field->data_type->get_primitive_type() == TYPE_STRUCT) {
+                        for (int i = 0; i < field->children.size(); ++i) {
+                            scalar_range(&field->children[i], row_group);
+                        }
+                    } else {
+                        const tparquet::ColumnChunk& chunk =
+                                row_group.columns[field->physical_column_index];
+                        auto& chunk_meta = chunk.meta_data;
+                        int64_t chunk_start = has_dict_page(chunk_meta)
+                                                      ? chunk_meta.dictionary_page_offset
+                                                      : chunk_meta.data_page_offset;
+                        int64_t chunk_end = chunk_start + chunk_meta.total_compressed_size;
+                        DCHECK_GE(chunk_start, last_chunk_end);
+                        result.emplace_back(chunk_start, chunk_end);
+                        total_io_size += chunk_meta.total_compressed_size;
+                        last_chunk_end = chunk_end;
                     }
-                } else {
-                    const tparquet::ColumnChunk& chunk =
-                            row_group.columns[field->physical_column_index];
-                    auto& chunk_meta = chunk.meta_data;
-                    int64_t chunk_start = has_dict_page(chunk_meta)
-                                                  ? chunk_meta.dictionary_page_offset
-                                                  : chunk_meta.data_page_offset;
-                    int64_t chunk_end = chunk_start + chunk_meta.total_compressed_size;
-                    DCHECK_GE(chunk_start, last_chunk_end);
-                    result.emplace_back(chunk_start, chunk_end);
-                    total_io_size += chunk_meta.total_compressed_size;
-                    last_chunk_end = chunk_end;
                 }
             };
     const tparquet::RowGroup& row_group = _t_metadata->row_groups[group.row_group_id];
@@ -1062,8 +1068,8 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
             if (field->data_type->get_primitive_type() == TYPE_ARRAY) {
                 f(&field->children[0]);
             } else if (field->data_type->get_primitive_type() == TYPE_MAP) {
-                f(&field->children[0].children[0]);
-                f(&field->children[0].children[1]);
+                f(&field->children[0]);
+                f(&field->children[1]);
             } else if (field->data_type->get_primitive_type() == TYPE_STRUCT) {
                 for (int i = 0; i < field->children.size(); ++i) {
                     f(&field->children[i]);

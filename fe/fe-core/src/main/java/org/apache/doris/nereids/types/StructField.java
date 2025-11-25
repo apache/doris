@@ -19,7 +19,6 @@ package org.apache.doris.nereids.types;
 
 import org.apache.doris.nereids.util.Utils;
 
-import java.util.Locale;
 import java.util.Objects;
 
 /**
@@ -41,7 +40,7 @@ public class StructField {
      *  @param nullable Indicates if values of this field can be `null` values
      */
     public StructField(String name, DataType dataType, boolean nullable, String comment) {
-        this.name = Objects.requireNonNull(name, "name should not be null").toLowerCase(Locale.ROOT);
+        this.name = Objects.requireNonNull(name, "name should not be null").toLowerCase();
         this.dataType = Objects.requireNonNull(dataType, "dataType should not be null");
         this.nullable = nullable;
         this.comment = Objects.requireNonNull(comment, "comment should not be null");

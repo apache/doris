@@ -1081,6 +1081,9 @@ public class OlapScanNode extends ScanNode {
             output.append(prefix).append("rewrittenProjectList: ").append(
                     getExplainString(rewrittenProjectList)).append("\n");
         }
+
+        printNestedColumns(output, prefix, getTupleDesc());
+
         return output.toString();
     }
 
