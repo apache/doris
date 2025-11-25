@@ -15,16 +15,29 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <gmock/gmock.h>
+#pragma once
 
-#include "common/status.h"
-#include "vec/exec/scan/scanner_scheduler.h"
+#include <memory>
+#include <set>
+#include <string>
+#include <unordered_map>
+#include <vector>
+
+#include "vec/exec/format/table/table_format_reader.h"
+
+namespace orc {
+class Type;
+} // namespace orc
 
 namespace doris::vectorized {
-class MockScannerScheduler : ScannerScheduler {
-public:
-    MockScannerScheduler() = default;
+#include "common/compile_check_begin.h"
 
-    MOCK_METHOD2(submit, Status(std::shared_ptr<ScannerContext>, std::shared_ptr<ScanTask>));
+class HiveOrcNestedColumnUtils {
+public:
+    static void extract_nested_column_ids(const orc::Type& type,
+                                          const std::vector<std::vector<std::string>>& paths,
+                                          std::set<uint64_t>& column_ids);
 };
+
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized
