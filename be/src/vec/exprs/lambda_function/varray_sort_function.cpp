@@ -81,18 +81,18 @@ public:
         auto column = column_ptr->convert_to_full_column_if_const();
 
         auto input_rows = column->size();
-        auto outside_null_map = ColumnUInt8::create(input_rows, 0);
 
         auto arg_type = type_ptr;
         auto arg_column = column;
 
+        ColumnPtr outside_null_map = nullptr;
+
         if (arg_column->is_nullable()) {
             arg_column = assert_cast<const ColumnNullable*>(column.get())->get_nested_column_ptr();
-            const auto& column_array_nullmap =
-                    assert_cast<const ColumnNullable*>(column.get())->get_null_map_column();
+            outside_null_map = assert_cast<const ColumnNullable*>(column.get())
+                                       ->get_null_map_column_ptr()
+                                       ->assume_mutable();
             arg_type = assert_cast<const DataTypeNullable*>(type_ptr.get())->get_nested_type();
-            VectorizedUtils::update_null_map(outside_null_map->get_data(),
-                                             column_array_nullmap.get_data());
         }
 
         const auto& col_array = assert_cast<const ColumnArray&>(*arg_column);
@@ -130,6 +130,7 @@ public:
          *   0    10      0    nullable(int)
          *   1    20      1    nullable(int)
          *   2   1/-1/0  ...     tinyint
+         *  The size of a column is always 1; we only need to use it to store the specific values ​​in the array for comparison.
          */
         Block lambda_block;
         for (int i = 0; i <= 2; i++) {
@@ -211,7 +212,7 @@ public:
             result_column = ColumnNullable::create(
                     ColumnArray::create(nested_nullable_column.permute(permutation, 0),
                                         col_array.get_offsets_ptr()),
-                    std::move(outside_null_map));
+                    outside_null_map);
 
         } else {
             DCHECK(!column->is_nullable());
