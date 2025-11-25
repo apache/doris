@@ -491,10 +491,7 @@ Status OlapScanner::_init_variant_columns() {
         return Status::OK();
     }
     // Parent column has path info to distinction from each other
-    for (auto slot : _output_tuple_desc->slots()) {
-        if (!slot->is_materialized()) {
-            continue;
-        }
+    for (auto* slot : _output_tuple_desc->slots()) {
         if (slot->type()->get_primitive_type() == PrimitiveType::TYPE_VARIANT) {
             // Such columns are not exist in frontend schema info, so we need to
             // add them into tablet_schema for later column indexing.
@@ -514,10 +511,6 @@ Status OlapScanner::_init_variant_columns() {
 
 Status OlapScanner::_init_return_columns() {
     for (auto* slot : _output_tuple_desc->slots()) {
-        if (!slot->is_materialized()) {
-            continue;
-        }
-
         // variant column using path to index a column
         int32_t index = 0;
         auto& tablet_schema = _tablet_reader_params.tablet_schema;
