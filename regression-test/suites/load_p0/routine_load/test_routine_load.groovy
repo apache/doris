@@ -1105,46 +1105,58 @@ suite("test_routine_load","p0") {
     i = 0
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         try {
-            // Use RANDOM distribution table for load_to_single_tablet test
-            def randomTableName = "dup_tbl_basic_random"
-            sql new File("""${context.file.parent}/ddl/${randomTableName}_drop.sql""").text
-            sql new File("""${context.file.parent}/ddl/${randomTableName}_create.sql""").text
+            for (String tableName in tables) {
+                sql new File("""${context.file.parent}/ddl/${tableName}_drop.sql""").text
+                sql new File("""${context.file.parent}/ddl/${tableName}_create.sql""").text
 
-            def name = "routine_load_" + randomTableName
-            sql """
-                CREATE ROUTINE LOAD ${jobs[0]} ON ${name}
-                COLUMNS(${columns[0]}),
-                COLUMNS TERMINATED BY "|"
-                PROPERTIES
-                (
-                    "load_to_single_tablet" = "true",
-                    "max_batch_interval" = "1",
-                    "max_batch_rows" = "300000",
-                    "max_batch_size" = "209715200"
-                )
-                FROM KAFKA
-                (
-                    "kafka_broker_list" = "${externalEnvIp}:${kafka_port}",
-                    "kafka_topic" = "${topics[0]}",
-                    "property.kafka_default_offsets" = "OFFSET_BEGINNING"
-                );
-            """
-            sql "sync"
-
-            while (true) {
-                sleep(1000)
-                def res = sql "show routine load for ${jobs[0]}"
-                def state = res[0][8].toString()
-                if (state != "NEED_SCHEDULE") {
-                    break;
-                }
+                def name = "routine_load_" + tableName
+                sql """
+                    CREATE ROUTINE LOAD ${jobs[i]} ON ${name}
+                    COLUMNS(${columns[i]}),
+                    COLUMNS TERMINATED BY "|"
+                    PROPERTIES
+                    (
+                        "load_to_single_tablet" = "true",
+                        "max_batch_interval" = "1",
+                        "max_batch_rows" = "300000",
+                        "max_batch_size" = "209715200"
+                    )
+                    FROM KAFKA
+                    (
+                        "kafka_broker_list" = "${externalEnvIp}:${kafka_port}",
+                        "kafka_topic" = "${topics[i]}",
+                        "property.kafka_default_offsets" = "OFFSET_BEGINNING"
+                    );
+                """
+                sql "sync"
+                i++
             }
 
-            qt_sql_load_to_single_tablet "select * from ${name} order by k00,k01"
+            i = 0
+            for (String tableName in tables) {
+                while (true) {
+                    sleep(1000)
+                    def res = sql "show routine load for ${jobs[i]}"
+                    def state = res[0][8].toString()
+                    if (state != "NEED_SCHEDULE") {
+                        break;
+                    }
+                }
 
-            sql "stop routine load for ${jobs[0]}"
+                def tableName1 =  "routine_load_" + tableName
+                if (i <= 3) {
+                    qt_sql_load_to_single_tablet "select * from ${tableName1} order by k00,k01"
+                } else {
+                    qt_sql_load_to_single_tablet "select * from ${tableName1} order by k00"
+                }
+
+                sql "stop routine load for ${jobs[i]}"
+                i++
+            }
         } finally {
-            sql new File("""${context.file.parent}/ddl/dup_tbl_basic_random_drop.sql""").text
+            for (String tableName in tables) {
+                sql new File("""${context.file.parent}/ddl/${tableName}_drop.sql""").text
+            }
         }
     }
 
