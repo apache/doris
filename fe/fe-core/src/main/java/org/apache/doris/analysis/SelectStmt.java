@@ -859,6 +859,9 @@ public class SelectStmt extends QueryStmt implements NotFallbackInParser {
                         || getLimit() > ConnectContext.get().getSessionVariable().topnOptLimitThreshold) {
                 return false;
             }
+            if (getOrderByElements().stream().anyMatch(e -> e.getExpr().getType().isArrayType())) {
+                return false;
+            }
             // Check order by exprs are all slot refs
             // Rethink? implement more generic to support all exprs
             if (LOG.isDebugEnabled()) {

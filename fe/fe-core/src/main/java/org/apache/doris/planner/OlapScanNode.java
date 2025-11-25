@@ -1241,6 +1241,9 @@ public class OlapScanNode extends ScanNode {
                 || sortNode.getLimit() > ConnectContext.get().getSessionVariable().topnOptLimitThreshold) {
             return false;
         }
+        if (sortNode.getSortInfo().getOrderingExprs().stream().anyMatch(e -> e.getType().isArrayType())) {
+            return false;
+        }
 
         // Ensure all isAscOrder is same, ande length != 0.
         // Can't be zorder.

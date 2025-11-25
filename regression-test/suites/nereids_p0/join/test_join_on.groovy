@@ -38,10 +38,13 @@ suite("test_join_on", "nereids_p0") {
     sql """insert into join_on values (2, [2, 3], hll_hash(2), bitmap_from_string('2, 4, 6, 8, 10, 12, 14, 100, 19910812, 20150403')); """
     qt_sql """ select * from join_on order by k1; """
     test {
+<<<<<<< HEAD
         sql """ select * from join_on as j1 inner join join_on as j2 on j1.d_array = j2.d_array; """
         exception "Method get_max_row_byte_size is not supported for Array"
     }
     test {
+=======
+>>>>>>> a1653f8d67c ([feature](array) Support group by Array Column (#52452))
         sql """ select * from join_on as j1 inner join join_on as j2 on j1.hll_col = j2.hll_col; """
         exception "data type HLL could not used in ComparisonPredicate"
     }

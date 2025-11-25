@@ -35,17 +35,6 @@ suite("one_level_nestedtypes_with_s3data") {
                       "c_double", "c_decimal", "c_decimalv3", "c_date", "c_datetime", "c_datev2", "c_datetimev2",
                       "c_char", "c_varchar", "c_string"]
 
-    def groupby_or_orderby_exception = {is_groupby, table_name, col_name ->
-        test {
-            if (is_groupby) {
-                sql "select ${col_name} from ${table_name} group by ${col_name};"
-            } else {
-                sql "select ${col_name} from ${table_name} order by ${col_name};"
-            }
-            exception("errCode = 2, detailMessage = Doris hll, bitmap, array, map, struct, jsonb, variant column must use with specific function, and don't support filter, group by or order by")
-        }
-    }
-
     def groupby_or_orderby_element_at = {is_groupby, table_name, agg_expr ->
         if (is_groupby) {
             order_qt_sql "select ${agg_expr} from ${table_name} where k1 IS NOT NULL group by ${agg_expr};"
@@ -177,11 +166,6 @@ suite("one_level_nestedtypes_with_s3data") {
     for (String col : colNameArr) {
         order_qt_select_arr "select ${col}[1], ${col}[-1] from ${table_names[0]} where k1 IS NOT NULL AND ${col}[1]<${col}[-1] order by k1 limit 10;"
     }
-    // select * from table where groupby|orderby column will meet exception
-    for (String col : colNameArr) {
-        groupby_or_orderby_exception(true, table_names[0], col)
-        groupby_or_orderby_exception(false, table_names[0], col)
-    }
     // select * from table where groupby|orderby element_at(column)
     for (String col : colNameArr) {
         String agg_expr = "${col}[1]"
@@ -218,11 +202,6 @@ suite("one_level_nestedtypes_with_s3data") {
     // select * from table where element_at(column) with equal expr
     for (String col : colNameArr) {
         order_qt_select_map "select ${col}[map_keys(${col})[1]], ${col}[map_keys(${col})[-1]] from ${table_names[1]} where ${col}[map_keys(${col})[1]]<${col}[map_keys(${col})[-1]] AND k1 IS NOT NULL order by k1 limit 10;"
-    }
-    // select * from table where groupby|orderby column will meet exception
-    for (String col : colNameArr) {
-        groupby_or_orderby_exception(true, table_names[1], col)
-        groupby_or_orderby_exception(false, table_names[1], col)
     }
     // select * from table where groupby|orderby element_at(column)
     for (String col : colNameArr) {
@@ -272,9 +251,6 @@ suite("one_level_nestedtypes_with_s3data") {
     order_qt_select_struct "select * from ${table_names[2]} where struct_element(${colNameArr[0]}, 'col17') = '${res}' AND k1 IS NOT NULL order by k1 limit 10;"
 
     // select * from table where groupby|orderby column will meet exception
-
-    groupby_or_orderby_exception(true, table_names[2], colNameArr[0])
-    groupby_or_orderby_exception(false, table_names[2], colNameArr[0])
 
     // select * from table where groupby|orderby element_at(column)
     String agg_expr = "struct_element(${colNameArr[0]}, 1)"

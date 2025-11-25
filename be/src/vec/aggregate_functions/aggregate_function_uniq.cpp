@@ -63,6 +63,9 @@ AggregateFunctionPtr create_aggregate_function_uniq(const std::string& name,
         } else if (which.is_string_or_fixed_string()) {
             return creator_without_type::create<AggregateFunctionUniq<String, Data<String>>>(
                     argument_types, result_is_nullable);
+        } else if (which.is_array()) {
+            return creator_without_type::create<AggregateFunctionUniq<Array, Data<Array>>>(
+                    argument_types, result_is_nullable);
         }
     }
 

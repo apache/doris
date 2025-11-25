@@ -340,7 +340,7 @@ public abstract class QueryStmt extends StatementBase implements Queriable, NotF
         }
 
         for (Expr expr : orderingExprs) {
-            if (expr.getType().isOnlyMetricType()) {
+            if (expr.getType().isOnlyMetricType() && !expr.getType().isArrayType()) {
                 throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
             }
         }

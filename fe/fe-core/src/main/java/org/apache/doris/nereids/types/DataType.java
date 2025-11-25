@@ -640,6 +640,10 @@ public abstract class DataType {
         return isObjectType() || isComplexType() || isJsonType() || isVariantType();
     }
 
+    public boolean isArrayTypeNestedBaseType() {
+        return isArrayType() && !((ArrayType) this).getItemType().isOnlyMetricType();
+    }
+
     public boolean isObjectType() {
         return isHllType() || isBitmapType() || isQuantileStateType();
     }

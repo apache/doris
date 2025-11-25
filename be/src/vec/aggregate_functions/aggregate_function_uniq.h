@@ -62,15 +62,20 @@ namespace doris::vectorized {
 template <typename T>
 struct AggregateFunctionUniqExactData {
     static constexpr bool is_string_key = std::is_same_v<T, String>;
-    using Key = std::conditional_t<is_string_key, UInt128, T>;
+    using Key = std::conditional_t<is_string_key, UInt128,
+                                   std::conditional_t<std::is_same_v<T, Array>, UInt64, T>>;
     using Hash = HashCRC32<Key>;
 
     using Set = flat_hash_set<Key, Hash>;
 
-    // TODO: replace SipHash with xxhash to speed up
     static UInt128 ALWAYS_INLINE get_key(const StringRef& value) {
         auto hash_value = XXH_INLINE_XXH128(value.data, value.size, 0);
         return UInt128 {hash_value.high64, hash_value.low64};
+    }
+    static UInt64 ALWAYS_INLINE get_key(const IColumn& column, size_t row_num) {
+        UInt64 hash_value = 0;
+        column.update_xxHash_with_value(row_num, row_num + 1, hash_value, nullptr);
+        return hash_value;
     }
 
     Set set;
@@ -95,6 +100,8 @@ struct OneAdder {
             data.set.insert(
                     assert_cast<const ColumnDecimal<T>&, TypeCheckOnRelease::DISABLE>(column)
                             .get_data()[row_num]);
+        } else if constexpr (std::is_same_v<T, Array>) {
+            data.set.insert(Data::get_key(column, row_num));
         } else {
             data.set.insert(assert_cast<const ColumnVector<T>&, TypeCheckOnRelease::DISABLE>(column)
                                     .get_data()[row_num]);
@@ -109,7 +116,8 @@ template <typename T, typename Data>
 class AggregateFunctionUniq final
         : public IAggregateFunctionDataHelper<Data, AggregateFunctionUniq<T, Data>> {
 public:
-    using KeyType = std::conditional_t<std::is_same_v<T, String>, UInt128, T>;
+    using KeyType = std::conditional_t<std::is_same_v<T, String>, UInt128,
+                                       std::conditional_t<std::is_same_v<T, Array>, UInt64, T>>;
     AggregateFunctionUniq(const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper<Data, AggregateFunctionUniq<T, Data>>(argument_types_) {}
 
@@ -131,6 +139,12 @@ public:
             for (size_t i = 0; i != batch_size; ++i) {
                 StringRef value = column.get_data_at(i);
                 keys_container[i] = Data::get_key(value);
+            }
+            return keys_container.data();
+        } else if constexpr (std::is_same_v<T, Array>) {
+            keys_container.resize(batch_size);
+            for (size_t i = 0; i != batch_size; ++i) {
+                keys_container[i] = Data::get_key(column, i);
             }
             return keys_container.data();
         } else {
