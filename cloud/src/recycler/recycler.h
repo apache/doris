@@ -384,6 +384,15 @@ public:
 
     int scan_and_statistics_restore_jobs();
 
+    /**
+     * Decode the key of a merged-file metadata record into the persisted object path.
+     *
+     * @param key raw key persisted in txn-kv
+     * @param merged_path output object storage path referenced by the key
+     * @return true if decoding succeeds, false otherwise
+     */
+    static bool decode_merged_file_key(std::string_view key, std::string* merged_path);
+
     void TEST_add_accessor(std::string_view id, std::shared_ptr<StorageVaultAccessor> accessor) {
         accessor_map_.insert({std::string(id), std::move(accessor)});
     }
@@ -474,14 +483,6 @@ private:
      */
     static bool parse_merge_small_file_path(std::string_view path, int64_t* tablet_id,
                                             std::string* rowset_id);
-    /**
-     * Decode the key of a merged-file metadata record into the persisted object path.
-     *
-     * @param key raw key persisted in txn-kv
-     * @param merged_path output object storage path referenced by the key
-     * @return true if decoding succeeds, false otherwise
-     */
-    static bool decode_merged_file_key(std::string_view key, std::string* merged_path);
     // Check whether a rowset referenced by a merged file still exists in metadata.
     // @param stats optional recycle statistics collector.
     int check_rowset_exists(int64_t tablet_id, const std::string& rowset_id, bool* exists,
