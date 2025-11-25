@@ -32,6 +32,7 @@ static const char* UNIX_SOCKET_PATH_TEMPLATE = "{}_{}.sock";
 static const char* FLIGHT_SERVER_PATH_TEMPLATE = "{}/plugins/python_udf/{}";
 static const char* FLIGHT_SERVER_FILENAME = "python_udf_server.py";
 static const char* EXECUTABLE_PYTHON_FILENAME = "python";
+static const char* PYTHON_SERVER_START_SUCCESS_MSG = "Start python server successfully";
 
 inline std::string get_base_unix_socket_path() {
     return fmt::format(BASE_UNIX_SOCKET_PATH_TEMPLATE, UNIX_SOCKET_PREFIX,

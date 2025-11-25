@@ -18,7 +18,7 @@
 suite("test_pythonudf_module") {
     def pyPath = """${context.file.parent}/udf_scripts/python_udf_module_test.zip"""
     scp_udf_file_to_all_be(pyPath)
-    def runtime_version = "3.12.0"
+    def runtime_version = "3.10.12"
     log.info("Python Zip path: ${pyPath}".toString())
     try {
         sql """ DROP FUNCTION IF EXISTS python_udf_ltv_score(BIGINT, BIGINT, DOUBLE); """
