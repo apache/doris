@@ -87,4 +87,27 @@ suite ("k123p") {
 
     mv_rewrite_success("""select k1,k2+k3 from d_table where k1 = 2 and k4 = "b";""", "k123p4w")
 
+    sql """ DROP TABLE IF EXISTS u_table; """
+    sql """
+            create table u_table(
+                k1 int null,
+                k2 int not null,
+                k3 bigint null,
+                k4 varchar(100) null
+            )
+            unique key (k1,k2)
+            distributed BY hash(k1) buckets 3
+            properties("replication_num" = "1");
+        """
+
+    sql "insert into u_table select 1,1,1,'a';"
+    sql "insert into u_table select 2,2,2,'bb';"
+    sql "insert into u_table select 3,-3,null,'c';"
+
+    test {
+        sql """create materialized view k123p4w as select k1 as aa1,k2 as aa2,k3 as aa3 from u_table where k4 = "b";"""
+        exception "The where clause contained aggregate column is not supported"
+    }
+
+    createMV ("""create materialized view k123p1w as select k1 as a1,k2 as a2,k3 as a3 from u_table where k1 = 1;""")
 }
