@@ -1,8 +1,4 @@
-create database if not exists test_varbinary;
-use test_varbinary;
-
-SET hive.merge.mapfiles=false;
-SET hive.merge.mapredfiles=false;
+use `default`;
 
 DROP TABLE IF EXISTS test_hive_binary_orc;
 DROP TABLE IF EXISTS test_hive_binary_parquet;
