@@ -30,18 +30,21 @@ namespace doris {
 
 enum class PythonUDFLoadType : uint8_t { INLINE = 0, MODULE = 1, UNKNOWN = 2 };
 
+enum class PythonClientType : uint8_t { UDF = 0, UDAF = 1, UDTF = 2, UNKNOWN = 3 };
+
 struct PythonUDFMeta {
-    int64_t _id;
-    std::string _name;
-    std::string _symbol;
-    std::string _location;
-    std::string _checksum;
-    std::string _runtime_version;
-    std::string _inline_code;
-    bool _always_nullable;
-    vectorized::DataTypes _input_types;
-    vectorized::DataTypePtr _return_type;
-    PythonUDFLoadType _type;
+    int64_t id;
+    std::string name;
+    std::string symbol;
+    std::string location;
+    std::string checksum;
+    std::string runtime_version;
+    std::string inline_code;
+    bool always_nullable;
+    vectorized::DataTypes input_types;
+    vectorized::DataTypePtr return_type;
+    PythonUDFLoadType type;
+    PythonClientType client_type;
 
     static Status convert_types_to_schema(const vectorized::DataTypes& types,
                                           const std::string& timezone,
