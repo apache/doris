@@ -120,7 +120,6 @@ using FunctionAddTimeTime = FunctionAddTime<TYPE_TIMEV2, AddTimeImpl>;
 using FunctionSubTimeDatetime = FunctionAddTime<TYPE_DATETIMEV2, SubTimeImpl>;
 using FunctionSubTimeTime = FunctionAddTime<TYPE_TIMEV2, SubTimeImpl>;
 
-
 #define FUNCTION_TIME_DIFF(NAME, IMPL, TYPE) using NAME##_##TYPE = FunctionTimeDiff<IMPL<TYPE>>;
 
 #define ALL_FUNCTION_TIME_DIFF(NAME, IMPL)          \
