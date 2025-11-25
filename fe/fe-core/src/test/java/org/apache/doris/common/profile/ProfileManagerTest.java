@@ -20,6 +20,7 @@ package org.apache.doris.common.profile;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.profile.ProfileManager.ProfileElement;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.common.util.UUIDUtil;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.Lists;
@@ -331,8 +332,7 @@ class ProfileManagerTest {
             Random random = new Random();
             profile.setQueryFinishTimestamp(random.nextInt(200 - 101) + 101);
             profile.getSummaryProfile().setQueryBeginTime(random.nextInt(100));
-            UUID taskId = UUID.randomUUID();
-            TUniqueId queryId = new TUniqueId(taskId.getMostSignificantBits(), taskId.getLeastSignificantBits());
+            TUniqueId queryId = UUIDUtil.genTUniqueId();
             List<Integer> fragments = new ArrayList<>();
             ExecutionProfile executionProfile = new ExecutionProfile(queryId, fragments);
             profile.addExecutionProfile(executionProfile);
@@ -352,9 +352,8 @@ class ProfileManagerTest {
     void getOnStorageProfileInfosTest() throws Exception {
         // Create some test profile files
         for (int i = 0; i < 3; i++) {
-            UUID taskId = UUID.randomUUID();
-            TUniqueId queryId = new TUniqueId(taskId.getMostSignificantBits(), taskId.getLeastSignificantBits());
-            File profileFile = new File(tempDir, System.currentTimeMillis() + '_' + DebugUtil.printId(queryId));
+            String profileId = DebugUtil.printId(UUID.randomUUID());
+            File profileFile = new File(tempDir, System.currentTimeMillis() + '_' + profileId);
             profileFile.createNewFile();
         }
 
@@ -398,8 +397,7 @@ class ProfileManagerTest {
             Profile profile = ProfilePersistentTest.constructRandomProfile(1);
             profile.isQueryFinished = true;
             profile.setQueryFinishTimestamp(System.currentTimeMillis());
-            UUID taskId = UUID.randomUUID();
-            TUniqueId queryId = new TUniqueId(taskId.getMostSignificantBits(), taskId.getLeastSignificantBits());
+            TUniqueId queryId = UUIDUtil.genTUniqueId();
             List<Integer> fragments = new ArrayList<>();
             profile.addExecutionProfile(new ExecutionProfile(queryId, fragments));
             if (i % 2 == 0) {
@@ -435,8 +433,7 @@ class ProfileManagerTest {
             Profile profile = ProfilePersistentTest.constructRandomProfile(1);
             profile.isQueryFinished = true;
             profile.setQueryFinishTimestamp(System.currentTimeMillis());
-            UUID taskId = UUID.randomUUID();
-            TUniqueId queryId = new TUniqueId(taskId.getMostSignificantBits(), taskId.getLeastSignificantBits());
+            TUniqueId queryId = UUIDUtil.genTUniqueId();
             List<Integer> fragments = new ArrayList<>();
             profile.addExecutionProfile(new ExecutionProfile(queryId, fragments));
             for (ExecutionProfile executionProfile : profile.getExecutionProfiles()) {
@@ -480,8 +477,7 @@ class ProfileManagerTest {
                 Profile profile = ProfilePersistentTest.constructRandomProfile(1);
                 profile.isQueryFinished = true;
                 profile.setQueryFinishTimestamp(System.currentTimeMillis());
-                UUID taskId = UUID.randomUUID();
-                TUniqueId queryId = new TUniqueId(taskId.getMostSignificantBits(), taskId.getLeastSignificantBits());
+                TUniqueId queryId = UUIDUtil.genTUniqueId();
                 List<Integer> fragments = new ArrayList<>();
                 profile.addExecutionProfile(new ExecutionProfile(queryId, fragments));
                 for (ExecutionProfile executionProfile : profile.getExecutionProfiles()) {
@@ -568,9 +564,7 @@ class ProfileManagerTest {
     void testGetBrokenProfiles() throws IOException {
         // Create normal profiles
         for (int i = 0; i < 3; i++) {
-            UUID taskId = UUID.randomUUID();
-            TUniqueId queryId = new TUniqueId(taskId.getMostSignificantBits(), taskId.getLeastSignificantBits());
-            String profileId = DebugUtil.printId(queryId);
+            String profileId = DebugUtil.printId(UUID.randomUUID());
 
             // Create profile in memory
             Profile profile = constructProfile(profileId);
@@ -583,9 +577,8 @@ class ProfileManagerTest {
 
         // Create broken profiles (no corresponding memory entry)
         for (int i = 0; i < 2; i++) {
-            UUID taskId = UUID.randomUUID();
-            TUniqueId queryId = new TUniqueId(taskId.getMostSignificantBits(), taskId.getLeastSignificantBits());
-            File brokenFile = new File(tempDir, System.currentTimeMillis() + "_" + DebugUtil.printId(queryId));
+            String fileId = DebugUtil.printId(UUID.randomUUID());
+            File brokenFile = new File(tempDir, System.currentTimeMillis() + "_" + fileId);
             brokenFile.createNewFile();
         }
 
@@ -607,9 +600,7 @@ class ProfileManagerTest {
 
         // Create normal profiles with memory entries
         for (int i = 0; i < 3; i++) {
-            UUID taskId = UUID.randomUUID();
-            TUniqueId queryId = new TUniqueId(taskId.getMostSignificantBits(), taskId.getLeastSignificantBits());
-            String profileId = DebugUtil.printId(queryId);
+            String profileId = DebugUtil.printId(UUID.randomUUID());
 
             Profile profile = constructProfile(profileId);
             profileManager.pushProfile(profile);
@@ -621,9 +612,8 @@ class ProfileManagerTest {
 
         // Create broken profiles (no memory entries)
         for (int i = 0; i < 2; i++) {
-            UUID taskId = UUID.randomUUID();
-            TUniqueId queryId = new TUniqueId(taskId.getMostSignificantBits(), taskId.getLeastSignificantBits());
-            File brokenFile = new File(tempDir, System.currentTimeMillis() + "_" + DebugUtil.printId(queryId));
+            String fileId = DebugUtil.printId(UUID.randomUUID());
+            File brokenFile = new File(tempDir, System.currentTimeMillis() + "_" + fileId);
             brokenFile.createNewFile();
             brokenFiles.add(brokenFile);
         }
@@ -648,9 +638,7 @@ class ProfileManagerTest {
         // Create multiple test profiles and save them to storage
         int numProfiles = 50;
         for (int i = 0; i < numProfiles; i++) {
-            UUID taskId = UUID.randomUUID();
-            TUniqueId queryId = new TUniqueId(taskId.getMostSignificantBits(), taskId.getLeastSignificantBits());
-            String profileId = DebugUtil.printId(queryId);
+            String profileId = DebugUtil.printId(UUID.randomUUID());
 
             // Create profile in memory
             Profile profile = constructProfile(profileId);
@@ -672,9 +660,7 @@ class ProfileManagerTest {
 
         // Create and store more profiles than the limit
         for (int i = 0; i < 10; i++) {
-            UUID taskId = UUID.randomUUID();
-            TUniqueId queryId = new TUniqueId(taskId.getMostSignificantBits(), taskId.getLeastSignificantBits());
-            String profileId = DebugUtil.printId(queryId);
+            String profileId = DebugUtil.printId(UUID.randomUUID());
 
             // Create profile in memory
             Profile profile = constructProfile(profileId);
@@ -695,9 +681,7 @@ class ProfileManagerTest {
     @Test
     public void testBrokenProfileCleanup() throws Exception {
         // Create a valid profile
-        UUID taskId = UUID.randomUUID();
-        TUniqueId queryId = new TUniqueId(taskId.getMostSignificantBits(), taskId.getLeastSignificantBits());
-        String profileId = DebugUtil.printId(queryId);
+        String profileId = DebugUtil.printId(UUID.randomUUID());
 
         // Create profile in memory
         Profile validProfile = constructProfile(profileId);
@@ -725,9 +709,7 @@ class ProfileManagerTest {
 
         // Add more profiles than the limit
         for (int i = 0; i < 5; i++) {
-            UUID taskId = UUID.randomUUID();
-            TUniqueId queryId = new TUniqueId(taskId.getMostSignificantBits(), taskId.getLeastSignificantBits());
-            String profileId = DebugUtil.printId(queryId);
+            String profileId = DebugUtil.printId(UUID.randomUUID());
 
             // Create profile in memory
             Profile profile = constructProfile(profileId);
@@ -756,9 +738,7 @@ class ProfileManagerTest {
 
         Config.max_query_profile_num = 3;
         for (int i = 0; i < 5; i++) {
-            UUID taskId = UUID.randomUUID();
-            TUniqueId queryId = new TUniqueId(taskId.getMostSignificantBits(), taskId.getLeastSignificantBits());
-            String profileId = DebugUtil.printId(queryId);
+            String profileId = DebugUtil.printId(UUID.randomUUID());
             Profile profile = constructProfile(profileId);
             profile.setQueryFinishTimestamp(System.currentTimeMillis() + i * 1000); // Different finish times
             profiles.add(profile);
@@ -803,9 +783,7 @@ class ProfileManagerTest {
         // Create an unfinished profile (finish time = Long.MAX_VALUE)
         List<Profile> profileUnfinished = new ArrayList<>();
         for (int i = 0; i < 2; i++) {
-            UUID taskId = UUID.randomUUID();
-            TUniqueId queryId = new TUniqueId(taskId.getMostSignificantBits(), taskId.getLeastSignificantBits());
-            String profileId = DebugUtil.printId(queryId);
+            String profileId = DebugUtil.printId(UUID.randomUUID());
             Profile profile = constructProfile(profileId);
             profileUnfinished.add(profile);
             profileManager.pushProfile(profile);
@@ -813,9 +791,7 @@ class ProfileManagerTest {
 
         List<Profile> profileFinished = new ArrayList<>();
         for (int i = 0; i < 3; i++) {
-            UUID taskId = UUID.randomUUID();
-            TUniqueId queryId = new TUniqueId(taskId.getMostSignificantBits(), taskId.getLeastSignificantBits());
-            String profileId = DebugUtil.printId(queryId);
+            String profileId = DebugUtil.printId(UUID.randomUUID());
             Profile profile = constructProfile(profileId);
             profile.setQueryFinishTimestamp(System.currentTimeMillis() + i * 1000); // Different finish times
             profileFinished.add(profile);
@@ -834,9 +810,7 @@ class ProfileManagerTest {
 
         profileFinished.clear();
         for (int i = 0; i < 5; i++) {
-            UUID taskId = UUID.randomUUID();
-            TUniqueId queryId = new TUniqueId(taskId.getMostSignificantBits(), taskId.getLeastSignificantBits());
-            String profileId = DebugUtil.printId(queryId);
+            String profileId = DebugUtil.printId(UUID.randomUUID());
             Profile profile = constructProfile(profileId);
             profile.setQueryFinishTimestamp(System.currentTimeMillis() + i * 1000); // Different finish times
             profileFinished.add(profile);

@@ -37,6 +37,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.SqlUtils;
+import org.apache.doris.common.util.UUIDUtil;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.metric.MetricRepo;
@@ -85,7 +86,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.UUID;
 
 /**
  * Process one connection, the life cycle is the same as connection
@@ -684,8 +684,7 @@ public abstract class ConnectProcessor {
             if (request.isSetQueryId()) {
                 queryId = request.getQueryId();
             } else {
-                UUID uuid = UUID.randomUUID();
-                queryId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
+                queryId = UUIDUtil.genTUniqueId();
             }
             if (request.isSetPrepareExecuteBuffer()) {
                 ctx.setCommand(MysqlCommand.COM_STMT_PREPARE);
