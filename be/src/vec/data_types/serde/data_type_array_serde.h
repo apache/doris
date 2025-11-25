@@ -100,6 +100,9 @@ public:
     bool write_column_to_presto_text(const IColumn& column, BufferWritable& bw,
                                      int64_t row_idx) const override;
 
+    bool write_column_to_hive_text(const IColumn& column, BufferWritable& bw,
+                                   int64_t row_idx) const override;
+
     Status write_column_to_orc(const std::string& timezone, const IColumn& column,
                                const NullMap* null_map, orc::ColumnVectorBatch* orc_col_batch,
                                int64_t start, int64_t end, vectorized::Arena& arena) const override;

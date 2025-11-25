@@ -687,5 +687,23 @@ bool DataTypeStructSerDe::write_column_to_presto_text(const IColumn& column, Buf
     bw.write("}", 1);
     return true;
 }
+
+bool DataTypeStructSerDe::write_column_to_hive_text(const IColumn& column, BufferWritable& bw,
+                                                    int64_t row_idx) const {
+    const auto& struct_column = assert_cast<const ColumnStruct&>(column);
+    bw.write("{", 1);
+    for (size_t idx = 0; idx < elem_serdes_ptrs.size(); idx++) {
+        if (idx != 0) {
+            bw.write(",", 1);
+        }
+        std::string col_name = "\"" + elem_names[idx] + "\":";
+        bw.write(col_name.c_str(), col_name.length());
+        elem_serdes_ptrs[idx]->write_column_to_hive_text(struct_column.get_column(idx), bw,
+                                                         row_idx);
+    }
+    bw.write("}", 1);
+    return true;
+}
+
 } // namespace vectorized
 } // namespace doris

@@ -269,38 +269,30 @@ Status VMysqlResultWriter<is_binary_format>::_write_one_block(RuntimeState* stat
                         num_rows, argument.column->get_name(), argument.column->size());
             }
         }
-
-        const auto& serde_dialect = state->query_options().serde_dialect;
-
         auto mysql_output_tmp_col = ColumnString::create();
         BufferWriter write_buffer(*mysql_output_tmp_col);
         size_t write_buffer_index = 0;
-        if (serde_dialect == TSerdeDialect::DORIS && !is_binary_format) {
-            for (int row_idx = 0; row_idx < num_rows; ++row_idx) {
-                auto& mysql_rows = result->result_batch.rows[row_idx];
-                for (size_t col_idx = 0; col_idx < num_cols; ++col_idx) {
-                    const auto col_index = index_check_const(row_idx, arguments[col_idx].is_const);
-                    const auto* column = arguments[col_idx].column;
-                    if (arguments[col_idx].serde->write_column_to_mysql_text(*column, write_buffer,
-                                                                             col_index)) {
-                        write_buffer.commit();
-                        auto str = mysql_output_tmp_col->get_data_at(write_buffer_index);
-                        direct_write_to_mysql_result_string(mysql_rows, str.data, str.size);
-                        write_buffer_index++;
-                    } else {
-                        direct_write_to_mysql_result_null(mysql_rows);
-                    }
+        if (!is_binary_format) {
+            const auto& serde_dialect = state->query_options().serde_dialect;
+            auto write_to_text = [serde_dialect](DataTypeSerDeSPtr& serde, const IColumn* column,
+                                                 BufferWriter& write_buffer, size_t col_index) {
+                if (serde_dialect == TSerdeDialect::DORIS) {
+                    return serde->write_column_to_mysql_text(*column, write_buffer, col_index);
+                } else if (serde_dialect == TSerdeDialect::PRESTO) {
+                    return serde->write_column_to_presto_text(*column, write_buffer, col_index);
+                } else if (serde_dialect == TSerdeDialect::HIVE) {
+                    return serde->write_column_to_hive_text(*column, write_buffer, col_index);
+                } else {
+                    return false;
                 }
-                bytes_sent += mysql_rows.size();
-            }
-        } else if (serde_dialect == TSerdeDialect::PRESTO && !is_binary_format) {
+            };
+
             for (int row_idx = 0; row_idx < num_rows; ++row_idx) {
                 auto& mysql_rows = result->result_batch.rows[row_idx];
                 for (size_t col_idx = 0; col_idx < num_cols; ++col_idx) {
                     const auto col_index = index_check_const(row_idx, arguments[col_idx].is_const);
                     const auto* column = arguments[col_idx].column;
-                    if (arguments[col_idx].serde->write_column_to_presto_text(*column, write_buffer,
-                                                                              col_index)) {
+                    if (write_to_text(arguments[col_idx].serde, column, write_buffer, col_index)) {
                         write_buffer.commit();
                         auto str = mysql_output_tmp_col->get_data_at(write_buffer_index);
                         direct_write_to_mysql_result_string(mysql_rows, str.data, str.size);

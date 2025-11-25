@@ -99,6 +99,8 @@ public:
 
     bool write_column_to_presto_text(const IColumn& column, BufferWritable& bw,
                                      int64_t row_idx) const override;
+    bool write_column_to_hive_text(const IColumn& column, BufferWritable& bw,
+                                   int64_t row_idx) const override;
 
     void set_return_object_as_string(bool value) override {
         DataTypeSerDe::set_return_object_as_string(value);

@@ -101,6 +101,9 @@ public:
     bool write_column_to_presto_text(const IColumn& column, BufferWritable& bw,
                                      int64_t row_idx) const override;
 
+    bool write_column_to_hive_text(const IColumn& column, BufferWritable& bw,
+                                   int64_t row_idx) const override;
+
     Status serialize_column_to_jsonb(const IColumn& from_column, int64_t row_num,
                                      JsonbWriter& writer) const override;
 

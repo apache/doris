@@ -132,6 +132,8 @@ public:
 
     bool write_column_to_presto_text(const IColumn& column, BufferWritable& bw,
                                      int64_t row_idx) const override;
+    bool write_column_to_hive_text(const IColumn& column, BufferWritable& bw,
+                                   int64_t row_idx) const override;
 
     void to_string(const IColumn& column, size_t row_num, BufferWritable& bw) const override;
 

@@ -439,6 +439,9 @@ public:
     virtual bool write_column_to_presto_text(const IColumn& column, BufferWritable& bw,
                                              int64_t row_idx) const;
 
+    virtual bool write_column_to_hive_text(const IColumn& column, BufferWritable& bw,
+                                           int64_t row_idx) const;
+
     virtual Status write_column_to_mysql_binary(const IColumn& column,
                                                 MysqlRowBinaryBuffer& row_buffer, int64_t row_idx,
                                                 bool col_const,
