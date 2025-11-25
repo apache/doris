@@ -89,9 +89,8 @@ public:
 
         if (arg_column->is_nullable()) {
             arg_column = assert_cast<const ColumnNullable*>(column.get())->get_nested_column_ptr();
-            outside_null_map = assert_cast<const ColumnNullable*>(column.get())
-                                       ->get_null_map_column_ptr()
-                                       ->assume_mutable();
+            outside_null_map =
+                    assert_cast<const ColumnNullable*>(column.get())->get_null_map_column_ptr();
             arg_type = assert_cast<const DataTypeNullable*>(type_ptr.get())->get_nested_type();
         }
 
