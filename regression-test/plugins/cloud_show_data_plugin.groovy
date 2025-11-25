@@ -80,6 +80,9 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
         sb.append(tablet["CompactionStatus"])
         String command = sb.toString()
         logger.info(command)
+        if ((context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false) {
+            command = command.replace("http://", "https://") + " --cert " + context.config.otherConfigs.get("trustCert") + " --cacert " + context.config.otherConfigs.get("trustCACert") + " --key " + context.config.otherConfigs.get("trustCAKey")
+        }
         def process = command.execute()
         def code = process.waitFor()
         def err = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())));

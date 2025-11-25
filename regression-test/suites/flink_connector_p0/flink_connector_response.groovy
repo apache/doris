@@ -60,7 +60,12 @@ PROPERTIES (
         strBuilder.append(""" -H expect:100-continue """)
         strBuilder.append(""" -H label:""" + label)
         strBuilder.append(""" -T """ + filePath)
-        strBuilder.append(""" http://""" + context.config.feHttpAddress + """/api/${thisDb}/${tableName}/_stream_load""")
+        if ((context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false) { {
+            strBuilder.append(" https://" + context.config.feHttpAddress + """/api/${thisDb}/${tableName}/_stream_load""")
+            strBuilder.append(" --cert " + context.config.otherConfigs.get("trustCert") + " --cacert " + context.config.otherConfigs.get("trustCACert") + " --key " + context.config.otherConfigs.get("trustCAKey"))
+        } else {
+            strBuilder.append(""" http://""" + context.config.feHttpAddress + """/api/${thisDb}/${tableName}/_stream_load""")
+        }
 
         String command = strBuilder.toString()
         logger.info("streamload command=" + command)
