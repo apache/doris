@@ -43,7 +43,7 @@ under the License.
         </dependency>
         <dependency>
             <groupId>org.apache.doris</groupId>
-            <artifactId>java-common</artifactId>
+            <artifactId>preload-extensions</artifactId>
             <version>${project.version}</version>
         </dependency>
         <dependency>
