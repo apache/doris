@@ -5251,6 +5251,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         SetType statementScope = visitStatementScope(ctx.statementScope());
         String name = stripQuotes(ctx.identifier().getText());
         Expression expression = ctx.expression() != null ? typedVisit(ctx.expression()) : null;
+        if (ctx.ON() != null) {
+            expression = new StringLiteral("on");
+        } else if (ctx.ALL() != null) {
+            expression = new StringLiteral("all");
+        }
         return new SetSessionVarOp(statementScope, name, expression);
     }
 
@@ -5259,6 +5264,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         SetType statementScope = visitStatementScope(ctx.statementScope());
         String name = stripQuotes(ctx.identifier().getText());
         Expression expression = ctx.expression() != null ? typedVisit(ctx.expression()) : null;
+        if (ctx.ON() != null) {
+            expression = new StringLiteral("on");
+        } else if (ctx.ALL() != null) {
+            expression = new StringLiteral("all");
+        }
         return new SetSessionVarOp(statementScope, name, expression);
     }
 

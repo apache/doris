@@ -527,6 +527,12 @@ public class NereidsParserTest extends ParserTestBase {
         sql = "set session a = default";
         nereidsParser.parseSingle(sql);
 
+        sql = "set a = on";
+        nereidsParser.parseSingle(sql);
+
+        sql = "set a = all";
+        nereidsParser.parseSingle(sql);
+
         sql = "set @@a = 10";
         nereidsParser.parseSingle(sql);
 
