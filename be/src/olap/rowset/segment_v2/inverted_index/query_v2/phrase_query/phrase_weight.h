@@ -18,6 +18,7 @@
 #pragma once
 
 #include "olap/rowset/segment_v2/index_query_context.h"
+#include "olap/rowset/segment_v2/inverted_index/query/query_info.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/nullable_scorer.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/phrase_query/phrase_scorer.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/scorer.h"

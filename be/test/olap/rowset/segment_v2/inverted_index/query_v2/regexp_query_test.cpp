@@ -25,6 +25,7 @@
 #include <string>
 
 #include "common/status.h"
+#include "io/fs/local_file_system.h"
 #include "olap/rowset/segment_v2/index_query_context.h"
 #include "olap/rowset/segment_v2/inverted_index/analyzer/custom_analyzer.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/regexp_query/regexp_weight.h"
@@ -113,8 +114,8 @@ static std::shared_ptr<lucene::index::IndexReader> make_shared_reader(
 // Test basic regexp query construction and weight creation
 TEST_F(RegexpQueryV2Test, test_regexp_query_construction) {
     auto context = std::make_shared<IndexQueryContext>();
-    context->collection_statistics = std::make_shared<CollectionStatistics>();
-    context->collection_similarity = std::make_shared<CollectionSimilarity>();
+    //    context->collection_statistics = std::make_shared<CollectionStatistics>();
+    //    context->collection_similarity = std::make_shared<CollectionSimilarity>();
 
     std::wstring field = StringHelper::to_wstring("content");
     std::string pattern = "apple.*";
@@ -124,7 +125,7 @@ TEST_F(RegexpQueryV2Test, test_regexp_query_construction) {
     ASSERT_NE(query, nullptr);
 
     // Test weight creation without scoring
-    auto weight = query->weight(false);
+    auto weight = query->weight();
     ASSERT_NE(weight, nullptr);
 
     // Verify weight is of correct type
@@ -135,8 +136,8 @@ TEST_F(RegexpQueryV2Test, test_regexp_query_construction) {
 // Test regexp query with scoring enabled
 TEST_F(RegexpQueryV2Test, test_regexp_query_with_scoring) {
     auto context = std::make_shared<IndexQueryContext>();
-    context->collection_statistics = std::make_shared<CollectionStatistics>();
-    context->collection_similarity = std::make_shared<CollectionSimilarity>();
+    //    context->collection_statistics = std::make_shared<CollectionStatistics>();
+    //    context->collection_similarity = std::make_shared<CollectionSimilarity>();
 
     std::wstring field = StringHelper::to_wstring("content");
     std::string pattern = ".*123.*";
@@ -145,7 +146,7 @@ TEST_F(RegexpQueryV2Test, test_regexp_query_with_scoring) {
     ASSERT_NE(query, nullptr);
 
     // Test weight creation with scoring enabled
-    auto weight = query->weight(true);
+    auto weight = query->weight();
     ASSERT_NE(weight, nullptr);
 
     auto regexp_weight = std::dynamic_pointer_cast<query_v2::RegexpWeight>(weight);
@@ -155,8 +156,8 @@ TEST_F(RegexpQueryV2Test, test_regexp_query_with_scoring) {
 // Test regexp query execution
 TEST_F(RegexpQueryV2Test, test_regexp_query_execution) {
     auto context = std::make_shared<IndexQueryContext>();
-    context->collection_statistics = std::make_shared<CollectionStatistics>();
-    context->collection_similarity = std::make_shared<CollectionSimilarity>();
+    //    context->collection_statistics = std::make_shared<CollectionStatistics>();
+    //    context->collection_similarity = std::make_shared<CollectionSimilarity>();
 
     auto* dir = FSDirectory::getDirectory(kTestDir.c_str());
     auto reader_holder = make_shared_reader(lucene::index::IndexReader::open(dir, true));
@@ -166,7 +167,7 @@ TEST_F(RegexpQueryV2Test, test_regexp_query_execution) {
     std::string pattern = "apple.*";
 
     auto query = std::make_shared<query_v2::RegexpQuery>(context, field, pattern);
-    auto weight = query->weight(false);
+    auto weight = query->weight();
 
     query_v2::QueryExecutionContext exec_ctx;
     exec_ctx.segment_num_rows = reader_holder->maxDoc();
@@ -192,8 +193,8 @@ TEST_F(RegexpQueryV2Test, test_regexp_query_execution) {
 // Test regexp query with various patterns
 TEST_F(RegexpQueryV2Test, test_regexp_query_different_patterns) {
     auto context = std::make_shared<IndexQueryContext>();
-    context->collection_statistics = std::make_shared<CollectionStatistics>();
-    context->collection_similarity = std::make_shared<CollectionSimilarity>();
+    //    context->collection_statistics = std::make_shared<CollectionStatistics>();
+    //    context->collection_similarity = std::make_shared<CollectionSimilarity>();
 
     auto* dir = FSDirectory::getDirectory(kTestDir.c_str());
     auto reader_holder = make_shared_reader(lucene::index::IndexReader::open(dir, true));
@@ -212,7 +213,7 @@ TEST_F(RegexpQueryV2Test, test_regexp_query_different_patterns) {
 
     for (const auto& pattern : patterns) {
         auto query = std::make_shared<query_v2::RegexpQuery>(context, field, pattern);
-        auto weight = query->weight(false);
+        auto weight = query->weight();
 
         query_v2::QueryExecutionContext exec_ctx;
         exec_ctx.segment_num_rows = reader_holder->maxDoc();
@@ -240,8 +241,8 @@ TEST_F(RegexpQueryV2Test, test_regexp_query_different_patterns) {
 // Test regexp query with non-matching pattern
 TEST_F(RegexpQueryV2Test, test_regexp_query_no_matches) {
     auto context = std::make_shared<IndexQueryContext>();
-    context->collection_statistics = std::make_shared<CollectionStatistics>();
-    context->collection_similarity = std::make_shared<CollectionSimilarity>();
+    //    context->collection_statistics = std::make_shared<CollectionStatistics>();
+    //    context->collection_similarity = std::make_shared<CollectionSimilarity>();
 
     auto* dir = FSDirectory::getDirectory(kTestDir.c_str());
     auto reader_holder = make_shared_reader(lucene::index::IndexReader::open(dir, true));
@@ -251,7 +252,7 @@ TEST_F(RegexpQueryV2Test, test_regexp_query_no_matches) {
     std::string pattern = "nonexistent.*pattern";
 
     auto query = std::make_shared<query_v2::RegexpQuery>(context, field, pattern);
-    auto weight = query->weight(false);
+    auto weight = query->weight();
 
     query_v2::QueryExecutionContext exec_ctx;
     exec_ctx.segment_num_rows = reader_holder->maxDoc();
@@ -277,8 +278,8 @@ TEST_F(RegexpQueryV2Test, test_regexp_query_no_matches) {
 // Test regexp query with binding key
 TEST_F(RegexpQueryV2Test, test_regexp_query_with_binding_key) {
     auto context = std::make_shared<IndexQueryContext>();
-    context->collection_statistics = std::make_shared<CollectionStatistics>();
-    context->collection_similarity = std::make_shared<CollectionSimilarity>();
+    //    context->collection_statistics = std::make_shared<CollectionStatistics>();
+    //    context->collection_similarity = std::make_shared<CollectionSimilarity>();
 
     auto* dir = FSDirectory::getDirectory(kTestDir.c_str());
     auto reader_holder = make_shared_reader(lucene::index::IndexReader::open(dir, true));
@@ -288,7 +289,7 @@ TEST_F(RegexpQueryV2Test, test_regexp_query_with_binding_key) {
     std::string pattern = "banana.*";
 
     auto query = std::make_shared<query_v2::RegexpQuery>(context, field, pattern);
-    auto weight = query->weight(false);
+    auto weight = query->weight();
 
     query_v2::QueryExecutionContext exec_ctx;
     exec_ctx.segment_num_rows = reader_holder->maxDoc();
@@ -316,15 +317,15 @@ TEST_F(RegexpQueryV2Test, test_regexp_query_with_binding_key) {
 // Test regexp query destructor (coverage)
 TEST_F(RegexpQueryV2Test, test_regexp_query_destructor) {
     auto context = std::make_shared<IndexQueryContext>();
-    context->collection_statistics = std::make_shared<CollectionStatistics>();
-    context->collection_similarity = std::make_shared<CollectionSimilarity>();
+    //    context->collection_statistics = std::make_shared<CollectionStatistics>();
+    //    context->collection_similarity = std::make_shared<CollectionSimilarity>();
 
     std::wstring field = StringHelper::to_wstring("content");
     std::string pattern = "test.*";
 
     {
         auto query = std::make_shared<query_v2::RegexpQuery>(context, field, pattern);
-        auto weight = query->weight(false);
+        auto weight = query->weight();
         ASSERT_NE(weight, nullptr);
         // Query and weight will be destroyed at scope exit
     }
@@ -335,8 +336,8 @@ TEST_F(RegexpQueryV2Test, test_regexp_query_destructor) {
 // Test regexp query with complex pattern
 TEST_F(RegexpQueryV2Test, test_regexp_query_complex_pattern) {
     auto context = std::make_shared<IndexQueryContext>();
-    context->collection_statistics = std::make_shared<CollectionStatistics>();
-    context->collection_similarity = std::make_shared<CollectionSimilarity>();
+    //    context->collection_statistics = std::make_shared<CollectionStatistics>();
+    //    context->collection_similarity = std::make_shared<CollectionSimilarity>();
 
     auto* dir = FSDirectory::getDirectory(kTestDir.c_str());
     auto reader_holder = make_shared_reader(lucene::index::IndexReader::open(dir, true));
@@ -347,7 +348,7 @@ TEST_F(RegexpQueryV2Test, test_regexp_query_complex_pattern) {
     std::string pattern = "[a-z]+[0-9]+.*";
 
     auto query = std::make_shared<query_v2::RegexpQuery>(context, field, pattern);
-    auto weight = query->weight(false);
+    auto weight = query->weight();
 
     query_v2::QueryExecutionContext exec_ctx;
     exec_ctx.segment_num_rows = reader_holder->maxDoc();
@@ -372,20 +373,20 @@ TEST_F(RegexpQueryV2Test, test_regexp_query_complex_pattern) {
 // Test move semantics in weight() method
 TEST_F(RegexpQueryV2Test, test_regexp_query_move_semantics) {
     auto context = std::make_shared<IndexQueryContext>();
-    context->collection_statistics = std::make_shared<CollectionStatistics>();
-    context->collection_similarity = std::make_shared<CollectionSimilarity>();
+    //    context->collection_statistics = std::make_shared<CollectionStatistics>();
+    //    context->collection_similarity = std::make_shared<CollectionSimilarity>();
 
     std::wstring field = StringHelper::to_wstring("content");
     std::string pattern = "test.*";
 
     // Create query and immediately call weight() to test move semantics
     auto query = std::make_shared<query_v2::RegexpQuery>(context, field, pattern);
-    auto weight1 = query->weight(false);
+    auto weight1 = query->weight();
     ASSERT_NE(weight1, nullptr);
 
     // Create another query to verify weight can be called multiple times
     auto query2 = std::make_shared<query_v2::RegexpQuery>(context, field, pattern);
-    auto weight2 = query2->weight(true);
+    auto weight2 = query2->weight();
     ASSERT_NE(weight2, nullptr);
 }
 

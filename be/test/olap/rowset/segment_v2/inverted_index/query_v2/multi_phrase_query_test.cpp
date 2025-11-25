@@ -131,8 +131,8 @@ static std::shared_ptr<lucene::index::IndexReader> make_shared_reader(
 // Test basic multi-phrase query construction with single terms at each position
 TEST_F(MultiPhraseQueryV2Test, test_multi_phrase_query_construction_single_terms) {
     auto context = std::make_shared<IndexQueryContext>();
-    context->collection_statistics = std::make_shared<CollectionStatistics>();
-    context->collection_similarity = std::make_shared<CollectionSimilarity>();
+    //    context->collection_statistics = std::make_shared<CollectionStatistics>();
+    //    context->collection_similarity = std::make_shared<CollectionSimilarity>();
 
     std::wstring field = StringHelper::to_wstring("content");
 
@@ -153,7 +153,7 @@ TEST_F(MultiPhraseQueryV2Test, test_multi_phrase_query_construction_single_terms
     ASSERT_NE(query, nullptr);
 
     // Test weight creation without scoring
-    auto weight = query->weight(false);
+    auto weight = query->weight();
     ASSERT_NE(weight, nullptr);
 
     // Verify weight is of correct type
@@ -164,8 +164,8 @@ TEST_F(MultiPhraseQueryV2Test, test_multi_phrase_query_construction_single_terms
 // Test multi-phrase query construction with multiple terms at one position
 TEST_F(MultiPhraseQueryV2Test, test_multi_phrase_query_construction_multi_terms) {
     auto context = std::make_shared<IndexQueryContext>();
-    context->collection_statistics = std::make_shared<CollectionStatistics>();
-    context->collection_similarity = std::make_shared<CollectionSimilarity>();
+    //    context->collection_statistics = std::make_shared<CollectionStatistics>();
+    //    context->collection_similarity = std::make_shared<CollectionSimilarity>();
 
     std::wstring field = StringHelper::to_wstring("content");
 
@@ -186,7 +186,7 @@ TEST_F(MultiPhraseQueryV2Test, test_multi_phrase_query_construction_multi_terms)
     ASSERT_NE(query, nullptr);
 
     // Test weight creation
-    auto weight = query->weight(false);
+    auto weight = query->weight();
     ASSERT_NE(weight, nullptr);
 
     auto multi_phrase_weight = std::dynamic_pointer_cast<query_v2::MultiPhraseWeight>(weight);
@@ -196,8 +196,8 @@ TEST_F(MultiPhraseQueryV2Test, test_multi_phrase_query_construction_multi_terms)
 // Test multi-phrase query with empty terms (should throw exception)
 TEST_F(MultiPhraseQueryV2Test, test_multi_phrase_query_empty_terms) {
     auto context = std::make_shared<IndexQueryContext>();
-    context->collection_statistics = std::make_shared<CollectionStatistics>();
-    context->collection_similarity = std::make_shared<CollectionSimilarity>();
+    //    context->collection_statistics = std::make_shared<CollectionStatistics>();
+    //    context->collection_similarity = std::make_shared<CollectionSimilarity>();
 
     std::wstring field = StringHelper::to_wstring("content");
     std::vector<TermInfo> term_infos; // Empty term_infos
@@ -206,14 +206,14 @@ TEST_F(MultiPhraseQueryV2Test, test_multi_phrase_query_empty_terms) {
     ASSERT_NE(query, nullptr);
 
     // Should throw exception when creating weight with empty terms
-    EXPECT_THROW({ auto weight = query->weight(false); }, Exception);
+    EXPECT_THROW({ auto weight = query->weight(); }, Exception);
 }
 
 // Test multi-phrase query with single term (should throw exception)
 TEST_F(MultiPhraseQueryV2Test, test_multi_phrase_query_single_term) {
     auto context = std::make_shared<IndexQueryContext>();
-    context->collection_statistics = std::make_shared<CollectionStatistics>();
-    context->collection_similarity = std::make_shared<CollectionSimilarity>();
+    //    context->collection_statistics = std::make_shared<CollectionStatistics>();
+    //    context->collection_similarity = std::make_shared<CollectionSimilarity>();
 
     std::wstring field = StringHelper::to_wstring("content");
 
@@ -227,14 +227,14 @@ TEST_F(MultiPhraseQueryV2Test, test_multi_phrase_query_single_term) {
     ASSERT_NE(query, nullptr);
 
     // Should throw exception when creating weight with single term (requires at least 2 terms)
-    EXPECT_THROW({ auto weight = query->weight(false); }, Exception);
+    EXPECT_THROW({ auto weight = query->weight(); }, Exception);
 }
 
 // Test multi-phrase query execution with two single terms
 TEST_F(MultiPhraseQueryV2Test, test_multi_phrase_query_two_single_terms) {
     auto context = std::make_shared<IndexQueryContext>();
-    context->collection_statistics = std::make_shared<CollectionStatistics>();
-    context->collection_similarity = std::make_shared<CollectionSimilarity>();
+    //    context->collection_statistics = std::make_shared<CollectionStatistics>();
+    //    context->collection_similarity = std::make_shared<CollectionSimilarity>();
 
     auto* dir = FSDirectory::getDirectory(kTestDir.c_str());
     auto reader_holder = make_shared_reader(lucene::index::IndexReader::open(dir, true));
@@ -254,7 +254,7 @@ TEST_F(MultiPhraseQueryV2Test, test_multi_phrase_query_two_single_terms) {
     term_infos.push_back(term2);
 
     auto query = std::make_shared<query_v2::MultiPhraseQuery>(context, field, term_infos);
-    auto weight = query->weight(false);
+    auto weight = query->weight();
 
     query_v2::QueryExecutionContext exec_ctx;
     exec_ctx.segment_num_rows = reader_holder->maxDoc();
@@ -280,8 +280,8 @@ TEST_F(MultiPhraseQueryV2Test, test_multi_phrase_query_two_single_terms) {
 // Test multi-phrase query with alternatives at first position
 TEST_F(MultiPhraseQueryV2Test, test_multi_phrase_query_with_alternatives) {
     auto context = std::make_shared<IndexQueryContext>();
-    context->collection_statistics = std::make_shared<CollectionStatistics>();
-    context->collection_similarity = std::make_shared<CollectionSimilarity>();
+    //    context->collection_statistics = std::make_shared<CollectionStatistics>();
+    //    context->collection_similarity = std::make_shared<CollectionSimilarity>();
 
     auto* dir = FSDirectory::getDirectory(kTestDir.c_str());
     auto reader_holder = make_shared_reader(lucene::index::IndexReader::open(dir, true));
@@ -302,7 +302,7 @@ TEST_F(MultiPhraseQueryV2Test, test_multi_phrase_query_with_alternatives) {
     term_infos.push_back(term2);
 
     auto query = std::make_shared<query_v2::MultiPhraseQuery>(context, field, term_infos);
-    auto weight = query->weight(false);
+    auto weight = query->weight();
 
     query_v2::QueryExecutionContext exec_ctx;
     exec_ctx.segment_num_rows = reader_holder->maxDoc();
@@ -328,8 +328,8 @@ TEST_F(MultiPhraseQueryV2Test, test_multi_phrase_query_with_alternatives) {
 // Test multi-phrase query with alternatives at multiple positions
 TEST_F(MultiPhraseQueryV2Test, test_multi_phrase_query_multiple_alternatives) {
     auto context = std::make_shared<IndexQueryContext>();
-    context->collection_statistics = std::make_shared<CollectionStatistics>();
-    context->collection_similarity = std::make_shared<CollectionSimilarity>();
+    //    context->collection_statistics = std::make_shared<CollectionStatistics>();
+    //    context->collection_similarity = std::make_shared<CollectionSimilarity>();
 
     auto* dir = FSDirectory::getDirectory(kTestDir.c_str());
     auto reader_holder = make_shared_reader(lucene::index::IndexReader::open(dir, true));
@@ -350,7 +350,7 @@ TEST_F(MultiPhraseQueryV2Test, test_multi_phrase_query_multiple_alternatives) {
     term_infos.push_back(term2);
 
     auto query = std::make_shared<query_v2::MultiPhraseQuery>(context, field, term_infos);
-    auto weight = query->weight(false);
+    auto weight = query->weight();
 
     query_v2::QueryExecutionContext exec_ctx;
     exec_ctx.segment_num_rows = reader_holder->maxDoc();
@@ -376,8 +376,8 @@ TEST_F(MultiPhraseQueryV2Test, test_multi_phrase_query_multiple_alternatives) {
 // Test multi-phrase query with three positions
 TEST_F(MultiPhraseQueryV2Test, test_multi_phrase_query_three_positions) {
     auto context = std::make_shared<IndexQueryContext>();
-    context->collection_statistics = std::make_shared<CollectionStatistics>();
-    context->collection_similarity = std::make_shared<CollectionSimilarity>();
+    //    context->collection_statistics = std::make_shared<CollectionStatistics>();
+    //    context->collection_similarity = std::make_shared<CollectionSimilarity>();
 
     auto* dir = FSDirectory::getDirectory(kTestDir.c_str());
     auto reader_holder = make_shared_reader(lucene::index::IndexReader::open(dir, true));
@@ -403,7 +403,7 @@ TEST_F(MultiPhraseQueryV2Test, test_multi_phrase_query_three_positions) {
     term_infos.push_back(term3);
 
     auto query = std::make_shared<query_v2::MultiPhraseQuery>(context, field, term_infos);
-    auto weight = query->weight(false);
+    auto weight = query->weight();
 
     query_v2::QueryExecutionContext exec_ctx;
     exec_ctx.segment_num_rows = reader_holder->maxDoc();
@@ -429,8 +429,8 @@ TEST_F(MultiPhraseQueryV2Test, test_multi_phrase_query_three_positions) {
 // Test multi-phrase query with non-matching phrase
 TEST_F(MultiPhraseQueryV2Test, test_multi_phrase_query_no_matches) {
     auto context = std::make_shared<IndexQueryContext>();
-    context->collection_statistics = std::make_shared<CollectionStatistics>();
-    context->collection_similarity = std::make_shared<CollectionSimilarity>();
+    //    context->collection_statistics = std::make_shared<CollectionStatistics>();
+    //    context->collection_similarity = std::make_shared<CollectionSimilarity>();
 
     auto* dir = FSDirectory::getDirectory(kTestDir.c_str());
     auto reader_holder = make_shared_reader(lucene::index::IndexReader::open(dir, true));
@@ -451,7 +451,7 @@ TEST_F(MultiPhraseQueryV2Test, test_multi_phrase_query_no_matches) {
     term_infos.push_back(term2);
 
     auto query = std::make_shared<query_v2::MultiPhraseQuery>(context, field, term_infos);
-    auto weight = query->weight(false);
+    auto weight = query->weight();
 
     query_v2::QueryExecutionContext exec_ctx;
     exec_ctx.segment_num_rows = reader_holder->maxDoc();
@@ -476,8 +476,8 @@ TEST_F(MultiPhraseQueryV2Test, test_multi_phrase_query_no_matches) {
 // Test multi-phrase query with scoring enabled
 TEST_F(MultiPhraseQueryV2Test, test_multi_phrase_query_with_scoring) {
     auto context = std::make_shared<IndexQueryContext>();
-    context->collection_statistics = std::make_shared<CollectionStatistics>();
-    context->collection_similarity = std::make_shared<CollectionSimilarity>();
+    //    context->collection_statistics = std::make_shared<CollectionStatistics>();
+    //    context->collection_similarity = std::make_shared<CollectionSimilarity>();
 
     auto* dir = FSDirectory::getDirectory(kTestDir.c_str());
     auto reader_holder = make_shared_reader(lucene::index::IndexReader::open(dir, true));
@@ -497,14 +497,14 @@ TEST_F(MultiPhraseQueryV2Test, test_multi_phrase_query_with_scoring) {
     term_infos.push_back(term2);
 
     // Fill collection statistics for scoring
-    context->collection_statistics->_total_num_docs = reader_holder->numDocs();
-    context->collection_statistics->_total_num_tokens[field] = reader_holder->numDocs() * 8;
-    context->collection_statistics->_term_doc_freqs[field][StringHelper::to_wstring("quick")] = 10;
-    context->collection_statistics->_term_doc_freqs[field][StringHelper::to_wstring("fast")] = 5;
-    context->collection_statistics->_term_doc_freqs[field][StringHelper::to_wstring("brown")] = 10;
+    //    context->collection_statistics->_total_num_docs = reader_holder->numDocs();
+    //    context->collection_statistics->_total_num_tokens[field] = reader_holder->numDocs() * 8;
+    //    context->collection_statistics->_term_doc_freqs[field][StringHelper::to_wstring("quick")] = 10;
+    //    context->collection_statistics->_term_doc_freqs[field][StringHelper::to_wstring("fast")] = 5;
+    //    context->collection_statistics->_term_doc_freqs[field][StringHelper::to_wstring("brown")] = 10;
 
     auto query = std::make_shared<query_v2::MultiPhraseQuery>(context, field, term_infos);
-    auto weight = query->weight(true); // Enable scoring
+    auto weight = query->weight(); // Enable scoring
 
     query_v2::QueryExecutionContext exec_ctx;
     exec_ctx.segment_num_rows = reader_holder->maxDoc();
@@ -537,8 +537,8 @@ TEST_F(MultiPhraseQueryV2Test, test_multi_phrase_query_with_scoring) {
 // Test multi-phrase query with binding key
 TEST_F(MultiPhraseQueryV2Test, test_multi_phrase_query_with_binding_key) {
     auto context = std::make_shared<IndexQueryContext>();
-    context->collection_statistics = std::make_shared<CollectionStatistics>();
-    context->collection_similarity = std::make_shared<CollectionSimilarity>();
+    //    context->collection_statistics = std::make_shared<CollectionStatistics>();
+    //    context->collection_similarity = std::make_shared<CollectionSimilarity>();
 
     auto* dir = FSDirectory::getDirectory(kTestDir.c_str());
     auto reader_holder = make_shared_reader(lucene::index::IndexReader::open(dir, true));
@@ -558,7 +558,7 @@ TEST_F(MultiPhraseQueryV2Test, test_multi_phrase_query_with_binding_key) {
     term_infos.push_back(term2);
 
     auto query = std::make_shared<query_v2::MultiPhraseQuery>(context, field, term_infos);
-    auto weight = query->weight(false);
+    auto weight = query->weight();
 
     query_v2::QueryExecutionContext exec_ctx;
     exec_ctx.segment_num_rows = reader_holder->maxDoc();
@@ -586,8 +586,8 @@ TEST_F(MultiPhraseQueryV2Test, test_multi_phrase_query_with_binding_key) {
 // Test multi-phrase query with all positions having alternatives
 TEST_F(MultiPhraseQueryV2Test, test_multi_phrase_query_all_positions_alternatives) {
     auto context = std::make_shared<IndexQueryContext>();
-    context->collection_statistics = std::make_shared<CollectionStatistics>();
-    context->collection_similarity = std::make_shared<CollectionSimilarity>();
+    //    context->collection_statistics = std::make_shared<CollectionStatistics>();
+    //    context->collection_similarity = std::make_shared<CollectionSimilarity>();
 
     auto* dir = FSDirectory::getDirectory(kTestDir.c_str());
     auto reader_holder = make_shared_reader(lucene::index::IndexReader::open(dir, true));
@@ -613,7 +613,7 @@ TEST_F(MultiPhraseQueryV2Test, test_multi_phrase_query_all_positions_alternative
     term_infos.push_back(term3);
 
     auto query = std::make_shared<query_v2::MultiPhraseQuery>(context, field, term_infos);
-    auto weight = query->weight(false);
+    auto weight = query->weight();
 
     query_v2::QueryExecutionContext exec_ctx;
     exec_ctx.segment_num_rows = reader_holder->maxDoc();
@@ -639,8 +639,8 @@ TEST_F(MultiPhraseQueryV2Test, test_multi_phrase_query_all_positions_alternative
 // Test multi-phrase query destructor (coverage)
 TEST_F(MultiPhraseQueryV2Test, test_multi_phrase_query_destructor) {
     auto context = std::make_shared<IndexQueryContext>();
-    context->collection_statistics = std::make_shared<CollectionStatistics>();
-    context->collection_similarity = std::make_shared<CollectionSimilarity>();
+    //    context->collection_statistics = std::make_shared<CollectionStatistics>();
+    //    context->collection_similarity = std::make_shared<CollectionSimilarity>();
 
     std::wstring field = StringHelper::to_wstring("content");
 
@@ -657,7 +657,7 @@ TEST_F(MultiPhraseQueryV2Test, test_multi_phrase_query_destructor) {
 
     {
         auto query = std::make_shared<query_v2::MultiPhraseQuery>(context, field, term_infos);
-        auto weight = query->weight(false);
+        auto weight = query->weight();
         ASSERT_NE(weight, nullptr);
         // Query and weight will be destroyed at scope exit
     }
@@ -668,8 +668,8 @@ TEST_F(MultiPhraseQueryV2Test, test_multi_phrase_query_destructor) {
 // Test multi-phrase query with longer phrase (4+ positions)
 TEST_F(MultiPhraseQueryV2Test, test_multi_phrase_query_long_phrase) {
     auto context = std::make_shared<IndexQueryContext>();
-    context->collection_statistics = std::make_shared<CollectionStatistics>();
-    context->collection_similarity = std::make_shared<CollectionSimilarity>();
+    //    context->collection_statistics = std::make_shared<CollectionStatistics>();
+    //    context->collection_similarity = std::make_shared<CollectionSimilarity>();
 
     auto* dir = FSDirectory::getDirectory(kTestDir.c_str());
     auto reader_holder = make_shared_reader(lucene::index::IndexReader::open(dir, true));
@@ -705,7 +705,7 @@ TEST_F(MultiPhraseQueryV2Test, test_multi_phrase_query_long_phrase) {
     term_infos.push_back(term5);
 
     auto query = std::make_shared<query_v2::MultiPhraseQuery>(context, field, term_infos);
-    auto weight = query->weight(false);
+    auto weight = query->weight();
 
     query_v2::QueryExecutionContext exec_ctx;
     exec_ctx.segment_num_rows = reader_holder->maxDoc();
@@ -730,8 +730,8 @@ TEST_F(MultiPhraseQueryV2Test, test_multi_phrase_query_long_phrase) {
 // Test multi-phrase query with BM25 similarity
 TEST_F(MultiPhraseQueryV2Test, test_multi_phrase_query_bm25_similarity) {
     auto context = std::make_shared<IndexQueryContext>();
-    context->collection_statistics = std::make_shared<CollectionStatistics>();
-    context->collection_similarity = std::make_shared<CollectionSimilarity>();
+    //    context->collection_statistics = std::make_shared<CollectionStatistics>();
+    //    context->collection_similarity = std::make_shared<CollectionSimilarity>();
 
     auto* dir = FSDirectory::getDirectory(kTestDir.c_str());
     auto reader_holder = make_shared_reader(lucene::index::IndexReader::open(dir, true));
@@ -756,16 +756,16 @@ TEST_F(MultiPhraseQueryV2Test, test_multi_phrase_query_bm25_similarity) {
     term_infos.push_back(term3);
 
     // Setup statistics for BM25
-    context->collection_statistics->_total_num_docs = reader_holder->numDocs();
-    context->collection_statistics->_total_num_tokens[field] = reader_holder->numDocs() * 8;
-    context->collection_statistics->_term_doc_freqs[field][StringHelper::to_wstring("quick")] = 10;
-    context->collection_statistics->_term_doc_freqs[field][StringHelper::to_wstring("fast")] = 5;
-    context->collection_statistics->_term_doc_freqs[field][StringHelper::to_wstring("brown")] = 10;
-    context->collection_statistics->_term_doc_freqs[field][StringHelper::to_wstring("fox")] = 8;
-    context->collection_statistics->_term_doc_freqs[field][StringHelper::to_wstring("dog")] = 8;
+    //    context->collection_statistics->_total_num_docs = reader_holder->numDocs();
+    //    context->collection_statistics->_total_num_tokens[field] = reader_holder->numDocs() * 8;
+    //    context->collection_statistics->_term_doc_freqs[field][StringHelper::to_wstring("quick")] = 10;
+    //    context->collection_statistics->_term_doc_freqs[field][StringHelper::to_wstring("fast")] = 5;
+    //    context->collection_statistics->_term_doc_freqs[field][StringHelper::to_wstring("brown")] = 10;
+    //    context->collection_statistics->_term_doc_freqs[field][StringHelper::to_wstring("fox")] = 8;
+    //    context->collection_statistics->_term_doc_freqs[field][StringHelper::to_wstring("dog")] = 8;
 
     auto query = std::make_shared<query_v2::MultiPhraseQuery>(context, field, term_infos);
-    auto weight = query->weight(true); // Enable scoring
+    auto weight = query->weight(); // Enable scoring
 
     query_v2::QueryExecutionContext exec_ctx;
     exec_ctx.segment_num_rows = reader_holder->maxDoc();

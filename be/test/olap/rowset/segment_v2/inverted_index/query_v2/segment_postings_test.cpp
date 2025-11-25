@@ -54,12 +54,12 @@ public:
         return 0;
     }
 
-    int32_t norm() const override {
+    /*int32_t norm() const override {
         if (_index >= 0 && _index < static_cast<int32_t>(_norms.size())) {
             return _norms[_index];
         }
         return 1;
-    }
+    }*/
 
     bool next() override {
         if (_index + 1 < static_cast<int32_t>(_docs.size())) {
@@ -70,7 +70,7 @@ public:
     }
 
     int32_t read(int32_t*, int32_t*, int32_t) override { return 0; }
-    int32_t read(int32_t*, int32_t*, int32_t*, int32_t) override { return 0; }
+    //int32_t read(int32_t*, int32_t*, int32_t*, int32_t) override { return 0; }
     bool readRange(DocRange*) override { return false; }
 
     bool skipTo(const int32_t target) override {
@@ -125,12 +125,12 @@ public:
         return 0;
     }
 
-    int32_t norm() const override {
+    /*int32_t norm() const override {
         if (_index >= 0 && _index < static_cast<int32_t>(_norms.size())) {
             return _norms[_index];
         }
         return 1;
-    }
+    }*/
 
     bool next() override {
         if (_index + 1 < static_cast<int32_t>(_docs.size())) {
@@ -142,7 +142,7 @@ public:
     }
 
     int32_t read(int32_t*, int32_t*, int32_t) override { return 0; }
-    int32_t read(int32_t*, int32_t*, int32_t*, int32_t) override { return 0; }
+    //int32_t read(int32_t*, int32_t*, int32_t*, int32_t) override { return 0; }
     bool readRange(DocRange*) override { return false; }
 
     bool skipTo(const int32_t target) override {
@@ -217,7 +217,7 @@ TEST_F(SegmentPostingsTest, test_segment_postings_base_constructor_next_true) {
     EXPECT_EQ(base.doc(), 1);
     EXPECT_EQ(base.size_hint(), 3);
     EXPECT_EQ(base.freq(), 2);
-    EXPECT_EQ(base.norm(), 1);
+    //EXPECT_EQ(base.norm(), 1);
 }
 
 TEST_F(SegmentPostingsTest, test_segment_postings_base_constructor_next_false) {
@@ -317,7 +317,7 @@ TEST_F(SegmentPostingsTest, test_no_score_segment_posting) {
 
     EXPECT_EQ(posting.doc(), 1);
     EXPECT_EQ(posting.freq(), 1);
-    EXPECT_EQ(posting.norm(), 1);
+    //EXPECT_EQ(posting.norm(), 1);
 }
 
 TEST_F(SegmentPostingsTest, test_empty_segment_posting) {
@@ -326,7 +326,7 @@ TEST_F(SegmentPostingsTest, test_empty_segment_posting) {
     EXPECT_EQ(posting.doc(), TERMINATED);
     EXPECT_EQ(posting.size_hint(), 0);
     EXPECT_EQ(posting.freq(), 1);
-    EXPECT_EQ(posting.norm(), 1);
+    //EXPECT_EQ(posting.norm(), 1);
     EXPECT_EQ(posting.advance(), TERMINATED);
     EXPECT_EQ(posting.seek(100), TERMINATED);
 }

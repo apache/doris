@@ -565,22 +565,51 @@ Status FunctionSearch::build_leaf_query(const TSearchClause& clause,
                              << "', returning empty BitSetQuery";
                 *out = std::make_shared<query_v2::BitSetQuery>(roaring::Roaring());
                 return Status::OK();
-            } else if (term_infos.size() == 1) {
-                if (term_infos.size() == 1) {
-                    const auto& term_info = term_infos[0];
-                    if (term_info.is_single_term()) {
-                        std::wstring term_wstr =
-                                StringHelper::to_wstring(term_info.get_single_term());
-                        *out = std::make_shared<query_v2::TermQuery>(context, field_wstr,
-                                                                     term_wstr);
-                    } else {
-                        query_v2::BooleanQuery::Builder builder(query_v2::OperatorType::OP_OR);
-                        for (const auto& term : term_info.get_multi_terms()) {
-                            std::wstring term_wstr = StringHelper::to_wstring(term);
-                            builder.add(make_term_query(term_wstr), binding.binding_key);
+            }
+
+            auto build_phrase_term_infos =
+                    [&](const std::vector<TermInfo>& src) -> std::vector<TermInfo> {
+                std::vector<TermInfo> dst;
+                dst.reserve(src.size());
+                size_t idx = 0;
+                while (idx < src.size()) {
+                    int32_t pos = src[idx].position;
+                    std::vector<std::string> group_terms;
+                    while (idx < src.size() && src[idx].position == pos) {
+                        const auto& info = src[idx];
+                        if (info.is_single_term()) {
+                            group_terms.emplace_back(info.get_single_term());
+                        } else {
+                            const auto& terms = info.get_multi_terms();
+                            group_terms.insert(group_terms.end(), terms.begin(), terms.end());
                         }
-                        *out = builder.build();
+                        ++idx;
                     }
+                    TermInfo t;
+                    t.position = pos;
+                    if (group_terms.size() == 1) {
+                        t.term = std::move(group_terms[0]);
+                    } else {
+                        t.term = std::move(group_terms);
+                    }
+                    dst.emplace_back(std::move(t));
+                }
+                return dst;
+            };
+
+            auto phrase_term_infos = build_phrase_term_infos(term_infos);
+            if (phrase_term_infos.size() == 1) {
+                const auto& term_info = term_infos[0];
+                if (term_info.is_single_term()) {
+                    std::wstring term_wstr = StringHelper::to_wstring(term_info.get_single_term());
+                    *out = std::make_shared<query_v2::TermQuery>(context, field_wstr, term_wstr);
+                } else {
+                    query_v2::BooleanQuery::Builder builder(query_v2::OperatorType::OP_OR);
+                    for (const auto& term : term_info.get_multi_terms()) {
+                        std::wstring term_wstr = StringHelper::to_wstring(term);
+                        builder.add(make_term_query(term_wstr), binding.binding_key);
+                    }
+                    *out = builder.build();
                 }
             } else {
                 if (std::ranges::all_of(term_infos, [](const auto& term_info) {

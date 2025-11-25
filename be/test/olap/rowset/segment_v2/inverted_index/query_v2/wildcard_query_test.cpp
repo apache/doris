@@ -25,6 +25,7 @@
 #include <string>
 
 #include "common/status.h"
+#include "io/fs/local_file_system.h"
 #include "olap/rowset/segment_v2/index_query_context.h"
 #include "olap/rowset/segment_v2/inverted_index/analyzer/custom_analyzer.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/wildcard_query/wildcard_weight.h"
@@ -116,8 +117,8 @@ static std::shared_ptr<lucene::index::IndexReader> make_shared_reader(
 // Test basic wildcard query construction
 TEST_F(WildcardQueryV2Test, test_wildcard_query_construction) {
     auto context = std::make_shared<IndexQueryContext>();
-    context->collection_statistics = std::make_shared<CollectionStatistics>();
-    context->collection_similarity = std::make_shared<CollectionSimilarity>();
+    //    context->collection_statistics = std::make_shared<CollectionStatistics>();
+    //    context->collection_similarity = std::make_shared<CollectionSimilarity>();
 
     std::wstring field = StringHelper::to_wstring("field");
     std::string pattern = "app*";
@@ -127,7 +128,7 @@ TEST_F(WildcardQueryV2Test, test_wildcard_query_construction) {
     ASSERT_NE(query, nullptr);
 
     // Test weight creation without scoring
-    auto weight = query->weight(false);
+    auto weight = query->weight();
     ASSERT_NE(weight, nullptr);
 
     // Verify weight is of correct type
@@ -138,8 +139,8 @@ TEST_F(WildcardQueryV2Test, test_wildcard_query_construction) {
 // Test wildcard query with scoring enabled
 TEST_F(WildcardQueryV2Test, test_wildcard_query_with_scoring) {
     auto context = std::make_shared<IndexQueryContext>();
-    context->collection_statistics = std::make_shared<CollectionStatistics>();
-    context->collection_similarity = std::make_shared<CollectionSimilarity>();
+    //    context->collection_statistics = std::make_shared<CollectionStatistics>();
+    //    context->collection_similarity = std::make_shared<CollectionSimilarity>();
 
     std::wstring field = StringHelper::to_wstring("field");
     std::string pattern = "test*";
@@ -148,7 +149,7 @@ TEST_F(WildcardQueryV2Test, test_wildcard_query_with_scoring) {
     ASSERT_NE(query, nullptr);
 
     // Test weight creation with scoring enabled
-    auto weight = query->weight(true);
+    auto weight = query->weight();
     ASSERT_NE(weight, nullptr);
 
     auto wildcard_weight = std::dynamic_pointer_cast<query_v2::WildcardWeight>(weight);
@@ -158,8 +159,8 @@ TEST_F(WildcardQueryV2Test, test_wildcard_query_with_scoring) {
 // Test wildcard query with asterisk prefix pattern
 TEST_F(WildcardQueryV2Test, test_wildcard_query_prefix_pattern) {
     auto context = std::make_shared<IndexQueryContext>();
-    context->collection_statistics = std::make_shared<CollectionStatistics>();
-    context->collection_similarity = std::make_shared<CollectionSimilarity>();
+    //    context->collection_statistics = std::make_shared<CollectionStatistics>();
+    //    context->collection_similarity = std::make_shared<CollectionSimilarity>();
 
     auto* dir = FSDirectory::getDirectory(kTestDir.c_str());
     auto reader_holder = make_shared_reader(lucene::index::IndexReader::open(dir, true));
@@ -169,7 +170,7 @@ TEST_F(WildcardQueryV2Test, test_wildcard_query_prefix_pattern) {
     std::string pattern = "app*"; // Match apple, application, apply, apricot
 
     auto query = std::make_shared<query_v2::WildcardQuery>(context, field, pattern);
-    auto weight = query->weight(false);
+    auto weight = query->weight();
 
     query_v2::QueryExecutionContext exec_ctx;
     exec_ctx.segment_num_rows = reader_holder->maxDoc();
@@ -195,8 +196,8 @@ TEST_F(WildcardQueryV2Test, test_wildcard_query_prefix_pattern) {
 // Test wildcard query with asterisk suffix pattern
 TEST_F(WildcardQueryV2Test, test_wildcard_query_suffix_pattern) {
     auto context = std::make_shared<IndexQueryContext>();
-    context->collection_statistics = std::make_shared<CollectionStatistics>();
-    context->collection_similarity = std::make_shared<CollectionSimilarity>();
+    //    context->collection_statistics = std::make_shared<CollectionStatistics>();
+    //    context->collection_similarity = std::make_shared<CollectionSimilarity>();
 
     auto* dir = FSDirectory::getDirectory(kTestDir.c_str());
     auto reader_holder = make_shared_reader(lucene::index::IndexReader::open(dir, true));
@@ -206,7 +207,7 @@ TEST_F(WildcardQueryV2Test, test_wildcard_query_suffix_pattern) {
     std::string pattern = "*log"; // Match catalog, dog, etc.
 
     auto query = std::make_shared<query_v2::WildcardQuery>(context, field, pattern);
-    auto weight = query->weight(false);
+    auto weight = query->weight();
 
     query_v2::QueryExecutionContext exec_ctx;
     exec_ctx.segment_num_rows = reader_holder->maxDoc();
@@ -231,8 +232,8 @@ TEST_F(WildcardQueryV2Test, test_wildcard_query_suffix_pattern) {
 // Test wildcard query with asterisk middle pattern
 TEST_F(WildcardQueryV2Test, test_wildcard_query_middle_pattern) {
     auto context = std::make_shared<IndexQueryContext>();
-    context->collection_statistics = std::make_shared<CollectionStatistics>();
-    context->collection_similarity = std::make_shared<CollectionSimilarity>();
+    //    context->collection_statistics = std::make_shared<CollectionStatistics>();
+    //    context->collection_similarity = std::make_shared<CollectionSimilarity>();
 
     auto* dir = FSDirectory::getDirectory(kTestDir.c_str());
     auto reader_holder = make_shared_reader(lucene::index::IndexReader::open(dir, true));
@@ -242,7 +243,7 @@ TEST_F(WildcardQueryV2Test, test_wildcard_query_middle_pattern) {
     std::string pattern = "c*d"; // Match card, cardboard
 
     auto query = std::make_shared<query_v2::WildcardQuery>(context, field, pattern);
-    auto weight = query->weight(false);
+    auto weight = query->weight();
 
     query_v2::QueryExecutionContext exec_ctx;
     exec_ctx.segment_num_rows = reader_holder->maxDoc();
@@ -267,8 +268,8 @@ TEST_F(WildcardQueryV2Test, test_wildcard_query_middle_pattern) {
 // Test wildcard query with multiple asterisks
 TEST_F(WildcardQueryV2Test, test_wildcard_query_multiple_asterisks) {
     auto context = std::make_shared<IndexQueryContext>();
-    context->collection_statistics = std::make_shared<CollectionStatistics>();
-    context->collection_similarity = std::make_shared<CollectionSimilarity>();
+    //    context->collection_statistics = std::make_shared<CollectionStatistics>();
+    //    context->collection_similarity = std::make_shared<CollectionSimilarity>();
 
     auto* dir = FSDirectory::getDirectory(kTestDir.c_str());
     auto reader_holder = make_shared_reader(lucene::index::IndexReader::open(dir, true));
@@ -278,7 +279,7 @@ TEST_F(WildcardQueryV2Test, test_wildcard_query_multiple_asterisks) {
     std::string pattern = "*t*t*"; // Match terms with multiple 't's
 
     auto query = std::make_shared<query_v2::WildcardQuery>(context, field, pattern);
-    auto weight = query->weight(false);
+    auto weight = query->weight();
 
     query_v2::QueryExecutionContext exec_ctx;
     exec_ctx.segment_num_rows = reader_holder->maxDoc();
@@ -303,8 +304,8 @@ TEST_F(WildcardQueryV2Test, test_wildcard_query_multiple_asterisks) {
 // Test wildcard query with no wildcard (exact match)
 TEST_F(WildcardQueryV2Test, test_wildcard_query_exact_match) {
     auto context = std::make_shared<IndexQueryContext>();
-    context->collection_statistics = std::make_shared<CollectionStatistics>();
-    context->collection_similarity = std::make_shared<CollectionSimilarity>();
+    //    context->collection_statistics = std::make_shared<CollectionStatistics>();
+    //    context->collection_similarity = std::make_shared<CollectionSimilarity>();
 
     auto* dir = FSDirectory::getDirectory(kTestDir.c_str());
     auto reader_holder = make_shared_reader(lucene::index::IndexReader::open(dir, true));
@@ -314,7 +315,7 @@ TEST_F(WildcardQueryV2Test, test_wildcard_query_exact_match) {
     std::string pattern = "apple"; // Exact match
 
     auto query = std::make_shared<query_v2::WildcardQuery>(context, field, pattern);
-    auto weight = query->weight(false);
+    auto weight = query->weight();
 
     query_v2::QueryExecutionContext exec_ctx;
     exec_ctx.segment_num_rows = reader_holder->maxDoc();
@@ -339,8 +340,8 @@ TEST_F(WildcardQueryV2Test, test_wildcard_query_exact_match) {
 // Test wildcard query with non-matching pattern
 TEST_F(WildcardQueryV2Test, test_wildcard_query_no_matches) {
     auto context = std::make_shared<IndexQueryContext>();
-    context->collection_statistics = std::make_shared<CollectionStatistics>();
-    context->collection_similarity = std::make_shared<CollectionSimilarity>();
+    //    context->collection_statistics = std::make_shared<CollectionStatistics>();
+    //    context->collection_similarity = std::make_shared<CollectionSimilarity>();
 
     auto* dir = FSDirectory::getDirectory(kTestDir.c_str());
     auto reader_holder = make_shared_reader(lucene::index::IndexReader::open(dir, true));
@@ -350,7 +351,7 @@ TEST_F(WildcardQueryV2Test, test_wildcard_query_no_matches) {
     std::string pattern = "xyz*abc"; // Non-existent pattern
 
     auto query = std::make_shared<query_v2::WildcardQuery>(context, field, pattern);
-    auto weight = query->weight(false);
+    auto weight = query->weight();
 
     query_v2::QueryExecutionContext exec_ctx;
     exec_ctx.segment_num_rows = reader_holder->maxDoc();
@@ -375,8 +376,8 @@ TEST_F(WildcardQueryV2Test, test_wildcard_query_no_matches) {
 // Test wildcard query with binding key
 TEST_F(WildcardQueryV2Test, test_wildcard_query_with_binding_key) {
     auto context = std::make_shared<IndexQueryContext>();
-    context->collection_statistics = std::make_shared<CollectionStatistics>();
-    context->collection_similarity = std::make_shared<CollectionSimilarity>();
+    //    context->collection_statistics = std::make_shared<CollectionStatistics>();
+    //    context->collection_similarity = std::make_shared<CollectionSimilarity>();
 
     auto* dir = FSDirectory::getDirectory(kTestDir.c_str());
     auto reader_holder = make_shared_reader(lucene::index::IndexReader::open(dir, true));
@@ -386,7 +387,7 @@ TEST_F(WildcardQueryV2Test, test_wildcard_query_with_binding_key) {
     std::string pattern = "ban*";
 
     auto query = std::make_shared<query_v2::WildcardQuery>(context, field, pattern);
-    auto weight = query->weight(false);
+    auto weight = query->weight();
 
     query_v2::QueryExecutionContext exec_ctx;
     exec_ctx.segment_num_rows = reader_holder->maxDoc();
@@ -414,15 +415,15 @@ TEST_F(WildcardQueryV2Test, test_wildcard_query_with_binding_key) {
 // Test wildcard query destructor (coverage)
 TEST_F(WildcardQueryV2Test, test_wildcard_query_destructor) {
     auto context = std::make_shared<IndexQueryContext>();
-    context->collection_statistics = std::make_shared<CollectionStatistics>();
-    context->collection_similarity = std::make_shared<CollectionSimilarity>();
+    //    context->collection_statistics = std::make_shared<CollectionStatistics>();
+    //    context->collection_similarity = std::make_shared<CollectionSimilarity>();
 
     std::wstring field = StringHelper::to_wstring("field");
     std::string pattern = "test*";
 
     {
         auto query = std::make_shared<query_v2::WildcardQuery>(context, field, pattern);
-        auto weight = query->weight(false);
+        auto weight = query->weight();
         ASSERT_NE(weight, nullptr);
         // Query and weight will be destroyed at scope exit
     }
@@ -433,8 +434,8 @@ TEST_F(WildcardQueryV2Test, test_wildcard_query_destructor) {
 // Test wildcard query with special characters in pattern
 TEST_F(WildcardQueryV2Test, test_wildcard_query_special_characters) {
     auto context = std::make_shared<IndexQueryContext>();
-    context->collection_statistics = std::make_shared<CollectionStatistics>();
-    context->collection_similarity = std::make_shared<CollectionSimilarity>();
+    //    context->collection_statistics = std::make_shared<CollectionStatistics>();
+    //    context->collection_similarity = std::make_shared<CollectionSimilarity>();
 
     auto* dir = FSDirectory::getDirectory(kTestDir.c_str());
     auto reader_holder = make_shared_reader(lucene::index::IndexReader::open(dir, true));
@@ -445,7 +446,7 @@ TEST_F(WildcardQueryV2Test, test_wildcard_query_special_characters) {
     std::string pattern = "*123*";
 
     auto query = std::make_shared<query_v2::WildcardQuery>(context, field, pattern);
-    auto weight = query->weight(false);
+    auto weight = query->weight();
 
     query_v2::QueryExecutionContext exec_ctx;
     exec_ctx.segment_num_rows = reader_holder->maxDoc();
@@ -470,8 +471,8 @@ TEST_F(WildcardQueryV2Test, test_wildcard_query_special_characters) {
 // Test wildcard query with all asterisk pattern
 TEST_F(WildcardQueryV2Test, test_wildcard_query_all_asterisk) {
     auto context = std::make_shared<IndexQueryContext>();
-    context->collection_statistics = std::make_shared<CollectionStatistics>();
-    context->collection_similarity = std::make_shared<CollectionSimilarity>();
+    //    context->collection_statistics = std::make_shared<CollectionStatistics>();
+    //    context->collection_similarity = std::make_shared<CollectionSimilarity>();
 
     auto* dir = FSDirectory::getDirectory(kTestDir.c_str());
     auto reader_holder = make_shared_reader(lucene::index::IndexReader::open(dir, true));
@@ -481,7 +482,7 @@ TEST_F(WildcardQueryV2Test, test_wildcard_query_all_asterisk) {
     std::string pattern = "*"; // Match everything
 
     auto query = std::make_shared<query_v2::WildcardQuery>(context, field, pattern);
-    auto weight = query->weight(false);
+    auto weight = query->weight();
 
     query_v2::QueryExecutionContext exec_ctx;
     exec_ctx.segment_num_rows = reader_holder->maxDoc();
@@ -507,20 +508,20 @@ TEST_F(WildcardQueryV2Test, test_wildcard_query_all_asterisk) {
 // Test move semantics in weight() method
 TEST_F(WildcardQueryV2Test, test_wildcard_query_move_semantics) {
     auto context = std::make_shared<IndexQueryContext>();
-    context->collection_statistics = std::make_shared<CollectionStatistics>();
-    context->collection_similarity = std::make_shared<CollectionSimilarity>();
+    //    context->collection_statistics = std::make_shared<CollectionStatistics>();
+    //    context->collection_similarity = std::make_shared<CollectionSimilarity>();
 
     std::wstring field = StringHelper::to_wstring("field");
     std::string pattern = "test*";
 
     // Create query and immediately call weight() to test move semantics
     auto query = std::make_shared<query_v2::WildcardQuery>(context, field, pattern);
-    auto weight1 = query->weight(false);
+    auto weight1 = query->weight();
     ASSERT_NE(weight1, nullptr);
 
     // Create another query to verify weight can be called with scoring
     auto query2 = std::make_shared<query_v2::WildcardQuery>(context, field, pattern);
-    auto weight2 = query2->weight(true);
+    auto weight2 = query2->weight();
     ASSERT_NE(weight2, nullptr);
 }
 
