@@ -37,6 +37,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayMap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayMatchAll;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayMatchAny;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayReverseSplit;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySort;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySortBy;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySplit;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
@@ -245,6 +246,17 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
             return collectArrayPathInLambda((Lambda) argument, context);
         }
         return visit(arrayMap, context);
+    }
+
+    @Override
+    public Void visitArraySort(ArraySort arraySort, CollectorContext context) {
+        // ARRAY_SORT(lambda, <arr>)
+
+        Expression argument = arraySort.getArgument(0);
+        if ((argument instanceof Lambda)) {
+            return collectArrayPathInLambda((Lambda) argument, context);
+        }
+        return visit(arraySort, context);
     }
 
     @Override

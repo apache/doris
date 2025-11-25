@@ -67,6 +67,7 @@ public class Lambda extends Expression {
     public ImmutableList<ArrayItemReference> makeArguments(String functionName, List<Expression> arrays) {
         Builder<ArrayItemReference> builder = new ImmutableList.Builder<>();
         if (arrays.size() != argumentNames.size()) {
+            // In the lambda expression of array_sort, x and y point to the same slot.
             if (functionName.equalsIgnoreCase("array_sort") && arrays.size() == 1 && argumentNames.size() == 2) {
                 Expression array = arrays.get(0);
                 if (!(array.getDataType() instanceof ArrayType)) {

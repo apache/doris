@@ -67,31 +67,30 @@ public:
 
     std::string get_name() const override { return name; }
 
-    Status execute(VExprContext* context, doris::vectorized::Block* block, int* result_column_id,
+    Status execute(VExprContext* context, const vectorized::Block* block, ColumnPtr& result_column,
                    const DataTypePtr& result_type, const VExprSPtrs& children) const override {
         ///* array_sort(lambda, arg) *///
 
-        DCHECK_EQ(children.size(), 3);
+        DCHECK_EQ(children.size(), 2);
 
-        // 1. get data
-        int column_id = -1;
-        RETURN_IF_ERROR(children[1]->execute(context, block, &column_id));
+        // 1. get data, we need to obtain this actual data and type.
+        ColumnPtr column_ptr;
+        RETURN_IF_ERROR(children[1]->execute_column(context, block, column_ptr));
+        DataTypePtr type_ptr = children[1]->execute_type(block);
 
-        const auto& column_with_type = block->get_by_position(column_id);
-        auto column = column_with_type.column->convert_to_full_column_if_const();
+        auto column = column_ptr->convert_to_full_column_if_const();
 
         auto input_rows = column->size();
         auto outside_null_map = ColumnUInt8::create(input_rows, 0);
 
-        auto arg_type = column_with_type.type;
-
+        auto arg_type = type_ptr;
         auto arg_column = column;
+
         if (arg_column->is_nullable()) {
             arg_column = assert_cast<const ColumnNullable*>(column.get())->get_nested_column_ptr();
             const auto& column_array_nullmap =
                     assert_cast<const ColumnNullable*>(column.get())->get_null_map_column();
-            arg_type = assert_cast<const DataTypeNullable*>(column_with_type.type.get())
-                               ->get_nested_type();
+            arg_type = assert_cast<const DataTypeNullable*>(type_ptr.get())->get_nested_type();
             VectorizedUtils::update_null_map(outside_null_map->get_data(),
                                              column_array_nullmap.get_data());
         }
@@ -108,6 +107,7 @@ public:
                              ->get_nested_type()
                              ->get_primitive_type();
 
+        // Get the actual type data based on PrimitiveType.
         ConstColumnVariant src_data;
         RETURN_IF_ERROR(
                 get_data_from_type(pType, nested_nullable_column.get_nested_column(), src_data));
@@ -116,13 +116,21 @@ public:
 
         const auto& col_type = assert_cast<const DataTypeArray&>(*arg_type);
 
-        // 2. prepare for lambda execution
+        // 2. prepare a lambda_block for lambda execution
         auto element_size = nested_nullable_column.size();
         IColumn::Permutation permutation(element_size);
         for (size_t i = 0; i < element_size; ++i) {
             permutation[i] = i;
         }
 
+        /**
+         *  suppose the data_type is nullable(int). The first two rows are the parameter columns, and the
+         *  last row is the result column(type: tinyint). every column's size is 1. the lambda_block is 
+         *  row  data  nullmap    type
+         *   0    10      0    nullable(int)
+         *   1    20      1    nullable(int)
+         *   2   1/-1/0  ...     tinyint
+         */
         Block lambda_block;
         for (int i = 0; i <= 2; i++) {
             lambda_block.insert(vectorized::ColumnWithTypeAndName(
@@ -144,13 +152,17 @@ public:
         int lambda_res_id = 2;
 
         // 3. sort array by executing lambda function
+        // During the sorting process, the parameter columns of lambda_block are first populated using prepare_lambda_input,
+        // and then the lambda function is executed to obtain the result.
         std::visit(
                 [&](auto* data) {
                     using ColumnType = std::decay_t<decltype(*data)>;
                     ColumnType* data_vec[2] = {assert_cast<ColumnType*>(temp_data[0].get()),
                                                assert_cast<ColumnType*>(temp_data[1].get())};
 
-                    auto get_data = [&](size_t i, size_t cid) {
+                    // If columnType is ColumnVector<T>, use `get_data()[0]`;
+                    // otherwise, need to clear it first, and then use `insert_from`.
+                    auto prepare_lambda_input = [&](size_t i, size_t cid) {
                         if (src_nullmap.get_data()[i]) {
                             (*temp_nullmap_data[cid])[0] = 1;
                         } else {
@@ -168,8 +180,8 @@ public:
                         auto start = off_data[row - 1];
                         auto end = off_data[row];
                         std::sort(&permutation[start], &permutation[end], [&](size_t i, size_t j) {
-                            get_data(i, 0);
-                            get_data(j, 1);
+                            prepare_lambda_input(i, 0);
+                            prepare_lambda_input(j, 1);
                             auto status =
                                     children[0]->execute(context, &lambda_block, &lambda_res_id);
                             if (!status.ok()) [[unlikely]] {
@@ -193,23 +205,19 @@ public:
                 },
                 src_data);
 
-        // 4. insert the result column to block
+        // 4. set the result to result_column
         ColumnWithTypeAndName result_arr;
         if (result_type->is_nullable()) {
-            result_arr = {ColumnNullable::create(ColumnArray::create(nested_nullable_column.permute(
-                                                                             permutation, 0),
-                                                                     col_array.get_offsets_ptr()),
-                                                 std::move(outside_null_map)),
-                          result_type, "array_sort_result"};
+            result_column = ColumnNullable::create(
+                    ColumnArray::create(nested_nullable_column.permute(permutation, 0),
+                                        col_array.get_offsets_ptr()),
+                    std::move(outside_null_map));
 
         } else {
             DCHECK(!column->is_nullable());
-            result_arr = {ColumnArray::create(nested_nullable_column.permute(permutation, 0),
-                                              col_array.get_offsets_ptr()),
-                          result_type, "array_sort_result"};
+            result_column = ColumnArray::create(nested_nullable_column.permute(permutation, 0),
+                                                col_array.get_offsets_ptr());
         }
-        block->insert(std::move(result_arr));
-        *result_column_id = block->columns() - 1;
 
         return Status::OK();
     }

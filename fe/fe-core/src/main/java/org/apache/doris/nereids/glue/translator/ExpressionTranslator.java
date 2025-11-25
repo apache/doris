@@ -580,26 +580,31 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
         Lambda lambda = (Lambda) arraySort.child(0);
         List<Expr> arguments = new ArrayList<>(arraySort.children().size());
         arguments.add(null);
-        int columnId = 0;
-        for (ArrayItemReference arrayItemReference : lambda.getLambdaArguments()) {
-            String argName = arrayItemReference.getName();
-            Expr expr = arrayItemReference.getArrayExpression().accept(this, context);
-            arguments.add(expr);
 
-            ColumnRefExpr column = new ColumnRefExpr();
-            column.setName(argName);
-            column.setColumnId(columnId);
-            column.setNullable(true);
-            column.setType(((ArrayType) expr.getType()).getItemType());
-            context.addExprIdColumnRefPair(arrayItemReference.getExprId(), column);
-            columnId += 1;
-        }
+        // Construct the first column
+        ArrayItemReference arrayItemReference = lambda.getLambdaArgument(0);
+        String argName = arrayItemReference.getName();
+        Expr expr = arrayItemReference.getArrayExpression().accept(this, context);
+        arguments.add(expr);
+        ColumnRefExpr column = new ColumnRefExpr();
+        column.setName(argName);
+        column.setColumnId(0);
+        column.setNullable(true);
+        column.setType(((ArrayType) expr.getType()).getItemType());
+        context.addExprIdColumnRefPair(arrayItemReference.getExprId(), column);
+
+        // the second column here will not be used; it's just a placeholder.
+        arrayItemReference = lambda.getLambdaArgument(1);
+        ColumnRefExpr column2 = new ColumnRefExpr(column);
+        column2.setColumnId(1);
+        context.addExprIdColumnRefPair(arrayItemReference.getExprId(), column2);
 
         List<Type> argTypes = arraySort.getArguments().stream()
                 .map(Expression::getDataType)
                 .map(DataType::toCatalogDataType)
                 .collect(Collectors.toList());
-        lambda.getLambdaArguments().stream()
+        // two slots are same, we only need one
+        lambda.getLambdaArguments().stream().skip(1)
                 .map(ArrayItemReference::getArrayExpression)
                 .map(Expression::getDataType)
                 .map(DataType::toCatalogDataType)
