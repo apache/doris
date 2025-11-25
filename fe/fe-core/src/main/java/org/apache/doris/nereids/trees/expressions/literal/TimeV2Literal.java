@@ -141,6 +141,67 @@ public class TimeV2Literal extends Literal {
         return s;
     }
 
+    /**
+     * parse time string and avoid throw exception directly for better performance.
+     */
+    public static Result<TimeV2Literal, AnalysisException> parseTimeLiteral(String s) {
+        int hour;
+        int minute;
+        int second;
+        int microsecond;
+        boolean negative = false;
+        String normalized = normalize(s);
+        if (normalized.charAt(0) == '-') {
+            negative = true;
+            normalized = normalized.substring(1);
+        } else if (normalized.charAt(0) == '+') {
+            normalized = normalized.substring(1);
+        }
+        // start parse string
+        String[] parts = normalized.split(":");
+        if (parts.length != 3) {
+            return Result.err(() -> new AnalysisException("Invalid format, must have 3 parts separated by ':'"));
+        }
+        try {
+            hour = Integer.parseInt(parts[0]);
+        } catch (NumberFormatException e) {
+            return Result.err(() -> new AnalysisException("Invalid hour format"));
+        }
+
+        try {
+            minute = Integer.parseInt(parts[1]);
+        } catch (NumberFormatException e) {
+            return Result.err(() -> new AnalysisException("Invalid minute format"));
+        }
+        // if parts[2] is 60.000 it will cause judge feed execute error
+        if (parts[2].startsWith("60")) {
+            return Result.err(() -> new AnalysisException("second out of range"));
+        }
+        double secPart;
+        try {
+            secPart = Double.parseDouble(parts[2]);
+        } catch (NumberFormatException e) {
+            return Result.err(() -> new AnalysisException("Invalid second format"));
+        }
+        secPart = secPart * (int) Math.pow(10, 6);
+        secPart = Math.round(secPart);
+        second = (int) (secPart / 1000000);
+        microsecond = (int) (secPart % 1000000);
+        if (second == 60) {
+            minute += 1;
+            second -= 60;
+            if (minute == 60) {
+                hour += 1;
+                minute -= 60;
+            }
+        }
+
+        if (checkRange(hour, minute, second, microsecond)) {
+            return Result.err(() -> new AnalysisException("time literal [" + s + "] is out of range"));
+        }
+        return Result.ok(new TimeV2Literal(hour, minute, second, microsecond, 6, negative));
+    }
+
     // should like be/src/vec/runtime/time_value.h timev2_to_double_from_str
     protected void init(String s) throws AnalysisException {
         s = normalize(s);
