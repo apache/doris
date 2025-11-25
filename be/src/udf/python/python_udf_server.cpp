@@ -24,8 +24,10 @@
 
 #include <boost/asio.hpp>
 #include <boost/process.hpp>
+#include <memory>
 
 #include "common/config.h"
+#include "udf/python/python_udaf_client.h"
 #include "udf/python/python_udf_client.h"
 
 namespace doris {
@@ -42,9 +44,10 @@ Status PythonUDFServerManager::init(const std::vector<PythonVersion>& versions) 
     return Status::OK();
 }
 
+template <typename T>
 Status PythonUDFServerManager::get_client(const PythonUDFMeta& func_meta,
                                           const PythonVersion& version,
-                                          PythonUDFClientPtr* client) {
+                                          std::shared_ptr<T>* client) {
     PythonUDFProcessPoolPtr* pool = nullptr;
     {
         std::lock_guard<std::mutex> lock(_pools_mutex);
@@ -58,7 +61,7 @@ Status PythonUDFServerManager::get_client(const PythonUDFMeta& func_meta,
     }
     ProcessPtr process;
     RETURN_IF_ERROR((*pool)->borrow_process(&process));
-    RETURN_IF_ERROR(PythonUDFClient::create(func_meta, std::move(process), client));
+    RETURN_IF_ERROR(T::create(func_meta, std::move(process), client));
     return Status::OK();
 }
 
@@ -97,7 +100,7 @@ Status PythonUDFServerManager::fork(PythonUDFProcessPool* pool, ProcessPtr* proc
                 full_log += log_line + "\n";
                 LOG(INFO) << fmt::format("Start python server, log_line: {}, full_log: {}",
                                          log_line, full_log);
-                if (log_line == "Start python server successfully") {
+                if (log_line == PYTHON_SERVER_START_SUCCESS_MSG) {
                     started_successfully = true;
                     break;
                 }
@@ -136,5 +139,14 @@ void PythonUDFServerManager::shutdown() {
     _pools.clear();
     LOG(INFO) << "Python UDF server manager shutdown successfully";
 }
+
+// Explicit template instantiation for UDF and UDAF clients
+template Status PythonUDFServerManager::get_client<PythonUDFClient>(
+        const PythonUDFMeta& func_meta, const PythonVersion& version,
+        std::shared_ptr<PythonUDFClient>* client);
+
+template Status PythonUDFServerManager::get_client<PythonUDAFClient>(
+        const PythonUDFMeta& func_meta, const PythonVersion& version,
+        std::shared_ptr<PythonUDAFClient>* client);
 
 } // namespace doris

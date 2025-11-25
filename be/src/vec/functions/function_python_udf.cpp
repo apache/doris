@@ -52,24 +52,25 @@ Status PythonFunctionCall::open(FunctionContext* context,
 
     PythonVersion version;
     PythonUDFMeta func_meta;
-    func_meta._id = _fn.id;
-    func_meta._name = _fn.name.function_name;
-    func_meta._symbol = _fn.scalar_fn.symbol;
+    func_meta.id = _fn.id;
+    func_meta.name = _fn.name.function_name;
+    func_meta.symbol = _fn.scalar_fn.symbol;
     if (!_fn.function_code.empty()) {
-        func_meta._type = PythonUDFLoadType::INLINE;
-        func_meta._location = "inline";
-        func_meta._inline_code = _fn.function_code;
+        func_meta.type = PythonUDFLoadType::INLINE;
+        func_meta.location = "inline";
+        func_meta.inline_code = _fn.function_code;
     } else if (!_fn.hdfs_location.empty()) {
-        func_meta._type = PythonUDFLoadType::MODULE;
-        func_meta._location = _fn.hdfs_location;
-        func_meta._checksum = _fn.checksum;
+        func_meta.type = PythonUDFLoadType::MODULE;
+        func_meta.location = _fn.hdfs_location;
+        func_meta.checksum = _fn.checksum;
     } else {
-        func_meta._type = PythonUDFLoadType::UNKNOWN;
-        func_meta._location = "unknown";
+        func_meta.type = PythonUDFLoadType::UNKNOWN;
+        func_meta.location = "unknown";
     }
 
-    func_meta._input_types = _argument_types;
-    func_meta._return_type = _return_type;
+    func_meta.input_types = _argument_types;
+    func_meta.return_type = _return_type;
+    func_meta.client_type = PythonClientType::UDF;
 
     if (_fn.__isset.runtime_version && !_fn.runtime_version.empty()) {
         RETURN_IF_ERROR(
@@ -78,15 +79,15 @@ Status PythonFunctionCall::open(FunctionContext* context,
         return Status::InvalidArgument("Python UDF runtime version is not set");
     }
 
-    func_meta._runtime_version = version.full_version;
+    func_meta.runtime_version = version.full_version;
     RETURN_IF_ERROR(func_meta.check());
-    func_meta._always_nullable = _return_type->is_nullable();
+    func_meta.always_nullable = _return_type->is_nullable();
     LOG(INFO) << fmt::format("runtime_version: {}, func_meta: {}", version.to_string(),
                              func_meta.to_string());
 
-    if (func_meta._type == PythonUDFLoadType::MODULE) {
+    if (func_meta.type == PythonUDFLoadType::MODULE) {
         RETURN_IF_ERROR(UserFunctionCache::instance()->get_pypath(
-                func_meta._id, func_meta._location, func_meta._checksum, &func_meta._location));
+                func_meta.id, func_meta.location, func_meta.checksum, &func_meta.location));
     }
 
     PythonUDFClientPtr client = nullptr;
