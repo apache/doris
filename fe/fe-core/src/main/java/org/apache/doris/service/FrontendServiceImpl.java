@@ -3787,30 +3787,30 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                         if (Config.isCloudMode() && request.isSetBeEndpoint()) {
                             bePathsMap = ((CloudTablet) tablet)
                                     .getNormalReplicaBackendPathMapCloud(request.be_endpoint);
-                            // only for test
-                            if (DebugPointUtil.isEnable("FE.FrontendServiceImpl.createPartition.MockRebalance")) {
-                                DebugPoint debugPoint = DebugPointUtil.getDebugPoint(
-                                        "FE.FrontendServiceImpl.createPartition.MockRebalance");
-                                int currentExecuteNum = debugPoint.executeNum.incrementAndGet();
-                                int switchAfter = 2;
-                                if (currentExecuteNum >= switchAfter) {
-                                    List<Long> allBeIds = Env.getCurrentSystemInfo().getAllBackendIds(false);
-                                    // cloud only has one replica, so we only need to find another BE Id for the BE Id
-                                    // in bePathsMap
-                                    for (Long beId : bePathsMap.keySet()) {
-                                        Long otherBeId = allBeIds.stream()
-                                                .filter(id -> id != beId)
-                                                .findFirst()
-                                                .orElse(null);
-                                        if (otherBeId != null) {
-                                            LOG.info("Mock rebalance: beId={} otherBeId={}", beId, otherBeId);
-                                            bePathsMap.put(beId, otherBeId);
-                                        }
+                        } else {
+                            bePathsMap = tablet.getNormalReplicaBackendPathMap();
+                        }
+                        // The purpose of this injected code is to simulate tablet rebalance.
+                        // Before using this code to write tests, you should ensure that your
+                        // configuration is set to single replica.
+                        if (DebugPointUtil.isEnable("FE.FrontendServiceImpl.createPartition.MockRebalance")) {
+                            DebugPoint debugPoint = DebugPointUtil.getDebugPoint(
+                                    "FE.FrontendServiceImpl.createPartition.MockRebalance");
+                            int currentExecuteNum = debugPoint.executeNum.incrementAndGet();
+                            if (currentExecuteNum > 1) {
+                                List<Long> allBeIds = Env.getCurrentSystemInfo().getAllBackendIds(false);
+                                // (assign different distribution information to tablets)
+                                for (Long beId : bePathsMap.keySet()) {
+                                    Long otherBeId = allBeIds.stream()
+                                            .filter(id -> id != beId)
+                                            .findFirst()
+                                            .orElse(null);
+                                    if (otherBeId != null) {
+                                        LOG.info("Mock rebalance: beId={} otherBeId={}", beId, otherBeId);
+                                        bePathsMap.put(beId, otherBeId);
                                     }
                                 }
                             }
-                        } else {
-                            bePathsMap = tablet.getNormalReplicaBackendPathMap();
                         }
                     } catch (UserException ex) {
                         errorStatus.setErrorMsgs(Lists.newArrayList(ex.getMessage()));
