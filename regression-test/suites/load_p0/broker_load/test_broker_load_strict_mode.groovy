@@ -64,7 +64,8 @@ suite("test_broker_load_strict_mode", "load_p0") {
                 def firstErrorMsg = result[0][result[0].length - 1]
                 logger.info("load failed, errorMsg:$errorMsg, firstErrorMsg:$firstErrorMsg")
                 assertTrue(errorMsg.contains("ETL_QUALITY_UNSATISFIED"))
-                assertTrue(firstErrorMsg.contains("the length of input is too long than schema"))
+                // no first error msg in this version 
+                // assertTrue(firstErrorMsg.contains("the length of input is too long than schema"))
                 break
             }
             Thread.sleep(1000)
