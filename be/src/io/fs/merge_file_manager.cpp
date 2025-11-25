@@ -218,6 +218,13 @@ Status MergeFileManager::append(const std::string& path, const Slice& data,
     active_state->current_offset += data.get_size();
     active_state->total_size += data.get_size();
 
+    // Rotate merge file when small file count reaches threshold
+    if (config::merge_file_small_file_count_threshold > 0 &&
+        static_cast<int64_t>(active_state->index_map.size()) >=
+                config::merge_file_small_file_count_threshold) {
+        RETURN_IF_ERROR(mark_current_merge_file_for_upload_locked(info.resource_id));
+    }
+
     // Mark as active if this is the first write
     if (!active_state->first_append_timestamp.has_value()) {
         active_state->first_append_timestamp = std::chrono::steady_clock::now();

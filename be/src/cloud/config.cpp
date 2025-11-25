@@ -136,10 +136,11 @@ DEFINE_mBool(enable_merge_file, "true");
 DEFINE_mInt64(merge_file_size_threshold_bytes, "5242880"); // 5MB
 DEFINE_mInt64(merge_file_time_threshold_ms, "100");        // 100ms
 DEFINE_mInt64(merge_file_try_lock_timeout_ms, "5");        // 5ms
-DEFINE_mInt64(small_file_threshold_bytes, "1048576");      // 1MB
-DEFINE_mInt64(uploaded_file_retention_seconds, "60");      // 1 minute
-DEFINE_mInt64(index_retention_seconds, "60");              // 1 minute
-DEFINE_mInt64(merge_file_cleanup_interval_seconds, "60");  // 1 minute
+DEFINE_mInt64(merge_file_small_file_count_threshold, "100");
+DEFINE_mInt64(small_file_threshold_bytes, "1048576");     // 1MB
+DEFINE_mInt64(uploaded_file_retention_seconds, "60");     // 1 minute
+DEFINE_mInt64(index_retention_seconds, "60");             // 1 minute
+DEFINE_mInt64(merge_file_cleanup_interval_seconds, "60"); // 1 minute
 
 DEFINE_mBool(enable_standby_passive_compaction, "true");
 

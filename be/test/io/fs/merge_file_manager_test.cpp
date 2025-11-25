@@ -198,6 +198,7 @@ protected:
         _old_small_threshold = config::small_file_threshold_bytes;
         _old_retention = config::uploaded_file_retention_seconds;
         _old_time_threshold = config::merge_file_time_threshold_ms;
+        _old_small_file_count_threshold = config::merge_file_small_file_count_threshold;
         _old_deploy_mode = config::deploy_mode;
         _old_cloud_id = config::cloud_unique_id;
 
@@ -205,6 +206,7 @@ protected:
         config::small_file_threshold_bytes = 1024;
         config::uploaded_file_retention_seconds = 60;
         config::merge_file_time_threshold_ms = 100; // Default 100ms
+        config::merge_file_small_file_count_threshold = 100;
         config::deploy_mode.clear();
         config::cloud_unique_id.clear();
 
@@ -226,6 +228,7 @@ protected:
         config::small_file_threshold_bytes = _old_small_threshold;
         config::uploaded_file_retention_seconds = _old_retention;
         config::merge_file_time_threshold_ms = _old_time_threshold;
+        config::merge_file_small_file_count_threshold = _old_small_file_count_threshold;
         config::deploy_mode = _old_deploy_mode;
         config::cloud_unique_id = _old_cloud_id;
     }
@@ -247,6 +250,7 @@ private:
     int64_t _old_small_threshold = 0;
     int64_t _old_retention = 0;
     int64_t _old_time_threshold = 0;
+    int64_t _old_small_file_count_threshold = 0;
     std::string _old_deploy_mode;
     std::string _old_cloud_id;
     std::string _resource_id = "test_resource";
@@ -338,6 +342,31 @@ TEST_F(MergeFileManagerTest, AppendTriggersRotationWhenThresholdReached) {
     EXPECT_TRUE(manager->append("file2", slice2, info).ok());
     EXPECT_EQ(file_system->created_paths().size(), create_before + 1);
     EXPECT_EQ(manager->_uploading_merge_files.size(), 1);
+}
+
+TEST_F(MergeFileManagerTest, AppendTriggersRotationWhenFileCountThresholdReached) {
+    config::merge_file_small_file_count_threshold = 2;
+    config::merge_file_size_threshold_bytes = 1024; // keep size threshold out of the way
+
+    std::string payload = "data";
+    Slice slice(payload);
+    auto info = default_append_info();
+
+    EXPECT_TRUE(manager->append("file1", slice, info).ok());
+    EXPECT_TRUE(manager->_uploading_merge_files.empty());
+
+    size_t created_before = file_system->created_paths().size();
+    EXPECT_TRUE(manager->append("file2", slice, info).ok());
+    EXPECT_EQ(manager->_uploading_merge_files.size(), 1);
+    EXPECT_EQ(file_system->created_paths().size(), created_before + 1);
+
+    auto uploading = manager->_uploading_merge_files.begin()->second;
+    ASSERT_NE(uploading, nullptr);
+    EXPECT_EQ(uploading->index_map.size(), 2);
+
+    auto* new_state = manager->_current_merge_files[_resource_id].get();
+    ASSERT_NE(new_state, nullptr);
+    EXPECT_NE(uploading->merge_file_path, new_state->merge_file_path);
 }
 
 TEST_F(MergeFileManagerTest, MarkCurrentMergeFileForUploadMovesState) {
