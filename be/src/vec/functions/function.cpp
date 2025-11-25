@@ -150,15 +150,15 @@ Status PreparedFunctionImpl::default_implementation_for_constant_arguments(
         // If we unpack it, there will be unnecessary cost of virtual judge.
         if (args_expect_const.end() !=
             std::find(args_expect_const.begin(), args_expect_const.end(), arg_num)) {
-            temporary_block.simple_insert({column.column, column.type, column.name});
+            temporary_block.insert({column.column, column.type, column.name});
         } else {
-            temporary_block.simple_insert(
+            temporary_block.insert(
                     {assert_cast<const ColumnConst*>(column.column.get())->get_data_column_ptr(),
                      column.type, column.name});
         }
     }
 
-    temporary_block.simple_insert(block.get_by_position(result));
+    temporary_block.insert(block.get_by_position(result));
 
     ColumnNumbers temporary_argument_numbers(arguments_size);
     for (int i = 0; i < arguments_size; ++i) {
@@ -209,9 +209,9 @@ Status PreparedFunctionImpl::default_implementation_for_nulls(
         for (int i = 0; i < args.size(); ++i) {
             uint32_t arg = args[i];
             new_args.push_back(i);
-            new_block.simple_insert(block.get_by_position(arg).unnest_nullable(need_to_default));
+            new_block.insert(block.get_by_position(arg).unnest_nullable(need_to_default));
         }
-        new_block.simple_insert(block.get_by_position(result));
+        new_block.insert(block.get_by_position(result));
         int new_result = new_block.columns() - 1;
 
         RETURN_IF_ERROR(default_execute(context, new_block, new_args, new_result, block.rows()));
@@ -276,6 +276,9 @@ DataTypePtr FunctionBuilderImpl::get_return_type(const ColumnsWithTypeAndName& a
                     create_block_with_nested_columns(Block(arguments), numbers, false);
             auto return_type = get_return_type_impl(
                     ColumnsWithTypeAndName(nested_block.begin(), nested_block.end()));
+            if (!return_type) {
+                return nullptr;
+            }
             return make_nullable(return_type);
         }
     }

@@ -139,6 +139,7 @@ public class NullSafeEqualToEqual extends ConditionRewrite {
             List<Expression> oldChildren = expression.children();
             ImmutableList.Builder<Expression> newChildrenBuilder
                     = ImmutableList.builderWithExpectedSize(oldChildren.size());
+            boolean changed = false;
             for (Expression child : expression.children()) {
                 // rewrite child to child <=> TRUE
                 Expression newChild = simplifySafeEqualTrue(child)
@@ -146,35 +147,22 @@ public class NullSafeEqualToEqual extends ConditionRewrite {
                 if (newChild.getClass() == expression.getClass()) {
                     // flatten
                     newChildrenBuilder.addAll(newChild.children());
+                    changed = true;
                 } else {
+                    changed = changed || child != newChild;
                     newChildrenBuilder.add(newChild);
                 }
             }
-            List<Expression> newChildren = newChildrenBuilder.build();
-            boolean changed = newChildren.size() != oldChildren.size();
-            if (newChildren.size() == oldChildren.size()) {
-                for (int i = 0; i < newChildren.size(); i++) {
-                    if (newChildren.get(i) != oldChildren.get(i)) {
-                        changed = true;
-                        break;
-                    }
-                }
-            }
-            return Optional.of(changed ? expression.withChildren(newChildren) : expression);
+            return Optional.of(changed ? expression.withChildren(newChildrenBuilder.build()) : expression);
         }
         return Optional.empty();
     }
 
     private boolean tryProcessPropagateNullable(Expression expression, Set<Expression> conjuncts) {
-        if (expression.isLiteral()) {
-            // for propagate nullable function, if any of its child is null literal,
-            // the fold rule will simplify it to null literal.
-            // so here no need to handle with the null literal case.
-            return !expression.isNullLiteral();
+        if (!expression.nullable()) {
+            return true;
         } else if (expression instanceof SlotReference) {
-            if (expression.nullable()) {
-                conjuncts.add(ExpressionUtils.notIsNull(expression));
-            }
+            conjuncts.add(ExpressionUtils.notIsNull(expression));
             return true;
         } else if (expression instanceof PropagateNullable) {
             for (Expression child : expression.children()) {

@@ -26,7 +26,7 @@ suite("test_binary_function", "p0,external,mysql,external_docker,external_docker
         String catalog_name = "mysql_varbinary_catalog";
         String ex_db_name = "doris_test";
         String mysql_port = context.config.otherConfigs.get("mysql_57_port");
-        String test_table = "binary_test";
+        String test_table = "binary_test_function_table";
 
      
 

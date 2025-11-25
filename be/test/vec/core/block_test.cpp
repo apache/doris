@@ -1162,16 +1162,13 @@ TEST(BlockTest, insert_erase) {
 
     block.insert(0, column_with_name);
 
-    EXPECT_NO_THROW(auto item = block.get_by_name("column"));
     EXPECT_EQ(block.get_position_by_name("column"), 0);
 
     {
         // test const block
         const auto const_block = block;
-        EXPECT_ANY_THROW(const_block.get_by_name("column2"));
         EXPECT_EQ(const_block.get_position_by_name("column2"), -1);
 
-        EXPECT_NO_THROW(auto item = const_block.get_by_name("column"));
         EXPECT_EQ(const_block.get_position_by_name("column"), 0);
     }
 
