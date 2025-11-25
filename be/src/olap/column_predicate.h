@@ -233,6 +233,13 @@ public:
         return true;
     }
 
+    virtual bool evaluate_and(vectorized::ParquetPredicate::CachedPageIndexStat* statistic,
+                              RowRanges* row_ranges) const {
+        throw Exception(ErrorCode::INTERNAL_ERROR,
+                        "ParquetPredicate is not supported by this predicate!");
+        return true;
+    }
+
     // used to evaluate pre read column in lazy materialization
     // now only support integer/float
     // a vectorized eval way

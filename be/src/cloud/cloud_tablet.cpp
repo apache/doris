@@ -61,6 +61,7 @@
 #include "olap/tablet_schema.h"
 #include "olap/txn_manager.h"
 #include "util/debug_points.h"
+#include "util/stack_util.h"
 #include "vec/common/schema_util.h"
 
 namespace doris {
@@ -381,6 +382,8 @@ void CloudTablet::add_rowsets(std::vector<RowsetSharedPtr> to_add, bool version_
     if (to_add.empty()) {
         return;
     }
+
+    VLOG_DEBUG << "add_rowsets tablet_id=" << tablet_id() << " stack: " << get_stack_trace();
 
     auto add_rowsets_directly = [=, this](std::vector<RowsetSharedPtr>& rowsets) {
         for (auto& rs : rowsets) {

@@ -2091,6 +2091,14 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             response = MetaServiceProxy
                 .getInstance().abortTxnWithCoordinator(request);
             LOG.info("AbortTxnWithCoordinatorResponse: {}", response);
+            if (DebugPointUtil.isEnable("FE.abortTxnWhenCoordinateBeRestart.slow")) {
+                LOG.info("debug point FE.abortTxnWhenCoordinateBeRestart.slow enabled, sleep 15s");
+                try {
+                    Thread.sleep(15 * 1000);
+                } catch (InterruptedException ie) {
+                    LOG.info("error ", ie);
+                }
+            }
         } catch (RpcException e) {
             LOG.warn("Abort txn on coordinate BE {} failed, msg={}", coordinateHost, e.getMessage());
         }

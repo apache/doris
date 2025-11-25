@@ -279,13 +279,11 @@ void VfileScannerExceptionTest::init() {
 
 void VfileScannerExceptionTest::generate_scanner(std::shared_ptr<FileScanner>& scanner) {
     auto split_source = std::make_shared<TestSplitSourceConnectorStub>(_scan_range);
-    std::unordered_map<std::string, ColumnValueRangeType> _colname_to_value_range;
     std::unordered_map<std::string, int> _colname_to_slot_id;
     scanner = std::make_shared<FileScanner>(
             &_runtime_state,
             &(_runtime_state.get_local_state(0)->cast<pipeline::FileScanLocalState>()), -1,
-            split_source, _profile, _kv_cache.get(), &_colname_to_value_range,
-            &_colname_to_slot_id);
+            split_source, _profile, _kv_cache.get(), &_colname_to_slot_id);
     scanner->_is_load = false;
     vectorized::VExprContextSPtrs _conjuncts;
     WARN_IF_ERROR(scanner->init(&_runtime_state, _conjuncts), "fail to prepare scanner");

@@ -26,6 +26,7 @@
 #include <string>
 #include <vector>
 
+#include "olap/field.h"
 #include "olap/rowset/segment_v2/index_file_writer.h"
 #include "olap/rowset/segment_v2/inverted_index_fs_directory.h"
 #include "olap/tablet_schema.h"
@@ -88,6 +89,7 @@ protected:
 
         // Create tablet index
         _tablet_index = std::make_unique<TabletIndex>();
+        _tablet_index->_index_type = IndexType::ANN;
         _tablet_index->_properties = _properties;
         _tablet_index->_index_id = 1;
         _tablet_index->_index_name = "test_ann_index";
@@ -397,6 +399,7 @@ TEST_F(AnnIndexWriterTest, TestInvalidMetricType) {
     properties["metric_type"] = "invalid_metric";
 
     auto tablet_index = std::make_unique<TabletIndex>();
+    tablet_index->_index_type = IndexType::ANN;
     tablet_index->_properties = properties;
     tablet_index->_index_id = 1;
 
@@ -471,6 +474,58 @@ TEST_F(AnnIndexWriterTest, TestAddMoreThanChunkSize) {
 
     Status status = writer->finish();
     EXPECT_TRUE(status.ok());
+}
+
+TEST_F(AnnIndexWriterTest, TestCreateFromIndexColumnWriter) {
+    TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
+    TabletSchemaPB tablet_schema_pb;
+    tablet_schema_pb.set_keys_type(DUP_KEYS);
+    tablet_schema->init_from_pb(tablet_schema_pb);
+
+    TabletColumn array_column;
+    array_column.set_name("arr1");
+    array_column.set_type(FieldType::OLAP_FIELD_TYPE_ARRAY);
+    array_column.set_length(0);
+    array_column.set_index_length(0);
+    array_column.set_is_nullable(false);
+
+    TabletColumn child_column;
+    child_column.set_name("arr_sub_float");
+    child_column.set_type(FieldType::OLAP_FIELD_TYPE_FLOAT);
+    child_column.set_length(INT_MAX);
+    array_column.add_sub_column(child_column);
+    tablet_schema->append_column(array_column);
+
+    // Get field for array column
+    std::unique_ptr<Field> field(FieldFactory::create(array_column));
+    ASSERT_NE(field.get(), nullptr);
+
+    auto fs_dir = std::make_shared<DorisRAMFSDirectory>();
+    fs_dir->init(doris::io::global_local_filesystem(), "./ut_dir/tmp_vector_search", nullptr);
+    EXPECT_CALL(*_index_file_writer, open(testing::_)).WillOnce(testing::Return(fs_dir));
+
+    // Create column writer
+    std::unique_ptr<IndexColumnWriter> column_writer;
+    auto status = IndexColumnWriter::create(field.get(), &column_writer, _index_file_writer.get(),
+                                            _tablet_index.get());
+    EXPECT_TRUE(status.ok());
+
+    // Prepare test data
+    const size_t num_rows = 3;
+    std::vector<float> vectors = {
+            1.0f, 2.0f,  3.0f,  4.0f, // Row 0
+            5.0f, 6.0f,  7.0f,  8.0f, // Row 1
+            9.0f, 10.0f, 11.0f, 12.0f // Row 2
+    };
+
+    std::vector<size_t> offsets = {0, 4, 8, 12}; // Each row has 4 elements
+
+    status = column_writer->add_array_values(sizeof(float), vectors.data(), nullptr,
+                                             reinterpret_cast<const uint8_t*>(offsets.data()),
+                                             num_rows);
+    EXPECT_TRUE(status.ok());
+
+    ASSERT_TRUE(column_writer->finish().ok());
 }
 
 } // namespace doris::segment_v2

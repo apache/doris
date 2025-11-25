@@ -19,6 +19,7 @@
 // and modified by Doris
 
 #include "block_file_cache_test_common.h"
+#include "olap/olap_define.h"
 
 namespace doris::io {
 
@@ -7414,6 +7415,13 @@ TEST_F(BlockFileCacheTest, reader_dryrun_when_download_file_cache) {
     FileCacheFactory::instance()->_path_to_cache.clear();
     FileCacheFactory::instance()->_capacity = 0;
     config::enable_reader_dryrun_when_download_file_cache = org;
+}
+
+TEST_F(BlockFileCacheTest, cached_remote_file_reader_tablet_id_guard) {
+    // Ensure get_tablet_id gracefully returns nullopt
+    std::string fake_path = "/mnt/data";
+    auto tablet_id = get_tablet_id(fake_path);
+    EXPECT_FALSE(tablet_id.has_value());
 }
 
 void move_dir_to_version1(const std::string& dirPath) {

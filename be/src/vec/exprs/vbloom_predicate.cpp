@@ -70,26 +70,23 @@ void VBloomPredicate::close(VExprContext* context, FunctionContext::FunctionStat
     VExpr::close(context, scope);
 }
 
-Status VBloomPredicate::execute(VExprContext* context, Block* block, int* result_column_id) const {
+Status VBloomPredicate::execute_column(VExprContext* context, const Block* block,
+                                       ColumnPtr& result_column) const {
     DCHECK(_open_finished || _getting_const_col);
-    doris::vectorized::ColumnNumbers arguments(_children.size());
-    for (int i = 0; i < _children.size(); ++i) {
-        int column_id = -1;
-        RETURN_IF_ERROR(_children[i]->execute(context, block, &column_id));
-        arguments[i] = column_id;
-    }
-    // call function
-    auto num_columns_without_result = block->columns();
-    auto res_data_column = ColumnUInt8::create(block->rows());
+    DCHECK_EQ(_children.size(), 1);
 
-    ColumnPtr argument_column =
-            block->get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+    ColumnPtr argument_column;
+    RETURN_IF_ERROR(_children[0]->execute_column(context, block, argument_column));
+    argument_column = argument_column->convert_to_full_column_if_const();
+
+    auto res_data_column = ColumnUInt8::create(block->rows());
     size_t sz = argument_column->size();
     res_data_column->resize(sz);
     auto* ptr = ((ColumnUInt8*)res_data_column.get())->get_data().data();
+
     _filter->find_fixed_len(argument_column, ptr);
-    block->insert({std::move(res_data_column), _data_type, EXPR_NAME});
-    *result_column_id = num_columns_without_result;
+
+    result_column = std::move(res_data_column);
     return Status::OK();
 }
 
@@ -102,10 +99,14 @@ void VBloomPredicate::set_filter(std::shared_ptr<BloomFilterFuncBase> filter) {
 }
 
 uint64_t VBloomPredicate::get_digest(uint64_t seed) const {
-    char* data;
-    int len;
-    _filter->get_data(&data, &len);
-    return HashUtil::hash64(data, len, seed);
+    seed = _children[0]->get_digest(seed);
+    if (seed) {
+        char* data;
+        int len;
+        _filter->get_data(&data, &len);
+        return HashUtil::hash64(data, len, seed);
+    }
+    return 0;
 }
 
 #include "common/compile_check_end.h"

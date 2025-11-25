@@ -326,11 +326,21 @@ Status DataTypeArraySerDe::read_column_from_arrow(IColumn& column, const arrow::
     auto arrow_offsets_array = concrete_array->offsets();
     auto* arrow_offsets = dynamic_cast<arrow::Int32Array*>(arrow_offsets_array.get());
     auto prev_size = offsets_data.back();
-    auto arrow_nested_start_offset = arrow_offsets->Value(start);
-    auto arrow_nested_end_offset = arrow_offsets->Value(end);
+    const auto* base_offsets_ptr = reinterpret_cast<const uint8_t*>(arrow_offsets->raw_values());
+    const size_t offset_element_size = sizeof(int32_t);
+    int32_t arrow_nested_start_offset = 0;
+    int32_t arrow_nested_end_offset = 0;
+    const uint8_t* start_offset_ptr = base_offsets_ptr + start * offset_element_size;
+    const uint8_t* end_offset_ptr = base_offsets_ptr + end * offset_element_size;
+    memcpy(&arrow_nested_start_offset, start_offset_ptr, offset_element_size);
+    memcpy(&arrow_nested_end_offset, end_offset_ptr, offset_element_size);
+
     for (auto i = start + 1; i < end + 1; ++i) {
+        int32_t current_offset = 0;
+        const uint8_t* current_offset_ptr = base_offsets_ptr + i * offset_element_size;
+        memcpy(&current_offset, current_offset_ptr, offset_element_size);
         // convert to doris offset, start from offsets.back()
-        offsets_data.emplace_back(prev_size + arrow_offsets->Value(i) - arrow_nested_start_offset);
+        offsets_data.emplace_back(prev_size + current_offset - arrow_nested_start_offset);
     }
     return nested_serde->read_column_from_arrow(
             column_array.get_data(), concrete_array->values().get(), arrow_nested_start_offset,
