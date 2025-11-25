@@ -2867,14 +2867,6 @@ void SegmentIterator::_calculate_expr_in_remaining_conjunct_root() {
                                     _common_expr_to_slotref_map[root_expr_ctx.get()]
                                                                [inner_slot_ref->column_id()] =
                                                                        expr.get();
-                                    // Print debug info for virtual slot expansion
-                                    LOG(INFO) << fmt::format(
-                                            "common_expr_ctx_ptr: {}, expr_ptr: {}, "
-                                            "virtual_slotref_ptr: {}, inner_slotref_ptr: {}, "
-                                            "column_id: {}",
-                                            fmt::ptr(root_expr_ctx.get()), fmt::ptr(expr.get()),
-                                            fmt::ptr(child.get()), fmt::ptr(vir_child.get()),
-                                            inner_slot_ref->column_id());
                                 }
 
                                 if (!vir_child->children().empty()) {
