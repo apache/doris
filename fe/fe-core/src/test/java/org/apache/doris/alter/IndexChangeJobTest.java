@@ -21,7 +21,6 @@ import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.analysis.BuildIndexClause;
 import org.apache.doris.analysis.CreateIndexClause;
 import org.apache.doris.analysis.DropIndexClause;
-import org.apache.doris.analysis.IndexDef;
 import org.apache.doris.catalog.CatalogTestUtil;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -41,6 +40,7 @@ import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.UserException;
 import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.nereids.trees.plans.commands.CancelAlterTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.AgentTaskQueue;
@@ -119,11 +119,11 @@ public class IndexChangeJobTest {
         String indexName = "index1";
         TableNameInfo tableName = new TableNameInfo(masterEnv.getInternalCatalog().getName(), db.getName(),
                 olapTable.getName());
-        IndexDef indexDef = new IndexDef(indexName, false,
+        IndexDefinition indexDefinition = new IndexDefinition(indexName, false,
                 Lists.newArrayList(olapTable.getBaseSchema().get(1).getName()),
-                IndexDef.IndexType.INVERTED,
+                "INVERTED",
                 Maps.newHashMap(), "balabala");
-        CreateIndexClause createIndexClause = new CreateIndexClause(tableName, indexDef, false);
+        CreateIndexClause createIndexClause = new CreateIndexClause(tableName, indexDefinition, false);
         createIndexClause.analyze();
         alterClauses.add(createIndexClause);
         schemaChangeHandler.process(alterClauses, db, olapTable);
@@ -146,11 +146,11 @@ public class IndexChangeJobTest {
         String indexName = "index1";
         TableNameInfo tableName = new TableNameInfo(masterEnv.getInternalCatalog().getName(), db.getName(),
                 olapTable.getName());
-        IndexDef indexDef = new IndexDef(indexName, false,
+        IndexDefinition indexDefinition = new IndexDefinition(indexName, false,
                 Lists.newArrayList(olapTable.getBaseSchema().get(1).getName()),
-                IndexDef.IndexType.INVERTED,
+                "INVERTED",
                 Maps.newHashMap(), "balabala");
-        CreateIndexClause createIndexClause = new CreateIndexClause(tableName, indexDef, false);
+        CreateIndexClause createIndexClause = new CreateIndexClause(tableName, indexDefinition, false);
         createIndexClause.analyze();
         alterClauses.add(createIndexClause);
         schemaChangeHandler.process(alterClauses, db, olapTable);
@@ -178,11 +178,11 @@ public class IndexChangeJobTest {
         String indexName = "index1";
         TableNameInfo tableName = new TableNameInfo(masterEnv.getInternalCatalog().getName(), db.getName(),
                 olapTable.getName());
-        IndexDef indexDef = new IndexDef(indexName, false,
+        IndexDefinition indexDefinition = new IndexDefinition(indexName, false,
                 Lists.newArrayList(olapTable.getBaseSchema().get(1).getName()),
-                IndexDef.IndexType.INVERTED,
+                "INVERTED",
                 Maps.newHashMap(), "balabala");
-        CreateIndexClause createIndexClause = new CreateIndexClause(tableName, indexDef, false);
+        CreateIndexClause createIndexClause = new CreateIndexClause(tableName, indexDefinition, false);
         createIndexClause.analyze();
         alterClauses.add(createIndexClause);
         schemaChangeHandler.process(alterClauses, db, olapTable);
@@ -212,11 +212,11 @@ public class IndexChangeJobTest {
         String indexName = "index1";
         TableNameInfo tableName = new TableNameInfo(masterEnv.getInternalCatalog().getName(), db.getName(),
                 olapTable.getName());
-        IndexDef indexDef = new IndexDef(indexName, false,
+        IndexDefinition indexDefinition = new IndexDefinition(indexName, false,
                 Lists.newArrayList(olapTable.getBaseSchema().get(1).getName()),
-                IndexDef.IndexType.INVERTED,
+                "INVERTED",
                 Maps.newHashMap(), "balabala");
-        CreateIndexClause createIndexClause = new CreateIndexClause(tableName, indexDef, false);
+        CreateIndexClause createIndexClause = new CreateIndexClause(tableName, indexDefinition, false);
         createIndexClause.analyze();
         alterClauses.add(createIndexClause);
         schemaChangeHandler.process(alterClauses, db, olapTable);
@@ -270,11 +270,11 @@ public class IndexChangeJobTest {
         String indexName = "index1";
         TableNameInfo tableName = new TableNameInfo(masterEnv.getInternalCatalog().getName(), db.getName(),
                 olapTable.getName());
-        IndexDef indexDef = new IndexDef(indexName, false,
+        IndexDefinition indexDefinition = new IndexDefinition(indexName, false,
                 Lists.newArrayList(olapTable.getBaseSchema().get(1).getName()),
-                IndexDef.IndexType.INVERTED,
+                "INVERTED",
                 Maps.newHashMap(), "balabala");
-        CreateIndexClause createIndexClause = new CreateIndexClause(tableName, indexDef, false);
+        CreateIndexClause createIndexClause = new CreateIndexClause(tableName, indexDefinition, false);
         createIndexClause.analyze();
         alterClauses.add(createIndexClause);
         schemaChangeHandler.process(alterClauses, db, olapTable);
@@ -327,11 +327,11 @@ public class IndexChangeJobTest {
         String indexName = "index1";
         TableNameInfo tableName = new TableNameInfo(masterEnv.getInternalCatalog().getName(), db.getName(),
                 olapTable.getName());
-        IndexDef indexDef = new IndexDef(indexName, false,
+        IndexDefinition indexDefinition = new IndexDefinition(indexName, false,
                 Lists.newArrayList(olapTable.getBaseSchema().get(1).getName()),
-                IndexDef.IndexType.INVERTED,
+                "INVERTED",
                 Maps.newHashMap(), "balabala");
-        CreateIndexClause createIndexClause = new CreateIndexClause(tableName, indexDef, false);
+        CreateIndexClause createIndexClause = new CreateIndexClause(tableName, indexDefinition, false);
         createIndexClause.analyze();
         alterClauses.add(createIndexClause);
         schemaChangeHandler.process(alterClauses, db, olapTable);
@@ -374,11 +374,11 @@ public class IndexChangeJobTest {
         String indexName = "index1";
         TableNameInfo tableName = new TableNameInfo(masterEnv.getInternalCatalog().getName(), db.getName(),
                 olapTable.getName());
-        IndexDef indexDef = new IndexDef(indexName, false,
+        IndexDefinition indexDefinition = new IndexDefinition(indexName, false,
                 Lists.newArrayList(olapTable.getBaseSchema().get(1).getName()),
-                IndexDef.IndexType.INVERTED,
+                "INVERTED",
                 Maps.newHashMap(), "balabala");
-        CreateIndexClause createIndexClause = new CreateIndexClause(tableName, indexDef, false);
+        CreateIndexClause createIndexClause = new CreateIndexClause(tableName, indexDefinition, false);
         createIndexClause.analyze();
         alterClauses.add(createIndexClause);
         olapTable.setState(OlapTableState.SCHEMA_CHANGE);
@@ -454,11 +454,11 @@ public class IndexChangeJobTest {
         String indexName = "index1";
         TableNameInfo tableName = new TableNameInfo(masterEnv.getInternalCatalog().getName(), db.getName(),
                 olapTable.getName());
-        IndexDef indexDef = new IndexDef(indexName, false,
+        IndexDefinition indexDefinition = new IndexDefinition(indexName, false,
                 Lists.newArrayList(olapTable.getBaseSchema().get(1).getName()),
-                IndexDef.IndexType.INVERTED,
+                "INVERTED",
                 Maps.newHashMap(), "balabala");
-        CreateIndexClause createIndexClause = new CreateIndexClause(tableName, indexDef, false);
+        CreateIndexClause createIndexClause = new CreateIndexClause(tableName, indexDefinition, false);
         createIndexClause.analyze();
         alterClauses.add(createIndexClause);
         olapTable.setState(OlapTableState.SCHEMA_CHANGE);
@@ -534,11 +534,11 @@ public class IndexChangeJobTest {
         String indexName = "index1";
         TableNameInfo tableName = new TableNameInfo(masterEnv.getInternalCatalog().getName(), db.getName(),
                 olapTable.getName());
-        IndexDef indexDef = new IndexDef(indexName, false,
+        IndexDefinition indexDefinition = new IndexDefinition(indexName, false,
                 Lists.newArrayList(olapTable.getBaseSchema().get(1).getName()),
-                IndexDef.IndexType.INVERTED,
+                "INVERTED",
                 Maps.newHashMap(), "balabala");
-        CreateIndexClause createIndexClause = new CreateIndexClause(tableName, indexDef, false);
+        CreateIndexClause createIndexClause = new CreateIndexClause(tableName, indexDefinition, false);
         createIndexClause.analyze();
         alterClauses.add(createIndexClause);
         schemaChangeHandler.process(alterClauses, db, olapTable);
@@ -599,11 +599,11 @@ public class IndexChangeJobTest {
         String indexName = "index1";
         TableNameInfo tableName = new TableNameInfo(masterEnv.getInternalCatalog().getName(), db.getName(),
                 olapTable.getName());
-        IndexDef indexDef = new IndexDef(indexName, false,
+        IndexDefinition indexDefinition = new IndexDefinition(indexName, false,
                 Lists.newArrayList(olapTable.getBaseSchema().get(1).getName()),
-                IndexDef.IndexType.INVERTED,
+                "INVERTED",
                 Maps.newHashMap(), "balabala");
-        CreateIndexClause createIndexClause = new CreateIndexClause(tableName, indexDef, false);
+        CreateIndexClause createIndexClause = new CreateIndexClause(tableName, indexDefinition, false);
         createIndexClause.analyze();
         alterClauses.add(createIndexClause);
         schemaChangeHandler.process(alterClauses, db, olapTable);
@@ -662,13 +662,13 @@ public class IndexChangeJobTest {
         CatalogTestUtil.createDupTable(db);
         OlapTable table = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId2);
         String indexName = "ngram_bf_index";
-        IndexDef indexDef = new IndexDef(indexName, false,
+        IndexDefinition indexDefinition = new IndexDefinition(indexName, false,
                 Lists.newArrayList(table.getBaseSchema().get(3).getName()),
-                IndexDef.IndexType.NGRAM_BF,
+                "NGRAM_BF",
                 Maps.newHashMap(), "ngram bf index");
         TableNameInfo tableName = new TableNameInfo(masterEnv.getInternalCatalog().getName(), db.getName(),
                 table.getName());
-        CreateIndexClause createIndexClause = new CreateIndexClause(tableName, indexDef, false);
+        CreateIndexClause createIndexClause = new CreateIndexClause(tableName, indexDefinition, false);
         createIndexClause.analyze();
         SchemaChangeHandler schemaChangeHandler = Env.getCurrentEnv().getSchemaChangeHandler();
         ArrayList<AlterClause> alterClauses = new ArrayList<>();
@@ -697,12 +697,12 @@ public class IndexChangeJobTest {
         // Test with enable_add_index_for_new_data = false
         context.getSessionVariable().setEnableAddIndexForNewData(false);
         String indexName2 = "ngram_bf_index2";
-        IndexDef indexDef2 = new IndexDef(indexName2, false,
+        IndexDefinition indexDefinition2 = new IndexDefinition(indexName2, false,
                 Lists.newArrayList(table.getBaseSchema().get(3).getName()),
-                IndexDef.IndexType.NGRAM_BF,
+                "NGRAM_BF",
                 Maps.newHashMap(), "ngram bf index2");
 
-        createIndexClause = new CreateIndexClause(tableName, indexDef2, false);
+        createIndexClause = new CreateIndexClause(tableName, indexDefinition2, false);
         createIndexClause.analyze();
         ArrayList<AlterClause> alterClauses2 = new ArrayList<>();
         alterClauses2.add(createIndexClause);
@@ -750,13 +750,13 @@ public class IndexChangeJobTest {
         CatalogTestUtil.createDupTable(db);
         OlapTable table = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId2);
         String indexName = "ngram_bf_index";
-        IndexDef indexDef = new IndexDef(indexName, false,
+        IndexDefinition indexDefinition = new IndexDefinition(indexName, false,
                 Lists.newArrayList(table.getBaseSchema().get(3).getName()),
-                IndexDef.IndexType.NGRAM_BF,
+                "NGRAM_BF",
                 Maps.newHashMap(), "ngram bf index");
         TableNameInfo tableName = new TableNameInfo(masterEnv.getInternalCatalog().getName(), db.getName(),
                 table.getName());
-        CreateIndexClause createIndexClause = new CreateIndexClause(tableName, indexDef, false);
+        CreateIndexClause createIndexClause = new CreateIndexClause(tableName, indexDefinition, false);
         createIndexClause.analyze();
         SchemaChangeHandler schemaChangeHandler = Env.getCurrentEnv().getSchemaChangeHandler();
         ArrayList<AlterClause> alterClauses = new ArrayList<>();

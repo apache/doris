@@ -34,6 +34,7 @@
 #include "runtime/runtime_state.h"
 #include "runtime/types.h"
 #include "udf/udf.h"
+#include "vec/columns/column.h"
 #include "vec/core/block.h"
 #include "vec/exprs/vexpr_fwd.h"
 
@@ -51,19 +52,19 @@ namespace doris::vectorized {
 class ScoreRuntime;
 using ScoreRuntimeSPtr = std::shared_ptr<ScoreRuntime>;
 
-class InvertedIndexContext {
+class IndexExecContext {
 public:
-    InvertedIndexContext(
+    IndexExecContext(
             const std::vector<ColumnId>& col_ids,
             const std::vector<std::unique_ptr<segment_v2::IndexIterator>>& index_iterators,
             const std::vector<vectorized::IndexFieldNameAndTypePair>& storage_name_and_type_vec,
             std::unordered_map<ColumnId, std::unordered_map<const vectorized::VExpr*, bool>>&
-                    common_expr_inverted_index_status,
+                    common_expr_index_status,
             ScoreRuntimeSPtr score_runtime)
             : _col_ids(col_ids),
               _index_iterators(index_iterators),
               _storage_name_and_type(storage_name_and_type_vec),
-              _expr_inverted_index_status(common_expr_inverted_index_status),
+              _expr_index_status(common_expr_index_status),
               _score_runtime(std::move(score_runtime)) {}
 
     segment_v2::IndexIterator* get_inverted_index_iterator_by_column_id(int column_index) const {
@@ -92,46 +93,45 @@ public:
         return &_storage_name_and_type[column_id];
     }
 
-    bool has_inverted_index_result_for_expr(const vectorized::VExpr* expr) const {
-        return _inverted_index_result_bitmap.contains(expr);
+    bool has_index_result_for_expr(const vectorized::VExpr* expr) const {
+        return _index_result_bitmap.contains(expr);
     }
 
-    void set_inverted_index_result_for_expr(const vectorized::VExpr* expr,
-                                            segment_v2::InvertedIndexResultBitmap bitmap) {
-        _inverted_index_result_bitmap[expr] = std::move(bitmap);
+    void set_index_result_for_expr(const vectorized::VExpr* expr,
+                                   segment_v2::InvertedIndexResultBitmap bitmap) {
+        _index_result_bitmap[expr] = std::move(bitmap);
     }
 
     std::unordered_map<const vectorized::VExpr*, segment_v2::InvertedIndexResultBitmap>&
-    get_inverted_index_result_bitmap() {
-        return _inverted_index_result_bitmap;
+    get_index_result_bitmap() {
+        return _index_result_bitmap;
     }
 
-    std::unordered_map<const vectorized::VExpr*, ColumnPtr>& get_inverted_index_result_column() {
-        return _inverted_index_result_column;
+    std::unordered_map<const vectorized::VExpr*, ColumnPtr>& get_index_result_column() {
+        return _index_result_column;
     }
 
-    const segment_v2::InvertedIndexResultBitmap* get_inverted_index_result_for_expr(
+    const segment_v2::InvertedIndexResultBitmap* get_index_result_for_expr(
             const vectorized::VExpr* expr) {
-        auto iter = _inverted_index_result_bitmap.find(expr);
-        if (iter == _inverted_index_result_bitmap.end()) {
+        auto iter = _index_result_bitmap.find(expr);
+        if (iter == _index_result_bitmap.end()) {
             return nullptr;
         }
         return &iter->second;
     }
 
-    void set_inverted_index_result_column_for_expr(const vectorized::VExpr* expr,
-                                                   ColumnPtr column) {
-        _inverted_index_result_column[expr] = std::move(column);
+    void set_index_result_column_for_expr(const vectorized::VExpr* expr, ColumnPtr column) {
+        _index_result_column[expr] = std::move(column);
     }
 
-    void set_true_for_inverted_index_status(const vectorized::VExpr* expr, int column_index) {
+    void set_true_for_index_status(const vectorized::VExpr* expr, int column_index) {
         if (column_index < 0 || column_index >= _col_ids.size()) {
             return;
         }
         const auto& column_id = _col_ids[column_index];
-        if (_expr_inverted_index_status.contains(column_id)) {
-            if (_expr_inverted_index_status[column_id].contains(expr)) {
-                _expr_inverted_index_status[column_id][expr] = true;
+        if (_expr_index_status.contains(column_id)) {
+            if (_expr_index_status[column_id].contains(expr)) {
+                _expr_index_status[column_id][expr] = true;
             }
         }
     }
@@ -150,14 +150,14 @@ private:
 
     // A map of expressions to their corresponding inverted index result bitmaps.
     std::unordered_map<const vectorized::VExpr*, segment_v2::InvertedIndexResultBitmap>
-            _inverted_index_result_bitmap;
+            _index_result_bitmap;
 
     // A map of expressions to their corresponding result columns.
-    std::unordered_map<const vectorized::VExpr*, ColumnPtr> _inverted_index_result_column;
+    std::unordered_map<const vectorized::VExpr*, ColumnPtr> _index_result_column;
 
     // A reference to a map of common expressions to their inverted index evaluation status.
     std::unordered_map<ColumnId, std::unordered_map<const vectorized::VExpr*, bool>>&
-            _expr_inverted_index_status;
+            _expr_index_status;
 
     ScoreRuntimeSPtr _score_runtime;
 };
@@ -172,17 +172,18 @@ public:
     [[nodiscard]] Status open(RuntimeState* state);
     [[nodiscard]] Status clone(RuntimeState* state, VExprContextSPtr& new_ctx);
     [[nodiscard]] Status execute(Block* block, int* result_column_id);
+    [[nodiscard]] Status execute(const Block* block, ColumnPtr& result_column);
+    [[nodiscard]] DataTypePtr execute_type(const Block* block);
+    [[nodiscard]] const std::string& expr_name() const;
     [[nodiscard]] bool is_blockable() const;
 
     VExprSPtr root() { return _root; }
     void set_root(const VExprSPtr& expr) { _root = expr; }
-    void set_inverted_index_context(std::shared_ptr<InvertedIndexContext> inverted_index_context) {
-        _inverted_index_context = std::move(inverted_index_context);
+    void set_index_context(std::shared_ptr<IndexExecContext> index_context) {
+        _index_context = std::move(index_context);
     }
 
-    std::shared_ptr<InvertedIndexContext> get_inverted_index_context() const {
-        return _inverted_index_context;
-    }
+    std::shared_ptr<IndexExecContext> get_index_context() const { return _index_context; }
 
     /// Creates a FunctionContext, and returns the index that's passed to fn_context() to
     /// retrieve the created context. Exprs that need a FunctionContext should call this in
@@ -209,20 +210,19 @@ public:
 
     bool all_expr_inverted_index_evaluated();
 
-    [[nodiscard]] static Status filter_block(VExprContext* vexpr_ctx, Block* block,
-                                             size_t column_to_keep);
+    [[nodiscard]] static Status filter_block(VExprContext* vexpr_ctx, Block* block);
 
     [[nodiscard]] static Status filter_block(const VExprContextSPtrs& expr_contexts, Block* block,
                                              size_t column_to_keep);
 
     [[nodiscard]] static Status execute_conjuncts(const VExprContextSPtrs& ctxs,
                                                   const std::vector<IColumn::Filter*>* filters,
-                                                  bool accept_null, Block* block,
+                                                  bool accept_null, const Block* block,
                                                   IColumn::Filter* result_filter,
                                                   bool* can_filter_all);
 
-    [[nodiscard]] static Status execute_conjuncts(const VExprContextSPtrs& conjuncts, Block* block,
-                                                  ColumnUInt8& null_map,
+    [[nodiscard]] static Status execute_conjuncts(const VExprContextSPtrs& conjuncts,
+                                                  const Block* block, ColumnUInt8& null_map,
                                                   IColumn::Filter& result_filter);
 
     static Status execute_conjuncts(const VExprContextSPtrs& ctxs,
@@ -251,10 +251,6 @@ public:
     }
 
     void clone_fn_contexts(VExprContext* other);
-
-    bool force_materialize_slot() const { return _force_materialize_slot; }
-
-    void set_force_materialize_slot() { _force_materialize_slot = true; }
 
     VExprContext& operator=(const VExprContext& other) {
         if (this == &other) {
@@ -336,11 +332,7 @@ private:
     /// The depth of expression-tree.
     int _depth_num = 0;
 
-    // This flag only works on VSlotRef.
-    // Force to materialize even if the slot need_materialize is false, we just ignore need_materialize flag
-    bool _force_materialize_slot = false;
-
-    std::shared_ptr<InvertedIndexContext> _inverted_index_context;
+    std::shared_ptr<IndexExecContext> _index_context;
     size_t _memory_usage = 0;
 
     segment_v2::AnnRangeSearchRuntime _ann_range_search_runtime;

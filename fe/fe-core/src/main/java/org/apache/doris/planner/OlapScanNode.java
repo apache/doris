@@ -672,12 +672,6 @@ public class OlapScanNode extends ScanNode {
             bucketSeq2Bytes.merge(bucketSeq, oneReplicaBytes, Long::sum);
             scanRangeLocations.add(locations);
         }
-
-        if (tablets.isEmpty()) {
-            desc.setCardinality(0);
-        } else {
-            desc.setCardinality(cardinality);
-        }
     }
 
     private String fastToString(long version) {
@@ -731,7 +725,6 @@ public class OlapScanNode extends ScanNode {
     protected void createScanRangeLocations() throws UserException {
         scanRangeLocations = Lists.newArrayList();
         if (selectedPartitionIds.isEmpty()) {
-            desc.setCardinality(0);
             return;
         }
         Preconditions.checkState(selectedIndexId != -1);
@@ -1057,6 +1050,9 @@ public class OlapScanNode extends ScanNode {
         if (isPointQuery()) {
             output.append(prefix).append("SHORT-CIRCUIT\n");
         }
+
+        printNestedColumns(output, prefix, getTupleDesc());
+
         return output.toString();
     }
 
@@ -1095,15 +1091,7 @@ public class OlapScanNode extends ScanNode {
                     .map(Column::getName).collect(Collectors.toSet());
             olapTable.getColumnDesc(selectedIndexId, columnsDesc, keyColumnNames, keyColumnTypes,
                     materializedColumnNames);
-            TColumn tColumn = globalRowIdColumn.toThrift();
-            tColumn.setColumnType(ScalarType.createStringType().toColumnTypeThrift());
-            tColumn.setAggregationType(AggregateType.REPLACE.toThrift());
-            tColumn.setIsKey(false);
-            tColumn.setIsAllowNull(false);
-            // keep compatibility
-            tColumn.setVisible(false);
-            tColumn.setColUniqueId(Integer.MAX_VALUE);
-            columnsDesc.add(tColumn);
+            columnsDesc.add(globalRowIdColumn.toThrift());
         } else {
             olapTable.getColumnDesc(selectedIndexId, columnsDesc, keyColumnNames, keyColumnTypes);
 
@@ -1182,7 +1170,11 @@ public class OlapScanNode extends ScanNode {
         if (annSortLimit != -1) {
             msg.olap_scan_node.setAnnSortLimit(annSortLimit);
         }
-        msg.olap_scan_node.setKeyType(olapTable.getKeysType().toThrift());
+        if (selectedIndexId != -1) {
+            msg.olap_scan_node.setKeyType(olapTable.getIndexMetaByIndexId(selectedIndexId).getKeysType().toThrift());
+        } else {
+            msg.olap_scan_node.setKeyType(olapTable.getKeysType().toThrift());
+        }
         String tableName = olapTable.getName();
         if (selectedIndexId != -1) {
             tableName = tableName + "(" + getSelectedIndexName() + ")";

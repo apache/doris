@@ -30,6 +30,7 @@
 
 #include "common/config.h"
 #include "common/status.h"
+#include "exec/schema_scanner/schema_routine_load_job_scanner.h"
 #include "io/cache/fs_file_cache_storage.h"
 #include "olap/memtable_memory_limiter.h"
 #include "olap/options.h"
@@ -50,7 +51,6 @@ class MemoryPool;
 namespace doris {
 namespace vectorized {
 class VDataStreamMgr;
-class ScannerScheduler;
 class SpillStreamManager;
 class DeltaWriterV2Pool;
 class DictionaryFactory;
@@ -105,6 +105,7 @@ class LoadStreamMgr;
 class LoadStreamMapPool;
 class StreamLoadExecutor;
 class RoutineLoadTaskExecutor;
+class StreamLoadRecorderManager;
 class SmallFileMgr;
 class BackendServiceClient;
 class TPaloBrokerServiceClient;
@@ -171,7 +172,7 @@ public:
     // Requires ExenEnv ready
     static Result<BaseTabletSPtr> get_tablet(int64_t tablet_id,
                                              SyncRowsetStats* sync_stats = nullptr,
-                                             bool force_use_cache = false);
+                                             bool force_use_only_cached = false);
 
     static bool ready() { return _s_ready.load(std::memory_order_acquire); }
     static bool tracking_memory() { return _s_tracking_memory.load(std::memory_order_acquire); }
@@ -249,6 +250,7 @@ public:
     ThreadPool* lazy_release_obj_pool() { return _lazy_release_obj_pool.get(); }
     ThreadPool* non_block_close_thread_pool();
     ThreadPool* s3_file_system_thread_pool() { return _s3_file_system_thread_pool.get(); }
+    ThreadPool* udf_close_workers_pool() { return _udf_close_workers_thread_pool.get(); }
 
     void init_file_cache_factory(std::vector<doris::CachePath>& cache_paths);
     io::FileCacheFactory* file_cache_factory() { return _file_cache_factory; }
@@ -280,7 +282,6 @@ public:
     StreamLoadExecutor* stream_load_executor() { return _stream_load_executor.get(); }
     RoutineLoadTaskExecutor* routine_load_task_executor() { return _routine_load_task_executor; }
     HeartbeatFlags* heartbeat_flags() { return _heartbeat_flags; }
-    vectorized::ScannerScheduler* scanner_scheduler() { return _scanner_scheduler; }
     FileMetaCache* file_meta_cache() { return _file_meta_cache; }
     MemTableMemoryLimiter* memtable_memory_limiter() { return _memtable_memory_limiter.get(); }
     WalManager* wal_mgr() { return _wal_manager.get(); }
@@ -468,6 +469,8 @@ private:
     std::unique_ptr<ThreadPool> _lazy_release_obj_pool;
     std::unique_ptr<ThreadPool> _non_block_close_thread_pool;
     std::unique_ptr<ThreadPool> _s3_file_system_thread_pool;
+    // for java-udf to close
+    std::unique_ptr<ThreadPool> _udf_close_workers_thread_pool;
 
     FragmentMgr* _fragment_mgr = nullptr;
     WorkloadGroupMgr* _workload_group_manager = nullptr;
@@ -487,9 +490,9 @@ private:
 
     std::unique_ptr<StreamLoadExecutor> _stream_load_executor;
     RoutineLoadTaskExecutor* _routine_load_task_executor = nullptr;
+    StreamLoadRecorderManager* _stream_load_recorder_manager = nullptr;
     SmallFileMgr* _small_file_mgr = nullptr;
     HeartbeatFlags* _heartbeat_flags = nullptr;
-    vectorized::ScannerScheduler* _scanner_scheduler = nullptr;
 
     // To save meta info of external file, such as parquet footer.
     FileMetaCache* _file_meta_cache = nullptr;

@@ -605,7 +605,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(ArrayPopFront.class, "array_popfront"),
             scalar(ArrayPosition.class, "array_position"),
             scalar(ArrayProduct.class, "array_product"),
-            scalar(ArrayPushBack.class, "Array_pushback"),
+            scalar(ArrayPushBack.class, "Array_pushback", "array_append"),
             scalar(ArrayPushFront.class, "Array_pushfront"),
             scalar(ArrayRange.class, "array_range", "sequence"),
             scalar(ArrayRemove.class, "array_remove"),

@@ -17,45 +17,67 @@
  * under the License.
  */
 
-%{
+// use C++ parser skeleton
+%language "c++"
+//use strong type, class encapsulated LALR(1) parser
+%skeleton "lalr1.cc"
+//store all values in std::variant (strong type)
+%define api.value.type variant
+//automatically generate constructor for tokens (convenient for C++)
+%define api.token.constructor
+//generated parser class is `wkt_::parser`
+%define api.prefix {wkt_}
+%defines
+
+/* ------------------------------
+ * 1. Headers and forward declarations placed in the .hpp file
+ *    **Generate location**：wkt_yacc.y.hpp(beginning)
+ *    **Useage**：Provide types and forward declarations for the parser and external callers
+ * ------------------------------ */
+%code requires {
+#include <memory>
+#include <variant>
+#include <vector>
+#include "geo/wkt_parse_ctx.h"   // we need WktParseContext to pass scaninfo to lexer
 #include "common/logging.h"
 #include "geo/wkt_parse_type.h"
 #include "geo/geo_types.h"
 
 struct WktParseContext;
-void wkt_error(WktParseContext* ctx, const char* msg) {
-}
-/* forward declare this class for wkt_parse declaration in yacc.y.cpp */
-%}
-
-%union {
-    double double_value;
-    doris::GeoCoordinate coordinate_value;
-    doris::GeoCoordinateList* coordinate_list_value;
-    doris::GeoCoordinateListList* coordinate_list_list_value;
-    std::vector<doris::GeoCoordinateListList>* multi_polygon_value;
-    doris::GeoShape* shape_value;
 }
 
+/* ------------------------------
+ * 2. The function declarations provided to the lexer for calls are placed in the .hpp file.
+ *    **Generate location**：wkt_yacc.y.hpp(ending)
+ *    **Useage**：The lexer interacts with the parser, returning tokens.
+ * ------------------------------ */
+%code provides {
+wkt_::parser::symbol_type wkt_lex(WktParseContext* ctx, yyscan_t scanner);
+}
+
+/* ------------------------------
+ * 3. The parser member function implementation is placed in the .cpp file.
+ *    **Generate location**：wkt_yacc.y.cpp
+ *    **Useage**：Parser internal use, for example error() implementation
+ * ------------------------------ */
 %code {
-/* we need yyscan_t in WktParseContext, so we include lex.h here,
- * and we should include this header after union define, because it
- * need YYSTYPE
- */
-#include "geo/wkt_lex.l.h"
-/* we need WktParseContext to pass scaninfo to lexer */
-#include "geo/wkt_parse_ctx.h"
+#include <string>
+#include "common/exception.h"
 
-#define WKT_LEX_PARAM ctx->scaninfo
+namespace wkt_ {
+    // For syntax errors(e.g., `POIN(1 2)`, `POINT(1, 2)`), parser::error() does nothing.
+    // The parse_wkt() function will set ctx.parse_status to GEO_PARSE_WKT_SYNTAX_ERROR.
+    // For semantic errors (e.g., invalid coordinates), ctx.parse_status is set
+    // in the grammar rules before calling YYABORT.
+    void parser::error(const std::string& msg) {}
+
+} // namespace wkt_
 }
 
-%define api.pure full
 %parse-param { WktParseContext* ctx }
-%lex-param { WKT_LEX_PARAM }
-
-/* for multi-thread */
-%define api.prefix {wkt_}
-%defines
+%parse-param { yyscan_t scanner }
+%lex-param { WktParseContext* ctx }
+%lex-param { yyscan_t scanner }
 
 %expect 0
 
@@ -65,45 +87,39 @@ void wkt_error(WktParseContext* ctx, const char* msg) {
 %token KW_POINT KW_LINESTRING KW_POLYGON
 %token KW_MULTI_POINT KW_MULTI_LINESTRING KW_MULTI_POLYGON
 
-%token <double_value> NUMERIC
+%token <double> NUMERIC
 
-%type <None> shape
-%type <shape_value> point linestring polygon multi_polygon
-%type <coordinate_value> coordinate
-%type <coordinate_list_value> coordinate_list
-%type <coordinate_list_list_value> coordinate_list_list
-%type <multi_polygon_value> multi_polygon_list
-
-%destructor { delete $$; } coordinate_list
-%destructor { delete $$; } coordinate_list_list
-%destructor { delete $$; } point
-%destructor { delete $$; } linestring
-%destructor { delete $$; } polygon
-%destructor { delete $$; } multi_polygon
-%destructor { delete $$; } multi_polygon_list
+%type <std::monostate> shape
+%type <std::unique_ptr<doris::GeoShape>> point linestring polygon multi_polygon
+%type <std::unique_ptr<doris::GeoCoordinate>> coordinate
+%type <std::unique_ptr<doris::GeoCoordinateList>> coordinate_list
+%type <std::unique_ptr<doris::GeoCoordinateListList>> coordinate_list_list
+%type <std::unique_ptr<std::vector<doris::GeoCoordinateListList>>> multi_polygon_list
 
 %%
 
 shape:
     point 
-    { ctx->shape = $1; }
+    { ctx->shape = std::move($1); }
     | linestring
-    { ctx->shape = $1; }
+    { ctx->shape = std::move($1); }
     | polygon
-    { ctx->shape = $1; }
+    { ctx->shape = std::move($1); }
     | multi_polygon
-    { ctx->shape = $1; }
+    { ctx->shape = std::move($1); }
     ;
 
 point:
      KW_POINT '(' coordinate ')'
      {
         std::unique_ptr<doris::GeoPoint> point = doris::GeoPoint::create_unique();
-        ctx->parse_status = point->from_coord($3);
+        const doris::GeoCoordinate& coord = *$3;
+        ctx->parse_status = point->from_coord(coord);
         if (ctx->parse_status != doris::GEO_PARSE_OK) {
             YYABORT;
         }
-        $$ = point.release();
+        std::unique_ptr<doris::GeoShape> shape = std::move(point);
+        yylhs.value.emplace<std::unique_ptr<doris::GeoShape>>(std::move(shape));
      }
      ;
 
@@ -111,13 +127,14 @@ linestring:
     KW_LINESTRING '(' coordinate_list ')'
     {
         // to avoid memory leak
-        std::unique_ptr<doris::GeoCoordinateList> list($3);
+        std::unique_ptr<doris::GeoCoordinateList> list = std::move($3);
         std::unique_ptr<doris::GeoLine> line = doris::GeoLine::create_unique();
-        ctx->parse_status = line->from_coords(*$3);
+        ctx->parse_status = line->from_coords(*list);
         if (ctx->parse_status != doris::GEO_PARSE_OK) {
             YYABORT;
         }
-        $$ = line.release();
+        std::unique_ptr<doris::GeoShape> shape = std::move(line);
+        yylhs.value.emplace<std::unique_ptr<doris::GeoShape>>(std::move(shape));
     }
     ;
 
@@ -125,13 +142,14 @@ polygon:
     KW_POLYGON '(' coordinate_list_list ')'
     {
         // to avoid memory leak
-        std::unique_ptr<doris::GeoCoordinateListList> list($3);
+        std::unique_ptr<doris::GeoCoordinateListList> list = std::move($3);
         std::unique_ptr<doris::GeoPolygon> polygon = doris::GeoPolygon::create_unique();
-        ctx->parse_status = polygon->from_coords(*$3);
+        ctx->parse_status = polygon->from_coords(*list);
         if (ctx->parse_status != doris::GEO_PARSE_OK) {
             YYABORT;
         }
-        $$ = polygon.release();
+        std::unique_ptr<doris::GeoShape> shape = std::move(polygon);
+        yylhs.value.emplace<std::unique_ptr<doris::GeoShape>>(std::move(shape));
     }
     ;
 
@@ -139,62 +157,75 @@ multi_polygon:
     KW_MULTI_POLYGON '(' multi_polygon_list ')'
     {
         // to avoid memory leak
-        std::unique_ptr<std::vector<doris::GeoCoordinateListList>> list($3);
+        std::unique_ptr<std::vector<doris::GeoCoordinateListList>> list = std::move($3);
         std::unique_ptr<doris::GeoMultiPolygon> multi_polygon = doris::GeoMultiPolygon::create_unique();
-        ctx->parse_status = multi_polygon->from_coords(*$3);
+        ctx->parse_status = multi_polygon->from_coords(*list);
         if (ctx->parse_status != doris::GEO_PARSE_OK) {
             YYABORT;
         }
-        $$ = multi_polygon.release();
+        std::unique_ptr<doris::GeoShape> shape = std::move(multi_polygon);
+        yylhs.value.emplace<std::unique_ptr<doris::GeoShape>>(std::move(shape));
     }
     ;
 
 multi_polygon_list:
     multi_polygon_list ',' '(' coordinate_list_list ')'
     {
-        $1->push_back(std::move(*$4));
-        delete $4;
-        $$ = $1; 
+        auto vec = std::move($1);
+        auto list = std::move($4);
+        vec->push_back(std::move(*list));
+        yylhs.value.emplace<std::unique_ptr<std::vector<doris::GeoCoordinateListList>>>(std::move(vec));
     }
     | '(' coordinate_list_list ')'
     {
-        $$ = new std::vector<doris::GeoCoordinateListList>();
-        $$->push_back(std::move(*$2));
-        delete $2;
+        auto list = std::move($2);
+        auto vec = std::make_unique<std::vector<doris::GeoCoordinateListList>>();
+        vec->push_back(std::move(*list));
+        yylhs.value.emplace<std::unique_ptr<std::vector<doris::GeoCoordinateListList>>>(std::move(vec));
     }
     ;
 
 coordinate_list_list:
     coordinate_list_list ',' '(' coordinate_list ')'
     {
-        $1->add($4);
-        $$ = $1;
+        auto outer = std::move($1);
+        auto inner = std::move($4);
+        outer->add(std::move(inner));
+        yylhs.value.emplace<std::unique_ptr<doris::GeoCoordinateListList>>(std::move(outer));
     }
     | '(' coordinate_list ')'
     {
-        $$ = new doris::GeoCoordinateListList();
-        $$->add($2);
+        auto inner = std::move($2);
+        auto outer = std::make_unique<doris::GeoCoordinateListList>();
+        outer->add(std::move(inner));
+        yylhs.value.emplace<std::unique_ptr<doris::GeoCoordinateListList>>(std::move(outer));
     }
     ;
 
 coordinate_list:
     coordinate_list ',' coordinate
     { 
-        $1->add($3);
-        $$ = $1;
+        auto list = std::move($1);
+        auto coord = std::move($3);
+        list->add(*coord);
+        yylhs.value.emplace<std::unique_ptr<doris::GeoCoordinateList>>(std::move(list));
     }
     | coordinate
     {
-        $$ = new doris::GeoCoordinateList();
-        $$->add($1);
+        auto coord = std::move($1);
+        auto list = std::make_unique<doris::GeoCoordinateList>();
+        list->add(*coord);
+        yylhs.value.emplace<std::unique_ptr<doris::GeoCoordinateList>>(std::move(list));
     }
     ;
 
 coordinate:
     NUMERIC NUMERIC
     {
-        $$.x = $1;
-        $$.y = $2;
+        auto coord = std::make_unique<doris::GeoCoordinate>();
+        coord->x = $1;
+        coord->y = $2;
+        yylhs.value.emplace<std::unique_ptr<doris::GeoCoordinate>>(std::move(coord));
     }
     ;
 

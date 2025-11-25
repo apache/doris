@@ -74,6 +74,90 @@ suite("test_pushdown_explain") {
         contains "pushAggOp=NONE"
     }
 
+    // Test cases for NULL column handling in count pushdown optimization
+    sql "DROP TABLE IF EXISTS test_null_columns"
+    sql """ CREATE TABLE `test_null_columns` (
+        `id` INT NOT NULL COMMENT 'ID',
+        `nullable_col` VARCHAR(11) NULL COMMENT 'Nullable column',
+        `non_nullable_col` VARCHAR(11) NOT NULL COMMENT 'Non-nullable column'
+    ) ENGINE=OLAP
+    DUPLICATE KEY(`id`)
+    DISTRIBUTED BY HASH(`id`) BUCKETS 48
+    PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1",
+        "min_load_replica_num" = "-1",
+        "is_being_synced" = "false",
+        "colocate_with" = "groupa1",
+        "storage_format" = "V2",
+        "light_schema_change" = "true",
+        "disable_auto_compaction" = "false",
+        "enable_single_replica_compaction" = "false"
+    ); """
+    sql """ insert into test_null_columns values(1, NULL, "value1"); """
+    sql """ insert into test_null_columns values(2, NULL, "value2"); """
+    sql """ insert into test_null_columns values(3, "not_null", "value3"); """
+    
+    // Test count(1) and count(*) with NULL columns - should push Count optimization
+    explain {
+        sql("select count(1) from test_null_columns;")
+        contains "pushAggOp=COUNT"
+    }
+    explain {
+        sql("select count(*) from test_null_columns;")
+        contains "pushAggOp=COUNT"
+    }
+
+    // test projection in agg pushdown rule
+    explain {
+        sql("select count(a) from (select non_nullable_col as a from test_null_columns) t1;")
+        contains "pushAggOp=COUNT"
+    }
+    explain {
+        sql("select count(a) from (select nullable_col as a from test_null_columns) t1;")
+        contains "pushAggOp=NONE"
+    }
+    explain {
+        sql("select count(a), min(a) from (select non_nullable_col as a from test_null_columns) t1;")
+        contains "pushAggOp=MIX"
+    }
+    explain {
+        sql("select count(a), min(a) from (select nullable_col as a from test_null_columns) t1;")
+        contains "pushAggOp=NONE"
+    }
+    explain {
+        sql("select count(a), min(b) from (select nullable_col as a, non_nullable_col as b from test_null_columns) t1;")
+        contains "pushAggOp=NONE"
+    }
+    explain {
+        sql("select count(b), min(a) from (select nullable_col as a, non_nullable_col as b from test_null_columns) t1;")
+        contains "pushAggOp=MIX"
+    }
+    explain {
+        sql("select count(non_nullable_col), max(nullable_col) from test_null_columns;")
+        contains "pushAggOp=MIX"
+    }
+    explain {
+        sql("select count(nullable_col), max(non_nullable_col) from test_null_columns;")
+        contains "pushAggOp=NONE"
+    }
+
+    explain {
+        sql("select count(non_nullable_col), min(non_nullable_col), max(non_nullable_col) from test_null_columns;")
+        contains "pushAggOp=MIX"
+    }
+    explain {
+        sql("select count(), min(non_nullable_col), max(non_nullable_col) from test_null_columns;")
+        contains "pushAggOp=MIX"
+    }
+    explain {
+        sql("select count(*), min(non_nullable_col), max(non_nullable_col) from test_null_columns;")
+        contains "pushAggOp=MIX"
+    }
+    explain {
+        sql("select count(nullable_col), min(nullable_col), max(nullable_col) from test_null_columns;")
+        contains "pushAggOp=NONE"
+    }
+
     sql "DROP TABLE IF EXISTS table_unique0"
     sql """ 
         CREATE TABLE `table_unique0` (

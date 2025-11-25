@@ -38,6 +38,12 @@ public abstract class HdfsCompatibleConnectivityTester implements StorageConnect
     }
 
     @Override
+    public String getErrorHint() {
+        return "Please check HDFS namenode connectivity (fs.defaultFS), user permissions, and "
+                + "Kerberos configuration if applicable";
+    }
+
+    @Override
     public void testFeConnection() throws Exception {
         // TODO: Implement HDFS connectivity test in the future if needed
         // Currently, HDFS connectivity test is not required

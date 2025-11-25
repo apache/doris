@@ -36,8 +36,8 @@ public:
         return Status::OK();
     }
 
-    virtual doris::Status execute(VExprContext* context, doris::vectorized::Block* block,
-                                  int* result_column_id, const DataTypePtr& result_type,
+    virtual doris::Status execute(VExprContext* context, const doris::vectorized::Block* block,
+                                  ColumnPtr& result_column, const DataTypePtr& result_type,
                                   const VExprSPtrs& children) const = 0;
 
     int batch_size;

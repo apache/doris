@@ -758,7 +758,7 @@ struct StGeoFromText {
         std::string buf;
         for (int row = 0; row < size; ++row) {
             auto value = geo->get_data_at(row);
-            std::unique_ptr<GeoShape> shape(GeoShape::from_wkt(value.data, value.size, &status));
+            auto shape = GeoShape::from_wkt(value.data, value.size, status);
             if (shape == nullptr || status != GEO_PARSE_OK ||
                 (Impl::shape_type != GEO_SHAPE_ANY && shape->type() != Impl::shape_type)) {
                 null_map_data[row] = 1;
@@ -803,7 +803,7 @@ struct StGeoFromWkb {
         std::string buf;
         for (int row = 0; row < size; ++row) {
             auto value = geo->get_data_at(row);
-            std::unique_ptr<GeoShape> shape(GeoShape::from_wkb(value.data, value.size, &status));
+            std::unique_ptr<GeoShape> shape = GeoShape::from_wkb(value.data, value.size, status);
             if (shape == nullptr || status != GEO_PARSE_OK) {
                 null_map_data[row] = 1;
                 res->insert_default();

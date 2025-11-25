@@ -69,6 +69,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.visitor.ExpressionLineageReplacer;
+import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.types.coercion.NumericType;
 import org.apache.doris.qe.ConnectContext;
 
@@ -544,6 +545,32 @@ public class ExpressionUtils {
     }
 
     /**
+     * replaceNullAware, if could not be replaced by map, the return null
+     */
+    public static Expression replaceNullAware(Expression expr,
+            Map<? extends Expression, ? extends Expression> replaceMap) {
+        Set<Boolean> containNull = new HashSet<>();
+        Expression finalReplacedExpr = expr.rewriteDownShortCircuit(e -> {
+            if (!containNull.isEmpty()) {
+                return e;
+            }
+            Expression replacedExpr = replaceMap.get(e);
+            if (replacedExpr == null && e instanceof SlotReference
+                    && e.getDataType() instanceof VariantType) {
+                // this is valid, because the variant expression would be extended in expression rewrite
+                return e;
+            }
+            if (replacedExpr == null && e instanceof NamedExpression) {
+                // if replace named expression failed, return null directly
+                containNull.add(true);
+                return e;
+            }
+            return replacedExpr == null ? e : replacedExpr;
+        });
+        return containNull.isEmpty() ? finalReplacedExpr : null;
+    }
+
+    /**
      * Replace expression node in the expression tree by `replaceMap` in top-down manner.
      */
     public static List<NamedExpression> replaceNamedExpressions(List<? extends NamedExpression> namedExpressions,
@@ -617,40 +644,10 @@ public class ExpressionUtils {
         return true;
     }
 
-    /** matchNumericType */
-    public static boolean matchNumericType(List<Expression> children) {
-        for (Expression child : children) {
-            if (!child.getDataType().isNumericType()) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    /** matchDateLikeType */
-    public static boolean matchDateLikeType(List<Expression> children) {
-        for (Expression child : children) {
-            if (!child.getDataType().isDateLikeType()) {
-                return false;
-            }
-        }
-        return true;
-    }
-
     /** hasNullLiteral */
     public static boolean hasNullLiteral(List<Expression> children) {
         for (Expression child : children) {
             if (child instanceof NullLiteral) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    /** hasOnlyMetricType */
-    public static boolean hasOnlyMetricType(List<Expression> children) {
-        for (Expression child : children) {
-            if (child.getDataType().isOnlyMetricType()) {
                 return true;
             }
         }

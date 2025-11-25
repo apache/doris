@@ -51,10 +51,8 @@ PaimonSysTableJniReader::PaimonSysTableJniReader(
             "org/apache/doris/paimon/PaimonSysTableJniScanner", std::move(params), required_fields);
 }
 
-Status PaimonSysTableJniReader::init_reader(
-        const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range) {
-    _colname_to_value_range = colname_to_value_range;
-    RETURN_IF_ERROR(_jni_connector->init(colname_to_value_range));
+Status PaimonSysTableJniReader::init_reader() {
+    RETURN_IF_ERROR(_jni_connector->init());
     return _jni_connector->open(_state, _profile);
 }
 

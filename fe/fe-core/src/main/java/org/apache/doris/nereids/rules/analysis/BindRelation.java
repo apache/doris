@@ -102,7 +102,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
-import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.collections4.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -424,7 +424,8 @@ public class BindRelation extends OneAnalysisRuleFactory {
                     if (hmsTable.getDlaType() == DLAType.HUDI) {
                         LogicalHudiScan hudiScan = new LogicalHudiScan(unboundRelation.getRelationId(), hmsTable,
                                 qualifierWithoutTableName, ImmutableList.of(), Optional.empty(),
-                                unboundRelation.getTableSample(), unboundRelation.getTableSnapshot());
+                                unboundRelation.getTableSample(), unboundRelation.getTableSnapshot(),
+                                Optional.empty());
                         hudiScan = hudiScan.withScanParams(
                                 hmsTable, Optional.ofNullable(unboundRelation.getScanParams()));
                         return hudiScan;
@@ -434,7 +435,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
                                 ImmutableList.of(),
                                 unboundRelation.getTableSample(),
                                 unboundRelation.getTableSnapshot(),
-                                Optional.ofNullable(unboundRelation.getScanParams()));
+                                Optional.ofNullable(unboundRelation.getScanParams()), Optional.empty());
                     }
                 case ICEBERG_EXTERNAL_TABLE:
                     IcebergExternalTable icebergExternalTable = (IcebergExternalTable) table;
@@ -464,7 +465,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
                         qualifierWithoutTableName, ImmutableList.of(),
                         unboundRelation.getTableSample(),
                         unboundRelation.getTableSnapshot(),
-                        Optional.ofNullable(unboundRelation.getScanParams()));
+                        Optional.ofNullable(unboundRelation.getScanParams()), Optional.empty());
                 case PAIMON_EXTERNAL_TABLE:
                 case MAX_COMPUTE_EXTERNAL_TABLE:
                 case TRINO_CONNECTOR_EXTERNAL_TABLE:
@@ -474,7 +475,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
                             qualifierWithoutTableName, ImmutableList.of(),
                             unboundRelation.getTableSample(),
                             unboundRelation.getTableSnapshot(),
-                            Optional.ofNullable(unboundRelation.getScanParams()));
+                            Optional.ofNullable(unboundRelation.getScanParams()), Optional.empty());
                 case SCHEMA:
                     LogicalSchemaScan schemaScan = new LogicalSchemaScan(unboundRelation.getRelationId(), table,
                             qualifierWithoutTableName);
