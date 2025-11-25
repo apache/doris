@@ -2509,10 +2509,6 @@ Status OrcReader::on_string_dicts_loaded(
         int dict_pos = -1;
         int index = 0;
         for (const auto slot_desc : _tuple_descriptor->slots()) {
-            if (!slot_desc->is_materialized()) {
-                // should be ignored from reading
-                continue;
-            }
             if (slot_desc->id() == slot_id) {
                 auto data_type = slot_desc->get_data_type_ptr();
                 if (data_type->is_nullable()) {

@@ -204,7 +204,6 @@ TEST_F(PipelineTest, HAPPY_PATH) {
                         .set_nullIndicatorBit(-1)
                         .set_byteOffset(0)
                         .set_slotIdx(0)
-                        .set_isMaterialized(true)
                         .set_colName("test_column0")
                         .build();
 
@@ -509,7 +508,6 @@ TEST_F(PipelineTest, PLAN_LOCAL_EXCHANGE) {
                         .set_nullIndicatorBit(-1)
                         .set_byteOffset(0)
                         .set_slotIdx(0)
-                        .set_isMaterialized(true)
                         .set_colName("test_column0")
                         .build();
 
@@ -605,7 +603,6 @@ TEST_F(PipelineTest, PLAN_HASH_JOIN) {
                         .set_nullIndicatorBit(-1)
                         .set_byteOffset(0)
                         .set_slotIdx(0)
-                        .set_isMaterialized(true)
                         .set_colName("test_column0")
                         .build();
 
@@ -624,7 +621,6 @@ TEST_F(PipelineTest, PLAN_HASH_JOIN) {
                         .set_nullIndicatorBit(-1)
                         .set_byteOffset(0)
                         .set_slotIdx(0)
-                        .set_isMaterialized(true)
                         .set_colName("test_column1")
                         .build();
 
@@ -643,7 +639,6 @@ TEST_F(PipelineTest, PLAN_HASH_JOIN) {
                         .set_nullIndicatorBit(-1)
                         .set_byteOffset(0)
                         .set_slotIdx(0)
-                        .set_isMaterialized(true)
                         .set_colName("test_column0")
                         .build();
         TSlotDescriptor slot3 =
@@ -660,7 +655,6 @@ TEST_F(PipelineTest, PLAN_HASH_JOIN) {
                         .set_nullIndicatorBit(-1)
                         .set_byteOffset(4)
                         .set_slotIdx(1)
-                        .set_isMaterialized(true)
                         .set_colName("test_column1")
                         .build();
 

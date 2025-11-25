@@ -209,9 +209,6 @@ protected:
         TSlotDescriptor slot_desc;
         slot_desc.id = 0;
         slot_desc.parent = 0;
-        slot_desc.isMaterialized = true;
-        slot_desc.need_materialize = true;
-        slot_desc.__isset.need_materialize = true;
         TTypeNode type_node;
         type_node.type = TTypeNodeType::type::SCALAR;
         TScalarType scalar_type;

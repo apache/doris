@@ -86,12 +86,8 @@ Block::Block(std::initializer_list<ColumnWithTypeAndName> il) : data {il} {}
 
 Block::Block(ColumnsWithTypeAndName data_) : data {std::move(data_)} {}
 
-Block::Block(const std::vector<SlotDescriptor*>& slots, size_t block_size,
-             bool ignore_trivial_slot) {
+Block::Block(const std::vector<SlotDescriptor*>& slots, size_t block_size) {
     for (auto* const slot_desc : slots) {
-        if (ignore_trivial_slot && !slot_desc->is_materialized()) {
-            continue;
-        }
         auto column_ptr = slot_desc->get_empty_mutable_column();
         column_ptr->reserve(block_size);
         insert(ColumnWithTypeAndName(std::move(column_ptr), slot_desc->get_data_type_ptr(),
@@ -99,13 +95,12 @@ Block::Block(const std::vector<SlotDescriptor*>& slots, size_t block_size,
     }
 }
 
-Block::Block(const std::vector<SlotDescriptor>& slots, size_t block_size,
-             bool ignore_trivial_slot) {
+Block::Block(const std::vector<SlotDescriptor>& slots, size_t block_size) {
     std::vector<SlotDescriptor*> slot_ptrs(slots.size());
     for (size_t i = 0; i < slots.size(); ++i) {
         slot_ptrs[i] = const_cast<SlotDescriptor*>(&slots[i]);
     }
-    *this = Block(slot_ptrs, block_size, ignore_trivial_slot);
+    *this = Block(slot_ptrs, block_size);
 }
 
 Status Block::deserialize(const PBlock& pblock, size_t* uncompressed_bytes,

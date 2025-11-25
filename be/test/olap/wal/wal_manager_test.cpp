@@ -177,7 +177,6 @@ void WalManagerTest::_init_desc_table() {
         slot_desc.colName = "c1";
         slot_desc.slotIdx = 1;
         slot_desc.col_unique_id = 0;
-        slot_desc.isMaterialized = true;
 
         t_desc_table.slotDescriptors.push_back(slot_desc);
     }
@@ -205,7 +204,6 @@ void WalManagerTest::_init_desc_table() {
         slot_desc.colName = "c2";
         slot_desc.slotIdx = 2;
         slot_desc.col_unique_id = 1;
-        slot_desc.isMaterialized = true;
 
         t_desc_table.slotDescriptors.push_back(slot_desc);
     }
@@ -233,7 +231,6 @@ void WalManagerTest::_init_desc_table() {
         slot_desc.colName = "c3";
         slot_desc.slotIdx = 3;
         slot_desc.col_unique_id = 2;
-        slot_desc.isMaterialized = true;
 
         t_desc_table.slotDescriptors.push_back(slot_desc);
     }

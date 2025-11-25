@@ -986,9 +986,6 @@ Status NewJsonReader::_simdjson_set_column_value(simdjson::ondemand::object* val
             column_ptr->insert_default();
             continue;
         }
-        if (!slot_desc->is_materialized()) {
-            continue;
-        }
         if (column_ptr->size() < cur_row_count + 1) {
             DCHECK(column_ptr->size() == cur_row_count);
             if (_should_process_skip_bitmap_col()) {
@@ -1425,9 +1422,6 @@ Status NewJsonReader::_simdjson_write_columns_by_jsonpath(
 
     for (size_t i = 0; i < slot_descs.size(); i++) {
         auto* slot_desc = slot_descs[i];
-        if (!slot_desc->is_materialized()) {
-            continue;
-        }
         auto* column_ptr = block.get_by_position(i).column->assume_mutable().get();
         simdjson::ondemand::value json_value;
         Status st;
