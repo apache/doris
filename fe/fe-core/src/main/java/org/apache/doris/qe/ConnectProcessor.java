@@ -49,7 +49,6 @@ import org.apache.doris.mysql.MysqlServerStatusFlag;
 import org.apache.doris.nereids.SqlCacheContext;
 import org.apache.doris.nereids.SqlCacheContext.CacheKeyType;
 import org.apache.doris.nereids.StatementContext;
-import org.apache.doris.nereids.analyzer.UnboundResultSink;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.nereids.exceptions.SyntaxParseException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
@@ -254,21 +253,6 @@ public abstract class ConnectProcessor {
             stmts = parseWithFallback(originStmt, convertedStmt, sessionVariable);
             if (stmts == null || stmts.isEmpty()) {
                 return;
-            }
-        }
-
-        // check cache hit
-        // This is only for test cases, to check if the sql cache is hit correctly.
-        StatementBase checkStmt = stmts.get(0);
-        if (checkStmt instanceof LogicalPlanAdapter && wantToParseSqlFromSqlCache) {
-            // UnboundResultSink means this is a query stmt, and we only check for query stmt here.
-            if (((LogicalPlanAdapter) checkStmt).getLogicalPlan() instanceof UnboundResultSink
-                    && ctx.getSessionVariable().testQueryCacheHit.equals("sql") && cachedStmts == null) {
-                String errMsg = "The variable test_query_cache_hit is set to 'sql'"
-                        + ", but the query cache is not hit.";
-                ctx.getState().setError(ErrorCode.ERR_COMMON_ERROR, errMsg);
-                ctx.getState().setErrType(QueryState.ErrType.OTHER_ERR);
-                throw new UserException(errMsg);
             }
         }
 
