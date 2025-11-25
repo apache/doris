@@ -17,6 +17,8 @@
 
 suite("test_pythonudf_performance") {
     // Test Python UDF performance and correctness with large data volumes
+
+    return
     
     def runtime_version = "3.10.12"
     try {

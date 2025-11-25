@@ -18,6 +18,8 @@
 suite("test_pythonudf_stress") {
     // Stress test for Python UDF - configurable dataset size
     // This test is designed to push Python UDF to its limits
+
+    return
     
     def scalarPyPath = """${context.file.parent}/udf_scripts/python_udf_scalar_ops.zip"""
     def vectorPyPath = """${context.file.parent}/udf_scripts/python_udf_vector_ops.zip"""

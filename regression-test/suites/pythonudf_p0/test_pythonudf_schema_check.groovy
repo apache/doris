@@ -56,17 +56,17 @@ suite("test_pythonudf_schema_check") {
         // ==================== Test 1: Integer Type Promotion (TINYINT -> INT) ====================
         log.info("=== Test 1: TINYINT can be used where INT is expected ===")
         
-        sql """ DROP FUNCTION IF EXISTS py_add_int(INT, INT); """
+        sql """ DROP FUNCTION IF EXISTS py_add_int_sc(INT, INT); """
         sql """
-        CREATE FUNCTION py_add_int(INT, INT) 
+        CREATE FUNCTION py_add_int_sc(INT, INT) 
         RETURNS INT 
         PROPERTIES (
             "type" = "PYTHON_UDF",
-            "symbol" = "py_add_int",
+            "symbol" = "py_add_int_sc",
             "runtime_version" = "${runtime_version}"
         )
         AS \$\$
-def py_add_int(a, b):
+def py_add_int_sc(a, b):
     if a is None or b is None:
         return None
     return a + b
@@ -79,7 +79,7 @@ def py_add_int(a, b):
             id,
             tiny_val,
             int_val,
-            py_add_int(tiny_val, int_val) AS result
+            py_add_int_sc(tiny_val, int_val) AS result
         FROM test_type_compat_table
         ORDER BY id;
         """
@@ -92,7 +92,7 @@ def py_add_int(a, b):
             id,
             small_val,
             int_val,
-            py_add_int(small_val, int_val) AS result
+            py_add_int_sc(small_val, int_val) AS result
         FROM test_type_compat_table
         ORDER BY id;
         """
@@ -383,7 +383,7 @@ def py_vec_scale(values: pd.Series, factor: float) -> pd.Series:
         SELECT 
             id,
             str_val,
-            py_add_int(str_val, int_val) AS result
+            py_add_int_sc(str_val, int_val) AS result
         FROM test_type_compat_table
         ORDER BY id
         LIMIT 1;
@@ -396,7 +396,7 @@ def py_vec_scale(values: pd.Series, factor: float) -> pd.Series:
         SELECT 
             id,
             big_val,
-            py_add_int(big_val, int_val) AS result
+            py_add_int_sc(big_val, int_val) AS result
         FROM test_type_compat_table
         ORDER BY id
         LIMIT 1;
@@ -437,7 +437,7 @@ def py_add_float(a, b):
         SELECT 
             id,
             bool_val,
-            py_add_int(bool_val, int_val) AS result
+            py_add_int_sc(bool_val, int_val) AS result
         FROM test_type_compat_table
         ORDER BY id
         LIMIT 1;
@@ -490,7 +490,7 @@ def py_add_float(a, b):
             id,
             str_val,
             bool_val,
-            py_add_int(str_val, bool_val) AS result
+            py_add_int_sc(str_val, bool_val) AS result
         FROM test_type_compat_table
         ORDER BY id
         LIMIT 1;
@@ -503,12 +503,12 @@ def py_add_float(a, b):
             sql """
             SELECT 
                 id,
-                py_add_int(int_val) AS result
+                py_add_int_sc(int_val) AS result
             FROM test_type_compat_table
             ORDER BY id
             LIMIT 1;
             """
-            exception "Can not found function 'py_add_int' which has 1 arity. Candidate functions are: [py_add_int(INT, INT)]"
+            exception "Can not found function 'py_add_int_sc' which has 1 arity. Candidate functions are: [py_add_int_sc(INT, INT)]"
         }
         
         // ==================== Test 22: Type Incompatibility - FLOAT to INT ====================
@@ -518,7 +518,7 @@ def py_add_float(a, b):
         SELECT 
             id,
             float_val,
-            py_add_int(float_val, int_val) AS result
+            py_add_int_sc(float_val, int_val) AS result
         FROM test_type_compat_table
         ORDER BY id
         LIMIT 1;
@@ -528,7 +528,7 @@ def py_add_float(a, b):
         
     } finally {
         // Cleanup
-        sql """ DROP FUNCTION IF EXISTS py_add_int(INT, INT); """
+        sql """ DROP FUNCTION IF EXISTS py_add_int_sc(INT, INT); """
         sql """ DROP FUNCTION IF EXISTS py_add_bigint(BIGINT, BIGINT); """
         sql """ DROP FUNCTION IF EXISTS py_add_double(DOUBLE, DOUBLE); """
         sql """ DROP FUNCTION IF EXISTS py_add_float(FLOAT, FLOAT); """
