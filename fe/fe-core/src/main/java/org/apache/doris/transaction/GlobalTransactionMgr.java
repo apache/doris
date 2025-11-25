@@ -87,13 +87,14 @@ public class GlobalTransactionMgr implements GlobalTransactionMgrIface {
 
     private Env env;
 
-    private final AutoPartitionCacheManager autoPartitionCacheManager = new AutoPartitionCacheManager();
+    private final AutoPartitionCacheManager autoPartitionCacheManager;
 
     public GlobalTransactionMgr(Env env) {
         this.env = env;
         this.dbIdToDatabaseTransactionMgrs = Maps.newConcurrentMap();
         this.idGenerator = new TransactionIdGenerator();
         this.callbackFactory = new TxnStateCallbackFactory();
+        this.autoPartitionCacheManager = new AutoPartitionCacheManager();
     }
 
     public AutoPartitionCacheManager getAutoPartitionCacheMgr() {
