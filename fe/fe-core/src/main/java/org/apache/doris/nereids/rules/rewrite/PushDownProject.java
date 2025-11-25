@@ -47,6 +47,7 @@ import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
@@ -179,20 +180,30 @@ public class PushDownProject implements RewriteRuleFactory, NormalizeToSlot {
 
         LogicalProject<C> project = ctx.root;
         C child = project.child();
-        PushdownProjectHelper pushdownProjectHelper
-                = new PushdownProjectHelper(ctx.statementContext, child);
 
-        Pair<Boolean, List<NamedExpression>> pushProjects
-                = pushdownProjectHelper.pushDownExpressions(project.getProjects());
+        Optional<Pair<List<Expression>, Map<Integer, List<NamedExpression>>>> pushedResult
+                = pushDownProjectInExpressions(child, (Collection) project.getProjects(), ctx.statementContext);
 
-        if (pushProjects.first) {
-            List<Plan> newJoinChildren = pushdownProjectHelper.buildNewChildren();
-            return new LogicalProject<>(
-                    pushProjects.second,
-                    child.withChildren(newJoinChildren)
-            );
+        if (!pushedResult.isPresent()) {
+            return project;
         }
-        return project;
+
+        List<NamedExpression> remainProjects = (List) pushedResult.get().first;
+        Map<Integer, List<NamedExpression>> childToPushedExpressions = pushedResult.get().second;
+
+        List<Plan> childNewChildren = new ArrayList<>(child.children());
+        for (Entry<Integer, List<NamedExpression>> kv : childToPushedExpressions.entrySet()) {
+            Integer childIndex = kv.getKey();
+            List<NamedExpression> pushedExpression = kv.getValue();
+            Plan childOfChild = child.child(childIndex);
+            List<NamedExpression> newProject = ImmutableList.<NamedExpression>builder()
+                            .addAll(childOfChild.getOutput())
+                            .addAll(pushedExpression)
+                            .build();
+            childNewChildren.set(childIndex, new LogicalProject<>(newProject, childOfChild));
+        }
+
+        return project.withProjectsAndChild(remainProjects, child.withChildren(childNewChildren));
     }
 
     private Plan pushThroughUnion(MatchingContext<LogicalProject<LogicalUnion>> ctx) {
