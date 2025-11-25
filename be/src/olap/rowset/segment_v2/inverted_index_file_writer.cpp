@@ -672,4 +672,19 @@ void InvertedIndexFileWriter::copy_files_data(lucene::store::IndexOutput* output
         copyFile(meta.filename.c_str(), meta.directory, output, buffer, buffer_length);
     }
 }
+
+std::vector<std::string> InvertedIndexFileWriter::get_index_file_names() const {
+    std::vector<std::string> file_names;
+    if (_storage_format == InvertedIndexStorageFormatPB::V2) {
+        file_names.emplace_back(
+                InvertedIndexDescriptor::get_index_file_name_v2(_rowset_id, _seg_id));
+    } else {
+        for (const auto& [index_info, _] : _indices_dirs) {
+            file_names.emplace_back(InvertedIndexDescriptor::get_index_file_name_v1(
+                    _rowset_id, _seg_id, index_info.first, index_info.second));
+        }
+    }
+    return file_names;
+}
+
 } // namespace doris::segment_v2
