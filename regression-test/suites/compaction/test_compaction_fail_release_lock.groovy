@@ -81,13 +81,9 @@ suite("test_compaction_fail_release_lock", "nonConcurrent") {
         boolean running = true
         Thread.sleep(1000)
         StringBuilder sb = new StringBuilder();
-<<<<<<< HEAD
-        sb.append("http://${be_host}:${be_http_port}")
-=======
         Boolean enableTls = (context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false
         def protocol = enableTls ? "https" : "http"
         sb.append("curl -X GET ${protocol}://${be_host}:${be_http_port}")
->>>>>>> 199fbd67fb ([test](compatible) support mtls mode in regression cases (#5891))
         sb.append("/api/compaction/show?tablet_id=")
         sb.append(tablet_id)
         if (enableTls) {
@@ -109,11 +105,6 @@ suite("test_compaction_fail_release_lock", "nonConcurrent") {
         do {
             Thread.sleep(1000)
             StringBuilder sb = new StringBuilder();
-<<<<<<< HEAD
-            sb.append("http://${be_host}:${be_http_port}")
-            sb.append("/api/compaction/run_status?tablet_id=")
-            sb.append(tablet_id)
-=======
         Boolean enableTls = (context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false
         def protocol = enableTls ? "https" : "http"
         sb.append("curl -X GET ${protocol}://${be_host}:${be_http_port}")
@@ -124,7 +115,6 @@ suite("test_compaction_fail_release_lock", "nonConcurrent") {
             sb.append(" --key ${context.config.otherConfigs.get("trustCAKey")}")
             sb.append(" --cacert ${context.config.otherConfigs.get("trustCACert")}")
         }
->>>>>>> 199fbd67fb ([test](compatible) support mtls mode in regression cases (#5891))
 
             String command = sb.toString()
             def (code, out, err) = curl('GET', command)
