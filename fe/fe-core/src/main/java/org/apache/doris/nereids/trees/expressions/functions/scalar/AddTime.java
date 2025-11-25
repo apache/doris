@@ -19,7 +19,6 @@ package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.functions.ComputeSignatureForTimeArithmetic;
 import org.apache.doris.nereids.trees.expressions.functions.DateAddSubMonotonic;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
@@ -37,10 +36,10 @@ import java.util.List;
  * ScalarFunction 'add_time'.
  */
 public class AddTime extends ScalarFunction implements BinaryExpression, ExplicitlyCastableSignature,
-        ComputeSignatureForTimeArithmetic, PropagateNullable, DateAddSubMonotonic {
+        PropagateNullable, DateAddSubMonotonic {
 
     private static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(DateTimeV2Type.SYSTEM_DEFAULT).args(DateTimeV2Type.SYSTEM_DEFAULT,
+            FunctionSignature.ret(DateTimeV2Type.WILDCARD).args(DateTimeV2Type.WILDCARD,
                     TimeV2Type.WILDCARD),
             FunctionSignature.ret(TimeV2Type.WILDCARD).args(TimeV2Type.WILDCARD, TimeV2Type.WILDCARD));
 

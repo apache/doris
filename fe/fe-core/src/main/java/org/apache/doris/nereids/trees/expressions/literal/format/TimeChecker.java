@@ -34,20 +34,6 @@ public class TimeChecker extends FormatChecker {
                 // time
                 and("time format",
                     option("sign", or(ch('-'), ch('+'))),
-<<<<<<< HEAD
-                    // colon-format
-                    and("colon format",
-                        digit(1), // hour
-                        ch(':'),
-                        digit(1, 2), // minute
-                        option("second and micro second",
-                            and(
-                                ch(':'),
-                                digit(1, 2),
-                                option("micro second", nanoSecond())
-                            )
-                        ) // second
-=======
                     or(
                         // colon-format
                         and("colon format",
@@ -62,7 +48,6 @@ public class TimeChecker extends FormatChecker {
                                 )
                             ) // second
                         )
->>>>>>> dc97f4efd76 ([opt](function) better signature match for time type)
                     )
                 );
     }
