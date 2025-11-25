@@ -31,6 +31,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
@@ -2163,7 +2164,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             StmtExecutor executor = new StmtExecutor(ctx, originStmt);
             httpStreamParams = executor.generateHttpStreamPlan(ctx.queryId());
 
-            Coordinator coord = new Coordinator(ctx, executor.planner());
+            Coordinator coord = EnvFactory.getInstance()
+                    .createCoordinator(ctx, executor.planner(), ctx.getStatsErrorEstimator());
             coord.setLoadMemLimit(request.getExecMemLimit());
             coord.setQueryType(TQueryType.LOAD);
             TableIf table = httpStreamParams.getTable();
