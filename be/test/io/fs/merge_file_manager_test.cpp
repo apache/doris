@@ -563,6 +563,7 @@ TEST_F(MergeFileManagerTest, CleanupExpiredDataRemovesOldEntries) {
 }
 
 TEST_F(MergeFileManagerTest, MergeFileBvarMetricsUpdated) {
+    manager->reset_merge_file_bvars_for_test();
     auto state = std::make_shared<MergeFileManager::MergeFileState>();
     state->total_size = 300;
     MergeFileSegmentIndex idx1;
@@ -579,6 +580,13 @@ TEST_F(MergeFileManagerTest, MergeFileBvarMetricsUpdated) {
     EXPECT_EQ(manager->merge_file_total_size_bytes_for_test(), 300);
     EXPECT_DOUBLE_EQ(manager->merge_file_avg_small_file_num_for_test(), 2.0);
     EXPECT_DOUBLE_EQ(manager->merge_file_avg_file_size_for_test(), 300.0);
+
+    manager->reset_merge_file_bvars_for_test();
+    EXPECT_EQ(manager->merge_file_total_count_for_test(), 0);
+    EXPECT_EQ(manager->merge_file_total_small_file_num_for_test(), 0);
+    EXPECT_EQ(manager->merge_file_total_size_bytes_for_test(), 0);
+    EXPECT_DOUBLE_EQ(manager->merge_file_avg_small_file_num_for_test(), 0.0);
+    EXPECT_DOUBLE_EQ(manager->merge_file_avg_file_size_for_test(), 0.0);
 }
 
 // Multiple small file imports, segment size < threshold, triggers merge file

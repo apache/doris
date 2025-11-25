@@ -19,7 +19,7 @@
 
 #include <bvar/bvar.h>
 #include <bvar/recorder.h>
-#include <bvar/status.h>
+#include <bvar/window.h>
 
 #include <algorithm>
 #include <chrono>
@@ -53,8 +53,12 @@ bvar::Adder<int64_t> g_merge_file_total_small_file_count("merge_file", "total_sm
 bvar::Adder<int64_t> g_merge_file_total_size_bytes("merge_file", "total_size_bytes");
 bvar::IntRecorder g_merge_file_small_file_num_recorder;
 bvar::IntRecorder g_merge_file_file_size_recorder;
-bvar::Status<double> g_merge_file_avg_small_file_num("merge_file_avg_small_file_num", 0.0);
-bvar::Status<double> g_merge_file_avg_file_size_bytes("merge_file_avg_file_size_bytes", 0.0);
+bvar::Window<bvar::IntRecorder> g_merge_file_avg_small_file_num(
+        "merge_file_avg_small_file_num", &g_merge_file_small_file_num_recorder,
+        /*window_size=*/10);
+bvar::Window<bvar::IntRecorder> g_merge_file_avg_file_size_bytes("merge_file_avg_file_size_bytes",
+                                                                 &g_merge_file_file_size_recorder,
+                                                                 /*window_size=*/10);
 
 } // namespace
 
@@ -386,10 +390,13 @@ void MergeFileManager::record_merge_file_metrics(const MergeFileState& merge_fil
     g_merge_file_total_size_bytes << merge_file.total_size;
     g_merge_file_small_file_num_recorder << static_cast<int64_t>(merge_file.index_map.size());
     g_merge_file_file_size_recorder << merge_file.total_size;
-    g_merge_file_avg_small_file_num.set_value(
-            g_merge_file_small_file_num_recorder.get_value().get_average_double());
-    g_merge_file_avg_file_size_bytes.set_value(
-            g_merge_file_file_size_recorder.get_value().get_average_double());
+    // Flush samplers immediately so the window bvar reflects the latest merge file.
+    if (auto* sampler = g_merge_file_small_file_num_recorder.get_sampler()) {
+        sampler->take_sample();
+    }
+    if (auto* sampler = g_merge_file_file_size_recorder.get_sampler()) {
+        sampler->take_sample();
+    }
 }
 
 void MergeFileManager::background_manager() {
@@ -697,8 +704,12 @@ void MergeFileManager::reset_merge_file_bvars_for_test() const {
     reset_adder(g_merge_file_total_size_bytes);
     g_merge_file_small_file_num_recorder.reset();
     g_merge_file_file_size_recorder.reset();
-    g_merge_file_avg_small_file_num.set_value(0.0);
-    g_merge_file_avg_file_size_bytes.set_value(0.0);
+    if (auto* sampler = g_merge_file_small_file_num_recorder.get_sampler()) {
+        sampler->take_sample();
+    }
+    if (auto* sampler = g_merge_file_file_size_recorder.get_sampler()) {
+        sampler->take_sample();
+    }
 }
 
 int64_t MergeFileManager::merge_file_total_count_for_test() const {
@@ -714,11 +725,11 @@ int64_t MergeFileManager::merge_file_total_size_bytes_for_test() const {
 }
 
 double MergeFileManager::merge_file_avg_small_file_num_for_test() const {
-    return g_merge_file_avg_small_file_num.get_value();
+    return g_merge_file_avg_small_file_num.get_value().get_average_double();
 }
 
 double MergeFileManager::merge_file_avg_file_size_for_test() const {
-    return g_merge_file_avg_file_size_bytes.get_value();
+    return g_merge_file_avg_file_size_bytes.get_value().get_average_double();
 }
 
 void MergeFileManager::record_merge_file_metrics_for_test(
