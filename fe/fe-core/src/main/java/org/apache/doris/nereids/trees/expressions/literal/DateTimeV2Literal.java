@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.expressions.literal;
 
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
@@ -220,19 +221,19 @@ public class DateTimeV2Literal extends DateTimeLiteral {
         String stringValue = daySecond.getStringValue().trim();
 
         if (!stringValue.matches("[0-9:\\-\\s]+")) {
-            return new NullLiteral(dataType);
+            throw new NotSupportedException("Invalid time format");
         }
 
         String[] split = stringValue.split("\\s+");
         if (split.length != 2) {
-            return new NullLiteral(dataType);
+            throw new NotSupportedException("Invalid time format");
         }
 
         String day = split[0];
         String[] hourMinuteSecond = split[1].split(":");
 
         if (hourMinuteSecond.length != 3) {
-            return new NullLiteral(dataType);
+            throw new NotSupportedException("Invalid time format");
         }
 
         try {
@@ -259,7 +260,7 @@ public class DateTimeV2Literal extends DateTimeLiteral {
                 .plusMinutes(minutes)
                 .plusSeconds(seconds), getDataType().getScale());
         } catch (NumberFormatException e) {
-            return new NullLiteral(dataType);
+            throw new NotSupportedException("Invalid time format");
         }
     }
 
@@ -294,12 +295,12 @@ public class DateTimeV2Literal extends DateTimeLiteral {
         String stringValue = dayHour.getStringValue().trim();
 
         if (!stringValue.matches("[0-9\\-\\s]+")) {
-            return new NullLiteral(dataType);
+            throw new NotSupportedException("Invalid time format");
         }
 
         String[] split = stringValue.split("\\s+");
         if (split.length != 2) {
-            return new NullLiteral(dataType);
+            throw new NotSupportedException("Invalid time format");
         }
 
         String day = split[0];
@@ -321,7 +322,7 @@ public class DateTimeV2Literal extends DateTimeLiteral {
                 .plusDays(days)
                 .plusHours(hours), getDataType().getScale());
         } catch (NumberFormatException e) {
-            return new NullLiteral(dataType);
+            throw new NotSupportedException("Invalid time format");
         }
     }
 
@@ -332,12 +333,12 @@ public class DateTimeV2Literal extends DateTimeLiteral {
         String stringValue = minuteSecond.getStringValue().trim();
 
         if (!stringValue.matches("[0-9\\-:\\s]+")) {
-            return new NullLiteral(dataType);
+            throw new NotSupportedException("Invalid time format");
         }
 
         String[] split = stringValue.split(":");
         if (split.length != 2) {
-            return new NullLiteral(dataType);
+            throw new NotSupportedException("Invalid time format");
         }
 
         String minute = split[0].trim();
@@ -359,7 +360,7 @@ public class DateTimeV2Literal extends DateTimeLiteral {
                 .plusMinutes(minutes)
                 .plusSeconds(seconds), getDataType().getScale());
         } catch (NumberFormatException e) {
-            return new NullLiteral(dataType);
+            throw new NotSupportedException("Invalid time format");
         }
     }
 
