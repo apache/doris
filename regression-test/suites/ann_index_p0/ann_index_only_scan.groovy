@@ -46,7 +46,7 @@ suite("ann_index_only_scan") {
     sql "set experimental_enable_virtual_slot_for_cse=true;"
     sql "set parallel_pipeline_task_num=1;"
     sql "set enable_sql_cache=false;"
-    sql "set enable_condition_cache=false;"
+    
     
     sql """
         create table ann_index_only_scan (

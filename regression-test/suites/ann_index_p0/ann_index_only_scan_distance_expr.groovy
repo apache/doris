@@ -84,7 +84,7 @@ suite("ann_index_only_scan_distance_expr") {
     sql "set experimental_enable_virtual_slot_for_cse=true;"
     sql "set enable_no_need_read_data_opt=true;"
     sql "set parallel_pipeline_task_num=1;" // make execution more deterministic for test
-    sql "set enable_condition_cache=false;"
+    
 
     sql "drop table if exists ann_expr_l2"
     sql """
