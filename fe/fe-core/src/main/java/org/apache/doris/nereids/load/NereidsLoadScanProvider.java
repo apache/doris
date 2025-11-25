@@ -408,13 +408,8 @@ public class NereidsLoadScanProvider {
         // If all columns have constant mapping expressions (e.g., c1=uuid()),
         // scanSlots will be empty, but CSV reader still needs at least one column to read the file.
         // Add a dummy column to scanSlots to satisfy the CSV reader's requirement.
-        // If ignoreCsvRedundantCol is set, the dummy column will allow CSV reader to parse the file
-        // even when the file has more columns than expected.
-        if (context.scanSlots.isEmpty() && !constantMappingColumns.isEmpty()) {
-            // Add a dummy column that will be read from file but not used
-            // This allows CSV reader to parse the file even when all columns have constant expressions
-            // Note: If the file has more columns than this dummy column, user should set
-            // ignore_csv_redundant_col=true to ignore the extra columns
+        // The dummy column will be read from file but not used in the final result.
+        if (context.scanSlots.isEmpty() && !copiedColumnExprs.isEmpty()) {
             Column dummyColumn = new Column("__doris_dummy_column__", PrimitiveType.VARCHAR, true);
             context.scanSlots.add(
                     SlotReference.fromColumn(exprIdGenerator.getNextId(), tbl, dummyColumn, tbl.getFullQualifiers())
