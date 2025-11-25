@@ -29,7 +29,6 @@
 #include <tuple>
 
 #include "common/object_pool.h"
-#include "mock_scanner_scheduler.h"
 #include "mock_simplified_scan_scheduler.h"
 #include "pipeline/dependency.h"
 #include "pipeline/exec/olap_scan_operator.h"
