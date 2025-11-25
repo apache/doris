@@ -27,6 +27,7 @@ import org.apache.doris.qe.ConnectContext;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -122,6 +123,24 @@ public class SessionVarGuardExpr extends Expression implements UnaryExpression {
             expr = expr.child(0);
         }
         return expr;
+    }
+
+    /**
+     * Wrap expressions with SessionVarGuardExpr if needed.
+     */
+    public static List<Expression> getExprWithGuard(Map<? extends Expression, Map<String, String>> varMap) {
+        List<Expression> exprs = new ArrayList<>(varMap.size());
+        for (Map.Entry<? extends Expression, Map<String, String>> entry : varMap.entrySet()) {
+            Expression expr;
+            Map<String, String> sessionVarMap = entry.getValue();
+            if (sessionVarMap != null) {
+                expr = new SessionVarGuardExpr(entry.getKey(), sessionVarMap);
+            } else {
+                expr = entry.getKey();
+            }
+            exprs.add(expr);
+        }
+        return exprs;
     }
 }
 

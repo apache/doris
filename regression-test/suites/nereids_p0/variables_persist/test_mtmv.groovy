@@ -64,4 +64,49 @@ suite("test_mtmv") {
         contains "mv_var_1 not chose"
     }
     qt_rewite_open128 "$query_sql order by 1,2,3;"
+    sql "drop materialized view  if exists mv_var_1;"
+
+    // test pre mv rewrite
+    sql """
+    set enable_decimal256=false;
+    drop view if exists v_pre_mv_rewrite;
+    create view v_pre_mv_rewrite as select f1,f2,f1*f2 multi from test_decimal_mul_overflow_for_mv;
+    set enable_decimal256=true;"""
+    sql "drop materialized view  if exists mv_pre_mv_rewrite;"
+    sql """create materialized view mv_pre_mv_rewrite
+    BUILD IMMEDIATE
+    REFRESH COMPLETE
+    ON COMMIT
+    PROPERTIES ('replication_num' = '1')
+    as select * from v_pre_mv_rewrite;"""
+    sql """
+            REFRESH MATERIALIZED VIEW mv_pre_mv_rewrite auto
+        """
+    def job_name2 = getJobName(db, "mv_pre_mv_rewrite");
+    waitingMTMVTaskFinished(job_name2)
+    sql """sync;"""
+
+    sql """set enable_decimal256=true;
+    drop view if EXISTS v_distinct_agg_rewrite;
+    create view v_distinct_agg_rewrite as
+    SELECT sum(f1*f2), count(distinct f1,f2) FROM test_decimal_mul_overflow_for_mv GROUP BY f2;
+    set enable_decimal256=false;"""
+    qt_pre_mv_rewrite "select /*+use_mv(mv_pre_mv_rewrite)*/ * from v_distinct_agg_rewrite order by 1,2;"
+    explain {
+        sql "select /*+use_mv(mv_pre_mv_rewrite)*/ * from v_distinct_agg_rewrite;"
+        contains "mv_pre_mv_rewrite chose"
+    }
+
+    // test rewrite
+    sql """set enable_decimal256=false;
+    drop view if EXISTS v_test_agg_distinct_reverse_rewrite;
+    create view v_test_agg_distinct_reverse_rewrite as select f1, sum(distinct f1*f2) col_sum from test_decimal_mul_overflow_for_mv group by f1;
+    set enable_decimal256=true;"""
+    qt_test_normalizeagg "select  /*+use_mv(mv_pre_mv_rewrite)*/ col_sum from v_test_agg_distinct_reverse_rewrite  order by 1;"
+    explain {
+        sql "select /*+use_mv(mv_pre_mv_rewrite)*/  col_sum from v_test_agg_distinct_reverse_rewrite;"
+        contains "mv_pre_mv_rewrite chose"
+    }
+    sql "drop materialized view  if exists mv_pre_mv_rewrite;"
+
 }

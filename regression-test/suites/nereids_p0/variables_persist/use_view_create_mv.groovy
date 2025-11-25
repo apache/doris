@@ -46,7 +46,7 @@ suite("use_view_create_mv") {
     sql """set enable_decimal256=false;
     insert into t_for_mv_view values(1.12345,1.234567);"""
     sql """
-            REFRESH MATERIALIZED VIEW mv_var_1 auto
+            REFRESH MATERIALIZED VIEW mv_view auto
         """
     def db = context.config.getDbNameByFile(context.file)
     def job_name = getJobName(db, "mv_view");
