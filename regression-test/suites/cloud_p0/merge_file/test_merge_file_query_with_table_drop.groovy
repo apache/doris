@@ -9,13 +9,16 @@
 //   http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing,
-// software distributed under this License is distributed on an
+// software distributed under the License is distributed on an
 // "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
 
 suite("test_merge_file_query_with_table_drop", "p0, nonConcurrent") {
+    if (!isCloudMode()) {
+        return;
+    }
     def backendId_to_backendIP = [:]
     def backendId_to_backendHttpPort = [:]
     def backendId_to_backendBrpcPort = [:]
