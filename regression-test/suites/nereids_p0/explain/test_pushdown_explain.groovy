@@ -107,6 +107,40 @@ suite("test_pushdown_explain") {
         contains "pushAggOp=COUNT"
     }
 
+    // test projection in agg pushdown rule
+    explain {
+        sql("select count(a) from (select non_nullable_col as a from test_null_columns) t1;")
+        contains "pushAggOp=COUNT"
+    }
+    explain {
+        sql("select count(a) from (select nullable_col as a from test_null_columns) t1;")
+        contains "pushAggOp=NONE"
+    }
+    explain {
+        sql("select count(a), min(a) from (select non_nullable_col as a from test_null_columns) t1;")
+        contains "pushAggOp=MIX"
+    }
+    explain {
+        sql("select count(a), min(a) from (select nullable_col as a from test_null_columns) t1;")
+        contains "pushAggOp=NONE"
+    }
+    explain {
+        sql("select count(a), min(b) from (select nullable_col as a, non_nullable_col as b from test_null_columns) t1;")
+        contains "pushAggOp=NONE"
+    }
+    explain {
+        sql("select count(b), min(a) from (select nullable_col as a, non_nullable_col as b from test_null_columns) t1;")
+        contains "pushAggOp=MIX"
+    }
+    explain {
+        sql("select count(non_nullable_col), max(nullable_col) from test_null_columns;")
+        contains "pushAggOp=MIX"
+    }
+    explain {
+        sql("select count(nullable_col), max(non_nullable_col) from test_null_columns;")
+        contains "pushAggOp=NONE"
+    }
+
     explain {
         sql("select count(non_nullable_col), min(non_nullable_col), max(non_nullable_col) from test_null_columns;")
         contains "pushAggOp=MIX"
