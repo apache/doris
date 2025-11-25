@@ -47,6 +47,7 @@ suite('test_provied_error_cert_reload', 'docker, p0') {
                         "${localCertDir}/missing",
                         "${localCertDir}/ca_changed"]
     docker(options) {
+        sql """ CREATE DATABASE IF NOT EXISTS ${context.dbName}; """
         // Get all FE IPs
         def frontends = cluster.getAllFrontends()
         logger.info("=== Frontend nodes ===")
@@ -718,6 +719,7 @@ ${sanEntries}
             // Run basicTest during high frequency reloads
             basicTest("${certFileDir[4]}", true)
             thread.join()
+            sleep(10000)
 
             logger.info("Verifying system still works after high frequency reloads")
             basicTest("${certFileDir[4]}", true)

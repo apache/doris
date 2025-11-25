@@ -45,6 +45,8 @@ suite('test_all_node_reload_cert', 'docker, p0') {
                         "${localCertDir}/certs2",
                         "${localCertDir}/certs3"]
     docker(options) {
+
+        sql """ CREATE DATABASE IF NOT EXISTS ${context.dbName}; """
         // Get all FE IPs
         def frontends = cluster.getAllFrontends()
         logger.info("=== Frontend nodes ===")
@@ -671,6 +673,7 @@ emailAddress            = optional
             }
             basicTest("${oldCertDir}")
             thread.join()
+            sleep(10000)
             verifyFingerprints("${newCertDir}")
 
             logger.info("Revert to Old Certificate")
@@ -707,6 +710,7 @@ emailAddress            = optional
             }
             basicTest("${oldCertDir}")
             thread.join()
+            sleep(10000)
             verifyFingerprints("${newCertDir}")
 
             logger.info("Revert to Old Certificate")

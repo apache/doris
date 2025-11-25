@@ -42,6 +42,8 @@ suite('test_tls_mode_functional', 'docker, p0') {
     def localCertDir = "/tmp/${testName}"
 
     docker(options) {
+        sql """ CREATE DATABASE IF NOT EXISTS ${context.dbName}; """
+
         def frontends = cluster.getAllFrontends()
         def backends = cluster.getAllBackends()
         def metaservices = cluster.getAllMetaservices()
@@ -569,6 +571,33 @@ ${sanEntries}
 
         // // 8) CA + expired cert/key => failure
         // testAllConnections(false, [useCa: true, useCert: true, useKey: true, certDir: expiredCertDir])
+
+        // 1) enable_tls=true + (CA+cert+key) => success (positive case)
+        updateConfigAndRestart([enable_tls: 'true', tls_verify_mode: 'verify_peer'])
+        testAllConnections(true, [useCa: true, useCert: true, useKey: true],
+            "Suite3-Test1 : verify_peer, positive test with full certs")
+
+        // 2) wrong CA (client with CA triggers validation) => failure
+        testAllConnections(false, [useCa: true, useCert: true, useKey: true, certDir: wrongCACertDir],
+            "Suite3-Test2 : verify_peer, wrong CA cert")
+
+        // 3) CA + expired cert/key => success
+        testAllConnections(true, [useCa: true, useCert: true, useKey: true, certDir: expiredCertDir],
+            "Suite3-Test3 : verify_peer, expired cert (should succeed)")
+
+        // 4) no CA/cert/key => failure (positive case), client will try to verify server certificate using system defaults which won't work
+        testAllConnections(false, [useCa: false, useCert: false, useKey: false],
+            "Suite3-Test4 : verify_peer, no CA/cert/key at all")
+        // 5) extended: only CA => success (positive case)
+        testAllConnections(true, [useCa: true, useCert: false, useKey: false],
+            "Suite3-Test5 : verify_peer, only CA no client cert")
+
+        // 6) partial: CA+cert => only JDBC supports, others require private key
+        testAllConnections(false, [useCa: true, useCert: true, useKey: false, skipJDBC: true],
+            "Suite3-Test6 : verify_peer, CA+cert no key")
+        // 7) partial: CA+key => mysql fails with ERROR 2026 (HY000): SSL connection error: Unable to get certificate
+        testAllConnections(true, [useCa: true, useCert: false, useKey: true, skipMysql: true],
+            "Suite3-Test7 : verify_peer, CA+key no cert")
 
         logger.info("=============== ALL TLS functional tests COMPLETED ===============")
     }
