@@ -270,6 +270,8 @@ public:
     // need exception safety
     static void filter_block_internal(Block* block, const IColumn::Filter& filter);
 
+    static void filter_columns_internal(Columns& columns, const IColumn::Filter& filter);
+
     static Status filter_block(Block* block, const std::vector<uint32_t>& columns_to_filter,
                                size_t filter_column_id, size_t column_to_keep);
 

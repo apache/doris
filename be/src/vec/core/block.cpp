@@ -779,6 +779,18 @@ void Block::filter_block_internal(Block* block, const IColumn::Filter& filter) {
     }
 }
 
+void Block::filter_columns_internal(Columns& columns, const IColumn::Filter& filter) {
+    const size_t count =
+            filter.size() - simd::count_zero_num((int8_t*)filter.data(), filter.size());
+    for (auto& column : columns) {
+        if (column->is_exclusive()) {
+            column->assume_mutable()->filter(filter);
+        } else {
+            column = column->filter(filter, count);
+        }
+    }
+}
+
 Status Block::append_to_block_by_selector(MutableBlock* dst,
                                           const IColumn::Selector& selector) const {
     RETURN_IF_CATCH_EXCEPTION({

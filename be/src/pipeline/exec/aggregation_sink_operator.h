@@ -87,8 +87,9 @@ protected:
     void _emplace_into_hash_table(vectorized::AggregateDataPtr* places,
                                   vectorized::ColumnRawPtrs& key_columns, uint32_t num_rows);
     bool _emplace_into_hash_table_limit(vectorized::AggregateDataPtr* places,
-                                        vectorized::Block* block, const std::vector<int>& key_locs,
-                                        vectorized::ColumnRawPtrs& key_columns, uint32_t num_rows);
+                                        vectorized::Block* block, vectorized::Columns& key_columns,
+                                        vectorized::ColumnRawPtrs& key_columns_raw_ptr,
+                                        uint32_t num_rows);
     size_t _get_hash_table_size() const;
 
     template <bool limit, bool for_spill = false>
