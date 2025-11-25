@@ -46,11 +46,32 @@ suite("azure_blob_all_test", "p2,external,new_catalog_property") {
         ${storage_props}
         );
         """
-
         sql """ 
          switch ${iceberg_fs_catalog_name} 
+         """
+        def db_name = "${iceberg_fs_catalog_name}_db_test"
+        // Check if database exists
+        def currentDbResult = sql """
+        SHOW DATABASES LIKE "${db_name}";
+        """
+
+        if (currentDbResult.size() > 0) {
+            sql """
+            USE ${db_name};
             """
 
+            // Show all tables and drop them
+            def tablesResult = sql """
+            SHOW TABLES;
+            """
+
+            for (row in tablesResult) {
+                def tableName = row[0]
+                sql """
+                    DROP TABLE IF EXISTS ${tableName};
+                """
+            }
+        }
         sql """
         drop database if exists ${iceberg_fs_catalog_name}_db_test;
         """
