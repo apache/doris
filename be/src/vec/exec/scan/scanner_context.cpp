@@ -66,7 +66,6 @@ ScannerContext::ScannerContext(
           _output_row_descriptor(output_row_descriptor),
           _batch_size(state->batch_size()),
           limit(limit_),
-          _scanner_scheduler_global(state->exec_env()->scanner_scheduler()),
           _all_scanners(scanners.begin(), scanners.end()),
           _parallism_of_scan_operator(parallism_of_scan_operator),
           _min_scan_concurrency_of_scan_scheduler(_state->min_scan_concurrency_of_scan_scheduler()),
@@ -265,7 +264,7 @@ Status ScannerContext::submit_scan_task(std::shared_ptr<ScanTask> scan_task,
     // if submit succeed, it will be also added back by ScannerContext::push_back_scan_task
     // see ScannerScheduler::_scanner_scan.
     _num_scheduled_scanners++;
-    return _scanner_scheduler_global->submit(shared_from_this(), scan_task);
+    return _scanner_scheduler->submit(shared_from_this(), scan_task);
 }
 
 void ScannerContext::clear_free_blocks() {
@@ -519,7 +518,7 @@ int32_t ScannerContext::_get_margin(std::unique_lock<std::mutex>& transfer_lock,
 
 // This function must be called with:
 // 1. _transfer_lock held.
-// 2. SimplifiedScanScheduler::_lock held.
+// 2. ScannerScheduler::_lock held.
 Status ScannerContext::schedule_scan_task(std::shared_ptr<ScanTask> current_scan_task,
                                           std::unique_lock<std::mutex>& transfer_lock,
                                           std::unique_lock<std::shared_mutex>& scheduler_lock) {

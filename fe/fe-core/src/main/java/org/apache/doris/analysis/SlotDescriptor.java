@@ -23,6 +23,7 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.thrift.TColumnAccessPath;
 import org.apache.doris.thrift.TSlotDescriptor;
 
 import com.google.common.base.MoreObjects;
@@ -61,6 +62,10 @@ public class SlotDescriptor {
 
     private boolean isAutoInc = false;
     private Expr virtualColumn = null;
+    private List<TColumnAccessPath> allAccessPaths;
+    private List<TColumnAccessPath> predicateAccessPaths;
+    private List<TColumnAccessPath> displayAllAccessPaths;
+    private List<TColumnAccessPath> displayPredicateAccessPaths;
 
     public SlotDescriptor(SlotId id, TupleDescriptor parent) {
 
@@ -88,6 +93,38 @@ public class SlotDescriptor {
 
     public List<String> getSubColLables() {
         return this.subColPath;
+    }
+
+    public List<TColumnAccessPath> getAllAccessPaths() {
+        return allAccessPaths;
+    }
+
+    public void setAllAccessPaths(List<TColumnAccessPath> allAccessPaths) {
+        this.allAccessPaths = allAccessPaths;
+    }
+
+    public List<TColumnAccessPath> getPredicateAccessPaths() {
+        return predicateAccessPaths;
+    }
+
+    public void setPredicateAccessPaths(List<TColumnAccessPath> predicateAccessPaths) {
+        this.predicateAccessPaths = predicateAccessPaths;
+    }
+
+    public List<TColumnAccessPath> getDisplayAllAccessPaths() {
+        return displayAllAccessPaths;
+    }
+
+    public void setDisplayAllAccessPaths(List<TColumnAccessPath> displayAllAccessPaths) {
+        this.displayAllAccessPaths = displayAllAccessPaths;
+    }
+
+    public List<TColumnAccessPath> getDisplayPredicateAccessPaths() {
+        return displayPredicateAccessPaths;
+    }
+
+    public void setDisplayPredicateAccessPaths(List<TColumnAccessPath> displayPredicateAccessPaths) {
+        this.displayPredicateAccessPaths = displayPredicateAccessPaths;
     }
 
     public TupleDescriptor getParent() {
@@ -189,6 +226,12 @@ public class SlotDescriptor {
         }
         if (virtualColumn != null) {
             tSlotDescriptor.setVirtualColumnExpr(virtualColumn.treeToThrift());
+        }
+        if (allAccessPaths != null) {
+            tSlotDescriptor.setAllAccessPaths(allAccessPaths);
+        }
+        if (predicateAccessPaths != null) {
+            tSlotDescriptor.setPredicateAccessPaths(predicateAccessPaths);
         }
         return tSlotDescriptor;
     }

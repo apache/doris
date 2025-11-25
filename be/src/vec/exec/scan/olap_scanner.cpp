@@ -83,6 +83,8 @@ OlapScanner::OlapScanner(pipeline::ScanLocalStateBase* parent, OlapScanner::Para
                                  .function_filters {},
                                  .delete_predicates {},
                                  .target_cast_type_for_variants {},
+                                 .all_access_paths {},
+                                 .predicate_access_paths {},
                                  .rs_splits {},
                                  .return_columns {},
                                  .output_columns {},
@@ -265,7 +267,7 @@ Status OlapScanner::prepare() {
 
     // Add newly created tablet schema to schema cache if it does not have virtual columns.
     if (cached_schema == nullptr && !schema_key.empty() &&
-        tablet_schema->num_virtual_columns() == 0) {
+        tablet_schema->num_virtual_columns() == 0 && !tablet_schema->has_pruned_columns()) {
         SchemaCache::instance()->insert_schema(schema_key, tablet_schema);
     }
 
@@ -538,6 +540,24 @@ Status OlapScanner::_init_return_columns() {
                     "Virtual column, slot id: {}, cid {}, column index: {}, type: {}", slot->id(),
                     virtual_column_cid, _vir_cid_to_idx_in_block[virtual_column_cid],
                     _vir_col_idx_to_type[idx_in_block]->get_name());
+        }
+
+        const auto& column = tablet_schema->column(index);
+        if (!slot->all_access_paths().empty()) {
+            _tablet_reader_params.all_access_paths.insert(
+                    {column.unique_id(), slot->all_access_paths()});
+        }
+
+        if (!slot->predicate_access_paths().empty()) {
+            _tablet_reader_params.predicate_access_paths.insert(
+                    {column.unique_id(), slot->predicate_access_paths()});
+        }
+
+        if ((slot->type()->get_primitive_type() == PrimitiveType::TYPE_STRUCT ||
+             slot->type()->get_primitive_type() == PrimitiveType::TYPE_MAP ||
+             slot->type()->get_primitive_type() == PrimitiveType::TYPE_ARRAY) &&
+            !slot->all_access_paths().empty()) {
+            tablet_schema->add_pruned_columns_data_type(column.unique_id(), slot->type());
         }
 
         _return_columns.push_back(index);
