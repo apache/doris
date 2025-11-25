@@ -399,7 +399,8 @@ public class HeartbeatMgr extends MasterDaemon {
                 // heartbeat to self
                 if (Env.getCurrentEnv().isReady()) {
                     return new FrontendHbResponse(fe.getNodeName(), Config.query_port, Config.rpc_port,
-                            Config.arrow_flight_sql_port, Env.getCurrentEnv().getMaxJournalId(),
+                            Config.arrow_flight_sql_port, Config.http_port, Config.https_port,
+                            Env.getCurrentEnv().getMaxJournalId(),
                             System.currentTimeMillis(),
                             Version.DORIS_BUILD_VERSION + "-" + Version.DORIS_BUILD_SHORT_HASH,
                             ExecuteEnv.getInstance().getStartupTime(), ExecuteEnv.getInstance().getDiskInfos(),
@@ -423,8 +424,11 @@ public class HeartbeatMgr extends MasterDaemon {
                 TFrontendPingFrontendResult result = client.ping(request);
                 ok = true;
                 if (result.getStatus() == TFrontendPingFrontendStatusCode.OK) {
+                    int httpPort = result.isSetHttpPort() ? result.getHttpPort() : Config.http_port;
+                    int httpsPort = result.isSetHttpsPort() ? result.getHttpsPort() : Config.https_port;
                     return new FrontendHbResponse(fe.getNodeName(), result.getQueryPort(),
-                            result.getRpcPort(), result.getArrowFlightSqlPort(), result.getReplayedJournalId(),
+                            result.getRpcPort(), result.getArrowFlightSqlPort(), httpPort, httpsPort,
+                            result.getReplayedJournalId(),
                             System.currentTimeMillis(), result.getVersion(), result.getLastStartupTime(),
                             FeDiskInfo.fromThrifts(result.getDiskInfos()), result.getProcessUUID());
                 } else {

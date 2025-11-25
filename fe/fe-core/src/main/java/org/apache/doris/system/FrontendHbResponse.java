@@ -38,6 +38,10 @@ public class FrontendHbResponse extends HeartbeatResponse implements Writable {
     private int rpcPort;
     @SerializedName(value = "arrowFlightSqlPort")
     private int arrowFlightSqlPort;
+    @SerializedName(value = "httpPort")
+    private int httpPort;
+    @SerializedName(value = "httpsPort")
+    private int httpsPort;
     @SerializedName(value = "replayedJournalId")
     private long replayedJournalId;
     private String version;
@@ -45,11 +49,8 @@ public class FrontendHbResponse extends HeartbeatResponse implements Writable {
     private long processUUID;
     private List<FeDiskInfo> diskInfos;
 
-    public FrontendHbResponse() {
-        super(HeartbeatResponse.Type.FRONTEND);
-    }
-
     public FrontendHbResponse(String name, int queryPort, int rpcPort, int arrowFlightSqlPort,
+            int httpPort, int httpsPort,
             long replayedJournalId, long hbTime, String version,
             long feStartTime, List<FeDiskInfo> diskInfos,
             long processUUID) {
@@ -59,6 +60,8 @@ public class FrontendHbResponse extends HeartbeatResponse implements Writable {
         this.queryPort = queryPort;
         this.rpcPort = rpcPort;
         this.arrowFlightSqlPort = arrowFlightSqlPort;
+        this.httpPort = httpPort;
+        this.httpsPort = httpsPort;
         this.replayedJournalId = replayedJournalId;
         this.hbTime = hbTime;
         this.version = version;
@@ -91,6 +94,14 @@ public class FrontendHbResponse extends HeartbeatResponse implements Writable {
         return arrowFlightSqlPort;
     }
 
+    public int getHttpPort() {
+        return httpPort;
+    }
+
+    public int getHttpsPort() {
+        return httpsPort;
+    }
+
     public long getReplayedJournalId() {
         return replayedJournalId;
     }
@@ -120,6 +131,8 @@ public class FrontendHbResponse extends HeartbeatResponse implements Writable {
         sb.append(", queryPort: ").append(queryPort);
         sb.append(", rpcPort: ").append(rpcPort);
         sb.append(", arrowFlightSqlPort: ").append(arrowFlightSqlPort);
+        sb.append(", httpPort: ").append(httpPort);
+        sb.append(", httpsPort: ").append(httpsPort);
         sb.append(", replayedJournalId: ").append(replayedJournalId);
         sb.append(", festartTime: ").append(processUUID);
         return sb.toString();

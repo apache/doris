@@ -2307,6 +2307,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         result.setMsg("");
         result.setQueryPort(0);
         result.setRpcPort(0);
+        result.setHttpPort(0);
+        result.setHttpsPort(0);
         result.setReplayedJournalId(0);
         result.setVersion(Version.DORIS_BUILD_VERSION + "-" + Version.DORIS_BUILD_SHORT_HASH);
         if (isReady) {
@@ -2343,6 +2345,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 result.setQueryPort(Config.query_port);
                 result.setRpcPort(Config.rpc_port);
                 result.setArrowFlightSqlPort(Config.arrow_flight_sql_port);
+                result.setHttpPort(Config.http_port);
+                result.setHttpsPort(Config.https_port);
                 result.setVersion(Version.DORIS_BUILD_VERSION + "-" + Version.DORIS_BUILD_SHORT_HASH);
                 result.setLastStartupTime(exeEnv.getStartupTime());
                 result.setProcessUUID(exeEnv.getProcessUUID());

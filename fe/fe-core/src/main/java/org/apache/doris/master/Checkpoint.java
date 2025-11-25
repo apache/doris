@@ -207,7 +207,7 @@ public class Checkpoint extends MasterDaemon {
                     // skip master itself
                     continue;
                 }
-                int port = Config.http_port;
+                int port = fe.getHttpPort();
 
                 String url = "http://" + NetUtils.getHostPortInAccessibleFormat(host, port) + "/put?version=" + replayedJournalId
                         + "&port=" + port;
@@ -264,7 +264,7 @@ public class Checkpoint extends MasterDaemon {
                             // skip master itself
                             continue;
                         }
-                        int port = Config.http_port;
+                        int port = fe.getHttpPort();
                         String idURL;
                         HttpURLConnection conn = null;
                         try {

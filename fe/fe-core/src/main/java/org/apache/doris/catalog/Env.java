@@ -1310,8 +1310,7 @@ public class Env {
                 storage.writeClusterIdAndToken();
 
                 isFirstTimeStartUp = true;
-                Frontend self = new Frontend(role, nodeName, selfNode.getHost(),
-                        selfNode.getPort());
+                Frontend self = new Frontend(role, nodeName, selfNode.getHost(), selfNode.getPort());
                 // Set self alive to true, the BDBEnvironment.getReplicationGroupAdmin() will rely on this to get
                 // helper node, before the heartbeat thread is started.
                 self.setIsAlive(true);
@@ -1388,7 +1387,8 @@ public class Env {
                 token = storage.getToken();
                 try {
                     String url = "http://" + NetUtils
-                            .getHostPortInAccessibleFormat(rightHelperNode.getHost(), Config.http_port) + "/check";
+                            .getHostPortInAccessibleFormat(rightHelperNode.getHost(),
+                                    rightHelperNode.getSecondPort(Config.http_port)) + "/check";
                     HttpURLConnection conn = HttpURLUtil.getConnectionWithNodeIdent(url);
                     conn.setConnectTimeout(2 * 1000);
                     conn.setReadTimeout(2 * 1000);
@@ -1484,7 +1484,8 @@ public class Env {
             try {
                 // For upgrade compatibility, the host parameter name remains the same
                 // and the new hostname parameter is added
-                String url = "http://" + NetUtils.getHostPortInAccessibleFormat(helperNode.getHost(), Config.http_port)
+                String url = "http://" + NetUtils.getHostPortInAccessibleFormat(helperNode.getHost(),
+                        helperNode.setSecondPort(Config.http_port))
                         + "/role?host=" + selfNode.getHost()
                         + "&port=" + selfNode.getPort();
                 HttpURLConnection conn = HttpURLUtil.getConnectionWithNodeIdent(url);
@@ -1520,7 +1521,7 @@ public class Env {
             }
 
             LOG.info("get fe node type {}, name {} from {}:{}:{}", role, nodeName,
-                    helperNode.getHost(), helperNode.getHost(), Config.http_port);
+                    helperNode.getHost(), helperNode.getPort(), helperNode.getSecondPort(Config.http_port));
             rightHelperNode = helperNode;
             break;
         }
@@ -1536,7 +1537,7 @@ public class Env {
 
     private void getSelfHostPort() {
         String host = Strings.nullToEmpty(FrontendOptions.getLocalHostAddress());
-        selfNode = new HostInfo(host, Config.edit_log_port);
+        selfNode = new HostInfo(host, Config.edit_log_port, Config.http_port);
         LOG.info("get self node: {}", selfNode);
     }
 
@@ -1579,11 +1580,12 @@ public class Env {
                         throw new AnalysisException("Do not specify the helper node to FE itself. "
                                 + "Please specify it to the existing running Master or Follower FE");
                     }
+                    helperHostPort.setSecondPortIfMissing(Config.http_port);
                     helperNodes.add(helperHostPort);
                 }
             } else {
                 // If helper node is not designated, use local node as helper node.
-                helperNodes.add(new HostInfo(selfNode.getHost(), Config.edit_log_port));
+                helperNodes.add(new HostInfo(selfNode.getHost(), Config.edit_log_port, Config.http_port));
             }
         }
 
@@ -2110,7 +2112,8 @@ public class Env {
 
     protected boolean getVersionFileFromHelper(HostInfo helperNode) throws IOException {
         try {
-            String url = "http://" + NetUtils.getHostPortInAccessibleFormat(helperNode.getHost(), Config.http_port)
+            String url = "http://" + NetUtils.getHostPortInAccessibleFormat(helperNode.getHost(),
+                    helperNode.getSecondPort(Config.http_port))
                     + "/version";
             File dir = new File(this.imageDir);
             MetaHelper.getRemoteFile(url, HTTP_TIMEOUT_SECOND * 1000,
@@ -2130,7 +2133,8 @@ public class Env {
         localImageVersion = storage.getLatestImageSeq();
 
         try {
-            String hostPort = NetUtils.getHostPortInAccessibleFormat(helperNode.getHost(), Config.http_port);
+            String hostPort = NetUtils.getHostPortInAccessibleFormat(helperNode.getHost(),
+                    helperNode.getSecondPort(Config.http_port));
             String infoUrl = "http://" + hostPort + "/info";
             ResponseBody<StorageInfo> responseBody = MetaHelper
                     .doGet(infoUrl, HTTP_TIMEOUT_SECOND * 1000, StorageInfo.class);
