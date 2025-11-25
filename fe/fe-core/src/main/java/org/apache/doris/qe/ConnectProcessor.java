@@ -37,6 +37,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.SqlUtils;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.metric.MetricRepo;
@@ -48,6 +49,7 @@ import org.apache.doris.mysql.MysqlServerStatusFlag;
 import org.apache.doris.nereids.SqlCacheContext;
 import org.apache.doris.nereids.SqlCacheContext.CacheKeyType;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.analyzer.UnboundResultSink;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.nereids.exceptions.SyntaxParseException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
@@ -250,8 +252,23 @@ public abstract class ConnectProcessor {
 
         if (stmts == null) {
             stmts = parseWithFallback(originStmt, convertedStmt, sessionVariable);
-            if (stmts == null) {
+            if (stmts == null || stmts.isEmpty()) {
                 return;
+            }
+        }
+
+        // check cache hit
+        // This is only for test cases, to check if the sql cache is hit correctly.
+        StatementBase checkStmt = stmts.get(0);
+        if (checkStmt instanceof LogicalPlanAdapter && wantToParseSqlFromSqlCache) {
+            // UnboundResultSink means this is a query stmt, and we only check for query stmt here.
+            if (((LogicalPlanAdapter) checkStmt).getLogicalPlan() instanceof UnboundResultSink
+                    && ctx.getSessionVariable().testQueryCacheHit.equals("sql") && cachedStmts == null) {
+                String errMsg = "The variable test_query_cache_hit is set to 'sql'"
+                        + ", but the query cache is not hit.";
+                ctx.getState().setError(ErrorCode.ERR_COMMON_ERROR, errMsg);
+                ctx.getState().setErrType(QueryState.ErrType.OTHER_ERR);
+                throw new UserException(errMsg);
             }
         }
 
@@ -358,7 +375,7 @@ public abstract class ConnectProcessor {
         }
     }
 
-    private List<StatementBase> parseFromSqlCache(String originStmt) {
+    private List<StatementBase> parseFromSqlCache(String originStmt) throws UserException {
         StatementContext statementContext = new StatementContext(ctx, new OriginStatement(originStmt, 0));
         ctx.setStatementContext(statementContext);
 
@@ -407,15 +424,9 @@ public abstract class ConnectProcessor {
                 logicalPlanAdapter.setOrigStmt(statementContext.getOriginStatement());
                 logicalPlanAdapter.setUserInfo(ctx.getCurrentUserIdentity());
                 return ImmutableList.of(logicalPlanAdapter);
-            } else {
-                if (!ctx.getSessionVariable().testQueryCacheHit.equals("none")) {
-                    throw new UserException("The variable test_query_cache_hit is set to "
-                            + ConnectContext.get().getSessionVariable().testQueryCacheHit
-                            + ", but the query cache is not hit.");
-                }
             }
         } catch (Throwable t) {
-            LOG.warn("Parse from sql cache failed: " + t.getMessage(), t);
+            LOG.warn("Parse from sql cache failed with unexpected exception: {}", Util.getRootCauseMessage(t), t);
         } finally {
             statementContext.releasePlannerResources();
         }
@@ -785,3 +796,4 @@ public abstract class ConnectProcessor {
         throw new NotSupportedException("Just MysqlConnectProcessor support execute");
     }
 }
+
