@@ -168,14 +168,18 @@ public class NereidsLoadScanProvider {
         Set<String> constantMappingColumns = new HashSet<>();
         for (NereidsImportColumnDesc importColumnDesc : columnDescs) {
             String mappingColumnName = importColumnDesc.getColumnName();
-            if (importColumnDesc.isColumn()) {
-                copiedColumnExprs.add(importColumnDesc);
-            } else if (tbl.getColumn(mappingColumnName) != null) {
-                copiedColumnExprs.add(importColumnDesc);
-                // Only track columns with constant expressions (e.g., "k1 = 'constant'")
-                // Non-constant expressions (e.g., "k1 = k1 + 1") still need to read from file
-                if (importColumnDesc.getExpr().isConstant()) {
-                    constantMappingColumns.add(mappingColumnName);
+            if (importColumnDesc.isColumn() || tbl.getColumn(mappingColumnName) != null) {
+                if (importColumnDesc.isColumn()) {
+                    copiedColumnExprs.add(importColumnDesc);
+                } else if (tbl.getColumn(mappingColumnName) != null) {
+                    copiedColumnExprs.add(importColumnDesc);
+                    // Track columns with expressions that don't depend on file columns
+                    // (e.g., "c1 = uuid()", "c1 = 'constant'")
+                    // Expressions that depend on file columns (e.g., "k1 = k1 + 1") still need to read from file
+                    Expression expr = importColumnDesc.getExpr();
+                    if (expr != null && !expr.anyMatch(e -> e instanceof UnboundSlot)) {
+                        constantMappingColumns.add(mappingColumnName);
+                    }
                 }
             }
             // Skip mapping columns that don't exist in table schema
@@ -199,8 +203,9 @@ public class NereidsLoadScanProvider {
             List<Column> columns = tbl.getBaseSchema(false);
             for (Column column : columns) {
                 if (constantMappingColumns.contains(column.getName())) {
-                    // Skip this column because user has already specified a constant mapping expression for it
-                    // in the COLUMNS parameter (e.g., "column_name = 'constant_value'")
+                    // Skip this column because user has already specified a mapping expression for it
+                    // that doesn't depend on file columns
+                    // (e.g., "column_name = uuid()" or "column_name = 'constant_value'")
                     continue;
                 }
                 NereidsImportColumnDesc columnDesc;
@@ -399,6 +404,21 @@ public class NereidsLoadScanProvider {
                         SlotReference.fromColumn(exprIdGenerator.getNextId(), tbl, slotColumn, tbl.getFullQualifiers())
                 );
             }
+        }
+        // If all columns have constant mapping expressions (e.g., c1=uuid()),
+        // scanSlots will be empty, but CSV reader still needs at least one column to read the file.
+        // Add a dummy column to scanSlots to satisfy the CSV reader's requirement.
+        // If ignoreCsvRedundantCol is set, the dummy column will allow CSV reader to parse the file
+        // even when the file has more columns than expected.
+        if (context.scanSlots.isEmpty() && !constantMappingColumns.isEmpty()) {
+            // Add a dummy column that will be read from file but not used
+            // This allows CSV reader to parse the file even when all columns have constant expressions
+            // Note: If the file has more columns than this dummy column, user should set
+            // ignore_csv_redundant_col=true to ignore the extra columns
+            Column dummyColumn = new Column("__doris_dummy_column__", PrimitiveType.VARCHAR, true);
+            context.scanSlots.add(
+                    SlotReference.fromColumn(exprIdGenerator.getNextId(), tbl, dummyColumn, tbl.getFullQualifiers())
+            );
         }
         if (!hasColumnFromTable) {
             // we should add at least one column for target table to make bindSink happy
