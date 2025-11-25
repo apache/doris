@@ -1,4 +1,5 @@
-use `default`;
+create database if not exists test_varbinary;
+use test_varbinary;
 
 DROP TABLE IF EXISTS test_hive_binary_orc;
 DROP TABLE IF EXISTS test_hive_binary_parquet;

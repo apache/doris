@@ -48,7 +48,7 @@ suite("test_hive_varbinary_type","p0,external,tvf,hive,external_docker,external_
 
         // no mapping
         sql """ switch ${catalog_name_no_mapping}"""
-        sql """ use `default` """
+        sql """ use `test_varbinary` """
         qt_select1 """ select * from test_hive_binary_orc order by id; """
         qt_select2 """ select * from test_hive_binary_parquet order by id; """
         qt_select3 """ select * from test_hive_uuid_fixed_orc order by id; """
@@ -69,7 +69,7 @@ suite("test_hive_varbinary_type","p0,external,tvf,hive,external_docker,external_
 
         // with mapping
         sql """ switch ${catalog_name_with_mapping} """
-        sql """ use `default` """
+        sql """ use `test_varbinary` """
         qt_select14 """ select * from test_hive_binary_orc order by id; """
         qt_select15 """ select * from test_hive_binary_parquet order by id; """
         qt_select16 """ select * from test_hive_uuid_fixed_orc order by id; """
