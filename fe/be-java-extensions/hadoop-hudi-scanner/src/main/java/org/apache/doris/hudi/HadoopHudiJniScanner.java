@@ -50,7 +50,6 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.time.ZoneId;
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -167,7 +166,7 @@ public class HadoopHudiJniScanner extends JniScanner {
             return preExecutionAuthenticator.execute(() -> {
                 NullWritable key = reader.createKey();
                 ArrayWritable value = reader.createValue();
-                List<Object> records = new ArrayList<>();
+                long startTime = System.nanoTime();
                 int numRows = 0;
                 for (; numRows < fetchSize; numRows++) {
                     if (!reader.next(key, value)) {
@@ -175,16 +174,6 @@ public class HadoopHudiJniScanner extends JniScanner {
                     }
                     if (fields.length > 0) {
                         Object rowData = deserializer.deserialize(value);
-                        records.add(rowData);
-                    }
-                }
-
-                long startTime = System.nanoTime();
-                // vectorTable is virtual
-                if (fields.length == 0) {
-                    vectorTable.appendVirtualData(numRows);
-                } else {
-                    for (Object rowData : records) {
                         for (int i = 0; i < fields.length; i++) {
                             Object fieldData = rowInspector.getStructFieldData(rowData, structFields[i]);
                             columnValue.setRow(fieldData);
@@ -193,8 +182,11 @@ public class HadoopHudiJniScanner extends JniScanner {
                         }
                     }
                 }
+                // vectorTable is virtual
+                if (fields.length == 0) {
+                    vectorTable.appendVirtualData(numRows);
+                }
                 appendDataTime += System.nanoTime() - startTime;
-
                 return numRows;
             });
         } catch (Exception e) {
