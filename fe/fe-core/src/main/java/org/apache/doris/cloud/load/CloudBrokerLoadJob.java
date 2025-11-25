@@ -46,6 +46,7 @@ import org.apache.doris.qe.Coordinator;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.resource.computegroup.ComputeGroupMgr;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
@@ -111,8 +112,9 @@ public class CloudBrokerLoadJob extends BrokerLoadJob {
                     ((CloudSystemInfoService) Env.getCurrentSystemInfo()).getCloudClusterIdByName(clusterName);
             }
             if (Strings.isNullOrEmpty(this.cloudClusterId)) {
-                LOG.warn("cluster id is empty, cluster name {}", clusterName);
-                throw new MetaNotFoundException("cluster id is empty, cluster name: " + clusterName);
+                LOG.warn("can not find compute group: {}", clusterName);
+                String computeGroupHints = ComputeGroupMgr.computeGroupNotFoundPromptMsg(clusterName);
+                throw new MetaNotFoundException(computeGroupHints);
             }
             sessionVariables.put(CLOUD_CLUSTER_ID, this.cloudClusterId);
         }
