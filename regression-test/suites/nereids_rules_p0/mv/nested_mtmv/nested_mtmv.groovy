@@ -808,7 +808,7 @@ INSERT INTO sales_partitioned (product_id, city, sale_date, amount) VALUES
                        sale_date >= '2025-10-01' AND sale_date <= '2025-10-03'
                        GROUP BY
                        city;
-    """, "zz_mtmv1", is_partition_statistics_ready(db, ["zz_mtmv1"]))
+    """, "zz_mtmv1", true, is_partition_statistics_ready(db, ["zz_mtmv1"]))
 
     create_async_partition_mv(db, "zz_mtmv2", """
                        SELECT
