@@ -20,13 +20,9 @@ package org.apache.doris.nereids.trees.plans.commands.info;
 import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.analysis.DistributionDesc;
 import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.InvertedIndexUtil;
 import org.apache.doris.analysis.KeysDesc;
 import org.apache.doris.analysis.PartitionDesc;
-import org.apache.doris.analysis.PartitionKeyDesc;
-import org.apache.doris.analysis.PartitionValue;
-import org.apache.doris.analysis.SinglePartitionDesc;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
@@ -851,10 +847,8 @@ public class CreateTableInfo {
                 checkLegalityOfPartitionExprs(partitionTableInfo);
             }
 
-            if (partitionDesc != null) {
-                for (SinglePartitionDesc singlePartitionDesc : partitionDesc.getSinglePartitionDescs()) {
-                    checkPartitionNullity(getColumns(), partitionDesc, singlePartitionDesc);
-                }
+            if (partitionTableInfo != null) {
+                checkPartitionNullity(columns, partitionTableInfo);
             }
         }
     }
@@ -1522,62 +1516,67 @@ public class CreateTableInfo {
     /**
      * checkPartitionNullity
      */
-    public void checkPartitionNullity(List<Column> baseSchema, PartitionDesc partitionDesc,
-                                       SinglePartitionDesc partition)
+    public void checkPartitionNullity(List<ColumnDefinition> baseSchema, PartitionTableInfo partitionTableInfo)
             throws AnalysisException {
         // in creating OlapTable, expr.desc is null. so we should find the column ourself.
-        ArrayList<Expr> partitionExprs = partitionDesc.getPartitionExprs();
-        ArrayList<Boolean> partitionSlotNullables = new ArrayList<Boolean>();
-        for (Expr expr : partitionExprs) {
-            if (expr instanceof SlotRef) {
-                partitionSlotNullables.add(findAllowNullforSlotRef(baseSchema, (SlotRef) expr));
-            } else if (expr instanceof FunctionCallExpr) {
-                partitionSlotNullables.add(Expr.isNullable(((FunctionCallExpr) expr).getFn(), expr.getChildren()));
+        List<Expression> partitionExprs = partitionTableInfo.getPartitionList();
+        List<Boolean> partitionSlotNullables = new ArrayList<>();
+        for (Expression expr : partitionExprs) {
+            if (expr instanceof UnboundSlot) {
+                partitionSlotNullables.add(findAllowNullforSlot(baseSchema, (UnboundSlot) expr));
+            } else if (expr instanceof UnboundFunction) {
+                partitionSlotNullables.add(true);
             } else {
-                throw new AnalysisException("Unknown partition expr type:" + expr.getExprName());
+                throw new AnalysisException("Unknown partition expr type:" + expr.getExpressionName());
             }
         }
 
-        if (partition.getPartitionKeyDesc().getPartitionType() == PartitionKeyDesc.PartitionKeyValueType.IN) {
-            List<List<PartitionValue>> inValues = partition.getPartitionKeyDesc().getInValues();
-            for (List<PartitionValue> item : inValues) {
-                checkNullityEqual(partitionSlotNullables, item);
+        for (PartitionDefinition partitionDef : partitionTableInfo.getPartitionDefs()) {
+            if (partitionDef instanceof InPartition) {
+                List<List<Expression>> inValues = ((InPartition) partitionDef).getValues();
+                for (List<Expression> item : inValues) {
+                    checkNullityEqual(partitionSlotNullables, item);
+                }
+            } else if (partitionDef instanceof LessThanPartition) {
+                List<Expression> values = ((LessThanPartition) partitionDef).getValues();
+                checkNullityEqual(partitionSlotNullables, values);
+            } else if (partitionDef instanceof FixedRangePartition) {
+                List<Expression> upperValues = ((FixedRangePartition) partitionDef).getUpperBounds();
+                List<Expression> lowerValues = ((FixedRangePartition) partitionDef).getLowerBounds();
+                checkNullityEqual(partitionSlotNullables, lowerValues);
+                checkNullityEqual(partitionSlotNullables, upperValues);
+            } else if (partitionDef instanceof StepPartition) {
+                List<Expression> fromValues = ((StepPartition) partitionDef).getFromExpression();
+                List<Expression> toValues = ((StepPartition) partitionDef).getToExpression();
+                checkNullityEqual(partitionSlotNullables, fromValues);
+                checkNullityEqual(partitionSlotNullables, toValues);
             }
-        } else if (partition.getPartitionKeyDesc().getPartitionType()
-                == PartitionKeyDesc.PartitionKeyValueType.LESS_THAN) {
-            // only upper
-            List<PartitionValue> upperValues = partition.getPartitionKeyDesc().getUpperValues();
-            checkNullityEqual(partitionSlotNullables, upperValues);
-        } else {
-            // fixed. upper and lower
-            List<PartitionValue> lowerValues = partition.getPartitionKeyDesc().getLowerValues();
-            List<PartitionValue> upperValues = partition.getPartitionKeyDesc().getUpperValues();
-            checkNullityEqual(partitionSlotNullables, lowerValues);
-            checkNullityEqual(partitionSlotNullables, upperValues);
         }
     }
 
-    private boolean findAllowNullforSlotRef(List<Column> baseSchema, SlotRef slot) throws AnalysisException {
-        for (Column col : baseSchema) {
-            if (col.nameEquals(slot.getColumnName(), true)) {
-                return col.isAllowNull();
+    private boolean findAllowNullforSlot(List<ColumnDefinition> baseSchema, UnboundSlot slot) throws AnalysisException {
+        for (ColumnDefinition col : baseSchema) {
+            if (col.nameEquals(slot.getName(), true)) {
+                return col.isNullable();
             }
         }
-        throw new AnalysisException("Unknown partition column name:" + slot.getColumnName());
+        throw new AnalysisException("Unknown partition column name:" + slot.getName());
     }
 
-    private void checkNullityEqual(ArrayList<Boolean> partitionSlotNullables, List<PartitionValue> item)
-            throws AnalysisException {
-        // for MAX_VALUE or somethings
-        if (item == null) {
+    private void checkNullityEqual(List<Boolean> partitionSlotNullables, List<Expression> item) {
+        if (item == null || item.isEmpty()) {
             return;
         }
+
         for (int i = 0; i < item.size(); i++) {
             try {
-                if (!partitionSlotNullables.get(i) && item.get(i).isNullPartition()) {
-                    throw new AnalysisException(
-                        "Can't have null partition is for NOT NULL partition "
-                        + "column in partition expr's index " + i);
+                Expression expr = item.get(i);
+                if (expr.isLiteral()) {
+                    if (!partitionSlotNullables.get(i) && expr.isNullLiteral()) {
+                        throw new AnalysisException(
+                            "Can't have null partition is for NOT NULL partition "
+                                + "column in partition expr's index " + i);
+                    }
                 }
             } catch (IndexOutOfBoundsException e) {
                 throw new AnalysisException(
