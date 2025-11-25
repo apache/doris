@@ -2366,7 +2366,7 @@ public class SessionVariable implements Serializable, Writable {
             "用于测试查询缓存是否命中，如果未命中指定类型的缓存，则会报错",
             "Used to test whether the query cache is hit. "
                     + "If the specified type of cache is not hit, an error will be reported."},
-            options = {"none", "sql_cache", "partition_cache"})
+            options = {"none", "sql", "partition"})
     public String testQueryCacheHit = "none";
 
     @VariableMgr.VarAttr(name = ENABLE_AUTO_ANALYZE,
