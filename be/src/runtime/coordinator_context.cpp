@@ -65,7 +65,6 @@ CoordinatorContext::~CoordinatorContext() {
     }
 #endif
     _resource_ctx->memory_context()->mem_tracker();
-    SCOPED_ATTACH_TASK(_resource_ctx);
     _merge_controller_handler.reset();
 }
 
