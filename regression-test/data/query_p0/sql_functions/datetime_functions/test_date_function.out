@@ -300,8 +300,38 @@ February
 -- !sql --
 0
 
+-- !sql_second_time_with_micro1 --
+1
+
+-- !sql_second_time_with_micro2 --
+59
+
+-- !sql_second_time_with_micro3 --
+0
+
+-- !sql_second_time_with_micro4 --
+45
+
 -- !sql --
 767890
+
+-- !sql_microsecond_special_format --
+\N
+
+-- !sql_microsecond_time_with_micro1 --
+123456
+
+-- !sql_microsecond_time_with_micro2 --
+999999
+
+-- !sql_microsecond_time_with_micro3 --
+1
+
+-- !sql_microsecond_time_with_micro4 --
+500000
+
+-- !sql_microsecond_time_with_micro5 --
+789000
 
 -- !sql --
 2014-12-21T12:34:56
