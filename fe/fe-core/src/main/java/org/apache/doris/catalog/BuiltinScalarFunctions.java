@@ -1027,7 +1027,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(SubReplace.class, "sub_replace"),
             scalar(Substring.class, "substr", "substring", "mid"),
             scalar(SubTime.class, "sub_time"),
-                    scalar(SubstringIndex.class, "substring_index"),
+            scalar(SubstringIndex.class, "substring_index"),
             scalar(Tan.class, "tan"),
             scalar(Tanh.class, "tanh"),
             scalar(Time.class, "time"),
