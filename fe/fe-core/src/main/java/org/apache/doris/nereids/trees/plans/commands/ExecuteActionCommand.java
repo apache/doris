@@ -159,8 +159,9 @@ public class ExecuteActionCommand extends Command implements ForwardWithSync {
                                     externalTable.getCatalog().getId(),
                                     externalTable.getDbName(),
                                     externalTable.getName()));
+        } else {
+            // support more table in future
+            throw new UserException("Unsupported table type: " + table.getClass().getName() + " for refresh table");
         }
-        // support more table in future
-        throw new UserException("Unsupported table type: " + table.getClass().getName() + " for refresh table");
     }
 }
