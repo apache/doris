@@ -33,17 +33,14 @@ import org.apache.logging.log4j.Logger;
 import java.util.Objects;
 
 /**
- * Describes a scalar type. For most types this class just wraps a PrimitiveType
- * enum,
- * but for types like CHAR and DECIMAL, this class contain additional
- * information.
+ * Describes a scalar type. For most types this class just wraps a PrimitiveType enum,
+ * but for types like CHAR and DECIMAL, this class contain additional information.
  *
- * Scalar types have a few ways they can be compared to other scalar types. They
- * can be:
- * 1. completely identical,
- * 2. implicitly castable (convertible without loss of precision)
- * 3. subtype. For example, in the case of decimal, a type can be decimal(*, *)
- * indicating that any decimal type is a subtype of the decimal type.
+ * Scalar types have a few ways they can be compared to other scalar types. They can be:
+ *   1. completely identical,
+ *   2. implicitly castable (convertible without loss of precision)
+ *   3. subtype. For example, in the case of decimal, a type can be decimal(*, *)
+ *   indicating that any decimal type is a subtype of the decimal type.
  */
 public class ScalarType extends Type {
     // We use a fixed-length decimal type to represent a date time.
@@ -59,7 +56,7 @@ public class ScalarType extends Type {
 
     public static final int MAX_CHAR_LENGTH = 255;
 
-    // HLL DEFAULT LENGTH 2^14(registers) + 1(type)
+    // HLL DEFAULT LENGTH  2^14(registers) + 1(type)
     public static final int MAX_HLL_LENGTH = 16385;
 
     // Longest CHAR that we in line in the tuple.
@@ -85,6 +82,7 @@ public class ScalarType extends Type {
     public static final int MAX_PRECISION = MAX_DECIMAL256_PRECISION;
 
     private long byteSize = -1;
+
 
     /**
      * Set byte size of expression
@@ -558,8 +556,7 @@ public class ScalarType extends Type {
     public static ScalarType createVariantType() {
         // Not return ScalarType return VariantType instead for compatibility reason
         // In the past, variant metadata used the ScalarType type.
-        // Now, we use VariantType, which inherits from ScalarType, as the new metadata
-        // storage.
+        // Now, we use VariantType, which inherits from ScalarType, as the new metadata storage.
         return new VariantType();
     }
 
@@ -571,8 +568,7 @@ public class ScalarType extends Type {
     }
 
     public static ScalarType createVarcharType() {
-        // Because ScalarType is not an immutable class, it will call setLength()
-        // sometimes.
+        // Because ScalarType is not an immutable class, it will call setLength() sometimes.
         // So currently don't use DEFAULT_VARCHAR, will improve it in the future.
         return new ScalarType(PrimitiveType.VARCHAR);
     }
@@ -590,19 +586,19 @@ public class ScalarType extends Type {
                 return "character(" + MAX_CHAR_LENGTH + ")";
             }
             return "char(" + len + ")";
-        } else if (type == PrimitiveType.DECIMALV2) {
+        } else  if (type == PrimitiveType.DECIMALV2) {
             if (isWildcardDecimal()) {
                 return "decimal(*,*)";
             }
             return "decimal(" + precision + "," + scale + ")";
-        } else if (type.isDecimalV3Type()) {
+        } else  if (type.isDecimalV3Type()) {
             if (isWildcardDecimal()) {
                 return "decimalv3(*,*)";
             }
             return "decimalv3(" + precision + "," + scale + ")";
-        } else if (type == PrimitiveType.DATETIMEV2) {
+        } else  if (type == PrimitiveType.DATETIMEV2) {
             return "datetimev2(" + scale + ")";
-        } else if (type == PrimitiveType.TIMEV2) {
+        } else  if (type == PrimitiveType.TIMEV2) {
             return "timev2(" + scale + ")";
         } else if (type == PrimitiveType.VARCHAR) {
             if (isWildcardVarchar()) {
@@ -657,10 +653,10 @@ public class ScalarType extends Type {
                 String typeName = "decimalv3";
                 if (Strings.isNullOrEmpty(precisionStr)) {
                     stringBuilder.append(typeName).append("(").append(precision)
-                            .append(",").append(scale).append(")");
+                        .append(",").append(scale).append(")");
                 } else if (!Strings.isNullOrEmpty(precisionStr) && !Strings.isNullOrEmpty(scaleStr)) {
                     stringBuilder.append(typeName).append("(`").append(precisionStr)
-                            .append("`,`").append(scaleStr).append("`)");
+                        .append("`,`").append(scaleStr).append("`)");
                 } else {
                     stringBuilder.append(typeName).append("(`").append(precisionStr).append("`)");
                 }
@@ -987,8 +983,7 @@ public class ScalarType extends Type {
 
     public int getVariantMaxSubcolumnsCount() {
         // In the past, variant metadata used the ScalarType type.
-        // Now, we use VariantType, which inherits from ScalarType, as the new metadata
-        // storage.
+        // Now, we use VariantType, which inherits from ScalarType, as the new metadata storage.
         if (this instanceof VariantType) {
             return ((VariantType) this).getVariantMaxSubcolumnsCount();
         }
@@ -997,8 +992,7 @@ public class ScalarType extends Type {
 
     public boolean getVariantEnableTypedPathsToSparse() {
         // In the past, variant metadata used the ScalarType type.
-        // Now, we use VariantType, which inherits from ScalarType, as the new metadata
-        // storage.
+        // Now, we use VariantType, which inherits from ScalarType, as the new metadata storage.
         if (this instanceof VariantType) {
             return ((VariantType) this).getEnableTypedPathsToSparse();
         }
@@ -1007,8 +1001,7 @@ public class ScalarType extends Type {
 
     public int getVariantMaxSparseColumnStatisticsSize() {
         // In the past, variant metadata used the ScalarType type.
-        // Now, we use VariantType, which inherits from ScalarType, as the new metadata
-        // storage.
+        // Now, we use VariantType, which inherits from ScalarType, as the new metadata storage.
         if (this instanceof VariantType) {
             return ((VariantType) this).getVariantMaxSparseColumnStatisticsSize();
         }
@@ -1017,8 +1010,7 @@ public class ScalarType extends Type {
 
     public int getVariantSparseHashShardCount() {
         // In the past, variant metadata used the ScalarType type.
-        // Now, we use VariantType, which inherits from ScalarType, as the new metadata
-        // storage.
+        // Now, we use VariantType, which inherits from ScalarType, as the new metadata storage.
         if (this instanceof VariantType) {
             return ((VariantType) this).getVariantSparseHashShardCount();
         }
