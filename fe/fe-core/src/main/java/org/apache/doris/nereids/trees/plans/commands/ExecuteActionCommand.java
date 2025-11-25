@@ -26,6 +26,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.ExternalObjectLog;
 import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -104,6 +105,7 @@ public class ExecuteActionCommand extends Command implements ForwardWithSync {
 
             action.validate(tableNameInfo, ctx.getCurrentUserIdentity());
             ResultSet resultSet = action.execute(table);
+            logRefreshTable(table);
             if (resultSet != null) {
                 executor.sendResultSet(resultSet);
             }
@@ -140,5 +142,25 @@ public class ExecuteActionCommand extends Command implements ForwardWithSync {
 
     public Optional<Expression> getWhereCondition() {
         return whereCondition;
+    }
+
+    /**
+     * Log refresh table to make follow fe metadata cache refresh.
+     *
+     * @param table the table to log
+     * @throws UserException if the table type is not supported
+     */
+    private void logRefreshTable(TableIf table) throws UserException {
+        if (table instanceof ExternalTable) {
+            ExternalTable externalTable = (ExternalTable) table;
+            Env.getCurrentEnv().getEditLog()
+                    .logRefreshExternalTable(
+                            ExternalObjectLog.createForRefreshTable(
+                                    externalTable.getCatalog().getId(),
+                                    externalTable.getDbName(),
+                                    externalTable.getName()));
+        }
+        // support more table in future
+        throw new UserException("Unsupported table type: " + table.getClass().getName() + " for refresh table");
     }
 }
