@@ -289,6 +289,7 @@ public class StatementContext implements Closeable {
     // For Iceberg rewrite operations: store file scan tasks to be used by IcebergScanNode
     // TODO: better solution?
     private List<org.apache.iceberg.FileScanTask> icebergRewriteFileScanTasks = null;
+    private boolean hasNestedColumns;
 
     public StatementContext() {
         this(ConnectContext.get(), null, 0);
@@ -1047,5 +1048,13 @@ public class StatementContext implements Closeable {
 
     public void setSkipPrunePredicate(boolean skipPrunePredicate) {
         this.skipPrunePredicate = skipPrunePredicate;
+    }
+
+    public boolean hasNestedColumns() {
+        return hasNestedColumns;
+    }
+
+    public void setHasNestedColumns(boolean hasNestedColumns) {
+        this.hasNestedColumns = hasNestedColumns;
     }
 }

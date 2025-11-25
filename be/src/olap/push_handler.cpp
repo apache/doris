@@ -47,7 +47,6 @@
 #include "olap/rowset/pending_rowset_helper.h"
 #include "olap/rowset/rowset_writer.h"
 #include "olap/rowset/rowset_writer_context.h"
-#include "olap/schema.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet.h"
 #include "olap/tablet_manager.h"
@@ -258,17 +257,9 @@ Status PushHandler::_convert_v2(TabletSharedPtr cur_tablet, RowsetSharedPtr* cur
         }
         // For push load, this tablet maybe not need push data, so that the path maybe empty
         if (!path.empty()) {
-            // init schema
-            std::unique_ptr<Schema> schema(new (std::nothrow) Schema(tablet_schema));
-            if (schema == nullptr) {
-                st = Status::Error<MEM_ALLOC_FAILED>("fail to create schema. tablet={}",
-                                                     cur_tablet->tablet_id());
-                break;
-            }
-
             // init Reader
-            std::unique_ptr<PushBrokerReader> reader = PushBrokerReader::create_unique(
-                    schema.get(), _request.broker_scan_range, _request.desc_tbl);
+            std::unique_ptr<PushBrokerReader> reader =
+                    PushBrokerReader::create_unique(_request.broker_scan_range, _request.desc_tbl);
             st = reader->init();
             if (reader == nullptr || !st.ok()) {
                 st = Status::Error<PUSH_INIT_ERROR>("fail to init reader. st={}, tablet={}", st,
@@ -328,7 +319,7 @@ Status PushHandler::_convert_v2(TabletSharedPtr cur_tablet, RowsetSharedPtr* cur
     return st;
 }
 
-PushBrokerReader::PushBrokerReader(const Schema* schema, const TBrokerScanRange& t_scan_range,
+PushBrokerReader::PushBrokerReader(const TBrokerScanRange& t_scan_range,
                                    const TDescriptorTable& t_desc_tbl)
         : _ready(false),
           _eof(false),
@@ -661,9 +652,9 @@ Status PushBrokerReader::_get_next_reader() {
                                                          _io_ctx.get(), _runtime_state.get());
 
         init_status = parquet_reader->init_reader(
-                _all_col_names, _colname_to_value_range, _push_down_exprs, _real_tuple_desc,
-                _default_val_row_desc.get(), _col_name_to_slot_id,
-                &_not_single_slot_filter_conjuncts, &_slot_id_to_filter_conjuncts,
+                _all_col_names, _push_down_exprs, _real_tuple_desc, _default_val_row_desc.get(),
+                _col_name_to_slot_id, &_not_single_slot_filter_conjuncts,
+                &_slot_id_to_filter_conjuncts,
                 vectorized::TableSchemaChangeHelper::ConstNode::get_instance(), false);
         _cur_reader = std::move(parquet_reader);
         if (!init_status.ok()) {

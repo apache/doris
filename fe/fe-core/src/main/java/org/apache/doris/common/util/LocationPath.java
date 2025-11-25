@@ -312,6 +312,9 @@ public class LocationPath {
                 .equals(schema)) && AzurePropertyUtils.isOneLakeLocation(normalizedLocation)) {
             return TFileType.FILE_HDFS;
         }
+        if (StringUtils.isNotBlank(normalizedLocation) && isHdfsOnOssEndpoint(normalizedLocation)) {
+            return TFileType.FILE_HDFS;
+        }
         return SchemaTypeMapper.fromSchemaToFileType(schema);
     }
 

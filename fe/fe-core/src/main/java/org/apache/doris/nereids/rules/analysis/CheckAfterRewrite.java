@@ -94,6 +94,18 @@ public class CheckAfterRewrite extends OneAnalysisRuleFactory {
         }
     }
 
+    /**
+     *
+     * used for test
+     * after applying a rule, use this method to check whether all slots are from children
+     */
+    public void checkTreeAllSlotReferenceFromChildren(Plan plan) {
+        checkAllSlotReferenceFromChildren(plan);
+        for (Plan child : plan.children()) {
+            checkTreeAllSlotReferenceFromChildren(child);
+        }
+    }
+
     private void checkAllSlotReferenceFromChildren(Plan plan) {
         Set<Slot> inputSlots = plan.getInputSlots();
         RoaringBitmap childrenOutput = plan.getChildrenOutputExprIdBitSet();

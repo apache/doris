@@ -273,7 +273,7 @@ public:
                                                 &ctz, nullptr, nullptr);
         p_reader->set_file_reader(local_file_reader);
         colname_to_slot_id.emplace("int64_col", 2);
-        static_cast<void>(p_reader->init_reader(column_names, nullptr, {}, tuple_desc, nullptr,
+        static_cast<void>(p_reader->init_reader(column_names, {}, tuple_desc, nullptr,
                                                 &colname_to_slot_id, nullptr, nullptr));
 
         size_t meta_size;
@@ -767,9 +767,9 @@ TEST_F(ParquetExprTest, test_min_max_p) {
                                                         doris_metadata.created_by, &stat)
                             .ok());
 
-        ASSERT_TRUE(ParquetPredicate::get_min_max_value(col_schema, stat.encoded_min_value,
-                                                        stat.encoded_max_value,
-                                                        cctz::utc_time_zone(), min_field, max_field)
+        ASSERT_TRUE(ParquetPredicate::parse_min_max_value(
+                            col_schema, stat.encoded_min_value, stat.encoded_max_value,
+                            cctz::utc_time_zone(), min_field, max_field)
                             .ok());
     };
 
@@ -1238,24 +1238,26 @@ TEST_F(ParquetExprTest, test_expr_push_down_and) {
     ASSERT_TRUE(p_reader->check_expr_can_push_down(and_expr));
 
     p_reader->_enable_filter_by_min_max = true;
-    p_reader->_push_down_simple_predicates.clear();
-    p_reader->_push_down_simple_predicates.emplace(
-            2, std::vector<std::unique_ptr<ColumnPredicate>> {});
+    std::map<int, std::vector<std::unique_ptr<ColumnPredicate>>> push_down_simple_predicates;
+    push_down_simple_predicates.emplace(2, std::vector<std::unique_ptr<ColumnPredicate>> {});
     p_reader->_push_down_predicates.push_back(AndBlockColumnPredicate::create_unique());
-    ASSERT_TRUE(p_reader->convert_predicates({and_expr}, p_reader->_push_down_simple_predicates[2],
+    ASSERT_TRUE(p_reader->convert_predicates({and_expr}, push_down_simple_predicates[2],
                                              p_reader->_push_down_predicates.back(),
                                              p_reader->_arena)
                         .ok());
 
     bool filter_group = false;
-    ASSERT_TRUE(p_reader->_process_column_stat_filter(doris_metadata.row_groups[0], &filter_group)
+    ASSERT_TRUE(p_reader->_process_column_stat_filter(doris_metadata.row_groups[0],
+                                                      p_reader->_push_down_predicates,
+                                                      &filter_group)
                         .OK());
     ASSERT_FALSE(filter_group);
     filter_group = true;
-    ASSERT_TRUE(p_reader->_process_column_stat_filter(doris_metadata.row_groups[1], &filter_group)
+    ASSERT_TRUE(p_reader->_process_column_stat_filter(doris_metadata.row_groups[1],
+                                                      p_reader->_push_down_predicates,
+                                                      &filter_group)
                         .OK());
     ASSERT_TRUE(filter_group);
-    p_reader->_push_down_simple_predicates.clear();
 }
 
 TEST_F(ParquetExprTest, test_expr_push_down_or_string) {

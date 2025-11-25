@@ -241,24 +241,6 @@ const ColumnWithTypeAndName& Block::safe_get_by_position(size_t position) const 
     return data[position];
 }
 
-ColumnWithTypeAndName& Block::get_by_name(const std::string& name) {
-    int pos = get_position_by_name(name);
-    if (pos == -1) {
-        throw Exception(ErrorCode::INTERNAL_ERROR, "No such name in Block, name={}, block_names={}",
-                        name, dump_names());
-    }
-    return data[pos];
-}
-
-const ColumnWithTypeAndName& Block::get_by_name(const std::string& name) const {
-    int pos = get_position_by_name(name);
-    if (pos == -1) {
-        throw Exception(ErrorCode::INTERNAL_ERROR, "No such name in Block, name={}, block_names={}",
-                        name, dump_names());
-    }
-    return data[pos];
-}
-
 int Block::get_position_by_name(const std::string& name) const {
     for (int i = 0; i < data.size(); i++) {
         if (data[i].name == name) {

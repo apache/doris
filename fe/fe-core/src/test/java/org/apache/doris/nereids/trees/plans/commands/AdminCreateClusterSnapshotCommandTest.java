@@ -20,16 +20,20 @@ package org.apache.doris.nereids.trees.plans.commands;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.Pair;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.collect.ImmutableMap;
 import mockit.Expectations;
 import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 public class AdminCreateClusterSnapshotCommandTest {
@@ -70,30 +74,34 @@ public class AdminCreateClusterSnapshotCommandTest {
     public void testValidateNormal() throws Exception {
         runBefore();
         Config.deploy_mode = "";
-        Map<String, String> properties = new HashMap<>();
-        properties.put("ttl", "3600");
-        properties.put("label", "test_s_label");
-        AdminCreateClusterSnapshotCommand command = new AdminCreateClusterSnapshotCommand(properties);
+        AdminCreateClusterSnapshotCommand command = new AdminCreateClusterSnapshotCommand(new HashMap<>());
         Assertions.assertThrows(AnalysisException.class, () -> command.validate(connectContext),
                 "The sql is illegal in disk mode");
 
         Config.deploy_mode = "cloud";
-        Assertions.assertDoesNotThrow(() -> command.validate(connectContext));
+        List<Pair<Map<String, String>, String>> properties = new ArrayList<>();
+        // missing property
+        properties.add(Pair.of(new HashMap<>(), "Property 'ttl' is required."));
+        properties.add(Pair.of(ImmutableMap.of("label", "a"), "Property 'ttl' is required"));
+        properties.add(Pair.of(ImmutableMap.of("ttl", "3600"), "Property 'label' is required."));
+        // invalid value
+        properties.add(Pair.of(ImmutableMap.of("ttl", "a", "label", "a"), "Invalid value"));
+        properties.add(Pair.of(ImmutableMap.of("ttl", "0", "label", "a"), "Property 'ttl' must be positive"));
+        properties.add(Pair.of(ImmutableMap.of("ttl", "3600", "label", ""), "Property 'label' cannot be empty"));
+        // unknown property
+        properties.add(Pair.of(ImmutableMap.of("ttl", "0", "a", "b"), "Unknown property"));
+        // normal case
+        properties.add(Pair.of(ImmutableMap.of("ttl", "3600", "label", "abc"), ""));
 
-        // test invalid property
-        properties.put("a", "test_s_label");
-        AdminCreateClusterSnapshotCommand command1 = new AdminCreateClusterSnapshotCommand(properties);
-        Assertions.assertThrows(AnalysisException.class, () -> command1.validate(connectContext), "Unknown property");
-        properties.remove("a");
-
-        // test invalid ttl
-        properties.put("ttl", "a");
-        AdminCreateClusterSnapshotCommand command2 = new AdminCreateClusterSnapshotCommand(properties);
-        Assertions.assertThrows(AnalysisException.class, () -> command2.validate(connectContext), "Invalid value");
-
-        properties.put("ttl", "0");
-        AdminCreateClusterSnapshotCommand command3 = new AdminCreateClusterSnapshotCommand(properties);
-        Assertions.assertThrows(AnalysisException.class, () -> command3.validate(connectContext), "Invalid value");
+        for (Pair<Map<String, String>, String> entry : properties) {
+            AdminCreateClusterSnapshotCommand command0 = new AdminCreateClusterSnapshotCommand(entry.first);
+            String error = entry.second;
+            if (error.isEmpty()) {
+                command0.validate(connectContext);
+            } else {
+                Assertions.assertThrows(AnalysisException.class, () -> command0.validate(connectContext), error);
+            }
+        }
     }
 
     @Test
