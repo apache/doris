@@ -18,9 +18,12 @@
 package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.mysql.MysqlCommand;
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
@@ -37,15 +40,20 @@ import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.nereids.util.PredicateInferUtils;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Supplier;
 
 /**
  * infer additional predicates for `LogicalFilter` and `LogicalJoin`.
@@ -91,18 +99,25 @@ public class InferPredicates extends DefaultPlanRewriter<JobContext> implements 
         Plan right = join.right();
         Set<Expression> expressions = getAllExpressions(left, right, join.getOnClauseCondition());
         switch (join.getJoinType()) {
-            case INNER_JOIN:
             case CROSS_JOIN:
-            case LEFT_SEMI_JOIN:
-            case RIGHT_SEMI_JOIN:
                 left = inferNewPredicate(left, expressions);
                 right = inferNewPredicate(right, expressions);
                 break;
+            case INNER_JOIN:
+            case LEFT_SEMI_JOIN:
+            case RIGHT_SEMI_JOIN:
+                left = inferNewPredicateRemoveUselessIsNull(left, expressions, join, context.getCascadesContext());
+                right = inferNewPredicateRemoveUselessIsNull(right, expressions, join, context.getCascadesContext());
+                break;
             case LEFT_OUTER_JOIN:
+                right = inferNewPredicateRemoveUselessIsNull(right, expressions, join, context.getCascadesContext());
+                break;
             case LEFT_ANTI_JOIN:
                 right = inferNewPredicate(right, expressions);
                 break;
             case RIGHT_OUTER_JOIN:
+                left = inferNewPredicateRemoveUselessIsNull(left, expressions, join, context.getCascadesContext());
+                break;
             case RIGHT_ANTI_JOIN:
                 left = inferNewPredicate(left, expressions);
                 break;
@@ -195,5 +210,61 @@ public class InferPredicates extends DefaultPlanRewriter<JobContext> implements 
         }
         predicates.removeAll(plan.accept(pullUpAllPredicates, null));
         return PlanUtils.filterOrSelf(predicates, plan);
+    }
+
+    // Remove redundant "or is null" from expressions.
+    // For example, when we have a t2 left join t3 condition t2.a=t3.a, we can infer that t3.a is not null.
+    // If we find a predicate like "t3.a = 1 or t3.a is null" in expressions, we change it to "t3.a=1".
+    private Plan inferNewPredicateRemoveUselessIsNull(Plan plan, Set<Expression> expressions,
+            LogicalJoin<? extends Plan, ? extends Plan> join, CascadesContext cascadesContext) {
+        Supplier<Set<Slot>> supplier = Suppliers.memoize(() -> {
+            Set<Expression> all = new HashSet<>();
+            all.addAll(join.getHashJoinConjuncts());
+            all.addAll(join.getOtherJoinConjuncts());
+            return ExpressionUtils.inferNotNullSlots(all, cascadesContext);
+        });
+
+        Set<Expression> predicates = new LinkedHashSet<>();
+        Set<Slot> planOutputs = plan.getOutputSet();
+        for (Expression expr : expressions) {
+            Set<Slot> slots = expr.getInputSlots();
+            if (slots.isEmpty() || !planOutputs.containsAll(slots)) {
+                continue;
+            }
+            if (expr instanceof Or && expr.isInferred()) {
+                List<Expression> orChildren = ExpressionUtils.extractDisjunction(expr);
+                List<Expression> newOrChildren = Lists.newArrayList();
+                boolean changed = false;
+                for (Expression orChild : orChildren) {
+                    if (orChild instanceof IsNull && orChild.child(0) instanceof Slot
+                            && supplier.get().contains(orChild.child(0))) {
+                        changed = true;
+                        continue;
+                    }
+                    newOrChildren.add(orChild);
+                }
+                if (changed) {
+                    if (newOrChildren.size() == 1) {
+                        predicates.add(withInferredIfSupported(newOrChildren.get(0), expr));
+                    } else if (newOrChildren.size() > 1) {
+                        predicates.add(new Or(newOrChildren, true));
+                    }
+                } else {
+                    predicates.add(expr);
+                }
+            } else {
+                predicates.add(expr);
+            }
+        }
+        predicates.removeAll(plan.accept(pullUpAllPredicates, null));
+        return PlanUtils.filterOrSelf(predicates, plan);
+    }
+
+    private Expression withInferredIfSupported(Expression expression, Expression originExpr) {
+        try {
+            return expression.withInferred(true);
+        } catch (RuntimeException e) {
+            return originExpr;
+        }
     }
 }

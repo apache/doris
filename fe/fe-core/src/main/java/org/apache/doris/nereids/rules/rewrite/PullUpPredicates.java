@@ -260,17 +260,21 @@ public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void
                     break;
                 }
                 case LEFT_OUTER_JOIN:
+                    predicates.addAll(leftPredicates.get());
+                    predicates.addAll(
+                            generateNullTolerantPredicates(rightPredicates.get(), join.right().getOutputSet()));
+                    break;
                 case LEFT_SEMI_JOIN:
                 case LEFT_ANTI_JOIN:
                 case NULL_AWARE_LEFT_ANTI_JOIN: {
                     predicates.addAll(leftPredicates.get());
-                    if (join.getJoinType().isLeftOuterJoin()) {
-                        predicates.addAll(
-                                generateNullTolerantPredicates(rightPredicates.get(), join.right().getOutputSet()));
-                    }
                     break;
                 }
                 case RIGHT_OUTER_JOIN:
+                    predicates.addAll(rightPredicates.get());
+                    predicates.addAll(
+                            generateNullTolerantPredicates(leftPredicates.get(), join.left().getOutputSet()));
+                    break;
                 case RIGHT_SEMI_JOIN:
                 case RIGHT_ANTI_JOIN: {
                     predicates.addAll(rightPredicates.get());
@@ -396,7 +400,8 @@ public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void
         for (Expression predicate : predicates) {
             Set<Slot> predicateSlots = predicate.getInputSlots();
             List<Expression> orChildren = new ArrayList<>();
-            for (Slot slot : predicateSlots) {
+            if (predicateSlots.size() == 1) {
+                Slot slot = predicateSlots.iterator().next();
                 if (nullableSlots.contains(slot)) {
                     orChildren.add(new IsNull(slot));
                 }
@@ -404,7 +409,7 @@ public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void
             if (orChildren.isEmpty()) {
                 tolerant.add(predicate);
             } else {
-                List<Expression> expandedOr = new ArrayList<>(orChildren.size() + 1);
+                List<Expression> expandedOr = new ArrayList<>(2);
                 expandedOr.add(predicate);
                 expandedOr.addAll(orChildren);
                 tolerant.add(ExpressionUtils.or(expandedOr));

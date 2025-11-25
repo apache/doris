@@ -114,14 +114,16 @@ PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((t1.a = t2.a)) otherCondition=()
 ----filter(OR[(t1.a < 2),(t1.a > 10)])
 ------PhysicalOlapScan[extend_infer_t3(t1)]
-----PhysicalOlapScan[extend_infer_t4(t2)]
+----filter(OR[(t2.a < 2),(t2.a > 10)])
+------PhysicalOlapScan[extend_infer_t4(t2)]
 
 -- !test_or2 --
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((t1.a = t2.a)) otherCondition=()
 ----filter(OR[(t1.a < 2),(t1.a > 10)])
 ------PhysicalOlapScan[extend_infer_t3(t1)]
-----PhysicalOlapScan[extend_infer_t4(t2)]
+----filter(OR[(t2.a < 2),(t2.a > 10)])
+------PhysicalOlapScan[extend_infer_t4(t2)]
 
 -- !test_sign_predicate --
 PhysicalResultSink
@@ -771,4 +773,15 @@ PhysicalResultSink
 
 -- !pull_up_from_agg --
 0
+
+-- !leftjoin_right_pull_up_shape --
+PhysicalResultSink
+--hashJoin[LEFT_OUTER_JOIN] hashCondition=((t2.a = t3.a)) otherCondition=()
+----hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.a = t2.a)) otherCondition=()
+------filter((t1.a = 1))
+--------PhysicalOlapScan[extend_infer_t3(t1)]
+------filter((t2.a = 1))
+--------PhysicalOlapScan[extend_infer_t4(t2)]
+----filter((t3.a = 1))
+------PhysicalOlapScan[extend_infer_t5(t3)]
 

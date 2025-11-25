@@ -377,4 +377,9 @@ suite("extend_infer_equal_predicate") {
     qt_pull_up_from_intersect """select a from(select a from (select t1.a from extend_infer_t3 t1 where t1.a<10 intersect select t2.a from extend_infer_t4 t2 where t2.a<10  ) tt
             limit 10) t  where a<10 order by 1 ;"""
     qt_pull_up_from_agg """select a from (select a from extend_infer_t3 t1 where a<10 group by a limit 10) t where a<10 order by 1"""
+
+    // test left join right table predicate pull up
+    qt_leftjoin_right_pull_up_shape """
+        explain shape plan select * from extend_infer_t3 t1 left join extend_infer_t4 t2 on t1.a=t2.a left join extend_infer_t5 t3 on t2.a= t3.a where t1.a=1;
+    """
 }
