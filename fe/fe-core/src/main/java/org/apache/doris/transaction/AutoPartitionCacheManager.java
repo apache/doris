@@ -19,6 +19,8 @@ package org.apache.doris.transaction;
 
 import org.apache.doris.thrift.TTabletLocation;
 
+import jline.internal.Log;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
@@ -105,6 +107,9 @@ public class AutoPartitionCacheManager {
             partitionSlaveTablets.clear();
             partitionTablets.addAll(cached.tablets);
             partitionSlaveTablets.addAll(cached.slaveTablets);
+            Log.info(String.format("Get cached auto partition info from cache, txnId: %d, partitionId: %d, "
+                    + "tablets: %d, slaveTablets: %d", txnId, partitionId,
+                    cached.tablets.size(), cached.slaveTablets.size()));
         }
     }
 

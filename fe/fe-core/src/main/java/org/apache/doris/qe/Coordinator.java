@@ -484,10 +484,6 @@ public class Coordinator implements CoordInterface {
         return label;
     }
 
-    public Set<TUniqueId> getInstanceIds() {
-        return instanceIds;
-    }
-
     public void setExecMemoryLimit(long execMemoryLimit) {
         this.queryOptions.setMemLimit(execMemoryLimit);
     }

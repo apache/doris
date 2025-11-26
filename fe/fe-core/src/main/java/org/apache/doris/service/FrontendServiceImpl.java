@@ -110,6 +110,7 @@ import org.apache.doris.qe.HttpStreamParams;
 import org.apache.doris.qe.MasterCatalogExecutor;
 import org.apache.doris.qe.MasterOpExecutor;
 import org.apache.doris.qe.MysqlConnectProcessor;
+import org.apache.doris.qe.NereidsCoordinator;
 import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.StmtExecutor;
@@ -3673,15 +3674,13 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         //    So we skip caching for them.
         boolean needUseCache = false;
         if (request.isSetQueryId()) {
-            Coordinator coordinator = QeProcessorImpl.INSTANCE.getCoordinator(request.getQueryId());
-            if (coordinator != null) {
-                // Found coordinator, check if it's multi-instance
-                // For single-instance imports (like stream load from FE), we don't need cache either
-                // Only multi-instance imports need to ensure consistent tablet replica information
-                int instanceNum = coordinator.getInstanceIds().size();
-                if (instanceNum > 1) {
-                    needUseCache = true;
-                }
+            NereidsCoordinator coordinator = (NereidsCoordinator) QeProcessorImpl.INSTANCE
+                    .getCoordinator(request.getQueryId());
+            // For single-instance imports (like stream load from FE), we don't need cache either
+            // Only multi-instance imports need to ensure consistent tablet replica information
+            int instanceNum = coordinator.getCoordinatorContext().instanceNum.get();
+            if (instanceNum > 1) {
+                needUseCache = true;
             }
         }
         OlapTable olapTable = (OlapTable) table;
@@ -3773,6 +3772,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 // fast path, if cached
                 tablets.addAll(partitionTablets);
                 slaveTablets.addAll(partitionSlaveTablets);
+                LOG.info("Fast path: use cached auto partition info, txnId: {}, partitionId: {}, "
+                        + "tablets: {}, slaveTablets: {}", txnId, partition.getId(),
+                        partitionTablets.size(), partitionSlaveTablets.size());
                 continue;
             }
             int quorum = olapTable.getPartitionInfo().getReplicaAllocation(partition.getId()).getTotalReplicaNum() / 2
@@ -3842,6 +3844,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 Env.getCurrentGlobalTransactionMgr().getAutoPartitionCacheMgr()
                         .getOrSetAutoPartitionInfo(txnId, partition.getId(), partitionTablets,
                                 partitionSlaveTablets);
+                LOG.info("Cache auto partition info, txnId: {}, partitionId: {}, "
+                        + "tablets: {}, slaveTablets: {}", txnId, partition.getId(),
+                        partitionTablets.size(), partitionSlaveTablets.size());
             }
 
             tablets.addAll(partitionTablets);
