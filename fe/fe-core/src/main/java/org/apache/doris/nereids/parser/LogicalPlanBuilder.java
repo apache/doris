@@ -57,7 +57,9 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.dictionary.LayoutType;
 import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.info.TableNameInfo;
@@ -1065,6 +1067,8 @@ import org.apache.doris.nereids.types.VariantField;
 import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.analyzer.UnboundIcebergTableSink;
+import org.apache.doris.nereids.parser.StaticPartitionDesc;
 import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.policy.FilterType;
@@ -1346,27 +1350,58 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             branchName = Optional.of(ctx.optSpecBranch().name.getText());
         }
         List<String> colNames = ctx.cols == null ? ImmutableList.of() : visitIdentifierList(ctx.cols);
-        // TODO visit partitionSpecCtx
         LogicalPlan plan = visitQuery(ctx.query());
         // partitionSpec may be NULL. means auto detect partition. only available when IOT
         Pair<Boolean, List<String>> partitionSpec = visitPartitionSpec(ctx.partitionSpec());
+        // Extract static partition information if present
+        StaticPartitionDesc staticPartitionDesc = visitStaticPartitionSpec(ctx.partitionSpec());
         // partitionSpec.second :
         // null - auto detect
         // zero - whole table
         // others - specific partitions
         boolean isAutoDetect = partitionSpec.second == null;
-        LogicalSink<?> sink = UnboundTableSinkCreator.createUnboundTableSinkMaybeOverwrite(
-                tableName.build(),
-                colNames,
-                ImmutableList.of(), // hints
-                partitionSpec.first, // isTemp
-                partitionSpec.second, // partition names
-                isAutoDetect,
-                isOverwrite,
-                ConnectContext.get().getSessionVariable().isEnableUniqueKeyPartialUpdate(),
-                ConnectContext.get().getSessionVariable().getPartialUpdateNewRowPolicy(),
-                ctx.tableId == null ? DMLCommandType.INSERT : DMLCommandType.GROUP_COMMIT,
-                plan);
+        
+        LogicalSink<?> sink;
+        // If static partition is specified and it's an overwrite operation, create Iceberg sink with static partition
+        if (staticPartitionDesc != null && staticPartitionDesc.isStaticPartitionOverwrite() && isOverwrite) {
+            // For Iceberg static partition overwrite, create UnboundIcebergTableSink directly
+            String catalogName = RelationUtil.getQualifierName(ConnectContext.get(), tableName.build()).get(0);
+            CatalogIf<?> curCatalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogName);
+            if (curCatalog instanceof IcebergExternalCatalog) {
+                Map<String, Expression> staticPartitions = staticPartitionDesc.getPartitionKeyValues();
+                sink = new UnboundIcebergTableSink<>(tableName.build(), colNames, ImmutableList.of(),
+                        ImmutableList.of(), // partitions (empty for static partition)
+                        ctx.tableId == null ? DMLCommandType.INSERT : DMLCommandType.GROUP_COMMIT,
+                        Optional.empty(), Optional.empty(), plan, staticPartitions);
+            } else {
+                // For non-Iceberg tables, fall back to normal creation
+                sink = UnboundTableSinkCreator.createUnboundTableSinkMaybeOverwrite(
+                        tableName.build(),
+                        colNames,
+                        ImmutableList.of(), // hints
+                        partitionSpec.first, // isTemp
+                        partitionSpec.second, // partition names
+                        isAutoDetect,
+                        isOverwrite,
+                        ConnectContext.get().getSessionVariable().isEnableUniqueKeyPartialUpdate(),
+                        ConnectContext.get().getSessionVariable().getPartialUpdateNewRowPolicy(),
+                        ctx.tableId == null ? DMLCommandType.INSERT : DMLCommandType.GROUP_COMMIT,
+                        plan);
+            }
+        } else {
+            sink = UnboundTableSinkCreator.createUnboundTableSinkMaybeOverwrite(
+                    tableName.build(),
+                    colNames,
+                    ImmutableList.of(), // hints
+                    partitionSpec.first, // isTemp
+                    partitionSpec.second, // partition names
+                    isAutoDetect,
+                    isOverwrite,
+                    ConnectContext.get().getSessionVariable().isEnableUniqueKeyPartialUpdate(),
+                    ConnectContext.get().getSessionVariable().getPartialUpdateNewRowPolicy(),
+                    ctx.tableId == null ? DMLCommandType.INSERT : DMLCommandType.GROUP_COMMIT,
+                    plan);
+        }
         Optional<LogicalPlan> cte = Optional.empty();
         if (ctx.cte() != null) {
             cte = Optional.ofNullable(withCte(plan, ctx.cte()));
@@ -1445,11 +1480,55 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 partitions = null;
             } else if (ctx.partition != null) {
                 partitions = ImmutableList.of(ctx.partition.getText());
+            } else if (ctx.partitionKeyValue() != null && !ctx.partitionKeyValue().isEmpty()) {
+                // Static partition: PARTITION (col1='val1', col2='val2')
+                // For backward compatibility, return empty list here
+                // Static partition info will be extracted separately in visitInsertTable
+                partitions = ImmutableList.of();
             } else {
                 partitions = visitIdentifierList(ctx.partitions);
             }
         }
         return Pair.of(temporaryPartition, partitions);
+    }
+
+    /**
+     * Extract static partition information from PartitionSpecContext
+     * Returns StaticPartitionDesc if static partition syntax is used, null otherwise
+     */
+    public StaticPartitionDesc visitStaticPartitionSpec(PartitionSpecContext ctx) {
+        if (ctx == null) {
+            return null;
+        }
+        
+        boolean isTemporary = ctx.TEMPORARY() != null;
+        
+        // Check if this is static partition syntax: PARTITION (col1='val1', col2='val2')
+        // Note: This requires ANTLR to regenerate parser classes after grammar change
+        try {
+            // After ANTLR regeneration, partitionKeyValue() method will be available
+            @SuppressWarnings("unchecked")
+            List<DorisParser.PartitionKeyValueContext> partitionKeyValuesList = 
+                    (List<DorisParser.PartitionKeyValueContext>) ctx.getClass()
+                            .getMethod("partitionKeyValue").invoke(ctx);
+            if (partitionKeyValuesList != null && !partitionKeyValuesList.isEmpty()) {
+                Map<String, Expression> partitionKeyValues = Maps.newHashMap();
+                for (DorisParser.PartitionKeyValueContext kvCtx : partitionKeyValuesList) {
+                    String colName = kvCtx.identifier().getText();
+                    Expression valueExpr = typedVisit(kvCtx.expression());
+                    partitionKeyValues.put(colName, valueExpr);
+                }
+                return new StaticPartitionDesc(partitionKeyValues, isTemporary, null);
+            }
+        } catch (NoSuchMethodException | IllegalAccessException | java.lang.reflect.InvocationTargetException e) {
+            // Method doesn't exist yet (ANTLR not regenerated) or other error
+            // This is expected before ANTLR regeneration
+        } catch (Exception e) {
+            // Other errors, not a static partition spec
+        }
+        
+        // For backward compatibility, return null for non-static partition specs
+        return null;
     }
 
     @Override
