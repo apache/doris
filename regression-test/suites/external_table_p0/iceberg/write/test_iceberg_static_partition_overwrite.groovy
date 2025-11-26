@@ -57,11 +57,8 @@ suite("test_iceberg_static_partition_overwrite", "p0,external,iceberg,external_d
             name STRING,
             dt DATE,
             region STRING
-        ) PARTITIONED BY (dt, region)
-        USING ICEBERG
-        TBLPROPERTIES (
-            'format-version' = '2'
-        )
+        ) ENGINE=iceberg
+        PARTITION BY LIST (dt, region) ()
     """
 
     // Insert initial data
@@ -96,11 +93,8 @@ suite("test_iceberg_static_partition_overwrite", "p0,external,iceberg,external_d
             name STRING,
             dt DATE,
             region STRING
-        ) PARTITIONED BY (dt, region)
-        USING ICEBERG
-        TBLPROPERTIES (
-            'format-version' = '2'
-        )
+        ) ENGINE=iceberg
+        PARTITION BY LIST (dt, region) ()
     """
 
     sql """
@@ -130,11 +124,8 @@ suite("test_iceberg_static_partition_overwrite", "p0,external,iceberg,external_d
             name STRING,
             dt DATE,
             region STRING
-        ) PARTITIONED BY (dt, region)
-        USING ICEBERG
-        TBLPROPERTIES (
-            'format-version' = '2'
-        )
+        ) ENGINE=iceberg
+        PARTITION BY LIST (dt, region) ()
     """
 
     sql """
@@ -162,11 +153,8 @@ suite("test_iceberg_static_partition_overwrite", "p0,external,iceberg,external_d
             name STRING,
             dt DATE,
             region STRING
-        ) PARTITIONED BY (dt, region)
-        USING ICEBERG
-        TBLPROPERTIES (
-            'format-version' = '2'
-        )
+        ) ENGINE=iceberg
+        PARTITION BY LIST (dt, region) ()
     """
 
     test {
@@ -187,11 +175,8 @@ suite("test_iceberg_static_partition_overwrite", "p0,external,iceberg,external_d
             dt DATE,
             region STRING,
             amount INT
-        ) PARTITIONED BY (dt, region, amount)
-        USING ICEBERG
-        TBLPROPERTIES (
-            'format-version' = '2'
-        )
+        ) ENGINE=iceberg
+        PARTITION BY LIST (dt, region, amount) ()
     """
 
     sql """
