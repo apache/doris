@@ -828,6 +828,8 @@ public:
     }
 };
 
+struct TimeToSecImpl;
+
 template <typename FunctionImpl>
 class FunctionCurrentDateOrDateTime : public IFunction {
 public:
@@ -857,6 +859,14 @@ public:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
         return FunctionImpl::execute(context, block, arguments, result, input_rows_count);
+    }
+
+    bool need_replace_null_data_to_default() const override {
+        if constexpr (std::is_same_v<FunctionImpl, TimeToSecImpl>) {
+            return true;
+        } else {
+            return false;
+        }
     }
 };
 
