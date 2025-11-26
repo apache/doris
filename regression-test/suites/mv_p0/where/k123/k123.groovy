@@ -110,4 +110,17 @@ suite ("k123p") {
     }
 
     createMV ("""create materialized view k123p1w as select k1 as a1,k2 as a2,k3 as a3 from u_table where k1 = 1;""")
+
+    String db = context.config.getDbNameByFile(context.file)
+    sql "use ${db}"
+    create_sync_mv(db, "d_table", "k1234","""select k1 as x1, k2 as x2, k3 as x3, k4 as x4 from d_table where k1 = 1;""")
+    mv_rewrite_success_without_check_chosen("select k1 as x1, k2 as x2, k3 as x3, k4 as x4 from d_table where k1 = 1;", "k1234")
+    qt_select_mv "select k1 as x1, k2 as x2, k3 as x3, k4 as x4 from d_table where k1 = 1 order by k1;"
+    test {
+        sql """
+              create materialized view kx1234 as select k1 as y1, k2 as y2, k3 as y3, k4 as y4 from d_table;
+        """
+
+        exception "MV same with base table without where clause is useless"
+    }
 }
