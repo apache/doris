@@ -406,9 +406,7 @@ public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void
                     orChildren.add(new IsNull(slot));
                 }
             }
-            if (orChildren.isEmpty()) {
-                tolerant.add(predicate);
-            } else {
+            if (!orChildren.isEmpty()) {
                 List<Expression> expandedOr = new ArrayList<>(2);
                 expandedOr.add(predicate);
                 expandedOr.addAll(orChildren);

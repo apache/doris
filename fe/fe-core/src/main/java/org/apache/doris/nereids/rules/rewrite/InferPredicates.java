@@ -110,16 +110,12 @@ public class InferPredicates extends DefaultPlanRewriter<JobContext> implements 
                 right = inferNewPredicateRemoveUselessIsNull(right, expressions, join, context.getCascadesContext());
                 break;
             case LEFT_OUTER_JOIN:
+            case LEFT_ANTI_JOIN:
                 right = inferNewPredicateRemoveUselessIsNull(right, expressions, join, context.getCascadesContext());
                 break;
-            case LEFT_ANTI_JOIN:
-                right = inferNewPredicate(right, expressions);
-                break;
             case RIGHT_OUTER_JOIN:
-                left = inferNewPredicateRemoveUselessIsNull(left, expressions, join, context.getCascadesContext());
-                break;
             case RIGHT_ANTI_JOIN:
-                left = inferNewPredicate(left, expressions);
+                left = inferNewPredicateRemoveUselessIsNull(left, expressions, join, context.getCascadesContext());
                 break;
             default:
                 break;
@@ -137,12 +133,16 @@ public class InferPredicates extends DefaultPlanRewriter<JobContext> implements 
             return new LogicalEmptyRelation(StatementScopeIdGenerator.newRelationId(), filter.getOutput());
         }
         filter = visitChildren(this, filter, context);
-        Set<Expression> filterPredicates = pullUpPredicates(filter);
-        filterPredicates.removeAll(pullUpAllPredicates(filter.child()));
-        if (filterPredicates.isEmpty()) {
+        Set<Expression> inferredPredicates = pullUpPredicates(filter);
+        inferredPredicates.removeAll(pullUpAllPredicates(filter.child()));
+        if (inferredPredicates.isEmpty()) {
             return filter.child();
         }
-        return new LogicalFilter<>(ImmutableSet.copyOf(filterPredicates), filter.child());
+        if (inferredPredicates.equals(filter.getConjuncts())) {
+            return filter;
+        } else {
+            return new LogicalFilter<>(ImmutableSet.copyOf(inferredPredicates), filter.child());
+        }
     }
 
     @Override
@@ -154,15 +154,18 @@ public class InferPredicates extends DefaultPlanRewriter<JobContext> implements 
         }
         ImmutableList.Builder<Plan> builder = ImmutableList.builder();
         builder.add(except.child(0));
+        boolean changed = false;
         for (int i = 1; i < except.arity(); ++i) {
             Map<Expression, Expression> replaceMap = new HashMap<>();
             for (int j = 0; j < except.getOutput().size(); ++j) {
                 NamedExpression output = except.getOutput().get(j);
                 replaceMap.put(output, except.getRegularChildOutput(i).get(j));
             }
-            builder.add(inferNewPredicate(except.child(i), ExpressionUtils.replace(baseExpressions, replaceMap)));
+            Plan newChild = inferNewPredicate(except.child(i), ExpressionUtils.replace(baseExpressions, replaceMap));
+            changed = changed || newChild != except.child(i);
+            builder.add(newChild);
         }
-        return except.withChildren(builder.build());
+        return changed ? except.withChildren(builder.build()) : except;
     }
 
     @Override
@@ -173,15 +176,18 @@ public class InferPredicates extends DefaultPlanRewriter<JobContext> implements 
             return intersect;
         }
         ImmutableList.Builder<Plan> builder = ImmutableList.builder();
+        boolean changed = false;
         for (int i = 0; i < intersect.arity(); ++i) {
             Map<Expression, Expression> replaceMap = new HashMap<>();
             for (int j = 0; j < intersect.getOutput().size(); ++j) {
                 NamedExpression output = intersect.getOutput().get(j);
                 replaceMap.put(output, intersect.getRegularChildOutput(i).get(j));
             }
-            builder.add(inferNewPredicate(intersect.child(i), ExpressionUtils.replace(baseExpressions, replaceMap)));
+            Plan newChild = inferNewPredicate(intersect.child(i), ExpressionUtils.replace(baseExpressions, replaceMap));
+            changed = changed || newChild != intersect.child(i);
+            builder.add(newChild);
         }
-        return intersect.withChildren(builder.build());
+        return changed ? intersect.withChildren(builder.build()) : intersect;
     }
 
     private Set<Expression> getAllExpressions(Plan left, Plan right, Optional<Expression> condition) {
