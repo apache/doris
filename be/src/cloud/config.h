@@ -106,6 +106,9 @@ DECLARE_mInt32(mow_stream_load_commit_retry_times);
 
 DECLARE_mBool(save_load_error_log_to_s3);
 
+// Whether to use public endpoint for error log presigned URL
+DECLARE_mBool(use_public_endpoint_for_error_log);
+
 // the theads which sync the datas which loaded in other clusters
 DECLARE_mInt32(sync_load_for_tablets_thread);
 
@@ -158,6 +161,10 @@ DECLARE_mInt64(warm_up_rowset_sync_wait_min_timeout_ms);
 DECLARE_mInt64(warm_up_rowset_sync_wait_max_timeout_ms);
 
 DECLARE_mBool(enable_warmup_immediately_on_new_rowset);
+
+DECLARE_mBool(enable_cache_read_from_peer);
+
+DECLARE_mInt64(cache_read_from_peer_expired_seconds);
 
 #include "common/compile_check_end.h"
 } // namespace doris::config

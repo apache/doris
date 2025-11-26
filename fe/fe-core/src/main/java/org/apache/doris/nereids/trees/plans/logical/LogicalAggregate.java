@@ -282,6 +282,13 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
                 hasPushed, sourceRepeat, Optional.empty(), Optional.empty(), newChild);
     }
 
+    public LogicalAggregate<Plan> withChildGroupByAndOutputAndSourceRepeat(List<Expression> groupByExprList,
+                                                            List<NamedExpression> outputExpressionList, Plan newChild,
+                                                                           Optional<LogicalRepeat<?>> sourceRepeat) {
+        return new LogicalAggregate<>(groupByExprList, outputExpressionList, normalized, ordinalIsResolved, generated,
+                hasPushed, sourceRepeat, Optional.empty(), Optional.empty(), newChild);
+    }
+
     public LogicalAggregate<Plan> withChildAndOutput(CHILD_TYPE child,
                                                        List<NamedExpression> outputExpressionList) {
         return new LogicalAggregate<>(groupByExpressions, outputExpressionList, normalized, ordinalIsResolved,
@@ -309,6 +316,12 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
             List<NamedExpression> normalizedOutput, Plan normalizedChild) {
         return new LogicalAggregate<>(normalizedGroupBy, normalizedOutput, true, ordinalIsResolved, generated,
                 hasPushed, sourceRepeat, Optional.empty(), Optional.empty(), normalizedChild);
+    }
+
+    public LogicalAggregate<Plan> withSourceRepeat(LogicalRepeat<?> sourceRepeat) {
+        return new LogicalAggregate<>(groupByExpressions, outputExpressions, normalized, ordinalIsResolved,
+                generated, hasPushed, Optional.ofNullable(sourceRepeat),
+                Optional.empty(), Optional.empty(), child());
     }
 
     private boolean isUniqueGroupByUnique(NamedExpression namedExpression) {

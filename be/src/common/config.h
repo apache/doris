@@ -714,6 +714,10 @@ DECLARE_mInt32(memory_maintenance_sleep_time_ms);
 // After minor gc, no minor gc during sleep, but full gc is possible.
 DECLARE_mInt32(memory_gc_sleep_time_ms);
 
+// Small memory task threshold in bytes for memory tracker limiter
+// Tasks with memory consumption below this threshold will not be cancelled during memory pressure
+DECLARE_mInt64(mem_tracker_limit_small_memory_task_bytes);
+
 // max write buffer size before flush, default 200MB
 DECLARE_mInt64(write_buffer_size);
 // max buffer size used in memtable for the aggregated table, default 400MB
@@ -1054,6 +1058,7 @@ DECLARE_mInt32(remove_unused_remote_files_interval_sec); // 6h
 DECLARE_mInt32(confirm_unused_remote_files_interval_sec);
 DECLARE_Int32(cold_data_compaction_thread_num);
 DECLARE_mInt32(cold_data_compaction_interval_sec);
+DECLARE_mInt32(cold_data_compaction_score_threshold);
 
 DECLARE_Int32(min_s3_file_system_thread_num);
 DECLARE_Int32(max_s3_file_system_thread_num);
@@ -1351,6 +1356,12 @@ DECLARE_Int32(fe_expire_duration_seconds);
 // , but if the waiting time exceed the limit, then be will exit directly.
 // During this period, FE will not send any queries to BE and waiting for all running queries to stop.
 DECLARE_Int32(grace_shutdown_wait_seconds);
+// When using the graceful stop feature, after the main process waits for
+// all currently running tasks to finish, it will continue to wait for
+// an additional period to ensure that queries still running on other nodes have also completed.
+// Since a BE node cannot detect the task execution status on other BE nodes,
+// you may need to increase this threshold to allow for a longer waiting time.
+DECLARE_Int32(grace_shutdown_post_delay_seconds);
 
 // BitmapValue serialize version.
 DECLARE_Int16(bitmap_serialize_version);

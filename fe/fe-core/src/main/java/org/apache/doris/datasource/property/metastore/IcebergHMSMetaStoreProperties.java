@@ -22,6 +22,7 @@ import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.property.ConnectorProperty;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 
+import lombok.Getter;
 import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.catalog.Catalog;
@@ -47,6 +48,7 @@ public class IcebergHMSMetaStoreProperties extends AbstractIcebergProperties {
                     + "catalog, otherwise it will only list the tables that are registered in the catalog.")
     private boolean listAllTables = true;
 
+    @Getter
     private HMSBaseProperties hmsBaseProperties;
 
     @Override
@@ -69,9 +71,6 @@ public class IcebergHMSMetaStoreProperties extends AbstractIcebergProperties {
         HiveCatalog hiveCatalog = new HiveCatalog();
         hiveCatalog.setConf(conf);
         storagePropertiesList.forEach(sp -> {
-            for (Map.Entry<String, String> entry : sp.getHadoopStorageConfig()) {
-                catalogProps.put(entry.getKey(), entry.getValue());
-            }
             // NOTE: Custom FileIO implementation (KerberizedHadoopFileIO) is commented out by default.
             // Using FileIO for Kerberos authentication may cause serialization issues when accessing
             // Iceberg system tables (e.g., history, snapshots, manifests).

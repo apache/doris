@@ -77,15 +77,20 @@ public class Index implements Writable {
         this.comment = comment;
         if (indexType == IndexDef.IndexType.INVERTED) {
             if (this.properties != null && !this.properties.isEmpty()) {
-                if (this.properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_PARSER_KEY)) {
-                    String lowerCaseKey = InvertedIndexUtil.INVERTED_INDEX_PARSER_LOWERCASE_KEY;
-                    if (!properties.containsKey(lowerCaseKey)) {
-                        this.properties.put(lowerCaseKey, "true");
-                    }
+                if (this.properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_PARSER_KEY)
+                        || this.properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_PARSER_KEY_ALIAS)
+                        || this.properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_CUSTOM_ANALYZER_KEY)) {
                     String supportPhraseKey = InvertedIndexUtil
                             .INVERTED_INDEX_SUPPORT_PHRASE_KEY;
                     if (!properties.containsKey(supportPhraseKey)) {
                         this.properties.put(supportPhraseKey, "true");
+                    }
+                    if (this.properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_PARSER_KEY)
+                            || this.properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_PARSER_KEY_ALIAS)) {
+                        String lowerCaseKey = InvertedIndexUtil.INVERTED_INDEX_PARSER_LOWERCASE_KEY;
+                        if (!this.properties.containsKey(lowerCaseKey)) {
+                            this.properties.put(lowerCaseKey, "true");
+                        }
                     }
                 }
             }
@@ -372,6 +377,7 @@ public class Index implements Writable {
         return indexType == IndexDef.IndexType.INVERTED
             && properties != null
             && (properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_PARSER_KEY)
+                || properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_PARSER_KEY_ALIAS)
                 || properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_CUSTOM_ANALYZER_KEY));
     }
 }

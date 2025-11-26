@@ -445,6 +445,11 @@ int64_t MemTrackerLimiter::free_top_memory_query(
                 auto tracker = trackerWptr.lock();
                 if (tracker != nullptr && tracker->type() == type) {
                     seek_num++;
+                    // Skip small memory tasks to avoid cancelling them during memory pressure
+                    if (tracker->consumption() <=
+                        config::mem_tracker_limit_small_memory_task_bytes) {
+                        continue;
+                    }
                     if (tracker->is_query_cancelled()) {
                         canceling_task.push_back(fmt::format("{}:{} Bytes", tracker->label(),
                                                              tracker->consumption()));
@@ -563,8 +568,9 @@ int64_t MemTrackerLimiter::free_top_overcommit_query(
                 auto tracker = trackerWptr.lock();
                 if (tracker != nullptr && tracker->type() == type) {
                     seek_num++;
-                    // 32M small query does not cancel
-                    if (tracker->consumption() <= 33554432 ||
+                    // Use configurable small memory task threshold instead of hardcoded 32MB
+                    if (tracker->consumption() <=
+                                config::mem_tracker_limit_small_memory_task_bytes ||
                         tracker->consumption() < tracker->limit()) {
                         small_num++;
                         continue;

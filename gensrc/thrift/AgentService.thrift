@@ -138,7 +138,8 @@ struct TPushStoragePolicyReq {
 enum TIndexPolicyType {
     ANALYZER,
     TOKENIZER,
-    TOKEN_FILTER
+    TOKEN_FILTER,
+    CHAR_FILTER
 }
 
 struct TIndexPolicy {

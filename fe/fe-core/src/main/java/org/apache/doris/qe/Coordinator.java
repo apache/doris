@@ -618,7 +618,7 @@ public class Coordinator implements CoordInterface {
             computeFragmentExecParams();
         } finally {
             if (context != null && context.getExecutor() != null) {
-                context.getExecutor().getSummaryProfile().setDistributeTime();
+                context.getExecutor().getSummaryProfile().setDistributeTime(TimeUtils.getStartTimeMs());
             }
         }
     }

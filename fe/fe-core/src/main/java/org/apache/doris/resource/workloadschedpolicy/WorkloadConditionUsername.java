@@ -17,7 +17,7 @@
 
 package org.apache.doris.resource.workloadschedpolicy;
 
-import org.apache.hbase.thirdparty.com.google.gson.annotations.SerializedName;
+import com.google.gson.annotations.SerializedName;
 
 public class WorkloadConditionUsername implements WorkloadCondition {
 

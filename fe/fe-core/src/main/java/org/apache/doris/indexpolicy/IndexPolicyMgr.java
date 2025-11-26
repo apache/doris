@@ -45,7 +45,9 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.stream.Collectors;
 
 public class IndexPolicyMgr implements Writable, GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(IndexPolicyMgr.class);
@@ -84,6 +86,11 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
     }
 
     public void validateAnalyzerExists(String analyzerName) throws DdlException {
+        // Allow built-in analyzers
+        if (IndexPolicy.BUILTIN_ANALYZERS.contains(analyzerName)) {
+            return;
+        }
+
         readLock();
         try {
             IndexPolicy policy = nameToIndexPolicy.get(analyzerName);
@@ -111,6 +118,12 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
         }
         if (IndexPolicy.BUILTIN_TOKEN_FILTERS.contains(policyName)) {
             throw new DdlException("Policy name '" + policyName + "' conflicts with built-in token filter name");
+        }
+        if (IndexPolicy.BUILTIN_CHAR_FILTERS.contains(policyName)) {
+            throw new DdlException("Policy name '" + policyName + "' conflicts with built-in char filter name");
+        }
+        if (IndexPolicy.BUILTIN_ANALYZERS.contains(policyName)) {
+            throw new DdlException("Policy name '" + policyName + "' conflicts with built-in analyzer name");
         }
 
         IndexPolicy indexPolicy = IndexPolicy.create(policyName, type, properties);
@@ -173,6 +186,9 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
             case TOKEN_FILTER:
                 validateTokenFilterProperties(properties);
                 break;
+            case CHAR_FILTER:
+                validateCharFilterProperties(properties);
+                break;
             default:
                 throw new DdlException("Unknown index policy type: " + type);
         }
@@ -181,10 +197,11 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
     private void validateAnalyzerProperties(Map<String, String> properties) throws DdlException {
         for (String key : properties.keySet()) {
             if (!key.equals(IndexPolicy.PROP_TOKENIZER)
-                    && !key.equals(IndexPolicy.PROP_TOKEN_FILTER)) {
+                    && !key.equals(IndexPolicy.PROP_TOKEN_FILTER)
+                    && !key.equals(IndexPolicy.PROP_CHAR_FILTER)) {
                 throw new DdlException("Invalid analyzer property: '" + key + "'. Only '"
                     + IndexPolicy.PROP_TOKENIZER + "' and '" + IndexPolicy.PROP_TOKEN_FILTER
-                        + "' are allowed.");
+                        + "' and '" + IndexPolicy.PROP_CHAR_FILTER + "' are allowed.");
             }
         }
 
@@ -200,6 +217,13 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
                 validatePolicyReference(filter, IndexPolicyTypeEnum.TOKEN_FILTER);
             }
         }
+
+        String charFilters = properties.get(IndexPolicy.PROP_CHAR_FILTER);
+        if (charFilters != null && !charFilters.isEmpty()) {
+            for (String filter : charFilters.split(",\\s*")) {
+                validatePolicyReference(filter, IndexPolicyTypeEnum.CHAR_FILTER);
+            }
+        }
     }
 
     private void validatePolicyReference(String name, IndexPolicyTypeEnum expectedType)
@@ -210,6 +234,10 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
         }
         if (expectedType == IndexPolicyTypeEnum.TOKEN_FILTER
                 && IndexPolicy.BUILTIN_TOKEN_FILTERS.contains(name)) {
+            return;
+        }
+        if (expectedType == IndexPolicyTypeEnum.CHAR_FILTER
+                && IndexPolicy.BUILTIN_CHAR_FILTERS.contains(name)) {
             return;
         }
 
@@ -230,6 +258,9 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
         }
         PolicyPropertyValidator validator;
         switch (type) {
+            case "empty":
+                validator = new NoOperationValidator("empty tokenizer");
+                break;
             case "ngram":
                 validator = new NGramTokenizerValidator();
                 break;
@@ -240,14 +271,17 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
                 validator = new StandardTokenizerValidator();
                 break;
             case "keyword":
-                validator = new KeywordTokenizerValidator();
+                validator = new NoOperationValidator("keyword tokenizer");
                 break;
             case "char_group":
                 validator = new CharGroupTokenizerValidator();
                 break;
             default:
+                Set<String> userFacingTypes = IndexPolicy.BUILTIN_TOKEN_FILTERS.stream()
+                        .filter(t -> !t.equals("empty"))
+                        .collect(Collectors.toSet());
                 throw new DdlException("Unsupported tokenizer type: " + type
-                        + ". Supported types: " + IndexPolicy.BUILTIN_TOKENIZERS);
+                        + ". Supported types: " + userFacingTypes);
         }
         validator.validate(properties);
     }
@@ -259,6 +293,9 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
         }
         PolicyPropertyValidator validator;
         switch (type) {
+            case "empty":
+                validator = new NoOperationValidator("empty token filter");
+                break;
             case "asciifolding":
                 validator = new AsciiFoldingTokenFilterValidator();
                 break;
@@ -266,11 +303,37 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
                 validator = new WordDelimiterTokenFilterValidator();
                 break;
             case "lowercase":
-                validator = new LowerCaseTokenFilterValidator();
+                validator = new NoOperationValidator("lowercase token filter");
                 break;
             default:
+                Set<String> userFacingTypes = IndexPolicy.BUILTIN_TOKEN_FILTERS.stream()
+                        .filter(t -> !t.equals("empty"))
+                        .collect(Collectors.toSet());
                 throw new DdlException("Unsupported token filter type: " + type
-                        + ". Supported types: " + IndexPolicy.BUILTIN_TOKEN_FILTERS);
+                        + ". Supported types: " + userFacingTypes);
+        }
+        validator.validate(properties);
+    }
+
+    private void validateCharFilterProperties(Map<String, String> properties) throws DdlException {
+        String type = properties.get(IndexPolicy.PROP_TYPE);
+        if (type == null || type.isEmpty()) {
+            throw new DdlException("CHAR_FILTER must specify a 'type' property");
+        }
+        PolicyPropertyValidator validator;
+        switch (type) {
+            case "empty":
+                validator = new NoOperationValidator("empty char filter");
+                break;
+            case "char_replace":
+                validator = new CharReplaceCharFilterValidator();
+                break;
+            default:
+                Set<String> userFacingTypes = IndexPolicy.BUILTIN_CHAR_FILTERS.stream()
+                        .filter(t -> !t.equals("empty"))
+                        .collect(Collectors.toSet());
+                throw new DdlException("Unsupported char filter type: " + type
+                        + ". Supported types: " + userFacingTypes);
         }
         validator.validate(properties);
     }
@@ -290,7 +353,8 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
                 checkAnalyzerNotUsedByIndex(policyToDrop.getName());
             }
             if (policyToDrop.getType() == IndexPolicyTypeEnum.TOKENIZER
-                    || policyToDrop.getType() == IndexPolicyTypeEnum.TOKEN_FILTER) {
+                    || policyToDrop.getType() == IndexPolicyTypeEnum.TOKEN_FILTER
+                    || policyToDrop.getType() == IndexPolicyTypeEnum.CHAR_FILTER) {
                 checkPolicyNotReferenced(policyToDrop);
             }
             long id = policyToDrop.getId();
@@ -323,7 +387,8 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
                         if (properties != null
                                 && analyzerName.equals(properties.get(IndexPolicy.PROP_ANALYZER))) {
                             throw new DdlException("the analyzer " + analyzerName + " is used by index: "
-                                    + index.getIndexName() + " in table: " + table.getName());
+                                    + index.getIndexName() + " in table: "
+                                    + db.getFullName() + "." + table.getName());
                         }
                     }
                 }
@@ -351,6 +416,17 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
                             if (policyName.equals(filter)) {
                                 throw new DdlException("Cannot drop " + policyType + " policy '"
                                          + policyName + "' as it is referenced by ANALYZER policy '"
+                                                + analyzerPolicy.getName() + "'");
+                            }
+                        }
+                    }
+                } else if (policyType == IndexPolicyTypeEnum.CHAR_FILTER) {
+                    String charFilters = properties.get(IndexPolicy.PROP_CHAR_FILTER);
+                    if (charFilters != null && !charFilters.isEmpty()) {
+                        for (String filter : charFilters.split(",\\s*")) {
+                            if (policyName.equals(filter)) {
+                                throw new DdlException("Cannot drop " + policyType + " policy '"
+                                        + policyName + "' as it is referenced by ANALYZER policy '"
                                                 + analyzerPolicy.getName() + "'");
                             }
                         }

@@ -42,6 +42,7 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.ExternalSchemaCache.SchemaCacheKey;
+import org.apache.doris.datasource.connectivity.CatalogConnectivityTestCoordinator;
 import org.apache.doris.datasource.es.EsExternalDatabase;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalDatabase;
@@ -137,6 +138,9 @@ public abstract class ExternalCatalog
             USE_META_CACHE);
 
     protected static final int ICEBERG_CATALOG_EXECUTOR_THREAD_NUM = Runtime.getRuntime().availableProcessors();
+
+    public static final String TEST_CONNECTION = "test_connection";
+    public static final boolean DEFAULT_TEST_CONNECTION = false;
 
     // Unique id of this catalog, will be assigned after catalog is loaded.
     @SerializedName(value = "id")
@@ -264,6 +268,17 @@ public abstract class ExternalCatalog
     // Will be called when creating catalog(not replaying).
     // Subclass can override this method to do some check when creating catalog.
     public void checkWhenCreating() throws DdlException {
+        boolean testConnection = Boolean.parseBoolean(
+                catalogProperty.getOrDefault(TEST_CONNECTION, String.valueOf(DEFAULT_TEST_CONNECTION)));
+
+        if (testConnection) {
+            CatalogConnectivityTestCoordinator testCoordinator = new CatalogConnectivityTestCoordinator(
+                    name,
+                    catalogProperty.getMetastoreProperties(),
+                    catalogProperty.getStoragePropertiesMap()
+            );
+            testCoordinator.runTests();
+        }
     }
 
     /**
@@ -355,12 +370,12 @@ public abstract class ExternalCatalog
                     name,
                     OptionalLong.of(Config.external_cache_expire_time_seconds_after_access),
                     OptionalLong.of(Config.external_cache_refresh_time_minutes * 60L),
-                    Config.max_meta_object_cache_num,
+                    Math.max(Config.max_meta_object_cache_num, 1),
                     ignored -> getFilteredDatabaseNames(),
                     localDbName -> Optional.ofNullable(
                             buildDbForInit(null, localDbName, Util.genIdByName(name, localDbName), logType,
                                     true)),
-                    (key, value, cause) -> value.ifPresent(v -> v.resetToUninitialized()));
+                    (key, value, cause) -> value.ifPresent(v -> v.resetMetaToUninitialized()));
         }
     }
 
@@ -581,28 +596,35 @@ public abstract class ExternalCatalog
             this.cachedConf = null;
         }
         onClose();
-
-        refreshOnlyCatalogCache(invalidCache);
+        onRefreshCache(invalidCache);
     }
 
-    // Only for hms event handling.
-    public void onRefreshCache() {
-        refreshOnlyCatalogCache(true);
+    /**
+     * Refresh both meta cache and catalog cache.
+     *
+     * @param invalidCache
+     */
+    public void onRefreshCache(boolean invalidCache) {
+        refreshMetaCacheOnly();
+        if (invalidCache) {
+            Env.getCurrentEnv().getExtMetaCacheMgr().invalidateCatalogCache(id);
+        }
     }
 
-    private void refreshOnlyCatalogCache(boolean invalidCache) {
+    /**
+     * Refresh meta cache only (database level cache), without invalidating catalog level cache.
+     * This method is safe to call within synchronized block.
+     */
+    private void refreshMetaCacheOnly() {
         if (useMetaCache.isPresent()) {
             if (useMetaCache.get() && metaCache != null) {
                 metaCache.invalidateAll();
             } else if (!useMetaCache.get()) {
                 this.initialized = false;
                 for (ExternalDatabase<? extends ExternalTable> db : idToDb.values()) {
-                    db.resetToUninitialized();
+                    db.resetMetaToUninitialized();
                 }
             }
-        }
-        if (invalidCache) {
-            Env.getCurrentEnv().getExtMetaCacheMgr().invalidateCatalogCache(id);
         }
     }
 
@@ -793,7 +815,6 @@ public abstract class ExternalCatalog
         if (threadPoolWithPreAuth != null) {
             ThreadPoolManager.shutdownExecutorService(threadPoolWithPreAuth);
         }
-        CatalogIf.super.onClose();
     }
 
     private void removeAccessController() {
@@ -1492,8 +1513,6 @@ public abstract class ExternalCatalog
     public void resetMetaCacheNames() {
         if (useMetaCache.isPresent() && useMetaCache.get() && metaCache != null) {
             metaCache.resetNames();
-        } else {
-            resetToUninitialized(true);
         }
     }
 

@@ -131,7 +131,10 @@ class IndexPolicyMgr;
 struct SyncRowsetStats;
 class DeleteBitmapAggCache;
 
+// set to true when BE is shutting down
 inline bool k_doris_exit = false;
+// set to true after BE start ready
+inline bool k_is_server_ready = false;
 
 // Execution environment for queries/plan fragments.
 // Contains all required global structures, and handles to
@@ -164,7 +167,7 @@ public:
     // Requires ExenEnv ready
     static Result<BaseTabletSPtr> get_tablet(int64_t tablet_id,
                                              SyncRowsetStats* sync_stats = nullptr,
-                                             bool force_use_cache = false);
+                                             bool force_use_only_cached = false);
 
     static bool ready() { return _s_ready.load(std::memory_order_acquire); }
     static bool tracking_memory() { return _s_tracking_memory.load(std::memory_order_acquire); }

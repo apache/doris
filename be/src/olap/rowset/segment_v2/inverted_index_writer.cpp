@@ -52,12 +52,12 @@
 #include "olap/rowset/segment_v2/common.h"
 #include "olap/rowset/segment_v2/inverted_index/analyzer/analyzer.h"
 #include "olap/rowset/segment_v2/inverted_index/char_filter/char_filter_factory.h"
+#include "olap/rowset/segment_v2/inverted_index/util/reader.h"
 #include "olap/rowset/segment_v2/inverted_index_common.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
 #include "olap/rowset/segment_v2/inverted_index_file_writer.h"
 #include "olap/rowset/segment_v2/inverted_index_fs_directory.h"
 #include "olap/tablet_schema.h"
-#include "olap/types.h"
 #include "runtime/collection_value.h"
 #include "runtime/exec_env.h"
 #include "util/debug_points.h"
@@ -66,6 +66,9 @@
 #include "util/string_util.h"
 
 namespace doris::segment_v2 {
+
+using namespace doris::segment_v2::inverted_index;
+
 const int32_t MAX_FIELD_LEN = 0x7FFFFFFFL;
 const int32_t MERGE_FACTOR = 100000000;
 const int32_t MAX_LEAF_COUNT = 1024;
@@ -166,8 +169,7 @@ public:
         return open_index_directory();
     }
 
-    Result<std::unique_ptr<lucene::util::Reader>> create_char_string_reader(
-            CharFilterMap& char_filter_map) {
+    Result<ReaderPtr> create_char_string_reader(CharFilterMap& char_filter_map) {
         try {
             return inverted_index::InvertedIndexAnalyzer::create_reader(char_filter_map);
         } catch (CLuceneError& e) {
@@ -379,7 +381,7 @@ public:
                     _CLTHROWA(CL_ERR_UnsupportedOperation,
                               "UnsupportedOperationException: CLStream::init");
                 })
-        auto* stream = _analyzer->reusableTokenStream(field->name(), _char_string_reader.get());
+        auto* stream = _analyzer->reusableTokenStream(field->name(), _char_string_reader);
         field->setValue(stream);
     }
 
@@ -441,6 +443,7 @@ public:
                 return Status::InternalError("index writer is null in inverted index writer");
             }
             size_t start_off = 0;
+            std::vector<ReaderPtr> keep_readers;
             for (int i = 0; i < count; ++i) {
                 // nullmap & value ptr-array may not from offsets[i] because olap_convertor make offsets accumulate from _base_offset which may not is 0, but nullmap & value in this segment is from 0, we only need
                 // every single array row element size to go through the nullmap & value ptr-array, and also can go through the every row in array to keep with _rid++
@@ -480,15 +483,12 @@ public:
                             // in this case stream need to delete after add_document, because the
                             // stream can not reuse for different field
                             bool own_token_stream = true;
-                            bool own_reader = true;
-                            std::unique_ptr<lucene::util::Reader> char_string_reader =
-                                    DORIS_TRY(create_char_string_reader(
-                                            _inverted_index_ctx->char_filter_map));
+                            ReaderPtr char_string_reader = DORIS_TRY(create_char_string_reader(
+                                    _inverted_index_ctx->char_filter_map));
                             char_string_reader->init(v->get_data(), v->get_size(), false);
-                            _analyzer->set_ownReader(own_reader);
-                            ts = _analyzer->tokenStream(new_field->name(),
-                                                        char_string_reader.release());
+                            ts = _analyzer->tokenStream(new_field->name(), char_string_reader);
                             new_field->setValue(ts, own_token_stream);
+                            keep_readers.emplace_back(std::move(char_string_reader));
                         } else {
                             new_field_char_value(v->get_data(), v->get_size(), new_field.get());
                         }
@@ -541,6 +541,7 @@ public:
                     _doc->clear();
                 }
                 _rid++;
+                keep_readers.clear();
             }
         } else if constexpr (field_is_numeric_type(field_type)) {
             size_t start_off = 0;
@@ -751,7 +752,7 @@ private:
     std::shared_ptr<DorisFSDirectory> _dir = nullptr;
     std::unique_ptr<lucene::index::IndexWriter> _index_writer = nullptr;
     std::shared_ptr<lucene::analysis::Analyzer> _analyzer = nullptr;
-    std::unique_ptr<lucene::util::Reader> _char_string_reader = nullptr;
+    ReaderPtr _char_string_reader = nullptr;
     std::shared_ptr<lucene::util::bkd::bkd_writer> _bkd_writer = nullptr;
     InvertedIndexCtxSPtr _inverted_index_ctx = nullptr;
     const KeyCoder* _value_key_coder;

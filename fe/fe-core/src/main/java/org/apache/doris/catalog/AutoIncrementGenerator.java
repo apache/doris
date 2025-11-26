@@ -61,7 +61,7 @@ public class AutoIncrementGenerator implements Writable, GsonPostProcessable {
         this.tableId = tableId;
         this.columnId = columnId;
         this.nextId = nextId;
-        this.batchEndId = -1;
+        this.batchEndId = nextId;
     }
 
     public void setEditLog(EditLog editLog) {

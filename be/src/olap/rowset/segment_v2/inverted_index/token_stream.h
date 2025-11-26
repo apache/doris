@@ -21,16 +21,20 @@
 
 #include <memory>
 #include <string_view>
-#include <unordered_set>
 
 #include "CLucene.h"
 #include "CLucene/analysis/AnalysisHeader.h"
-#include "common/exception.h"
-#include "common/logging.h"
+#include "common/cast_set.h"
+#include "olap/rowset/segment_v2/inverted_index/util/reader.h"
 
 using namespace lucene::analysis;
 
 namespace doris::segment_v2::inverted_index {
+
+class DorisTokenizer;
+using TokenizerPtr = std::shared_ptr<DorisTokenizer>;
+
+using TokenStreamPtr = std::shared_ptr<TokenStream>;
 
 /**
  * All custom tokenizers and token_filters must use the following functions 
@@ -56,5 +60,33 @@ public:
     int32_t get_position_increment(Token* t) { return t->getPositionIncrement(); }
     void set_position_increment(Token* t, int32_t pos) { t->setPositionIncrement(pos); }
 };
+
+class TokenStreamWrapper : public TokenStream {
+public:
+    explicit TokenStreamWrapper(std::shared_ptr<TokenStream> ts) : _impl(std::move(ts)) {}
+    ~TokenStreamWrapper() override = default;
+
+    Token* next(Token* token) override { return _impl->next(token); }
+    void close() override { _impl->close(); }
+    void reset() override { _impl->reset(); }
+
+private:
+    std::shared_ptr<TokenStream> _impl;
+};
+
+class TokenStreamComponents {
+public:
+    TokenStreamComponents(TokenizerPtr tokenizer, TokenStreamPtr result)
+            : _source(std::move(tokenizer)), _sink(std::move(result)) {}
+
+    void set_reader(const ReaderPtr& reader);
+    TokenStreamPtr get_token_stream();
+    TokenizerPtr get_source();
+
+private:
+    TokenizerPtr _source;
+    TokenStreamPtr _sink;
+};
+using TokenStreamComponentsPtr = std::shared_ptr<TokenStreamComponents>;
 
 }; // namespace doris::segment_v2::inverted_index

@@ -26,6 +26,7 @@ import org.apache.doris.system.Frontend;
 
 import com.google.common.base.Strings;
 import com.google.gson.reflect.TypeToken;
+import jakarta.servlet.http.HttpServletRequest;
 import org.apache.commons.io.IOUtils;
 import org.apache.http.client.config.RequestConfig;
 import org.apache.http.client.methods.HttpGet;
@@ -42,7 +43,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.stream.Collectors;
-import javax.servlet.http.HttpServletRequest;
 
 /*
  * used to forward http requests from manager to be.

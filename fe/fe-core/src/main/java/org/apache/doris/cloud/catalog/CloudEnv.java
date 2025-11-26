@@ -90,6 +90,10 @@ public class CloudEnv extends Env {
         return this.cloudTabletRebalancer;
     }
 
+    public boolean isRebalancerInited() {
+        return this.cloudTabletRebalancer.isInited();
+    }
+
     public CloudUpgradeMgr getCloudUpgradeMgr() {
         return this.upgradeMgr;
     }

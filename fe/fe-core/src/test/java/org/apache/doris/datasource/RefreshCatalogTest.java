@@ -102,7 +102,7 @@ public class RefreshCatalogTest extends TestWithFeService {
         Thread.sleep(5000);
         // there are test1.db1 , test1.db2 , test1.db3, information_schema, mysql
         List<String> dbNames2 = test1.getDbNames();
-        Assertions.assertEquals(4, dbNames2.size());
+        Assertions.assertEquals(5, dbNames2.size());
         ExternalInfoSchemaDatabase infoDb = (ExternalInfoSchemaDatabase) test1.getDb(InfoSchemaDb.DATABASE_NAME).get();
         Assertions.assertEquals(SchemaTable.TABLE_MAP.size(), infoDb.getTables().size());
         TestExternalDatabase testDb = (TestExternalDatabase) test1.getDb("db1").get();
@@ -157,8 +157,8 @@ public class RefreshCatalogTest extends TestWithFeService {
         } catch (Exception e) {
             // Do nothing
         }
-        // after refresh, the catalog will be set to uninitialized
-        Assertions.assertFalse(((ExternalCatalog) test2).isInitialized());
+        // after refresh, the catalog will NOT be set to uninitialized
+        Assertions.assertTrue(((ExternalCatalog) test2).isInitialized());
         // call get table to trigger catalog initialization
         table = (TestExternalTable) test2.getDbNullable("db1").getTable("tbl11").get();
         Assertions.assertTrue(((ExternalCatalog) test2).isInitialized());

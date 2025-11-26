@@ -1021,7 +1021,7 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_IPV6>
     }
 
     static std::string to_string(const void* src) {
-        uint128_t value = *reinterpret_cast<const uint128_t*>(src);
+        uint128_t value = unaligned_load<uint128_t>(src);
         IPv6Value ipv6_value(value);
         return ipv6_value.to_string();
     }

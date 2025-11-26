@@ -55,10 +55,10 @@ export TP_JAR_DIR="${TP_INSTALL_DIR}/lib/jar"
 #####################################################
 
 # libevent
-LIBEVENT_DOWNLOAD="https://github.com/libevent/libevent/archive/release-2.1.12-stable.tar.gz"
-LIBEVENT_NAME=libevent-release-2.1.12-stable.tar.gz
-LIBEVENT_SOURCE=libevent-release-2.1.12-stable
-LIBEVENT_MD5SUM="0d5a27436bf7ff8253420c8cf09f47ca"
+LIBEVENT_DOWNLOAD="https://github.com/apache/doris-thirdparty/archive/refs/tags/libevent-2.1.12.1.tar.gz"
+LIBEVENT_NAME=libevent-2.1.12.1.tar.gz
+LIBEVENT_SOURCE=doris-thirdparty-libevent-2.1.12.1
+LIBEVENT_MD5SUM="af67af024d42e57e185eb0c5026f8ae6"
 
 # openssl
 OPENSSL_DOWNLOAD="https://github.com/openssl/openssl/archive/OpenSSL_1_1_1s.tar.gz"
@@ -92,10 +92,10 @@ GLOG_SOURCE=glog-0.6.0
 GLOG_MD5SUM="c98a6068bc9b8ad9cebaca625ca73aa2"
 
 # gtest
-GTEST_DOWNLOAD="https://github.com/google/googletest/archive/release-1.11.0.tar.gz"
-GTEST_NAME=googletest-release-1.11.0.tar.gz
-GTEST_SOURCE=googletest-release-1.11.0
-GTEST_MD5SUM="e8a8df240b6938bb6384155d4c37d937"
+GTEST_DOWNLOAD="https://github.com/google/googletest/archive/refs/tags/release-1.12.1.tar.gz"
+GTEST_NAME=googletest-release-1.12.1.tar.gz
+GTEST_SOURCE=googletest-release-1.12.1
+GTEST_MD5SUM="e82199374acdfda3f425331028eb4e2a"
 
 # snappy
 SNAPPY_DOWNLOAD="https://github.com/google/snappy/archive/1.1.8.tar.gz"
@@ -222,10 +222,10 @@ LIBRDKAFKA_SOURCE=librdkafka-1.9.2
 LIBRDKAFKA_MD5SUM="fe9624e905abbf8324b0f6be520d9c24"
 
 # zstd
-ZSTD_DOWNLOAD="https://github.com/facebook/zstd/releases/download/v1.5.5/zstd-1.5.5.tar.gz"
-ZSTD_NAME=zstd-1.5.5.tar.gz
-ZSTD_SOURCE=zstd-1.5.5
-ZSTD_MD5SUM="63251602329a106220e0a5ad26ba656f"
+ZSTD_DOWNLOAD="https://github.com/facebook/zstd/releases/download/v1.5.7/zstd-1.5.7.tar.gz"
+ZSTD_NAME=zstd-1.5.7.tar.gz
+ZSTD_SOURCE=zstd-1.5.7
+ZSTD_MD5SUM="780fc1896922b1bc52a4e90980cdda48"
 
 # brotli
 BROTLI_DOWNLOAD="https://github.com/google/brotli/archive/v1.0.9.tar.gz"
@@ -321,10 +321,10 @@ LIBUNWIND_SOURCE="libunwind-1.6.2"
 LIBUNWIND_MD5SUM="f625b6a98ac1976116c71708a73dc44a"
 
 # cctz
-CCTZ_DOWNLOAD="https://github.com/google/cctz/archive/v2.3.tar.gz"
-CCTZ_NAME="cctz-2.3.tar.gz"
-CCTZ_SOURCE="cctz-2.3"
-CCTZ_MD5SUM="209348e50b24dbbdec6d961059c2fc92"
+CCTZ_DOWNLOAD="https://github.com/google/cctz/archive/refs/tags/v2.5.tar.gz"
+CCTZ_NAME="cctz-2.5.tar.gz"
+CCTZ_SOURCE="cctz-2.5"
+CCTZ_MD5SUM="cae0ee4a5da5399d591e770b7515a46d"
 
 # datatables, bootstrap 3 and jQuery 3
 # The origin download url is always changing: https://datatables.net/download/builder?bs-3.3.7/jq-3.3.1/dt-1.10.25
@@ -372,13 +372,13 @@ XML2_SOURCE="libxml2-v2.9.10"
 XML2_MD5SUM="b18faee9173c3378c910f6d7d1493115"
 
 # idn
-IDN_DOWNLOAD="https://ftpmirror.gnu.org/libidn/libidn-1.38.tar.gz"
+IDN_DOWNLOAD="https://ftp.nluug.nl/pub/gnu/libidn/libidn-1.38.tar.gz"
 IDN_NAME="libidn-1.38.tar.gz"
 IDN_SOURCE="libidn-1.38"
 IDN_MD5SUM="718ff3700dd71f830c592ebe97249193"
 
 # gsasl
-GSASL_DOWNLOAD="https://ftpmirror.gnu.org/gsasl/libgsasl-1.8.0.tar.gz"
+GSASL_DOWNLOAD="https://ftp.nluug.nl/pub/gnu/gsasl/libgsasl-1.8.0.tar.gz"
 GSASL_NAME="libgsasl-1.8.0.tar.gz"
 GSASL_SOURCE="libgsasl-1.8.0"
 GSASL_MD5SUM="5dbdf859f6e60e05813370e2b193b92b"
@@ -467,6 +467,12 @@ HADOOP_LIBS_DOWNLOAD="https://github.com/apache/doris-thirdparty/archive/refs/ta
 HADOOP_LIBS_NAME="hadoop-3.3.6.6-for-doris.tar.gz"
 HADOOP_LIBS_SOURCE="doris-thirdparty-hadoop-3.3.6.6-for-doris"
 HADOOP_LIBS_MD5SUM="13b66d5f2abffd1740e692b65df5962e"
+
+# libhdfs 3.4
+HADOOP_LIBS_3_4_DOWNLOAD="https://github.com/apache/doris-thirdparty/archive/refs/tags/hadoop-3.4.2.1-for-doris.tar.gz"
+HADOOP_LIBS_3_4_NAME="hadoop-3.4.2.1-for-doris.tar.gz"
+HADOOP_LIBS_3_4_SOURCE="doris-thirdparty-hadoop-3.4.2.1-for-doris"
+HADOOP_LIBS_3_4_MD5SUM="4ca35773ecfae856962885413f6bbeac"
 
 # AvxToNeon
 AVX2NEON_DOWNLOAD="https://github.com/kunpengcompute/AvxToNeon/archive/refs/tags/v1.0.0.tar.gz"
@@ -621,6 +627,7 @@ export TP_ARCHIVES=(
     'CONCURRENTQUEUE'
     'FAST_FLOAT'
     'HADOOP_LIBS'
+    'HADOOP_LIBS_3_4'
     'AVX2NEON'
     'LIBDEFLATE'
     'STREAMVBYTE'
@@ -639,13 +646,13 @@ export TP_ARCHIVES=(
 
 if [[ "$(uname -s)" == 'Darwin' ]]; then
     #binutils
-    BINUTILS_DOWNLOAD='https://ftpmirror.gnu.org/gnu/binutils/binutils-2.39.tar.gz'
+    BINUTILS_DOWNLOAD='https://ftp.nluug.nl/pub/gnu/binutils/binutils-2.39.tar.gz'
     BINUTILS_NAME=binutils-2.39.tar.gz
     BINUTILS_SOURCE=binutils-2.39
     BINUTILS_MD5SUM='ab6825df57514ec172331e988f55fc10'
 
     #gettext
-    GETTEXT_DOWNLOAD='https://ftpmirror.gnu.org/gettext/gettext-0.21.tar.gz'
+    GETTEXT_DOWNLOAD='https://ftp.nluug.nl/pub/gnu/gettext/gettext-0.21.tar.gz'
     GETTEXT_NAME='gettext-0.21.tar.gz'
     GETTEXT_SOURCE='gettext-0.21'
     GETTEXT_MD5SUM='28b1cd4c94a74428723ed966c38cf479'

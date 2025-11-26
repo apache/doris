@@ -52,6 +52,7 @@ import org.apache.doris.nereids.DorisParser.AggClauseContext;
 import org.apache.doris.nereids.DorisParser.AggStateDataTypeContext;
 import org.apache.doris.nereids.DorisParser.AliasQueryContext;
 import org.apache.doris.nereids.DorisParser.AliasedQueryContext;
+import org.apache.doris.nereids.DorisParser.AlterComputeGroupContext;
 import org.apache.doris.nereids.DorisParser.AlterMTMVContext;
 import org.apache.doris.nereids.DorisParser.AlterStorageVaultContext;
 import org.apache.doris.nereids.DorisParser.AlterSystemRenameComputeGroupContext;
@@ -80,6 +81,7 @@ import org.apache.doris.nereids.DorisParser.ComplexColTypeListContext;
 import org.apache.doris.nereids.DorisParser.ComplexDataTypeContext;
 import org.apache.doris.nereids.DorisParser.ConstantContext;
 import org.apache.doris.nereids.DorisParser.CreateIndexAnalyzerContext;
+import org.apache.doris.nereids.DorisParser.CreateIndexCharFilterContext;
 import org.apache.doris.nereids.DorisParser.CreateIndexTokenFilterContext;
 import org.apache.doris.nereids.DorisParser.CreateIndexTokenizerContext;
 import org.apache.doris.nereids.DorisParser.CreateMTMVContext;
@@ -96,6 +98,7 @@ import org.apache.doris.nereids.DorisParser.DereferenceContext;
 import org.apache.doris.nereids.DorisParser.DropCatalogRecycleBinContext;
 import org.apache.doris.nereids.DorisParser.DropConstraintContext;
 import org.apache.doris.nereids.DorisParser.DropIndexAnalyzerContext;
+import org.apache.doris.nereids.DorisParser.DropIndexCharFilterContext;
 import org.apache.doris.nereids.DorisParser.DropIndexTokenFilterContext;
 import org.apache.doris.nereids.DorisParser.DropIndexTokenizerContext;
 import org.apache.doris.nereids.DorisParser.DropMTMVContext;
@@ -185,6 +188,7 @@ import org.apache.doris.nereids.DorisParser.ShowConstraintContext;
 import org.apache.doris.nereids.DorisParser.ShowCreateMTMVContext;
 import org.apache.doris.nereids.DorisParser.ShowCreateProcedureContext;
 import org.apache.doris.nereids.DorisParser.ShowIndexAnalyzerContext;
+import org.apache.doris.nereids.DorisParser.ShowIndexCharFilterContext;
 import org.apache.doris.nereids.DorisParser.ShowIndexTokenFilterContext;
 import org.apache.doris.nereids.DorisParser.ShowIndexTokenizerContext;
 import org.apache.doris.nereids.DorisParser.ShowProcedureStatusContext;
@@ -272,7 +276,6 @@ import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.Like;
-import org.apache.doris.nereids.trees.expressions.ListQuery;
 import org.apache.doris.nereids.trees.expressions.MatchAll;
 import org.apache.doris.nereids.trees.expressions.MatchAny;
 import org.apache.doris.nereids.trees.expressions.MatchPhrase;
@@ -345,6 +348,7 @@ import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.commands.AddConstraintCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminRotateTdeRootKeyCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminSetEncryptionRootKeyCommand;
+import org.apache.doris.nereids.trees.plans.commands.AlterComputeGroupCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterStorageVaultCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterSystemRenameComputeGroupCommand;
@@ -354,6 +358,7 @@ import org.apache.doris.nereids.trees.plans.commands.CancelMTMVTaskCommand;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.Constraint;
 import org.apache.doris.nereids.trees.plans.commands.CreateIndexAnalyzerCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateIndexCharFilterCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateIndexTokenFilterCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateIndexTokenizerCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateJobCommand;
@@ -370,6 +375,7 @@ import org.apache.doris.nereids.trees.plans.commands.DropCatalogRecycleBinComman
 import org.apache.doris.nereids.trees.plans.commands.DropCatalogRecycleBinCommand.IdType;
 import org.apache.doris.nereids.trees.plans.commands.DropConstraintCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropIndexAnalyzerCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropIndexCharFilterCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropIndexTokenFilterCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropIndexTokenizerCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropMTMVCommand;
@@ -391,6 +397,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowConstraintsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateProcedureCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowIndexAnalyzerCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowIndexCharFilterCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowIndexTokenFilterCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowIndexTokenizerCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowProcedureStatusCommand;
@@ -404,7 +411,6 @@ import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVRenameInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVReplaceInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterViewInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.BulkLoadDataDesc;
-import org.apache.doris.nereids.trees.plans.commands.info.BulkStorageDesc;
 import org.apache.doris.nereids.trees.plans.commands.info.CancelMTMVTaskInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateJobInfo;
@@ -1168,22 +1174,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
      */
     @Override
     public LogicalPlan visitLoad(DorisParser.LoadContext ctx) {
-
-        BulkStorageDesc bulkDesc = null;
+        BrokerDesc brokerDesc = null;
         if (ctx.withRemoteStorageSystem() != null) {
-            Map<String, String> bulkProperties =
-                    new HashMap<>(visitPropertyItemList(ctx.withRemoteStorageSystem().brokerProperties));
-            if (ctx.withRemoteStorageSystem().S3() != null) {
-                bulkDesc = new BulkStorageDesc("S3", BulkStorageDesc.StorageType.S3, bulkProperties);
-            } else if (ctx.withRemoteStorageSystem().HDFS() != null) {
-                bulkDesc = new BulkStorageDesc("HDFS", BulkStorageDesc.StorageType.HDFS, bulkProperties);
-            } else if (ctx.withRemoteStorageSystem().LOCAL() != null) {
-                bulkDesc = new BulkStorageDesc("LOCAL_HDFS", BulkStorageDesc.StorageType.LOCAL, bulkProperties);
-            } else if (ctx.withRemoteStorageSystem().BROKER() != null
-                    && ctx.withRemoteStorageSystem().identifierOrText().getText() != null) {
-                bulkDesc = new BulkStorageDesc(ctx.withRemoteStorageSystem().identifierOrText().getText(),
-                        bulkProperties);
-            }
+            brokerDesc = visitWithRemoteStorageSystem(ctx.withRemoteStorageSystem());
         }
         ImmutableList.Builder<BulkLoadDataDesc> dataDescriptions = new ImmutableList.Builder<>();
         List<String> labelParts = visitMultipartIdentifier(ctx.lableName);
@@ -1264,7 +1257,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         String commentSpec = ctx.commentSpec() == null ? "''" : ctx.commentSpec().STRING_LITERAL().getText();
         String comment =
                 LogicalPlanBuilderAssistant.escapeBackSlash(commentSpec.substring(1, commentSpec.length() - 1));
-        return new LoadCommand(labelName, dataDescriptions.build(), bulkDesc, properties, comment);
+        return new LoadCommand(labelName, dataDescriptions.build(), brokerDesc, properties, comment);
     }
 
     /* ********************************************************************************************
@@ -3396,7 +3389,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     } else {
                         outExpression = new InSubquery(
                                 valueExpression,
-                                new ListQuery(typedVisit(ctx.query())),
+                                typedVisit(ctx.query()),
                                 ctx.NOT() != null
                         );
                     }
@@ -3837,6 +3830,13 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
+    public LogicalPlan visitAlterComputeGroup(AlterComputeGroupContext ctx) {
+        Map<String, String> properties = ctx.propertyClause() != null
+                ? Maps.newHashMap(visitPropertyClause(ctx.propertyClause())) : Maps.newHashMap();
+        return new AlterComputeGroupCommand(ctx.name.getText(), properties);
+    }
+
+    @Override
     public LogicalPlan visitKillQuery(KillQueryContext ctx) {
         String queryId = null;
         int connectionId = -1;
@@ -3899,6 +3899,15 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
+    public LogicalPlan visitCreateIndexCharFilter(CreateIndexCharFilterContext ctx) {
+        boolean ifNotExists = ctx.IF() != null;
+        String policyName = ctx.name.getText();
+        Map<String, String> properties = visitPropertyClause(ctx.properties);
+
+        return new CreateIndexCharFilterCommand(ifNotExists, policyName, properties);
+    }
+
+    @Override
     public LogicalPlan visitDropIndexAnalyzer(DropIndexAnalyzerContext ctx) {
         String policyName = ctx.name.getText();
         boolean ifExists = ctx.IF() != null;
@@ -3923,6 +3932,14 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
+    public LogicalPlan visitDropIndexCharFilter(DropIndexCharFilterContext ctx) {
+        String policyName = ctx.name.getText();
+        boolean ifExists = ctx.IF() != null;
+
+        return new DropIndexCharFilterCommand(policyName, ifExists);
+    }
+
+    @Override
     public LogicalPlan visitShowIndexAnalyzer(ShowIndexAnalyzerContext ctx) {
         return new ShowIndexAnalyzerCommand();
     }
@@ -3935,6 +3952,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public LogicalPlan visitShowIndexTokenFilter(ShowIndexTokenFilterContext ctx) {
         return new ShowIndexTokenFilterCommand();
+    }
+
+    @Override
+    public LogicalPlan visitShowIndexCharFilter(ShowIndexCharFilterContext ctx) {
+        return new ShowIndexCharFilterCommand();
     }
 }
 

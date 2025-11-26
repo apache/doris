@@ -98,11 +98,16 @@ suite("spark_connector_read_type", "connector") {
     def download_spark_jar = "/usr/bin/curl ${getS3Url()}/regression/spark-doris-read-jar-with-dependencies.jar --output spark-doris-read.jar".execute().getText()
     logger.info("finish download spark doris demo ...")
 
-    def javaPath = ["bash", "-c", "which java"].execute().text.trim()
-    logger.info("System java path: ${javaPath}")
+    def systemJavaPath = ["bash", "-c", "which java"].execute().text.trim()
+    logger.info("System java path: ${systemJavaPath}")
+
+    def runtimeJavaHome = System.getProperty("java.home")
+    logger.info("Runtime java home: ${runtimeJavaHome}")
+    def javaPath = "${runtimeJavaHome}/bin/java"
 
     def javaVersion = System.getProperty("java.version")
-    logger.info("System java version: ${javaVersion}")
+    logger.info("Runtime java version: ${javaVersion}")
+
     def addOpens = ""
     if (javaVersion.startsWith("17")) {
         addOpens = "--add-opens=java.base/sun.nio.ch=ALL-UNNAMED  --add-opens=java.base/java.nio=ALL-UNNAMED --add-opens=java.base/sun.util.calendar=ALL-UNNAMED"

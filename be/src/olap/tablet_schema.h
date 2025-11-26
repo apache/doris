@@ -338,7 +338,11 @@ public:
 
     bool is_inverted_index() const { return _index_type == IndexType::INVERTED; }
 
-    void remove_parser_and_analyzer() { _properties.erase(INVERTED_INDEX_PARSER_KEY); }
+    void remove_parser_and_analyzer() {
+        _properties.erase(INVERTED_INDEX_PARSER_KEY);
+        _properties.erase(INVERTED_INDEX_PARSER_KEY_ALIAS);
+        _properties.erase(INVERTED_INDEX_CUSTOM_ANALYZER_KEY);
+    }
 
     std::string field_pattern() const {
         if (_properties.contains("field_pattern")) {

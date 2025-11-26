@@ -555,6 +555,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String SQL_DIALECT = "sql_dialect";
 
+    public static final String RETRY_ORIGIN_SQL_ON_CONVERT_FAIL = "retry_origin_sql_on_convert_fail";
+
     public static final String SERDE_DIALECT = "serde_dialect";
 
     public static final String EXPAND_RUNTIME_FILTER_BY_INNER_JION = "expand_runtime_filter_by_inner_join";
@@ -750,6 +752,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String DEFAULT_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE =
                                                             "default_variant_max_sparse_column_statistics_size";
+
+    public static final String MERGE_IO_READ_SLICE_SIZE_BYTES = "merge_io_read_slice_size_bytes";
 
     public static final String ENABLE_PREFER_CACHED_ROWSET = "enable_prefer_cached_rowset";
     public static final String QUERY_FRESHNESS_TOLERANCE_MS = "query_freshness_tolerance_ms";
@@ -2029,6 +2033,11 @@ public class SessionVariable implements Serializable, Writable {
             description = {"解析 sql 使用的方言", "The dialect used to parse sql."})
     public String sqlDialect = "doris";
 
+    @VariableMgr.VarAttr(name = RETRY_ORIGIN_SQL_ON_CONVERT_FAIL, needForward = true,
+            description = {"当转换后的SQL解析失败时，是否重试原始SQL",
+                    "Enable retrying original SQL when converted SQL parsing fails."})
+    public boolean retryOriginSqlOnConvertFail = false;
+
     @VariableMgr.VarAttr(name = SERDE_DIALECT, needForward = true, checker = "checkSerdeDialect",
             description = {"返回给 MySQL 客户端时各数据类型的输出格式方言",
                     "The output format dialect of each data type returned to the MySQL client."},
@@ -2268,6 +2277,11 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = QUERY_FRESHNESS_TOLERANCE_MS, needForward = false)
     public long queryFreshnessToleranceMs = -1;
+
+    @VariableMgr.VarAttr(name = MERGE_IO_READ_SLICE_SIZE_BYTES, description = {
+            "调整 READ_SLICE_SIZE 大小，降低 Merge IO 读放大影响",
+            "Make the READ_SLICE_SIZE variable configurable to reduce the impact caused by read amplification."})
+    public int mergeReadSliceSizeBytes = 8388608;
 
     public Set<Integer> getIgnoredRuntimeFilterIds() {
         Set<Integer> ids = Sets.newLinkedHashSet();
@@ -3676,6 +3690,10 @@ public class SessionVariable implements Serializable, Writable {
         return waitFullBlockScheduleTimes;
     }
 
+    public boolean isRetryOriginSqlOnConvertFail() {
+        return retryOriginSqlOnConvertFail;
+    }
+
     public String[] getSqlConvertorFeatures() {
         return enableSqlConvertorFeatures.split(",");
     }
@@ -4365,6 +4383,7 @@ public class SessionVariable implements Serializable, Writable {
 
         tResult.setNewIsIpAddressInRange(newIsIpAddressInRange);
         tResult.setEnableRuntimeFilterPartitionPrune(enableRuntimeFilterPartitionPrune);
+        tResult.setMergeReadSliceSize(mergeReadSliceSizeBytes);
         return tResult;
     }
 

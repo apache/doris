@@ -552,6 +552,15 @@ public class Config extends ConfigBase {
             "Whether to enable parallel publish version"})
     public static boolean enable_parallel_publish_version = true;
 
+
+    @ConfField(masterOnly = true, description = {"Tablet report 线程池的数目",
+        "Num of thread to handle tablet report task"})
+    public static int tablet_report_thread_pool_num = 10;
+
+    @ConfField(masterOnly = true, description = {"Tablet report 线程池的队列大小",
+        "Queue size to store tablet report task in publish thread pool"})
+    public static int tablet_report_queue_size = 1024;
+
     @ConfField(mutable = true, masterOnly = true, description = {"提交事务的最大超时时间，单位是秒。"
             + "该参数仅用于事务型 insert 操作中。",
             "Maximal waiting time for all data inserted before one transaction to be committed, in seconds. "
@@ -3195,8 +3204,26 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int cloud_min_balance_tablet_num_per_run = 2;
 
-    @ConfField(mutable = true, masterOnly = true)
-    public static boolean enable_cloud_warm_up_for_rebalance = true;
+    @ConfField(mutable = true, masterOnly = true, description = {"指定存算分离模式下所有Compute group的扩缩容预热方式。"
+            + "without_warmup: 直接修改tablet分片映射，首次读从S3拉取，均衡最快但性能波动最大；"
+            + "async_warmup: 异步预热，尽力而为拉取cache，均衡较快但可能cache miss；"
+            + "sync_warmup: 同步预热，确保cache迁移完成，均衡较慢但无cache miss；"
+            + "peer_read_async_warmup: 直接修改tablet分片映射，首次读从Peer BE拉取，均衡最快可能会影响同计算组中其他BE性能。"
+            + "注意：此为全局FE配置，也可通过SQL（ALTER COMPUTE GROUP cg PROPERTIES）"
+            + "设置compute group维度的balance类型，compute group维度配置优先级更高",
+        "Specify the scaling and warming methods for all Compute groups in a cloud mode. "
+            + "without_warmup: Directly modify shard mapping, first read from S3,"
+            + "fastest re-balance but largest fluctuation; "
+            + "async_warmup: Asynchronous warmup, best-effort cache pulling, "
+            + "faster re-balance but possible cache miss; "
+            + "sync_warmup: Synchronous warmup, ensure cache migration completion, "
+            + "slower re-balance but no cache miss; "
+            + "peer_read_async_warmup: Directly modify shard mapping, first read from Peer BE, "
+            + "fastest re-balance but may affect other BEs in the same compute group performance. "
+            + "Note: This is a global FE configuration, you can also use SQL (ALTER COMPUTE GROUP cg PROPERTIES) "
+            + "to set balance type at compute group level, compute group level configuration has higher priority"},
+            options = {"without_warmup", "async_warmup", "sync_warmup", "peer_read_async_warmup"})
+    public static String cloud_warm_up_for_rebalance_type = "async_warmup";
 
     @ConfField(mutable = true, masterOnly = false)
     public static String security_checker_class_name = "";

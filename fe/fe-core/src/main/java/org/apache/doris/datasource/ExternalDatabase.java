@@ -135,19 +135,21 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         }
     }
 
-    public synchronized void resetToUninitialized() {
+    public void resetMetaToUninitialized() {
         if (LOG.isDebugEnabled()) {
             LOG.debug("resetToUninitialized db name {}, id {}, isInitializing: {}, initialized: {}",
                     this.name, this.id, isInitializing, initialized, new Exception());
         }
-        this.initialized = false;
-        this.lowerCaseToTableName = Maps.newConcurrentMap();
-        if (extCatalog.getUseMetaCache().isPresent()) {
-            if (extCatalog.getUseMetaCache().get() && metaCache != null) {
-                metaCache.invalidateAll();
-            } else if (!extCatalog.getUseMetaCache().get()) {
-                for (T table : idToTbl.values()) {
-                    table.unsetObjectCreated();
+        synchronized (this) {
+            this.initialized = false;
+            this.lowerCaseToTableName = Maps.newConcurrentMap();
+            if (extCatalog.getUseMetaCache().isPresent()) {
+                if (extCatalog.getUseMetaCache().get() && metaCache != null) {
+                    metaCache.invalidateAll();
+                } else if (!extCatalog.getUseMetaCache().get()) {
+                    for (T table : idToTbl.values()) {
+                        table.unsetObjectCreated();
+                    }
                 }
             }
         }
@@ -319,14 +321,13 @@ public abstract class ExternalDatabase<T extends ExternalTable>
                     name,
                     OptionalLong.of(Config.external_cache_expire_time_seconds_after_access),
                     OptionalLong.of(Config.external_cache_refresh_time_minutes * 60L),
-                    Config.max_meta_object_cache_num,
+                    Math.max(Config.max_meta_object_cache_num, 1),
                     ignored -> listTableNames(),
                     localTableName -> Optional.ofNullable(
                             buildTableForInit(null, localTableName,
                                     Util.genIdByName(extCatalog.getName(), name, localTableName),
                                     extCatalog,
-                                    this, true)),
-                    (key, value, cause) -> value.ifPresent(ExternalTable::unsetObjectCreated));
+                                    this, true)), null);
         }
     }
 
@@ -900,7 +901,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         if (extCatalog.getUseMetaCache().isPresent() && extCatalog.getUseMetaCache().get() && metaCache != null) {
             metaCache.resetNames();
         } else {
-            resetToUninitialized();
+            resetMetaToUninitialized();
         }
     }
 }
