@@ -229,6 +229,8 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                             // so there may be two filters we need to merge them
                                             new MergeFilters()
                                     ),
+                                    custom(RuleType.AGG_SCALAR_SUBQUERY_TO_WINDOW_FUNCTION,
+                                            AggScalarSubQueryToWindowFunction::new),
                                     bottomUp(
                                             new EliminateUselessPlanUnderApply(),
                                             // CorrelateApplyToUnCorrelateApply and ApplyToJoin
@@ -456,6 +458,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                 // so there may be two filters we need to merge them
                                 new MergeFilters()
                         ),
+                        // query rewrite support window, so add this rule here
                         custom(RuleType.AGG_SCALAR_SUBQUERY_TO_WINDOW_FUNCTION, AggScalarSubQueryToWindowFunction::new),
                         bottomUp(
                                 new EliminateUselessPlanUnderApply(),

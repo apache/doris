@@ -1231,11 +1231,12 @@ suite("mv_tpch_test") {
                   l_partkey = p_partkey
               )
     """
-    // contains subquery, doesn't support now
-    async_mv_rewrite_success(db, mv17, query17, "mv17")
+    // agg under join should rewrite successfully,
+    // but because AGG_SCALAR_SUBQUERY_TO_WINDOW_FUNCTION rule
+    // would rewrite to agg-window-join, so now doesn't support
+    async_mv_rewrite_fail(db, mv17, query17, "mv17")
     order_qt_query17_after "${query17}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv17"""
-
 
     def mv18 = """
             SELECT
