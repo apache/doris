@@ -35,6 +35,9 @@ import org.apache.doris.datasource.hive.HMSExternalDatabase;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergExternalDatabase;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.iceberg.PartitionField;
+import org.apache.iceberg.PartitionSpec;
+import org.apache.iceberg.Table;
 import org.apache.doris.datasource.jdbc.JdbcExternalDatabase;
 import org.apache.doris.datasource.jdbc.JdbcExternalTable;
 import org.apache.doris.dictionary.Dictionary;
@@ -580,6 +583,11 @@ public class BindSink implements AnalysisRuleFactory {
         IcebergExternalTable table = pair.second;
         LogicalPlan child = ((LogicalPlan) sink.child());
 
+        // Validate static partition if present
+        if (sink.hasStaticPartition()) {
+            validateStaticPartition(sink, table);
+        }
+
         List<Column> bindColumns;
         if (sink.getColNames().isEmpty()) {
             bindColumns = table.getBaseSchema(true).stream().collect(ImmutableList.toImmutableList());
@@ -612,6 +620,66 @@ public class BindSink implements AnalysisRuleFactory {
                 boundSink, child);
         LogicalProject<?> fullOutputProject = getOutputProjectByCoercion(table.getFullSchema(), child, columnToOutput);
         return boundSink.withChildAndUpdateOutput(fullOutputProject);
+    }
+
+    /**
+     * Validate static partition specification for Iceberg table
+     */
+    private void validateStaticPartition(UnboundIcebergTableSink<?> sink, IcebergExternalTable table) {
+        Map<String, Expression> staticPartitions = sink.getStaticPartitionKeyValues();
+        if (staticPartitions == null || staticPartitions.isEmpty()) {
+            return;
+        }
+
+        Table icebergTable = table.getIcebergTable();
+        PartitionSpec partitionSpec = icebergTable.spec();
+
+        // Check if table is partitioned
+        if (!partitionSpec.isPartitioned()) {
+            throw new AnalysisException(
+                    String.format("Table %s is not partitioned, cannot use static partition syntax", table.getName()));
+        }
+
+        // Get partition field names
+        Map<String, PartitionField> partitionFieldMap = Maps.newHashMap();
+        for (PartitionField field : partitionSpec.fields()) {
+            String fieldName = field.name();
+            partitionFieldMap.put(fieldName, field);
+        }
+
+        // Validate each static partition column
+        for (Map.Entry<String, Expression> entry : staticPartitions.entrySet()) {
+            String partitionColName = entry.getKey();
+            Expression partitionValue = entry.getValue();
+
+            // 1. Check if partition column exists
+            if (!partitionFieldMap.containsKey(partitionColName)) {
+                throw new AnalysisException(
+                        String.format("Unknown partition column '%s' in table '%s'. Available partition columns: %s",
+                                partitionColName, table.getName(), partitionFieldMap.keySet()));
+            }
+
+            // 2. Check if partition value is a constant expression
+            if (!partitionValue.isConstant()) {
+                throw new AnalysisException(
+                        String.format("Partition value for column '%s' must be a constant expression, but got: %s",
+                                partitionColName, partitionValue));
+            }
+
+            // 3. Validate partition value type (basic check)
+            // Note: Detailed type conversion will be handled in execution phase
+            if (!(partitionValue instanceof Literal)) {
+                throw new AnalysisException(
+                        String.format("Partition value for column '%s' must be a literal, but got: %s",
+                                partitionColName, partitionValue));
+            }
+
+            // 4. Check for NULL values (Iceberg allows NULL partition values, but we should
+            // warn or validate)
+            if (partitionValue instanceof NullLiteral) {
+                // TODO: add warning or validation based on table properties
+            }
+        }
     }
 
     private Plan bindJdbcTableSink(MatchingContext<UnboundJdbcTableSink<Plan>> ctx) {

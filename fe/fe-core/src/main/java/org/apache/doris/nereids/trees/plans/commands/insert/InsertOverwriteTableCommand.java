@@ -55,6 +55,8 @@ import org.apache.doris.nereids.trees.plans.logical.UnboundLogicalSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalIcebergTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTableSink;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectContext.ConnectType;
@@ -65,6 +67,7 @@ import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -72,6 +75,7 @@ import org.awaitility.Awaitility;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
@@ -369,6 +373,22 @@ public class InsertOverwriteTableCommand extends Command implements NeedAuditEnc
                     (LogicalPlan) (sink.child(0)));
             insertCtx = new IcebergInsertCommandContext();
             ((IcebergInsertCommandContext) insertCtx).setOverwrite(true);
+            // Extract static partition information if present
+            if (sink.hasStaticPartition()) {
+                Map<String, Expression> staticPartitions = sink.getStaticPartitionKeyValues();
+                // Convert Expression to String for storage in context
+                Map<String, String> staticPartitionValues = Maps.newHashMap();
+                for (Map.Entry<String, Expression> entry : staticPartitions.entrySet()) {
+                    Expression expr = entry.getValue();
+                    if (expr instanceof Literal) {
+                        staticPartitionValues.put(entry.getKey(), ((Literal) expr).getStringValue());
+                    } else {
+                        throw new AnalysisException(
+                                String.format("Static partition value must be a literal, but got: %s", expr));
+                    }
+                }
+                ((IcebergInsertCommandContext) insertCtx).setStaticPartitionValues(staticPartitionValues);
+            }
             branchName.ifPresent(notUsed -> ((IcebergInsertCommandContext) insertCtx).setBranchName(branchName));
         } else {
             throw new UserException("Current catalog does not support insert overwrite yet.");
@@ -395,8 +415,25 @@ public class InsertOverwriteTableCommand extends Command implements NeedAuditEnc
             insertCtx = new HiveInsertCommandContext();
             ((HiveInsertCommandContext) insertCtx).setOverwrite(true);
         } else if (logicalQuery instanceof UnboundIcebergTableSink) {
+            UnboundIcebergTableSink<?> sink = (UnboundIcebergTableSink<?>) logicalQuery;
             insertCtx = new IcebergInsertCommandContext();
             ((IcebergInsertCommandContext) insertCtx).setOverwrite(true);
+            // Extract static partition information if present
+            if (sink.hasStaticPartition()) {
+                Map<String, Expression> staticPartitions = sink.getStaticPartitionKeyValues();
+                // Convert Expression to String for storage in context
+                Map<String, String> staticPartitionValues = Maps.newHashMap();
+                for (Map.Entry<String, Expression> entry : staticPartitions.entrySet()) {
+                    Expression expr = entry.getValue();
+                    if (expr instanceof Literal) {
+                        staticPartitionValues.put(entry.getKey(), ((Literal) expr).getStringValue());
+                    } else {
+                        throw new AnalysisException(
+                                String.format("Static partition value must be a literal, but got: %s", expr));
+                    }
+                }
+                ((IcebergInsertCommandContext) insertCtx).setStaticPartitionValues(staticPartitionValues);
+            }
             branchName.ifPresent(notUsed -> ((IcebergInsertCommandContext) insertCtx).setBranchName(branchName));
         } else {
             throw new UserException("Current catalog does not support insert overwrite yet.");
