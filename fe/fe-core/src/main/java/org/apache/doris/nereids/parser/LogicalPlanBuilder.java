@@ -489,6 +489,7 @@ import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundBlackholeSink;
 import org.apache.doris.nereids.analyzer.UnboundBlackholeSink.UnboundBlackholeSinkContext;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
+import org.apache.doris.nereids.analyzer.UnboundIcebergTableSink;
 import org.apache.doris.nereids.analyzer.UnboundInlineTable;
 import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
@@ -1067,8 +1068,6 @@ import org.apache.doris.nereids.types.VariantField;
 import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.util.ExpressionUtils;
-import org.apache.doris.nereids.analyzer.UnboundIcebergTableSink;
-import org.apache.doris.nereids.parser.StaticPartitionDesc;
 import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.policy.FilterType;
@@ -1360,7 +1359,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         // zero - whole table
         // others - specific partitions
         boolean isAutoDetect = partitionSpec.second == null;
-        
+
         LogicalSink<?> sink;
         // If static partition is specified and it's an overwrite operation, create Iceberg sink with static partition
         if (staticPartitionDesc != null && staticPartitionDesc.isStaticPartitionOverwrite() && isOverwrite) {
@@ -1500,15 +1499,15 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         if (ctx == null) {
             return null;
         }
-        
+
         boolean isTemporary = ctx.TEMPORARY() != null;
-        
+
         // Check if this is static partition syntax: PARTITION (col1='val1', col2='val2')
         // Note: This requires ANTLR to regenerate parser classes after grammar change
         try {
             // After ANTLR regeneration, partitionKeyValue() method will be available
             @SuppressWarnings("unchecked")
-            List<DorisParser.PartitionKeyValueContext> partitionKeyValuesList = 
+            List<DorisParser.PartitionKeyValueContext> partitionKeyValuesList =
                     (List<DorisParser.PartitionKeyValueContext>) ctx.getClass()
                             .getMethod("partitionKeyValue").invoke(ctx);
             if (partitionKeyValuesList != null && !partitionKeyValuesList.isEmpty()) {
@@ -1526,7 +1525,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         } catch (Exception e) {
             // Other errors, not a static partition spec
         }
-        
+
         // For backward compatibility, return null for non-static partition specs
         return null;
     }

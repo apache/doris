@@ -425,7 +425,7 @@ public class IcebergTransaction implements Transaction {
 
     /**
      * Build partition filter expression from static partition key-value pairs
-     * 
+     *
      * @param staticPartitions Map of partition column name to partition value (as String)
      * @param spec PartitionSpec of the table
      * @param schema Schema of the table
@@ -445,7 +445,7 @@ public class IcebergTransaction implements Transaction {
             String partitionColName = field.name();
             if (staticPartitions.containsKey(partitionColName)) {
                 String partitionValueStr = staticPartitions.get(partitionColName);
-                
+
                 // Get source field to determine the type
                 Types.NestedField sourceField = schema.findField(field.sourceId());
                 if (sourceField == null) {
@@ -455,7 +455,7 @@ public class IcebergTransaction implements Transaction {
 
                 // Convert partition value string to appropriate type
                 Object partitionValue = convertPartitionValue(partitionValueStr, sourceField.type());
-                
+
                 // Build equality expression: partition_col = value
                 Expression eqExpr;
                 if (partitionValue == null) {
@@ -481,7 +481,7 @@ public class IcebergTransaction implements Transaction {
 
     /**
      * Convert partition value string to appropriate Java type based on Iceberg type
-     * 
+     *
      * @param valueStr Partition value as string
      * @param icebergType Iceberg type of the partition field
      * @return Converted value object
@@ -516,7 +516,7 @@ public class IcebergTransaction implements Transaction {
                             .toEpochMilli() * 1000; // Convert to microseconds
                 } catch (Exception e) {
                     // Try alternative format
-                    return LocalDateTime.parse(valueStr, 
+                    return LocalDateTime.parse(valueStr,
                             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))
                             .atZone(java.time.ZoneId.systemDefault())
                             .toInstant()
@@ -529,7 +529,7 @@ public class IcebergTransaction implements Transaction {
                 return valueStr;
             }
         } catch (Exception e) {
-            LOG.warn("Failed to convert partition value '{}' to type {}, using string value", 
+            LOG.warn("Failed to convert partition value '{}' to type {}, using string value",
                     valueStr, icebergType, e);
             return valueStr;
         }
