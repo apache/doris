@@ -593,6 +593,18 @@ February
 -- !sql_microsecond_datetime_with_micro --
 789123
 
+-- !sql_table_second_all --
+\N
+\N
+\N
+56
+
+-- !sql_table_microsecond_all --
+\N
+\N
+\N
+789123
+
 -- !sql --
 1	2022-08-01
 2	2022-08-01

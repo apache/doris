@@ -641,10 +641,10 @@ suite("test_date_function") {
         """
     
     // Test SECOND function with time_str column
-    // qt_sql_table_second_all """ select second(time_str) from ${tableName} order by id; """
+    qt_sql_table_second_all """ select second(time_str) from ${tableName} order by id; """
     
     // Test MICROSECOND function with time_str column  
-    // qt_sql_table_microsecond_all """ select microsecond(time_str) from ${tableName} order by id; """
+    qt_sql_table_microsecond_all """ select microsecond(time_str) from ${tableName} order by id; """
 
     tableName = "test_from_unixtime"
 
