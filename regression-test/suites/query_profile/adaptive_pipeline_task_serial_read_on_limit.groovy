@@ -18,33 +18,14 @@
 import groovy.json.JsonOutput
 import groovy.json.JsonSlurper
 import groovy.json.StringEscapeUtils
-
-
-def getProfileList = {
-    def dst = 'http://' + context.config.feHttpAddress
-    def conn = new URL(dst + "/rest/v1/query_profile").openConnection()
-    conn.setRequestMethod("GET")
-    def encoding = Base64.getEncoder().encodeToString((context.config.feHttpUser + ":" + 
-            (context.config.feHttpPassword == null ? "" : context.config.feHttpPassword)).getBytes("UTF-8"))
-    conn.setRequestProperty("Authorization", "Basic ${encoding}")
-    return conn.getInputStream().getText()
-}
-
-def getProfile = { id ->
-        def dst = 'http://' + context.config.feHttpAddress
-        def conn = new URL(dst + "/api/profile/text/?query_id=$id").openConnection()
-        conn.setRequestMethod("GET")
-        def encoding = Base64.getEncoder().encodeToString((context.config.feHttpUser + ":" + 
-                (context.config.feHttpPassword == null ? "" : context.config.feHttpPassword)).getBytes("UTF-8"))
-        conn.setRequestProperty("Authorization", "Basic ${encoding}")
-        return conn.getInputStream().getText()
-}
+import org.apache.doris.regression.action.ProfileAction
 
 def verifyProfileContent = { stmt, serialReadOnLimit ->
     // Sleep 500ms to wait for the profile collection 
     Thread.sleep(500)
     // Get profile list by using getProfileList
-    List profileData = new JsonSlurper().parseText(getProfileList()).data.rows
+    def profileAction = new ProfileAction(context)
+    List profileData = profileAction.getProfileList()
     // Find the profile id for the query that we just emitted
     String profileId = ""
     for (def profileItem : profileData) {
@@ -60,7 +41,7 @@ def verifyProfileContent = { stmt, serialReadOnLimit ->
     }
 
     // Get profile content by using getProfile
-    def String profileContent = getProfile(profileId).toString()
+    String profileContent = profileAction.getProfile(profileId)
     logger.info("Profile content of ${stmt} is\n${profileContent}")
     // Check if the profile contains the expected content
     if (serialReadOnLimit) {

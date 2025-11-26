@@ -120,11 +120,13 @@ suite("docs/table-design/auto-increment.md") {
         """
 
         def tlsInfo = null
+        def protocol = "http"
         if ((context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false) {
             tlsInfo = " --cert " + context.config.otherConfigs.get("trustCert") + " --cacert " + context.config.otherConfigs.get("trustCACert") + " --key " + context.config.otherConfigs.get("trustCAKey")
+            protocol = "https"
         }
         def curlCmd = """
-            curl --location-trusted -u ${context.config.jdbcUser}:${context.config.jdbcPassword} -H "columns:name,value" -H "column_separator:," -T ${context.file.parent}/test_data/test.csv http://${context.config.feHttpAddress}/api/demo/tbl/_stream_load ${tlsInfo}
+            curl --location-trusted -u ${context.config.jdbcUser}:${context.config.jdbcPassword} -H "columns:name,value" -H "column_separator:," -T ${context.file.parent}/test_data/test.csv ${protocol}://${context.config.feHttpAddress}/api/demo/tbl/_stream_load ${tlsInfo}
             """
         cmd curlCmd
         log.info("${curlCmd}")

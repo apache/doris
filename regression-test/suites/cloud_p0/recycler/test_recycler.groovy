@@ -129,12 +129,7 @@ suite("test_recycler") {
     }
 
     do {
-<<<<<<< HEAD
-=======
         triggerRecycle(token, instanceId)
-        Thread.sleep(10000) // 10s
->>>>>>> 3.1.3-rc02
-        triggerChecker()
         Thread.sleep(10000) // 10s
         getCheckJobInfo()
         logger.info("checkerLastFinishTime=${checkerLastFinishTime}, checkerLastSuccessTime=${checkerLastSuccessTime}")

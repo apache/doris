@@ -18,28 +18,7 @@
 import groovy.json.JsonOutput
 import groovy.json.JsonSlurper
 import groovy.json.StringEscapeUtils
-
-
-def getProfileList = {
-    def dst = 'http://' + context.config.feHttpAddress
-    def conn = new URL(dst + "/rest/v1/query_profile").openConnection()
-    conn.setRequestMethod("GET")
-    def encoding = Base64.getEncoder().encodeToString((context.config.feHttpUser + ":" + 
-            (context.config.feHttpPassword == null ? "" : context.config.feHttpPassword)).getBytes("UTF-8"))
-    conn.setRequestProperty("Authorization", "Basic ${encoding}")
-    return conn.getInputStream().getText()
-}
-
-
-def getProfile = { id ->
-        def dst = 'http://' + context.config.feHttpAddress
-        def conn = new URL(dst + "/api/profile/text/?query_id=$id").openConnection()
-        conn.setRequestMethod("GET")
-        def encoding = Base64.getEncoder().encodeToString((context.config.feHttpUser + ":" + 
-                (context.config.feHttpPassword == null ? "" : context.config.feHttpPassword)).getBytes("UTF-8"))
-        conn.setRequestProperty("Authorization", "Basic ${encoding}")
-        return conn.getInputStream().getText()
-}
+import org.apache.doris.regression.action.ProfileAction
 
 suite('scanner_profile') {
     sql """
@@ -80,9 +59,8 @@ suite('scanner_profile') {
     sql """
         select "with_limit_1_${uuidString}", * from scanner_profile limit 10;
     """
-    
-    def wholeString = getProfileList()
-    List profileData = new JsonSlurper().parseText(wholeString).data.rows
+    def profileAction = new ProfileAction(context)
+    List profileData = profileAction.getProfileList()
     String queryIdWithLimit1 = "";
     
 
@@ -102,7 +80,7 @@ suite('scanner_profile') {
     // Sleep 2 seconds to make sure profile collection is done
     Thread.sleep(2000)
 
-    def String profileWithLimit1 = getProfile(queryIdWithLimit1).toString()
+    def String profileWithLimit1 = profileAction.getProfile(queryIdWithLimit1).toString()
     logger.info("Profile of ${queryIdWithLimit1} ${profileWithLimit1}")
     assertTrue(profileWithLimit1.contains("- MaxScannerThreadNum: 1"))
 }
