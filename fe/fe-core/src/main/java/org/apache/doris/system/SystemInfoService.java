@@ -95,10 +95,20 @@ public class SystemInfoService {
     public static class HostInfo implements Comparable<HostInfo> {
         public String host;
         public int port;
+        // Support format like: ip:port1:port2
+        // e.g.: --helper master-fe:editlogPort:httpPort
+        // the second port is optional
+        public int secondPort = -1;
 
         public HostInfo(String host, int port) {
             this.host = host;
             this.port = port;
+        }
+
+        public HostInfo(String host, int port, int secondPort) {
+            this.host = host;
+            this.port = port;
+            this.secondPort = secondPort;
         }
 
         public String getHost() {
@@ -109,12 +119,29 @@ public class SystemInfoService {
             return port;
         }
 
+        public int getSecondPort(int defaultValue) {
+            if (secondPort == -1) {
+                return defaultValue;
+            }
+            return secondPort;
+        }
+
         public void setHost(String host) {
             this.host = host;
         }
 
         public void setPort(int port) {
             this.port = port;
+        }
+
+        public void setSecondPort(int secondPort) {
+            this.secondPort = secondPort;
+        }
+
+        public void setSecondPortIfMissing(int secondPort) {
+            if (this.secondPort == -1) {
+                this.secondPort = secondPort;
+            }
         }
 
         public String getIdent() {
@@ -125,16 +152,13 @@ public class SystemInfoService {
         public int compareTo(@NotNull HostInfo o) {
             int res = host.compareTo(o.getHost());
             if (res == 0) {
-                return Integer.compare(port, o.getPort());
+                res = Integer.compare(port, o.getPort());
             }
             return res;
         }
 
         public boolean isSame(HostInfo other) {
-            if (other.getPort() != port) {
-                return false;
-            }
-            return host.equals(other.getHost());
+            return other.getHost().equals(host) && other.getPort() == port;
         }
 
         @Override
@@ -154,22 +178,10 @@ public class SystemInfoService {
         public String toString() {
             return "HostInfo{"
                     + "host='" + host + '\''
-                    + ", port=" + port
+                    + ", port=" + port + ", second port=" + secondPort
                     + '}';
         }
     }
-
-    // sort host backends list by num of backends, descending
-    private static final Comparator<List<Backend>> hostBackendsListComparator = new Comparator<List<Backend>>() {
-        @Override
-        public int compare(List<Backend> list1, List<Backend> list2) {
-            if (list1.size() > list2.size()) {
-                return -1;
-            } else {
-                return 1;
-            }
-        }
-    };
 
     // for deploy manager
     public void addBackends(List<HostInfo> hostInfos, boolean isFree)
@@ -771,25 +783,28 @@ public class SystemInfoService {
 
         HostInfo hostInfo = NetUtils.resolveHostInfoFromHostPort(hostPort);
 
+        // validate host
         String host = hostInfo.getHost();
         if (Strings.isNullOrEmpty(host)) {
             throw new AnalysisException("Host is null");
         }
 
-        int heartbeatPort = -1;
+        // validate port
         try {
-            // validate port
-            heartbeatPort = hostInfo.getPort();
-            if (heartbeatPort <= 0 || heartbeatPort >= 65536) {
-                throw new AnalysisException("Port is out of range: " + heartbeatPort);
+            int mainPort = hostInfo.getPort();
+            if (mainPort <= 0 || mainPort >= 65536) {
+                throw new AnalysisException("Port is out of range: " + mainPort);
             }
-
-            return new HostInfo(host, heartbeatPort);
+            int secondPort = hostInfo.getSecondPort(1);
+            if (secondPort <= 0 || secondPort >= 65536) {
+                throw new AnalysisException("Second port is out of range: " + mainPort);
+            }
         } catch (Exception e) {
             throw new AnalysisException("Encounter unknown exception: " + e.getMessage());
         }
-    }
 
+        return hostInfo;
+    }
 
     public static Pair<String, Integer> validateHostAndPort(String hostPort) throws AnalysisException {
         HostInfo hostInfo = getHostAndPort(hostPort);

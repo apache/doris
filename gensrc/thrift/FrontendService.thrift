@@ -786,6 +786,8 @@ struct TFrontendPingFrontendResult {
     8: optional list<TDiskInfo> diskInfos
     9: optional i64 processUUID
     10: optional i32 arrowFlightSqlPort
+    11: optional i32 httpPort
+    12: optional i32 httpsPort
 }
 
 struct TPropertyVal {

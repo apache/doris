@@ -40,16 +40,15 @@ public class AuditStreamLoader {
     private static String loadUrlPattern = "http://%s/api/%s/%s/_stream_load?";
     // timeout for both connection and read. 10 seconds is long enough.
     private static final int HTTP_TIMEOUT_MS = 10000;
-    private String hostPort;
     private String db;
     private String auditLogTbl;
     private String auditLogLoadUrlStr;
     private String feIdentity;
 
     public AuditStreamLoader() {
-        this.hostPort = "127.0.0.1:" + Config.http_port;
         this.db = FeConstants.INTERNAL_DB_NAME;
         this.auditLogTbl = AuditLoader.AUDIT_LOG_TABLE;
+        String hostPort = "127.0.0.1:" + Config.http_port;
         this.auditLogLoadUrlStr = String.format(loadUrlPattern, hostPort, db, auditLogTbl);
         // currently, FE identity is FE's IP:port, so we replace the "." and ":" to make it suitable for label
         this.feIdentity = Env.getCurrentEnv().getSelfNode().getIdent().replaceAll("\\.", "_").replaceAll(":", "_");
