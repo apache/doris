@@ -46,7 +46,7 @@ Status collect_search_inputs(const VSearchExpr& expr, VExprContext* context,
                              SearchInputBundle* bundle) {
     DCHECK(bundle != nullptr);
 
-    auto index_context = context->get_inverted_index_context();
+    auto index_context = context->get_index_context();
     if (index_context == nullptr) {
         LOG(WARNING) << "collect_search_inputs: No inverted index context available";
         return Status::InternalError("No inverted index context available");
@@ -141,7 +141,7 @@ Status VSearchExpr::evaluate_inverted_index(VExprContext* context, uint32_t segm
         return Status::InvalidArgument("search DSL is empty");
     }
 
-    auto index_context = context->get_inverted_index_context();
+    auto index_context = context->get_index_context();
     if (!index_context) {
         LOG(WARNING) << "VSearchExpr: No inverted index context available";
         return Status::OK();
@@ -157,7 +157,7 @@ Status VSearchExpr::evaluate_inverted_index(VExprContext* context, uint32_t segm
                      << _original_dsl;
         auto empty_bitmap = InvertedIndexResultBitmap(std::make_shared<roaring::Roaring>(),
                                                       std::make_shared<roaring::Roaring>());
-        index_context->set_inverted_index_result_for_expr(this, std::move(empty_bitmap));
+        index_context->set_index_result_for_expr(this, std::move(empty_bitmap));
         return Status::OK();
     }
 
@@ -171,9 +171,9 @@ Status VSearchExpr::evaluate_inverted_index(VExprContext* context, uint32_t segm
         return status;
     }
 
-    index_context->set_inverted_index_result_for_expr(this, result_bitmap);
+    index_context->set_index_result_for_expr(this, result_bitmap);
     for (int column_id : bundle.column_ids) {
-        index_context->set_true_for_inverted_index_status(this, column_id);
+        index_context->set_true_for_index_status(this, column_id);
     }
 
     return Status::OK();

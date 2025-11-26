@@ -156,7 +156,7 @@ Status VExprContext::evaluate_inverted_index(uint32_t segment_num_rows) {
 }
 
 bool VExprContext::all_expr_inverted_index_evaluated() {
-    return _inverted_index_context->has_inverted_index_result_for_expr(_root.get());
+    return _index_context->has_index_result_for_expr(_root.get());
 }
 
 Status VExprContext::filter_block(VExprContext* vexpr_ctx, Block* block, size_t column_to_keep) {
@@ -503,8 +503,7 @@ Status VExprContext::evaluate_ann_range_search(
         return Status::OK();
     }
     const VExpr* slot_ref_expr_addr = slot_ref_map.find(cid)->second;
-    _inverted_index_context->set_true_for_inverted_index_status(slot_ref_expr_addr,
-                                                                idx_to_cid[cid]);
+    _index_context->set_true_for_index_status(slot_ref_expr_addr, idx_to_cid[cid]);
 
     VLOG_DEBUG << fmt::format(
             "Evaluate ann range search for expr {}, src_col_idx {}, cid {}, row_bitmap "
