@@ -89,18 +89,6 @@ under the License.
                 </exclusion>
             </exclusions>
         </dependency>
-        <!-- For BE CosN Access -->
-        <dependency>
-            <groupId>com.qcloud.cos</groupId>
-            <artifactId>hadoop-cos</artifactId>
-            <version>${tencentcos.version}</version>
-            <exclusions>
-                <exclusion>
-                    <groupId>org.json</groupId>
-                    <artifactId>json</artifactId>
-                </exclusion>
-            </exclusions>
-        </dependency>
     </dependencies>
 
     <build>
