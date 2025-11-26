@@ -18,13 +18,9 @@
 suite("test_hive_query_cache", "p0,external,hive,external_docker,external_docker_hive") {
     withGlobalLock("cache_last_version_interval_second") {
         def assertHasCache = { String sqlStr ->
-            try {
-                explain {
-                    sql ("physical plan ${sqlStr}")
-                    contains("PhysicalSqlCache")
-                }
-            } catch (Throwable t) {
-                throw new CanRetryException(t)
+            explain {
+                sql ("physical plan ${sqlStr}")
+                contains("PhysicalSqlCache")
             }
         }
 
