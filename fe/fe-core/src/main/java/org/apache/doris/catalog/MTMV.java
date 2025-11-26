@@ -185,6 +185,7 @@ public class MTMV extends OlapTable {
         try {
             // only can update state, refresh state will be change by add task
             this.schemaChangeVersion++;
+            this.refreshSnapshot = new MTMVRefreshSnapshot();
             return this.status.updateStateAndDetail(newStatus);
         } finally {
             writeMvUnlock();
