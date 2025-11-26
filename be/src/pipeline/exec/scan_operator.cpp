@@ -80,7 +80,7 @@ int ScanLocalStateBase::max_scanners_concurrency(RuntimeState* state) const {
     /*
      * The max concurrency of scanners for each ScanLocalStateBase is determined by:
      * 1. User specified max_scanners_concurrency which is set through session variable.
-     * 2. Default: std::max(48, CpuInfo::num_cores() * 2))
+     * 2. Default: 4
      *
      * If this is a serial operator, the max concurrency should multiply by the number of parallel instances of the operator.
      */
@@ -89,10 +89,15 @@ int ScanLocalStateBase::max_scanners_concurrency(RuntimeState* state) const {
 }
 
 int ScanLocalStateBase::min_scanners_concurrency(RuntimeState* state) const {
+    if (should_run_serial()) {
+        return 1;
+    }
     /*
      * The min concurrency of scanners for each ScanLocalStateBase is determined by:
-     * 1. User specified min_scan_concurrency_of_scan_scheduler which is set through session variable.
-     * 2. Default: 2 * CpuInfo::num_cores()
+     * 1. User specified min_scanners_concurrency which is set through session variable.
+     * 2. Default: 1
+     *
+     * If this is a serial operator, the max concurrency should multiply by the number of parallel instances of the operator.
      */
     return (state->min_scanners_concurrency() ? state->min_scanners_concurrency() : 1) *
            (state->query_parallel_instance_num() / _parent->parallelism(state));

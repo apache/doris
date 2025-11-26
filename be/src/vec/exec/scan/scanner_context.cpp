@@ -83,7 +83,7 @@ ScannerContext::ScannerContext(
           _min_scan_concurrency_of_scan_scheduler(0),
           _max_scan_concurrency(num_parallel_instances),
 #endif
-          _min_scan_concurrency(local_state->min_scanners_concurrency()) {
+          _min_scan_concurrency(local_state->min_scanners_concurrency(state)) {
     DCHECK(_state != nullptr);
     DCHECK(_output_row_descriptor == nullptr ||
            _output_row_descriptor->tuple_descriptors().size() == 1);

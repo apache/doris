@@ -140,7 +140,7 @@ private:
                                                        vectorized::Block* block);
 };
 
-class ThreadPoolSimplifiedScanScheduler : public ScannerScheduler {
+class ThreadPoolSimplifiedScanScheduler MOCK_REMOVE(final) : public ScannerScheduler {
 public:
     ThreadPoolSimplifiedScanScheduler(std::string sched_name,
                                       std::shared_ptr<CgroupCpuCtl> cgroup_cpu_ctl,
@@ -184,7 +184,7 @@ public:
     }
 
     Status submit_scan_task(SimplifiedScanTask scan_task,
-                                    const std::string& task_id_string) override {
+                            const std::string& task_id_string) override {
         return submit_scan_task(scan_task);
     }
 
@@ -225,9 +225,7 @@ public:
 
     int get_active_threads() override { return _scan_thread_pool->num_active_threads(); }
 
-    std::vector<int> thread_debug_info() override {
-        return _scan_thread_pool->debug_info();
-    }
+    std::vector<int> thread_debug_info() override { return _scan_thread_pool->debug_info(); }
 
     Status schedule_scan_task(std::shared_ptr<ScannerContext> scanner_ctx,
                               std::shared_ptr<ScanTask> current_scan_task,
@@ -242,7 +240,7 @@ private:
     std::shared_mutex _lock;
 };
 
-class TaskExecutorSimplifiedScanScheduler : public ScannerScheduler {
+class TaskExecutorSimplifiedScanScheduler final : public ScannerScheduler {
 public:
     TaskExecutorSimplifiedScanScheduler(std::string sched_name,
                                         std::shared_ptr<CgroupCpuCtl> cgroup_cpu_ctl,
