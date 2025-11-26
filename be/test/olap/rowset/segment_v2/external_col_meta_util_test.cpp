@@ -359,6 +359,35 @@ TEST(ExternalColMetaUtilTest, VariantExtMetaWriterAndReaderInteropAndCompatibili
     EXPECT_EQ(loaded_path_legacy.get_path(), "v1.key0");
     EXPECT_EQ(loaded_meta_legacy.none_null_size(), 123);
     EXPECT_EQ(loaded_meta_legacy.column_path_info().parrent_column_unique_id(), root_uid);
+
+    // 8. Bulk load all external metas once and verify subcolumn tree and statistics.
+    SubcolumnColumnMetaInfo meta_tree;
+    VariantStatistics stats;
+    st = reader_new.load_all_once(&meta_tree, &stats);
+    ASSERT_TRUE(st.ok()) << st.to_json();
+    EXPECT_FALSE(meta_tree.empty());
+    // Non-sparse subcolumn v1.key0 should be recorded as relative path "key0".
+    ASSERT_EQ(stats.subcolumns_non_null_size.size(), 1);
+    EXPECT_EQ(stats.subcolumns_non_null_size.at("key0"), 123);
+
+    // load_all_once should be idempotent.
+    st = reader_new.load_all_once(&meta_tree, &stats);
+    ASSERT_TRUE(st.ok()) << st.to_json();
+
+    // 9. has_prefix should detect existing keys and non-existing prefixes.
+    bool has = false;
+    st = reader_new.has_prefix("key", &has);
+    ASSERT_TRUE(st.ok()) << st.to_json();
+    EXPECT_TRUE(has);
+    has = false;
+    st = reader_new.has_prefix("non_existent_prefix", &has);
+    ASSERT_TRUE(st.ok()) << st.to_json();
+    EXPECT_FALSE(has);
+
+    has = false;
+    st = reader_new.has_prefix("", &has);
+    ASSERT_TRUE(st.ok()) << st.to_json();
+    EXPECT_TRUE(has);
 }
 
 // End-to-end test: use ExternalColMetaUtil to write external ColumnMeta region + CMO
@@ -514,4 +543,121 @@ TEST(ExternalColMetaUtilTest, BuildSegmentAndVerifyDataAndFooterMeta) {
         EXPECT_EQ(meta.unique_id(), tablet_schema->column(cid).unique_id());
         EXPECT_EQ(meta.column_id(), cid);
     }
+}
+
+// Validate argument checks in read_col_meta that do not trigger any IO.
+TEST(ExternalColMetaUtilTest, ReadColMetaArgumentValidation) {
+    SegmentFooterPB footer;
+    // Prepare one entry.
+    auto* e = footer.add_column_meta_entries();
+    e->set_unique_id(1);
+    e->set_length(16);
+
+    ExternalColMetaUtil::ExternalMetaPointers ptrs;
+    ColumnMetaPB meta;
+    io::FileReaderSPtr dummy_reader; // not used on these failing paths
+
+    // 1) col_id out of range.
+    ptrs.num_columns = 1;
+    ptrs.region_start = 100;
+    ptrs.region_end = 200;
+    Status st = ExternalColMetaUtil::read_col_meta(dummy_reader, footer, ptrs,
+                                                   /*col_id=*/1, &meta);
+    EXPECT_FALSE(st.ok());
+
+    // 2) footer.column_meta_entries_size() != ptrs.num_columns.
+    ptrs.num_columns = 2;
+    st = ExternalColMetaUtil::read_col_meta(dummy_reader, footer, ptrs,
+                                            /*col_id=*/0, &meta);
+    EXPECT_FALSE(st.ok());
+
+    // 3) Invalid meta slice (pos + size > region_end).
+    ptrs.num_columns = 1;
+    ptrs.region_start = 100;
+    ptrs.region_end = 105;
+    footer.mutable_column_meta_entries(0)->set_length(32);
+    st = ExternalColMetaUtil::read_col_meta(dummy_reader, footer, ptrs,
+                                            /*col_id=*/0, &meta);
+    EXPECT_FALSE(st.ok());
+}
+
+// Validate IO and parse error handling paths in read_col_meta.
+TEST(ExternalColMetaUtilTest, ReadColMetaIOAndParseErrors) {
+    auto fs = io::global_local_filesystem();
+
+    // 1) Short read: file smaller than declared ColumnMetaPB length.
+    std::string short_path = make_test_file_path("read_col_meta_short.bin");
+    io::FileWriterPtr fw;
+    Status st = fs->create_file(short_path, &fw);
+    ASSERT_TRUE(st.ok()) << st.to_json();
+    std::string small_payload = "abcd";
+    ASSERT_TRUE(fw->append(Slice(small_payload)).ok());
+    ASSERT_TRUE(fw->close().ok());
+
+    io::FileReaderSPtr short_fr;
+    io::FileReaderOptions ropts;
+    st = fs->open_file(short_path, &short_fr, &ropts);
+    ASSERT_TRUE(st.ok()) << st.to_json();
+
+    SegmentFooterPB footer;
+    auto* e = footer.add_column_meta_entries();
+    e->set_unique_id(1);
+    e->set_length(static_cast<uint32_t>(small_payload.size() * 2)); // request more than exists
+
+    ExternalColMetaUtil::ExternalMetaPointers ptrs;
+    ptrs.region_start = 0;
+    ptrs.region_end = ptrs.region_start + e->length();
+    ptrs.num_columns = 1;
+
+    ColumnMetaPB meta;
+    st = ExternalColMetaUtil::read_col_meta(short_fr, footer, ptrs, /*col_id=*/0, &meta);
+    EXPECT_FALSE(st.ok()); // short read should fail
+
+    // 2) Parse error: enough bytes but not a valid ColumnMetaPB.
+    std::string parse_path = make_test_file_path("read_col_meta_parse.bin");
+    st = fs->create_file(parse_path, &fw);
+    ASSERT_TRUE(st.ok()) << st.to_json();
+    std::string bogus(32, '\xff');
+    ASSERT_TRUE(fw->append(Slice(bogus)).ok());
+    ASSERT_TRUE(fw->close().ok());
+
+    io::FileReaderSPtr parse_fr;
+    st = fs->open_file(parse_path, &parse_fr, &ropts);
+    ASSERT_TRUE(st.ok()) << st.to_json();
+
+    footer.clear_column_meta_entries();
+    e = footer.add_column_meta_entries();
+    e->set_unique_id(1);
+    e->set_length(static_cast<uint32_t>(bogus.size()));
+
+    ptrs.region_start = 0;
+    ptrs.region_end = ptrs.region_start + e->length();
+    ptrs.num_columns = 1;
+
+    st = ExternalColMetaUtil::read_col_meta(parse_fr, footer, ptrs, /*col_id=*/0, &meta);
+    EXPECT_FALSE(st.ok()); // ParseFromArray should fail on bogus data
+}
+
+// Ensure write_external_column_meta is a no-op when there are no columns.
+TEST(ExternalColMetaUtilTest, WriteExternalColumnMetaEmptyColumns) {
+    SegmentFooterPB footer;
+    ASSERT_EQ(footer.columns_size(), 0);
+
+    std::string file_path = make_test_file_path("empty_footer_ext_meta.bin");
+    auto fs = io::global_local_filesystem();
+    io::FileWriterPtr fw;
+    Status st = fs->create_file(file_path, &fw);
+    ASSERT_TRUE(st.ok()) << st.to_json();
+
+    st = ExternalColMetaUtil::write_external_column_meta(
+            fw.get(), &footer, CompressionTypePB::LZ4,
+            [fw_raw = fw.get()](const std::vector<Slice>& slices) {
+                return fw_raw->appendv(slices.data(), slices.size());
+            });
+    EXPECT_TRUE(st.ok()) << st.to_json();
+    // No column meta entries or region start should be written for empty footer.
+    EXPECT_EQ(footer.columns_size(), 0);
+    EXPECT_EQ(footer.column_meta_entries_size(), 0);
+    EXPECT_EQ(footer.col_meta_region_start(), 0);
+    EXPECT_TRUE(fw->close().ok());
 }

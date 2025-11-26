@@ -105,32 +105,7 @@ public:
             const SegmentFooterPB& footer,
             std::unordered_map<int32_t, size_t>* uid_to_colid) const override {
         uid_to_colid->clear();
-
-        // Prefer external uid->col_id map when available.
-        Status st = ExternalColMetaUtil::parse_uid_to_colid_map(footer, _ptrs, uid_to_colid);
-
-        // Compatibility: if external map is broken, fall back to inline columns.
-        if (!st.ok() && footer.columns_size() > 0) {
-            uint32_t ordinal = 0;
-            for (const auto& column_meta : footer.columns()) {
-                if (column_meta.unique_id() == -1) {
-                    ordinal++;
-                    continue;
-                }
-                uid_to_colid->try_emplace(column_meta.unique_id(), ordinal++);
-            }
-            return Status::OK();
-        }
-
-        if (!st.ok()) {
-            return Status::Corruption(
-                    "segment external meta mapping missing or corrupted and no inline columns; "
-                    "uid->col_id cannot be resolved. path={}, error={}",
-                    _file_reader ? _file_reader->path().native() : std::string("<unknown>"),
-                    st.to_string());
-        }
-
-        return Status::OK();
+        return ExternalColMetaUtil::parse_uid_to_colid_map(footer, _ptrs, uid_to_colid);
     }
 
     Status get_column_meta_by_column_ordinal_id(const SegmentFooterPB& footer,
@@ -141,14 +116,6 @@ public:
             return ExternalColMetaUtil::read_col_meta(_file_reader, footer, _ptrs,
                                                       column_ordinal_id, out);
         }
-
-        // Fallback: inline footer.columns().
-        if (footer.columns_size() > 0 &&
-            column_ordinal_id < static_cast<uint32_t>(footer.columns_size())) {
-            *out = footer.columns(static_cast<int>(column_ordinal_id));
-            return Status::OK();
-        }
-
         return Status::Corruption(
                 "no column meta available for column_id={} (inline/external missing)",
                 column_ordinal_id);
@@ -203,8 +170,6 @@ private:
 
 ColumnMetaAccessor::ColumnMetaAccessor() = default;
 ColumnMetaAccessor::~ColumnMetaAccessor() = default;
-ColumnMetaAccessor::ColumnMetaAccessor(ColumnMetaAccessor&&) noexcept = default;
-ColumnMetaAccessor& ColumnMetaAccessor::operator=(ColumnMetaAccessor&&) noexcept = default;
 
 Status ColumnMetaAccessor::init(const SegmentFooterPB& footer, io::FileReaderSPtr file_reader) {
     // First check footer version to see if external Column Meta Region might exist,

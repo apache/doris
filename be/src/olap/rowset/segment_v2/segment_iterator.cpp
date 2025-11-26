@@ -2630,7 +2630,6 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
     RETURN_IF_ERROR(_materialization_of_virtual_column(block));
     // shrink char_type suffix zero data
     block->shrink_char_type_column_suffix_zero(_char_type_idx);
-    VLOG_DEBUG << "dump block " << block->dump_data(0, block->rows());
     return _check_output_block(block);
 }
 

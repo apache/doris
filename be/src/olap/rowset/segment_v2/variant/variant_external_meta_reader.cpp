@@ -134,10 +134,7 @@ Status VariantExternalMetaReader::lookup_meta_by_path(const std::string& rel_pat
 
 Status VariantExternalMetaReader::load_all(SubcolumnColumnMetaInfo* out_meta_tree,
                                            VariantStatistics* out_stats) {
-    if (!available()) {
-        return Status::OK();
-    }
-
+    DCHECK(available());
     auto key_it = segment_v2::IndexedColumnIterator(_key_reader.get());
     RETURN_IF_ERROR(key_it.seek_to_ordinal(0));
     auto total = static_cast<size_t>(_key_reader->num_values());
@@ -203,10 +200,7 @@ Status VariantExternalMetaReader::has_prefix(const std::string& prefix, bool* ou
         *out = false;
         return Status::OK();
     }
-    if (!st.ok()) {
-        return st;
-    }
-
+    RETURN_IF_ERROR(st);
     size_t n = 1;
     auto col = vectorized::ColumnString::create();
     vectorized::MutableColumnPtr dst = std::move(col);
@@ -228,9 +222,7 @@ Status VariantExternalMetaReader::has_prefix(const std::string& prefix, bool* ou
 
 Status VariantExternalMetaReader::load_all_once(SubcolumnColumnMetaInfo* out_meta_tree,
                                                 VariantStatistics* out_stats) {
-    if (!available()) {
-        return Status::OK();
-    }
+    DCHECK(available());
     return _load_once_call.call([&]() -> Status {
         if (_loaded) {
             return Status::OK();

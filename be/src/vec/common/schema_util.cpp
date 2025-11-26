@@ -763,17 +763,14 @@ Status VariantCompactionUtil::aggregate_variant_extended_info(
             auto& paths_types =
                     (*uid_to_variant_extended_info)[column->unique_id()].path_to_data_types;
             variant_column_reader->get_subcolumns_types(&paths_types);
-            VLOG_DEBUG << "path_to_data_types size: " << paths_types.size();
 
             // 3. extract typed paths
             auto& typed_paths = (*uid_to_variant_extended_info)[column->unique_id()].typed_paths;
             variant_column_reader->get_typed_paths(&typed_paths);
-            VLOG_DEBUG << "typed_paths size: " << typed_paths.size();
 
             // 4. extract nested paths
             auto& nested_paths = (*uid_to_variant_extended_info)[column->unique_id()].nested_paths;
             variant_column_reader->get_nested_paths(&nested_paths);
-            VLOG_DEBUG << "nested_paths size: " << nested_paths.size();
         }
     }
     return Status::OK();
