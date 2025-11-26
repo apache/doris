@@ -606,8 +606,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String EXPAND_RUNTIME_FILTER_BY_INNER_JION = "expand_runtime_filter_by_inner_join";
 
-    public static final String TEST_QUERY_CACHE_HIT = "test_query_cache_hit";
-
     public static final String ENABLE_AUTO_ANALYZE = "enable_auto_analyze";
 
     public static final String FORCE_SAMPLE_ANALYZE = "force_sample_analyze";
@@ -2370,13 +2368,6 @@ public class SessionVariable implements Serializable, Writable {
             "Used to set the behavior for newly inserted rows in partial update."
             }, checker = "checkPartialUpdateNewKeyBehavior", options = {"APPEND", "ERROR"})
     public String partialUpdateNewKeyPolicy = "APPEND";
-
-    @VariableMgr.VarAttr(name = TEST_QUERY_CACHE_HIT, description = {
-            "用于测试查询缓存是否命中，如果未命中指定类型的缓存，则会报错",
-            "Used to test whether the query cache is hit. "
-                    + "If the specified type of cache is not hit, an error will be reported."},
-            options = {"none", "sql_cache", "partition_cache"})
-    public String testQueryCacheHit = "none";
 
     @VariableMgr.VarAttr(name = ENABLE_AUTO_ANALYZE,
             description = {"该参数控制是否开启自动收集", "Set false to disable auto analyze"},
