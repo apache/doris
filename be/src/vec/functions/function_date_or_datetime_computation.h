@@ -828,8 +828,6 @@ public:
     }
 };
 
-struct TimeToSecImpl;
-
 template <typename FunctionImpl>
 class FunctionCurrentDateOrDateTime : public IFunction {
 public:
@@ -859,14 +857,6 @@ public:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
         return FunctionImpl::execute(context, block, arguments, result, input_rows_count);
-    }
-
-    bool need_replace_null_data_to_default() const override {
-        if constexpr (std::is_same_v<FunctionImpl, TimeToSecImpl>) {
-            return true;
-        } else {
-            return false;
-        }
     }
 };
 
@@ -1075,8 +1065,9 @@ struct TimeToSecImpl {
 
         auto& res_data = res_col->get_data();
         for (int i = 0; i < input_rows_count; ++i) {
-            res_data[i] = cast_set<int>(static_cast<int64_t>(column_data.get_element(i)) /
-                                        (TimeValue::ONE_SECOND_MICROSECONDS));
+            res_data[i] =
+                    cast_set<int, int64_t, false>(static_cast<int64_t>(column_data.get_element(i)) /
+                                                  (TimeValue::ONE_SECOND_MICROSECONDS));
         }
         block.replace_by_position(result, std::move(res_col));
 
