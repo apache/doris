@@ -214,6 +214,39 @@ suite("topN_rewrite") {
     order_qt_query1_3_after "${query1_3}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_3"""
 
+    def mv1_4 =
+            """
+            select
+            o_orderdate,
+            ps_partkey,
+            l_orderkey
+            from
+            orders left
+            join lineitem on l_orderkey = o_orderkey
+            left join partsupp on ps_partkey = l_partkey and l_suppkey = ps_suppkey
+            order by o_orderdate, l_orderkey, ps_partkey
+            limit 8 offset 1;
+            """
+    def query1_4 =
+            """
+            select
+            o_orderdate,
+            ps_partkey,
+            l_orderkey
+            from
+            orders left
+            join lineitem on l_orderkey = o_orderkey
+            left join partsupp on ps_partkey = l_partkey and l_suppkey = ps_suppkey
+            where o_orderdate > '2023-12-08'
+            order by o_orderdate, l_orderkey
+            limit 4 offset 2;
+            """
+    order_qt_query1_4_before "${query1_4}"
+    // query top order by is subset of mv order by columns and prefix is same, should success
+    async_mv_rewrite_fail(db, mv1_4, query1_4, "mv1_4")
+    order_qt_query1_4_after "${query1_4}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_4"""
+
     def mv1_1 =
             """
             select
