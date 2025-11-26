@@ -74,6 +74,8 @@ private:
     std::unordered_map<std::string, const FieldSchema*> _name_to_field;
     // Used in from_thrift, marking the next schema position that should be parsed
     size_t _next_schema_pos;
+    // useful for parse_node_field to decide whether to convert byte_array to VARBINARY type
+    bool _enable_mapping_varbinary = false;
 
 private:
     void parse_physical_field(const tparquet::SchemaElement& physical_schema, bool is_nullable,
@@ -133,6 +135,8 @@ public:
     int32_t size() const { return cast_set<int32_t>(_fields.size()); }
 
     const std::vector<FieldSchema>& get_fields_schema() const { return _fields; }
+
+    void set_enable_mapping_varbinary(bool enable) { _enable_mapping_varbinary = enable; }
 };
 #include "common/compile_check_end.h"
 
