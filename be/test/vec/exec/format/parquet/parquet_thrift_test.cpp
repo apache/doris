@@ -80,7 +80,7 @@ TEST_F(ParquetThriftReaderTest, normal) {
 
     std::unique_ptr<FileMetaData> meta_data;
     size_t meta_size;
-    static_cast<void>(parse_thrift_footer(reader, &meta_data, &meta_size, nullptr));
+    static_cast<void>(parse_thrift_footer(reader, &meta_data, &meta_size, nullptr, true));
     tparquet::FileMetaData t_metadata = meta_data->to_thrift();
 
     LOG(WARNING) << "=====================================";
@@ -113,7 +113,7 @@ TEST_F(ParquetThriftReaderTest, complex_nested_file) {
 
     std::unique_ptr<FileMetaData> metadata;
     size_t meta_size;
-    static_cast<void>(parse_thrift_footer(reader, &metadata, &meta_size, nullptr));
+    static_cast<void>(parse_thrift_footer(reader, &metadata, &meta_size, nullptr, true));
     tparquet::FileMetaData t_metadata = metadata->to_thrift();
     FieldDescriptor schemaDescriptor;
     static_cast<void>(schemaDescriptor.parse_from_thrift(t_metadata.schema));
@@ -347,8 +347,7 @@ static void create_block(std::unique_ptr<vectorized::Block>& block) {
             {"float_col", TYPE_FLOAT, sizeof(float_t), true},
             {"double_col", TYPE_DOUBLE, sizeof(double_t), true},
             {"string_col", TYPE_STRING, sizeof(StringRef), true},
-            // binary is not supported, use string instead
-            {"binary_col", TYPE_STRING, sizeof(StringRef), true},
+            {"binary_col", TYPE_VARBINARY, sizeof(StringView), true},
             // 64-bit-length, see doris::get_slot_size in primitive_type.cpp
             {"timestamp_col", TYPE_DATETIMEV2, sizeof(int128_t), true, 0, 6},
             {"decimal_col", TYPE_DECIMAL128I, sizeof(Decimal128V3), true},
@@ -401,7 +400,7 @@ static void read_parquet_data_and_check(const std::string& parquet_file,
 
     std::unique_ptr<FileMetaData> metadata;
     size_t meta_size;
-    static_cast<void>(parse_thrift_footer(reader, &metadata, &meta_size, nullptr));
+    static_cast<void>(parse_thrift_footer(reader, &metadata, &meta_size, nullptr, true));
     tparquet::FileMetaData t_metadata = metadata->to_thrift();
     FieldDescriptor schema_descriptor;
     static_cast<void>(schema_descriptor.parse_from_thrift(t_metadata.schema));

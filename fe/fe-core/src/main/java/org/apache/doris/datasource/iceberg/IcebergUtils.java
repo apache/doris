@@ -61,6 +61,7 @@ import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.datasource.property.metastore.HMSBaseProperties;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
+import org.apache.doris.nereids.types.VarBinaryType;
 import org.apache.doris.thrift.TExprOpcode;
 
 import com.github.benmanes.caffeine.cache.Caffeine;
@@ -551,7 +552,8 @@ public class IcebergUtils {
         return builder.build();
     }
 
-    private static Type icebergPrimitiveTypeToDorisType(org.apache.iceberg.types.Type.PrimitiveType primitive) {
+    private static Type icebergPrimitiveTypeToDorisType(org.apache.iceberg.types.Type.PrimitiveType primitive,
+            boolean enableMappingVarbinary) {
         switch (primitive.typeId()) {
             case BOOLEAN:
                 return Type.BOOLEAN;
@@ -564,12 +566,16 @@ public class IcebergUtils {
             case DOUBLE:
                 return Type.DOUBLE;
             case STRING:
-            case BINARY:
-            case UUID:
                 return Type.STRING;
+            case UUID:
+                return ScalarType.createVarbinaryType(16);
+            case BINARY:
+                return enableMappingVarbinary ? ScalarType.createVarbinaryType(VarBinaryType.MAX_VARBINARY_LENGTH)
+                        : Type.STRING;
             case FIXED:
                 Types.FixedType fixed = (Types.FixedType) primitive;
-                return ScalarType.createCharType(fixed.length());
+                return enableMappingVarbinary ? ScalarType.createVarbinaryType(fixed.length())
+                        : ScalarType.createCharType(fixed.length());
             case DECIMAL:
                 Types.DecimalType decimal = (Types.DecimalType) primitive;
                 return ScalarType.createDecimalV3Type(decimal.precision(), decimal.scale());
@@ -584,25 +590,25 @@ public class IcebergUtils {
         }
     }
 
-    public static Type icebergTypeToDorisType(org.apache.iceberg.types.Type type) {
+    public static Type icebergTypeToDorisType(org.apache.iceberg.types.Type type, boolean enableMappingVarbinary) {
         if (type.isPrimitiveType()) {
-            return icebergPrimitiveTypeToDorisType((org.apache.iceberg.types.Type.PrimitiveType) type);
+            return icebergPrimitiveTypeToDorisType((org.apache.iceberg.types.Type.PrimitiveType) type,
+                    enableMappingVarbinary);
         }
         switch (type.typeId()) {
             case LIST:
                 Types.ListType list = (Types.ListType) type;
-                return ArrayType.create(icebergTypeToDorisType(list.elementType()), true);
+                return ArrayType.create(icebergTypeToDorisType(list.elementType(), enableMappingVarbinary), true);
             case MAP:
                 Types.MapType map = (Types.MapType) type;
                 return new MapType(
-                        icebergTypeToDorisType(map.keyType()),
-                        icebergTypeToDorisType(map.valueType())
-                );
+                        icebergTypeToDorisType(map.keyType(), enableMappingVarbinary),
+                        icebergTypeToDorisType(map.valueType(), enableMappingVarbinary));
             case STRUCT:
                 Types.StructType struct = (Types.StructType) type;
                 ArrayList<StructField> nestedTypes = struct.fields().stream().map(
-                        x -> new StructField(x.name(), icebergTypeToDorisType(x.type()))
-                ).collect(Collectors.toCollection(ArrayList::new));
+                        x -> new StructField(x.name(), icebergTypeToDorisType(x.type(), enableMappingVarbinary)))
+                        .collect(Collectors.toCollection(ArrayList::new));
                 return new StructType(nestedTypes);
             default:
                 throw new IllegalArgumentException("Cannot transform unknown type: " + type);
@@ -848,7 +854,7 @@ public class IcebergUtils {
                 Preconditions.checkNotNull(schema,
                         "Schema for " + type + " " + dorisTable.getCatalog().getName()
                                 + "." + dorisTable.getDbName() + "." + dorisTable.getName() + " is null");
-                return parseSchema(schema);
+                return parseSchema(schema, dorisTable.getCatalog().getEnableMappingVarbinary());
             });
         } catch (Exception e) {
             throw new RuntimeException(ExceptionUtils.getRootCauseMessage(e), e);
@@ -859,12 +865,12 @@ public class IcebergUtils {
     /**
      * Parse iceberg schema to doris schema
      */
-    public static List<Column> parseSchema(Schema schema) {
+    public static List<Column> parseSchema(Schema schema, boolean enableMappingVarbinary) {
         List<Types.NestedField> columns = schema.columns();
         List<Column> resSchema = Lists.newArrayListWithCapacity(columns.size());
         for (Types.NestedField field : columns) {
             Column column =  new Column(field.name().toLowerCase(Locale.ROOT),
-                            IcebergUtils.icebergTypeToDorisType(field.type()), true, null,
+                            IcebergUtils.icebergTypeToDorisType(field.type(), enableMappingVarbinary), true, null,
                             true, field.doc(), true, -1);
             updateIcebergColumnUniqueId(column, field);
             if (field.type().isPrimitiveType() && field.type().typeId() == TypeID.TIMESTAMP) {

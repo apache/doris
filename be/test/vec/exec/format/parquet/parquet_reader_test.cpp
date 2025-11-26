@@ -42,6 +42,7 @@
 #include "runtime/runtime_state.h"
 #include "util/timezone_utils.h"
 #include "vec/columns/column.h"
+#include "vec/common/string_view.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/data_types/data_type.h"
@@ -170,6 +171,289 @@ TEST_F(ParquetReaderTest, normal) {
     }
     EXPECT_TRUE(eof);
     delete p_reader;
+}
+
+TEST_F(ParquetReaderTest, uuid_varbinary) {
+    TDescriptorTable t_desc_table;
+    TTableDescriptor t_table_desc;
+    std::vector<std::string> table_column_names = {"id", "col1"};
+    std::vector<TPrimitiveType::type> table_column_types = {TPrimitiveType::INT,
+                                                            TPrimitiveType::VARBINARY};
+    create_table_desc(t_desc_table, t_table_desc, table_column_names, table_column_types);
+    DescriptorTbl* desc_tbl;
+    ObjectPool obj_pool;
+    auto st = DescriptorTbl::create(&obj_pool, t_desc_table, &desc_tbl);
+    EXPECT_TRUE(st.ok()) << st;
+
+    auto slot_descs = desc_tbl->get_tuple_descriptor(0)->slots();
+    auto local_fs = io::global_local_filesystem();
+    io::FileReaderSPtr reader;
+    st = local_fs->open_file("./be/test/exec/test_data/parquet_scanner/test_uuid.parquet", &reader);
+    EXPECT_TRUE(st.ok()) << st;
+
+    cctz::time_zone ctz;
+    TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
+    auto tuple_desc = desc_tbl->get_tuple_descriptor(0);
+    std::vector<std::string> column_names;
+    for (int i = 0; i < slot_descs.size(); i++) {
+        column_names.push_back(slot_descs[i]->col_name());
+    }
+    TFileScanRangeParams scan_params;
+    scan_params.enable_mapping_varbinary = true;
+    TFileRangeDesc scan_range;
+    {
+        scan_range.start_offset = 0;
+        scan_range.size = 1000;
+    }
+    auto p_reader = std::make_unique<ParquetReader>(nullptr, scan_params, scan_range, 992, &ctz,
+                                                    nullptr, nullptr, &cache);
+    p_reader->set_file_reader(reader);
+    RuntimeState runtime_state((TQueryGlobals()));
+    runtime_state.set_desc_tbl(desc_tbl);
+
+    st = p_reader->init_reader(column_names, {}, nullptr, nullptr, nullptr, nullptr, nullptr);
+    EXPECT_TRUE(st.ok()) << st;
+    std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
+            partition_columns;
+    std::unordered_map<std::string, VExprContextSPtr> missing_columns;
+    st = p_reader->set_fill_columns(partition_columns, missing_columns);
+    EXPECT_TRUE(st.ok()) << st;
+    BlockUPtr block = Block::create_unique();
+    for (const auto& slot_desc : tuple_desc->slots()) {
+        auto data_type = make_nullable(slot_desc->type());
+        MutableColumnPtr data_column = data_type->create_column();
+        block->insert(
+                ColumnWithTypeAndName(std::move(data_column), data_type, slot_desc->col_name()));
+    }
+    bool eof = false;
+    size_t read_row = 0;
+    st = p_reader->get_next_block(block.get(), &read_row, &eof);
+    EXPECT_TRUE(st.ok()) << st;
+    EXPECT_TRUE(eof);
+    for (auto& col : block->get_columns_with_type_and_name()) {
+        ASSERT_EQ(col.column->size(), 3);
+    }
+    auto col = block->safe_get_by_position(1).column;
+    auto nullable_column = assert_cast<const ColumnNullable*>(col.get());
+    auto varbinary_column =
+            assert_cast<const ColumnVarbinary*>(nullable_column->get_nested_column_ptr().get());
+    auto& data = varbinary_column->get_data();
+    EXPECT_EQ(data[0].dump_hex(), "X'550E8400E29B41D4A716446655440000'");
+    EXPECT_EQ(data[1].dump_hex(), "X'123E4567E89B12D3A456426614174000'");
+    EXPECT_EQ(data[2].dump_hex(), "X'00000000000000000000000000000000'");
+}
+
+TEST_F(ParquetReaderTest, varbinary_varbinary) {
+    TDescriptorTable t_desc_table;
+    TTableDescriptor t_table_desc;
+    std::vector<std::string> table_column_names = {"id", "col2"};
+    std::vector<TPrimitiveType::type> table_column_types = {TPrimitiveType::INT,
+                                                            TPrimitiveType::VARBINARY};
+    create_table_desc(t_desc_table, t_table_desc, table_column_names, table_column_types);
+    DescriptorTbl* desc_tbl;
+    ObjectPool obj_pool;
+    auto st = DescriptorTbl::create(&obj_pool, t_desc_table, &desc_tbl);
+    EXPECT_TRUE(st.ok()) << st;
+
+    auto slot_descs = desc_tbl->get_tuple_descriptor(0)->slots();
+    auto local_fs = io::global_local_filesystem();
+    io::FileReaderSPtr reader;
+    st = local_fs->open_file("./be/test/exec/test_data/parquet_scanner/test_uuid.parquet", &reader);
+    EXPECT_TRUE(st.ok()) << st;
+
+    cctz::time_zone ctz;
+    TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
+    auto tuple_desc = desc_tbl->get_tuple_descriptor(0);
+    std::vector<std::string> column_names;
+    for (int i = 0; i < slot_descs.size(); i++) {
+        column_names.push_back(slot_descs[i]->col_name());
+    }
+    TFileScanRangeParams scan_params;
+    scan_params.enable_mapping_varbinary = true;
+    TFileRangeDesc scan_range;
+    {
+        scan_range.start_offset = 0;
+        scan_range.size = 1000;
+    }
+    auto p_reader = std::make_unique<ParquetReader>(nullptr, scan_params, scan_range, 992, &ctz,
+                                                    nullptr, nullptr, &cache);
+    p_reader->set_file_reader(reader);
+    RuntimeState runtime_state((TQueryGlobals()));
+    runtime_state.set_desc_tbl(desc_tbl);
+
+    st = p_reader->init_reader(column_names, {}, nullptr, nullptr, nullptr, nullptr, nullptr);
+    EXPECT_TRUE(st.ok()) << st;
+    std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
+            partition_columns;
+    std::unordered_map<std::string, VExprContextSPtr> missing_columns;
+    st = p_reader->set_fill_columns(partition_columns, missing_columns);
+    EXPECT_TRUE(st.ok()) << st;
+    BlockUPtr block = Block::create_unique();
+    for (const auto& slot_desc : tuple_desc->slots()) {
+        auto data_type = make_nullable(slot_desc->type());
+        MutableColumnPtr data_column = data_type->create_column();
+        block->insert(
+                ColumnWithTypeAndName(std::move(data_column), data_type, slot_desc->col_name()));
+    }
+    bool eof = false;
+    size_t read_row = 0;
+    st = p_reader->get_next_block(block.get(), &read_row, &eof);
+    EXPECT_TRUE(st.ok()) << st;
+    EXPECT_TRUE(eof);
+    for (auto& col : block->get_columns_with_type_and_name()) {
+        ASSERT_EQ(col.column->size(), 3);
+    }
+    auto col = block->safe_get_by_position(1).column;
+    auto nullable_column = assert_cast<const ColumnNullable*>(col.get());
+    auto varbinary_column =
+            assert_cast<const ColumnVarbinary*>(nullable_column->get_nested_column_ptr().get());
+    auto& data = varbinary_column->get_data();
+    EXPECT_EQ(data[0].dump_hex(), "X'0123456789ABCDEF'");
+    EXPECT_EQ(data[1].dump_hex(), "X'FEDCBA9876543210'");
+    EXPECT_EQ(data[2].dump_hex(), "X'00'");
+}
+
+TEST_F(ParquetReaderTest, varbinary_string) {
+    TDescriptorTable t_desc_table;
+    TTableDescriptor t_table_desc;
+    std::vector<std::string> table_column_names = {"id", "col2"};
+    std::vector<TPrimitiveType::type> table_column_types = {TPrimitiveType::INT,
+                                                            TPrimitiveType::VARBINARY};
+    create_table_desc(t_desc_table, t_table_desc, table_column_names, table_column_types);
+    DescriptorTbl* desc_tbl;
+    ObjectPool obj_pool;
+    auto st = DescriptorTbl::create(&obj_pool, t_desc_table, &desc_tbl);
+    EXPECT_TRUE(st.ok()) << st;
+
+    auto slot_descs = desc_tbl->get_tuple_descriptor(0)->slots();
+    auto local_fs = io::global_local_filesystem();
+    io::FileReaderSPtr reader;
+    st = local_fs->open_file("./be/test/exec/test_data/parquet_scanner/test_uuid.parquet", &reader);
+    EXPECT_TRUE(st.ok()) << st;
+
+    cctz::time_zone ctz;
+    TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
+    auto tuple_desc = desc_tbl->get_tuple_descriptor(0);
+    std::vector<std::string> column_names;
+    for (int i = 0; i < slot_descs.size(); i++) {
+        column_names.push_back(slot_descs[i]->col_name());
+    }
+    TFileScanRangeParams scan_params;
+    // use string to read parquet column, but dst type is varbinary
+    // <VarBinaryConverter<TYPE_STRING, TYPE_VARBINARY>
+    scan_params.enable_mapping_varbinary = false;
+    TFileRangeDesc scan_range;
+    {
+        scan_range.start_offset = 0;
+        scan_range.size = 1000;
+    }
+    auto p_reader = std::make_unique<ParquetReader>(nullptr, scan_params, scan_range, 992, &ctz,
+                                                    nullptr, nullptr, &cache);
+    p_reader->set_file_reader(reader);
+    RuntimeState runtime_state((TQueryGlobals()));
+    runtime_state.set_desc_tbl(desc_tbl);
+
+    st = p_reader->init_reader(column_names, {}, nullptr, nullptr, nullptr, nullptr, nullptr);
+    EXPECT_TRUE(st.ok()) << st;
+    std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
+            partition_columns;
+    std::unordered_map<std::string, VExprContextSPtr> missing_columns;
+    st = p_reader->set_fill_columns(partition_columns, missing_columns);
+    EXPECT_TRUE(st.ok()) << st;
+    BlockUPtr block = Block::create_unique();
+    for (const auto& slot_desc : tuple_desc->slots()) {
+        auto data_type = make_nullable(slot_desc->type());
+        MutableColumnPtr data_column = data_type->create_column();
+        block->insert(
+                ColumnWithTypeAndName(std::move(data_column), data_type, slot_desc->col_name()));
+    }
+    bool eof = false;
+    size_t read_row = 0;
+    st = p_reader->get_next_block(block.get(), &read_row, &eof);
+    EXPECT_TRUE(st.ok()) << st;
+    EXPECT_TRUE(eof);
+    for (auto& col : block->get_columns_with_type_and_name()) {
+        ASSERT_EQ(col.column->size(), 3);
+    }
+    auto col = block->safe_get_by_position(1).column;
+    auto nullable_column = assert_cast<const ColumnNullable*>(col.get());
+    auto varbinary_column =
+            assert_cast<const ColumnVarbinary*>(nullable_column->get_nested_column_ptr().get());
+    auto& data = varbinary_column->get_data();
+    EXPECT_EQ(data[0].dump_hex(), "X'0123456789ABCDEF'");
+    EXPECT_EQ(data[1].dump_hex(), "X'FEDCBA9876543210'");
+    EXPECT_EQ(data[2].dump_hex(), "X'00'");
+}
+
+TEST_F(ParquetReaderTest, varbinary_string2) {
+    TDescriptorTable t_desc_table;
+    TTableDescriptor t_table_desc;
+    std::vector<std::string> table_column_names = {"id", "col2"};
+    std::vector<TPrimitiveType::type> table_column_types = {TPrimitiveType::INT,
+                                                            TPrimitiveType::STRING};
+    create_table_desc(t_desc_table, t_table_desc, table_column_names, table_column_types);
+    DescriptorTbl* desc_tbl;
+    ObjectPool obj_pool;
+    auto st = DescriptorTbl::create(&obj_pool, t_desc_table, &desc_tbl);
+    EXPECT_TRUE(st.ok()) << st;
+
+    auto slot_descs = desc_tbl->get_tuple_descriptor(0)->slots();
+    auto local_fs = io::global_local_filesystem();
+    io::FileReaderSPtr reader;
+    st = local_fs->open_file("./be/test/exec/test_data/parquet_scanner/test_uuid.parquet", &reader);
+    EXPECT_TRUE(st.ok()) << st;
+
+    cctz::time_zone ctz;
+    TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
+    auto tuple_desc = desc_tbl->get_tuple_descriptor(0);
+    std::vector<std::string> column_names;
+    for (int i = 0; i < slot_descs.size(); i++) {
+        column_names.push_back(slot_descs[i]->col_name());
+    }
+    TFileScanRangeParams scan_params;
+    // although want use binary column read, _cached_src_physical_type is string, so use string to read parquet column, but dst type is string
+    // <VarBinaryConverter<TYPE_STRING, TYPE_STRING>>
+    scan_params.enable_mapping_varbinary = true;
+    TFileRangeDesc scan_range;
+    {
+        scan_range.start_offset = 0;
+        scan_range.size = 1000;
+    }
+    auto p_reader = std::make_unique<ParquetReader>(nullptr, scan_params, scan_range, 992, &ctz,
+                                                    nullptr, nullptr, &cache);
+    p_reader->set_file_reader(reader);
+    RuntimeState runtime_state((TQueryGlobals()));
+    runtime_state.set_desc_tbl(desc_tbl);
+
+    st = p_reader->init_reader(column_names, {}, nullptr, nullptr, nullptr, nullptr, nullptr);
+    EXPECT_TRUE(st.ok()) << st;
+    std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
+            partition_columns;
+    std::unordered_map<std::string, VExprContextSPtr> missing_columns;
+    st = p_reader->set_fill_columns(partition_columns, missing_columns);
+    EXPECT_TRUE(st.ok()) << st;
+    BlockUPtr block = Block::create_unique();
+    for (const auto& slot_desc : tuple_desc->slots()) {
+        auto data_type = make_nullable(slot_desc->type());
+        MutableColumnPtr data_column = data_type->create_column();
+        block->insert(
+                ColumnWithTypeAndName(std::move(data_column), data_type, slot_desc->col_name()));
+    }
+    bool eof = false;
+    size_t read_row = 0;
+    st = p_reader->get_next_block(block.get(), &read_row, &eof);
+    EXPECT_TRUE(st.ok()) << st;
+    EXPECT_TRUE(eof);
+    for (auto& col : block->get_columns_with_type_and_name()) {
+        ASSERT_EQ(col.column->size(), 3);
+    }
+    auto col = block->safe_get_by_position(1).column;
+    auto nullable_column = assert_cast<const ColumnNullable*>(col.get());
+    auto string_column =
+            assert_cast<const ColumnString*>(nullable_column->get_nested_column_ptr().get());
+    EXPECT_EQ(StringView(string_column->get_data_at(0)).dump_hex(), "X'0123456789ABCDEF'");
+    EXPECT_EQ(StringView(string_column->get_data_at(1)).dump_hex(), "X'FEDCBA9876543210'");
+    EXPECT_EQ(StringView(string_column->get_data_at(2)).dump_hex(), "X'00'");
 }
 
 } // namespace vectorized

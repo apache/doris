@@ -1470,7 +1470,13 @@ DataTypePtr OrcReader::convert_to_doris_type(const orc::Type* orc_type) {
     case orc::TypeKind::STRING:
         return DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_STRING, true);
     case orc::TypeKind::BINARY:
-        return DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_STRING, true);
+        if (_scan_params.__isset.enable_mapping_varbinary &&
+            _scan_params.enable_mapping_varbinary) {
+            return DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_VARBINARY,
+                                                                true);
+        } else {
+            return DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_STRING, true);
+        }
     case orc::TypeKind::TIMESTAMP:
         return DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_DATETIMEV2, true, 0,
                                                             6);
@@ -1843,6 +1849,12 @@ Status OrcReader::_fill_doris_data_column(const std::string& col_name,
     case PrimitiveType::TYPE_STRING:
     case PrimitiveType::TYPE_VARCHAR:
     case PrimitiveType::TYPE_CHAR:
+        return _decode_string_column<is_filter>(col_name, data_column, orc_column_type->getKind(),
+                                                cvb, num_values);
+    case PrimitiveType::TYPE_VARBINARY:
+        // case BINARY:    binary type still use StringVectorBatch, so here we just call _decode_string_column
+        // return encoded ? std::make_unique<EncodedStringVectorBatch>(capacity, memoryPool)
+        //                : std::make_unique<StringVectorBatch>(capacity, memoryPool);
         return _decode_string_column<is_filter>(col_name, data_column, orc_column_type->getKind(),
                                                 cvb, num_values);
     case PrimitiveType::TYPE_ARRAY: {
