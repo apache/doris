@@ -550,6 +550,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.YearWeek;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearsAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearsDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearsSub;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MapConcat;
 
 import com.google.common.collect.ImmutableList;
 
@@ -871,6 +872,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(MapKeys.class, "map_keys"),
             scalar(MapSize.class, "map_size"),
             scalar(MapValues.class, "map_values"),
+            scalar(MapConcat.class, "map_concat"),
             scalar(Mask.class, "mask"),
             scalar(MaskFirstN.class, "mask_first_n"),
             scalar(MaskLastN.class, "mask_last_n"),

@@ -20,6 +20,7 @@
 
 #include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
+#include <cstddef>
 #include <memory>
 #include <ostream>
 #include <string>
@@ -36,6 +37,7 @@
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_map.h"
 #include "vec/columns/column_nullable.h"
+#include "vec/columns/column_variant.h"
 #include "vec/columns/column_vector.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/typeid_cast.h"
@@ -88,7 +90,11 @@ public:
                         uint32_t result, size_t input_rows_count) const override {
         DCHECK(arguments.size() % 2 == 0)
                 << "function: " << get_name() << ", arguments should not be even number";
-
+        LOG(INFO) << "[FunctionMap.execute_impl] input_rows_count: " << input_rows_count;
+        for (size_t i =0;i < arguments.size();++i) {
+            auto& col = block.get_by_position(arguments[i]).column;
+            LOG(INFO) << "[FunctionMap.execute_impl] argument " << i << " column type: " << col->get_name()<<" data:"<<col->dump_structure();
+        }
         size_t num_element = arguments.size();
 
         auto result_col = block.get_by_position(result).type->create_column();
@@ -792,6 +798,87 @@ public:
 private:
 };
 
+class FunctionMapConcat : public IFunction{
+public:
+    static constexpr auto name = "map_concat";
+    static FunctionPtr create() {return std::make_shared<FunctionMapConcat>();}
+    String get_name() const override { return name; }
+    bool is_variadic() const override { return true; }
+    size_t get_number_of_arguments() const override { return 1; }
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        DCHECK(arguments.size()>0)
+                <<"function: "<<get_name()<<", arguments should not be empty";
+        for (const auto&arg : arguments) {
+            DCHECK(arg->get_primitive_type() == TYPE_MAP)
+                    << "argument for function map_concat should be DataTypeMap"
+                    << "and argument is "<<arg->get_name();
+        }
+        LOG(INFO) << "[FunctionMapConcat.get_return_type_impl] return type:"<< arguments[0]->get_name();
+        return arguments[0];
+    }
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        const uint32_t result, size_t input_rows_count) const override {
+        auto result_col = block.get_by_position(result).type->create_column();
+        LOG(INFO)<<"[FunctionMapConcat.execute_impl] result:"<<block.get_by_position(result).dump_structure();
+        auto* result_map_column = assert_cast<ColumnMap*>(result_col.get());
+        // map keys column
+        auto& result_col_map_keys_data = result_map_column->get_keys();
+        result_col_map_keys_data.reserve(10);
+        // map values column
+        auto& result_col_map_vals_data = result_map_column->get_values();
+        result_col_map_vals_data.reserve(10);
+        ColumnArray::Offsets64& column_offsets = result_map_column->get_offsets();
+        column_offsets.resize(input_rows_count);
+
+        size_t off = 0;
+        for(int row = 0; row < input_rows_count ; row++) {
+            for(size_t col:arguments){
+                const ColumnMap*map_column = nullptr;
+                auto src_column = 
+                        block.get_by_position(col).column->convert_to_full_column_if_const();
+                if (src_column->is_nullable()){
+                    auto nullable_column = reinterpret_cast<const ColumnNullable*>(src_column.get());
+                    map_column = check_and_get_column<ColumnMap>(nullable_column->get_nested_column());
+                }else{
+                    map_column = check_and_get_column<ColumnMap>(*src_column.get());
+                }
+                if (!src_column){
+                    return Status::RuntimeError("unsupported types for function {}({})", get_name(),
+                                        block.get_by_position(col).type->get_name());
+                }
+                const auto& src_column_offsets = map_column->get_offsets();
+                const size_t length = src_column_offsets[row] - src_column_offsets[row - 1];
+                off += length;
+                for(size_t i=src_column_offsets[row-1];i<src_column_offsets[row];i++){
+                    result_col_map_keys_data.insert_from(map_column->get_keys(),i);
+                    result_col_map_vals_data.insert_from(map_column->get_values(),i);
+                    LOG(INFO)<<"[FunctionMapConcat.execute_impl] last key:"<<result_col_map_keys_data[result_col_map_keys_data.size()-1];
+                    LOG(INFO)<<"[FunctionMapConcat.execute_impl] last value:"<<result_col_map_vals_data[result_col_map_vals_data.size()-1];
+                    LOG(INFO)<<"[FunctionMapConcat.execute_impl] internel key:"<<row<<" "<<col<<" "<<i<<":"<<map_column->get_keys()[i].to_string();
+                    LOG(INFO)<<"[FunctionMapConcat.execute_impl] internel value:"<<row<<" "<<col<<" "<<i<<":"<<map_column->get_values()[i].to_string();
+                }
+                LOG(INFO) << "[FunctionMapConcat.execute_impl] map_column:"<< block.get_by_position(col).dump_structure()<<" row "<<row<<" length: "<<length;
+                LOG(INFO) << "[FunctionMapConcat.execute_impl] start: "<<src_column_offsets[row-1]<<" end: "<<src_column_offsets[row];
+            }
+            column_offsets[row] = off;
+        }
+        LOG(INFO) << "[DEBUG] Before deduplicate - total keys: " << result_col_map_keys_data.size();
+        for (size_t i = 0; i < result_col_map_keys_data.size(); ++i) {
+            Field key_field = result_col_map_keys_data[i];
+            LOG(INFO) << "[DEBUG] Key " << i << ": " << key_field.to_string();
+        }
+        RETURN_IF_ERROR(result_map_column->deduplicate_keys());
+        LOG(INFO) << "[DEBUG] After deduplicate - total keys: " << result_col_map_keys_data.size();
+        for (size_t i = 0; i < result_col_map_keys_data.size(); ++i) {
+            Field key_field = result_col_map_keys_data[i];
+            LOG(INFO) << "[DEBUG] Key " << i << ": " << key_field.to_string();
+        }
+        block.replace_by_position(result, std::move(result_col));
+
+        return Status::OK();
+    }
+};
+
 void register_function_map(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionMap>();
     factory.register_function<FunctionMapContains<true>>();
@@ -801,6 +888,7 @@ void register_function_map(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionMapEntries>();
     factory.register_function<FunctionStrToMap>();
     factory.register_function<FunctionMapContainsEntry>();
+    factory.register_function<FunctionMapConcat>();
     factory.register_function<FunctionDeduplicateMap>();
 }
 

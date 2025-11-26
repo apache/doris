@@ -553,6 +553,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.YearOfWeek;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearWeek;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearsAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearsDiff;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MapConcat;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearsSub;
 import org.apache.doris.nereids.trees.expressions.functions.udf.AliasUdf;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdf;
@@ -2720,6 +2721,9 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitPeriodDiff(PeriodDiff periodDiff, C context) {
         return visitScalarFunction(periodDiff, context);
+    }
+    default R visitMapConcat(MapConcat mapConcat, C context) {
+        return visitScalarFunction(mapConcat, context);
     }
 
     default R visitUnicodeNormalize(UnicodeNormalize func, C context) {
