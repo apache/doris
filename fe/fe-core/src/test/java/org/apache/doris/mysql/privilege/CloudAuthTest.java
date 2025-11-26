@@ -479,9 +479,11 @@ public class CloudAuthTest {
             Assert.fail();
         }
         // create vcg, sub cg(cg1, cg2), add to systemInfoService
-        ComputeGroup vcg  = new ComputeGroup("vcg_id", virtualComputeGroup, ComputeGroup.ComputeTypeEnum.VIRTUAL);
-        vcg.setSubComputeGroups(Lists.newArrayList(computeGroup2, computeGroup1));
-        systemInfoService.addComputeGroup(virtualComputeGroup, vcg);
+        ComputeGroup vcg  = new ComputeGroup("vcg_id", "vcg", ComputeGroup.ComputeTypeEnum.VIRTUAL);
+        vcg.setSubComputeGroups(Lists.newArrayList("cg2", "cg1"));
+        systemInfoService.addComputeGroup("vcg_id", vcg);
+        ComputeGroup cg  = new ComputeGroup("vcg_id", "vcg", ComputeGroup.ComputeTypeEnum.COMPUTE);
+        systemInfoService.addComputeGroup("cg", cg);
         ComputeGroup.Policy policy = new ComputeGroup.Policy();
         policy.setActiveComputeGroup(computeGroup1);
         policy.setStandbyComputeGroup(computeGroup2);
@@ -494,6 +496,8 @@ public class CloudAuthTest {
         Assert.assertTrue(accessManager.checkCloudPriv(userIdentity, computeGroup1,
                 PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER));
         Assert.assertTrue(accessManager.checkCloudPriv(userIdentity, computeGroup2,
+                PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER));
+        Assert.assertFalse(accessManager.checkCloudPriv(new UserIdentity("testUser", "%"), "cg",
                 PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER));
         ShowResultSet showResultSet = testShowGrants(userIdentity);
         // cluster field

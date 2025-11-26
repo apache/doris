@@ -258,7 +258,8 @@ Status CachedRemoteFileReader::_execute_remote_read(const std::vector<FileBlockS
         }
     });
 
-    if (!_is_doris_table || io_ctx->is_warmup || !doris::config::enable_cache_read_from_peer) {
+    if (!doris::config::is_cloud_mode() || !_is_doris_table || io_ctx->is_warmup ||
+        !doris::config::enable_cache_read_from_peer) {
         return execute_s3_read(empty_start, size, buffer, stats, io_ctx, _remote_file_reader);
     } else {
         // first try peer read, if peer failed, fallback to S3
@@ -319,7 +320,7 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
             // update stats increment in this reading procedure for file cache metrics
             FileCacheStatistics fcache_stats_increment;
             _update_stats(stats, &fcache_stats_increment, io_ctx->is_inverted_index);
-            io::FileCacheProfile::instance().update(&fcache_stats_increment);
+            io::FileCacheMetrics::instance().update(&fcache_stats_increment);
         }
     };
     std::unique_ptr<int, decltype(defer_func)> defer((int*)0x01, std::move(defer_func));

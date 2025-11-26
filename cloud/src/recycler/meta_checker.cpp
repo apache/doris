@@ -387,7 +387,7 @@ bool MetaChecker::handle_check_fe_meta_by_fdb<CHECK_META>(MYSQL* conn) {
 
 bool MetaChecker::check_fe_meta_by_fdb(MYSQL* conn) {
     bool success = true;
-    if (config::enable_checker_for_meta_key_check) {
+    if (config::enable_meta_key_check) {
         success = handle_check_fe_meta_by_fdb<CHECK_META>(conn);
     }
 
@@ -624,7 +624,7 @@ bool MetaChecker::handle_check_fdb_by_fe_meta<CHECK_META>(MYSQL* conn) {
 
 bool MetaChecker::check_fdb_by_fe_meta(MYSQL* conn) {
     bool success = true;
-    if (config::enable_checker_for_meta_key_check) {
+    if (config::enable_meta_key_check) {
         success = handle_check_fdb_by_fe_meta<CHECK_META>(conn);
     }
 

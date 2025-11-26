@@ -184,10 +184,12 @@ import org.apache.doris.qe.CommonResultSet.CommonResultSetMetaData;
 import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.qe.QeProcessorImpl.QueryInfo;
 import org.apache.doris.qe.QueryState.MysqlStateType;
+import org.apache.doris.qe.VariableMgr.VarContext;
 import org.apache.doris.qe.cache.Cache;
 import org.apache.doris.qe.cache.CacheAnalyzer;
 import org.apache.doris.qe.cache.CacheAnalyzer.CacheMode;
 import org.apache.doris.qe.cache.SqlCache;
+import org.apache.doris.resource.computegroup.ComputeGroupMgr;
 import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.rewrite.mvrewrite.MVSelectFailedException;
 import org.apache.doris.rpc.BackendServiceProxy;
@@ -869,7 +871,7 @@ public class StmtExecutor {
                 LOG.warn("Nereids plan query failed:\n{}", originStmt.originStmt, e);
                 throw new NereidsException(new AnalysisException(e.getMessage(), e));
             } finally {
-                profile.getSummaryProfile().setQueryPlanFinishTime();
+                profile.getSummaryProfile().setQueryPlanFinishTime(TimeUtils.getStartTimeMs());
             }
 
             handleQueryWithRetry(queryId);
@@ -1287,7 +1289,12 @@ public class StmtExecutor {
                 }
                 SetVar var = new SetVar(SetType.SESSION, unsetStmt.getVariable(),
                         new StringLiteral(defaultValue), SetVarType.SET_SESSION_VAR);
-                VariableMgr.setVar(context.getSessionVariable(), var);
+                VarContext varCtx = VariableMgr.getVarContext(var.getVariable());
+                // only unset for session variable.
+                // If this is a global variable, no need to do this because it has been synced from editlog already.
+                if (varCtx != null && (varCtx.getFlag() & VariableMgr.SESSION) != 0) {
+                    VariableMgr.setVar(context.getSessionVariable(), var);
+                }
             }
         }
     }
@@ -1593,7 +1600,7 @@ public class StmtExecutor {
         if (parsedStmt instanceof QueryStmt || parsedStmt instanceof InsertStmt) {
             planner.plan(parsedStmt, tQueryOptions);
         }
-        profile.getSummaryProfile().setQueryPlanFinishTime();
+        profile.getSummaryProfile().setQueryPlanFinishTime(TimeUtils.getStartTimeMs());
     }
 
     private void resetAnalyzerAndStmt() {
@@ -1953,7 +1960,7 @@ public class StmtExecutor {
 
         try {
             coordBase.exec();
-            profile.getSummaryProfile().setQueryScheduleFinishTime();
+            profile.getSummaryProfile().setQueryScheduleFinishTime(TimeUtils.getStartTimeMs());
             updateProfile(false);
 
             if (context.getConnectType().equals(ConnectType.ARROW_FLIGHT_SQL)) {
@@ -2050,7 +2057,7 @@ public class StmtExecutor {
 
             statisticsForAuditLog = batch.getQueryStatistics() == null ? null : batch.getQueryStatistics().toBuilder();
             context.getState().setEof();
-            profile.getSummaryProfile().setQueryFetchResultFinishTime();
+            profile.getSummaryProfile().setQueryFetchResultFinishTime(TimeUtils.getStartTimeMs());
         } catch (Exception e) {
             // notify all be cancel running fragment
             // in some case may block all fragment handle threads
@@ -2096,7 +2103,12 @@ public class StmtExecutor {
             }
         }
         if (address == null) {
-            throw new AnalysisException("No Alive backends");
+            String computeGroupHints = "";
+            if (Config.isCloudMode()) {
+                // null: computeGroupNotFoundPromptMsg select cluster for hint msg
+                computeGroupHints = ComputeGroupMgr.computeGroupNotFoundPromptMsg(null);
+            }
+            throw new AnalysisException("No Alive backends" + computeGroupHints);
         }
 
         // 5. send rpc to BE
