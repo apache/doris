@@ -65,10 +65,11 @@ BaseTabletsChannel::BaseTabletsChannel(const TabletsChannelKey& key, const Uniqu
           _load_id(load_id),
           _closed_senders(64),
           _is_high_priority(is_high_priority) {
-    static std::once_flag once_flag;
+    static DorisCallOnce<Status> once_flag;
     _init_profile(profile);
-    std::call_once(once_flag, [] {
+    std::ignore = once_flag.call([] {
         REGISTER_HOOK_METRIC(tablet_writer_count, [&]() { return _s_tablet_writer_count.load(); });
+        return Status::OK();
     });
 }
 

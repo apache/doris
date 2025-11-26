@@ -74,7 +74,7 @@ __thread Thread* Thread::_tls = nullptr;
 static std::shared_ptr<ThreadMgr> thread_manager;
 //
 // Controls the single (lazy) initialization of thread_manager.
-static std::once_flag once;
+static DorisCallOnce<Status> once;
 
 // A singleton class that tracks all live threads, and groups them together for easy
 // auditing. Used only by Thread.
@@ -388,8 +388,7 @@ int64_t Thread::wait_for_tid() const {
 
 Status Thread::start_thread(const std::string& category, const std::string& name,
                             const ThreadFunctor& functor, std::shared_ptr<Thread>* holder) {
-    std::call_once(once, init_threadmgr);
-
+    std::ignore = once.call([]() { init_threadmgr(); return Status::OK(); });
     // Temporary reference for the duration of this function.
     auto t = std::make_shared<Thread>(category, name, functor);
 

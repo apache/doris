@@ -33,8 +33,8 @@ icu::UnicodeSet BreakIteratorWrapper::EMOJI;
 BreakIteratorWrapper::BreakIteratorWrapper(icu::BreakIterator* rbbi) : rbbi_(rbbi) {}
 
 void BreakIteratorWrapper::initialize() {
-    static std::once_flag once_flag;
-    std::call_once(once_flag, []() {
+    static DorisCallOnce<Status> once_flag;
+    std::ignore = once_flag.call([]() {
         UErrorCode status = U_ZERO_ERROR;
         EMOJI_RK.applyPattern("[*#0-9©®™〰〽]", status);
         if (U_FAILURE(status)) {
@@ -48,6 +48,7 @@ void BreakIteratorWrapper::initialize() {
             error_msg += u_errorName(status);
             _CLTHROWT(CL_ERR_IllegalArgument, error_msg.c_str());
         }
+        return Status::OK();
     });
 }
 

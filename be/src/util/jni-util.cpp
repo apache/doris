@@ -44,8 +44,8 @@ namespace doris {
 #include "common/compile_check_begin.h"
 namespace {
 JavaVM* g_vm;
-[[maybe_unused]] std::once_flag g_vm_once;
-[[maybe_unused]] std::once_flag g_jvm_conf_once;
+[[maybe_unused]] DorisCallOnce<Status> g_vm_once;
+[[maybe_unused]] DorisCallOnce<Status> g_jvm_conf_once;
 
 const std::string GetDorisJNIDefaultClasspath() {
     const auto* doris_home = getenv("DORIS_HOME");
@@ -253,9 +253,13 @@ size_t JniUtil::get_max_jni_heap_memory_size() {
 #if defined(USE_LIBHDFS3) || defined(BE_TEST)
     return std::numeric_limits<size_t>::max();
 #else
-    static std::once_flag parse_max_heap_memory_size_from_jvm_flag;
-    std::call_once(parse_max_heap_memory_size_from_jvm_flag, parse_max_heap_memory_size_from_jvm,
-                   tls_env_);
+    static DorisCallOnce<Status> parse_max_heap_memory_size_from_jvm_flag;
+    std::ignore = parse_max_heap_memory_size_from_jvm_flag.call(
+        [&]() {
+            parse_max_heap_memory_size_from_jvm(tls_env_);
+        }
+        return Status::OK();
+    )    
     return max_jvm_heap_memory_size_;
 #endif
 }
@@ -264,7 +268,7 @@ Status JniUtil::GetJNIEnvSlowPath(JNIEnv** env) {
     DCHECK(!tls_env_) << "Call GetJNIEnv() fast path";
 
 #ifdef USE_LIBHDFS3
-    std::call_once(g_vm_once, FindOrCreateJavaVM);
+    std::ignore = g_vm_once.call([]() { FindOrCreateJavaVM(); return Status::OK(); });
     int rc = g_vm->GetEnv(reinterpret_cast<void**>(&tls_env_), JNI_VERSION_1_8);
     if (rc == JNI_EDETACHED) {
         rc = g_vm->AttachCurrentThread((void**)&tls_env_, nullptr);
@@ -274,7 +278,7 @@ Status JniUtil::GetJNIEnvSlowPath(JNIEnv** env) {
     }
 #else
     // the hadoop libhdfs will do all the stuff
-    std::call_once(g_jvm_conf_once, SetEnvIfNecessary);
+    std::ignore = g_jvm_conf_once.call([]() { SetEnvIfNecessary(); return Status::OK(); });
     tls_env_ = getJNIEnv();
 #endif
     *env = tls_env_;

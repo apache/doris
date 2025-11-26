@@ -101,7 +101,7 @@ private:
     arrow::Status _fetch_data();
 
     std::shared_ptr<PBackendService_Stub> _brpc_stub = nullptr;
-    std::once_flag _timezone_once_flag;
+    DorisCallOnce<Status> _timezone_once_flag;
     std::shared_ptr<vectorized::Block> _block;
 };
 

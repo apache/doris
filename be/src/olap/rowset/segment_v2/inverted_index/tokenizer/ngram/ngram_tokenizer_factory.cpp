@@ -38,8 +38,8 @@ void NGramTokenizerFactory::initialize(const Settings& settings) {
 }
 
 void NGramTokenizerFactory::initialize_matchers() {
-    static std::once_flag once_flag;
-    std::call_once(once_flag, []() {
+    static DorisCallOnce<Status> once_flag;
+    std::ignore = once_flag.call([]() {
         MATCHERS["letter"] = std::make_shared<BasicCharMatcher>(BasicCharMatcher::Type::LETTER);
         MATCHERS["digit"] = std::make_shared<BasicCharMatcher>(BasicCharMatcher::Type::DIGIT);
         MATCHERS["whitespace"] =
@@ -47,6 +47,7 @@ void NGramTokenizerFactory::initialize_matchers() {
         MATCHERS["punctuation"] =
                 std::make_shared<BasicCharMatcher>(BasicCharMatcher::Type::PUNCTUATION);
         MATCHERS["symbol"] = std::make_shared<BasicCharMatcher>(BasicCharMatcher::Type::SYMBOL);
+        return Status::OK();
     });
 }
 

@@ -242,7 +242,7 @@ private:
     */
     static Status get_pooled_client(std::shared_ptr<MetaService_Stub>* stub,
                                     MetaServiceProxy** proxy) {
-        static std::once_flag proxies_flag;
+        static DorisCallOnce<Status> proxies_flag;
         static size_t num_proxies = 1;
         static std::atomic<size_t> index(0);
         static std::unique_ptr<MetaServiceProxy[]> proxies;
@@ -251,12 +251,12 @@ private:
                     "Meta service endpoint is empty. Please configure manually or wait for "
                     "heartbeat to obtain.");
         }
-        std::call_once(
-                proxies_flag, +[]() {
+        std::ignore = proxies_flag.call(+[]() {
                     if (config::meta_service_connection_pooled) {
                         num_proxies = config::meta_service_connection_pool_size;
                     }
                     proxies = std::make_unique<MetaServiceProxy[]>(num_proxies);
+                    return Status::OK();
                 });
 
         for (size_t i = 0; i + 1 < num_proxies; ++i) {

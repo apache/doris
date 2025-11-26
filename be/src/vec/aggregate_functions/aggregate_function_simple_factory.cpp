@@ -82,9 +82,9 @@ void register_aggregate_function_bool_union(AggregateFunctionSimpleFactory& fact
 void register_aggregate_function_sem(AggregateFunctionSimpleFactory& factory);
 
 AggregateFunctionSimpleFactory& AggregateFunctionSimpleFactory::instance() {
-    static std::once_flag oc;
+    static DorisCallOnce<Status> oc;
     static AggregateFunctionSimpleFactory instance;
-    std::call_once(oc, [&]() {
+    std::ignore = oc.call([&]() {
         register_aggregate_function_sum(instance);
         register_aggregate_function_minmax(instance);
         register_aggregate_function_min_by(instance);
@@ -140,6 +140,7 @@ AggregateFunctionSimpleFactory& AggregateFunctionSimpleFactory::instance() {
         // Register foreach and foreachv2 functions
         register_aggregate_function_combinator_foreach(instance);
         register_aggregate_function_combinator_foreachv2(instance);
+        return Status::OK();
     });
     return instance;
 }

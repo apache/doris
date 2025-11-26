@@ -260,9 +260,10 @@ arrow::Status ArrowFlightBatchRemoteReader::_fetch_data() {
             continue;
         }
 
-        std::call_once(_timezone_once_flag, [this, callback] {
+        std::ignore = _timezone_once_flag.call([this, callback] {
             DCHECK(callback->response_->has_timezone());
             TimezoneUtils::find_cctz_time_zone(callback->response_->timezone(), _timezone_obj);
+            return Status::OK();
         });
 
         {
