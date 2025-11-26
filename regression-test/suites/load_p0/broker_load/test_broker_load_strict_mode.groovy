@@ -71,7 +71,7 @@ suite("test_broker_load_strict_mode", "load_p0") {
             Thread.sleep(1000)
             max_try_milli_secs -= 1000
             if(max_try_milli_secs <= 0) {
-                assertTrue(1 == 2, "load Timeout: $label")
+                assertTrue(1 == 2, "load Timeout: $label1")
             }
         }
 
@@ -105,7 +105,7 @@ suite("test_broker_load_strict_mode", "load_p0") {
             Thread.sleep(1000)
             max_try_milli_secs -= 1000
             if(max_try_milli_secs <= 0) {
-                assertTrue(1 == 2, "load Timeout: $label")
+                assertTrue(1 == 2, "load Timeout: $label2")
             }
         }
 }
