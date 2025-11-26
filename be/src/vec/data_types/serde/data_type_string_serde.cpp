@@ -449,6 +449,17 @@ void DataTypeStringSerDeBase<ColumnType>::to_string(const IColumn& column, size_
 }
 
 template <typename ColumnType>
+bool DataTypeStringSerDeBase<ColumnType>::write_column_to_presto_text(const IColumn& column,
+                                                                      BufferWritable& bw,
+                                                                      int64_t row_idx) const {
+    const auto& value =
+            assert_cast<const ColumnType&, TypeCheckOnRelease::DISABLE>(column).get_data_at(
+                    row_idx);
+    bw.write(value.data, value.size);
+    return true;
+}
+
+template <typename ColumnType>
 Status DataTypeStringSerDeBase<ColumnType>::from_string(StringRef& str, IColumn& column,
                                                         const FormatOptions& options) const {
     auto slice = str.to_slice();
