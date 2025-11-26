@@ -97,6 +97,11 @@ private:
     std::string _escape(const std::string& path);
     std::vector<std::string> _partition_values(const doris::iceberg::StructLike& data);
 
+    // Initialize static partition values from Thrift config
+    void _init_static_partition_values();
+    // Build static partition path from static partition values
+    std::string _build_static_partition_path();
+
     std::shared_ptr<VIcebergPartitionWriter> _create_partition_writer(
             vectorized::Block* transformed_block, int position,
             const std::string* file_name = nullptr, int file_name_index = 0);
@@ -124,6 +129,14 @@ private:
 
     std::set<size_t> _non_write_columns_indices;
     std::vector<IcebergPartitionColumn> _iceberg_partition_columns;
+
+    // Static partition values from FE for static partition overwrite
+    // When not empty, use these values directly instead of computing from data
+    std::map<std::string, std::string> _static_partition_values;
+    bool _has_static_partition = false;
+    // Pre-computed static partition path and values
+    std::string _static_partition_path;
+    std::vector<std::string> _static_partition_value_list;
 
     std::unordered_map<std::string, std::shared_ptr<VIcebergPartitionWriter>>
             _partitions_to_writers;
