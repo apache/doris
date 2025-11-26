@@ -422,7 +422,9 @@ TEST_F(ColumnReaderCacheTest, NodeHintParameter) {
 TEST_F(ColumnReaderCacheTest, PerformanceUnderLoad) {
     const int num_columns = 100;
 
-    // Set up many columns
+    // Set up many columns in a single footer so that ColumnMetaAccessor and
+    // ColumnReaderCache both see a consistent multi-column layout.
+    std::vector<ColumnMetaPB> all_columns;
     for (int i = 1; i <= num_columns; ++i) {
         setup_column_uid_mapping(i, 0);
 
@@ -431,8 +433,9 @@ TEST_F(ColumnReaderCacheTest, PerformanceUnderLoad) {
         col_meta.set_unique_id(i);
         col_meta.set_encoding(EncodingTypePB::DEFAULT_ENCODING);
         col_meta.mutable_indexes()->Add()->set_type(ORDINAL_INDEX);
-        setup_segment_footer({col_meta});
+        all_columns.push_back(col_meta);
     }
+    setup_segment_footer(all_columns);
 
     auto start_time = std::chrono::high_resolution_clock::now();
 
