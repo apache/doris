@@ -21,6 +21,7 @@ import org.apache.doris.analysis.AccessPathInfo;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.rules.rewrite.NestedColumnPruning.DataTypeAccessTree;
 import org.apache.doris.nereids.trees.expressions.ArrayItemReference;
@@ -542,8 +543,10 @@ public class SlotTypeReplacer extends DefaultPlanRewriter<Void> {
         ImmutableCollection.Builder<E> newExprs;
         if (expressions instanceof List) {
             newExprs = ImmutableList.builder();
-        } else {
+        } else if (expressions instanceof Set) {
             newExprs = ImmutableSet.builder();
+        } else {
+            throw new AnalysisException("Unsupported expression type: " + expressions.getClass());
         }
 
         boolean changed = false;
@@ -688,7 +691,7 @@ public class SlotTypeReplacer extends DefaultPlanRewriter<Void> {
                         originPath, index + 1, ((ArrayType) type).getItemType(), column.getChildren().get(0)
                 );
             } else if (type instanceof MapType) {
-                if (fieldName.equals("*") || fieldName.equals("VALUES")) {
+                if (fieldName.equals(AccessPathInfo.ACCESS_ALL) || fieldName.equals(AccessPathInfo.ACCESS_MAP_VALUES)) {
                     replaceIcebergAccessPathToId(
                             originPath, index + 1, ((MapType) type).getValueType(), column.getChildren().get(1)
                     );

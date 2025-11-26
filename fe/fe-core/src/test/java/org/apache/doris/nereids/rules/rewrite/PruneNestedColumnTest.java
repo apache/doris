@@ -23,6 +23,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.Triple;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.rules.rewrite.NestedColumnPruning.DataTypeAccessTree;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ArrayItemReference;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -31,10 +32,14 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StructElement;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.NestedColumnPrunable;
+import org.apache.doris.nereids.types.NullType;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.planner.OlapScanNode;
@@ -535,6 +540,77 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
                         })
                     )
                 );
+    }
+
+    @Test
+    public void testDataTypeAccessTree() {
+        List<Pair<SlotReference, DataTypeAccessTree>> trees = getDataTypeAccessTrees(
+                "select struct_element(s, 'city') from (select id, s from tbl union all select 1, null) tmp");
+
+        Assertions.assertEquals(1, trees.size());
+        DataTypeAccessTree tree = trees.get(0).second;
+        Assertions.assertEquals(NullType.INSTANCE, tree.getType());
+        Assertions.assertEquals(1, tree.getChildren().size());
+        Assertions.assertEquals("STRUCT<city:TEXT>", tree.getChildren().get("s").getType().toSql());
+
+        SlotReference slot = trees.get(0).first;
+        Type columnType = slot.getOriginalColumn().get().getType();
+        Assertions.assertEquals("struct<city:text,data:array<map<int,struct<a:int,b:double>>>>", columnType.toSql());
+
+        setAccessPathAndAssertType(slot, ImmutableList.of("s", "city"), "STRUCT<city:TEXT>");
+        setAccessPathAndAssertType(slot, ImmutableList.of("s", "data"), "STRUCT<data:ARRAY<MAP<INT,STRUCT<a:INT,b:DOUBLE>>>>");
+        setAccessPathAndAssertType(slot, ImmutableList.of("s", "data", "*"), "STRUCT<data:ARRAY<MAP<INT,STRUCT<a:INT,b:DOUBLE>>>>");
+        setAccessPathAndAssertType(slot, ImmutableList.of("s", "data", "*", "KEYS"), "STRUCT<data:ARRAY<MAP<INT,STRUCT<a:INT,b:DOUBLE>>>>");
+        setAccessPathAndAssertType(slot, ImmutableList.of("s", "data", "*", "VALUES"), "STRUCT<data:ARRAY<MAP<INT,STRUCT<a:INT,b:DOUBLE>>>>");
+        setAccessPathAndAssertType(slot, ImmutableList.of("s", "data", "*", "VALUES", "a"), "STRUCT<data:ARRAY<MAP<INT,STRUCT<a:INT>>>>");
+        setAccessPathAndAssertType(slot, ImmutableList.of("s", "data", "*", "VALUES", "b"), "STRUCT<data:ARRAY<MAP<INT,STRUCT<b:DOUBLE>>>>");
+        setAccessPathAndAssertType(slot, ImmutableList.of("s", "data", "*", "*"), "STRUCT<data:ARRAY<MAP<INT,STRUCT<a:INT,b:DOUBLE>>>>");
+        setAccessPathAndAssertType(slot, ImmutableList.of("s", "data", "*", "*", "a"), "STRUCT<data:ARRAY<MAP<INT,STRUCT<a:INT>>>>");
+        setAccessPathAndAssertType(slot, ImmutableList.of("s", "data", "*", "*", "b"), "STRUCT<data:ARRAY<MAP<INT,STRUCT<b:DOUBLE>>>>");
+
+        setAccessPathsAndAssertType(slot,
+                ImmutableList.of(
+                        ImmutableList.of("s", "data", "*", "*", "b"),
+                        ImmutableList.of("s", "city")
+                ),
+                "STRUCT<city:TEXT,data:ARRAY<MAP<INT,STRUCT<b:DOUBLE>>>>"
+        );
+    }
+
+    private void setAccessPathAndAssertType(SlotReference slot, List<String> path, String expectedType) {
+        setAccessPathsAndAssertType(slot, ImmutableList.of(path), expectedType);
+    }
+
+    private void setAccessPathsAndAssertType(SlotReference slot, List<List<String>> paths, String expectedType) {
+        DataType columnType = DataType.fromCatalogType(slot.getOriginalColumn().get().getType());
+        SlotReference originColumnTypeSlot = new SlotReference(slot.getName(), columnType);
+        DataTypeAccessTree tree = DataTypeAccessTree.ofRoot(originColumnTypeSlot, TAccessPathType.DATA);
+        for (List<String> path : paths) {
+            tree.setAccessByPath(path, 0, TAccessPathType.DATA);
+        }
+        DataType dataType = tree.pruneDataType().get();
+        Assertions.assertEquals(expectedType, dataType.toSql());
+    }
+
+    private List<Pair<SlotReference, DataTypeAccessTree>> getDataTypeAccessTrees(String sql) {
+        Plan rewritePlan = PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .getCascadesContext()
+                .getRewritePlan();
+
+        List<Slot> output = ((LogicalOlapScan) rewritePlan.collect(LogicalOlapScan.class::isInstance)
+                .iterator()
+                .next())
+                .getOutput();
+        List<Pair<SlotReference, DataTypeAccessTree>> trees = new ArrayList<>();
+        for (Slot slot : output) {
+            if (slot.getDataType() instanceof NestedColumnPrunable) {
+                DataTypeAccessTree dataTypeAccessTree = DataTypeAccessTree.ofRoot(slot, TAccessPathType.DATA);
+                trees.add(Pair.of((SlotReference) slot, dataTypeAccessTree));
+            }
+        }
+        return trees;
     }
 
     private void assertColumn(String sql, String expectType,

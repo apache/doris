@@ -23,16 +23,51 @@ package org.apache.doris.analysis;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.thrift.TColumnAccessPath;
 
-import lombok.AllArgsConstructor;
-import lombok.Data;
-
 import java.util.List;
 
 /** AccessPathInfo */
-@Data
-@AllArgsConstructor
 public class AccessPathInfo {
+    public static final String ACCESS_ALL = "*";
+    public static final String ACCESS_MAP_KEYS = "KEYS";
+    public static final String ACCESS_MAP_VALUES = "VALUES";
+
     private DataType prunedType;
+    // allAccessPaths is used to record all access path include predicate access path and non-predicate access path,
+    // and predicateAccessPaths only contains the predicate access path.
+    // e.g. select element_at(s, 'name') from tbl where element_at(s, 'id') = 1
+    //      the allAccessPaths is: ["s.name", "s.id"]
+    //      the predicateAccessPaths is: ["s.id"]
     private List<TColumnAccessPath> allAccessPaths;
     private List<TColumnAccessPath> predicateAccessPaths;
+
+    public AccessPathInfo(DataType prunedType, List<TColumnAccessPath> allAccessPaths,
+            List<TColumnAccessPath> predicateAccessPaths) {
+        this.prunedType = prunedType;
+        this.allAccessPaths = allAccessPaths;
+        this.predicateAccessPaths = predicateAccessPaths;
+    }
+
+    public DataType getPrunedType() {
+        return prunedType;
+    }
+
+    public void setPrunedType(DataType prunedType) {
+        this.prunedType = prunedType;
+    }
+
+    public List<TColumnAccessPath> getAllAccessPaths() {
+        return allAccessPaths;
+    }
+
+    public void setAllAccessPaths(List<TColumnAccessPath> allAccessPaths) {
+        this.allAccessPaths = allAccessPaths;
+    }
+
+    public List<TColumnAccessPath> getPredicateAccessPaths() {
+        return predicateAccessPaths;
+    }
+
+    public void setPredicateAccessPaths(List<TColumnAccessPath> predicateAccessPaths) {
+        this.predicateAccessPaths = predicateAccessPaths;
+    }
 }
