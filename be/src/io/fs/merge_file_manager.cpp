@@ -104,7 +104,6 @@ Status MergeFileManager::create_new_merge_file_state(
     FileWriterOptions opts;
     RETURN_IF_ERROR(
             merge_file_state->file_system->create_file(Path(relative_path), &new_writer, &opts));
-    merge_file_state->merge_file_path = new_writer->path().native();
     merge_file_state->writer = std::move(new_writer);
 
     return Status::OK();
