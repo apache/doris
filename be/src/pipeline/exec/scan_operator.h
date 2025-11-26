@@ -320,20 +320,15 @@ protected:
     // Parsed from conjuncts
     phmap::flat_hash_map<int, std::pair<SlotDescriptor*, ColumnValueRangeType>>
             _slot_id_to_value_range;
-    // column -> ColumnValueRange
-    // We use _colname_to_value_range to store a column and its conresponding value ranges.
-    std::unordered_map<std::string, ColumnValueRangeType> _colname_to_value_range;
 
     // But if a col is with value range, eg: 1 < col < 10, which is "!is_fixed_range",
     // in this case we can not merge "1 < col < 10" with "col not in (2)".
     // So we have to save "col not in (2)" to another structure: "_not_in_value_ranges".
     // When the data source try to use the value ranges, it should use both ranges in
-    // "_colname_to_value_range" and in "_not_in_value_ranges"
+    // "_slot_id_to_value_range" and in "_not_in_value_ranges"
     std::vector<ColumnValueRangeType> _not_in_value_ranges;
 
     std::atomic<bool> _eos = false;
-
-    std::mutex _block_lock;
 
     std::vector<std::shared_ptr<Dependency>> _filter_dependencies;
 
