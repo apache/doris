@@ -127,6 +127,7 @@ Status Segment::_open(io::FileSystemSPtr fs, const std::string& path, uint32_t s
 
         st = fs->open_file(path, &file_reader, &reader_options);
         if (st) {
+            segment->_fs = fs;
             segment->_file_reader = std::move(file_reader);
             st = segment->_open(stats);
         }
@@ -141,6 +142,7 @@ Status Segment::_open(io::FileSystemSPtr fs, const std::string& path, uint32_t s
             io::FileReaderOptions opt = reader_options;
             opt.cache_type = io::FileCachePolicy::NO_CACHE; // skip cache
             RETURN_IF_ERROR(fs->open_file(path, &file_reader, &opt));
+            segment->_fs = fs;
             segment->_file_reader = std::move(file_reader);
             st = segment->_open(stats);
             if (!st.ok()) {
@@ -151,6 +153,7 @@ Status Segment::_open(io::FileSystemSPtr fs, const std::string& path, uint32_t s
         }
     }
     RETURN_IF_ERROR(st);
+    DCHECK(segment->_fs != nullptr) << "file system is nullptr after segment open";
     *output = std::move(segment);
     return Status::OK();
 }
