@@ -24,6 +24,7 @@ import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.CreateMaterializedViewCommand;
 import org.apache.doris.persist.gson.GsonPostProcessable;
+import org.apache.doris.qe.AutoCloseSessionVariable;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectContextUtil;
 import org.apache.doris.qe.OriginStatement;
@@ -263,61 +264,63 @@ public class MaterializedIndexMeta implements GsonPostProcessable {
     }
 
     public void parseStmt() throws IOException {
-        // analyze define stmt
-        if (defineStmt == null) {
-            return;
-        }
-        try {
-            NereidsParser nereidsParser = new NereidsParser();
-            CreateMaterializedViewCommand command = (CreateMaterializedViewCommand) nereidsParser.parseSingle(
-                    defineStmt.originStmt);
-            boolean tmpCreate = false;
-            ConnectContext ctx = ConnectContext.get();
-            try {
-                if (ctx == null) {
-                    tmpCreate = true;
-                    ctx = ConnectContextUtil.getDummyCtx(dbName);
-                } else {
-                    // may cause by org.apache.doris.alter.AlterJobV2.run
-                    if (ctx.getStatementContext() == null) {
-                        StatementContext statementContext = new StatementContext();
-                        statementContext.setConnectContext(ctx);
-                        ctx.setStatementContext(statementContext);
-                    }
-                    if (StringUtils.isEmpty(ctx.getDatabase())) {
-                        ctx.setDatabase(dbName);
-                    }
-                    if (ctx.getEnv() == null) {
-                        ctx.setEnv(Env.getCurrentEnv());
-                    }
-                    if (ctx.getCurrentUserIdentity() == null) {
-                        ctx.setCurrentUserIdentity(UserIdentity.ADMIN);
-                    }
-                }
-                command.validate(ctx);
-            } finally {
-                if (tmpCreate) {
-                    ctx.cleanup();
-                }
+        try (AutoCloseSessionVariable auto = new AutoCloseSessionVariable(ConnectContext.get(), sessionVariables)) {
+            // analyze define stmt
+            if (defineStmt == null) {
+                return;
             }
+            try {
+                NereidsParser nereidsParser = new NereidsParser();
+                CreateMaterializedViewCommand command = (CreateMaterializedViewCommand) nereidsParser.parseSingle(
+                        defineStmt.originStmt);
+                boolean tmpCreate = false;
+                ConnectContext ctx = ConnectContext.get();
+                try {
+                    if (ctx == null) {
+                        tmpCreate = true;
+                        ctx = ConnectContextUtil.getDummyCtx(dbName);
+                    } else {
+                        // may cause by org.apache.doris.alter.AlterJobV2.run
+                        if (ctx.getStatementContext() == null) {
+                            StatementContext statementContext = new StatementContext();
+                            statementContext.setConnectContext(ctx);
+                            ctx.setStatementContext(statementContext);
+                        }
+                        if (StringUtils.isEmpty(ctx.getDatabase())) {
+                            ctx.setDatabase(dbName);
+                        }
+                        if (ctx.getEnv() == null) {
+                            ctx.setEnv(Env.getCurrentEnv());
+                        }
+                        if (ctx.getCurrentUserIdentity() == null) {
+                            ctx.setCurrentUserIdentity(UserIdentity.ADMIN);
+                        }
+                    }
+                    command.validate(ctx);
+                } finally {
+                    if (tmpCreate) {
+                        ctx.cleanup();
+                    }
+                }
 
-            if (command.getWhereClauseItem() != null) {
-                setWhereClause(command.getWhereClauseItem().getDefineExpr());
-            }
-            try {
-                List<MVColumnItem> mvColumnItemList = command.getMVColumnItemList();
-                List<Expr> columnDefineExprs = new ArrayList<>(mvColumnItemList.size());
-                for (MVColumnItem item : mvColumnItemList) {
-                    Expr defineExpr = item.getDefineExpr();
-                    defineExpr.disableTableName();
-                    columnDefineExprs.add(defineExpr);
+                if (command.getWhereClauseItem() != null) {
+                    setWhereClause(command.getWhereClauseItem().getDefineExpr());
                 }
-                setColumnsDefineExpr(columnDefineExprs);
+                try {
+                    List<MVColumnItem> mvColumnItemList = command.getMVColumnItemList();
+                    List<Expr> columnDefineExprs = new ArrayList<>(mvColumnItemList.size());
+                    for (MVColumnItem item : mvColumnItemList) {
+                        Expr defineExpr = item.getDefineExpr();
+                        defineExpr.disableTableName();
+                        columnDefineExprs.add(defineExpr);
+                    }
+                    setColumnsDefineExpr(columnDefineExprs);
+                } catch (Exception e) {
+                    LOG.warn("CreateMaterializedViewCommand parseDefineExpr failed, reason=", e);
+                }
             } catch (Exception e) {
-                LOG.warn("CreateMaterializedViewCommand parseDefineExpr failed, reason=", e);
+                throw new IOException("error happens when parsing create materialized view stmt: " + defineStmt, e);
             }
-        } catch (Exception e) {
-            throw new IOException("error happens when parsing create materialized view stmt: " + defineStmt, e);
         }
     }
 

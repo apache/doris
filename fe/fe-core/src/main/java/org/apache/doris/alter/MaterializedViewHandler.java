@@ -62,7 +62,6 @@ import org.apache.doris.nereids.trees.plans.commands.info.DropRollupOp;
 import org.apache.doris.persist.BatchDropInfo;
 import org.apache.doris.persist.DropInfo;
 import org.apache.doris.persist.EditLog;
-import org.apache.doris.qe.AutoCloseSessionVariable;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectContextUtil;
 import org.apache.doris.qe.OriginStatement;
@@ -1212,10 +1211,7 @@ public class MaterializedViewHandler extends AlterHandler {
         }
 
         if (shouldJobRun) {
-            try (AutoCloseSessionVariable auto = new AutoCloseSessionVariable(ConnectContext.get(),
-                    rollupJobV2.getSessionVariables())) {
-                rollupJobV2.run();
-            }
+            rollupJobV2.run();
         }
     }
 
