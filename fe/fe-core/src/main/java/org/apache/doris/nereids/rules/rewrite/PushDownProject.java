@@ -48,7 +48,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import java.util.function.Function;
 
 /** push down project if the expression instance of PreferPushDownProject */
@@ -320,13 +319,13 @@ public class PushDownProject implements RewriteRuleFactory, NormalizeToSlot {
     private static class PushdownProjectHelper {
         private final Plan plan;
         private final StatementContext statementContext;
-        private final Map<Expression, Pair<Slot, Plan>> exprToChildAndSlot;
+        private final Map<Expression, Expression> oldExprToNewExpr;
         private final Multimap<Plan, NamedExpression> childToPushDownProjects;
 
         public PushdownProjectHelper(StatementContext statementContext, Plan plan) {
             this.statementContext = statementContext;
             this.plan = plan;
-            this.exprToChildAndSlot = new LinkedHashMap<>();
+            this.oldExprToNewExpr = new LinkedHashMap<>();
             this.childToPushDownProjects = ArrayListMultimap.create();
         }
 
@@ -357,32 +356,36 @@ public class PushDownProject implements RewriteRuleFactory, NormalizeToSlot {
         }
 
         public <E extends Expression> Optional<E> pushDownExpression(E expression) {
-            if (!(expression instanceof PreferPushDownProject
-                    || (expression instanceof Alias && expression.child(0) instanceof PreferPushDownProject))) {
+            if (!expression.containsType(PreferPushDownProject.class)) {
                 return Optional.empty();
             }
-            Pair<Slot, Plan> existPushdown = exprToChildAndSlot.get(expression);
+            Expression existPushdown = oldExprToNewExpr.get(expression);
             if (existPushdown != null) {
-                return Optional.of((E) existPushdown.first);
+                return Optional.of((E) existPushdown);
             }
 
-            Alias pushDownAlias = null;
-            if (expression instanceof Alias) {
-                pushDownAlias = (Alias) expression;
-            } else {
-                pushDownAlias = new Alias(statementContext.getNextExprId(), expression);
-            }
-
-            Set<Slot> inputSlots = expression.getInputSlots();
-            for (Plan child : plan.children()) {
-                if (child.getOutputSet().containsAll(inputSlots)) {
-                    Slot remaimSlot = pushDownAlias.toSlot();
-                    exprToChildAndSlot.put(expression, Pair.of(remaimSlot, child));
-                    childToPushDownProjects.put(child, pushDownAlias);
-                    return Optional.of((E) remaimSlot);
+            Expression newExpression = expression.rewriteDownShortCircuit(e -> {
+                if (e instanceof PreferPushDownProject) {
+                    List<Plan> children = plan.children();
+                    for (int i = 0; i < children.size(); i++) {
+                        Plan child = children.get(i);
+                        if (child.getOutputSet().containsAll(e.getInputSlots())) {
+                            Alias alias = new Alias(statementContext.getNextExprId(), e);
+                            Slot slot = alias.toSlot();
+                            childToPushDownProjects.put(child, alias);
+                            return slot;
+                        }
+                    }
                 }
+                return e;
+            });
+
+            if (newExpression != expression) {
+                oldExprToNewExpr.put(expression, newExpression);
+                return Optional.of((E) newExpression);
+            } else {
+                return Optional.empty();
             }
-            return Optional.empty();
         }
 
         public List<Plan> buildNewChildren() {
