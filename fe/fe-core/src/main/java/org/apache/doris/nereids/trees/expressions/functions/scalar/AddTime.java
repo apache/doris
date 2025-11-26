@@ -19,15 +19,13 @@ package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.functions.ComputeSignatureForDateArithmetic;
 import org.apache.doris.nereids.trees.expressions.functions.DateAddSubMonotonic;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DateTimeV2Type;
-import org.apache.doris.nereids.types.DateV2Type;
-import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.TimeV2Type;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -35,32 +33,29 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 
 /**
- * ScalarFunction 'years_add'.
+ * ScalarFunction 'add_time'.
  */
-public class YearsAdd extends ScalarFunction implements BinaryExpression, ExplicitlyCastableSignature,
-        ComputeSignatureForDateArithmetic, PropagateNullable, DateAddSubMonotonic {
+public class AddTime extends ScalarFunction implements BinaryExpression, ExplicitlyCastableSignature,
+        PropagateNullable, DateAddSubMonotonic {
 
-    //ATTN: must place Datetime before Date, because for castring from string like literal, date and datetime has
-    // the same precedence, but we prefer datetime to avoid data loss. for string literal which could cast to Date
-    // without loss, we handle it by ComputeSignatureForDateArithmetic.
     private static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(DateTimeV2Type.WILDCARD).args(DateTimeV2Type.WILDCARD,
-                    IntegerType.INSTANCE),
-            FunctionSignature.ret(DateV2Type.INSTANCE).args(DateV2Type.INSTANCE, IntegerType.INSTANCE));
+                    TimeV2Type.WILDCARD),
+            FunctionSignature.ret(TimeV2Type.WILDCARD).args(TimeV2Type.WILDCARD, TimeV2Type.WILDCARD));
 
-    public YearsAdd(Expression arg0, Expression arg1) {
-        super("years_add", arg0, arg1);
+    public AddTime(Expression arg0, Expression arg1) {
+        super("add_time", arg0, arg1);
     }
 
     /** constructor for withChildren and reuse signature */
-    private YearsAdd(ScalarFunctionParams functionParams) {
+    private AddTime(ScalarFunctionParams functionParams) {
         super(functionParams);
     }
 
     @Override
-    public YearsAdd withChildren(List<Expression> children) {
+    public AddTime withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new YearsAdd(getFunctionParams(children));
+        return new AddTime(getFunctionParams(children));
     }
 
     @Override
@@ -70,11 +65,11 @@ public class YearsAdd extends ScalarFunction implements BinaryExpression, Explic
 
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
-        return visitor.visitYearsAdd(this, context);
+        return visitor.visitAddTime(this, context);
     }
 
     @Override
     public Expression withConstantArgs(Expression literal) {
-        return new YearsAdd(literal, child(1));
+        return new AddTime(literal, child(1));
     }
 }
