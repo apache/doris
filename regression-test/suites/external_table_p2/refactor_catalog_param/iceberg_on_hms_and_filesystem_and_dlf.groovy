@@ -38,34 +38,14 @@ suite("iceberg_on_hms_and_filesystem_and_dlf", "p2,external,new_catalog_property
 
         def db_name = prefix + "_db"+ ThreadLocalRandom.current().nextInt(100);
         // Check if database exists
-        def currentDbResult = sql """
-        SHOW DATABASES LIKE "${db_name}";
-        """
-
-        if (currentDbResult.size() > 0) {
-            sql """
-            USE ${db_name};
-        """
-
-            // Show all tables and drop them
-            def tablesResult = sql """
-            SHOW TABLES;
-        """
-
-            for (row in tablesResult) {
-                def tableName = row[0]
-                sql """
-                    DROP TABLE IF EXISTS ${tableName};
-                """
-            }
-        }
         sql """
             DROP DATABASE IF EXISTS ${db_name} FORCE;
         """
         sql """
             CREATE DATABASE IF NOT EXISTS ${db_name};
         """
-        def  dbResult = sql """
+
+        def dbResult = sql """
             show databases  like "${db_name}";
         """
         assert dbResult.size() == 1

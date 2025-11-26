@@ -35,6 +35,7 @@ suite("azure_blob_all_test", "p2,external,new_catalog_property") {
     
     def testIcebergTest = { String storage_props,String iceberg_fs_catalog_name, String protocol,String hdfsLocationType ->
         
+        iceberg_fs_catalog_name = iceberg_fs_catalog_name + "_" + ThreadLocalRandom.current().nextInt(100) 
         sql """
          drop catalog if exists ${iceberg_fs_catalog_name};
         """
@@ -46,34 +47,13 @@ suite("azure_blob_all_test", "p2,external,new_catalog_property") {
         ${storage_props}
         );
         """
+
         sql """ 
          switch ${iceberg_fs_catalog_name} 
-         """
-        def db_name = "${iceberg_fs_catalog_name}_db_test"+ ThreadLocalRandom.current().nextInt(100);
-        // Check if database exists
-        def currentDbResult = sql """
-        SHOW DATABASES LIKE "${db_name}";
-        """
-
-        if (currentDbResult.size() > 0) {
-            sql """
-            USE ${db_name};
             """
 
-            // Show all tables and drop them
-            def tablesResult = sql """
-            SHOW TABLES;
-            """
-
-            for (row in tablesResult) {
-                def tableName = row[0]
-                sql """
-                    DROP TABLE IF EXISTS ${tableName};
-                """
-            }
-        }
         sql """
-        drop database if exists ${iceberg_fs_catalog_name}_db_test;
+        drop database if exists ${iceberg_fs_catalog_name}_db_test force;
         """
         sql """
         create database ${iceberg_fs_catalog_name}_db_test;
@@ -97,7 +77,7 @@ suite("azure_blob_all_test", "p2,external,new_catalog_property") {
         drop table if exists ${iceberg_fs_catalog_name}_table_test;
     """
         sql """
-        drop database if exists ${iceberg_fs_catalog_name}_db_test;
+        drop database if exists ${iceberg_fs_catalog_name}_db_test force;
     """
         sql """
         drop catalog if exists ${iceberg_fs_catalog_name};
