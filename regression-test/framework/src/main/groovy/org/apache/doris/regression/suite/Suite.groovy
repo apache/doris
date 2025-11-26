@@ -3316,6 +3316,9 @@ class Suite implements GroovyInterceptable {
             logger.info("tablet: $tablet_info")
             def compact_url = tablet_info.get("CompactionStatus")
             String command = "curl ${compact_url}"
+            if ((context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false) {
+                command = url.replace("http://", "https://") + " --cert " + context.config.otherConfigs.get("trustCert") + " --cacert " + context.config.otherConfigs.get("trustCACert") + " --key " + context.config.otherConfigs.get("trustCAKey")
+            }
             Process process = command.execute()
             def code = process.waitFor()
             def err = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())));
