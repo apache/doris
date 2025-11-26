@@ -73,6 +73,11 @@ public class MaterializedViewTopNScanRule extends AbstractMaterializedViewScanRu
     }
 
     @Override
+    protected boolean checkMaterializationPattern(StructInfo structInfo, CascadesContext cascadesContext) {
+        return checkQueryPattern(structInfo, cascadesContext);
+    }
+
+    @Override
     public List<Rule> buildRules() {
         return ImmutableList.of(
                 logicalTopN(subTree(

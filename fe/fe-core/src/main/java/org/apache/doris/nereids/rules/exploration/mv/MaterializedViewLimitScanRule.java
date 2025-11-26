@@ -75,6 +75,11 @@ public class MaterializedViewLimitScanRule extends AbstractMaterializedViewScanR
     }
 
     @Override
+    protected boolean checkMaterializationPattern(StructInfo structInfo, CascadesContext cascadesContext) {
+        return checkQueryPattern(structInfo, cascadesContext);
+    }
+
+    @Override
     public List<Rule> buildRules() {
         return ImmutableList.of(
                 // because limit spit to two phases

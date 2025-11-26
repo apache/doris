@@ -58,6 +58,15 @@ public class MaterializedViewWindowJoinRule extends AbstractMaterializedViewWind
     }
 
     @Override
+    protected boolean checkMaterializationPattern(StructInfo structInfo, CascadesContext cascadesContext) {
+        PlanCheckContext checkContext = PlanCheckContext.of(SUPPORTED_JOIN_TYPE_SET);
+        return structInfo.getTopPlan().accept(StructInfo.PLAN_PATTERN_CHECKER, checkContext)
+                && !checkContext.isContainsTopAggregate() && checkContext.isContainsTopWindow()
+                && checkContext.getTopWindowNum() <= 1 && !checkContext.isContainsTopTopN()
+                && !checkContext.isContainsTopLimit();
+    }
+
+    @Override
     public List<Rule> buildRules() {
         return ImmutableList.of(
                 logicalFilter(logicalWindow(logicalUnary(logicalJoin(any().when(LogicalPlan.class::isInstance),
