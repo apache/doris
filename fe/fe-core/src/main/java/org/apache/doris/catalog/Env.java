@@ -6711,6 +6711,11 @@ public class Env {
                 throw new DdlException("Temp partition[" + partName + "] does not exist");
             }
         }
+
+        // Validate partition versions if version checking is enabled
+        if (clause.hasVersionChecking()) {
+            validatePartitionVersions(olapTable, clause.getExpectedVersions());
+        }
         List<Long> replacedPartitionIds = olapTable.replaceTempPartitions(db.getId(), partitionNames,
                 tempPartitionNames, isStrictRange,
                 useTempPartitionName, isForceDropOld);
@@ -6743,6 +6748,59 @@ public class Env {
         editLog.logReplaceTempPartition(info);
         LOG.info("finished to replace partitions {} with temp partitions {} from table: {}", clause.getPartitionNames(),
                 clause.getTempPartitionNames(), olapTable.getName());
+    }
+
+    /**
+     * Validate partition versions against expected versions.
+     * This method ensures data consistency during partition replacement operations.
+     *
+     * @param olapTable The table containing partitions to validate
+     * @param expectedVersions Map of partition names to expected version numbers
+     * @throws DdlException if any partition version doesn't match expected version
+     */
+    private void validatePartitionVersions(OlapTable olapTable, Map<String, Long> expectedVersions)
+            throws DdlException {
+        if (expectedVersions == null || expectedVersions.isEmpty()) {
+            return; // Skip validation if no expected versions specified
+        }
+        // Check for concurrent transactions on the table when expected versions are specified
+        try {
+            // Get running transaction info for the database
+            Map<Long, List<Long>> dbRunningTransInfo = getCurrentGlobalTransactionMgr()
+                    .getDbRunningTransInfo(olapTable.getDatabase().getId());
+            // Check if there are any running transactions on this table
+            boolean hasRunningTxn = false;
+            for (Map.Entry<Long, List<Long>> entry : dbRunningTransInfo.entrySet()) {
+                List<Long> tableIds = entry.getValue();
+                if (tableIds != null && tableIds.contains(olapTable.getId())) {
+                    hasRunningTxn = true;
+                    break;
+                }
+            }
+            if (hasRunningTxn) {
+                throw new DdlException("Cannot replace partition with expected versions when there are "
+                        + "concurrent transactions running on table [" + olapTable.getName() + "]. "
+                        + "Please wait for transactions to complete and retry.");
+            }
+        } catch (AnalysisException e) {
+            throw new DdlException("Failed to check concurrent transactions: " + e.getMessage(), e);
+        }
+        for (Map.Entry<String, Long> entry : expectedVersions.entrySet()) {
+            String partitionName = entry.getKey();
+            long expectedVersion = entry.getValue();
+
+            Partition partition = olapTable.getPartition(partitionName, false);
+            if (partition == null) {
+                throw new DdlException("Partition [" + partitionName + "] does not exist for version validation");
+            }
+
+            long currentVersion = partition.getVisibleVersion();
+            if (currentVersion != expectedVersion) {
+                throw new DdlException("Partition [" + partitionName + "] version mismatch. "
+                        + "Expected version: " + expectedVersion + ", actual version: " + currentVersion + ". "
+                        + "This may indicate concurrent modifications. Please retry with current version.");
+            }
+        }
     }
 
     public void replayReplaceTempPartition(ReplacePartitionOperationLog replaceTempPartitionLog)
