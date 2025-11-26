@@ -110,12 +110,12 @@ Status BetaRowset::get_segment_num_rows(std::vector<uint32_t>* segment_rows,
     RETURN_IF_ERROR(_load_segment_rows_once.call([this, enable_segment_cache, read_stats] {
         auto segment_count = num_segments();
 
-        if (!_rowset_meta->get_segment_rows().empty()) {
-            if (_rowset_meta->get_segment_rows().size() == segment_count) {
+        if (!_rowset_meta->get_num_segment_rows().empty()) {
+            if (_rowset_meta->get_num_segment_rows().size() == segment_count) {
                 // use segment rows in rowset meta if eligible
                 TEST_SYNC_POINT("BetaRowset::get_segment_num_rows:use_segment_rows_from_meta");
-                _segments_rows.assign(_rowset_meta->get_segment_rows().cbegin(),
-                                      _rowset_meta->get_segment_rows().cend());
+                _segments_rows.assign(_rowset_meta->get_num_segment_rows().cbegin(),
+                                      _rowset_meta->get_num_segment_rows().cend());
                 if (config::enable_segment_rows_consistency_check) {
                     // verify segment rows from meta match segment footer
                     std::vector<uint32_t> rows_from_footer;
@@ -133,7 +133,7 @@ Status BetaRowset::get_segment_num_rows(std::vector<uint32_t>* segment_rows,
                 auto msg = fmt::format(
                         "corrupted segment rows info in rowset meta. "
                         "segment count: {}, segment rows size: {}, tablet={}, rowset={}",
-                        segment_count, _rowset_meta->get_segment_rows().size(),
+                        segment_count, _rowset_meta->get_num_segment_rows().size(),
                         _rowset_meta->tablet_id(), _rowset_meta->rowset_id().to_string());
                 if (config::enable_segment_rows_check_core) {
                     CHECK(false) << msg;

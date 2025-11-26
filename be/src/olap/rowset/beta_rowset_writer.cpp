@@ -684,7 +684,7 @@ Status BaseBetaRowsetWriter::add_rowset(RowsetSharedPtr rowset) {
     _num_segment += static_cast<int32_t>(rowset->num_segments());
     // append key_bounds to current rowset
     RETURN_IF_ERROR(rowset->get_segments_key_bounds(&_segments_encoded_key_bounds));
-    rowset->get_segment_rows(&_segment_num_rows);
+    rowset->get_num_segment_rows(&_segment_num_rows);
     _segments_key_bounds_truncated = rowset->rowset_meta()->is_segments_key_bounds_truncated();
 
     // TODO update zonemap
@@ -912,7 +912,7 @@ Status BaseBetaRowsetWriter::_build_rowset_meta(RowsetMeta* rowset_meta, bool ch
     if (_segments_key_bounds_truncated.has_value()) {
         rowset_meta->set_segments_key_bounds_truncated(_segments_key_bounds_truncated.value());
     }
-    rowset_meta->set_segment_rows(segment_rows);
+    rowset_meta->set_num_segment_rows(segment_rows);
     // segment key bounds are empty in old version(before version 1.2.x). So we should not modify
     // the overlap property when key bounds are empty.
     if (!segments_encoded_key_bounds.empty() &&

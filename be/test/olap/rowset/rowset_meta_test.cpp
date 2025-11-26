@@ -124,65 +124,65 @@ TEST_F(RowsetMetaTest, TestRowsetIdInit) {
     EXPECT_EQ(id.to_string(), "72057594037927935");
 }
 
-TEST_F(RowsetMetaTest, TestSegmentRowsSetAndGet) {
+TEST_F(RowsetMetaTest, TestNumSegmentRowsSetAndGet) {
     RowsetMeta rowset_meta;
     EXPECT_TRUE(rowset_meta.init_from_json(_json_rowset_meta));
 
-    // Test set_segment_rows and get_segment_rows
-    std::vector<uint32_t> segment_rows = {100, 200, 300};
-    rowset_meta.set_segment_rows(segment_rows);
+    // Test set_num_segment_rows and get_num_segment_rows
+    std::vector<uint32_t> num_segment_rows = {100, 200, 300};
+    rowset_meta.set_num_segment_rows(num_segment_rows);
 
     std::vector<uint32_t> retrieved_rows;
-    rowset_meta.get_segment_rows(&retrieved_rows);
+    rowset_meta.get_num_segment_rows(&retrieved_rows);
 
     EXPECT_EQ(retrieved_rows.size(), 3);
     EXPECT_EQ(retrieved_rows[0], 100);
     EXPECT_EQ(retrieved_rows[1], 200);
     EXPECT_EQ(retrieved_rows[2], 300);
 
-    // Test get_segment_rows() const reference
-    const auto& segment_rows_ref = rowset_meta.get_segment_rows();
-    EXPECT_EQ(segment_rows_ref.size(), 3);
-    EXPECT_EQ(segment_rows_ref.Get(0), 100);
-    EXPECT_EQ(segment_rows_ref.Get(1), 200);
-    EXPECT_EQ(segment_rows_ref.Get(2), 300);
+    // Test get_num_segment_rows() const reference
+    const auto& num_segment_rows_ref = rowset_meta.get_num_segment_rows();
+    EXPECT_EQ(num_segment_rows_ref.size(), 3);
+    EXPECT_EQ(num_segment_rows_ref.Get(0), 100);
+    EXPECT_EQ(num_segment_rows_ref.Get(1), 200);
+    EXPECT_EQ(num_segment_rows_ref.Get(2), 300);
 
     // Test serialization and deserialization
     RowsetMetaPB rowset_meta_pb;
     rowset_meta.to_rowset_pb(&rowset_meta_pb);
-    EXPECT_EQ(rowset_meta_pb.segment_rows_size(), 3);
-    EXPECT_EQ(rowset_meta_pb.segment_rows(0), 100);
-    EXPECT_EQ(rowset_meta_pb.segment_rows(1), 200);
-    EXPECT_EQ(rowset_meta_pb.segment_rows(2), 300);
+    EXPECT_EQ(rowset_meta_pb.num_segment_rows_size(), 3);
+    EXPECT_EQ(rowset_meta_pb.num_segment_rows(0), 100);
+    EXPECT_EQ(rowset_meta_pb.num_segment_rows(1), 200);
+    EXPECT_EQ(rowset_meta_pb.num_segment_rows(2), 300);
 
     RowsetMeta rowset_meta_2;
     rowset_meta_2.init_from_pb(rowset_meta_pb);
     std::vector<uint32_t> retrieved_rows_2;
-    rowset_meta_2.get_segment_rows(&retrieved_rows_2);
+    rowset_meta_2.get_num_segment_rows(&retrieved_rows_2);
     EXPECT_EQ(retrieved_rows_2.size(), 3);
     EXPECT_EQ(retrieved_rows_2[0], 100);
     EXPECT_EQ(retrieved_rows_2[1], 200);
     EXPECT_EQ(retrieved_rows_2[2], 300);
 }
 
-TEST_F(RowsetMetaTest, TestSegmentRowsEmpty) {
+TEST_F(RowsetMetaTest, TestNumSegmentRowsEmpty) {
     RowsetMeta rowset_meta;
     EXPECT_TRUE(rowset_meta.init_from_json(_json_rowset_meta));
 
-    // By default, segment_rows should be empty
+    // By default, num_segment_rows should be empty
     std::vector<uint32_t> retrieved_rows;
-    rowset_meta.get_segment_rows(&retrieved_rows);
+    rowset_meta.get_num_segment_rows(&retrieved_rows);
     EXPECT_EQ(retrieved_rows.size(), 0);
 
-    const auto& segment_rows_ref = rowset_meta.get_segment_rows();
-    EXPECT_EQ(segment_rows_ref.size(), 0);
+    const auto& num_segment_rows_ref = rowset_meta.get_num_segment_rows();
+    EXPECT_EQ(num_segment_rows_ref.size(), 0);
 }
 
-TEST_F(RowsetMetaTest, TestMergeRowsetMetaWithSegmentRows) {
+TEST_F(RowsetMetaTest, TestMergeRowsetMetaWithNumSegmentRows) {
     RowsetMeta rowset_meta_1;
     EXPECT_TRUE(rowset_meta_1.init_from_json(_json_rowset_meta));
-    std::vector<uint32_t> segment_rows_1 = {100, 200};
-    rowset_meta_1.set_segment_rows(segment_rows_1);
+    std::vector<uint32_t> num_segment_rows_1 = {100, 200};
+    rowset_meta_1.set_num_segment_rows(num_segment_rows_1);
     rowset_meta_1.set_num_segments(2);
     rowset_meta_1.set_total_disk_size(1000);
     rowset_meta_1.set_data_disk_size(800);
@@ -190,8 +190,8 @@ TEST_F(RowsetMetaTest, TestMergeRowsetMetaWithSegmentRows) {
 
     RowsetMeta rowset_meta_2;
     EXPECT_TRUE(rowset_meta_2.init_from_json(_json_rowset_meta));
-    std::vector<uint32_t> segment_rows_2 = {300, 400, 500};
-    rowset_meta_2.set_segment_rows(segment_rows_2);
+    std::vector<uint32_t> num_segment_rows_2 = {300, 400, 500};
+    rowset_meta_2.set_num_segment_rows(num_segment_rows_2);
     rowset_meta_2.set_num_segments(3);
     rowset_meta_2.set_total_disk_size(2000);
     rowset_meta_2.set_data_disk_size(1600);
@@ -217,9 +217,9 @@ TEST_F(RowsetMetaTest, TestMergeRowsetMetaWithSegmentRows) {
     sp->disable_processing();
     sp->clear_trace();
 
-    // Check merged segment_rows
+    // Check merged num_segment_rows
     std::vector<uint32_t> merged_rows;
-    rowset_meta_1.get_segment_rows(&merged_rows);
+    rowset_meta_1.get_num_segment_rows(&merged_rows);
     EXPECT_EQ(merged_rows.size(), 5);
     EXPECT_EQ(merged_rows[0], 100);
     EXPECT_EQ(merged_rows[1], 200);
@@ -234,16 +234,16 @@ TEST_F(RowsetMetaTest, TestMergeRowsetMetaWithSegmentRows) {
     EXPECT_EQ(rowset_meta_1.total_disk_size(), 3000);
 }
 
-TEST_F(RowsetMetaTest, TestMergeRowsetMetaWithPartialSegmentRows) {
+TEST_F(RowsetMetaTest, TestMergeRowsetMetaWithPartialNumSegmentRows) {
     RowsetMeta rowset_meta_1;
     EXPECT_TRUE(rowset_meta_1.init_from_json(_json_rowset_meta));
-    std::vector<uint32_t> segment_rows_1 = {100, 200};
-    rowset_meta_1.set_segment_rows(segment_rows_1);
+    std::vector<uint32_t> num_segment_rows_1 = {100, 200};
+    rowset_meta_1.set_num_segment_rows(num_segment_rows_1);
     rowset_meta_1.set_num_segments(2);
 
     RowsetMeta rowset_meta_2;
     EXPECT_TRUE(rowset_meta_2.init_from_json(_json_rowset_meta));
-    // rowset_meta_2 has no segment_rows (simulating old version data)
+    // rowset_meta_2 has no num_segment_rows (simulating old version data)
     rowset_meta_2.set_num_segments(3);
 
     // Use sync point to skip schema merge logic
@@ -261,9 +261,9 @@ TEST_F(RowsetMetaTest, TestMergeRowsetMetaWithPartialSegmentRows) {
     sp->disable_processing();
     sp->clear_trace();
 
-    // segment_rows should be cleared when one of them is empty
+    // num_segment_rows should be cleared when one of them is empty
     std::vector<uint32_t> merged_rows;
-    rowset_meta_1.get_segment_rows(&merged_rows);
+    rowset_meta_1.get_num_segment_rows(&merged_rows);
     EXPECT_EQ(merged_rows.size(), 0);
 
     // num_segments should still be merged
@@ -294,9 +294,9 @@ TEST_F(RowsetMetaTest, TestMergeRowsetMetaBothEmpty) {
     sp->disable_processing();
     sp->clear_trace();
 
-    // segment_rows should remain empty
+    // num_segment_rows should remain empty
     std::vector<uint32_t> merged_rows;
-    rowset_meta_1.get_segment_rows(&merged_rows);
+    rowset_meta_1.get_num_segment_rows(&merged_rows);
     EXPECT_EQ(merged_rows.size(), 0);
 
     // num_segments should still be merged

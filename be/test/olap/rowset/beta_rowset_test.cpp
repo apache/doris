@@ -428,7 +428,7 @@ TEST_F(BetaRowsetTest, GetSegmentNumRowsFromMeta) {
 
     // Set segment rows in rowset meta (simulating new version data)
     std::vector<uint32_t> expected_segment_rows = {100, 200, 300};
-    rowset_meta->set_segment_rows(expected_segment_rows);
+    rowset_meta->set_num_segment_rows(expected_segment_rows);
 
     auto rowset = std::make_shared<BetaRowset>(tablet_schema, rowset_meta, "");
 
@@ -527,7 +527,7 @@ TEST_F(BetaRowsetTest, GetSegmentNumRowsCorruptedMeta) {
 
     // Set segment rows with wrong size (should be 3 but only has 2)
     std::vector<uint32_t> wrong_segment_rows = {100, 200};
-    rowset_meta->set_segment_rows(wrong_segment_rows);
+    rowset_meta->set_num_segment_rows(wrong_segment_rows);
 
     auto rowset = std::make_shared<BetaRowset>(tablet_schema, rowset_meta, "");
 
@@ -556,8 +556,8 @@ TEST_F(BetaRowsetTest, GetSegmentNumRowsCorruptedMeta) {
     sp->clear_trace();
 }
 
-TEST_F(BetaRowsetTest, GetSegmentRowsAPI) {
-    // Test the simple get_segment_rows API (without loading)
+TEST_F(BetaRowsetTest, GetNumSegmentRowsAPI) {
+    // Test the simple get_num_segment_rows API (without loading)
     auto tablet_schema = std::make_shared<TabletSchema>();
     create_tablet_schema(tablet_schema);
 
@@ -566,12 +566,12 @@ TEST_F(BetaRowsetTest, GetSegmentRowsAPI) {
     rowset_meta->set_num_segments(3);
 
     std::vector<uint32_t> expected_segment_rows = {100, 200, 300};
-    rowset_meta->set_segment_rows(expected_segment_rows);
+    rowset_meta->set_num_segment_rows(expected_segment_rows);
 
     auto rowset = std::make_shared<BetaRowset>(tablet_schema, rowset_meta, "");
 
     std::vector<uint32_t> segment_rows;
-    rowset->get_segment_rows(&segment_rows);
+    rowset->get_num_segment_rows(&segment_rows);
     ASSERT_EQ(segment_rows.size(), 3);
     ASSERT_EQ(segment_rows[0], 100);
     ASSERT_EQ(segment_rows[1], 200);

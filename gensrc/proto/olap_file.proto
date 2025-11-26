@@ -126,7 +126,7 @@ message RowsetMetaPB {
     optional bool segments_key_bounds_truncated = 55;
 
     // rows count for each segment
-    repeated int64 segment_rows = 56;
+    repeated int64 num_segment_rows = 56;
 
     // For cloud
     // for data recycling
@@ -220,7 +220,7 @@ message RowsetMetaCloudPB {
     optional bool segments_key_bounds_truncated = 55;
 
     // rows count for each segment
-    repeated int64 segment_rows = 108;
+    repeated int64 num_segment_rows = 108;
 
     // cloud
     // the field is a vector, rename it
