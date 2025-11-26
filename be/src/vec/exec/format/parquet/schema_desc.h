@@ -36,8 +36,13 @@
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
+
+// Constant for unassigned column IDs
+constexpr uint64_t UNASSIGNED_COLUMN_ID = UINT64_MAX;
+
 struct FieldSchema {
     std::string name;
+    std::string lower_case_name; // for hms column name case insensitive match
     // the referenced parquet schema element
     tparquet::SchemaElement parquet_schema;
 
@@ -56,12 +61,22 @@ struct FieldSchema {
     //For UInt8 -> Int16,UInt16 -> Int32,UInt32 -> Int64,UInt64 -> Int128.
     bool is_type_compatibility = false;
 
-    FieldSchema() : data_type(std::make_shared<DataTypeNothing>()) {}
+    FieldSchema()
+            : data_type(std::make_shared<DataTypeNothing>()), column_id(UNASSIGNED_COLUMN_ID) {}
     ~FieldSchema() = default;
     FieldSchema(const FieldSchema& fieldSchema) = default;
     std::string debug_string() const;
 
     int32_t field_id = -1;
+    uint64_t column_id = UNASSIGNED_COLUMN_ID;
+    uint64_t max_column_id = 0; // Maximum column ID for this field and its children
+
+    // Column ID assignment and lookup methods
+    void assign_ids(uint64_t& next_id);
+    const FieldSchema* find_column_by_id(uint64_t target_id) const;
+    uint64_t get_column_id() const;
+    void set_column_id(uint64_t id);
+    uint64_t get_max_column_id() const;
 };
 
 class FieldDescriptor {
@@ -74,6 +89,8 @@ private:
     std::unordered_map<std::string, FieldSchema*> _name_to_field;
     // Used in from_thrift, marking the next schema position that should be parsed
     size_t _next_schema_pos;
+    // useful for parse_node_field to decide whether to convert byte_array to VARBINARY type
+    bool _enable_mapping_varbinary = false;
 
 private:
     void parse_physical_field(const tparquet::SchemaElement& physical_schema, bool is_nullable,
@@ -133,6 +150,20 @@ public:
     int32_t size() const { return cast_set<int32_t>(_fields.size()); }
 
     const std::vector<FieldSchema>& get_fields_schema() const { return _fields; }
+
+    /**
+     * Assign stable column IDs to schema fields.
+     *
+     * This uses an ORC-compatible encoding so that the results of
+     * create_column_ids() are consistent across formats. IDs start from 1
+     * and are assigned in a pre-order traversal (parent before children).
+     * After calling this, each FieldSchema will have column_id and
+     * max_column_id populated.
+     */
+    void assign_ids();
+
+    const FieldSchema* find_column_by_id(uint64_t column_id) const;
+    void set_enable_mapping_varbinary(bool enable) { _enable_mapping_varbinary = enable; }
 };
 #include "common/compile_check_end.h"
 

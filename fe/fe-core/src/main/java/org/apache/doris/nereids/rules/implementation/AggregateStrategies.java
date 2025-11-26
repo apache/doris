@@ -61,6 +61,7 @@ import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -565,6 +566,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
 
         boolean containsCount = false;
         Set<SlotReference> checkNullSlots = new HashSet<>();
+        Set<Expression> expressionAfterProject = new HashSet<>();
 
         // Single loop through aggregateFunctions to handle multiple logic
         for (AggregateFunction function : aggregateFunctions) {
@@ -582,10 +584,12 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                     Expression arg0 = function.getArguments().get(0);
                     if (arg0 instanceof SlotReference) {
                         checkNullSlots.add((SlotReference) arg0);
+                        expressionAfterProject.add(arg0);
                     } else if (arg0 instanceof Cast) {
                         Expression child0 = arg0.child(0);
                         if (child0 instanceof SlotReference) {
                             checkNullSlots.add((SlotReference) child0);
+                            expressionAfterProject.add(arg0);
                         }
                     }
                 }
@@ -633,28 +637,39 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                 .collect(ImmutableList.toImmutableList());
 
         if (project != null) {
-            argumentsOfAggregateFunction = Project.findProject(
-                        argumentsOfAggregateFunction, project.getProjects())
-                    .stream()
-                    .map(p -> p instanceof Alias ? p.child(0) : p)
-                    .collect(ImmutableList.toImmutableList());
-        }
+            List<Expression> processedExpressions = new ArrayList<>();
+            List<? extends Expression> projections = Project.findProject(argumentsOfAggregateFunction,
+                    project.getProjects());
 
-        onlyContainsSlotOrNumericCastSlot = argumentsOfAggregateFunction
-                .stream()
-                .allMatch(argument -> {
-                    if (argument instanceof SlotReference) {
-                        return true;
+            for (int i = 0, size = projections.size(); i < size; i++) {
+                // Process the expression (replace Alias with its child)
+                boolean needCheckSlotNull = expressionAfterProject.contains(argumentsOfAggregateFunction.get(i));
+                Expression p = projections.get(i);
+                Expression argument = p instanceof Alias ? p.child(0) : p;
+                processedExpressions.add(argument);
+
+                // Check if the argument matches the required pattern
+                if (argument instanceof SlotReference) {
+                    // Argument is valid, continue
+                    if (needCheckSlotNull) {
+                        checkNullSlots.add((SlotReference) argument);
                     }
-                    if (argument instanceof Cast) {
-                        return argument.child(0) instanceof SlotReference
-                                && argument.getDataType().isNumericType()
-                                && argument.child(0).getDataType().isNumericType();
+                } else if (argument instanceof Cast) {
+                    boolean castMatch = argument.child(0) instanceof SlotReference
+                            && argument.getDataType().isNumericType()
+                            && argument.child(0).getDataType().isNumericType();
+                    if (!castMatch) {
+                        return canNotPush;
+                    } else {
+                        if (needCheckSlotNull) {
+                            checkNullSlots.add((SlotReference) argument.child(0));
+                        }
                     }
-                    return false;
-                });
-        if (!onlyContainsSlotOrNumericCastSlot) {
-            return canNotPush;
+                } else {
+                    return canNotPush;
+                }
+            }
+            argumentsOfAggregateFunction = processedExpressions;
         }
 
         Set<PushDownAggOp> pushDownAggOps = functionClasses.stream()

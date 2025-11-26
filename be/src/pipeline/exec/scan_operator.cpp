@@ -236,6 +236,7 @@ Status ScanLocalState<Derived>::_normalize_conjuncts(RuntimeState* state) {
         }
         ++it;
     }
+
     for (auto& it : _slot_id_to_value_range) {
         std::visit(
                 [&](auto&& range) {
@@ -245,7 +246,6 @@ Status ScanLocalState<Derived>::_normalize_conjuncts(RuntimeState* state) {
                     }
                 },
                 it.second.second);
-        _colname_to_value_range[it.second.first->col_name()] = it.second.second;
     }
 
     return Status::OK();

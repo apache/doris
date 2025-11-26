@@ -170,6 +170,21 @@ Status DataTypeHLLSerDe::_write_column_to_mysql(const IColumn& column,
     return Status::OK();
 }
 
+bool DataTypeHLLSerDe::write_column_to_mysql_text(const IColumn& column, BufferWritable& bw,
+                                                  int64_t row_idx) const {
+    const auto& data_column = assert_cast<const ColumnHLL&>(column);
+    if (_return_object_as_string) {
+        const HyperLogLog& hyperLogLog = data_column.get_element(row_idx);
+        size_t size = hyperLogLog.max_serialized_size();
+        std::unique_ptr<char[]> buf = std::make_unique_for_overwrite<char[]>(size);
+        hyperLogLog.serialize((uint8_t*)buf.get());
+        bw.write(buf.get(), size);
+        return true;
+    } else {
+        return false;
+    }
+}
+
 Status DataTypeHLLSerDe::write_column_to_mysql_binary(const IColumn& column,
                                                       MysqlRowBinaryBuffer& row_buffer,
                                                       int64_t row_idx, bool col_const,

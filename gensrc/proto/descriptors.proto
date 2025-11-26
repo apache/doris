@@ -23,6 +23,49 @@ option java_package = "org.apache.doris.proto";
 import "types.proto";
 import "olap_file.proto";
 
+message PDataAccessPath {
+    // the specification of special path:
+    //   <empty>: access the whole complex column
+    //   *:
+    //     1. access every items when the type is array
+    //     2. access key and value when the type is map
+    //   KEYS: only access the keys of map
+    //   VALUES: only access the keys of map
+    //
+    // example:
+    //  s: struct<
+    //    data: array<
+    //      map<
+    //        int,
+    //        struct<
+    //          a: id
+    //          b: double
+    //        >
+    //      >
+    //    >
+    //  >
+    // if we want to access `map_keys(s.data[0])`, the path will be: ['s', 'data', '*', 'KEYS'],
+    // if we want to access `map_values(s.data[0])[0].b`, the path will be: ['s', 'data', '*', 'VALUES', 'b'],
+    // if we want to access `s.data[0]['k'].b`, the path will be ['s', 'data', '*', '*', 'b']
+    // if we want to access the whole struct of s, the path will be: ['s'],
+    repeated string path = 1;
+}
+
+message PMetaAccessPath {
+    repeated string path = 1;
+}
+
+enum PAccessPathType {
+    DATA = 1;
+    META = 2; // use to prune `where s.data is not null` by only scan the meta of s.data
+}
+
+message PColumnAccessPath {
+    required PAccessPathType type = 1;
+    optional PDataAccessPath data_access_path = 2;
+    optional PMetaAccessPath meta_access_path = 3;
+}
+
 message PSlotDescriptor {
     required int32 id = 1;
     required int32 parent = 2; // tuple id which this slot is belong to
@@ -33,12 +76,14 @@ message PSlotDescriptor {
     required int32 null_indicator_bit = 7;
     required string col_name = 8;
     required int32 slot_idx = 9;
-    optional bool is_materialized = 10;
+    optional bool is_materialized = 10 [deprecated = true];
     optional int32 col_unique_id = 11;
     optional bool is_key = 12;
     optional bool is_auto_increment = 13;
     optional int32 col_type = 14 [default = 0];
     repeated string column_paths = 15;
+    repeated PColumnAccessPath all_access_paths = 16;
+    repeated PColumnAccessPath predicate_access_paths = 17;
 };
 
 message PTupleDescriptor {

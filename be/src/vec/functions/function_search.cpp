@@ -566,22 +566,22 @@ Status FunctionSearch::build_leaf_query(const TSearchClause& clause,
                              << "', returning empty BitSetQuery";
                 *out = std::make_shared<query_v2::BitSetQuery>(roaring::Roaring());
                 return Status::OK();
-            } else if (term_infos.size() == 1) {
-                if (term_infos.size() == 1) {
-                    const auto& term_info = term_infos[0];
-                    if (term_info.is_single_term()) {
-                        std::wstring term_wstr =
-                                StringHelper::to_wstring(term_info.get_single_term());
-                        *out = std::make_shared<query_v2::TermQuery>(context, field_wstr,
-                                                                     term_wstr);
-                    } else {
-                        query_v2::BooleanQuery::Builder builder(query_v2::OperatorType::OP_OR);
-                        for (const auto& term : term_info.get_multi_terms()) {
-                            std::wstring term_wstr = StringHelper::to_wstring(term);
-                            builder.add(make_term_query(term_wstr), binding.binding_key);
-                        }
-                        *out = builder.build();
+            }
+
+            std::vector<TermInfo> phrase_term_infos =
+                    QueryHelper::build_phrase_term_infos(term_infos);
+            if (phrase_term_infos.size() == 1) {
+                const auto& term_info = term_infos[0];
+                if (term_info.is_single_term()) {
+                    std::wstring term_wstr = StringHelper::to_wstring(term_info.get_single_term());
+                    *out = std::make_shared<query_v2::TermQuery>(context, field_wstr, term_wstr);
+                } else {
+                    query_v2::BooleanQuery::Builder builder(query_v2::OperatorType::OP_OR);
+                    for (const auto& term : term_info.get_multi_terms()) {
+                        std::wstring term_wstr = StringHelper::to_wstring(term);
+                        builder.add(make_term_query(term_wstr), binding.binding_key);
                     }
+                    *out = builder.build();
                 }
             } else {
                 if (QueryHelper::is_simple_phrase(term_infos)) {

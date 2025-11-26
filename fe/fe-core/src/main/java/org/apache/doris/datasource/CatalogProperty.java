@@ -43,6 +43,9 @@ import java.util.stream.Collectors;
 public class CatalogProperty {
     private static final Logger LOG = LogManager.getLogger(CatalogProperty.class);
 
+    // Default: false, mapping BINARY types to STRING for compatibility
+    public static final String ENABLE_MAPPING_VARBINARY = "enable.mapping.varbinary";
+
     @Deprecated
     @SerializedName(value = "resource")
     private String resource;
@@ -76,6 +79,21 @@ public class CatalogProperty {
 
     public Map<String, String> getProperties() {
         return Maps.newHashMap(properties);
+    }
+
+    /**
+     * @return true if varbinary mapping is enabled, false otherwise
+     */
+    public boolean getEnableMappingVarbinary() {
+        return Boolean.parseBoolean(getOrDefault(ENABLE_MAPPING_VARBINARY, "false"));
+    }
+
+    /**
+     * Set enable mapping varbinary property.
+     * @param enable true to enable varbinary mapping, false to disable
+     */
+    public void setEnableMappingVarbinary(boolean enable) {
+        addProperty(ENABLE_MAPPING_VARBINARY, String.valueOf(enable));
     }
 
     public void modifyCatalogProps(Map<String, String> props) {

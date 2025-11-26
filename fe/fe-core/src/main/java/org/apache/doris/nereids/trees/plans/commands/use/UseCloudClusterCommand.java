@@ -28,7 +28,6 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.Command;
@@ -38,7 +37,6 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 
 import com.google.common.base.Strings;
-import org.apache.commons.lang3.StringUtils;
 
 /**
  * Representation of a use cluster statement.
@@ -107,13 +105,15 @@ public class UseCloudClusterCommand extends Command implements NoForward {
             return;
         }
         if (!Env.getCurrentEnv().getAccessManager()
-                .checkDbPriv(ConnectContext.get(),
-                StringUtils.isEmpty(catalogName) ? InternalCatalog.INTERNAL_CATALOG_NAME : catalogName,
-                database,
-                PrivPredicate.SHOW)) {
+                .checkDbPriv(ConnectContext.get(), getAuthCatalogName(), database,
+                        PrivPredicate.SHOW)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_DBACCESS_DENIED_ERROR,
                     ctx.getQualifiedUser(), database);
         }
+    }
+
+    public String getAuthCatalogName() {
+        return catalogName == null ? ConnectContext.get().getDefaultCatalog() : catalogName;
     }
 
     private void handleUseCloudClusterCommand(ConnectContext context) throws AnalysisException {

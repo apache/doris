@@ -332,8 +332,22 @@ suite("test_s3_tvf_number_range", "p0,external") {
             def hdfsPath1 = uploadToHdfs("external_table_p0/tvf/hdfs_data_1.txt")
             def hdfsPath2 = uploadToHdfs("external_table_p0/tvf/hdfs_data_2.txt")
             def hdfsPath3 = uploadToHdfs("external_table_p0/tvf/hdfs_data_3.txt")
+            // hdfs://172.20.56.38:8020/user/hive/groovy/hdfs_data_1.txt
+            // hdfs://172.20.56.38:8020/user/hive/groovy/hdfs_data_2.txt
+            // hdfs://172.20.56.38:8020/user/hive/groovy/hdfs_data_3.txt
             
             logger.info("Uploaded test files to HDFS: ${hdfsPath1}, ${hdfsPath2}, ${hdfsPath3}")
+
+            def lastSlashIndex = hdfsPath1.lastIndexOf('/')
+            def dirPath = hdfsPath1.substring(0, lastSlashIndex + 1)
+            def fileName = hdfsPath1.substring(lastSlashIndex + 1)
+            def lastUnderscoreIndex = fileName.lastIndexOf('_')
+            def dotIndex = fileName.lastIndexOf('.')
+            def baseName = fileName.substring(0, lastUnderscoreIndex + 1)
+            def extension = fileName.substring(dotIndex)
+            def hdfsDataPath = "${dirPath}${baseName}{1..3}${extension}"
+            // be like this: 
+            // hdfs://172.20.56.38:8020/user/hive/groovy/hdfs_data_{1..3}.txt
             
             // Helper closure to check load result
             def check_hdfs_load_result = {checklabel ->
@@ -367,8 +381,6 @@ suite("test_s3_tvf_number_range", "p0,external") {
                 sql """ TRUNCATE TABLE ${test_table} """
                 
                 def label = "test_hdfs_load_range_" + System.currentTimeMillis()
-                // Use the returned HDFS path pattern
-                def hdfsDataPath = "${hdfsFs}/external_table_p0/tvf/hdfs_data_{1..3}.csv"
                 
                 sql """
                     LOAD LABEL ${label} (

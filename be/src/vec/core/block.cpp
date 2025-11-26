@@ -86,12 +86,8 @@ Block::Block(std::initializer_list<ColumnWithTypeAndName> il) : data {il} {}
 
 Block::Block(ColumnsWithTypeAndName data_) : data {std::move(data_)} {}
 
-Block::Block(const std::vector<SlotDescriptor*>& slots, size_t block_size,
-             bool ignore_trivial_slot) {
+Block::Block(const std::vector<SlotDescriptor*>& slots, size_t block_size) {
     for (auto* const slot_desc : slots) {
-        if (ignore_trivial_slot && !slot_desc->is_materialized()) {
-            continue;
-        }
         auto column_ptr = slot_desc->get_empty_mutable_column();
         column_ptr->reserve(block_size);
         insert(ColumnWithTypeAndName(std::move(column_ptr), slot_desc->get_data_type_ptr(),
@@ -99,15 +95,14 @@ Block::Block(const std::vector<SlotDescriptor*>& slots, size_t block_size,
     }
 }
 
-Block::Block(const std::vector<SlotDescriptor>& slots, size_t block_size,
-             bool ignore_trivial_slot) {
+Block::Block(const std::vector<SlotDescriptor>& slots, size_t block_size) {
     std::vector<SlotDescriptor*> slot_ptrs(slots.size());
     for (size_t i = 0; i < slots.size(); ++i) {
         // Slots remain unmodified and are used to read column information; const_cast can be employed.
         // used in src/exec/rowid_fetcher.cpp
         slot_ptrs[i] = const_cast<SlotDescriptor*>(&slots[i]);
     }
-    *this = Block(slot_ptrs, block_size, ignore_trivial_slot);
+    *this = Block(slot_ptrs, block_size);
 }
 
 Status Block::deserialize(const PBlock& pblock, size_t* uncompressed_bytes,
@@ -239,24 +234,6 @@ const ColumnWithTypeAndName& Block::safe_get_by_position(size_t position) const 
                         data.size(), dump_names());
     }
     return data[position];
-}
-
-ColumnWithTypeAndName& Block::get_by_name(const std::string& name) {
-    int pos = get_position_by_name(name);
-    if (pos == -1) {
-        throw Exception(ErrorCode::INTERNAL_ERROR, "No such name in Block, name={}, block_names={}",
-                        name, dump_names());
-    }
-    return data[pos];
-}
-
-const ColumnWithTypeAndName& Block::get_by_name(const std::string& name) const {
-    int pos = get_position_by_name(name);
-    if (pos == -1) {
-        throw Exception(ErrorCode::INTERNAL_ERROR, "No such name in Block, name={}, block_names={}",
-                        name, dump_names());
-    }
-    return data[pos];
 }
 
 int Block::get_position_by_name(const std::string& name) const {

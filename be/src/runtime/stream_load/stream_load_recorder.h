@@ -45,7 +45,9 @@ public:
 
     Status init();
 
-    Status put(const std::string& key, const std::string& value);
+    Status put(const std::string& key, const std::string& value, bool use_meta_cf = false);
+
+    Status get(const std::string& key, std::string* value, bool use_meta_cf = false);
 
     Status get_batch(const std::string& start, int batch_size,
                      std::map<std::string, std::string>* stream_load_records);
@@ -59,9 +61,11 @@ private:
 
     enum ColumnFamilyIndex {
         DEFAULT_COLUMN_FAMILY_INDEX = 0,
+        META_COLUMN_FAMILY_INDEX = 1,
     };
 
     const std::string DEFAULT_COLUMN_FAMILY = "default";
+    const std::string META_COLUMN_FAMILY = "meta";
 };
 
 } // namespace doris

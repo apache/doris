@@ -42,7 +42,6 @@ protected:
         tdesc.__set_col_unique_id(slot_id);
         tdesc.__set_slotIdx(0);
         tdesc.__set_isMaterialized(true);
-        tdesc.__set_need_materialize(true);
         tdesc.__set_is_key(false);
         tdesc.__set_nullIndicatorBit(0);
         return tdesc;
@@ -80,7 +79,6 @@ TEST_F(SlotDescriptorTest, BasicConstructor) {
         EXPECT_EQ(slot_desc.id(), 1);
         EXPECT_EQ(slot_desc.col_name(), "test_col");
         EXPECT_EQ(slot_desc.col_unique_id(), 1);
-        EXPECT_TRUE(slot_desc.is_materialized());
         EXPECT_FALSE(slot_desc.is_key());
         EXPECT_EQ(slot_desc.get_virtual_column_expr(), nullptr);
     });

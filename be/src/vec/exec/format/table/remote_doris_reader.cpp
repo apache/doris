@@ -76,14 +76,20 @@ Status RemoteDorisReader::get_next_block(Block* block, size_t* read_rows, bool* 
     auto batch = chunk.data;
     auto num_rows = batch->num_rows();
     auto num_columns = batch->num_columns();
+    // todo: maybe do not need to build name to index map every time
+    auto name_to_pos_map = block->get_name_to_pos_map();
     for (int c = 0; c < num_columns; ++c) {
         arrow::Array* column = batch->column(c).get();
 
         std::string column_name = batch->schema()->field(c)->name();
+        if (!name_to_pos_map.contains(column_name)) {
+            return Status::InternalError("column {} not found in block {}", column_name,
+                                         block->dump_structure());
+        }
 
         try {
             const vectorized::ColumnWithTypeAndName& column_with_name =
-                    block->get_by_name(column_name);
+                    block->get_by_position(name_to_pos_map[column_name]);
             RETURN_IF_ERROR(column_with_name.type->get_serde()->read_column_from_arrow(
                     column_with_name.column->assume_mutable_ref(), column, 0, num_rows, _ctzz));
         } catch (Exception& e) {

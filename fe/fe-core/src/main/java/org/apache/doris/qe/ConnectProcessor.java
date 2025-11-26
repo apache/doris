@@ -37,6 +37,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.SqlUtils;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.metric.MetricRepo;
@@ -250,7 +251,7 @@ public abstract class ConnectProcessor {
 
         if (stmts == null) {
             stmts = parseWithFallback(originStmt, convertedStmt, sessionVariable);
-            if (stmts == null) {
+            if (stmts == null || stmts.isEmpty()) {
                 return;
             }
         }
@@ -407,15 +408,9 @@ public abstract class ConnectProcessor {
                 logicalPlanAdapter.setOrigStmt(statementContext.getOriginStatement());
                 logicalPlanAdapter.setUserInfo(ctx.getCurrentUserIdentity());
                 return ImmutableList.of(logicalPlanAdapter);
-            } else {
-                if (!ctx.getSessionVariable().testQueryCacheHit.equals("none")) {
-                    throw new UserException("The variable test_query_cache_hit is set to "
-                            + ConnectContext.get().getSessionVariable().testQueryCacheHit
-                            + ", but the query cache is not hit.");
-                }
             }
         } catch (Throwable t) {
-            LOG.warn("Parse from sql cache failed: " + t.getMessage(), t);
+            LOG.warn("Parse from sql cache failed with unexpected exception: {}", Util.getRootCauseMessage(t), t);
         } finally {
             statementContext.releasePlannerResources();
         }
@@ -785,3 +780,4 @@ public abstract class ConnectProcessor {
         throw new NotSupportedException("Just MysqlConnectProcessor support execute");
     }
 }
+

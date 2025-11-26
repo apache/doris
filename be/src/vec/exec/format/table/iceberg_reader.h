@@ -165,10 +165,8 @@ public:
             : IcebergTableReader(std::move(file_format_reader), profile, state, params, range,
                                  kv_cache, io_ctx, meta_cache) {}
     Status init_reader(
-            const std::vector<std::string>& file_col_names,
-            const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
-            const VExprContextSPtrs& conjuncts, const TupleDescriptor* tuple_descriptor,
-            const RowDescriptor* row_descriptor,
+            const std::vector<std::string>& file_col_names, const VExprContextSPtrs& conjuncts,
+            const TupleDescriptor* tuple_descriptor, const RowDescriptor* row_descriptor,
             const std::unordered_map<std::string, int>* colname_to_slot_id,
             const VExprContextSPtrs* not_single_slot_filter_conjuncts,
             const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts);
@@ -187,6 +185,9 @@ protected:
     }
 
 private:
+    static ColumnIdResult _create_column_ids(const FieldDescriptor* field_desc,
+                                             const TupleDescriptor* tuple_descriptor);
+
     Status _read_position_delete_file(const TFileRangeDesc* delete_range,
                                       DeleteFile* position_delete) final;
 };
@@ -210,10 +211,8 @@ public:
     }
 
     Status init_reader(
-            const std::vector<std::string>& file_col_names,
-            const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
-            const VExprContextSPtrs& conjuncts, const TupleDescriptor* tuple_descriptor,
-            const RowDescriptor* row_descriptor,
+            const std::vector<std::string>& file_col_names, const VExprContextSPtrs& conjuncts,
+            const TupleDescriptor* tuple_descriptor, const RowDescriptor* row_descriptor,
             const std::unordered_map<std::string, int>* colname_to_slot_id,
             const VExprContextSPtrs* not_single_slot_filter_conjuncts,
             const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts);
@@ -225,6 +224,10 @@ protected:
                                         READ_DELETE_FILE_BATCH_SIZE, _state->timezone(), _io_ctx,
                                         _meta_cache);
     }
+
+private:
+    static ColumnIdResult _create_column_ids(const orc::Type* orc_type,
+                                             const TupleDescriptor* tuple_descriptor);
 
 private:
     static const std::string ICEBERG_ORC_ATTRIBUTE;

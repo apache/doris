@@ -236,7 +236,7 @@ public interface TreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>> {
 
     default void foreachUp(Consumer<TreeNode<NODE_TYPE>> func) {
         for (NODE_TYPE child : children()) {
-            child.foreach(func);
+            child.foreachUp(func);
         }
         func.accept(this);
     }

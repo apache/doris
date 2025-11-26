@@ -544,6 +544,33 @@ suite("test_date_function") {
     qt_sql """ select year('2050-01-01') """
     qt_sql """ select test_datetime, year(test_datetime) from ${tableName} order by test_datetime """
 
+    // CENTURY
+    qt_sql """ select century('1900-01-01') """
+    qt_sql """ select century('1901-01-01') """
+    qt_sql """ select century('2000-01-01') """
+    qt_sql """ select century('2001-01-01') """
+    qt_sql """ select century('2023-12-31') """
+    qt_sql """ select century('0001-01-01') """
+    qt_sql """ select century('9999-12-31') """
+    qt_sql """ select century('1999-12-31 23:59:59') """
+    qt_sql """ select century(cast('2000-01-01' as date)) """
+    qt_sql """ select century(cast('2000-01-01 12:00:00' as datetime)) """
+    
+    // Test century with different date formats
+    qt_sql """ select century('1900-12-31') """  // 19th century
+    qt_sql """ select century('1899-12-31') """  // 19th century
+    qt_sql """ select century('2000-12-31') """  // 20th century
+    qt_sql """ select century('2001-01-01') """  // 21st century
+    qt_sql """ select century('2100-01-01') """  // 21st century
+    qt_sql """ select century('2101-01-01') """  // 22nd century
+    
+    // Test century with NULL values
+    qt_sql """ select century(NULL) """
+    
+    // Test century with invalid dates
+    qt_sql """ select century('0000-00-00') """
+    qt_sql """ select century('2023-13-45') """
+
     // YEAROFWEEK
     qt_sql """ select year_of_week('1987-01-01') """
     qt_sql """ select year_of_week('2050-01-01') """

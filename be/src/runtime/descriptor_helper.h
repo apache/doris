@@ -77,7 +77,7 @@ public:
         return type_desc;
     }
 
-    TSlotDescriptorBuilder() { _slot_desc.isMaterialized = true; }
+    TSlotDescriptorBuilder() = default;
     TSlotDescriptorBuilder& type(PrimitiveType type) {
         _slot_desc.slotType = get_common_type(to_thrift(type));
         return *this;
@@ -95,10 +95,6 @@ public:
     }
     TSlotDescriptorBuilder& nullable(bool nullable) {
         _slot_desc.nullIndicatorByte = (nullable) ? 0 : -1;
-        return *this;
-    }
-    TSlotDescriptorBuilder& is_materialized(bool is_materialized) {
-        _slot_desc.isMaterialized = is_materialized;
         return *this;
     }
     TSlotDescriptorBuilder& column_name(const std::string& name) {
@@ -133,10 +129,6 @@ public:
     }
     TSlotDescriptorBuilder& set_slotIdx(int slotIdx) {
         _slot_desc.slotIdx = slotIdx;
-        return *this;
-    }
-    TSlotDescriptorBuilder& set_isMaterialized(bool isMaterialized) {
-        _slot_desc.isMaterialized = isMaterialized;
         return *this;
     }
     TSlotDescriptorBuilder& set_colName(std::string colName) {

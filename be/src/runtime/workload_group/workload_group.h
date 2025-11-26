@@ -45,7 +45,7 @@ class IOThrottle;
 class ResourceContext;
 
 namespace vectorized {
-class SimplifiedScanScheduler;
+class ScannerScheduler;
 }
 
 namespace pipeline {
@@ -167,8 +167,8 @@ public:
     Status upsert_task_scheduler(WorkloadGroupInfo* tg_info);
 
     virtual void get_query_scheduler(doris::pipeline::TaskScheduler** exec_sched,
-                                     vectorized::SimplifiedScanScheduler** scan_sched,
-                                     vectorized::SimplifiedScanScheduler** remote_scan_sched);
+                                     vectorized::ScannerScheduler** scan_sched,
+                                     vectorized::ScannerScheduler** remote_scan_sched);
 
     void try_stop_schedulers();
 
@@ -250,8 +250,8 @@ private:
     // so it should be shared ptr;
     std::shared_ptr<CgroupCpuCtl> _cgroup_cpu_ctl {nullptr};
     std::unique_ptr<doris::pipeline::TaskScheduler> _task_sched {nullptr};
-    std::unique_ptr<vectorized::SimplifiedScanScheduler> _scan_task_sched {nullptr};
-    std::unique_ptr<vectorized::SimplifiedScanScheduler> _remote_scan_task_sched {nullptr};
+    std::unique_ptr<vectorized::ScannerScheduler> _scan_task_sched {nullptr};
+    std::unique_ptr<vectorized::ScannerScheduler> _remote_scan_task_sched {nullptr};
     std::unique_ptr<ThreadPool> _memtable_flush_pool {nullptr};
 
     std::map<std::string, std::shared_ptr<IOThrottle>> _scan_io_throttle_map;

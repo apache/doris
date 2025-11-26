@@ -231,12 +231,12 @@ Status PartitionedHashJoinProbeLocalState::spill_probe_blocks(RuntimeState* stat
         return Status::OK();
     };
 
-    auto exception_catch_func = [query_id, spill_func]() {
+    auto exception_catch_func = [query_id, state, spill_func]() {
         DBUG_EXECUTE_IF("fault_inject::partitioned_hash_join_probe::spill_probe_blocks_cancel", {
             auto status = Status::InternalError(
                     "fault_inject partitioned_hash_join_probe "
                     "spill_probe_blocks canceled");
-            ExecEnv::GetInstance()->fragment_mgr()->cancel_query(query_id, status);
+            state->get_query_ctx()->cancel(status);
             return status;
         });
 
@@ -347,12 +347,13 @@ Status PartitionedHashJoinProbeLocalState::recover_build_blocks_from_disk(Runtim
         return status;
     };
 
-    auto exception_catch_func = [read_func, query_id]() {
+    auto exception_catch_func = [read_func, state, query_id]() {
         DBUG_EXECUTE_IF("fault_inject::partitioned_hash_join_probe::recover_build_blocks_cancel", {
             auto status = Status::InternalError(
                     "fault_inject partitioned_hash_join_probe "
                     "recover_build_blocks canceled");
-            ExecEnv::GetInstance()->fragment_mgr()->cancel_query(query_id, status);
+
+            state->get_query_ctx()->cancel(status);
             return status;
         });
 
@@ -451,12 +452,12 @@ Status PartitionedHashJoinProbeLocalState::recover_probe_blocks_from_disk(Runtim
         return st;
     };
 
-    auto exception_catch_func = [read_func, query_id]() {
+    auto exception_catch_func = [read_func, state, query_id]() {
         DBUG_EXECUTE_IF("fault_inject::partitioned_hash_join_probe::recover_probe_blocks_cancel", {
             auto status = Status::InternalError(
                     "fault_inject partitioned_hash_join_probe "
                     "recover_probe_blocks canceled");
-            ExecEnv::GetInstance()->fragment_mgr()->cancel_query(query_id, status);
+            state->get_query_ctx()->cancel(status);
             return status;
         });
 
@@ -803,7 +804,7 @@ size_t PartitionedHashJoinProbeOperatorX::get_reserve_mem_size(RuntimeState* sta
                 (local_state._recovered_build_block ? local_state._recovered_build_block->rows()
                                                     : 0) +
                 state->batch_size();
-        size_t bucket_size = JoinHashTable<StringRef>::calc_bucket_size(rows);
+        size_t bucket_size = hash_join_table_calc_bucket_size(rows);
 
         size_to_reserve += bucket_size * sizeof(uint32_t); // JoinHashTable::first
         size_to_reserve += rows * sizeof(uint32_t);        // JoinHashTable::next

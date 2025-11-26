@@ -479,6 +479,8 @@ struct TFileScanRangeParams {
     // Paimon predicate from FE, used for jni scanner
     // Set at ScanNode level to avoid redundant serialization in each split
     27: optional string paimon_predicate
+    // enable mapping varbinary type for Doris external table and TVF
+    28: optional bool enable_mapping_varbinary = false;
 }
 
 struct TFileRangeDesc {

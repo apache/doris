@@ -53,9 +53,6 @@ TEST_F(VectorSearchTest, AnnTopNRuntimePrepare_NoFunctionCall) {
         TSlotDescriptor slot0;
         slot0.id = 3000;
         slot0.parent = 2000;
-        slot0.isMaterialized = true;
-        slot0.need_materialize = true;
-        slot0.__isset.need_materialize = true;
         // type: DOUBLE (matches fixture)
         TTypeNode type_node;
         type_node.type = TTypeNodeType::type::SCALAR;

@@ -67,11 +67,13 @@ import org.apache.doris.nereids.trees.expressions.literal.Result;
 import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.TimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.format.DateTimeChecker;
 import org.apache.doris.nereids.trees.expressions.literal.format.FloatChecker;
 import org.apache.doris.nereids.trees.expressions.literal.format.IntegerChecker;
+import org.apache.doris.nereids.trees.expressions.literal.format.TimeChecker;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BooleanType;
@@ -636,6 +638,11 @@ public class TypeCoercionUtils {
                     if (parseResult2.isOk()) {
                         ret = parseResult2.get();
                     }
+                }
+            } else if (dataType instanceof TimeV2Type && TimeChecker.isValidTime(value)) {
+                Result<TimeV2Literal, AnalysisException> parseResult = TimeV2Literal.parseTimeLiteral(value);
+                if (parseResult.isOk()) {
+                    ret = new TimeV2Literal(value);
                 }
             }
         } catch (Exception e) {

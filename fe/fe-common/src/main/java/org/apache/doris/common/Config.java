@@ -3360,7 +3360,7 @@ public class Config extends ConfigBase {
     public static int drop_user_notify_ms_max_times = 86400;
 
     @ConfField(mutable = true, masterOnly = true)
-    public static long cloud_tablet_rebalancer_interval_second = 20;
+    public static long cloud_tablet_rebalancer_interval_second = 1;
 
     @ConfField(mutable = true, masterOnly = true)
     public static boolean enable_cloud_partition_balance = true;
@@ -3694,6 +3694,20 @@ public class Config extends ConfigBase {
         "The encryption algorithm used for data, default is AES256, may be set to empty later for KMS to decide"
     })
     public static String doris_tde_algorithm = "PLAINTEXT";
+
+    @ConfField(mutable = true, description = {
+            "数据加密自动rotate master key的时间间隔，单位为毫秒，默认间隔是一个月",
+            "The time interval for automatic rotation of the master key in data encryption, in milliseconds."
+                    + "The default interval is one month."
+    })
+    public static long doris_tde_rotate_master_key_interval_ms = 30 * 24 * 3600 * 1000L;
+
+    @ConfField(mutable = true, description = {
+            "数据加密检查是否要rotate的时间间隔，单位为毫秒，默认间隔是五分钟",
+            "Data encryption checks whether to rotate the time interval in milliseconds, "
+                    + "and the default interval is five minutes."
+    })
+    public static long doris_tde_check_rotate_master_key_interval_ms = 5 * 60 * 1000L;
 
     @ConfField(mutable = true, description = {
         "数据质量错误时，第一行错误信息的最大长度，默认 256 字节",

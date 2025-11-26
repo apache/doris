@@ -192,7 +192,7 @@ public:
 
     size_t get_fixed_value_size() const { return _fixed_values.size(); }
 
-    void to_olap_filter(std::vector<FilterOlapParam<TCondition>>& filters) {
+    void to_olap_filter(std::vector<FilterOlapParam<TCondition>>& filters) const {
         if (is_fixed_value_range()) {
             // 1. convert to in filter condition
             to_in_condition(filters, true);
@@ -259,7 +259,8 @@ public:
         }
     }
 
-    void to_in_condition(std::vector<FilterOlapParam<TCondition>>& filters, bool is_in = true) {
+    void to_in_condition(std::vector<FilterOlapParam<TCondition>>& filters,
+                         bool is_in = true) const {
         TCondition condition;
         condition.__set_column_name(_column_name);
         condition.__set_condition_op(is_in ? "*=" : "!*=");

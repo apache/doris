@@ -222,10 +222,11 @@ suite("test_iceberg_optimize_actions_ddl", "p0,external,doris,external_docker,ex
     String rollbackLatestSnapshotId = rollbackSnapshotList[2][1]    // Last/newest snapshot
 
     // Execute rollback to the earliest snapshot
-    sql """
+    List<List<Object>> rollbackResult = sql """
         ALTER TABLE ${catalog_name}.${db_name}.test_rollback
         EXECUTE rollback_to_snapshot("snapshot_id" = "${rollbackEarliestSnapshotId}")
     """
+    logger.info("Rollback result: ${rollbackResult}")
     qt_after_rollback_to_snapshot """SELECT * FROM test_rollback ORDER BY id"""
 
     // =====================================================================================
@@ -256,10 +257,11 @@ suite("test_iceberg_optimize_actions_ddl", "p0,external,doris,external_docker,ex
     String formattedSnapshotTime = dateTime.atZone(ZoneId.systemDefault()).format(outputFormatter)
 
     // Execute timestamp-based rollback
-    sql """
+    List<List<Object>> rollbackTimestampResult = sql """
         ALTER TABLE ${catalog_name}.${db_name}.test_rollback_timestamp
         EXECUTE rollback_to_timestamp("timestamp" = "${formattedSnapshotTime}")
     """
+    logger.info("Rollback timestamp result: ${rollbackTimestampResult}")
     qt_after_rollback_to_timestamp """SELECT * FROM test_rollback_timestamp ORDER BY id"""
 
 
@@ -285,10 +287,11 @@ suite("test_iceberg_optimize_actions_ddl", "p0,external,doris,external_docker,ex
     String targetCurrentSnapshotId = currentSnapshotList[0][1]  // Select first snapshot as target
 
     // Execute set current snapshot by snapshot ID
-    sql """
+    List<List<Object>> setCurrentSnapshotByIdResult = sql """
         ALTER TABLE ${catalog_name}.${db_name}.test_current_snapshot
         EXECUTE set_current_snapshot("snapshot_id" = "${targetCurrentSnapshotId}")
     """
+    logger.info("Set current snapshot by snapshot ID result: ${setCurrentSnapshotByIdResult}")
     qt_after_set_current_snapshot_by_snapshotid """SELECT * FROM test_current_snapshot ORDER BY id"""
 
     // Verify reference structure after snapshot change
@@ -300,18 +303,20 @@ suite("test_iceberg_optimize_actions_ddl", "p0,external,doris,external_docker,ex
 
     // Test setting current snapshot by branch reference
     qt_before_set_current_snapshot_by_branch """SELECT * FROM test_current_snapshot ORDER BY id"""
-    sql """
+    List<List<Object>> setCurrentSnapshotByBranchResult = sql """
         ALTER TABLE ${catalog_name}.${db_name}.test_current_snapshot
         EXECUTE set_current_snapshot("ref" = "dev_branch")
     """
+    logger.info("Set current snapshot by branch result: ${setCurrentSnapshotByBranchResult}")
     qt_after_set_current_snapshot_by_branch """SELECT * FROM test_current_snapshot ORDER BY id"""
 
     // Test setting current snapshot by tag reference
     qt_before_set_current_snapshot_by_tag """SELECT * FROM test_current_snapshot ORDER BY id"""
-    sql """
+    List<List<Object>> setCurrentSnapshotByTagResult = sql """
         ALTER TABLE ${catalog_name}.${db_name}.test_current_snapshot
         EXECUTE set_current_snapshot("ref" = "dev_tag")
     """
+    logger.info("Set current snapshot by tag result: ${setCurrentSnapshotByTagResult}")
     qt_after_set_current_snapshot_by_tag """SELECT * FROM test_current_snapshot ORDER BY id"""
 
     // =====================================================================================
@@ -337,17 +342,19 @@ suite("test_iceberg_optimize_actions_ddl", "p0,external,doris,external_docker,ex
     String cherrypickLatestSnapshotId = cherrypickSnapshotList[2][1]    // Last snapshot for cherrypick
 
     // Step 1: Rollback to earliest snapshot to create test scenario
-    sql """
+    List<List<Object>> cherrypickRollbackResult = sql """
         ALTER TABLE ${catalog_name}.${db_name}.test_cherrypick
         EXECUTE rollback_to_snapshot("snapshot_id" = "${cherrypickEarliestSnapshotId}")
     """
+    logger.info("Cherrypick rollback result: ${cherrypickRollbackResult}")
     qt_rollback_snapshot """SELECT * FROM test_cherrypick ORDER BY id"""
 
     // Step 2: Cherrypick changes from the latest snapshot
-    sql """
+    List<List<Object>> cherrypickResult = sql """
         ALTER TABLE ${catalog_name}.${db_name}.test_cherrypick
         EXECUTE cherrypick_snapshot("snapshot_id" = "${cherrypickLatestSnapshotId}")
     """
+    logger.info("Cherrypick snapshot result: ${cherrypickResult}")
     qt_after_cherrypick_snapshot """SELECT * FROM test_cherrypick ORDER BY id"""
 
 
@@ -380,10 +387,11 @@ suite("test_iceberg_optimize_actions_ddl", "p0,external,doris,external_docker,ex
     // Test fast-forward from feature branch to main branch
     qt_before_fast_forword_branch """SELECT * FROM test_fast_forward@branch(feature_branch) ORDER BY id"""
 
-    sql """
+    List<List<Object>> fastForwardResult = sql """
         ALTER TABLE ${catalog_name}.${db_name}.test_fast_forward
         EXECUTE fast_forward("branch" = "feature_branch", "to" = "main")
     """
+    logger.info("Fast forward result: ${fastForwardResult}")
     qt_after_fast_forword_branch """SELECT * FROM test_fast_forward@branch(feature_branch) ORDER BY id"""
 
 

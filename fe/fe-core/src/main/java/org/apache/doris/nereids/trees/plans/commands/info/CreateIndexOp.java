@@ -79,11 +79,6 @@ public class CreateIndexOp extends AlterTableOp {
             tableName.analyze(ctx);
         }
 
-        if (indexDef.getIndexType() == IndexDefinition.IndexType.ANN) {
-            throw new AnalysisException(
-                    "ANN index can only be created during table creation, not through CREATE INDEX.");
-        }
-
         indexDef.validate();
         index = indexDef.translateToCatalogStyle();
     }

@@ -71,7 +71,7 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalIntersect
 ----PhysicalProject[AND[($_random_8_$ >= 0.1),($_random_8_$ <= 0.5)] AS `k`]
-------filter((AND[($_random_8_$ >= 0.1),($_random_8_$ <= 0.5)] = TRUE))
+------filter(($_random_8_$ <= 0.5) and ($_random_8_$ >= 0.1))
 --------PhysicalOneRowRelation[random() AS `$_random_8_$`]
 ----PhysicalOneRowRelation[TRUE AS `true`]
 
@@ -79,7 +79,7 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalIntersect
 ----PhysicalProject[AND[((cast(id as DOUBLE) + $_random_9_$) >= 0.1),((cast(id as DOUBLE) + $_random_9_$) <= 0.5)] AS `k`]
-------filter((AND[((cast(id as DOUBLE) + $_random_9_$) >= 0.1),((cast(id as DOUBLE) + $_random_9_$) <= 0.5)] = TRUE))
+------filter(((cast(id as DOUBLE) + $_random_9_$) <= 0.5) and ((cast(id as DOUBLE) + $_random_9_$) >= 0.1))
 --------PhysicalProject[random() AS `$_random_9_$`, t1.id]
 ----------PhysicalOlapScan[t1]
 ----PhysicalOneRowRelation[TRUE AS `true`]
@@ -121,14 +121,13 @@ PhysicalResultSink
 -- !agg_1 --
 PhysicalResultSink
 --hashAgg[GLOBAL, groupByExpr=(), outputExpr=(sum(cast(AND[($_random_5_$ >= 0.6),($_random_5_$ <= 0.7)] as TINYINT)) AS `sum(random(100) between 0.6 and 0.7)`)]
-----PhysicalProject[$_random_5_$, cast(AND[($_random_5_$ >= 0.6),($_random_5_$ <= 0.7)] as TINYINT) AS `cast(AND[($_random_5_$ >= 0.6),($_random_5_$ <= 0.7)] as TINYINT)`]
-------PhysicalOneRowRelation[random(100) AS `$_random_5_$`]
+----PhysicalOneRowRelation[random(100) AS `$_random_5_$`]
 
 -- !agg_2 --
 PhysicalResultSink
 --hashAgg[GLOBAL, groupByExpr=(), outputExpr=(sum(cast(AND[($_random_5_$ >= 0.6),($_random_5_$ <= 0.7)] as TINYINT)) AS `sum(random(100) between 0.6 and 0.7)`, sum(id) AS `sum(id)`)]
 ----hashAgg[LOCAL, groupByExpr=(), outputExpr=(partial_sum(cast(AND[($_random_5_$ >= 0.6),($_random_5_$ <= 0.7)] as TINYINT)) AS `partial_sum(cast(AND[($_random_5_$ >= 0.6),($_random_5_$ <= 0.7)] as TINYINT))`, partial_sum(id) AS `partial_sum(id)`)]
-------PhysicalProject[cast(AND[(random(100) >= 0.6),(random(100) <= 0.7)] as TINYINT) AS `cast(AND[($_random_5_$ >= 0.6),($_random_5_$ <= 0.7)] as TINYINT)`, random(100) AS `$_random_5_$`, t1.id]
+------PhysicalProject[random(100) AS `$_random_5_$`, t1.id]
 --------PhysicalOlapScan[t1]
 
 -- !agg_3 --
@@ -136,7 +135,7 @@ PhysicalResultSink
 --PhysicalProject[sum(id), sum(random(100) between 0.6 and 0.7)]
 ----hashAgg[GLOBAL, groupByExpr=(AND[(random() >= cast(0.1 as DOUBLE)),(random() <= cast(0.5 as DOUBLE))]), outputExpr=(AND[(random() >= cast(0.1 as DOUBLE)),(random() <= cast(0.5 as DOUBLE))], sum(cast(AND[($_random_7_$ >= 0.6),($_random_7_$ <= 0.7)] as TINYINT)) AS `sum(random(100) between 0.6 and 0.7)`, sum(id) AS `sum(id)`)]
 ------hashAgg[LOCAL, groupByExpr=(AND[(random() >= cast(0.1 as DOUBLE)),(random() <= cast(0.5 as DOUBLE))]), outputExpr=(AND[(random() >= cast(0.1 as DOUBLE)),(random() <= cast(0.5 as DOUBLE))], partial_sum(cast(AND[($_random_7_$ >= 0.6),($_random_7_$ <= 0.7)] as TINYINT)) AS `partial_sum(cast(AND[($_random_7_$ >= 0.6),($_random_7_$ <= 0.7)] as TINYINT))`, partial_sum(id) AS `partial_sum(id)`)]
---------PhysicalProject[AND[($_random_8_$ >= 0.1),($_random_8_$ <= 0.5)] AS `AND[(random() >= cast(0.1 as DOUBLE)),(random() <= cast(0.5 as DOUBLE))]`, cast(AND[(random(100) >= 0.6),(random(100) <= 0.7)] as TINYINT) AS `cast(AND[($_random_7_$ >= 0.6),($_random_7_$ <= 0.7)] as TINYINT)`, random(100) AS `$_random_7_$`, t1.id]
+--------PhysicalProject[AND[($_random_8_$ >= 0.1),($_random_8_$ <= 0.5)] AS `AND[(random() >= cast(0.1 as DOUBLE)),(random() <= cast(0.5 as DOUBLE))]`, random(100) AS `$_random_7_$`, t1.id]
 ----------PhysicalProject[random() AS `$_random_8_$`, t1.id]
 ------------PhysicalOlapScan[t1]
 
@@ -145,7 +144,7 @@ PhysicalResultSink
 --PhysicalProject[sum(id), sum(random(100) between 0.6 and 0.7)]
 ----hashAgg[GLOBAL, groupByExpr=(AND[((cast(id as DOUBLE) + random()) >= cast(0.1 as DOUBLE)),((cast(id as DOUBLE) + random()) <= cast(0.5 as DOUBLE))]), outputExpr=(AND[((cast(id as DOUBLE) + random()) >= cast(0.1 as DOUBLE)),((cast(id as DOUBLE) + random()) <= cast(0.5 as DOUBLE))], sum(cast(AND[($_random_7_$ >= 0.6),($_random_7_$ <= 0.7)] as TINYINT)) AS `sum(random(100) between 0.6 and 0.7)`, sum(id) AS `sum(id)`)]
 ------hashAgg[LOCAL, groupByExpr=(AND[((cast(id as DOUBLE) + random()) >= cast(0.1 as DOUBLE)),((cast(id as DOUBLE) + random()) <= cast(0.5 as DOUBLE))]), outputExpr=(AND[((cast(id as DOUBLE) + random()) >= cast(0.1 as DOUBLE)),((cast(id as DOUBLE) + random()) <= cast(0.5 as DOUBLE))], partial_sum(cast(AND[($_random_7_$ >= 0.6),($_random_7_$ <= 0.7)] as TINYINT)) AS `partial_sum(cast(AND[($_random_7_$ >= 0.6),($_random_7_$ <= 0.7)] as TINYINT))`, partial_sum(id) AS `partial_sum(id)`)]
---------PhysicalProject[AND[((cast(id as DOUBLE) + $_random_8_$) >= 0.1),((cast(id as DOUBLE) + $_random_8_$) <= 0.5)] AS `AND[((cast(id as DOUBLE) + random()) >= cast(0.1 as DOUBLE)),((cast(id as DOUBLE) + random()) <= cast(0.5 as DOUBLE))]`, cast(AND[(random(100) >= 0.6),(random(100) <= 0.7)] as TINYINT) AS `cast(AND[($_random_7_$ >= 0.6),($_random_7_$ <= 0.7)] as TINYINT)`, random(100) AS `$_random_7_$`, t1.id]
+--------PhysicalProject[AND[((cast(id as DOUBLE) + $_random_8_$) >= 0.1),((cast(id as DOUBLE) + $_random_8_$) <= 0.5)] AS `AND[((cast(id as DOUBLE) + random()) >= cast(0.1 as DOUBLE)),((cast(id as DOUBLE) + random()) <= cast(0.5 as DOUBLE))]`, random(100) AS `$_random_7_$`, t1.id]
 ----------PhysicalProject[random() AS `$_random_8_$`, t1.id]
 ------------PhysicalOlapScan[t1]
 

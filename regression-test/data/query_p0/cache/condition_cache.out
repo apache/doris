@@ -46,6 +46,13 @@
 4	David	28	Engineering	Senior Developer
 5	Eve	26	Finance	Analyst
 
+-- !join_bf_cache1 --
+
+-- !join_bf_cache2 --
+1	Alice	25	Marketing	Manager
+3	Charlie	22	Engineering	Senior Developer
+4	David	28	Finance	Analyst
+
 -- !join_cache3 --
 4	David	28	Engineering	Senior Developer
 5	Eve	26	Finance	Analyst
@@ -105,6 +112,13 @@
 -- !join_cache2 --
 4	David	28	Engineering	Senior Developer
 5	Eve	26	Finance	Analyst
+
+-- !join_bf_cache1 --
+
+-- !join_bf_cache2 --
+1	Alice	25	Marketing	Manager
+3	Charlie	22	Engineering	Senior Developer
+4	David	28	Finance	Analyst
 
 -- !join_cache3 --
 4	David	28	Engineering	Senior Developer

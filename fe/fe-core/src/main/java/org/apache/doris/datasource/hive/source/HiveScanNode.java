@@ -408,43 +408,8 @@ public class HiveScanNode extends FileQueryScanNode {
 
     @Override
     public TFileFormatType getFileFormatType() throws UserException {
-        TFileFormatType type = null;
-        Table table = hmsTable.getRemoteTable();
-        String inputFormatName = table.getSd().getInputFormat();
-        String hiveFormat = HiveMetaStoreClientHelper.HiveFileFormat.getFormat(inputFormatName);
-        if (hiveFormat.equals(HiveMetaStoreClientHelper.HiveFileFormat.PARQUET.getDesc())) {
-            type = TFileFormatType.FORMAT_PARQUET;
-        } else if (hiveFormat.equals(HiveMetaStoreClientHelper.HiveFileFormat.ORC.getDesc())) {
-            type = TFileFormatType.FORMAT_ORC;
-        } else if (hiveFormat.equals(HiveMetaStoreClientHelper.HiveFileFormat.TEXT_FILE.getDesc())) {
-            String serDeLib = table.getSd().getSerdeInfo().getSerializationLib();
-            if (serDeLib.equals(HiveMetaStoreClientHelper.HIVE_JSON_SERDE)
-                    || serDeLib.equals(HiveMetaStoreClientHelper.LEGACY_HIVE_JSON_SERDE)) {
-                type = TFileFormatType.FORMAT_JSON;
-            } else if (serDeLib.equals(HiveMetaStoreClientHelper.OPENX_JSON_SERDE)) {
-                if (!sessionVariable.isReadHiveJsonInOneColumn()) {
-                    type = TFileFormatType.FORMAT_JSON;
-                } else if (sessionVariable.isReadHiveJsonInOneColumn()
-                        && hmsTable.firstColumnIsString()) {
-                    type = TFileFormatType.FORMAT_CSV_PLAIN;
-                } else {
-                    throw new UserException("You set read_hive_json_in_one_column = true, but the first column of "
-                            + "table " + hmsTable.getName()
-                            + " is not a string column.");
-                }
-            } else if (serDeLib.equals(HiveMetaStoreClientHelper.HIVE_TEXT_SERDE)) {
-                type = TFileFormatType.FORMAT_TEXT;
-            } else if (serDeLib.equals(HiveMetaStoreClientHelper.HIVE_OPEN_CSV_SERDE)) {
-                type = TFileFormatType.FORMAT_CSV_PLAIN;
-            } else if (serDeLib.equals(HiveMetaStoreClientHelper.HIVE_MULTI_DELIMIT_SERDE)) {
-                type = TFileFormatType.FORMAT_TEXT;
-            } else {
-                throw new UserException("Unsupported hive table serde: " + serDeLib);
-            }
-        }
-        return type;
+        return hmsTable.getFileFormatType(sessionVariable);
     }
-
 
     @Override
     protected void setScanParams(TFileRangeDesc rangeDesc, Split split) {

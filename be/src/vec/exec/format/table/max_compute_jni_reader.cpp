@@ -85,10 +85,8 @@ MaxComputeJniReader::MaxComputeJniReader(const MaxComputeTableDescriptor* mc_des
             "org/apache/doris/maxcompute/MaxComputeJniScanner", params, column_names);
 }
 
-Status MaxComputeJniReader::init_reader(
-        const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range) {
-    _colname_to_value_range = colname_to_value_range;
-    RETURN_IF_ERROR(_jni_connector->init(colname_to_value_range));
+Status MaxComputeJniReader::init_reader() {
+    RETURN_IF_ERROR(_jni_connector->init());
     return _jni_connector->open(_state, _profile);
 }
 #include "common/compile_check_end.h"
