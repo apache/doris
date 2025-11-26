@@ -168,7 +168,7 @@ Status ParallelScannerBuilder::_build_scanners_by_rowid(std::list<VScannerSPtr>&
 Status ParallelScannerBuilder::_load() {
     _total_rows = 0;
     size_t idx = 0;
-    bthread::Mutex bmtx;
+    std::shared_ptr<bthread::Mutex> bmtx = std::make_shared<bthread::Mutex>();
     std::vector<std::shared_ptr<std::promise<Status>>> proms;
     proms.reserve(_tablets.size() * 50); // guest 50 rowsets per tablet
     auto pool = ExecEnv::GetInstance()->scanner_scheduler()->get_remote_scan_thread_pool();
@@ -190,14 +190,14 @@ Status ParallelScannerBuilder::_load() {
             // although we persist the segment rows info in rowset meta, for historical rowsets,
             // we still need to load segments to get the segment rows info. So we still fetch them concurrently.
             auto st = pool->submit_scan_task(SimplifiedScanTask(
-                    [esc = enable_segment_cache, rowset, &bmtx, p = std::move(prom), this] {
+                    [esc = enable_segment_cache, rowset, bmtx, p = std::move(prom), this] {
                         std::vector<uint32_t> segment_rows;
                         auto beta_rowset = std::dynamic_pointer_cast<BetaRowset>(rowset);
                         Status task_st = beta_rowset->get_segment_num_rows(&segment_rows, esc,
                                                                            &_builder_stats);
                         Defer defer([p, &task_st] { p->set_value(task_st); });
 
-                        std::unique_lock lck(bmtx);
+                        std::unique_lock lck(*bmtx);
                         for (const auto& num_rows : segment_rows) {
                             _all_segments_rows[rowset->rowset_id()].emplace_back(num_rows);
                         }
