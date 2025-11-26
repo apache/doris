@@ -234,7 +234,7 @@ if [[ -z "${USE_UNWIND}" ]]; then
 fi
 
 if [[ -z "${ENABLE_INJECTION_POINT}" ]]; then
-    ENABLE_INJECTION_POINT='OFF'
+    ENABLE_INJECTION_POINT='ON'
 fi
 
 MAKE_PROGRAM="$(command -v "${BUILD_SYSTEM}")"

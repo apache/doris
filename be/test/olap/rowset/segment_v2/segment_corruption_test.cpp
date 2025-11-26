@@ -79,9 +79,17 @@ public:
     }
 
     static void TearDownTestSuite() {
+        // Disable sync point processing before clearing caches to prevent
+        // background threads from accessing SyncPoint during/after destruction
+        SyncPoint::get_instance()->disable_processing();
+
         if (ExecEnv::GetInstance()->file_cache_factory() != nullptr) {
             io::FileCacheFactory::instance()->clear_file_caches(true);
         }
+
+        // Give background threads time to stop after cache destruction
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
         _suite_factory.reset(nullptr);
         _inverted_index_searcher_cache.reset(nullptr);
     }
@@ -120,9 +128,16 @@ public:
     }
 
     void TearDown() override {
+        // Disable sync point processing before clearing caches to prevent
+        // background threads from accessing SyncPoint during/after destruction
+        SyncPoint::get_instance()->disable_processing();
+
         if (ExecEnv::GetInstance()->file_cache_factory() != nullptr) {
             io::FileCacheFactory::instance()->clear_file_caches(true);
         }
+
+        // Give background threads time to stop after cache destruction
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
         auto st = io::global_local_filesystem()->delete_directory(kTestDir);
         ASSERT_TRUE(st.ok()) << st;
