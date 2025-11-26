@@ -79,6 +79,8 @@ public class ExpressionPatternRules extends TypeMappings<Expression, ExpressionP
                             && multiMatchRule.matchesTypeAndPredicates(matchingContext)) {
                         Expression newExpr = multiMatchRule.apply(matchingContext);
                         if (!newExpr.equals(expr)) {
+                            context.cascadesContext.getStatementContext().expressionRuleSetApplied(
+                                    multiMatchRule.getExpressionRuleType());
                             if (context.cascadesContext.isEnableExprTrace()) {
                                 traceExprChanged(multiMatchRule, expr, newExpr, true);
                             }
@@ -96,6 +98,8 @@ public class ExpressionPatternRules extends TypeMappings<Expression, ExpressionP
                         && rule.matchesPredicates(matchingContext)) {
                     Expression newExpr = rule.apply(matchingContext);
                     if (!newExpr.equals(expr)) {
+                        context.cascadesContext.getStatementContext().expressionRuleSetApplied(
+                                rule.getExpressionRuleType());
                         if (context.cascadesContext.isEnableExprTrace()) {
                             traceExprChanged(rule, expr, newExpr, true);
                         }
@@ -112,6 +116,8 @@ public class ExpressionPatternRules extends TypeMappings<Expression, ExpressionP
                             && rule.matchesPredicates(matchingContext)) {
                         Expression newExpr = rule.apply(matchingContext);
                         if (!expr.equals(newExpr)) {
+                            context.cascadesContext.getStatementContext().expressionRuleSetApplied(
+                                    rule.getExpressionRuleType());
                             if (context.cascadesContext.isEnableExprTrace()) {
                                 traceExprChanged(rule, expr, newExpr, true);
                             }

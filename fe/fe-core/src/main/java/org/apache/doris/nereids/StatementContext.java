@@ -41,6 +41,7 @@ import org.apache.doris.nereids.hint.UseMvHint;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.analysis.ColumnAliasGenerator;
+import org.apache.doris.nereids.rules.expression.ExpressionRuleType;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -273,7 +274,8 @@ public class StatementContext implements Closeable {
     // this record the rule in PreMaterializedViewRewriter.NEED_PRE_REWRITE_RULE_TYPES if is applied successfully
     // or not, if success and in PreRewriteStrategy.FOR_IN_ROB or PreRewriteStrategy.TRY_IN_ROB, mv
     // would be written in RBO phase
-    private final BitSet needPreMvRewriteRuleMasks = new BitSet(RuleType.SENTINEL.ordinal());
+    private final Pair<BitSet, BitSet> needPreMvRewriteRuleMasks = Pair.of(new BitSet(RuleType.SENTINEL.ordinal()),
+            new BitSet(RuleType.SENTINEL.ordinal()));
     // if needed to rewrite in RBO phase, this would be set true
     private boolean needPreMvRewrite = false;
     // mark is rewritten in RBO phase, if rewritten in RBO phase should set true
@@ -948,11 +950,19 @@ public class StatementContext implements Closeable {
     }
 
     public void ruleSetApplied(RuleType ruleType) {
-        needPreMvRewriteRuleMasks.set(ruleType.ordinal());
+        needPreMvRewriteRuleMasks.key().set(ruleType.ordinal());
     }
 
     public BitSet getNeedPreMvRewriteRuleMasks() {
-        return needPreMvRewriteRuleMasks;
+        return needPreMvRewriteRuleMasks.key();
+    }
+
+    public void expressionRuleSetApplied(ExpressionRuleType ruleType) {
+        needPreMvRewriteRuleMasks.value().set(ruleType.ordinal());
+    }
+
+    public BitSet getNeedPreMvRewriteExpressionRuleMasks() {
+        return needPreMvRewriteRuleMasks.value();
     }
 
     public boolean isNeedPreMvRewrite() {
