@@ -123,6 +123,21 @@ public class DateTimeExtractAndTransform {
         return new SmallIntLiteral(((short) date.getYear()));
     }
 
+
+    /**
+     * Executable datetime extract century
+     */
+    @ExecFunction(name = "century")
+    public static Expression century(DateV2Literal date) {
+        return new SmallIntLiteral((short) ((date.getYear() - 1) / 100 + 1));
+    }
+
+    @ExecFunction(name = "century")
+    public static Expression century(DateTimeV2Literal date) {
+        return new SmallIntLiteral((short) ((date.getYear() - 1) / 100 + 1));
+    }
+
+
     /**
      * Executable datetime extract quarter
      */
