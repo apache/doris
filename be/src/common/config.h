@@ -428,6 +428,9 @@ DECLARE_mBool(disable_segment_cache);
 // Enable checking segment rows consistency between rowset meta and segment footer
 DECLARE_mBool(enable_segment_rows_consistency_check);
 DECLARE_mBool(enable_segment_rows_check_core);
+// ATTENTION: For test only. In test environment, there are no historical data,
+// so all rowset meta should have segment rows info.
+DECLARE_mBool(fail_when_segment_rows_not_in_rowset_meta);
 DECLARE_String(row_cache_mem_limit);
 
 // Cache for storage page size

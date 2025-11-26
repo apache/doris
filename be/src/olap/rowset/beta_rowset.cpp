@@ -141,6 +141,11 @@ Status BetaRowset::get_segment_num_rows(std::vector<uint32_t>* segment_rows,
                 LOG_EVERY_SECOND(WARNING) << msg;
             }
         }
+        if (config::fail_when_segment_rows_not_in_rowset_meta) {
+            CHECK(false) << "segment rows info not found in rowset meta. tablet="
+                         << _rowset_meta->tablet_id()
+                         << ", rowset=" << _rowset_meta->rowset_id().to_string();
+        }
         // otherwise, read it from segment footer
         TEST_SYNC_POINT("BetaRowset::get_segment_num_rows:load_from_segment_footer");
         auto self = std::dynamic_pointer_cast<BetaRowset>(shared_from_this());
