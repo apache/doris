@@ -21,7 +21,6 @@ import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionType;
-import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.mtmv.BaseTableInfo;
@@ -55,9 +54,10 @@ import java.util.Set;
 public class PartitionCompensator {
 
     public static final Logger LOG = LogManager.getLogger(PartitionCompensator.class);
-    // if partition pair is null which means can not get partitions from table in QueryPartitionCollector,
-    // we think this table scan query all partitions default
+    // if the partition pair is null which means could not get partitions from table in QueryPartitionCollector,
+    // we think the table scans query all-partitions default
     public static final Pair<RelationId, Set<String>> ALL_PARTITIONS = Pair.of(null, null);
+    // It means all partitions are used when query
     public static final Collection<Pair<RelationId, Set<String>>> ALL_PARTITIONS_LIST =
             ImmutableList.of(ALL_PARTITIONS);
 
@@ -180,33 +180,24 @@ public class PartitionCompensator {
         // if value is not empty, means query some partitions
         Map<List<String>, Set<String>> queryUsedRelatedTablePartitionsMap = new HashMap<>();
         tableLoop:
-        for (Map.Entry<List<String>, TableIf> queryUsedTableEntry : statementContext.getTables().entrySet()) {
+        for (List<String> queryUsedTable : tableUsedPartitionNameMap.keySet()) {
             Set<String> usedPartitionSet = new HashSet<>();
             Collection<Pair<RelationId, Set<String>>> tableUsedPartitions =
-                    tableUsedPartitionNameMap.get(queryUsedTableEntry.getKey());
-            if (!tableUsedPartitions.isEmpty()) {
-                if (ALL_PARTITIONS_LIST.equals(tableUsedPartitions)) {
-                    queryUsedRelatedTablePartitionsMap.put(queryUsedTableEntry.getKey(), null);
-                    continue;
-                }
-                for (Pair<RelationId, Set<String>> partitionPair : tableUsedPartitions) {
-                    if (!customRelationIdSet.isEmpty()) {
-                        if (ALL_PARTITIONS.equals(partitionPair)) {
-                            continue;
-                        }
-                        if (customRelationIdSet.get(partitionPair.key().asInt())) {
-                            usedPartitionSet.addAll(partitionPair.value());
-                        }
-                    } else {
-                        if (ALL_PARTITIONS.equals(partitionPair)) {
-                            queryUsedRelatedTablePartitionsMap.put(queryUsedTableEntry.getKey(), null);
-                            continue tableLoop;
-                        }
-                        usedPartitionSet.addAll(partitionPair.value());
-                    }
-                }
+                    tableUsedPartitionNameMap.get(queryUsedTable);
+            if (ALL_PARTITIONS_LIST.equals(tableUsedPartitions)) {
+                // It means all partitions are used when query
+                queryUsedRelatedTablePartitionsMap.put(queryUsedTable, null);
+                continue;
             }
-            queryUsedRelatedTablePartitionsMap.put(queryUsedTableEntry.getKey(), usedPartitionSet);
+            for (Pair<RelationId, Set<String>> tableUsedPartitionPair : tableUsedPartitions) {
+                if (ALL_PARTITIONS.equals(tableUsedPartitionPair)) {
+                    // It means all partitions are used when query
+                    queryUsedRelatedTablePartitionsMap.put(queryUsedTable, null);
+                    continue tableLoop;
+                }
+                usedPartitionSet.addAll(tableUsedPartitionPair.value());
+            }
+            queryUsedRelatedTablePartitionsMap.put(queryUsedTable, usedPartitionSet);
         }
         return queryUsedRelatedTablePartitionsMap;
     }
