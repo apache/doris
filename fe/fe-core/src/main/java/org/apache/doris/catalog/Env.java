@@ -1485,7 +1485,7 @@ public class Env {
                 // For upgrade compatibility, the host parameter name remains the same
                 // and the new hostname parameter is added
                 String url = "http://" + NetUtils.getHostPortInAccessibleFormat(helperNode.getHost(),
-                        helperNode.setSecondPort(Config.http_port))
+                        helperNode.getSecondPort(Config.http_port))
                         + "/role?host=" + selfNode.getHost()
                         + "&port=" + selfNode.getPort();
                 HttpURLConnection conn = HttpURLUtil.getConnectionWithNodeIdent(url);
