@@ -63,6 +63,11 @@ under the License.
             <artifactId>paimon-oss</artifactId>
             <version>${paimon.version}</version>
         </dependency>
+        <dependency>
+            <groupId>org.apache.paimon</groupId>
+            <artifactId>paimon-hive-connector-3.1</artifactId>
+            <version>${paimon.version}</version>
+        </dependency>
 
         <dependency>
             <groupId>org.apache.paimon</groupId>

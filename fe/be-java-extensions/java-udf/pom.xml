@@ -47,6 +47,11 @@ under the License.
             <artifactId>reflectasm</artifactId>
             <version>1.11.9</version>
         </dependency>
+        <dependency>
+            <groupId>org.apache.hive</groupId>
+            <artifactId>hive-exec</artifactId>
+            <version>${hive.version}</version>
+        </dependency>
     </dependencies>
 
     <build>
