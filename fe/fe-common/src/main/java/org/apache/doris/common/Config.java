@@ -3319,7 +3319,7 @@ public class Config extends ConfigBase {
     public static int drop_user_notify_ms_max_times = 86400;
 
     @ConfField(mutable = true, masterOnly = true)
-    public static long cloud_tablet_rebalancer_interval_second = 20;
+    public static long cloud_tablet_rebalancer_interval_second = 1;
 
     @ConfField(mutable = true, masterOnly = true)
     public static boolean enable_cloud_partition_balance = true;
