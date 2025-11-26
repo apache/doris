@@ -242,7 +242,7 @@ suite("topN_rewrite") {
             limit 4 offset 2;
             """
     order_qt_query1_4_before "${query1_4}"
-    // query top order by is subset of mv order by columns and prefix is same, should success
+    // should fail because of the filter
     async_mv_rewrite_fail(db, mv1_4, query1_4, "mv1_4")
     order_qt_query1_4_after "${query1_4}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_4"""
