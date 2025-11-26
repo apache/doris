@@ -15,6 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.cdcclient.source.split;
+package org.apache.doris.cdcclient.model.response;
 
-public interface SourceSplit {}
+import java.util.Map;
+import lombok.Data;
+
+@Data
+public class WriteMetaResp {
+    private Map<String, String> meta;
+}

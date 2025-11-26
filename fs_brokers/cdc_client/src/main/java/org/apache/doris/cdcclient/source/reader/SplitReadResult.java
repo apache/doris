@@ -18,29 +18,21 @@
 package org.apache.doris.cdcclient.source.reader;
 
 import java.util.Iterator;
-import java.util.Map;
 import lombok.Data;
 import org.apache.kafka.connect.source.SourceRecord;
 
 /**
- * 保存从 split 中读取的结果。 使用泛型支持不同类型的 Split 和 SplitState。 使用迭代器模式，避免将所有数据加载到内存。
+ * The result of reading a split with iterator.
  *
- * @param <Split> Split 类型（如 MySqlSplit）
- * @param <SplitState> SplitState 类型（如 MySqlSplitState）
+ * @param <Split> Split type (MySqlSplit)
+ * @param <SplitState> SplitState type (MySqlSplitState)
  */
 @Data
 public class SplitReadResult<Split, SplitState> {
-    private Iterator<SourceRecord> recordIterator; // 使用迭代器，支持流式处理
-    private Map<String, String> lastMeta;
-    private SplitState splitState; // Split state，由具体的 reader 管理
-    private boolean readBinlog; // 是否读取 binlog（对于支持 binlog 的数据源）
-    private boolean pureBinlogPhase; // 是否处于纯 binlog 阶段
-    private Split split; // Split，由具体的 reader 管理
-    private String splitId; // split ID
-    private Map<String, String> defaultOffset; // 默认的 offset（用于没有数据时）
+    private Iterator<SourceRecord> recordIterator;
+    private SplitState splitState;
+    private Split split;
 
-    /** 检查是否有数据（延迟检查，因为迭代器可能还没有被消费） */
-    public boolean isEmpty() {
-        return recordIterator == null || !recordIterator.hasNext();
-    }
+    private boolean readBinlog;
+    private boolean pureBinlogPhase;
 }

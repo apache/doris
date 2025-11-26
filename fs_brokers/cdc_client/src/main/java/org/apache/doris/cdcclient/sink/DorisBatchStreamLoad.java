@@ -45,6 +45,7 @@ import java.util.concurrent.locks.ReentrantLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import org.apache.commons.codec.binary.Base64;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.doris.cdcclient.common.Env;
 import org.apache.doris.cdcclient.exception.StreamLoadException;
 import org.apache.doris.cdcclient.utils.HttpUtil;
 import org.apache.flink.annotation.VisibleForTesting;
@@ -63,12 +64,11 @@ public class DorisBatchStreamLoad implements Serializable {
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
     private static final List<String> DORIS_SUCCESS_STATUS =
             new ArrayList<>(Arrays.asList("Success"));
-    private static final long STREAM_LOAD_MAX_BYTES = 1 * 1024 * 1024 * 1024L; // 1 GB
-    private static final long STREAM_LOAD_MAX_ROWS = Integer.MAX_VALUE;
+    private final int FLUSH_QUEUE_SIZE = 1;
+    private final long STREAM_LOAD_MAX_BYTES = 500 * 1024 * 1024L; // 500MB
+    private final int RETRY = 3;
     private final byte[] lineDelimiter = "\n".getBytes();
-    ;
     private static final String LOAD_URL_PATTERN = "http://%s/api/%s/%s/_stream_load";
-    private String loadUrl;
     private String hostPort;
     private Map<String, BatchRecordBuffer> bufferMap = new ConcurrentHashMap<>();
     private ExecutorService loadExecutorService;
@@ -82,16 +82,12 @@ public class DorisBatchStreamLoad implements Serializable {
     private final Lock lock = new ReentrantLock();
     private final Condition block = lock.newCondition();
     private final Map<String, ReadWriteLock> bufferMapLock = new ConcurrentHashMap<>();
-    private int FLUSH_QUEUE_SIZE = 1;
-    private int FLUSH_MAX_BYTE_SIZE = 100 * 1024 * 1024;
-    private int FLUSH_INTERVAL_MS = 10 * 1000;
-    private int RETRY = 3;
 
-    public DorisBatchStreamLoad() {
-        this.hostPort = "10.16.10.6:28747";
+    public DorisBatchStreamLoad(long jobId) {
+        this.hostPort = Env.getCurrentEnv().getBackendHostPort();
         this.flushQueue = new LinkedBlockingDeque<>(1);
-        // maxBlockedBytes ensures that a buffer can be written even if the queue is full
-        this.maxBlockedBytes = (long) FLUSH_MAX_BYTE_SIZE * (FLUSH_QUEUE_SIZE + 1);
+        // maxBlockedBytes is two times of FLUSH_MAX_BYTE_SIZE
+        this.maxBlockedBytes = STREAM_LOAD_MAX_BYTES * 2;
         this.loadAsyncExecutor = new LoadAsyncExecutor(FLUSH_QUEUE_SIZE);
         this.loadExecutorService =
                 new ThreadPoolExecutor(
@@ -100,7 +96,7 @@ public class DorisBatchStreamLoad implements Serializable {
                         0L,
                         TimeUnit.MILLISECONDS,
                         new LinkedBlockingQueue<>(1),
-                        new DefaultThreadFactory("stream-load-executor"),
+                        new DefaultThreadFactory("stream-load-executor-" + jobId),
                         new ThreadPoolExecutor.AbortPolicy());
         this.started = new AtomicBoolean(true);
         this.loadExecutorService.execute(loadAsyncExecutor);
@@ -119,16 +115,14 @@ public class DorisBatchStreamLoad implements Serializable {
         getLock(bufferKey).readLock().lock();
         BatchRecordBuffer buffer =
                 bufferMap.computeIfAbsent(
-                        bufferKey,
-                        k ->
-                                new BatchRecordBuffer(
-                                        database, table, this.lineDelimiter, FLUSH_INTERVAL_MS));
+                        bufferKey, k -> new BatchRecordBuffer(database, table, this.lineDelimiter));
 
         int bytes = buffer.insert(record);
         currentCacheBytes.addAndGet(bytes);
         getLock(bufferKey).readLock().unlock();
 
         if (currentCacheBytes.get() > maxBlockedBytes) {
+            cacheFullFlush();
             lock.lock();
             try {
                 while (currentCacheBytes.get() >= maxBlockedBytes) {
@@ -148,48 +142,37 @@ public class DorisBatchStreamLoad implements Serializable {
         }
     }
 
-    public boolean forceFlush() {
-        return doFlush(null, true, false);
+    public boolean cacheFullFlush() {
+        return doFlush(true, true);
     }
 
-    private synchronized boolean doFlush(
-            String bufferKey, boolean waitUtilDone, boolean bufferFull) {
+    public boolean forceFlush() {
+        return doFlush(true, false);
+    }
+
+    private synchronized boolean doFlush(boolean waitUtilDone, boolean cacheFull) {
         checkFlushException();
-        if (waitUtilDone || bufferFull) {
-            boolean flush = flush(bufferKey, waitUtilDone);
-            return flush;
-        } else if (flushQueue.size() < FLUSH_QUEUE_SIZE) {
-            boolean flush = flush(bufferKey, false);
-            return flush;
+        if (waitUtilDone || cacheFull) {
+            return flush(waitUtilDone);
         }
         return false;
     }
 
-    private synchronized boolean flush(String bufferKey, boolean waitUtilDone) {
+    private synchronized boolean flush(boolean waitUtilDone) {
         if (!waitUtilDone && bufferMap.isEmpty()) {
             // bufferMap may have been flushed by other threads
-            LOG.info("bufferMap is empty, no need to flush {}", bufferKey);
+            LOG.info("bufferMap is empty, no need to flush");
             return false;
         }
-        if (null == bufferKey) {
-            boolean flush = false;
-            for (String key : bufferMap.keySet()) {
-                BatchRecordBuffer buffer = bufferMap.get(key);
-                if (waitUtilDone || buffer.shouldFlush()) {
-                    // Ensure that the interval satisfies intervalMS
-                    flushBuffer(key);
-                    flush = true;
-                }
+        for (String key : bufferMap.keySet()) {
+            if (waitUtilDone) {
+                // Ensure that the interval satisfies intervalMS
+                flushBuffer(key);
             }
-            if (!waitUtilDone && !flush) {
-                return false;
-            }
-        } else if (bufferMap.containsKey(bufferKey)) {
-            flushBuffer(bufferKey);
-        } else {
-            LOG.warn("buffer not found for key: {}, may be already flushed.", bufferKey);
         }
-        if (waitUtilDone) {
+        if (!waitUtilDone) {
+            return false;
+        } else {
             waitAsyncLoadFinish();
         }
         return true;

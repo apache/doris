@@ -33,20 +33,17 @@ public class BatchRecordBuffer {
     private boolean loadBatchFirstRecord = true;
     private String database;
     private String table;
-    private final long createTime = System.currentTimeMillis();
-    private long retainTime = 0;
 
     public BatchRecordBuffer() {
         this.buffer = new LinkedList<>();
     }
 
-    public BatchRecordBuffer(String database, String table, byte[] lineDelimiter, long retainTime) {
+    public BatchRecordBuffer(String database, String table, byte[] lineDelimiter) {
         super();
         this.database = database;
         this.table = table;
         this.lineDelimiter = lineDelimiter;
         this.buffer = new LinkedList<>();
-        this.retainTime = retainTime;
     }
 
     public int insert(byte[] record) {
@@ -144,12 +141,5 @@ public class BatchRecordBuffer {
 
     public byte[] getLineDelimiter() {
         return lineDelimiter;
-    }
-
-    public boolean shouldFlush() {
-        // When the buffer create time is later than the first interval trigger,
-        // the write will not be triggered in the next interval,
-        // so multiply it by 1.5 to trigger it as early as possible.
-        return (System.currentTimeMillis() - createTime) * 1.5 > retainTime;
     }
 }

@@ -15,21 +15,24 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.cdcclient.model.resp;
+package org.apache.doris.cdcclient.model.request;
 
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
 import lombok.Data;
+import lombok.EqualsAndHashCode;
 
 @Data
-public class RecordWithMeta {
-    private Map<String, String> meta;
-    private List<String> records;
+@EqualsAndHashCode(callSuper = true)
+public class WriteRecordReq extends JobBaseRecordReq {
+    private long maxInterval;
+    private String targetDatabase;
 
-    public RecordWithMeta() {
-        this.meta = new HashMap<>();
-        this.records = new ArrayList<>();
+    @Override
+    public boolean isReload() {
+        return true;
+    }
+
+    @Override
+    public int getFetchSize() {
+        return Integer.MAX_VALUE;
     }
 }

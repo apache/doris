@@ -15,6 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.cdcclient.source.split;
+package org.apache.doris.cdcclient.model.request;
 
-public interface SourceSplit {}
+import lombok.EqualsAndHashCode;
+import lombok.Getter;
+import lombok.Setter;
+import org.apache.doris.cdcclient.model.JobConfig;
+
+@Getter
+@Setter
+@EqualsAndHashCode(callSuper = true)
+public class FetchTableSplitsReq extends JobConfig {
+    private String snapshotTable;
+}

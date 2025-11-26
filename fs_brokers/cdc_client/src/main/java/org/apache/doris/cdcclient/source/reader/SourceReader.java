@@ -17,53 +17,54 @@
 
 package org.apache.doris.cdcclient.source.reader;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
 import java.util.List;
-import org.apache.doris.cdcclient.model.JobConfig;
-import org.apache.doris.cdcclient.model.req.BaseRecordReq;
-import org.apache.doris.cdcclient.model.req.FetchRecordReq;
-import org.apache.doris.cdcclient.model.resp.RecordWithMeta;
+import java.util.Map;
+import org.apache.doris.cdcclient.model.request.FetchRecordReq;
+import org.apache.doris.cdcclient.model.request.FetchTableSplitsReq;
+import org.apache.doris.cdcclient.model.request.JobBaseRecordReq;
+import org.apache.doris.cdcclient.model.response.RecordWithMeta;
 import org.apache.doris.cdcclient.source.split.SourceSplit;
 
 /**
- * SourceReader 接口，支持泛型以指定 Split 和 SplitState 类型。
+ * SourceReader interface
  *
- * @param <Split> Split 类型（如 MySqlSplit）
- * @param <SplitState> SplitState 类型（如 MySqlSplitState）
+ * @param <Split> Split (MySqlSplit)
+ * @param <SplitState> SplitState(MySqlSplitState)
  */
 public interface SourceReader<Split, SplitState> {
-
     /** Initialization, called when the program starts */
     void initialize();
 
-    /**
-     * Divide the data to be read. For example: split mysql to chunks
-     *
-     * @return
-     */
-    List<? extends SourceSplit> getSourceSplits(JobConfig config) throws JsonProcessingException;
+    /** Divide the data to be read. For example: split mysql to chunks */
+    List<? extends SourceSplit> getSourceSplits(FetchTableSplitsReq config);
 
-    /**
-     * Reading Data
-     *
-     * @param meta
-     * @return
-     * @throws Exception
-     */
+    /** Reading Data */
     RecordWithMeta read(FetchRecordReq meta) throws Exception;
 
-    /**
-     * Reading Data for split reader
-     *
-     * @param baseReq 基础请求
-     * @return 读取结果，包含 SourceRecord 列表和状态信息
-     */
-    default SplitReadResult<Split, SplitState> readSplitRecords(BaseRecordReq baseReq)
+    /** Reading Data for split reader */
+    default SplitReadResult<Split, SplitState> readSplitRecords(JobBaseRecordReq baseReq)
             throws Exception {
         throw new UnsupportedOperationException(
                 "readSplitRecords is not supported by " + this.getClass().getName());
     }
 
+    /** Extract offset information from snapshot split state. */
+    Map<String, String> extractSnapshotOffset(Object splitState, Object split);
+
+    /** Extract offset information from binlog split. */
+    Map<String, String> extractBinlogOffset(Object split, boolean pureBinlogPhase);
+
+    /**
+     * Get split ID from the split. This method should be implemented by each SourceReader to handle
+     * its specific Split type.
+     *
+     * @param split the split
+     * @return split ID, or null if split is null
+     */
+    String getSplitId(Object split);
+
     /** Called when closing */
     void close(Long jobId);
+
+    void finishSplitRecords();
 }

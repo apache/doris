@@ -23,6 +23,7 @@ import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import lombok.Getter;
 import lombok.Setter;
+import org.apache.doris.cdcclient.model.JobConfig;
 import org.apache.doris.cdcclient.source.factory.DataSource;
 import org.apache.doris.cdcclient.source.factory.SourceReaderFactory;
 import org.apache.doris.cdcclient.source.reader.SourceReader;
@@ -30,7 +31,7 @@ import org.apache.doris.cdcclient.source.reader.SourceReader;
 public class Env {
     private static volatile Env INSTANCE;
     private final Map<Long, JobContext> jobContexts;
-    @Getter @Setter private int beHttpPort;
+    @Getter @Setter private String backendHostPort;
 
     private Env() {
         this.jobContexts = new ConcurrentHashMap<>();
@@ -47,10 +48,10 @@ public class Env {
         return INSTANCE;
     }
 
-    public SourceReader<?, ?> getReader(Long jobId, String dataSource, Map<String, String> config) {
-        DataSource ds = resolveDataSource(dataSource);
+    public SourceReader<?, ?> getReader(JobConfig jobConfig) {
+        DataSource ds = resolveDataSource(jobConfig.getDataSource());
         Env manager = Env.getCurrentEnv();
-        return manager.getOrCreateReader(jobId, ds, config);
+        return manager.getOrCreateReader(jobConfig.getJobId(), ds, jobConfig.getConfig());
     }
 
     private DataSource resolveDataSource(String source) {

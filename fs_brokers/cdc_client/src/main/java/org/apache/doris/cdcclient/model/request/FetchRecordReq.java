@@ -15,26 +15,24 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.cdcclient.model.req;
+package org.apache.doris.cdcclient.model.request;
 
-import lombok.Getter;
-import lombok.Setter;
+import lombok.Data;
+import lombok.EqualsAndHashCode;
 
-import java.util.Map;
+@Data
+@EqualsAndHashCode(callSuper = true)
+public class FetchRecordReq extends JobBaseRecordReq {
+    private boolean reload;
+    private int fetchSize;
 
-@Getter
-@Setter
-public abstract class BaseRecordReq {
-    private long jobId;
-    private String dataSource;
-    private Map<String, String> meta;
-    private Map<String, String> config;
-
+    @Override
     public boolean isReload() {
-        return false;
+        return reload;
     }
 
+    @Override
     public int getFetchSize() {
-        return Integer.MAX_VALUE;
+        return fetchSize;
     }
 }

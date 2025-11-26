@@ -27,17 +27,6 @@ import io.debezium.time.MicroTimestamp;
 import io.debezium.time.NanoTimestamp;
 import io.debezium.time.Timestamp;
 import io.debezium.time.ZonedTimestamp;
-import org.apache.commons.lang3.StringUtils;
-import org.apache.flink.cdc.connectors.mysql.source.utils.RecordUtils;
-import org.apache.flink.cdc.debezium.utils.TemporalConversions;
-import org.apache.flink.table.data.TimestampData;
-import org.apache.kafka.connect.data.Decimal;
-import org.apache.kafka.connect.data.Schema;
-import org.apache.kafka.connect.data.Struct;
-import org.apache.kafka.connect.source.SourceRecord;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import java.io.IOException;
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -48,6 +37,16 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import org.apache.commons.lang3.StringUtils;
+import org.apache.flink.cdc.connectors.mysql.source.utils.RecordUtils;
+import org.apache.flink.cdc.debezium.utils.TemporalConversions;
+import org.apache.flink.table.data.TimestampData;
+import org.apache.kafka.connect.data.Decimal;
+import org.apache.kafka.connect.data.Schema;
+import org.apache.kafka.connect.data.Struct;
+import org.apache.kafka.connect.source.SourceRecord;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class DebeziumJsonDeserializer
         implements SourceRecordDeserializer<SourceRecord, List<String>> {

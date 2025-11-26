@@ -17,16 +17,16 @@
 
 package org.apache.doris.cdcclient.controller;
 
+import java.util.List;
 import org.apache.doris.cdcclient.common.Env;
-import org.apache.doris.cdcclient.model.JobConfig;
-import org.apache.doris.cdcclient.model.req.FetchRecordReq;
-import org.apache.doris.cdcclient.model.req.WriteRecordReq;
-import org.apache.doris.cdcclient.model.resp.RecordWithMeta;
-import org.apache.doris.cdcclient.model.resp.WriteMetaResp;
+import org.apache.doris.cdcclient.model.request.FetchRecordReq;
+import org.apache.doris.cdcclient.model.request.FetchTableSplitsReq;
+import org.apache.doris.cdcclient.model.request.WriteRecordReq;
+import org.apache.doris.cdcclient.model.response.RecordWithMeta;
+import org.apache.doris.cdcclient.model.response.WriteMetaResp;
 import org.apache.doris.cdcclient.model.rest.ResponseEntityBuilder;
 import org.apache.doris.cdcclient.service.PipelineCoordinator;
 import org.apache.doris.cdcclient.source.reader.SourceReader;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -36,8 +36,6 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.List;
-
 @RestController
 public class ClientController {
     private static final Logger LOG = LoggerFactory.getLogger(ClientController.class);
@@ -46,16 +44,13 @@ public class ClientController {
 
     /** Fetch source splits for snapshot */
     @RequestMapping(path = "/api/fetchSplits", method = RequestMethod.POST)
-    public Object fetchSplits(@RequestBody JobConfig config) throws Exception {
+    public Object fetchSplits(@RequestBody FetchTableSplitsReq ftsReq) {
         try {
-            SourceReader<?, ?> reader =
-                    Env.getCurrentEnv()
-                            .getReader(
-                                    config.getJobId(), config.getDataSource(), config.getConfig());
-            List splits = reader.getSourceSplits(config);
+            SourceReader<?, ?> reader = Env.getCurrentEnv().getReader(ftsReq);
+            List splits = reader.getSourceSplits(ftsReq);
             return ResponseEntityBuilder.ok(splits);
         } catch (IllegalArgumentException ex) {
-            LOG.error("Failed to fetch splits, jobId={}", config.getJobId(), ex);
+            LOG.error("Failed to fetch splits, jobId={}", ftsReq.getJobId(), ex);
             return ResponseEntityBuilder.badRequest(ex.getMessage());
         }
     }
@@ -76,7 +71,7 @@ public class ClientController {
     @RequestMapping(path = "/api/writeRecords", method = RequestMethod.POST)
     public Object writeRecord(@RequestBody WriteRecordReq recordReq) {
         try {
-            WriteMetaResp response = pipelineCoordinator.readAndWrite(recordReq);
+            WriteMetaResp response = pipelineCoordinator.writeRecords(recordReq);
             return ResponseEntityBuilder.ok(response);
         } catch (Exception ex) {
             LOG.error("Failed to write record, jobId={}", recordReq.getJobId(), ex);

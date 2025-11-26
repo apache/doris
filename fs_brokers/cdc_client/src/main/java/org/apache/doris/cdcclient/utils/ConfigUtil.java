@@ -17,19 +17,17 @@
 
 package org.apache.doris.cdcclient.utils;
 
+import java.util.Map;
+import java.util.Properties;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.doris.cdcclient.constants.LoadConstants;
 import org.apache.doris.cdcclient.model.JobConfig;
-
-import org.apache.commons.lang3.StringUtils;
 import org.apache.flink.cdc.connectors.mysql.source.config.MySqlSourceConfig;
 import org.apache.flink.cdc.connectors.mysql.source.config.MySqlSourceConfigFactory;
 import org.apache.flink.cdc.connectors.mysql.source.config.MySqlSourceOptions;
 import org.apache.flink.cdc.connectors.mysql.source.offset.BinlogOffset;
 import org.apache.flink.cdc.connectors.mysql.source.offset.BinlogOffsetBuilder;
 import org.apache.flink.cdc.connectors.mysql.table.StartupOptions;
-
-import java.util.Map;
-import java.util.Properties;
 
 public class ConfigUtil {
 
@@ -41,15 +39,15 @@ public class ConfigUtil {
         configFactory.username(cdcConfig.get(LoadConstants.USERNAME));
         configFactory.password(cdcConfig.get(LoadConstants.PASSWORD));
 
-        String databaseName = cdcConfig.get(LoadConstants.DATABASE_NAME);
+        String databaseName = cdcConfig.get(LoadConstants.DATABASE);
         configFactory.databaseList(databaseName);
         configFactory.serverId(String.valueOf(Math.abs(config.getJobId().hashCode())));
 
         configFactory.includeSchemaChanges(false);
 
-        String includingTables = cdcConfig.getOrDefault(LoadConstants.INCLUDE_TABLES_LIST, ".*");
+        String includingTables = cdcConfig.getOrDefault(LoadConstants.INCLUDE_TABLES, ".*");
         String includingPattern = String.format("(%s)\\.(%s)", databaseName, includingTables);
-        String excludingTables = cdcConfig.get(LoadConstants.EXCLUDE_TABLES_LIST);
+        String excludingTables = cdcConfig.get(LoadConstants.EXCLUDE_TABLES);
         if (StringUtils.isEmpty(excludingTables)) {
             configFactory.tableList(includingPattern);
         } else {
@@ -113,8 +111,10 @@ public class ConfigUtil {
         jdbcProperteis.put("useSSL", "false");
         configFactory.jdbcProperties(jdbcProperteis);
 
-        // for debug
-        // configFactory.splitSize(1);
+        if (cdcConfig.containsKey(LoadConstants.SPLIT_SIZE)) {
+            configFactory.splitSize(Integer.parseInt(cdcConfig.get(LoadConstants.SPLIT_SIZE)));
+        }
+
         return configFactory.createConfig(0);
     }
 }

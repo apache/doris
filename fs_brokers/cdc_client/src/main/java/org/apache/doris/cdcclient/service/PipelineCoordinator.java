@@ -17,32 +17,31 @@
 
 package org.apache.doris.cdcclient.service;
 
+import static org.apache.flink.cdc.connectors.mysql.source.assigners.MySqlBinlogSplitAssigner.BINLOG_SPLIT_ID;
+
+import io.debezium.data.Envelope;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.doris.cdcclient.common.Env;
-import org.apache.doris.cdcclient.model.JobConfig;
-import org.apache.doris.cdcclient.model.req.FetchRecordReq;
-import org.apache.doris.cdcclient.model.req.WriteRecordReq;
-import org.apache.doris.cdcclient.model.resp.RecordWithMeta;
-import org.apache.doris.cdcclient.model.resp.WriteMetaResp;
+import org.apache.doris.cdcclient.model.request.FetchRecordReq;
+import org.apache.doris.cdcclient.model.request.WriteRecordReq;
+import org.apache.doris.cdcclient.model.response.RecordWithMeta;
+import org.apache.doris.cdcclient.model.response.WriteMetaResp;
 import org.apache.doris.cdcclient.sink.DorisBatchStreamLoad;
 import org.apache.doris.cdcclient.source.deserialize.DebeziumJsonDeserializer;
 import org.apache.doris.cdcclient.source.deserialize.SourceRecordDeserializer;
 import org.apache.doris.cdcclient.source.reader.SourceReader;
 import org.apache.doris.cdcclient.source.reader.SplitReadResult;
-
-import io.debezium.data.Envelope;
-import org.apache.commons.collections.CollectionUtils;
 import org.apache.flink.cdc.connectors.mysql.source.utils.RecordUtils;
 import org.apache.kafka.connect.data.Struct;
 import org.apache.kafka.connect.source.SourceRecord;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
-
-import java.util.HashMap;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 
 /** Pipeline coordinator. */
 @Component
@@ -61,72 +60,92 @@ public class PipelineCoordinator {
 
     /** Read data from SourceReader and return it with meta information. */
     public RecordWithMeta read(FetchRecordReq recordReq) throws Exception {
-        SourceReader<?, ?> reader =
-                Env.getCurrentEnv()
-                        .getReader(
-                                recordReq.getJobId(),
-                                recordReq.getDataSource(),
-                                recordReq.getConfig());
+        SourceReader<?, ?> reader = Env.getCurrentEnv().getReader(recordReq);
         return reader.read(recordReq);
     }
 
     /** Read data from SourceReader and write it to Doris, while returning meta information. */
-    public WriteMetaResp readAndWrite(WriteRecordReq writeRecordReq) throws Exception {
-        SourceReader<?, ?> sourceReader =
-                Env.getCurrentEnv()
-                        .getReader(
-                                writeRecordReq.getJobId(),
-                                writeRecordReq.getDataSource(),
-                                writeRecordReq.getConfig());
-        JobConfig jobConfig =
-                new JobConfig(
-                        writeRecordReq.getJobId(),
-                        writeRecordReq.getDataSource(),
-                        writeRecordReq.getConfig());
-
-        Map<String, String> offsetMeta = writeRecordReq.getMeta();
+    public WriteMetaResp writeRecords(WriteRecordReq writeRecordReq) throws Exception {
+        SourceReader<?, ?> sourceReader = Env.getCurrentEnv().getReader(writeRecordReq);
         WriteMetaResp recordResponse = new WriteMetaResp();
-
         SplitReadResult<?, ?> readResult = sourceReader.readSplitRecords(writeRecordReq);
-
-        if (readResult == null || readResult.isEmpty()) {
-            setDefaultMeta(recordResponse, offsetMeta, readResult);
-            return recordResponse;
-        }
 
         DorisBatchStreamLoad batchStreamLoad =
                 getOrCreateBatchStreamLoad(writeRecordReq.getJobId());
         boolean readBinlog = readResult.isReadBinlog();
         boolean pureBinlogPhase = readResult.isPureBinlogPhase();
 
-        // 直接使用迭代器，边读边写
+        boolean hasData = false;
+        // Record start time for maxInterval check
+        long startTime = System.currentTimeMillis();
+        long maxIntervalMillis = writeRecordReq.getMaxInterval() * 1000;
+
+        // Use iterators to read and write.
         Iterator<SourceRecord> iterator = readResult.getRecordIterator();
         while (iterator != null && iterator.hasNext()) {
             SourceRecord element = iterator.next();
             if (RecordUtils.isDataChangeRecord(element)) {
                 List<String> serializedRecords =
-                        serializer.deserialize(jobConfig.getConfig(), element);
+                        serializer.deserialize(writeRecordReq.getConfig(), element);
                 if (!CollectionUtils.isEmpty(serializedRecords)) {
-                    String database = "doris_cdc"; // doris database
+                    String database = writeRecordReq.getTargetDatabase();
                     String table = extractTable(element);
-
+                    hasData = true;
                     for (String record : serializedRecords) {
                         batchStreamLoad.writeRecord(database, table, record.getBytes());
                     }
 
                     Map<String, String> lastMeta =
                             RecordUtils.getBinlogPosition(element).getOffset();
-                    if (readBinlog && readResult.getSplitId() != null) {
-                        lastMeta.put(SPLIT_ID, readResult.getSplitId());
+                    if (readBinlog && sourceReader.getSplitId(readResult.getSplit()) != null) {
+                        lastMeta.put(SPLIT_ID, sourceReader.getSplitId(readResult.getSplit()));
                         lastMeta.put(PURE_BINLOG_PHASE, String.valueOf(pureBinlogPhase));
                     }
                     recordResponse.setMeta(lastMeta);
                 }
             }
+            // Check if maxInterval has been exceeded
+            long elapsedTime = System.currentTimeMillis() - startTime;
+            if (maxIntervalMillis > 0 && elapsedTime >= maxIntervalMillis) {
+                LOG.info(
+                        "Max interval {} seconds reached, stopping data reading",
+                        writeRecordReq.getMaxInterval());
+                break;
+            }
+        }
+        if (hasData) {
+            // wait all stream load finish
+            batchStreamLoad.forceFlush();
         }
 
-        // wait stream load finish
-        batchStreamLoad.forceFlush();
+        sourceReader.finishSplitRecords();
+        // update offset meta
+        if (!readBinlog) {
+            Map<String, String> offsetRes =
+                    sourceReader.extractSnapshotOffset(
+                            readResult.getSplitState(), readResult.getSplit());
+            if (offsetRes != null) {
+                recordResponse.setMeta(offsetRes);
+            }
+        }
+
+        if (!hasData) {
+            if (readBinlog) {
+                Map<String, String> offsetRes =
+                        sourceReader.extractBinlogOffset(readResult.getSplit(), pureBinlogPhase);
+                if (offsetRes != null) {
+                    recordResponse.setMeta(offsetRes);
+                } else {
+                    // Fallback to request meta if extraction fails
+                    Map<String, String> fallbackOffset = new HashMap<>(writeRecordReq.getMeta());
+                    fallbackOffset.put(SPLIT_ID, BINLOG_SPLIT_ID);
+                    fallbackOffset.put(PURE_BINLOG_PHASE, String.valueOf(pureBinlogPhase));
+                    recordResponse.setMeta(fallbackOffset);
+                }
+            } else {
+                recordResponse.setMeta(writeRecordReq.getMeta());
+            }
+        }
         return recordResponse;
     }
 
@@ -135,7 +154,7 @@ public class PipelineCoordinator {
                 jobId,
                 k -> {
                     LOG.info("Create DorisBatchStreamLoad for jobId={}", jobId);
-                    return new DorisBatchStreamLoad();
+                    return new DorisBatchStreamLoad(jobId);
                 });
     }
 
@@ -144,33 +163,6 @@ public class PipelineCoordinator {
         if (batchStreamLoad != null) {
             LOG.info("Close DorisBatchStreamLoad for jobId={}", jobId);
             batchStreamLoad.close();
-        }
-    }
-
-    private void setDefaultMeta(
-            WriteMetaResp recordResponse,
-            Map<String, String> offsetMeta,
-            SplitReadResult<?, ?> readResult) {
-        if (readResult == null) {
-            recordResponse.setMeta(offsetMeta);
-            return;
-        }
-
-        boolean readBinlog = readResult.isReadBinlog();
-        if (readBinlog) {
-            Map<String, String> offsetRes;
-            if (readResult.getDefaultOffset() != null) {
-                offsetRes = new HashMap<>(readResult.getDefaultOffset());
-            } else {
-                offsetRes = new HashMap<>(offsetMeta);
-            }
-            if (readResult.getSplitId() != null) {
-                offsetRes.put(SPLIT_ID, readResult.getSplitId());
-            }
-            offsetRes.put(PURE_BINLOG_PHASE, String.valueOf(readResult.isPureBinlogPhase()));
-            recordResponse.setMeta(offsetRes);
-        } else {
-            recordResponse.setMeta(offsetMeta);
         }
     }
 

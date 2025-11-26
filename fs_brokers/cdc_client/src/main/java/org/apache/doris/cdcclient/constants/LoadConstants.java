@@ -23,7 +23,8 @@ public class LoadConstants {
     public static final String PORT = "port";
     public static final String USERNAME = "username";
     public static final String PASSWORD = "password";
-    public static final String DATABASE_NAME = "database";
-    public static final String INCLUDE_TABLES_LIST = "include_tables";
-    public static final String EXCLUDE_TABLES_LIST = "exclude_tables";
+    public static final String DATABASE = "database";
+    public static final String INCLUDE_TABLES = "include_tables";
+    public static final String EXCLUDE_TABLES = "exclude_tables";
+    public static final String SPLIT_SIZE = "split_size";
 }

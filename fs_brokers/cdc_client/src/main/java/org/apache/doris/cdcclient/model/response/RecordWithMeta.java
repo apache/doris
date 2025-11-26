@@ -15,11 +15,21 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.cdcclient.model.req;
+package org.apache.doris.cdcclient.model.response;
 
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import lombok.Data;
-import lombok.EqualsAndHashCode;
 
 @Data
-@EqualsAndHashCode(callSuper = true)
-public class WriteRecordReq extends BaseRecordReq {}
+public class RecordWithMeta {
+    private Map<String, String> meta;
+    private List<String> records;
+
+    public RecordWithMeta() {
+        this.meta = new HashMap<>();
+        this.records = new ArrayList<>();
+    }
+}
