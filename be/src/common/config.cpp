@@ -1574,6 +1574,8 @@ DEFINE_mBool(enable_wal_tde, "false");
 DEFINE_mBool(enable_prefill_output_dbm_agg_cache_after_compaction, "true");
 DEFINE_mBool(enable_prefill_all_dbm_agg_cache_after_compaction, "true");
 
+DEFINE_mBool(prefetch_segment_footer, "true");
+
 // clang-format off
 #ifdef BE_TEST
 // test s3

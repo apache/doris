@@ -25,6 +25,7 @@
 #include <aws/s3/model/GetObjectResult.h>
 #include <bvar/latency_recorder.h>
 #include <bvar/reducer.h>
+#include <bvar/window.h>
 #include <fmt/format.h>
 #include <glog/logging.h>
 
@@ -49,6 +50,7 @@ bvar::Adder<uint64_t> s3_file_reader_read_counter("s3_file_reader", "read_at");
 bvar::Adder<uint64_t> s3_file_reader_total("s3_file_reader", "total_num");
 bvar::Adder<uint64_t> s3_bytes_read_total("s3_file_reader", "bytes_read");
 bvar::Adder<uint64_t> s3_file_being_read("s3_file_reader", "file_being_read");
+bvar::Adder<uint64_t> s3_file_reader_read_active_counter("s3_file_reader", "read_active_num");
 bvar::Adder<uint64_t> s3_file_reader_too_many_request_counter("s3_file_reader", "too_many_request");
 bvar::LatencyRecorder s3_bytes_per_read("s3_file_reader", "bytes_per_read"); // also QPS
 bvar::PerSecond<bvar::Adder<uint64_t>> s3_read_througthput("s3_file_reader", "s3_read_throughput",
@@ -123,6 +125,9 @@ Status S3FileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_rea
     if (!client) {
         return Status::InternalError("init s3 client error");
     }
+
+    s3_file_reader_read_active_counter << 1;
+    Defer _ = [&]() { s3_file_reader_read_active_counter << -1; };
 
     int retry_count = 0;
     const int base_wait_time = config::s3_read_base_wait_time_ms; // Base wait time in milliseconds

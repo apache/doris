@@ -390,6 +390,11 @@ Status Segment::_write_error_file(size_t file_size, size_t offset, size_t bytes_
 
 Status Segment::_parse_footer(std::shared_ptr<SegmentFooterPB>& footer,
                               OlapReaderStatistics* stats) {
+    // Update parse footer count
+    if (stats) {
+        stats->parse_footer_count++;
+    }
+
     // Footer := SegmentFooterPB, FooterPBSize(4), FooterPBChecksum(4), MagicNumber(4)
     auto file_size = _file_reader->size();
     if (file_size < 12) {
@@ -403,8 +408,11 @@ Status Segment::_parse_footer(std::shared_ptr<SegmentFooterPB>& footer,
     // TODO(plat1ko): Support session variable `enable_file_cache`
     io::IOContext io_ctx {.is_index_data = true,
                           .file_cache_stats = stats ? &stats->file_cache_stats : nullptr};
-    RETURN_IF_ERROR(
-            _file_reader->read_at(file_size - 12, Slice(fixed_buf, 12), &bytes_read, &io_ctx));
+    {
+        SCOPED_RAW_TIMER(stats ? &stats->parse_footer_read_fixed_timer_ns : nullptr);
+        RETURN_IF_ERROR(
+                _file_reader->read_at(file_size - 12, Slice(fixed_buf, 12), &bytes_read, &io_ctx));
+    }
     DCHECK_EQ(bytes_read, 12);
     TEST_SYNC_POINT_CALLBACK("Segment::parse_footer:magic_number_corruption", fixed_buf);
     TEST_INJECTION_POINT_CALLBACK("Segment::parse_footer:magic_number_corruption_inj", fixed_buf);
@@ -422,6 +430,9 @@ Status Segment::_parse_footer(std::shared_ptr<SegmentFooterPB>& footer,
 
     // read footer PB
     uint32_t footer_length = decode_fixed32_le(fixed_buf);
+    if (stats) {
+        stats->parse_footer_total_bytes += footer_length;
+    }
     if (file_size < 12 + footer_length) {
         Status st =
                 _write_error_file(file_size, file_size - 12, bytes_read, (char*)fixed_buf, io_ctx);
@@ -435,8 +446,11 @@ Status Segment::_parse_footer(std::shared_ptr<SegmentFooterPB>& footer,
 
     std::string footer_buf;
     footer_buf.resize(footer_length);
-    RETURN_IF_ERROR(_file_reader->read_at(file_size - 12 - footer_length, footer_buf, &bytes_read,
-                                          &io_ctx));
+    {
+        SCOPED_RAW_TIMER(stats ? &stats->parse_footer_read_footer_timer_ns : nullptr);
+        RETURN_IF_ERROR(_file_reader->read_at(file_size - 12 - footer_length, footer_buf,
+                                              &bytes_read, &io_ctx));
+    }
     DCHECK_EQ(bytes_read, footer_length);
 
     // validate footer PB's checksum
@@ -948,22 +962,6 @@ Status Segment::read_key_by_rowid(uint32_t row_id, std::string* key) {
         *key = sought_key_without_rowid.to_string();
     }
     return Status::OK();
-}
-
-bool Segment::same_with_storage_type(int32_t cid, const Schema& schema, bool read_flat_leaves) {
-    const auto* col = schema.column(cid);
-    auto file_column_type = get_data_type_of(col->get_desc(), read_flat_leaves);
-    auto expected_type = Schema::get_data_type_ptr(*col);
-#ifndef NDEBUG
-    if (file_column_type && !file_column_type->equals(*expected_type)) {
-        VLOG_DEBUG << fmt::format("Get column {}, file column type {}, exepected type {}",
-                                  col->name(), file_column_type->get_name(),
-                                  expected_type->get_name());
-    }
-#endif
-    bool same =
-            (!file_column_type) || (file_column_type && file_column_type->equals(*expected_type));
-    return same;
 }
 
 Status Segment::seek_and_read_by_rowid(const TabletSchema& schema, SlotDescriptor* slot,

@@ -362,6 +362,20 @@ struct OlapReaderStatistics {
     int64_t total_pages_num = 0;
     int64_t cached_pages_num = 0;
 
+    int64_t data_pages_num = 0;
+    int64_t index_pages_num = 0;
+    int64_t dict_pages_num = 0;
+    int64_t short_key_pages_num = 0;
+
+    int64_t data_page_compressed_bytes_read = 0;
+    int64_t data_page_uncompressed_bytes_read = 0;
+    int64_t index_page_compressed_bytes_read = 0;
+    int64_t index_page_uncompressed_bytes_read = 0;
+    int64_t dict_page_compressed_bytes_read = 0;
+    int64_t dict_page_uncompressed_bytes_read = 0;
+    int64_t short_key_page_compressed_bytes_read = 0;
+    int64_t short_key_page_uncompressed_bytes_read = 0;
+
     int64_t rows_bitmap_index_filtered = 0;
     int64_t bitmap_index_filter_timer = 0;
 
@@ -419,6 +433,13 @@ struct OlapReaderStatistics {
 
     int64_t segment_create_column_readers_timer_ns = 0;
     int64_t segment_load_index_timer_ns = 0;
+    int64_t load_ordinal_index_timer_ns = 0;
+    int64_t load_zone_map_index_timer_ns = 0;
+
+    int64_t parse_footer_count = 0;
+    int64_t parse_footer_total_bytes = 0;
+    int64_t parse_footer_read_fixed_timer_ns = 0;
+    int64_t parse_footer_read_footer_timer_ns = 0;
 };
 
 using ColumnId = uint32_t;

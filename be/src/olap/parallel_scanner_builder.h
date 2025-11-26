@@ -64,6 +64,8 @@ public:
 
     void set_min_rows_per_scanner(int64_t size) { _min_rows_per_scanner = size; }
 
+    const OlapReaderStatistics* builder_stats() const { return &_builder_stats; }
+
 private:
     Status _load();
 
@@ -88,6 +90,7 @@ private:
     std::map<RowsetId, std::vector<size_t>> _all_segments_rows;
 
     std::shared_ptr<RuntimeProfile> _scanner_profile;
+    OlapReaderStatistics _builder_stats;
     RuntimeState* _state;
     int64_t _limit;
     bool _is_dup_mow_key;
