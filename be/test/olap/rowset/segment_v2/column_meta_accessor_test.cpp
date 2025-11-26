@@ -25,6 +25,7 @@
 
 #include "io/fs/local_file_system.h"
 #include "olap/rowset/segment_v2/segment.h"
+#include "olap/rowset/segment_v2/segment_writer.h"
 #include "util/coding.h"
 #include "util/crc32c.h"
 
@@ -90,6 +91,25 @@ Status read_footer_from_file(const io::FileReaderSPtr& fr, SegmentFooterPB* foot
 }
 
 } // namespace
+
+namespace doris {
+
+using Generator = std::function<void(size_t rid, int cid, RowCursorCell& cell)>;
+
+// Helper declarations are defined in tablet_schema_helper.{h,cpp} and
+// delete_bitmap_calculator_test.cpp.
+TabletSchemaSPtr create_schema(const std::vector<TabletColumnPtr>& columns,
+                               KeysType keys_type = UNIQUE_KEYS);
+
+void build_segment(SegmentWriterOptions opts, TabletSchemaSPtr build_schema, size_t segment_id,
+                   TabletSchemaSPtr query_schema, size_t nrows, Generator generator,
+                   std::shared_ptr<Segment>* res, std::string segment_dir);
+
+void build_segment(SegmentWriterOptions opts, TabletSchemaSPtr build_schema, size_t segment_id,
+                   TabletSchemaSPtr query_schema, size_t nrows, Generator generator,
+                   std::shared_ptr<Segment>* res, std::string segment_dir, std::string* out_path);
+
+} // namespace doris
 
 // Test V2 (inline) mode with valid column metadata
 TEST(ColumnMetaAccessorTest, V2_BasicInlineColumns) {
@@ -563,6 +583,98 @@ TEST(ColumnMetaAccessorTest, LargeNumberOfColumns) {
     int count = 0;
     ASSERT_TRUE(accessor.traverse_metas(footer, [&](const ColumnMetaPB&) { count++; }).ok());
     EXPECT_EQ(count, num_columns);
+}
+
+// Compare footer size with and without external ColumnMetaPB region under high column count
+// using real segments written by SegmentWriter.
+// This test builds two real segments (inline V2 vs external V3 layout) on disk:
+// - schema has 10,00 INT columns
+// - each column has 1,000 rows of data
+// and verifies that the external layout significantly reduces the proto size of the footer.
+TEST(ColumnMetaAccessorTest, FooterSizeWithManyColumnsExternalVsInline) {
+    constexpr int kNumColumns = 1000;
+    constexpr int kNumRowsPerColumn = 100;
+
+    // Ensure test directory exists before building real segments.
+    {
+        auto fs = io::global_local_filesystem();
+        static_cast<void>(fs->delete_directory(kTestDir));
+        ASSERT_TRUE(fs->create_directory(kTestDir).ok());
+    }
+
+    // 1. Build common TabletSchema with many INT columns.
+    std::vector<TabletColumnPtr> columns;
+    columns.reserve(kNumColumns);
+    for (int i = 0; i < kNumColumns; ++i) {
+        auto col = std::make_shared<TabletColumn>();
+        col->set_unique_id(i);
+        col->set_name(fmt::format("c{}", i));
+        col->set_type(FieldType::OLAP_FIELD_TYPE_INT);
+        // Mark the first column as key so that SegmentWriter produces non-empty
+        // min/max encoded keys, which are asserted inside the shared build_segment helper.
+        col->set_is_key(i == 0);
+        col->set_is_nullable(true);
+        col->set_length(4);
+        // Set index_length for key columns so SegmentWriter can build key index properly.
+        col->set_index_length(4);
+        columns.emplace_back(std::move(col));
+    }
+
+    TabletSchemaSPtr inline_schema = create_schema(columns, UNIQUE_KEYS);
+    TabletSchemaSPtr external_schema = create_schema(columns, UNIQUE_KEYS);
+    // Enable external ColumnMetaPB for the second schema so that SegmentWriter
+    // produces a V3 footer with externalized column meta region.
+    external_schema->set_external_segment_meta_used_default(true);
+
+    // 2. Common SegmentWriter options and row generator.
+    SegmentWriterOptions opts;
+    opts.enable_unique_key_merge_on_write = false;
+
+    auto generator = [](size_t rid, int cid, RowCursorCell& cell) {
+        cell.set_not_null();
+        // deterministic int payload: value = rid * 10 + cid
+        *reinterpret_cast<int*>(cell.mutable_cell_ptr()) = static_cast<int>(rid * 10 + cid);
+    };
+
+    // 3. Build inline segment (V2 footer, inline ColumnMetaPB).
+    std::shared_ptr<Segment> inline_segment;
+    std::string inline_segment_path;
+    build_segment(opts, inline_schema,
+                  /*segment_id=*/0, inline_schema, kNumRowsPerColumn, generator, &inline_segment,
+                  std::string(kTestDir), &inline_segment_path);
+    ASSERT_NE(inline_segment, nullptr);
+
+    // 4. Build external segment (V3 footer, external ColumnMetaPB).
+    std::shared_ptr<Segment> external_segment;
+    std::string external_segment_path;
+    build_segment(opts, external_schema,
+                  /*segment_id=*/1, external_schema, kNumRowsPerColumn, generator,
+                  &external_segment, std::string(kTestDir), &external_segment_path);
+    ASSERT_NE(external_segment, nullptr);
+
+    // 5. Read footers back from real segment files and compare proto sizes.
+    auto fs = io::global_local_filesystem();
+    io::FileReaderSPtr fr_inline;
+    io::FileReaderSPtr fr_external;
+    io::FileReaderOptions reader_opts;
+
+    ASSERT_TRUE(fs->open_file(inline_segment_path, &fr_inline, &reader_opts).ok());
+    ASSERT_TRUE(fs->open_file(external_segment_path, &fr_external, &reader_opts).ok());
+
+    SegmentFooterPB inline_footer;
+    SegmentFooterPB external_footer;
+    ASSERT_TRUE(read_footer_from_file(fr_inline, &inline_footer).ok());
+    ASSERT_TRUE(read_footer_from_file(fr_external, &external_footer).ok());
+
+    const size_t inline_footer_size = inline_footer.ByteSizeLong();
+    const size_t external_footer_size = external_footer.ByteSizeLong();
+
+    std::cout << "Real segment footer size with " << kNumColumns
+              << " columns (inline vs external): inline=" << inline_footer_size
+              << " bytes, external=" << external_footer_size << " bytes" << std::endl;
+
+    // External layout should significantly reduce the proto size of the footer.
+    EXPECT_LT(external_footer_size, inline_footer_size / 10);
 }
 
 // Test concurrent access (thread safety not guaranteed by ColumnMetaAccessor itself,
