@@ -20,17 +20,14 @@ package org.apache.doris.datasource.connectivity;
 import org.apache.doris.datasource.property.metastore.AbstractIcebergProperties;
 import org.apache.doris.datasource.property.metastore.IcebergRestProperties;
 
-import org.apache.commons.lang3.StringUtils;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.rest.RESTSessionCatalog;
 
 import java.util.Map;
-import java.util.regex.Pattern;
 
 public class IcebergRestConnectivityTester extends AbstractIcebergConnectivityTester {
     // For Polaris REST catalog compatibility
     private static final String DEFAULT_BASE_LOCATION = "default-base-location";
-    private static final Pattern LOCATION_PATTERN = Pattern.compile("^(s3|s3a)://.+");
 
     private String warehouseLocation;
 
@@ -41,6 +38,12 @@ public class IcebergRestConnectivityTester extends AbstractIcebergConnectivityTe
     @Override
     public String getTestType() {
         return "Iceberg REST";
+    }
+
+    @Override
+    public String getErrorHint() {
+        return "Please check Iceberg REST Catalog URI, authentication credentials (OAuth2 or SigV4), "
+                + "warehouse location, and endpoint connectivity";
     }
 
     @Override
@@ -69,17 +72,5 @@ public class IcebergRestConnectivityTester extends AbstractIcebergConnectivityTe
         }
         // If configured warehouse is not valid, fallback to REST API warehouse (already validated)
         return this.warehouseLocation;
-    }
-
-    /**
-     * Validate if the given location is a valid storage URI.
-     * This method is specific to IcebergRestConnectivityTester because it needs to
-     * validate warehouse locations returned from REST API.
-     */
-    private String validateLocation(String location) {
-        if (StringUtils.isNotBlank(location) && LOCATION_PATTERN.matcher(location).matches()) {
-            return location;
-        }
-        return null;
     }
 }

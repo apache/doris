@@ -276,6 +276,9 @@ DataTypePtr FunctionBuilderImpl::get_return_type(const ColumnsWithTypeAndName& a
                     create_block_with_nested_columns(Block(arguments), numbers, false);
             auto return_type = get_return_type_impl(
                     ColumnsWithTypeAndName(nested_block.begin(), nested_block.end()));
+            if (!return_type) {
+                return nullptr;
+            }
             return make_nullable(return_type);
         }
     }

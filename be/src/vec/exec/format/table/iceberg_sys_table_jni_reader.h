@@ -51,8 +51,7 @@ public:
 
     ~IcebergSysTableJniReader() override = default;
 
-    Status init_reader(
-            const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range);
+    Status init_reader();
 
 private:
     const TMetaScanRange& _meta_scan_range;

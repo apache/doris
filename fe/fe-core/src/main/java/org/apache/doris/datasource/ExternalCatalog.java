@@ -126,7 +126,8 @@ public abstract class ExternalCatalog
     // Properties that should not be shown in the `show create catalog` result
     public static final Set<String> HIDDEN_PROPERTIES = Sets.newHashSet(
             CREATE_TIME,
-            USE_META_CACHE);
+            USE_META_CACHE,
+            CatalogProperty.ENABLE_MAPPING_VARBINARY);
 
     protected static final int ICEBERG_CATALOG_EXECUTOR_THREAD_NUM = Runtime.getRuntime().availableProcessors();
 
@@ -242,6 +243,13 @@ public abstract class ExternalCatalog
         // set default value to true, no matter is replaying or not.
         // After 4.0, all external catalogs will use meta cache by default.
         catalogProperty.addProperty(USE_META_CACHE, String.valueOf(DEFAULT_USE_META_CACHE));
+        if (catalogProperty.getOrDefault(CatalogProperty.ENABLE_MAPPING_VARBINARY, "").isEmpty()) {
+            catalogProperty.setEnableMappingVarbinary(false);
+        }
+    }
+
+    public boolean getEnableMappingVarbinary() {
+        return catalogProperty.getEnableMappingVarbinary();
     }
 
     // we need check auth fallback for kerberos or simple

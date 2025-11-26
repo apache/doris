@@ -150,7 +150,9 @@ public:
                    const int32_t row_group_id, const tparquet::RowGroup& row_group,
                    const cctz::time_zone* ctz, io::IOContext* io_ctx,
                    const PositionDeleteContext& position_delete_ctx,
-                   const LazyReadContext& lazy_read_ctx, RuntimeState* state);
+                   const LazyReadContext& lazy_read_ctx, RuntimeState* state,
+                   const std::set<uint64_t>& column_ids,
+                   const std::set<uint64_t>& filter_column_ids);
 
     ~RowGroupReader();
     Status init(const FieldDescriptor& schema, RowRanges& row_ranges,
@@ -187,9 +189,11 @@ protected:
 private:
     Status _read_empty_batch(size_t batch_size, size_t* read_rows, bool* batch_eof,
                              bool* modify_row_ids);
+
     Status _read_column_data(Block* block, const std::vector<std::string>& columns,
                              size_t batch_size, size_t* read_rows, bool* batch_eof,
                              FilterMap& filter_map);
+
     Status _do_lazy_read(Block* block, size_t batch_size, size_t* read_rows, bool* batch_eof);
     Status _rebuild_filter_map(FilterMap& filter_map,
                                DorisUniqueBufferPtr<uint8_t>& filter_map_data,
@@ -248,6 +252,8 @@ private:
     std::vector<std::pair<std::string, int>> _dict_filter_cols;
     RuntimeState* _state = nullptr;
     std::shared_ptr<ObjectPool> _obj_pool;
+    const std::set<uint64_t>& _column_ids;
+    const std::set<uint64_t>& _filter_column_ids;
     bool _is_row_group_filtered = false;
 
     RowGroupIndex _current_row_group_idx {0, 0, 0};

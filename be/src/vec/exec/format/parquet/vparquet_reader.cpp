@@ -243,12 +243,14 @@ Status ParquetReader::_open_file() {
                                      _scan_range.path, _tracing_file_reader->size());
         }
         size_t meta_size = 0;
+        bool enable_mapping_varbinary = _scan_params.__isset.enable_mapping_varbinary
+                                                ? _scan_params.enable_mapping_varbinary
+                                                : false;
         if (_meta_cache == nullptr) {
             // wrap _file_metadata with unique ptr, so that it can be released finally.
             RETURN_IF_ERROR(parse_thrift_footer(_tracing_file_reader, &_file_metadata_ptr,
-                                                &meta_size, _io_ctx));
+                                                &meta_size, _io_ctx, enable_mapping_varbinary));
             _file_metadata = _file_metadata_ptr.get();
-
             _column_statistics.read_bytes += meta_size;
             // parse magic number & parse meta data
             _statistics.file_footer_read_calls += 1;
@@ -257,7 +259,7 @@ Status ParquetReader::_open_file() {
                     FileMetaCache::get_key(_tracing_file_reader, _file_description);
             if (!_meta_cache->lookup(file_meta_cache_key, &_meta_cache_handle)) {
                 RETURN_IF_ERROR(parse_thrift_footer(_file_reader, &_file_metadata_ptr, &meta_size,
-                                                    _io_ctx));
+                                                    _io_ctx, enable_mapping_varbinary));
                 // _file_metadata_ptr.release() : move control of _file_metadata to _meta_cache_handle
                 _meta_cache->insert(file_meta_cache_key, _file_metadata_ptr.release(),
                                     &_meta_cache_handle);
@@ -317,7 +319,8 @@ Status ParquetReader::init_reader(
         const std::unordered_map<std::string, int>* colname_to_slot_id,
         const VExprContextSPtrs* not_single_slot_filter_conjuncts,
         const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts,
-        std::shared_ptr<TableSchemaChangeHelper::Node> table_info_node_ptr, bool filter_groups) {
+        std::shared_ptr<TableSchemaChangeHelper::Node> table_info_node_ptr, bool filter_groups,
+        const std::set<uint64_t>& column_ids, const std::set<uint64_t>& filter_column_ids) {
     _tuple_descriptor = tuple_descriptor;
     _row_descriptor = row_descriptor;
     _colname_to_slot_id = colname_to_slot_id;
@@ -325,6 +328,8 @@ Status ParquetReader::init_reader(
     _slot_id_to_filter_conjuncts = slot_id_to_filter_conjuncts;
     _table_info_node_ptr = table_info_node_ptr;
     _filter_groups = filter_groups;
+    _column_ids = column_ids;
+    _filter_column_ids = filter_column_ids;
 
     RETURN_IF_ERROR(_open_file());
     _t_metadata = &(_file_metadata->to_thrift());
@@ -353,8 +358,8 @@ Status ParquetReader::init_reader(
         }
     }
     for (int i = 0; i < schema_desc.size(); ++i) {
-        auto name = schema_desc.get_column(i)->name;
-        if (required_file_columns.find(name) != required_file_columns.end()) {
+        const auto& name = schema_desc.get_column(i)->name;
+        if (required_file_columns.contains(name)) {
             _read_file_columns.emplace_back(name);
             _read_table_columns.emplace_back(required_file_columns[name]);
         }
@@ -769,7 +774,7 @@ Status ParquetReader::_next_row_group_reader() {
                                                               _io_ctx->file_reader_stats)
                     : group_file_reader,
             _read_table_columns, _current_row_group_index.row_group_id, row_group, _ctz, _io_ctx,
-            position_delete_ctx, _lazy_read_ctx, _state));
+            position_delete_ctx, _lazy_read_ctx, _state, _column_ids, _filter_column_ids));
     _row_group_eof = false;
 
     _current_group_reader->set_current_row_group_idx(_current_row_group_index);
@@ -789,27 +794,30 @@ std::vector<io::PrefetchRange> ParquetReader::_generate_random_access_ranges(
     size_t total_io_size = 0;
     std::function<void(const FieldSchema*, const tparquet::RowGroup&)> scalar_range =
             [&](const FieldSchema* field, const tparquet::RowGroup& row_group) {
-                if (field->data_type->get_primitive_type() == TYPE_ARRAY) {
-                    scalar_range(&field->children[0], row_group);
-                } else if (field->data_type->get_primitive_type() == TYPE_MAP) {
-                    scalar_range(&field->children[0].children[0], row_group);
-                    scalar_range(&field->children[0].children[1], row_group);
-                } else if (field->data_type->get_primitive_type() == TYPE_STRUCT) {
-                    for (int i = 0; i < field->children.size(); ++i) {
-                        scalar_range(&field->children[i], row_group);
+                if (_column_ids.empty() ||
+                    _column_ids.find(field->get_column_id()) != _column_ids.end()) {
+                    if (field->data_type->get_primitive_type() == TYPE_ARRAY) {
+                        scalar_range(&field->children[0], row_group);
+                    } else if (field->data_type->get_primitive_type() == TYPE_MAP) {
+                        scalar_range(&field->children[0], row_group);
+                        scalar_range(&field->children[1], row_group);
+                    } else if (field->data_type->get_primitive_type() == TYPE_STRUCT) {
+                        for (int i = 0; i < field->children.size(); ++i) {
+                            scalar_range(&field->children[i], row_group);
+                        }
+                    } else {
+                        const tparquet::ColumnChunk& chunk =
+                                row_group.columns[field->physical_column_index];
+                        auto& chunk_meta = chunk.meta_data;
+                        int64_t chunk_start = has_dict_page(chunk_meta)
+                                                      ? chunk_meta.dictionary_page_offset
+                                                      : chunk_meta.data_page_offset;
+                        int64_t chunk_end = chunk_start + chunk_meta.total_compressed_size;
+                        DCHECK_GE(chunk_start, last_chunk_end);
+                        result.emplace_back(chunk_start, chunk_end);
+                        total_io_size += chunk_meta.total_compressed_size;
+                        last_chunk_end = chunk_end;
                     }
-                } else {
-                    const tparquet::ColumnChunk& chunk =
-                            row_group.columns[field->physical_column_index];
-                    auto& chunk_meta = chunk.meta_data;
-                    int64_t chunk_start = has_dict_page(chunk_meta)
-                                                  ? chunk_meta.dictionary_page_offset
-                                                  : chunk_meta.data_page_offset;
-                    int64_t chunk_end = chunk_start + chunk_meta.total_compressed_size;
-                    DCHECK_GE(chunk_start, last_chunk_end);
-                    result.emplace_back(chunk_start, chunk_end);
-                    total_io_size += chunk_meta.total_compressed_size;
-                    last_chunk_end = chunk_end;
                 }
             };
     const tparquet::RowGroup& row_group = _t_metadata->row_groups[group.row_group_id];
