@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.rules.exploration.mv;
 
 import org.apache.doris.catalog.MTMV;
-import org.apache.doris.catalog.constraint.TableIdentifier;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Id;
 import org.apache.doris.common.Pair;
@@ -55,6 +54,7 @@ import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.TableId;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
@@ -213,8 +213,9 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             MaterializationContext materializationContext) throws AnalysisException {
         List<Plan> rewriteResults = new ArrayList<>();
         StructInfo viewStructInfo = materializationContext.getStructInfo();
-        MatchMode matchMode = decideMatchMode(queryStructInfo.getRelations(), viewStructInfo.getRelations());
-        if (MatchMode.COMPLETE != matchMode) {
+        MatchMode matchMode = decideMatchMode(queryStructInfo.getRelations(), viewStructInfo.getRelations(),
+                cascadesContext);
+        if (MatchMode.COMPLETE != matchMode && MatchMode.QUERY_PARTIAL != matchMode) {
             materializationContext.recordFailReason(queryStructInfo, "Match mode is invalid",
                     () -> String.format("matchMode is %s", matchMode));
             return rewriteResults;
@@ -566,12 +567,12 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             Map<Expression, ExpressionInfo> queryExprToInfoMap, CascadesContext cascadesContext) {
         // Firstly, rewrite the target expression using source with inverse mapping
         // then try to use the target expression to represent the query. if any of source expressions
-        // can not be represented by target expressions, return null.
+        // could not be represented by target expressions, return null.
         // generate target to target replacement expression mapping, and change target expression to source based
         List<? extends Expression> sourceShuttledExpressions = ExpressionUtils.shuttleExpressionWithLineage(
                 sourceExpressionsToWrite, sourcePlan, sourcePlanBitSet);
         ExpressionMapping expressionMappingKeySourceBased = targetExpressionMapping.keyPermute(targetToSourceMapping);
-        // target to target replacement expression mapping, because mv is 1:1 so get first element
+        // target to target replacement expression mapping, because mv is 1:1 so get the first element
         List<Map<Expression, Expression>> flattenExpressionMap = expressionMappingKeySourceBased.flattenMap();
         Map<Expression, Expression> targetToTargetReplacementMappingQueryBased =
                 flattenExpressionMap.get(0);
@@ -602,7 +603,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                     targetToTargetReplacementMappingQueryBased);
             Set<Expression> replacedExpressionSlotQueryUsed = replacedExpression.collect(slotsToRewrite::contains);
             if (!replacedExpressionSlotQueryUsed.isEmpty()) {
-                // if contains any slot to rewrite, which means can not be rewritten by target,
+                // if contains any slot to rewrite, which means could not be rewritten by target,
                 // expressionShuttledToRewrite is slot#0 > '2024-01-01' but mv plan output is date_trunc(slot#0, 'day')
                 // which would try to rewrite
                 if (viewExprParamToDateTruncMap.isEmpty()
@@ -617,7 +618,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                 if (!queryExprToInfoMap.containsKey(queryOriginalExpr)
                         || !viewExprParamToDateTruncMap.containsKey(queryShuttledExprParam)) {
                     // query expr contains expression info or mv out contains date_trunc expression,
-                    // if not, can not try to rewritten by view date_trunc, bail out
+                    // if not, could not try to be rewritten by view date_trunc, bail out
                     return ImmutableList.of();
                 }
                 Map<Expression, Expression> datetruncMap = new HashMap<>();
@@ -650,7 +651,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
     }
 
     /**
-     * if query contains variant slot reference, extend the expression mapping for rewrte
+     * if query contains variant slot reference, extend the expression mapping for rewrite
      * such as targetToTargetReplacementMappingQueryBased is
      * id#0 -> id#8
      * type#1 -> type#9
@@ -912,15 +913,15 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
      *
      * @see MatchMode
      */
-    private MatchMode decideMatchMode(List<CatalogRelation> queryRelations, List<CatalogRelation> viewRelations) {
-
-        Set<TableIdentifier> queryTables = new HashSet<>();
+    private MatchMode decideMatchMode(List<CatalogRelation> queryRelations, List<CatalogRelation> viewRelations,
+            CascadesContext cascadesContext) {
+        Set<TableId> queryTables = new HashSet<>();
         for (CatalogRelation catalogRelation : queryRelations) {
-            queryTables.add(new TableIdentifier(catalogRelation.getTable()));
+            queryTables.add(cascadesContext.getStatementContext().getTableId(catalogRelation.getTable()));
         }
-        Set<TableIdentifier> viewTables = new HashSet<>();
+        Set<TableId> viewTables = new HashSet<>();
         for (CatalogRelation catalogRelation : viewRelations) {
-            viewTables.add(new TableIdentifier(catalogRelation.getTable()));
+            viewTables.add(cascadesContext.getStatementContext().getTableId(catalogRelation.getTable()));
         }
         if (queryTables.equals(viewTables)) {
             return MatchMode.COMPLETE;
