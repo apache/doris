@@ -1350,37 +1350,29 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         }
         List<String> colNames = ctx.cols == null ? ImmutableList.of() : visitIdentifierList(ctx.cols);
         LogicalPlan plan = visitQuery(ctx.query());
-        // partitionSpec may be NULL. means auto detect partition. only available when IOT
-        Pair<Boolean, List<String>> partitionSpec = visitPartitionSpec(ctx.partitionSpec());
-        // Extract static partition information if present
-        StaticPartitionDesc staticPartitionDesc = visitStaticPartitionSpec(ctx.partitionSpec());
-        // partitionSpec.second :
-        // null - auto detect
-        // zero - whole table
-        // others - specific partitions
-        boolean isAutoDetect = partitionSpec.second == null;
+
+        // Parse partition specification using unified method
+        InsertPartitionSpec partitionSpec = parseInsertPartitionSpec(ctx.partitionSpec());
 
         LogicalSink<?> sink;
-        // If static partition is specified and it's an overwrite operation, create Iceberg sink with static partition
-        if (staticPartitionDesc != null && staticPartitionDesc.isStaticPartitionOverwrite() && isOverwrite) {
-            // For Iceberg static partition overwrite, create UnboundIcebergTableSink directly
+        // Handle Iceberg static partition overwrite
+        if (partitionSpec.isStaticPartition() && isOverwrite) {
             String catalogName = RelationUtil.getQualifierName(ConnectContext.get(), tableName.build()).get(0);
             CatalogIf<?> curCatalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogName);
             if (curCatalog instanceof IcebergExternalCatalog) {
-                Map<String, Expression> staticPartitions = staticPartitionDesc.getPartitionKeyValues();
                 sink = new UnboundIcebergTableSink<>(tableName.build(), colNames, ImmutableList.of(),
-                        ImmutableList.of(), // partitions (empty for static partition)
+                        ImmutableList.of(),
                         ctx.tableId == null ? DMLCommandType.INSERT : DMLCommandType.GROUP_COMMIT,
-                        Optional.empty(), Optional.empty(), plan, staticPartitions);
+                        Optional.empty(), Optional.empty(), plan, partitionSpec.getStaticPartitionValues());
             } else {
-                // For non-Iceberg tables, fall back to normal creation
+                // For non-Iceberg tables with static partition, fall back to normal creation
                 sink = UnboundTableSinkCreator.createUnboundTableSinkMaybeOverwrite(
                         tableName.build(),
                         colNames,
-                        ImmutableList.of(), // hints
-                        partitionSpec.first, // isTemp
-                        partitionSpec.second, // partition names
-                        isAutoDetect,
+                        ImmutableList.of(),
+                        partitionSpec.isTemporary(),
+                        partitionSpec.getPartitionNames(),
+                        partitionSpec.isAutoDetect(),
                         isOverwrite,
                         ConnectContext.get().getSessionVariable().isEnableUniqueKeyPartialUpdate(),
                         ConnectContext.get().getSessionVariable().getPartialUpdateNewRowPolicy(),
@@ -1388,13 +1380,14 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                         plan);
             }
         } else {
+            // Normal partition handling (auto-detect, dynamic, or no partition)
             sink = UnboundTableSinkCreator.createUnboundTableSinkMaybeOverwrite(
                     tableName.build(),
                     colNames,
-                    ImmutableList.of(), // hints
-                    partitionSpec.first, // isTemp
-                    partitionSpec.second, // partition names
-                    isAutoDetect,
+                    ImmutableList.of(),
+                    partitionSpec.isTemporary(),
+                    partitionSpec.isAutoDetect() ? null : partitionSpec.getPartitionNames(),
+                    partitionSpec.isAutoDetect(),
                     isOverwrite,
                     ConnectContext.get().getSessionVariable().isEnableUniqueKeyPartialUpdate(),
                     ConnectContext.get().getSessionVariable().getPartialUpdateNewRowPolicy(),
@@ -1481,8 +1474,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 partitions = ImmutableList.of(ctx.partition.getText());
             } else if (ctx.partitionKeyValue() != null && !ctx.partitionKeyValue().isEmpty()) {
                 // Static partition: PARTITION (col1='val1', col2='val2')
-                // For backward compatibility, return empty list here
-                // Static partition info will be extracted separately in visitInsertTable
+                // For backward compatibility with callers expecting Pair<Boolean, List<String>>,
+                // return empty list here. Use parseInsertPartitionSpec() for full support.
                 partitions = ImmutableList.of();
             } else {
                 partitions = visitIdentifierList(ctx.partitions);
@@ -1492,42 +1485,49 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     /**
-     * Extract static partition information from PartitionSpecContext
-     * Returns StaticPartitionDesc if static partition syntax is used, null otherwise
+     * Parse partition specification for INSERT statements.
+     * Returns a unified InsertPartitionSpec that handles all partition modes:
+     * - Auto-detect: PARTITION (*)
+     * - Dynamic partition by name: PARTITION (p1, p2)
+     * - Static partition with values: PARTITION (col='val', ...)
+     * - No partition specified
      */
-    public StaticPartitionDesc visitStaticPartitionSpec(PartitionSpecContext ctx) {
+    private InsertPartitionSpec parseInsertPartitionSpec(PartitionSpecContext ctx) {
         if (ctx == null) {
-            return null;
+            return InsertPartitionSpec.none();
         }
 
         boolean isTemporary = ctx.TEMPORARY() != null;
 
-        // Check if this is static partition syntax: PARTITION (col1='val1', col2='val2')
-        // Note: This requires ANTLR to regenerate parser classes after grammar change
-        try {
-            // After ANTLR regeneration, partitionKeyValue() method will be available
-            @SuppressWarnings("unchecked")
-            List<DorisParser.PartitionKeyValueContext> partitionKeyValuesList =
-                    (List<DorisParser.PartitionKeyValueContext>) ctx.getClass()
-                            .getMethod("partitionKeyValue").invoke(ctx);
-            if (partitionKeyValuesList != null && !partitionKeyValuesList.isEmpty()) {
-                Map<String, Expression> partitionKeyValues = Maps.newHashMap();
-                for (DorisParser.PartitionKeyValueContext kvCtx : partitionKeyValuesList) {
-                    String colName = kvCtx.identifier().getText();
-                    Expression valueExpr = typedVisit(kvCtx.expression());
-                    partitionKeyValues.put(colName, valueExpr);
-                }
-                return new StaticPartitionDesc(partitionKeyValues, isTemporary, null);
-            }
-        } catch (NoSuchMethodException | IllegalAccessException | java.lang.reflect.InvocationTargetException e) {
-            // Method doesn't exist yet (ANTLR not regenerated) or other error
-            // This is expected before ANTLR regeneration
-        } catch (Exception e) {
-            // Other errors, not a static partition spec
+        // PARTITION (*)
+        if (ctx.ASTERISK() != null) {
+            return InsertPartitionSpec.autoDetect(isTemporary);
         }
 
-        // For backward compatibility, return null for non-static partition specs
-        return null;
+        // PARTITION partition_name (single partition)
+        if (ctx.partition != null) {
+            return InsertPartitionSpec.dynamicPartition(
+                    ImmutableList.of(ctx.partition.getText()), isTemporary);
+        }
+
+        // PARTITION (col1='val1', col2='val2') - static partition
+        if (ctx.partitionKeyValue() != null && !ctx.partitionKeyValue().isEmpty()) {
+            Map<String, Expression> staticValues = Maps.newLinkedHashMap();
+            for (DorisParser.PartitionKeyValueContext kvCtx : ctx.partitionKeyValue()) {
+                String colName = kvCtx.identifier().getText();
+                Expression valueExpr = typedVisit(kvCtx.expression());
+                staticValues.put(colName, valueExpr);
+            }
+            return InsertPartitionSpec.staticPartition(staticValues, isTemporary);
+        }
+
+        // PARTITION (p1, p2, ...) - dynamic partition list
+        if (ctx.partitions != null) {
+            List<String> partitionNames = visitIdentifierList(ctx.partitions);
+            return InsertPartitionSpec.dynamicPartition(partitionNames, isTemporary);
+        }
+
+        return InsertPartitionSpec.none();
     }
 
     @Override
