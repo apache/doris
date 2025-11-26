@@ -669,7 +669,7 @@ Status VariantColumnReader::new_iterator(ColumnIteratorUPtr* iterator,
 }
 
 Status VariantColumnReader::init(const ColumnReaderOptions& opts, ColumnMetaAccessor* accessor,
-                                 const SegmentFooterPB& footer, int32_t column_uid,
+                                 const std::shared_ptr<SegmentFooterPB>& footer, int32_t column_uid,
                                  uint64_t num_rows, io::FileReaderSPtr file_reader) {
     // init sub columns
     _subcolumns_meta_info = std::make_unique<SubcolumnColumnMetaInfo>();
@@ -679,7 +679,7 @@ Status VariantColumnReader::init(const ColumnReaderOptions& opts, ColumnMetaAcce
     ColumnMetaPB self_column_pb;
     {
         // Locate root column meta by unique id; this hides inline vs external CMO layout.
-        RETURN_IF_ERROR(accessor->get_column_meta_by_uid(footer, column_uid, &self_column_pb));
+        RETURN_IF_ERROR(accessor->get_column_meta_by_uid(*footer, column_uid, &self_column_pb));
         // root column
         // root subcolumn is ColumnVariant::MostCommonType which is jsonb
         vectorized::DataTypePtr root_type =
@@ -732,7 +732,7 @@ Status VariantColumnReader::init(const ColumnReaderOptions& opts, ColumnMetaAcce
                 _statistics->sparse_column_non_null_size.emplace(subpath, size);
             }
             std::shared_ptr<ColumnReader> single_reader;
-            RETURN_IF_ERROR(ColumnReader::create(opts, col, footer.num_rows(), file_reader,
+            RETURN_IF_ERROR(ColumnReader::create(opts, col, footer->num_rows(), file_reader,
                                                  &single_reader));
             _sparse_reader.set_single(std::move(single_reader));
             *handled = true;
@@ -765,8 +765,8 @@ Status VariantColumnReader::init(const ColumnReaderOptions& opts, ColumnMetaAcce
     }
 
     // init from inline columns meta
-    for (int32_t ordinal = 0; ordinal < footer.columns_size(); ++ordinal) {
-        const ColumnMetaPB& column_pb = footer.columns(ordinal);
+    for (int32_t ordinal = 0; ordinal < footer->columns_size(); ++ordinal) {
+        const ColumnMetaPB& column_pb = footer->columns(ordinal);
         // Find all columns belonging to the current variant column
         // 1. not the variant column
         if (!column_pb.has_column_path_info()) {

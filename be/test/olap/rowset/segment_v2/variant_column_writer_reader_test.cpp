@@ -118,7 +118,9 @@ static Status create_variant_root_reader(const SegmentFooterPB& footer,
 
     auto variant_reader = std::make_shared<segment_v2::VariantColumnReader>();
     int32_t root_uid = tablet_schema->column(0).unique_id();
-    RETURN_IF_ERROR(variant_reader->init(opts, &accessor, footer, root_uid, footer.num_rows(),
+    // Wrap footer into shared_ptr to match VariantColumnReader::init signature.
+    auto footer_sp = std::make_shared<SegmentFooterPB>(footer);
+    RETURN_IF_ERROR(variant_reader->init(opts, &accessor, footer_sp, root_uid, footer.num_rows(),
                                          file_reader));
     *out = std::move(variant_reader);
     return Status::OK();

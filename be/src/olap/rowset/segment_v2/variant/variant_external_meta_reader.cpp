@@ -56,23 +56,23 @@ Status VariantExternalMetaReader::_find_key_meta(const SegmentFooterPB& footer, 
     return Status::OK();
 }
 
-Status VariantExternalMetaReader::init_from_footer(const SegmentFooterPB& footer,
+Status VariantExternalMetaReader::init_from_footer(std::shared_ptr<const SegmentFooterPB> footer,
                                                    const io::FileReaderSPtr& file_reader,
                                                    int32_t root_uid) {
-    _footer = &footer;
+    _footer = std::move(footer);
     _file_reader = file_reader;
 
     const MetadataPairPB* keys_meta_pair = nullptr;
-    RETURN_IF_ERROR(_find_key_meta(footer, root_uid, &keys_meta_pair));
+    RETURN_IF_ERROR(_find_key_meta(*_footer, root_uid, &keys_meta_pair));
     // If keys meta is absent, external meta is considered unavailable.
     if (!keys_meta_pair) {
         return Status::OK();
     }
 
     // Parse external Column Meta Region pointers and uid->col_id map.
-    RETURN_IF_ERROR(ExternalColMetaUtil::parse_external_meta_pointers(footer, &_meta_ptrs));
+    RETURN_IF_ERROR(ExternalColMetaUtil::parse_external_meta_pointers(*_footer, &_meta_ptrs));
     std::unordered_map<int32_t, size_t> uid2colid;
-    RETURN_IF_ERROR(ExternalColMetaUtil::parse_uid_to_colid_map(footer, _meta_ptrs, &uid2colid));
+    RETURN_IF_ERROR(ExternalColMetaUtil::parse_uid_to_colid_map(*_footer, _meta_ptrs, &uid2colid));
     auto it = uid2colid.find(root_uid);
     if (it == uid2colid.end()) {
         return Status::Corruption("root uid {} not found in external uid->col_id map", root_uid);

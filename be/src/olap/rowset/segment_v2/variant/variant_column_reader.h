@@ -205,8 +205,8 @@ public:
     VariantColumnReader() = default;
 
     Status init(const ColumnReaderOptions& opts, ColumnMetaAccessor* accessor,
-                const SegmentFooterPB& footer, int32_t column_uid, uint64_t num_rows,
-                io::FileReaderSPtr file_reader);
+                const std::shared_ptr<SegmentFooterPB>& footer, int32_t column_uid,
+                uint64_t num_rows, io::FileReaderSPtr file_reader);
 
     Status new_iterator(ColumnIteratorUPtr* iterator, const TabletColumn* col,
                         const StorageReadOptions* opt) override;

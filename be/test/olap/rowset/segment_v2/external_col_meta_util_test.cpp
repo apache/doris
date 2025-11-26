@@ -315,7 +315,9 @@ TEST(ExternalColMetaUtilTest, VariantExtMetaWriterAndReaderInteropAndCompatibili
     ASSERT_TRUE(st.ok()) << st.to_json();
 
     VariantExternalMetaReader reader_new;
-    st = reader_new.init_from_footer(footer, fr, root_uid);
+    auto footer_sp = std::make_shared<SegmentFooterPB>();
+    footer_sp->CopyFrom(footer);
+    st = reader_new.init_from_footer(footer_sp, fr, root_uid);
     ASSERT_TRUE(st.ok()) << st.to_json();
     ASSERT_TRUE(reader_new.available());
 
@@ -343,7 +345,9 @@ TEST(ExternalColMetaUtilTest, VariantExtMetaWriterAndReaderInteropAndCompatibili
     }
 
     VariantExternalMetaReader reader_legacy;
-    st = reader_legacy.init_from_footer(legacy_footer, fr, root_uid);
+    auto legacy_footer_sp = std::make_shared<SegmentFooterPB>();
+    legacy_footer_sp->CopyFrom(legacy_footer);
+    st = reader_legacy.init_from_footer(legacy_footer_sp, fr, root_uid);
     ASSERT_TRUE(st.ok()) << st.to_json();
     ASSERT_TRUE(reader_legacy.available());
 

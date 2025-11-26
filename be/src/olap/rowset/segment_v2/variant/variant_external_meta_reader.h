@@ -44,8 +44,12 @@ public:
 
     // Initialize by locating and opening ext meta key/value indexed columns.
     // root_uid is used to find suffixed keys like: variant_meta_keys.<root_uid>
-    Status init_from_footer(const SegmentFooterPB& footer, const io::FileReaderSPtr& file_reader,
-                            int32_t root_uid);
+    //
+    // NOTE: footer is kept as shared_ptr to ensure its lifetime is at least as
+    // long as this reader; callers should pass in the same footer shared_ptr
+    // they own (e.g. from Segment::_get_segment_footer).
+    Status init_from_footer(std::shared_ptr<const SegmentFooterPB> footer,
+                            const io::FileReaderSPtr& file_reader, int32_t root_uid);
 
     bool available() const { return _key_reader != nullptr; }
 
@@ -70,9 +74,9 @@ private:
 
     std::unique_ptr<IndexedColumnReader> _key_reader;
 
-    // Pointer to footer to access Column Meta Region info (column_meta_entries)
-    // Must be valid for the lifetime of this reader.
-    const SegmentFooterPB* _footer = nullptr;
+    // Shared footer to access Column Meta Region info (column_meta_entries).
+    // Using shared_ptr prevents dangling pointer when the original owner releases it.
+    std::shared_ptr<const SegmentFooterPB> _footer;
     ExternalColMetaUtil::ExternalMetaPointers _meta_ptrs;
     io::FileReaderSPtr _file_reader;
 

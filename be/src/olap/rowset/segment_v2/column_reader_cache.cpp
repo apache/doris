@@ -128,7 +128,7 @@ Status ColumnReaderCache::get_column_reader(int32_t col_uid,
         // Variant root columns require VariantColumnReader, which encapsulates
         // subcolumn layout, sparse columns and external meta.
         std::unique_ptr<VariantColumnReader> variant_reader(new VariantColumnReader());
-        RETURN_IF_ERROR(variant_reader->init(opts, _accessor, *footer_pb_shared, col_uid, _num_rows,
+        RETURN_IF_ERROR(variant_reader->init(opts, _accessor, footer_pb_shared, col_uid, _num_rows,
                                              _file_reader));
         reader.reset(variant_reader.release());
         VLOG_DEBUG << "insert cache (variant): uid=" << col_uid << " col_id=" << meta.column_id();
