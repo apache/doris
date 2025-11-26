@@ -18,6 +18,7 @@
 #include <fmt/format.h>
 #include <gen_cpp/PlanNodes_types.h>
 #include <gen_cpp/Types_types.h>
+#include <gtest/gtest.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 #include <stddef.h>
@@ -31,6 +32,8 @@
 #include <vector>
 
 #include "common/status.h"
+#include <gtest/gtest.h>
+#include <gtest/gtest.h>
 #include "gtest/gtest_pred_impl.h"
 #include "io/fs/broker_file_system.h"
 #include "io/fs/file_reader.h"

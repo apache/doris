@@ -18,12 +18,15 @@
 #include "util/cgroup_util.h"
 
 #include <glog/logging.h>
+#include <gtest/gtest.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 
 #include <fstream>
 
 #include "common/cgroup_memory_ctl.h"
+#include <gtest/gtest.h>
+#include <gtest/gtest.h>
 #include "gtest/gtest_pred_impl.h"
 #include "testutil/test_util.h"
 #include "util/cgroup_util.h"

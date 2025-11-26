@@ -17,6 +17,7 @@
 
 #include <gen_cpp/types.pb.h>
 #include <glog/logging.h>
+#include <gtest/gtest.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 
@@ -25,6 +26,8 @@
 
 #include "common/config.h"
 #include "gen_cpp/internal_service.pb.h"
+#include <gtest/gtest.h>
+#include <gtest/gtest.h>
 #include "gtest/gtest_pred_impl.h"
 #include "gutil/integral_types.h"
 #include "olap/olap_define.h"

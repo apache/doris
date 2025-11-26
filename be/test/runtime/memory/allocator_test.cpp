@@ -17,11 +17,14 @@
 
 #include "vec/common/allocator.h"
 
+#include <gtest/gtest.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 
 #include <memory>
 
+#include <gtest/gtest.h>
+#include <gtest/gtest.h>
 #include "gtest/gtest_pred_impl.h"
 #include "vec/common/allocator_fwd.h"
 

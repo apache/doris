@@ -24,6 +24,7 @@
 
 #include "common/status.h"
 #include "function_test_util.h"
+#include <gtest/gtest.h>
 #include "gtest/gtest_pred_impl.h"
 #include "udf/udf.h"
 #include "vec/columns/column_const.h"

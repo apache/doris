@@ -19,6 +19,7 @@
 
 #include <gen_cpp/Descriptors_types.h>
 #include <gen_cpp/PaloInternalService_types.h>
+#include <gtest/gtest.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 #include <stdint.h>
@@ -34,6 +35,8 @@
 #include "exec/schema_scanner.h"
 #include "gen_cpp/Exprs_types.h"
 #include "gen_cpp/Types_types.h"
+#include <gtest/gtest.h>
+#include <gtest/gtest.h>
 #include "gtest/gtest_pred_impl.h"
 #include "runtime/descriptors.h"
 #include "runtime/jsonb_value.h"

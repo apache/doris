@@ -16,6 +16,7 @@
 // under the License.
 
 #include <gen_cpp/Types_types.h>
+#include <gtest/gtest.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 #include <stddef.h>
@@ -36,6 +37,8 @@
 
 #include "common/config.h"
 #include "cpp/sync_point.h"
+#include <gtest/gtest.h>
+#include <gtest/gtest.h>
 #include "gtest/gtest_pred_impl.h"
 #include "io/cache/block_file_cache.h"
 #include "util/time.h"

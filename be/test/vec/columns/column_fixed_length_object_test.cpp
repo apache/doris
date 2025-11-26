@@ -18,12 +18,15 @@
 
 #include "vec/columns/column_fixed_length_object.h"
 
+#include <gtest/gtest.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 #include <stddef.h>
 
 #include <memory>
 
+#include <gtest/gtest.h>
+#include <gtest/gtest.h>
 #include "gtest/gtest_pred_impl.h"
 #include "vec/columns/column_vector.h"
 #include "vec/common/sip_hash.h"

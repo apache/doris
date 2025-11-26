@@ -18,6 +18,8 @@
 #include "olap/memtable_memory_limiter.h"
 
 #include "exec/tablet_info.h"
+#include <gtest/gtest.h>
+#include <gtest/gtest.h>
 #include "gtest/gtest_pred_impl.h"
 #include "io/fs/local_file_system.h"
 #include "olap/delta_writer.h"

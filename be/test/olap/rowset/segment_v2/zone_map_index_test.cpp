@@ -17,6 +17,7 @@
 
 #include "olap/rowset/segment_v2/zone_map_index.h"
 
+#include <gtest/gtest.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 #include <string.h>
@@ -25,6 +26,8 @@
 #include <memory>
 #include <string>
 
+#include <gtest/gtest.h>
+#include <gtest/gtest.h>
 #include "gtest/gtest_pred_impl.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"

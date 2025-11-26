@@ -16,6 +16,7 @@
 // under the License.
 
 #include "function_test_util.h"
+#include <gtest/gtest.h>
 #include "gtest/gtest_pred_impl.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_ipv6.h"

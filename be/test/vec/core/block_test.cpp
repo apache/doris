@@ -18,6 +18,7 @@
 #include "vec/core/block.h"
 
 #include <gen_cpp/segment_v2.pb.h>
+#include <gtest/gtest.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 
@@ -29,6 +30,8 @@
 #include "agent/be_exec_version_manager.h"
 #include "common/config.h"
 #include "gen_cpp/data.pb.h"
+#include <gtest/gtest.h>
+#include <gtest/gtest.h>
 #include "gtest/gtest_pred_impl.h"
 #include "util/bitmap_value.h"
 #include "vec/columns/column_array.h"

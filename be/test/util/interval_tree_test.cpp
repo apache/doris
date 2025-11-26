@@ -22,6 +22,7 @@
 #include "util/interval_tree.h"
 
 #include <glog/logging.h>
+#include <gtest/gtest.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 
@@ -35,6 +36,8 @@
 #include <utility>
 #include <vector>
 
+#include <gtest/gtest.h>
+#include <gtest/gtest.h>
 #include "gtest/gtest_pred_impl.h"
 #include "gutil/stringprintf.h"
 #include "gutil/strings/substitute.h"

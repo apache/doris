@@ -156,7 +156,8 @@ TEST_F(DateBloomFilterTest, query_index_test) {
     ASSERT_TRUE(st.ok()) << st; // add_rowset failed
 
     segment_v2::SegmentSharedPtr segment;
-    st = ((BetaRowset*)rowset.get())->load_segment(0, nullptr, &segment);
+    // BetaRowset::load_segment(seg_id, SegmentSharedPtr*, OlapReaderStatistics*)
+    st = ((BetaRowset*)rowset.get())->load_segment(0, &segment, nullptr);
     ASSERT_TRUE(st.ok()) << st; // load_segment failed, segment may be null
     std::shared_ptr<SegmentFooterPB> footer_pb_shared;
     st = segment->_get_segment_footer(footer_pb_shared, nullptr);

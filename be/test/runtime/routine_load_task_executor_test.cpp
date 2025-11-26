@@ -18,6 +18,7 @@
 #include "runtime/routine_load/routine_load_task_executor.h"
 
 #include <gen_cpp/Types_types.h>
+#include <gtest/gtest.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 #include <librdkafka/rdkafkacpp.h>
@@ -30,6 +31,8 @@
 #include "gen_cpp/BackendService_types.h"
 #include "gen_cpp/FrontendService_types.h"
 #include "gen_cpp/HeartbeatService_types.h"
+#include <gtest/gtest.h>
+#include <gtest/gtest.h>
 #include "gtest/gtest_pred_impl.h"
 #include "runtime/exec_env.h"
 #include "runtime/stream_load/new_load_stream_mgr.h"

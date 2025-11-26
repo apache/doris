@@ -17,6 +17,7 @@
 
 #include "io/fs/local_file_system.h"
 
+#include <gtest/gtest.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 #include <gtest/gtest.h>
@@ -31,6 +32,8 @@
 
 #include "common/status.h"
 #include "cpp/sync_point.h"
+#include <gtest/gtest.h>
+#include <gtest/gtest.h>
 #include "gtest/gtest_pred_impl.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_writer.h"

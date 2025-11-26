@@ -16,12 +16,15 @@
 // under the License.
 
 #include <gen_cpp/olap_file.pb.h>
+#include <gtest/gtest.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 
 #include <boost/iterator/iterator_facade.hpp>
 #include <memory>
 
+#include <gtest/gtest.h>
+#include <gtest/gtest.h>
 #include "gtest/gtest_pred_impl.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"

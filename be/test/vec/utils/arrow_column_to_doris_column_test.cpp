@@ -24,6 +24,7 @@
 #include <arrow/result.h>
 #include <arrow/util/bit_util.h>
 #include <assert.h>
+#include <gtest/gtest.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 #include <stdint.h>
@@ -40,6 +41,8 @@
 #include "arrow/array/array_nested.h"
 #include "arrow/type.h"
 #include "arrow/type_traits.h"
+#include <gtest/gtest.h>
+#include <gtest/gtest.h>
 #include "gtest/gtest_pred_impl.h"
 #include "runtime/decimalv2_value.h"
 #include "runtime/types.h"

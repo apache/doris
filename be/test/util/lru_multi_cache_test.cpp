@@ -19,11 +19,14 @@
 // https://github.com/apache/impala/blob/master/be/src/util/lru-multi-cache-test.cc
 // and modified by Doris
 
+#include <gtest/gtest.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 
 #include <memory>
 
+#include <gtest/gtest.h>
+#include <gtest/gtest.h>
 #include "gtest/gtest_pred_impl.h"
 #include "util/lru_multi_cache.inline.h"
 

@@ -17,11 +17,14 @@
 
 #include "vec/olap/vgeneric_iterators.h"
 
+#include <gtest/gtest.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 
 #include <vector>
 
+#include <gtest/gtest.h>
+#include <gtest/gtest.h>
 #include "gtest/gtest_pred_impl.h"
 #include "olap/field.h"
 #include "olap/olap_common.h"

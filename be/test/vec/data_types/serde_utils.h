@@ -17,6 +17,7 @@
 // under the License.
 #pragma once
 
+#include <gtest/gtest.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 

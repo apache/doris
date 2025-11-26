@@ -18,6 +18,7 @@
 #include "vec/columns/column_complex.h"
 
 #include <glog/logging.h>
+#include <gtest/gtest.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 #include <gtest/gtest.h>
@@ -27,6 +28,8 @@
 #include <string>
 
 #include "agent/be_exec_version_manager.h"
+#include <gtest/gtest.h>
+#include <gtest/gtest.h>
 #include "gtest/gtest_pred_impl.h"
 #include "util/bitmap_value.h"
 #include "vec/core/field.h"

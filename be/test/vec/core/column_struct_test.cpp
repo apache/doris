@@ -17,11 +17,14 @@
 
 #include "vec/columns/column_struct.h"
 
+#include <gtest/gtest.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 
 #include <cstddef>
 
+#include <gtest/gtest.h>
+#include <gtest/gtest.h>
 #include "gtest/gtest_pred_impl.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_string.h"

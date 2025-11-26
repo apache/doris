@@ -16,6 +16,7 @@
 // under the License.
 
 #include <glog/logging.h>
+#include <gtest/gtest.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-param-test.h>
 #include <gtest/gtest-test-part.h>
@@ -25,6 +26,8 @@
 #include <string>
 #include <vector>
 
+#include <gtest/gtest.h>
+#include <gtest/gtest.h>
 #include "gtest/gtest_pred_impl.h"
 #include "util/bitmap_value.h"
 #include "vec/aggregate_functions/aggregate_function.h"

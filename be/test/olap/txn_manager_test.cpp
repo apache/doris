@@ -21,6 +21,7 @@
 #include <gen_cpp/olap_file.pb.h>
 #include <gmock/gmock-actions.h>
 #include <gmock/gmock-matchers.h>
+#include <gtest/gtest.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 
@@ -31,6 +32,8 @@
 #include <string>
 
 #include "common/config.h"
+#include <gtest/gtest.h>
+#include <gtest/gtest.h>
 #include "gtest/gtest_pred_impl.h"
 #include "olap/olap_meta.h"
 #include "olap/options.h"

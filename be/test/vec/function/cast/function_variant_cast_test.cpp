@@ -18,6 +18,7 @@
 #include <vector>
 
 #include "common/status.h"
+#include <gtest/gtest.h>
 #include "gtest/gtest_pred_impl.h"
 #include "olap/field.h"
 #include "runtime/define_primitive_type.h"

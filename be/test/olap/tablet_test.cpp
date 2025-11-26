@@ -20,12 +20,15 @@
 #include <gen_cpp/AgentService_types.h>
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/olap_file.pb.h>
+#include <gtest/gtest.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 #include <unistd.h>
 
 #include <memory>
 
+#include <gtest/gtest.h>
+#include <gtest/gtest.h>
 #include "gtest/gtest_pred_impl.h"
 #include "gutil/strings/numbers.h"
 #include "http/action/pad_rowset_action.h"

@@ -16,11 +16,14 @@
 // under the License.
 
 #include <event2/http.h>
+#include <gtest/gtest.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 
 #include <string>
 
+#include <gtest/gtest.h>
+#include <gtest/gtest.h>
 #include "gtest/gtest_pred_impl.h"
 #include "http/http_headers.h"
 #include "http/http_request.h"

@@ -23,6 +23,7 @@
 #include <gen_cpp/olap_common.pb.h>
 #include <gen_cpp/olap_file.pb.h>
 #include <glog/logging.h>
+#include <gtest/gtest.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 #include <stdint.h>
@@ -37,6 +38,8 @@
 #include <vector>
 
 #include "common/status.h"
+#include <gtest/gtest.h>
+#include <gtest/gtest.h>
 #include "gtest/gtest_pred_impl.h"
 #include "gutil/stringprintf.h"
 #include "io/cache/block_file_cache_factory.h"

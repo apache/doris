@@ -16,6 +16,7 @@
 // under the License.
 
 #include <gen_cpp/AgentService_types.h>
+#include <gtest/gtest.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 #include <stdlib.h>
@@ -34,6 +35,8 @@
 #include "gen_cpp/Descriptors_types.h"
 #include "gen_cpp/Types_types.h"
 #include "gen_cpp/internal_service.pb.h"
+#include <gtest/gtest.h>
+#include <gtest/gtest.h>
 #include "gtest/gtest_pred_impl.h"
 #include "io/fs/local_file_system.h"
 #include "olap/data_dir.h"

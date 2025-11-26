@@ -19,6 +19,7 @@
 #include <gen_cpp/Descriptors_types.h>
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/types.pb.h>
+#include <gtest/gtest.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 #include <stdint.h>
@@ -35,6 +36,8 @@
 #include "common/status.h"
 #include "exec/tablet_info.h"
 #include "gen_cpp/internal_service.pb.h"
+#include <gtest/gtest.h>
+#include <gtest/gtest.h>
 #include "gtest/gtest_pred_impl.h"
 #include "io/fs/local_file_system.h"
 #include "io/fs/remote_file_system.h"

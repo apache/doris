@@ -20,6 +20,7 @@
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/parquet_types.h>
 #include <glog/logging.h>
+#include <gtest/gtest.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 #include <sys/types.h>
@@ -37,6 +38,8 @@
 #include "common/object_pool.h"
 #include "common/status.h"
 #include "exec/schema_scanner.h"
+#include <gtest/gtest.h>
+#include <gtest/gtest.h>
 #include "gtest/gtest_pred_impl.h"
 #include "io/fs/buffered_reader.h"
 #include "io/fs/file_reader.h"

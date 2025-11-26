@@ -18,6 +18,7 @@
 #include "olap/rowset/segment_v2/inverted_index_file_writer.h"
 
 #include <gmock/gmock.h>
+#include <gtest/gtest.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 #include <gtest/gtest.h>

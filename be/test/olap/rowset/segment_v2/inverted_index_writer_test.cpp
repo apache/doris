@@ -21,6 +21,7 @@
 #include <CLucene/config/repl_wchar.h>
 #include <CLucene/index/IndexReader.h>
 #include <gen_cpp/olap_file.pb.h>
+#include <gtest/gtest.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 #include <gtest/gtest.h>
@@ -31,6 +32,8 @@
 #include <string>
 #include <vector>
 
+#include <gtest/gtest.h>
+#include <gtest/gtest.h>
 #include "gtest/gtest_pred_impl.h"
 #include "io/fs/local_file_system.h"
 #include "olap/field.h"

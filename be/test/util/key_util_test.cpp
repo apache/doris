@@ -17,6 +17,7 @@
 
 #include "util/key_util.h"
 
+#include <gtest/gtest.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 
@@ -24,6 +25,8 @@
 #include <memory>
 #include <vector>
 
+#include <gtest/gtest.h>
+#include <gtest/gtest.h>
 #include "gtest/gtest_pred_impl.h"
 #include "olap/row_cursor.h"
 #include "olap/row_cursor_cell.h"

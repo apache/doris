@@ -21,6 +21,7 @@
 #include <glog/logging.h>
 #include <gmock/gmock-actions.h>
 #include <gmock/gmock-matchers.h>
+#include <gtest/gtest.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 
@@ -31,6 +32,8 @@
 #include <string>
 
 #include "common/config.h"
+#include <gtest/gtest.h>
+#include <gtest/gtest.h>
 #include "gtest/gtest_pred_impl.h"
 #include "olap/olap_define.h"
 #include "olap/olap_meta.h"

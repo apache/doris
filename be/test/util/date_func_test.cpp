@@ -17,9 +17,12 @@
 
 #include "util/date_func.h"
 
+#include <gtest/gtest.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 
+#include <gtest/gtest.h>
+#include <gtest/gtest.h>
 #include "gtest/gtest_pred_impl.h"
 #include "olap/uint24.h"
 #include "vec/runtime/vdatetime_value.h"

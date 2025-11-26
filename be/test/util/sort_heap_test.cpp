@@ -17,6 +17,7 @@
 
 #include "util/sort_heap.h"
 
+#include <gtest/gtest.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 
@@ -25,6 +26,8 @@
 #include <random>
 #include <vector>
 
+#include <gtest/gtest.h>
+#include <gtest/gtest.h>
 #include "gtest/gtest_pred_impl.h"
 
 namespace doris {

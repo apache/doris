@@ -17,6 +17,7 @@
 
 #include <cctz/time_zone.h>
 #include <fmt/format.h>
+#include <gtest/gtest.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 #include <rapidjson/document.h>
@@ -35,6 +36,8 @@
 #include <utility>
 #include <vector>
 
+#include <gtest/gtest.h>
+#include <gtest/gtest.h>
 #include "gtest/gtest_pred_impl.h"
 #include "gutil/strings/substitute.h"
 #include "json2pb/json_to_pb.h"

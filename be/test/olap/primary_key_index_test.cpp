@@ -18,6 +18,7 @@
 #include "olap/primary_key_index.h"
 
 #include <gen_cpp/segment_v2.pb.h>
+#include <gtest/gtest.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 
@@ -25,6 +26,8 @@
 #include <string>
 #include <vector>
 
+#include <gtest/gtest.h>
+#include <gtest/gtest.h>
 #include "gtest/gtest_pred_impl.h"
 #include "gutil/stringprintf.h"
 #include "io/fs/file_writer.h"

@@ -18,6 +18,7 @@
 #include "olap/lru_cache.h"
 
 #include <gen_cpp/Metrics_types.h>
+#include <gtest/gtest.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 
@@ -25,6 +26,8 @@
 #include <vector>
 
 #include "gtest/gtest.h"
+#include <gtest/gtest.h>
+#include <gtest/gtest.h>
 #include "gtest/gtest_pred_impl.h"
 #include "runtime/memory/lru_cache_policy.h"
 #include "runtime/memory/lru_cache_value_base.h"

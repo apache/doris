@@ -17,6 +17,7 @@
 
 #include "olap/olap_meta.h"
 
+#include <gtest/gtest.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 #include <stddef.h>
@@ -26,6 +27,8 @@
 #include <sstream>
 #include <string>
 
+#include <gtest/gtest.h>
+#include <gtest/gtest.h>
 #include "gtest/gtest_pred_impl.h"
 #include "io/fs/local_file_system.h"
 #include "olap/olap_define.h"

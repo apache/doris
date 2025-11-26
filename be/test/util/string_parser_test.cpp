@@ -17,6 +17,7 @@
 
 #include "util/string_parser.hpp"
 
+#include <gtest/gtest.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 
@@ -25,6 +26,8 @@
 #include <cstdio>
 #include <string>
 
+#include <gtest/gtest.h>
+#include <gtest/gtest.h>
 #include "gtest/gtest_pred_impl.h"
 
 namespace doris {

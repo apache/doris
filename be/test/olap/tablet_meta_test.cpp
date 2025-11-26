@@ -17,6 +17,7 @@
 
 #include "olap/tablet_meta.h"
 
+#include <gtest/gtest.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 
@@ -24,6 +25,8 @@
 #include <string>
 #include <utility>
 
+#include <gtest/gtest.h>
+#include <gtest/gtest.h>
 #include "gtest/gtest_pred_impl.h"
 #include "olap/file_header.h"
 #include "olap/rowset/rowset.h"

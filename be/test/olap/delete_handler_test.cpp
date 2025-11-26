@@ -23,6 +23,7 @@
 #include <gen_cpp/Status_types.h>
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/olap_file.pb.h>
+#include <gtest/gtest.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 #include <unistd.h>
@@ -34,6 +35,8 @@
 #include <vector>
 
 #include "common/config.h"
+#include <gtest/gtest.h>
+#include <gtest/gtest.h>
 #include "gtest/gtest_pred_impl.h"
 #include "gutil/strings/numbers.h"
 #include "io/fs/local_file_system.h"

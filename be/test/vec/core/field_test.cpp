@@ -17,11 +17,14 @@
 
 #include "vec/core/field.h"
 
+#include <gtest/gtest.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 
 #include <string>
 
+#include <gtest/gtest.h>
+#include <gtest/gtest.h>
 #include "gtest/gtest_pred_impl.h" // IWYU pragma: keep
 #include "runtime/define_primitive_type.h"
 #include "vec/columns/column_string.h"

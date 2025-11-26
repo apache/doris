@@ -19,6 +19,7 @@
 
 #include <gflags/gflags_declare.h>
 #include <gtest/gtest-death-test.h>
+#include <gtest/gtest.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-param-test.h>
 #include <gtest/gtest-test-part.h>
@@ -42,6 +43,8 @@
 
 #include "common/logging.h"
 #include "common/status.h"
+#include <gtest/gtest.h>
+#include <gtest/gtest.h>
 #include "gtest/gtest_pred_impl.h"
 #include "gutil/strings/substitute.h"
 #include "util/barrier.h"

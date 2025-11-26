@@ -17,6 +17,7 @@
 
 #include "runtime/user_function_cache.h"
 
+#include <gtest/gtest.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 

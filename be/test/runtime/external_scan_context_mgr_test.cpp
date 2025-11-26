@@ -17,12 +17,15 @@
 
 #include "runtime/external_scan_context_mgr.h"
 
+#include <gtest/gtest.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 
 #include <memory>
 
 #include "common/status.h"
+#include <gtest/gtest.h>
+#include <gtest/gtest.h>
 #include "gtest/gtest_pred_impl.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"

@@ -17,6 +17,7 @@
 
 #include <gmock/gmock-actions.h>
 #include <gmock/gmock-matchers.h>
+#include <gtest/gtest.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 #include <gtest/gtest.h>
@@ -26,6 +27,8 @@
 
 #include "common/status.h"
 #include "cpp/sync_point.h"
+#include <gtest/gtest.h>
+#include <gtest/gtest.h>
 #include "gtest/gtest_pred_impl.h"
 #include "io/fs/local_file_system.h"
 #include "olap/cumulative_compaction_policy.h"

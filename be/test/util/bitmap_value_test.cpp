@@ -17,6 +17,7 @@
 
 #include "util/bitmap_value.h"
 
+#include <gtest/gtest.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 #include <roaring/roaring.h>
@@ -25,6 +26,8 @@
 #include <string>
 
 #include "gtest/gtest.h"
+#include <gtest/gtest.h>
+#include <gtest/gtest.h>
 #include "gtest/gtest_pred_impl.h"
 #include "util/coding.h"
 

@@ -23,6 +23,7 @@
 #include <arrow/type.h>
 #include <gen_cpp/Types_types.h>
 #include <glog/logging.h>
+#include <gtest/gtest.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 
@@ -31,6 +32,8 @@
 #include <utility>
 #include <vector>
 
+#include <gtest/gtest.h>
+#include <gtest/gtest.h>
 #include "gtest/gtest_pred_impl.h"
 #include "runtime/record_batch_queue.h"
 

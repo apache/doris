@@ -18,6 +18,7 @@
 #include "vec/columns/column_object.h"
 
 #include <gmock/gmock-more-matchers.h>
+#include <gtest/gtest.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 #include <gtest/gtest.h>

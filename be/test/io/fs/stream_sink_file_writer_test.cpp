@@ -20,6 +20,7 @@
 #include <brpc/channel.h>
 #include <brpc/server.h>
 
+#include <gtest/gtest.h>
 #include "gtest/gtest_pred_impl.h"
 #include "olap/olap_common.h"
 #include "util/debug/leakcheck_disabler.h"

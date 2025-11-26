@@ -16,6 +16,7 @@
 // under the License.
 
 #include <gen_cpp/segment_v2.pb.h>
+#include <gtest/gtest.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 #include <stdint.h>
@@ -26,6 +27,8 @@
 #include <vector>
 
 #include "common/status.h"
+#include <gtest/gtest.h>
+#include <gtest/gtest.h>
 #include "gtest/gtest_pred_impl.h"
 #include "olap/rowset/segment_v2/bloom_filter.h"
 #include "util/slice.h"

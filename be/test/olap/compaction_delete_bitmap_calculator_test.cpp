@@ -17,11 +17,14 @@
 
 #include <gen_cpp/AgentService_types.h>
 #include <gen_cpp/olap_file.pb.h>
+#include <gtest/gtest.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 
 #include <memory>
 
+#include <gtest/gtest.h>
+#include <gtest/gtest.h>
 #include "gtest/gtest_pred_impl.h"
 #include "olap/cumulative_compaction_policy.h"
 #include "olap/olap_common.h"

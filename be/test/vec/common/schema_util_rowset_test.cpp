@@ -373,7 +373,7 @@ TEST_F(SchemaUtilRowsetTest, mixed_external_segment_meta_old_new) {
     // This will internally create Segment / ColumnReader instances and should be
     // insensitive to whether a particular segment uses inline or external meta.
     EXPECT_TRUE(
-            schema_util::VariantCompactionUtil::check_path_stats(rowsets, rowsets[0], tablet).ok());
+            schema_util::check_path_stats(rowsets, rowsets[0], tablet).ok());
 }
 
 TEST_F(SchemaUtilRowsetTest, collect_path_stats_and_get_extended_compaction_schema) {

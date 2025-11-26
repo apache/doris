@@ -18,6 +18,7 @@
 #include "io/fs/buffered_reader.h"
 
 #include <glog/logging.h>
+#include <gtest/gtest.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 #include <limits.h>
@@ -25,6 +26,8 @@
 #include <memory>
 #include <ostream>
 
+#include <gtest/gtest.h>
+#include <gtest/gtest.h>
 #include "gtest/gtest_pred_impl.h"
 #include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/local_file_system.h"

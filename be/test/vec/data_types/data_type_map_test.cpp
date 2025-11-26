@@ -18,6 +18,7 @@
 #include "vec/data_types/data_type_map.h"
 
 #include <execinfo.h> // for backtrace on Linux
+#include <gtest/gtest.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 #include <gtest/gtest.h>

@@ -19,9 +19,12 @@
 
 #include <gen_cpp/AgentService_types.h>
 #include <gen_cpp/olap_file.pb.h>
+#include <gtest/gtest.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 
+#include <gtest/gtest.h>
+#include <gtest/gtest.h>
 #include "gtest/gtest_pred_impl.h"
 #include "json2pb/json_to_pb.h"
 #include "olap/cumulative_compaction.h"

@@ -28,6 +28,7 @@
 #include <arrow/visitor.h>
 #include <gen_cpp/Descriptors_types.h>
 #include <gen_cpp/types.pb.h>
+#include <gtest/gtest.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 #include <gtest/gtest.h>

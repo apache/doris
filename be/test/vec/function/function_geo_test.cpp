@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <gtest/gtest.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 #include <stdint.h>
@@ -28,6 +29,8 @@
 #include "function_test_util.h"
 #include "geo/geo_common.h"
 #include "geo/geo_types.h"
+#include <gtest/gtest.h>
+#include <gtest/gtest.h>
 #include "gtest/gtest_pred_impl.h"
 #include "testutil/any_type.h"
 #include "vec/core/types.h"

@@ -18,12 +18,15 @@
 #include "olap/block_column_predicate.h"
 
 #include <gen_cpp/olap_file.pb.h>
+#include <gtest/gtest.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 
 #include <boost/iterator/iterator_facade.hpp>
 #include <memory>
 
+#include <gtest/gtest.h>
+#include <gtest/gtest.h>
 #include "gtest/gtest_pred_impl.h"
 #include "olap/column_predicate.h"
 #include "olap/comparison_predicate.h"

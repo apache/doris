@@ -26,6 +26,7 @@
 #include "common/config.h"
 #include "common/status.h"
 #include "function_test_util.h"
+#include <gtest/gtest.h>
 #include "gtest/gtest_pred_impl.h"
 #include "gutil/integral_types.h"
 #include "testutil/any_type.h"

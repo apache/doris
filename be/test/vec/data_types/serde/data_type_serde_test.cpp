@@ -19,6 +19,7 @@
 #include "vec/data_types/serde/data_type_serde.h"
 
 #include <gen_cpp/types.pb.h>
+#include <gtest/gtest.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 #include <math.h>
@@ -30,6 +31,8 @@
 #include <string>
 #include <vector>
 
+#include <gtest/gtest.h>
+#include <gtest/gtest.h>
 #include "gtest/gtest_pred_impl.h"
 #include "olap/hll.h"
 #include "util/bitmap_value.h"

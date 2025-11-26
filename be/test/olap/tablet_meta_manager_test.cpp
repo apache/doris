@@ -18,6 +18,7 @@
 #include "olap/tablet_meta_manager.h"
 
 #include <gen_cpp/olap_file.pb.h>
+#include <gtest/gtest.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 #include <gtest/gtest.h>
@@ -31,6 +32,8 @@
 #include <roaring/roaring.hh>
 #include <string>
 
+#include <gtest/gtest.h>
+#include <gtest/gtest.h>
 #include "gtest/gtest_pred_impl.h"
 #include "olap/data_dir.h"
 #include "olap/storage_engine.h"

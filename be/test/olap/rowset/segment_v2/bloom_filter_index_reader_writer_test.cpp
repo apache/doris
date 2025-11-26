@@ -16,6 +16,7 @@
 // under the License.
 
 #include <gen_cpp/segment_v2.pb.h>
+#include <gtest/gtest.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 #include <stddef.h>
@@ -27,6 +28,8 @@
 #include <utility>
 
 #include "common/status.h"
+#include <gtest/gtest.h>
+#include <gtest/gtest.h>
 #include "gtest/gtest_pred_impl.h"
 #include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/file_writer.h"
