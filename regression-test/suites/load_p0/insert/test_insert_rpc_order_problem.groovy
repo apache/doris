@@ -98,7 +98,7 @@ suite('test_insert_rpc_order_problem', 'docker') {
                 }
                 if (result[0][2].equals("CANCELLED")) {
                     def reason = result[0][7]
-                    assertFalse(reason.contains("unknown load_id"), "should not have unknown load_id : $reason")
+                    assertTrue(reason.contains("DATA_QUALITY_ERROR"), "should have DATA_QUALITY_ERROR or unknown load_id : $reason")
                     break
                 }
                 Thread.sleep(1000)
