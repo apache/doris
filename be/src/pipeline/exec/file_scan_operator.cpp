@@ -118,6 +118,7 @@ void FileScanLocalState::set_scan_ranges(RuntimeState* state,
         auto scan_range = scan_ranges[0].scan_range.ext_scan_range.file_scan_range;
         if (scan_range.__isset.split_source) {
             p._batch_split_mode = true;
+            custom_profile()->add_info_string("BatchSplitMode", "true");
             auto split_source = scan_range.split_source;
             RuntimeProfile::Counter* get_split_timer = ADD_TIMER(custom_profile(), "GetSplitTime");
 

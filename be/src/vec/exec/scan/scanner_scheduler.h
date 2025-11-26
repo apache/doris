@@ -130,8 +130,10 @@ public:
     virtual Status schedule_scan_task(std::shared_ptr<ScannerContext> scanner_ctx,
                                       std::shared_ptr<ScanTask> current_scan_task,
                                       std::unique_lock<std::mutex>& transfer_lock) = 0;
+
 protected:
     int _min_active_scan_threads;
+
 private:
     static void _scanner_scan(std::shared_ptr<ScannerContext> ctx,
                               std::shared_ptr<ScanTask> scan_task);

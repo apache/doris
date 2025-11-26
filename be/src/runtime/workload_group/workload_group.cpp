@@ -582,10 +582,9 @@ Status WorkloadGroup::upsert_thread_pool_no_lock(WorkloadGroupInfo* wg_info,
             remote_scan_scheduler = std::make_unique<vectorized::ThreadPoolSimplifiedScanScheduler>(
                     "rs_" + wg_name, cg_cpu_ctl_ptr, wg_name);
         }
-        Status ret =
-                remote_scan_scheduler->start(
-                        max_remote_scan_thread_num, min_remote_scan_thread_num,
-                        remote_scan_thread_queue_size, config::min_active_file_scan_threads);
+        Status ret = remote_scan_scheduler->start(
+                max_remote_scan_thread_num, min_remote_scan_thread_num,
+                remote_scan_thread_queue_size, config::min_active_file_scan_threads);
         if (ret.ok()) {
             _remote_scan_task_sched = std::move(remote_scan_scheduler);
         } else {
