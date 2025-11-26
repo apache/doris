@@ -18,6 +18,8 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("bitmapUnionIn") {
+    String db = context.config.getDbNameByFile(context.file)
+    sql "use ${db}"
     sql "SET experimental_enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
     sql """ DROP TABLE IF EXISTS bitmapUnionIn; """
@@ -34,9 +36,7 @@ suite ("bitmapUnionIn") {
     sql """insert into bitmapUnionIn values("2020-01-01",1,"a",1);"""
     sql """insert into bitmapUnionIn values("2020-01-02",2,"b",2);"""
 
-    createMV("create materialized view bitmapUnionIn_mv as select user_id, bitmap_union(to_bitmap(tag_id)) from bitmapUnionIn group by user_id;")
-
-    sleep(3000)
+    create_sync_mv(db, "bitmapUnionIn", "bitmapUnionIn_mv", "select user_id as a1, bitmap_union(to_bitmap(tag_id)) from bitmapUnionIn group by user_id;")
 
     sql """insert into bitmapUnionIn values("2020-01-01",1,"a",2);"""
 

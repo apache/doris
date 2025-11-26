@@ -18,6 +18,8 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("dup_gb_mv_abs") {
+    String db = context.config.getDbNameByFile(context.file)
+    sql "use ${db}"
     sql """ DROP TABLE IF EXISTS dup_gb_mv_abs; """
 
     sql """
@@ -36,8 +38,7 @@ suite ("dup_gb_mv_abs") {
     sql "insert into dup_gb_mv_abs select 2,2,2,'b';"
     sql "insert into dup_gb_mv_abs select 3,-3,null,'c';"
 
-    createMV ("create materialized view k12sa as select k1,sum(abs(k2)) from dup_gb_mv_abs group by k1;")
-    sleep(3000)
+    create_sync_mv(db, "dup_gb_mv_abs", "k12sa", "select k1 as a1,sum(abs(k2)) from dup_gb_mv_abs group by k1;")
 
     sql "insert into dup_gb_mv_abs select -4,-4,-4,'d';"
 

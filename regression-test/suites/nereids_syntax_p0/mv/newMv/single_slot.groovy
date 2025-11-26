@@ -18,6 +18,9 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("single_slot") {
+    String db = context.config.getDbNameByFile(context.file)
+    sql "use ${db}"
+
     sql """ DROP TABLE IF EXISTS single_slot; """
 
     sql """
@@ -36,9 +39,7 @@ suite ("single_slot") {
     sql "insert into single_slot select 2,2,2,'b';"
     sql "insert into single_slot select 3,-3,null,'c';"
 
-    createMV("create materialized view k1ap2spa as select abs(k1)+1,sum(abs(k2+1)) from single_slot group by abs(k1)+1;")
-
-    sleep(3000)
+    create_sync_mv(db, "single_slot", "k1ap2spa", "select abs(k1)+1 t,sum(abs(k2+1)) from single_slot group by abs(k1)+1;")
 
     sql "insert into single_slot select -4,-4,-4,'d';"
     sql "SET experimental_enable_nereids_planner=true"

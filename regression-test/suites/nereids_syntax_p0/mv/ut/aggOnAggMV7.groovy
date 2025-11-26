@@ -18,6 +18,8 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("aggOnAggMV7") {
+    String db = context.config.getDbNameByFile(context.file)
+    sql "use ${db}"
     sql "SET experimental_enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
     sql """ DROP TABLE IF EXISTS aggOnAggMV7; """
@@ -40,9 +42,7 @@ suite ("aggOnAggMV7") {
     sql """insert into aggOnAggMV7 values("2020-01-03",3,"c",3,3,3);"""
     sql """insert into aggOnAggMV7 values("2020-01-03",3,"c",3,3,3);"""
 
-    createMV("create materialized view aggOnAggMV7_mv as select deptno, commission, sum(salary) from aggOnAggMV7 group by deptno, commission;")
-
-    sleep(3000)
+    create_sync_mv(db, "aggOnAggMV7", "aggOnAggMV7_mv", "select deptno as a1, commission as a2, sum(salary) from aggOnAggMV7 group by deptno, commission ;")
 
     sql """insert into aggOnAggMV7 values("2020-01-01",1,"a",1,1,1);"""
 

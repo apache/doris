@@ -18,6 +18,8 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("MVWithAs") {
+    String db = context.config.getDbNameByFile(context.file)
+    sql "use ${db}"
     sql "SET experimental_enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
     sql """ DROP TABLE IF EXISTS MVWithAs; """
@@ -38,9 +40,7 @@ suite ("MVWithAs") {
     sql """insert into MVWithAs values("2020-01-02",2,"b",2);"""
     sql """insert into MVWithAs values("2020-01-02",2,"b",2);"""
 
-    createMV("create materialized view MVWithAs_mv as select user_id, count(tag_id) from MVWithAs group by user_id;")
-
-    sleep(3000)
+    create_sync_mv(db, "MVWithAs", "MVWithAs_mv", "select user_id as a1, count(tag_id) from MVWithAs group by user_id;")
 
     sql """insert into MVWithAs values("2020-01-01",1,"a",1);"""
 
