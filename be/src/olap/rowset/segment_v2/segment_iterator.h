@@ -513,9 +513,6 @@ private:
 
     // key is column uid, value is the sparse column cache
     std::unordered_map<int32_t, PathToSparseColumnCacheUPtr> _variant_sparse_column_cache;
-
-    std::unordered_map<vectorized::VExprContext*, std::unordered_map<ColumnId, vectorized::VExpr*>>
-            _common_expr_to_slotref_map;
 };
 
 } // namespace segment_v2
