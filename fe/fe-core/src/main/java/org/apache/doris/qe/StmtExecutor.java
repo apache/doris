@@ -184,6 +184,7 @@ import org.apache.doris.qe.CommonResultSet.CommonResultSetMetaData;
 import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.qe.QeProcessorImpl.QueryInfo;
 import org.apache.doris.qe.QueryState.MysqlStateType;
+import org.apache.doris.qe.VariableMgr.VarContext;
 import org.apache.doris.qe.cache.Cache;
 import org.apache.doris.qe.cache.CacheAnalyzer;
 import org.apache.doris.qe.cache.CacheAnalyzer.CacheMode;
@@ -1288,7 +1289,12 @@ public class StmtExecutor {
                 }
                 SetVar var = new SetVar(SetType.SESSION, unsetStmt.getVariable(),
                         new StringLiteral(defaultValue), SetVarType.SET_SESSION_VAR);
-                VariableMgr.setVar(context.getSessionVariable(), var);
+                VarContext varCtx = VariableMgr.getVarContext(var.getVariable());
+                // only unset for session variable.
+                // If this is a global variable, no need to do this because it has been synced from editlog already.
+                if (varCtx != null && (varCtx.getFlag() & VariableMgr.SESSION) != 0) {
+                    VariableMgr.setVar(context.getSessionVariable(), var);
+                }
             }
         }
     }

@@ -319,7 +319,7 @@ public class VariableMgr {
     }
 
     @Nullable
-    private static VarContext getVarContext(String name) {
+    public static VarContext getVarContext(String name) {
         String varName = name;
         boolean hasExpPrefix = false;
         if (varName.startsWith(VariableAnnotation.EXPERIMENTAL.getPrefix())) {
@@ -880,7 +880,7 @@ public class VariableMgr {
         String convertBoolToLongMethod() default "";
     }
 
-    private static class VarContext {
+    public static class VarContext {
         private Field field;
         private Object obj;
         private int flag;
