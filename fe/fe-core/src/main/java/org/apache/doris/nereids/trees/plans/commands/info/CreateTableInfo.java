@@ -1585,7 +1585,10 @@ public class CreateTableInfo {
         }
     }
 
-    private void checkLegalityOfPartitionExprs(PartitionTableInfo partitionTableInfo) {
+    /**
+     * checkLegalityOfPartitionExprs
+     */
+    public void checkLegalityOfPartitionExprs(PartitionTableInfo partitionTableInfo) {
         List<Expression> paritionExprs = partitionTableInfo.getPartitionList();
         for (Expression expr : paritionExprs) {
             if (expr instanceof UnboundFunction) {
