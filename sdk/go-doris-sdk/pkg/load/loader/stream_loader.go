@@ -25,7 +25,7 @@ import (
 	"time"
 
 	"github.com/apache/doris/sdk/go-doris-sdk/pkg/load/exception"
-	"github.com/apache/doris/sdk/go-doris-sdk/pkg/load/log"
+	log "github.com/apache/doris/sdk/go-doris-sdk/pkg/load/logger"
 	"github.com/apache/doris/sdk/go-doris-sdk/pkg/load/util"
 
 	jsoniter "github.com/json-iterator/go"
