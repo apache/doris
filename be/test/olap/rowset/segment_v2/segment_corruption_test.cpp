@@ -84,8 +84,12 @@ public:
         // background threads from accessing SyncPoint during/after destruction
         SyncPoint::get_instance()->disable_processing();
 
-        if (ExecEnv::GetInstance()->file_cache_factory() != nullptr) {
-            io::FileCacheFactory::instance()->clear_file_caches(true);
+        auto* factory = io::FileCacheFactory::instance();
+        if (factory != nullptr) {
+            factory->clear_file_caches(true);
+
+            factory->_caches.clear();
+            factory->_path_to_cache.clear();
         }
 
         // Give background threads time to stop after cache destruction
@@ -133,8 +137,12 @@ public:
         // background threads from accessing SyncPoint during/after destruction
         SyncPoint::get_instance()->disable_processing();
 
-        if (ExecEnv::GetInstance()->file_cache_factory() != nullptr) {
-            io::FileCacheFactory::instance()->clear_file_caches(true);
+        auto* factory = io::FileCacheFactory::instance();
+        if (factory != nullptr) {
+            factory->clear_file_caches(true);
+
+            factory->_caches.clear();
+            factory->_path_to_cache.clear();
         }
 
         // Give background threads time to stop after cache destruction
