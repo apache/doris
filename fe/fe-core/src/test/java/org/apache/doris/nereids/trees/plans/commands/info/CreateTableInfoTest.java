@@ -46,12 +46,12 @@ public class CreateTableInfoTest {
         List<Expression> partitionFields = new ArrayList<>();
         partitionFields.add(unboundFunction);
         PartitionTableInfo partitionTableInfo1 = new PartitionTableInfo(false, null, new ArrayList<>(), partitionFields);
-        CreateTableInfo createTableInfo = new CreateTableInfo(false, false, false, null, null, null, new ArrayList<>(), new ArrayList<>(), null, null, new ArrayList<>(), null, partitionTableInfo1, null, new ArrayList<>(), new HashMap<>(), new HashMap<>(), new ArrayList<>());
+        CreateTableInfo createTableInfo = new CreateTableInfo(false, false, false, "test_ctl", "test_db", "test_tbl", new ArrayList<>(), new ArrayList<>(), null, null, new ArrayList<>(), null, partitionTableInfo1, null, new ArrayList<>(), new HashMap<>(), new HashMap<>(), new ArrayList<>());
         Assertions.assertThrows(AnalysisException.class, () -> createTableInfo.checkLegalityOfPartitionExprs(partitionTableInfo1),
                 "only Auto Range Partition support UnboundFunction");
 
         PartitionTableInfo partitionTableInfo2 = new PartitionTableInfo(true, "RANGE", new ArrayList<>(), partitionFields);
-        CreateTableInfo createTableInfo2 = new CreateTableInfo(false, false, false, null, null, null, new ArrayList<>(), new ArrayList<>(), null, null, new ArrayList<>(), null, partitionTableInfo2, null, new ArrayList<>(), new HashMap<>(), new HashMap<>(), new ArrayList<>());
+        CreateTableInfo createTableInfo2 = new CreateTableInfo(false, false, false, "test_ctl", "test_db", "test_tbl", new ArrayList<>(), new ArrayList<>(), null, null, new ArrayList<>(), null, partitionTableInfo2, null, new ArrayList<>(), new HashMap<>(), new HashMap<>(), new ArrayList<>());
         Assertions.assertThrows(AnalysisException.class, () -> createTableInfo2.checkLegalityOfPartitionExprs(partitionTableInfo2),
                 "partition expression test_func has unrecognized parameter in slot 0");
 
@@ -62,24 +62,24 @@ public class CreateTableInfoTest {
         List<Expression> partitionFields2 = new ArrayList<>();
         partitionFields2.add(unboundFunction2);
         PartitionTableInfo partitionTableInfo3 = new PartitionTableInfo(true, "RANGE", new ArrayList<>(), partitionFields2);
-        CreateTableInfo createTableInfo3 = new CreateTableInfo(false, false, false, null, null, null, new ArrayList<>(), new ArrayList<>(), null, null, new ArrayList<>(), null, partitionTableInfo3, null, new ArrayList<>(), new HashMap<>(), new HashMap<>(), new ArrayList<>());
+        CreateTableInfo createTableInfo3 = new CreateTableInfo(false, false, false, "test_ctl", "test_db", "test_tbl", new ArrayList<>(), new ArrayList<>(), null, null, new ArrayList<>(), null, partitionTableInfo3, null, new ArrayList<>(), new HashMap<>(), new HashMap<>(), new ArrayList<>());
         Assertions.assertDoesNotThrow(() -> createTableInfo3.checkLegalityOfPartitionExprs(partitionTableInfo3));
 
         List<Expression> partitionFields3 = new ArrayList<>();
         partitionFields3.add(slot1);
         PartitionTableInfo partitionTableInfo4 = new PartitionTableInfo(true, "RANGE", new ArrayList<>(), partitionFields3);
-        CreateTableInfo createTableInfo4 = new CreateTableInfo(false, false, false, null, null, null, new ArrayList<>(), new ArrayList<>(), null, null, new ArrayList<>(), null, partitionTableInfo4, null, new ArrayList<>(), new HashMap<>(), new HashMap<>(), new ArrayList<>());
+        CreateTableInfo createTableInfo4 = new CreateTableInfo(false, false, false, "test_ctl", "test_db", "test_tbl", new ArrayList<>(), new ArrayList<>(), null, null, new ArrayList<>(), null, partitionTableInfo4, null, new ArrayList<>(), new HashMap<>(), new HashMap<>(), new ArrayList<>());
         Assertions.assertThrows(AnalysisException.class, () -> createTableInfo4.checkLegalityOfPartitionExprs(partitionTableInfo4),
                 "Auto Range Partition need UnboundFunction");
 
         PartitionTableInfo partitionTableInfo5 = new PartitionTableInfo(false, "RANGE", new ArrayList<>(), partitionFields3);
-        CreateTableInfo createTableInfo5 = new CreateTableInfo(false, false, false, null, null, null, new ArrayList<>(), new ArrayList<>(), null, null, new ArrayList<>(), null, partitionTableInfo5, null, new ArrayList<>(), new HashMap<>(), new HashMap<>(), new ArrayList<>());
+        CreateTableInfo createTableInfo5 = new CreateTableInfo(false, false, false, "test_ctl", "test_db", "test_tbl", new ArrayList<>(), new ArrayList<>(), null, null, new ArrayList<>(), null, partitionTableInfo5, null, new ArrayList<>(), new HashMap<>(), new HashMap<>(), new ArrayList<>());
         Assertions.assertDoesNotThrow(() -> createTableInfo5.checkLegalityOfPartitionExprs(partitionTableInfo5));
 
         List<Expression> partitionFields4 = new ArrayList<>();
         partitionFields4.add(new StringLiteral("test"));
         PartitionTableInfo partitionTableInfo6 = new PartitionTableInfo(true, "RANGE", new ArrayList<>(), partitionFields4);
-        CreateTableInfo createTableInfo6 = new CreateTableInfo(false, false, false, null, null, null, new ArrayList<>(), new ArrayList<>(), null, null, new ArrayList<>(), null, partitionTableInfo6, null, new ArrayList<>(), new HashMap<>(), new HashMap<>(), new ArrayList<>());
+        CreateTableInfo createTableInfo6 = new CreateTableInfo(false, false, false, "test_ctl", "test_db", "test_tbl", new ArrayList<>(), new ArrayList<>(), null, null, new ArrayList<>(), null, partitionTableInfo6, null, new ArrayList<>(), new HashMap<>(), new HashMap<>(), new ArrayList<>());
         Assertions.assertThrows(AnalysisException.class, () -> createTableInfo6.checkLegalityOfPartitionExprs(partitionTableInfo6),
                 "partition expression literal is illegal!");
     }
@@ -94,7 +94,7 @@ public class CreateTableInfoTest {
         List<Expression> partitionFields = new ArrayList<>();
         partitionFields.add(slot);
         PartitionTableInfo partitionTableInfo = new PartitionTableInfo(false, "RANGE", new ArrayList<>(), partitionFields);
-        CreateTableInfo createTableInfo = new CreateTableInfo(false, false, false, null, null, null, new ArrayList<>(), new ArrayList<>(), null, null, new ArrayList<>(), null, partitionTableInfo, null, new ArrayList<>(), new HashMap<>(), new HashMap<>(), new ArrayList<>());
+        CreateTableInfo createTableInfo = new CreateTableInfo(false, false, false, "test_ctl", "test_db", "test_tbl", new ArrayList<>(), new ArrayList<>(), null, null, new ArrayList<>(), null, partitionTableInfo, null, new ArrayList<>(), new HashMap<>(), new HashMap<>(), new ArrayList<>());
         Assertions.assertThrows(AnalysisException.class, () -> createTableInfo.checkPartitionNullity(columnDefs, partitionTableInfo),
                 "Unknown partition column name:col2");
 
@@ -103,7 +103,7 @@ public class CreateTableInfoTest {
         List<Expression> partitionFields2 = new ArrayList<>();
         partitionFields2.add(slot2);
         PartitionTableInfo partitionTableInfo2 = new PartitionTableInfo(false, "RANGE", new ArrayList<>(), partitionFields2);
-        CreateTableInfo createTableInfo2 = new CreateTableInfo(false, false, false, null, null, null, new ArrayList<>(), new ArrayList<>(), null, null, new ArrayList<>(), null, partitionTableInfo2, null, new ArrayList<>(), new HashMap<>(), new HashMap<>(), new ArrayList<>());
+        CreateTableInfo createTableInfo2 = new CreateTableInfo(false, false, false, "test_ctl", "test_db", "test_tbl", new ArrayList<>(), new ArrayList<>(), null, null, new ArrayList<>(), null, partitionTableInfo2, null, new ArrayList<>(), new HashMap<>(), new HashMap<>(), new ArrayList<>());
         Assertions.assertDoesNotThrow(() -> createTableInfo2.checkPartitionNullity(columnDefs, partitionTableInfo2));
     }
 
@@ -129,7 +129,7 @@ public class CreateTableInfoTest {
         List<Expression> partitionFields = new ArrayList<>();
         partitionFields.add(slot);
         PartitionTableInfo partitionTableInfo = new PartitionTableInfo(false, "RANGE", partitionDefs, partitionFields);
-        CreateTableInfo createTableInfo = new CreateTableInfo(false, false, false, null, null, null, new ArrayList<>(), new ArrayList<>(), null, null, new ArrayList<>(), null, partitionTableInfo, null, new ArrayList<>(), new HashMap<>(), new HashMap<>(), new ArrayList<>());
+        CreateTableInfo createTableInfo = new CreateTableInfo(false, false, false, "test_ctl", "test_db", "test_tbl", new ArrayList<>(), new ArrayList<>(), null, null, new ArrayList<>(), null, partitionTableInfo, null, new ArrayList<>(), new HashMap<>(), new HashMap<>(), new ArrayList<>());
         Assertions.assertDoesNotThrow(() -> createTableInfo.checkPartitionNullity(columnDefs, partitionTableInfo));
 
         List<ColumnDefinition> columnDefs2 = new ArrayList<>();
@@ -145,7 +145,7 @@ public class CreateTableInfoTest {
         List<PartitionDefinition> partitionDefs2 = new ArrayList<>();
         partitionDefs2.add(inPartition2);
         PartitionTableInfo partitionTableInfo2 = new PartitionTableInfo(false, "RANGE", partitionDefs2, partitionFields);
-        CreateTableInfo createTableInfo2 = new CreateTableInfo(false, false, false, null, null, null, new ArrayList<>(), new ArrayList<>(), null, null, new ArrayList<>(), null, partitionTableInfo2, null, new ArrayList<>(), new HashMap<>(), new HashMap<>(), new ArrayList<>());
+        CreateTableInfo createTableInfo2 = new CreateTableInfo(false, false, false, "test_ctl", "test_db", "test_tbl", new ArrayList<>(), new ArrayList<>(), null, null, new ArrayList<>(), null, partitionTableInfo2, null, new ArrayList<>(), new HashMap<>(), new HashMap<>(), new ArrayList<>());
         Assertions.assertThrows(AnalysisException.class, () -> createTableInfo2.checkPartitionNullity(columnDefs2, partitionTableInfo2),
                 "Can't have null partition is for NOT NULL partition column in partition expr's index 0");
     }
@@ -170,7 +170,7 @@ public class CreateTableInfoTest {
         List<Expression> partitionFields = new ArrayList<>();
         partitionFields.add(slot);
         PartitionTableInfo partitionTableInfo = new PartitionTableInfo(false, "RANGE", partitionDefs, partitionFields);
-        CreateTableInfo createTableInfo = new CreateTableInfo(false, false, false, null, null, null, new ArrayList<>(), new ArrayList<>(), null, null, new ArrayList<>(), null, partitionTableInfo, null, new ArrayList<>(), new HashMap<>(), new HashMap<>(), new ArrayList<>());
+        CreateTableInfo createTableInfo = new CreateTableInfo(false, false, false, "test_ctl", "test_db", "test_tbl", new ArrayList<>(), new ArrayList<>(), null, null, new ArrayList<>(), null, partitionTableInfo, null, new ArrayList<>(), new HashMap<>(), new HashMap<>(), new ArrayList<>());
         Assertions.assertDoesNotThrow(() -> createTableInfo.checkPartitionNullity(columnDefs, partitionTableInfo));
 
         List<ColumnDefinition> columnDefs2 = new ArrayList<>();
@@ -184,7 +184,7 @@ public class CreateTableInfoTest {
         List<PartitionDefinition> partitionDefs2 = new ArrayList<>();
         partitionDefs2.add(lessThanPartition2);
         PartitionTableInfo partitionTableInfo2 = new PartitionTableInfo(false, "RANGE", partitionDefs2, partitionFields);
-        CreateTableInfo createTableInfo2 = new CreateTableInfo(false, false, false, null, null, null, new ArrayList<>(), new ArrayList<>(), null, null, new ArrayList<>(), null, partitionTableInfo2, null, new ArrayList<>(), new HashMap<>(), new HashMap<>(), new ArrayList<>());
+        CreateTableInfo createTableInfo2 = new CreateTableInfo(false, false, false, "test_ctl", "test_db", "test_tbl", new ArrayList<>(), new ArrayList<>(), null, null, new ArrayList<>(), null, partitionTableInfo2, null, new ArrayList<>(), new HashMap<>(), new HashMap<>(), new ArrayList<>());
         Assertions.assertThrows(AnalysisException.class, () -> createTableInfo2.checkPartitionNullity(columnDefs2, partitionTableInfo2),
                 "Can't have null partition is for NOT NULL partition column in partition expr's index 0");
     }
@@ -215,7 +215,7 @@ public class CreateTableInfoTest {
         List<Expression> partitionFields = new ArrayList<>();
         partitionFields.add(slot);
         PartitionTableInfo partitionTableInfo = new PartitionTableInfo(false, "RANGE", partitionDefs, partitionFields);
-        CreateTableInfo createTableInfo = new CreateTableInfo(false, false, false, null, null, null, new ArrayList<>(), new ArrayList<>(), null, null, new ArrayList<>(), null, partitionTableInfo, null, new ArrayList<>(), new HashMap<>(), new HashMap<>(), new ArrayList<>());
+        CreateTableInfo createTableInfo = new CreateTableInfo(false, false, false, "test_ctl", "test_db", "test_tbl", new ArrayList<>(), new ArrayList<>(), null, null, new ArrayList<>(), null, partitionTableInfo, null, new ArrayList<>(), new HashMap<>(), new HashMap<>(), new ArrayList<>());
         Assertions.assertDoesNotThrow(() -> createTableInfo.checkPartitionNullity(columnDefs, partitionTableInfo));
 
         List<ColumnDefinition> columnDefs2 = new ArrayList<>();
@@ -234,7 +234,7 @@ public class CreateTableInfoTest {
         List<PartitionDefinition> partitionDefs2 = new ArrayList<>();
         partitionDefs2.add(fixedRangePartition2);
         PartitionTableInfo partitionTableInfo2 = new PartitionTableInfo(false, "RANGE", partitionDefs2, partitionFields);
-        CreateTableInfo createTableInfo2 = new CreateTableInfo(false, false, false, null, null, null, new ArrayList<>(), new ArrayList<>(), null, null, new ArrayList<>(), null, partitionTableInfo2, null, new ArrayList<>(), new HashMap<>(), new HashMap<>(), new ArrayList<>());
+        CreateTableInfo createTableInfo2 = new CreateTableInfo(false, false, false, "test_ctl", "test_db", "test_tbl", new ArrayList<>(), new ArrayList<>(), null, null, new ArrayList<>(), null, partitionTableInfo2, null, new ArrayList<>(), new HashMap<>(), new HashMap<>(), new ArrayList<>());
         Assertions.assertThrows(AnalysisException.class, () -> createTableInfo2.checkPartitionNullity(columnDefs2, partitionTableInfo2),
                 "Can't have null partition is for NOT NULL partition column in partition expr's index 0");
     }
@@ -264,7 +264,7 @@ public class CreateTableInfoTest {
         List<Expression> partitionFields = new ArrayList<>();
         partitionFields.add(slot);
         PartitionTableInfo partitionTableInfo = new PartitionTableInfo(false, "RANGE", partitionDefs, partitionFields);
-        CreateTableInfo createTableInfo = new CreateTableInfo(false, false, false, null, null, null, new ArrayList<>(), new ArrayList<>(), null, null, new ArrayList<>(), null, partitionTableInfo, null, new ArrayList<>(), new HashMap<>(), new HashMap<>(), new ArrayList<>());
+        CreateTableInfo createTableInfo = new CreateTableInfo(false, false, false, "test_ctl", "test_db", "test_tbl", new ArrayList<>(), new ArrayList<>(), null, null, new ArrayList<>(), null, partitionTableInfo, null, new ArrayList<>(), new HashMap<>(), new HashMap<>(), new ArrayList<>());
         Assertions.assertDoesNotThrow(() -> createTableInfo.checkPartitionNullity(columnDefs, partitionTableInfo));
 
         List<ColumnDefinition> columnDefs2 = new ArrayList<>();
@@ -283,7 +283,7 @@ public class CreateTableInfoTest {
         List<PartitionDefinition> partitionDefs2 = new ArrayList<>();
         partitionDefs2.add(stepPartition2);
         PartitionTableInfo partitionTableInfo2 = new PartitionTableInfo(false, "RANGE", partitionDefs2, partitionFields);
-        CreateTableInfo createTableInfo2 = new CreateTableInfo(false, false, false, null, null, null, new ArrayList<>(), new ArrayList<>(), null, null, new ArrayList<>(), null, partitionTableInfo2, null, new ArrayList<>(), new HashMap<>(), new HashMap<>(), new ArrayList<>());
+        CreateTableInfo createTableInfo2 = new CreateTableInfo(false, false, false, "test_ctl", "test_db", "test_tbl", new ArrayList<>(), new ArrayList<>(), null, null, new ArrayList<>(), null, partitionTableInfo2, null, new ArrayList<>(), new HashMap<>(), new HashMap<>(), new ArrayList<>());
         Assertions.assertThrows(AnalysisException.class, () -> createTableInfo2.checkPartitionNullity(columnDefs2, partitionTableInfo2),
                 "Can't have null partition is for NOT NULL partition column in partition expr's index 0");
     }
