@@ -44,7 +44,8 @@ int FileScanLocalState::max_scanners_concurrency(RuntimeState* state) const {
      *
      * If this is a serial operator, the max concurrency should multiply by the number of parallel instances of the operator.
      */
-    return (state->max_file_scanners_concurrency() > 0 ? state->max_file_scanners_concurrency() : 16) *
+    return (state->max_file_scanners_concurrency() > 0 ? state->max_file_scanners_concurrency()
+                                                       : 16) *
            (state->query_parallel_instance_num() / _parent->parallelism(state));
 }
 
@@ -59,7 +60,8 @@ int FileScanLocalState::min_scanners_concurrency(RuntimeState* state) const {
      *
      * If this is a serial operator, the max concurrency should multiply by the number of parallel instances of the operator.
      */
-    return (state->min_file_scanners_concurrency() > 0 ? state->min_file_scanners_concurrency() : 1) *
+    return (state->min_file_scanners_concurrency() > 0 ? state->min_file_scanners_concurrency()
+                                                       : 1) *
            (state->query_parallel_instance_num() / _parent->parallelism(state));
 }
 
