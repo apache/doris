@@ -48,15 +48,11 @@ import org.apache.iceberg.expressions.Expression;
 import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.io.WriteResult;
-import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.Types;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
-import java.time.LocalDate;
-import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -454,7 +450,8 @@ public class IcebergTransaction implements Transaction {
                 }
 
                 // Convert partition value string to appropriate type
-                Object partitionValue = convertPartitionValue(partitionValueStr, sourceField.type());
+                Object partitionValue = IcebergUtils.parsePartitionValueFromString(
+                        partitionValueStr, sourceField.type());
 
                 // Build equality expression: partition_col = value
                 Expression eqExpr;
@@ -478,61 +475,4 @@ public class IcebergTransaction implements Transaction {
         }
         return result;
     }
-
-    /**
-     * Convert partition value string to appropriate Java type based on Iceberg type
-     *
-     * @param valueStr Partition value as string
-     * @param icebergType Iceberg type of the partition field
-     * @return Converted value object
-     */
-    private Object convertPartitionValue(String valueStr, Type icebergType) {
-        if (valueStr == null || valueStr.equalsIgnoreCase("null")) {
-            return null;
-        }
-
-        try {
-            if (icebergType instanceof Types.StringType) {
-                return valueStr;
-            } else if (icebergType instanceof Types.IntegerType) {
-                return Integer.parseInt(valueStr);
-            } else if (icebergType instanceof Types.LongType) {
-                return Long.parseLong(valueStr);
-            } else if (icebergType instanceof Types.FloatType) {
-                return Float.parseFloat(valueStr);
-            } else if (icebergType instanceof Types.DoubleType) {
-                return Double.parseDouble(valueStr);
-            } else if (icebergType instanceof Types.BooleanType) {
-                return Boolean.parseBoolean(valueStr);
-            } else if (icebergType instanceof Types.DateType) {
-                // Parse date string (format: yyyy-MM-dd)
-                return LocalDate.parse(valueStr, DateTimeFormatter.ISO_LOCAL_DATE).toEpochDay();
-            } else if (icebergType instanceof Types.TimestampType) {
-                // Parse timestamp string (format: yyyy-MM-dd HH:mm:ss or ISO format)
-                try {
-                    return LocalDateTime.parse(valueStr, DateTimeFormatter.ISO_LOCAL_DATE_TIME)
-                            .atZone(java.time.ZoneId.systemDefault())
-                            .toInstant()
-                            .toEpochMilli() * 1000; // Convert to microseconds
-                } catch (Exception e) {
-                    // Try alternative format
-                    return LocalDateTime.parse(valueStr,
-                            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))
-                            .atZone(java.time.ZoneId.systemDefault())
-                            .toInstant()
-                            .toEpochMilli() * 1000;
-                }
-            } else if (icebergType instanceof Types.DecimalType) {
-                return new java.math.BigDecimal(valueStr);
-            } else {
-                LOG.warn("Unsupported partition value type: {}, using string value", icebergType);
-                return valueStr;
-            }
-        } catch (Exception e) {
-            LOG.warn("Failed to convert partition value '{}' to type {}, using string value",
-                    valueStr, icebergType, e);
-            return valueStr;
-        }
-    }
-
 }
