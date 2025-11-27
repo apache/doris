@@ -999,8 +999,9 @@ struct TimeToSecImpl {
 
         auto& res_data = res_col->get_data();
         for (int i = 0; i < input_rows_count; ++i) {
-            res_data[i] = cast_set<int>(static_cast<int64_t>(column_data.get_element(i)) /
-                                        (TimeValue::ONE_SECOND_MICROSECONDS));
+            res_data[i] =
+                    cast_set<int, int64_t, false>(static_cast<int64_t>(column_data.get_element(i)) /
+                                                  (TimeValue::ONE_SECOND_MICROSECONDS));
         }
         block.replace_by_position(result, std::move(res_col));
 
