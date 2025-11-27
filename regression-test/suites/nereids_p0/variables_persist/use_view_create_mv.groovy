@@ -54,13 +54,13 @@ suite("use_view_create_mv") {
     sql """sync;"""
 
     sql """set enable_decimal256=true;"""
-    qt_open256 "select * from v_for_mv_view"
+    order_qt_open256 "select * from v_for_mv_view"
     explain {
         sql "select * from v_for_mv_view"
         contains "mv_view chose"
     }
     sql """set enable_decimal256=false;"""
-    qt_open128 "select * from v_for_mv_view"
+    order_qt_open128 "select * from v_for_mv_view"
     explain {
         sql "memo plan select * from v_for_mv_view"
         contains "mv_view not chose"
