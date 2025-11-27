@@ -91,6 +91,9 @@ public:
     Status show_nested_index_file(rapidjson::Value* rowset_value,
                                   rapidjson::Document::AllocatorType& allocator);
 
+    Status get_segment_num_rows(std::vector<uint32_t>* segment_rows, bool enable_segment_cache,
+                                OlapReaderStatistics* read_stats);
+
 protected:
     BetaRowset(const TabletSchemaSPtr& schema, const RowsetMetaSharedPtr& rowset_meta,
                std::string tablet_path);
@@ -109,6 +112,9 @@ protected:
 private:
     friend class RowsetFactory;
     friend class BetaRowsetReader;
+
+    DorisCallOnce<Status> _load_segment_rows_once;
+    std::vector<uint32_t> _segments_rows;
 };
 
 } // namespace doris
