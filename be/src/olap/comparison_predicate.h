@@ -205,20 +205,30 @@ public:
     }
 
     bool evaluate_and(vectorized::ParquetPredicate::ColumnStat* statistic) const override {
-        if (!(*statistic->get_stat_func)(statistic, column_id())) {
-            return true;
+        bool result = true;
+        if ((*statistic->get_stat_func)(statistic, column_id())) {
+            vectorized::Field min_field;
+            vectorized::Field max_field;
+            if (!vectorized::ParquetPredicate::parse_min_max_value(
+                         statistic->col_schema, statistic->encoded_min_value,
+                         statistic->encoded_max_value, *statistic->ctz, &min_field, &max_field)
+                         .ok()) [[unlikely]] {
+                result = true;
+            } else {
+                result = camp_field(min_field, max_field);
+            }
         }
 
-        vectorized::Field min_field;
-        vectorized::Field max_field;
-        if (!vectorized::ParquetPredicate::parse_min_max_value(
-                     statistic->col_schema, statistic->encoded_min_value,
-                     statistic->encoded_max_value, *statistic->ctz, &min_field, &max_field)
-                     .ok()) [[unlikely]] {
-            return true;
-        };
-
-        return camp_field(min_field, max_field);
+        if constexpr (PT == PredicateType::EQ) {
+            if (result && statistic->get_bloom_filter_func != nullptr &&
+                (*statistic->get_bloom_filter_func)(statistic, column_id())) {
+                if (!statistic->bloom_filter) {
+                    return result;
+                }
+                return evaluate_and(statistic->bloom_filter.get());
+            }
+        }
+        return result;
     }
 
     bool evaluate_and(vectorized::ParquetPredicate::CachedPageIndexStat* statistic,
@@ -341,6 +351,43 @@ public:
 
     bool can_do_bloom_filter(bool ngram) const override {
         return PT == PredicateType::EQ && !ngram;
+    }
+
+    bool evaluate_and(const vectorized::ParquetBlockSplitBloomFilter* bf) const override {
+        if constexpr (PT == PredicateType::EQ) {
+            auto test_bytes = [&]<typename V>(const V& value) {
+                return bf->test_bytes(const_cast<char*>(reinterpret_cast<const char*>(&value)),
+                                      sizeof(V));
+            };
+
+            // Only support Parquet native types where physical == logical representation
+            // BOOLEAN -> hash as int32 (Parquet bool stored as int32)
+            if constexpr (Type == PrimitiveType::TYPE_BOOLEAN) {
+                int32_t int32_value = static_cast<int32_t>(_value);
+                return test_bytes(int32_value);
+            } else if constexpr (Type == PrimitiveType::TYPE_INT) {
+                // INT -> hash as int32
+                return test_bytes(_value);
+            } else if constexpr (Type == PrimitiveType::TYPE_BIGINT) {
+                // BIGINT -> hash as int64
+                return test_bytes(_value);
+            } else if constexpr (Type == PrimitiveType::TYPE_FLOAT) {
+                // FLOAT -> hash as float
+                return test_bytes(_value);
+            } else if constexpr (Type == PrimitiveType::TYPE_DOUBLE) {
+                // DOUBLE -> hash as double
+                return test_bytes(_value);
+            } else if constexpr (std::is_same_v<T, StringRef>) {
+                // VARCHAR/STRING -> hash bytes
+                return bf->test_bytes(_value.data, _value.size);
+            } else {
+                // Unsupported types: return true (accept)
+                return true;
+            }
+        } else {
+            LOG(FATAL) << "Bloom filter is not supported by predicate type.";
+            return true;
+        }
     }
 
     void evaluate_or(const vectorized::IColumn& column, const uint16_t* sel, uint16_t size,
