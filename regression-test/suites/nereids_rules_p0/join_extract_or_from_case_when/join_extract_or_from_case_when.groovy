@@ -66,6 +66,21 @@ suite('join_extract_or_from_case_when') {
             on not((case when t1.a > 10 then t1.a when t1.b > 10 then t1.a + t1.b end) + 5 = 100);
     """
 
+    // two case when branch contains both side slots will not rewrite
+    qt_case_when_one_side_7 """explain shape plan
+        select t1.a,  t2.x
+        from tbl_join_extract_or_from_case_when_1 t1 join tbl_join_extract_or_from_case_when_2 t2
+            on case when t2.x > 0 then t1.a when t2.x < 10 then t1.a + 1 end
+                +  case when t2.x > 1 then t1.a + 1 when t2.x < 10 then t1.a + 10 end > t1.a + t1.b
+    """
+
+    qt_case_when_one_side_8 """explain shape plan
+        select t1.a,  t2.x
+        from tbl_join_extract_or_from_case_when_1 t1 join tbl_join_extract_or_from_case_when_2 t2
+            on case when t2.x > 0 then t1.a when t2.x < 10 then t1.a + 1 end
+                +  case when t1.a > 1 then t1.a + 1 when t1.a < 10 then t1.a + 10 end > t1.a + t1.b
+    """
+
     qt_case_when_two_side_1 """explain shape plan
         select t1.a,  t2.x
         from tbl_join_extract_or_from_case_when_1 t1 join tbl_join_extract_or_from_case_when_2 t2

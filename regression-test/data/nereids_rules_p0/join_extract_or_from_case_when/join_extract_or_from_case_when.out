@@ -57,6 +57,25 @@ PhysicalResultSink
 ----PhysicalProject[t2.x]
 ------PhysicalOlapScan[tbl_join_extract_or_from_case_when_2(t2)]
 
+-- !case_when_one_side_7 --
+PhysicalResultSink
+--PhysicalProject[t1.a, t2.x]
+----NestedLoopJoin[INNER_JOIN]((CASE WHEN (x > 0) THEN a WHEN (x < 10) THEN (a + 1) END + CASE WHEN (x > 1) THEN (a + 1) WHEN (x < 10) THEN (a + 10) END) > (a + b))
+------PhysicalProject[(a + 1) AS `(a + 1)`, (a + 10) AS `(a + 10)`, (a + b) AS `(a + b)`, t1.a]
+--------PhysicalOlapScan[tbl_join_extract_or_from_case_when_1(t1)]
+------PhysicalProject[(x < 10) AS `(x < 10)`, (x > 0) AS `(x > 0)`, (x > 1) AS `(x > 1)`, t2.x]
+--------PhysicalOlapScan[tbl_join_extract_or_from_case_when_2(t2)]
+
+-- !case_when_one_side_8 --
+PhysicalResultSink
+--PhysicalProject[t1.a, t2.x]
+----NestedLoopJoin[INNER_JOIN]((CASE WHEN (x > 0) THEN a WHEN (x < 10) THEN (a + 1) END + CASE WHEN (a > 1) THEN (a + 1) WHEN (a < 10) THEN (a + 10) END) > (a + b))
+------PhysicalProject[(a + 1) AS `(a + 1)`, (a + b) AS `(a + b)`, CASE WHEN (a > 1) THEN (a + 1) WHEN (a < 10) THEN (a + 10) END AS `CASE WHEN (a > 1) THEN (a + 1) WHEN (a < 10) THEN (a + 10) END`, t1.a]
+--------filter(OR[((t1.a + CASE WHEN (a > 1) THEN (a + 1) WHEN (a < 10) THEN (a + 10) END) > (t1.a + t1.b)),((t1.a + CASE WHEN (a > 1) THEN (a + 1) WHEN (a < 10) THEN (a + 10) END) > ((t1.a + t1.b) - 1))])
+----------PhysicalOlapScan[tbl_join_extract_or_from_case_when_1(t1)]
+------PhysicalProject[(x < 10) AS `(x < 10)`, (x > 0) AS `(x > 0)`, t2.x]
+--------PhysicalOlapScan[tbl_join_extract_or_from_case_when_2(t2)]
+
 -- !case_when_two_side_1 --
 PhysicalCteAnchor ( cteId=CTEId#0 )
 --PhysicalCteProducer ( cteId=CTEId#0 )
