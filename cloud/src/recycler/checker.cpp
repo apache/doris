@@ -159,7 +159,11 @@ int Checker::start() {
             {
                 std::lock_guard lock(mtx_);
                 // skip instance in recycling
-                if (working_instance_map_.count(instance_id)) continue;
+                if (working_instance_map_.count(instance_id)) {
+                    LOG(INFO) << "checker skip instance already working, instance_id="
+                              << instance_id;
+                    continue;
+                }
             }
             auto checker = std::make_shared<InstanceChecker>(txn_kv_, instance.instance_id());
             if (checker->init(instance) != 0) {
@@ -169,10 +173,14 @@ int Checker::start() {
             }
             std::string check_job_key;
             job_check_key({instance.instance_id()}, &check_job_key);
+            LOG(INFO) << "checker picked instance, instance_id=" << instance.instance_id()
+                      << " enqueue_time_s=" << enqueue_time_s;
             int ret = prepare_instance_recycle_job(txn_kv_.get(), check_job_key,
                                                    instance.instance_id(), ip_port_,
                                                    config::check_object_interval_seconds * 1000);
             if (ret != 0) { // Prepare failed
+                LOG(WARNING) << "checker prepare job failed, instance_id=" << instance.instance_id()
+                             << " ret=" << ret;
                 continue;
             } else {
                 std::lock_guard lock(mtx_);
@@ -185,54 +193,66 @@ int Checker::start() {
             g_bvar_checker_enqueue_cost_s.put(instance_id, ctime_ms / 1000 - enqueue_time_s);
 
             bool success {true};
+            auto log_progress = [&](std::string_view stage) {
+                LOG(INFO) << "checker progress, instance_id=" << instance_id << " stage=" << stage;
+            };
 
+            log_progress("do_check");
             if (int ret = checker->do_check(); ret != 0) {
                 success = false;
             }
 
             if (config::enable_inverted_check) {
+                log_progress("do_inverted_check");
                 if (int ret = checker->do_inverted_check(); ret != 0) {
                     success = false;
                 }
             }
 
             if (config::enable_delete_bitmap_inverted_check) {
+                log_progress("do_delete_bitmap_inverted_check");
                 if (int ret = checker->do_delete_bitmap_inverted_check(); ret != 0) {
                     success = false;
                 }
             }
 
             if (config::enable_mow_job_key_check) {
+                log_progress("do_mow_job_key_check");
                 if (int ret = checker->do_mow_job_key_check(); ret != 0) {
                     success = false;
                 }
             }
 
             if (config::enable_tablet_stats_key_check) {
+                log_progress("do_tablet_stats_key_check");
                 if (int ret = checker->do_tablet_stats_key_check(); ret != 0) {
                     success = false;
                 }
             }
 
             if (config::enable_restore_job_check) {
+                log_progress("do_restore_job_check");
                 if (int ret = checker->do_restore_job_check(); ret != 0) {
                     success = false;
                 }
             }
 
             if (config::enable_txn_key_check) {
+                log_progress("do_txn_key_check");
                 if (int ret = checker->do_txn_key_check(); ret != 0) {
                     success = false;
                 }
             }
 
             if (config::enable_meta_rowset_key_check) {
+                log_progress("do_meta_rowset_key_check");
                 if (int ret = checker->do_meta_rowset_key_check(); ret != 0) {
                     success = false;
                 }
             }
 
             if (config::enable_delete_bitmap_storage_optimize_v2_check) {
+                log_progress("do_delete_bitmap_storage_optimize_check_v2");
                 if (int ret = checker->do_delete_bitmap_storage_optimize_check(2 /*version*/);
                     ret != 0) {
                     success = false;
@@ -240,24 +260,28 @@ int Checker::start() {
             }
 
             if (config::enable_version_key_check) {
+                log_progress("do_version_key_check");
                 if (int ret = checker->do_version_key_check(); ret != 0) {
                     success = false;
                 }
             }
 
             if (config::enable_snapshot_check) {
+                log_progress("do_snapshots_check");
                 if (int ret = checker->do_snapshots_check(); ret != 0) {
                     success = false;
                 }
             }
 
             if (config::enable_mvcc_meta_key_check) {
+                log_progress("do_mvcc_meta_key_check");
                 if (int ret = checker->do_mvcc_meta_key_check(); ret != 0) {
                     success = false;
                 }
             }
 
             if (config::enable_merge_file_check) {
+                log_progress("do_merge_file_check");
                 if (int ret = checker->do_merge_file_check(); ret != 0) {
                     success = false;
                 }
@@ -268,6 +292,8 @@ int Checker::start() {
                 finish_instance_recycle_job(txn_kv_.get(), check_job_key, instance.instance_id(),
                                             ip_port_, success, ctime_ms);
             }
+            LOG(INFO) << "checker finished instance, instance_id=" << instance.instance_id()
+                      << " success=" << success;
             {
                 std::lock_guard lock(mtx_);
                 working_instance_map_.erase(instance.instance_id());

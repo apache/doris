@@ -2738,11 +2738,11 @@ int InstanceRecycler::process_merged_file_segment_index(
                 break;
             }
             if (err == TxnErrorCode::TXN_CONFLICT) {
-                VLOG_DEBUG << "merged file info update conflict, not retrying"
-                           << ", instance_id=" << instance_id_
-                           << ", merged_file_path=" << merged_file_path
-                           << ", rowset_id=" << rs_meta_pb.rowset_id_v2()
-                           << ", tablet_id=" << rs_meta_pb.tablet_id();
+                LOG_WARNING("merged file info update conflict, not retrying")
+                        .tag("instance_id", instance_id_)
+                        .tag("merged_file_path", merged_file_path)
+                        .tag("rowset_id", rs_meta_pb.rowset_id_v2())
+                        .tag("tablet_id", rs_meta_pb.tablet_id());
                 ret = -1;
                 break;
             }
@@ -3410,6 +3410,13 @@ int InstanceRecycler::recycle_tablet(int64_t tablet_id, RecyclerMetricsContext& 
                     .tag("rowset meta pb", rs_meta.ShortDebugString());
             return -1;
         }
+        if (process_merged_file_segment_index(rs_meta) != 0) {
+            LOG_WARNING("failed to update merged file info when recycling tablet")
+                    .tag("instance_id", instance_id_)
+                    .tag("tablet_id", tablet_id)
+                    .tag("rowset_id", rs_meta.rowset_id_v2());
+            return -1;
+        }
         recycle_rowsets_number += 1;
         recycle_segments_number += rs_meta.num_segments();
         recycle_rowsets_data_size += rs_meta.data_disk_size();
@@ -3453,6 +3460,13 @@ int InstanceRecycler::recycle_tablet(int64_t tablet_id, RecyclerMetricsContext& 
                     .tag("instance_id", instance_id_)
                     .tag("resource_id", rs_meta.resource_id())
                     .tag("rowset meta pb", rs_meta.ShortDebugString());
+            return -1;
+        }
+        if (process_merged_file_segment_index(rs_meta) != 0) {
+            LOG_WARNING("failed to update merged file info when recycling restore job rowset")
+                    .tag("instance_id", instance_id_)
+                    .tag("tablet_id", tablet_id)
+                    .tag("rowset_id", rs_meta.rowset_id_v2());
             return -1;
         }
         recycle_restore_job_rowsets_number += 1;

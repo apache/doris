@@ -1752,6 +1752,125 @@ TEST(RecyclerTest, recycle_tablet) {
     check_delete_bitmap_keys_size(txn_kv.get(), tablet_id, 0);
 }
 
+TEST(RecyclerTest, recycle_tablet_merged_file_ref_count) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    constexpr std::string_view kResourceId = "recycle_tablet_merge_ref";
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id(std::string(kResourceId));
+    obj_info->set_ak(config::test_s3_ak);
+    obj_info->set_sk(config::test_s3_sk);
+    obj_info->set_endpoint(config::test_s3_endpoint);
+    obj_info->set_region(config::test_s3_region);
+    obj_info->set_bucket(config::test_s3_bucket);
+    obj_info->set_prefix(std::string(kResourceId));
+
+    InstanceRecycler recycler(txn_kv, instance, thread_group,
+                              std::make_shared<TxnLazyCommitter>(txn_kv));
+    ASSERT_EQ(recycler.init(), 0);
+    auto accessor = recycler.accessor_map_.begin()->second;
+
+    constexpr int64_t table_id = 40001;
+    constexpr int64_t index_id = 40002;
+    constexpr int64_t partition_id = 40003;
+    constexpr int64_t tablet_id = 40004;
+    ASSERT_EQ(create_tablet(txn_kv.get(), table_id, index_id, partition_id, tablet_id), 0);
+
+    // Build a rowset whose segments are merged into a shared merged file.
+    doris::RowsetMetaCloudPB merged_rowset;
+    merged_rowset.set_rowset_id(0);
+    merged_rowset.set_rowset_id_v2("merged_rowset");
+    merged_rowset.set_rowset_state(RowsetStatePB::VISIBLE);
+    merged_rowset.set_tablet_id(tablet_id);
+    merged_rowset.set_resource_id(std::string(kResourceId));
+    merged_rowset.set_num_segments(2);
+    merged_rowset.set_creation_time(current_time);
+    merged_rowset.set_schema_version(1);
+    merged_rowset.set_index_id(index_id);
+    merged_rowset.set_start_version(0);
+    merged_rowset.set_end_version(1);
+    const int64_t kSmallFileSize = 64;
+    const std::string merged_file_path =
+            fmt::format("data/merge_file/{}/{}.dat", tablet_id, merged_rowset.rowset_id_v2());
+    auto merged_index_map = merged_rowset.mutable_merge_file_segment_index();
+    for (int i = 0; i < merged_rowset.num_segments(); ++i) {
+        std::string small_path = segment_path(tablet_id, merged_rowset.rowset_id_v2(), i);
+        auto& index_pb = (*merged_index_map)[small_path];
+        index_pb.set_merge_file_path(merged_file_path);
+        index_pb.set_offset(i * kSmallFileSize);
+        index_pb.set_size(kSmallFileSize);
+    }
+
+    // Another rowset without merged segments.
+    doris::RowsetMetaCloudPB plain_rowset;
+    plain_rowset.set_rowset_id(0);
+    plain_rowset.set_rowset_id_v2("plain_rowset");
+    plain_rowset.set_rowset_state(RowsetStatePB::VISIBLE);
+    plain_rowset.set_tablet_id(tablet_id);
+    plain_rowset.set_resource_id(std::string(kResourceId));
+    plain_rowset.set_num_segments(1);
+    plain_rowset.set_creation_time(current_time);
+    plain_rowset.set_schema_version(2);
+    plain_rowset.set_index_id(index_id);
+    plain_rowset.set_start_version(2);
+    plain_rowset.set_end_version(2);
+
+    // Put rowset meta and merged file meta into kv.
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(TxnErrorCode::TXN_OK, txn_kv->create_txn(&txn));
+    std::string merged_rowset_key = meta_rowset_key({instance_id, tablet_id, 1});
+    txn->put(merged_rowset_key, merged_rowset.SerializeAsString());
+    std::string plain_rowset_key = meta_rowset_key({instance_id, tablet_id, 2});
+    txn->put(plain_rowset_key, plain_rowset.SerializeAsString());
+
+    MergedFileInfoPB merged_info;
+    merged_info.set_ref_cnt(merged_rowset.num_segments());
+    merged_info.set_total_file_num(merged_rowset.num_segments());
+    merged_info.set_left_file_num(merged_rowset.num_segments());
+    merged_info.set_total_file_bytes(kSmallFileSize * merged_rowset.num_segments());
+    merged_info.set_left_file_bytes(kSmallFileSize * merged_rowset.num_segments());
+    merged_info.set_state(MergedFileInfoPB::NORMAL);
+    merged_info.set_resource_id(std::string(kResourceId));
+    for (const auto& [small_path, _] : *merged_index_map) {
+        auto* small_file = merged_info.add_small_files();
+        small_file->set_path(small_path);
+        small_file->set_size(kSmallFileSize);
+        small_file->set_deleted(false);
+        small_file->set_txn_id(next_small_file_txn_id());
+        small_file->set_rowset_id(merged_rowset.rowset_id_v2());
+    }
+    std::string merged_key = merge_file_key({instance_id, merged_file_path});
+    txn->put(merged_key, merged_info.SerializeAsString());
+    ASSERT_EQ(TxnErrorCode::TXN_OK, txn->commit());
+
+    // Prepare object storage files.
+    ASSERT_EQ(0, accessor->put_file(merged_file_path, "payload"));
+    for (int i = 0; i < merged_rowset.num_segments(); ++i) {
+        auto path = segment_path(tablet_id, merged_rowset.rowset_id_v2(), i);
+        ASSERT_EQ(0, accessor->put_file(path, "segment"));
+    }
+    for (int i = 0; i < plain_rowset.num_segments(); ++i) {
+        auto path = segment_path(tablet_id, plain_rowset.rowset_id_v2(), i);
+        ASSERT_EQ(0, accessor->put_file(path, "segment"));
+    }
+
+    ASSERT_EQ(0, recycler.recycle_tablets(table_id, index_id, ctx));
+
+    // merged file kv should be removed and file deleted as ref_cnt reaches zero.
+    ASSERT_EQ(TxnErrorCode::TXN_OK, txn_kv->create_txn(&txn));
+    std::string merged_val;
+    EXPECT_EQ(TxnErrorCode::TXN_KEY_NOT_FOUND, txn->get(merged_key, &merged_val));
+    EXPECT_EQ(1, accessor->exists(merged_file_path));
+
+    // tablet directory should be cleaned.
+    std::unique_ptr<ListIterator> list_iter;
+    ASSERT_EQ(0, accessor->list_directory(tablet_path_prefix(tablet_id), &list_iter));
+    ASSERT_FALSE(list_iter->has_next());
+}
+
 TEST(RecyclerTest, recycle_indexes) {
     config::retention_seconds = 0;
     auto txn_kv = std::make_shared<MemTxnKv>();
