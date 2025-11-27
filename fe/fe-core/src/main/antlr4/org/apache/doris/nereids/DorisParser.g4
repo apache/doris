@@ -2103,6 +2103,7 @@ nonReserved
     | MIN
     | MINUTE
     | MINUTES
+    | MOD_ALT
     | MODIFY
     | MONTH
     | MTMV
