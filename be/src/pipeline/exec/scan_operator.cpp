@@ -370,7 +370,8 @@ Status ScanLocalState<Derived>::_normalize_predicate(
                                     value_range.attach_profile_counter(
                                             rf_expr->filter_id(),
                                             rf_expr->predicate_filtered_rows_counter(),
-                                            rf_expr->predicate_input_rows_counter());
+                                            rf_expr->predicate_input_rows_counter(),
+                                            rf_expr->predicate_always_true_rows_counter());
                                 }
                             }};
                             RETURN_IF_PUSH_DOWN(_normalize_in_and_eq_predicate(
@@ -437,7 +438,8 @@ Status ScanLocalState<Derived>::_normalize_bloom_filter(vectorized::VExpr* expr,
             _filter_predicates.bloom_filters.emplace_back(
                     slot->col_name(), expr->get_bloom_filter_func(), rf_expr->filter_id(),
                     rf_expr->predicate_filtered_rows_counter(),
-                    rf_expr->predicate_input_rows_counter());
+                    rf_expr->predicate_input_rows_counter(),
+                    rf_expr->predicate_always_true_rows_counter());
             *pdt = temp_pdt;
         }
     }
@@ -457,7 +459,8 @@ Status ScanLocalState<Derived>::_normalize_bitmap_filter(vectorized::VExpr* expr
             _filter_predicates.bitmap_filters.emplace_back(
                     slot->col_name(), expr->get_bitmap_filter_func(), rf_expr->filter_id(),
                     rf_expr->predicate_filtered_rows_counter(),
-                    rf_expr->predicate_input_rows_counter());
+                    rf_expr->predicate_input_rows_counter(),
+                    rf_expr->predicate_always_true_rows_counter());
             *pdt = temp_pdt;
         }
     }
@@ -669,16 +672,21 @@ Status ScanLocalState<Derived>::_normalize_in_and_eq_predicate(vectorized::VExpr
                 int runtime_filter_id = -1;
                 std::shared_ptr<RuntimeProfile::Counter> predicate_filtered_rows_counter = nullptr;
                 std::shared_ptr<RuntimeProfile::Counter> predicate_input_rows_counter = nullptr;
+                std::shared_ptr<RuntimeProfile::Counter> predicate_always_true_rows_counter =
+                        nullptr;
                 if (expr_ctx->root()->is_rf_wrapper()) {
                     auto* rf_expr =
                             assert_cast<vectorized::VRuntimeFilterWrapper*>(expr_ctx->root().get());
                     runtime_filter_id = rf_expr->filter_id();
                     predicate_filtered_rows_counter = rf_expr->predicate_filtered_rows_counter();
                     predicate_input_rows_counter = rf_expr->predicate_input_rows_counter();
+                    predicate_always_true_rows_counter =
+                            rf_expr->predicate_always_true_rows_counter();
                 }
                 _filter_predicates.in_filters.emplace_back(
                         slot->col_name(), expr->get_set_func(), runtime_filter_id,
-                        predicate_filtered_rows_counter, predicate_input_rows_counter);
+                        predicate_filtered_rows_counter, predicate_input_rows_counter,
+                        predicate_always_true_rows_counter);
                 *pdt = PushDownType::ACCEPTABLE;
                 return Status::OK();
             }
