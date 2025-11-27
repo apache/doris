@@ -2960,6 +2960,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                         return new Divide(left, right);
                     case DorisParser.MOD:
                         return new Mod(left, right);
+                    case DorisParser.MOD_ALT:
+                        return new Mod(left, right);
                     case DorisParser.PLUS:
                         return new Add(left, right);
                     case DorisParser.SUBTRACT:

@@ -612,6 +612,7 @@ SUBTRACT: '-';
 ASTERISK: '*';
 SLASH: '/';
 MOD: '%';
+MOD_ALT: 'MOD';
 TILDE: '~';
 AMPERSAND: '&';
 LOGICALAND: '&&';
