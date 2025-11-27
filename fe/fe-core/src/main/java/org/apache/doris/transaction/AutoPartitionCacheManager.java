@@ -18,8 +18,8 @@
 package org.apache.doris.transaction;
 
 import org.apache.doris.thrift.TTabletLocation;
-
-import jline.internal.Log;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -53,6 +53,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 // To distinguish the idempotence of the createPartition RPC during incremental partition creation
 // for automatic partitioned tables, cache tablet locations per partition.
 public class AutoPartitionCacheManager {
+    private static Logger LOG = LogManager.getLogger(AutoPartitionCacheManager.class);
 
     public static class PartitionTabletCache {
         public final List<TTabletLocation> tablets;
@@ -107,9 +108,9 @@ public class AutoPartitionCacheManager {
             partitionSlaveTablets.clear();
             partitionTablets.addAll(cached.tablets);
             partitionSlaveTablets.addAll(cached.slaveTablets);
-            Log.info(String.format("Get cached auto partition info from cache, txnId: %d, partitionId: %d, "
-                    + "tablets: %d, slaveTablets: %d", txnId, partitionId,
-                    cached.tablets.size(), cached.slaveTablets.size()));
+            LOG.debug("Get cached auto partition info from cache, txnId: {}, partitionId: {}, "
+                    + "tablets: {}, slaveTablets: {}", txnId, partitionId,
+                    cached.tablets.size(), cached.slaveTablets.size());
         }
     }
 

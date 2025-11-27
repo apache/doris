@@ -3772,7 +3772,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 // fast path, if cached
                 tablets.addAll(partitionTablets);
                 slaveTablets.addAll(partitionSlaveTablets);
-                LOG.info("Fast path: use cached auto partition info, txnId: {}, partitionId: {}, "
+                LOG.debug("Fast path: use cached auto partition info, txnId: {}, partitionId: {}, "
                         + "tablets: {}, slaveTablets: {}", txnId, partition.getId(),
                         partitionTablets.size(), partitionSlaveTablets.size());
                 continue;
@@ -3844,7 +3844,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 Env.getCurrentGlobalTransactionMgr().getAutoPartitionCacheMgr()
                         .getOrSetAutoPartitionInfo(txnId, partition.getId(), partitionTablets,
                                 partitionSlaveTablets);
-                LOG.info("Cache auto partition info, txnId: {}, partitionId: {}, "
+                LOG.debug("Cache auto partition info, txnId: {}, partitionId: {}, "
                         + "tablets: {}, slaveTablets: {}", txnId, partition.getId(),
                         partitionTablets.size(), partitionSlaveTablets.size());
             }
