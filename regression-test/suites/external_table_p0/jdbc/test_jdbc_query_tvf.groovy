@@ -36,7 +36,8 @@ suite("test_jdbc_query_tvf", "p0,external,external_docker") {
             "password"="123456",
             "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}/doris_test",
             "driver_url" = "${driver_url}",
-            "driver_class" = "com.mysql.cj.jdbc.Driver"
+            "driver_class" = "com.mysql.cj.jdbc.Driver",
+            "enable.mapping.varbinary" = "true"
         );"""
 
         order_qt_sql """desc function query('catalog' = '${catalog_name}', 'query' = 'select * from doris_test.all_types') """
