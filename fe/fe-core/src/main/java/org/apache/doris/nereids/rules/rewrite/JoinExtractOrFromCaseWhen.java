@@ -73,6 +73,13 @@ import java.util.concurrent.atomic.AtomicReference;
  */
 public class JoinExtractOrFromCaseWhen implements RewriteRuleFactory {
 
+    private enum SlotFrom {
+        FROM_LEFT_SIDE_ONLY,
+        FROM_RIGHT_SIDE_ONLY,
+        FROM_BOTH_SIDE,
+        FROM_NONE,
+    }
+
     @Override
     public List<Rule> buildRules() {
         return ImmutableList.of(logicalJoin()
@@ -94,7 +101,17 @@ public class JoinExtractOrFromCaseWhen implements RewriteRuleFactory {
 
     // 1. expr contains slots from both sides;
     private boolean isConditionNeedRewrite(Expression expr, Set<Slot> leftSlots, Set<Slot> rightSlots) {
-        return getExtractChildIndexAndOtherChildSlotFromLeft(expr, leftSlots, rightSlots).isPresent();
+        if (expr.containsUniqueFunction()) {
+            return false;
+        }
+        Set<Slot> exprSlots = expr.getInputSlots();
+        // all slots are from one side, no need to process it.
+        if (Collections.disjoint(exprSlots, leftSlots) || Collections.disjoint(exprSlots, rightSlots)
+                || !ExpressionUtils.containsCaseWhenLikeType(expr)) {
+            return false;
+        }
+        // can not rewrite none case when child
+        return getNoneCaseWhenChildSlotFrom(expr, leftSlots, rightSlots) != SlotFrom.FROM_BOTH_SIDE;
     }
 
     private Plan rewrite(LogicalJoin<? extends Plan, ? extends Plan> join, ExpressionRewriteContext context) {
@@ -125,29 +142,49 @@ public class JoinExtractOrFromCaseWhen implements RewriteRuleFactory {
             Set<Expression> conditions, AtomicReference<Pair<Expression, Integer>> leastOrExpandCondRef) {
         Set<Slot> leftSlots = join.left().getOutputSet();
         Set<Slot> rightSlots = join.right().getOutputSet();
-        Optional<Pair<Integer, Boolean>> extractOpt
-                = getExtractChildIndexAndOtherChildSlotFromLeft(expr, leftSlots, rightSlots);
-        if (!extractOpt.isPresent()) {
+        if (!isConditionNeedRewrite(expr, leftSlots, rightSlots)) {
             return;
         }
+        Boolean otherChildrenFromLeft = null;
+        switch (getNoneCaseWhenChildSlotFrom(expr, leftSlots, rightSlots)) {
+            case FROM_BOTH_SIDE: {
+                return;
+            }
+            case FROM_LEFT_SIDE_ONLY: {
+                otherChildrenFromLeft = true;
+                break;
+            }
+            case FROM_RIGHT_SIDE_ONLY: {
+                otherChildrenFromLeft = false;
+                break;
+            }
+        }
 
-        int extractChildIndex = extractOpt.get().first;
-        Boolean otherChildrenFromLeft = extractOpt.get().second;
-        if (otherChildrenFromLeft == null) {
-            // extract expression for left side
-            doExtractExpression(expr, extractChildIndex, true, leftSlots, rightSlots)
-                    .ifPresent(conditions::add);
-            // extract expression for right side
-            doExtractExpression(expr, extractChildIndex, false, leftSlots, rightSlots)
-                    .ifPresent(conditions::add);
-        } else {
-            // extract expression for one side, all child slots need from the same side
-            doExtractExpression(expr, extractChildIndex, otherChildrenFromLeft, leftSlots, rightSlots)
-                    .ifPresent(conditions::add);
-            if (expr instanceof EqualPredicate && extractOrExpansionCondition) {
-                // extract expression for hash condition only when the expr is equal predicate
-                doExtractExpression(expr, extractChildIndex, !otherChildrenFromLeft, leftSlots, rightSlots)
-                        .ifPresent(cond -> tryAddOrExpansionHashCondition(cond, join, context, leastOrExpandCondRef));
+        List<SlotFrom> childrenSlotFrom = Lists.newArrayListWithExpectedSize(expr.children().size());
+        for (Expression child : expr.children()) {
+            childrenSlotFrom.add(getExpressionSlotFrom(child, leftSlots, rightSlots));
+        }
+        for (int i = 0; i < expr.children().size(); i++) {
+            if (!ExpressionUtils.containsCaseWhenLikeType(expr.child(i))) {
+                continue;
+            }
+            if (otherChildrenFromLeft == null) {
+                // extract expression for left side
+                doExtractExpression(expr, i, true, true, childrenSlotFrom, leftSlots, rightSlots)
+                        .ifPresent(conditions::add);
+                // extract expression for right side
+                doExtractExpression(expr, i, false, false, childrenSlotFrom, leftSlots, rightSlots)
+                        .ifPresent(conditions::add);
+            } else {
+                // extract expression for one side, all child slots need from the same side
+                doExtractExpression(expr, i, otherChildrenFromLeft, otherChildrenFromLeft, childrenSlotFrom, leftSlots, rightSlots)
+                        .ifPresent(conditions::add);
+                if (expr instanceof EqualPredicate && extractOrExpansionCondition) {
+                    // extract expression for hash condition only when the expr is equal predicate
+                    doExtractExpression(expr, i, !otherChildrenFromLeft, otherChildrenFromLeft, childrenSlotFrom,
+                            leftSlots, rightSlots).ifPresent(
+                                    cond -> tryAddOrExpansionHashCondition(cond, join, context, leastOrExpandCondRef));
+                }
             }
         }
     }
@@ -185,69 +222,69 @@ public class JoinExtractOrFromCaseWhen implements RewriteRuleFactory {
         }
     }
 
-    // one child contains both side slots, other children contains only one side slots.
-    private Optional<Pair<Integer, Boolean>> getExtractChildIndexAndOtherChildSlotFromLeft(Expression expr,
-            Set<Slot> leftSlots, Set<Slot> rightSlots) {
-        if (expr.containsUniqueFunction()) {
-            return Optional.empty();
-        }
-        int extractChildIndex = -1;
-        Boolean otherChildSlotFromLeft = null;
+    private SlotFrom getNoneCaseWhenChildSlotFrom(Expression expr, Set<Slot> leftSlots, Set<Slot> rightSlots) {
+        SlotFrom mergeSlotFrom = SlotFrom.FROM_NONE;
         for (int i = 0; i < expr.children().size(); i++) {
             Expression child = expr.child(i);
-            Set<Slot> childSlots = child.getInputSlots();
-            if (childSlots.isEmpty()) {
+            if (ExpressionUtils.containsCaseWhenLikeType(child)) {
                 continue;
             }
-            boolean containsLeft = !Collections.disjoint(childSlots, leftSlots);
-            boolean containsRight = !Collections.disjoint(childSlots, rightSlots);
-            if (containsLeft && containsRight) {
-                if (extractChildIndex != -1 || !ExpressionUtils.containsCaseWhenLikeType(child)) {
-                    // more than one child contains both side slots
-                    return Optional.empty();
+            SlotFrom childSlotFrom = getExpressionSlotFrom(child, leftSlots, rightSlots);
+            switch (childSlotFrom) {
+                case FROM_LEFT_SIDE_ONLY: {
+                    if (mergeSlotFrom == SlotFrom.FROM_RIGHT_SIDE_ONLY) {
+                        return SlotFrom.FROM_BOTH_SIDE;
+                    }
+                    mergeSlotFrom = childSlotFrom;
+                    break;
                 }
-                extractChildIndex = i;
-            } else if (containsLeft) {
-                if (otherChildSlotFromLeft == null) {
-                    otherChildSlotFromLeft = true;
-                } else if (!otherChildSlotFromLeft) {
-                    // one child from left, another child from right
-                    return Optional.empty();
+                case FROM_RIGHT_SIDE_ONLY: {
+                    if (mergeSlotFrom == SlotFrom.FROM_LEFT_SIDE_ONLY) {
+                        return SlotFrom.FROM_BOTH_SIDE;
+                    }
+                    mergeSlotFrom = childSlotFrom;
+                    break;
                 }
-            } else if (containsRight) {
-                if (otherChildSlotFromLeft == null) {
-                    otherChildSlotFromLeft = false;
-                } else if (otherChildSlotFromLeft) {
-                    // one child from left, another child from right
-                    return Optional.empty();
+                case FROM_BOTH_SIDE: {
+                    return childSlotFrom;
                 }
-            } else {
-                // should not be here
-                return Optional.empty();
             }
         }
 
-        if (extractChildIndex == -1) {
-            return Optional.empty();
-        }
-
-        return Optional.of(Pair.of(extractChildIndex, otherChildSlotFromLeft));
+        return mergeSlotFrom;
     }
 
     // extract case when expression from `expr`'s child at `extractChildIndex`.
-    // after extraction, all slots in expr's child at `extractChildIndex`
-    // are from one side indicated by `childSlotFromLeft`.
-    private Optional<Expression> doExtractExpression(Expression expr, int extractChildIndex, boolean childSlotFromLeft,
+    // after extraction, all slots of this child at `extractChildIndex`
+    // are from one side indicated by `extractChildSlotFromLeft`.
+    // for expr's other children, their slot from need met the otherChildSlotFromLeft
+    private Optional<Expression> doExtractExpression(Expression expr, int extractChildIndex,
+            boolean extractChildSlotFromLeft, boolean otherChildSlotFromLeft, List<SlotFrom> childrenSlotFrom,
             Set<Slot> leftSlots, Set<Slot> rightSlots) {
+        for (int i = 0; i < expr.children().size(); i++) {
+            // we only rewrite extractChildIndex,
+            // so for other child, it must need the requirement of `otherChildSlotFromLeft`
+            if (i != extractChildIndex) {
+                // use childrenSlotFrom to avoid call Collection.disjoint too many, but maybe we can delete it.
+                SlotFrom slotFrom = childrenSlotFrom.get(i);
+                if (slotFrom == SlotFrom.FROM_BOTH_SIDE
+                        || (otherChildSlotFromLeft && slotFrom == SlotFrom.FROM_RIGHT_SIDE_ONLY)
+                        || (!otherChildSlotFromLeft && slotFrom == SlotFrom.FROM_LEFT_SIDE_ONLY)) {
+                    return Optional.empty();
+                }
+            }
+        }
+
         Expression expandChild = expr.child(extractChildIndex);
         Optional<List<Expression>> resultOpt = tryExtractCaseWhen(
-                expandChild, childSlotFromLeft, leftSlots, rightSlots);
+                expandChild, extractChildSlotFromLeft, leftSlots, rightSlots);
         if (!resultOpt.isPresent()) {
             return Optional.empty();
         }
 
         List<Expression> expandTargetExpressions = resultOpt.get();
         if (expandTargetExpressions.size() <= 1) {
+            // if size = 1, then it don't expand, should be just the expr itself.
             return Optional.empty();
         }
 
@@ -338,6 +375,21 @@ public class JoinExtractOrFromCaseWhen implements RewriteRuleFactory {
         } else {
             // no slots from left
             return Collections.disjoint(exprSlots, leftSlots);
+        }
+    }
+
+    private SlotFrom getExpressionSlotFrom(Expression expr, Set<Slot> leftSlots, Set<Slot> rightSlots) {
+        Set<Slot> exprSlots = expr.getInputSlots();
+        boolean containsLeft = !Collections.disjoint(exprSlots, leftSlots);
+        boolean containsRight = !Collections.disjoint(exprSlots, rightSlots);
+        if (containsLeft && containsRight) {
+            return SlotFrom.FROM_BOTH_SIDE;
+        } else if (containsLeft) {
+            return SlotFrom.FROM_LEFT_SIDE_ONLY;
+        } else if (containsRight) {
+            return SlotFrom.FROM_RIGHT_SIDE_ONLY;
+        } else {
+            return SlotFrom.FROM_NONE;
         }
     }
 

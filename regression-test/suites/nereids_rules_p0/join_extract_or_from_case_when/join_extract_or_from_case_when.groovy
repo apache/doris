@@ -81,6 +81,13 @@ suite('join_extract_or_from_case_when') {
                 +  case when t1.a > 1 then t1.a + 1 when t1.a < 10 then t1.a + 10 end > t1.a + t1.b
     """
 
+    // case when's result are all literal
+    qt_case_when_one_side_9 """explain shape plan
+        select t1.a,  t2.x
+        from tbl_join_extract_or_from_case_when_1 t1 join tbl_join_extract_or_from_case_when_2 t2
+            on case when t2.x > 0 then 100 when t2.x < 10 then 10000 end + 5 > t1.a + t1.b
+    """
+
     qt_case_when_two_side_1 """explain shape plan
         select t1.a,  t2.x
         from tbl_join_extract_or_from_case_when_1 t1 join tbl_join_extract_or_from_case_when_2 t2
