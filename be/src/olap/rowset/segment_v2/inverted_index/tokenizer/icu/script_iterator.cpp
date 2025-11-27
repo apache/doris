@@ -29,8 +29,8 @@ std::vector<int32_t> ScriptIterator::k_basic_latin(128);
 ScriptIterator::ScriptIterator(bool combine_cj) : combine_cj_(combine_cj) {}
 
 void ScriptIterator::initialize() {
-    static std::once_flag once_flag;
-    std::call_once(once_flag, []() {
+    static DorisCallOnce<std::vector<int32_t>> once_flag;
+    once_flag.call([]() {
         UErrorCode status = U_ZERO_ERROR;
         for (int32_t i = 0; i < 128; i++) {
             k_basic_latin[i] = uscript_getScript(i, &status);

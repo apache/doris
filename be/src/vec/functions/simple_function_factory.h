@@ -253,9 +253,9 @@ private:
 
 public:
     static SimpleFunctionFactory& instance() {
-        static std::once_flag oc;
+        static DorisCallOnce<Status>  oc;
         static SimpleFunctionFactory instance;
-        std::call_once(oc, []() {
+        std::ignore = oc.call([]() {
             register_function_size(instance);
             register_function_bitmap(instance);
             register_function_quantile_state(instance);
@@ -349,6 +349,7 @@ public:
             register_function_throw_exception(instance);
 #endif
             register_function_variant_type(instance);
+            return Status::OK();
         });
         return instance;
     }

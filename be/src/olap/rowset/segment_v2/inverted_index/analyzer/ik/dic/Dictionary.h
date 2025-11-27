@@ -104,7 +104,7 @@ public:
     }
 
     static Dictionary* getSingleton(const Configuration& cfg, bool useExtDict = false) {
-        std::call_once(init_flag_, [&]() {
+        std::ignore = init_flag_.call([&]() {
             try {
                 singleton_ = new Dictionary(cfg, useExtDict);
                 // Try to load dictionaries
@@ -131,6 +131,7 @@ public:
                 // Let exception propagate to indicate critical failure
                 throw;
             }
+            return Status::OK();
         });
 
         // Check initialization result
@@ -158,7 +159,7 @@ public:
 };
 
 inline Dictionary* Dictionary::singleton_ = nullptr;
-inline std::once_flag Dictionary::init_flag_;
+inline DorisCallOnce<Status> Dictionary::init_flag_;
 inline bool Dictionary::init_success_ = false;
 
 inline const std::string Dictionary::PATH_DIC_MAIN = "main.dic";

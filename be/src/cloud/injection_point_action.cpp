@@ -38,10 +38,10 @@ namespace {
 // TODO(cyx): Provide an object pool
 // `suite_map` won't be modified after `register_suites`
 std::map<std::string, std::function<void()>> suite_map;
-std::once_flag register_suites_once;
+DorisCallOnce<Status> register_suites_once;
 
 // only call once
-void register_suites() {
+Status register_suites() {
     suite_map.emplace("test_compaction", [] {
         auto sp = SyncPoint::get_instance();
         sp->set_call_back("new_cumulative_point", [](auto&& args) {
@@ -168,6 +168,7 @@ void register_suites() {
             }
         });
     });
+    return Status::OK();
 }
 
 void set_sleep(const std::string& point, HttpRequest* req) {
@@ -297,8 +298,7 @@ void handle_apply_suite(HttpRequest* req) {
         HttpChannel::send_reply(req, HttpStatus::BAD_REQUEST, "empty suite name");
         return;
     }
-
-    std::call_once(register_suites_once, register_suites);
+    std::ignore = register_suites_once.call(register_suites);
     if (auto it = suite_map.find(suite); it != suite_map.end()) {
         it->second(); // set injection callbacks
         HttpChannel::send_reply(req, HttpStatus::OK, "OK apply suite " + suite + "\n");

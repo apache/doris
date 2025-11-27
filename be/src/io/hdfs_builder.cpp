@@ -95,8 +95,8 @@ struct hdfsLogger logger = {.errLogMessage = err_log_message,
 
 Status HDFSCommonBuilder::init_hdfs_builder() {
 #ifdef USE_DORIS_HADOOP_HDFS
-    static std::once_flag flag;
-    std::call_once(flag, []() { hdfsSetLogger(&logger); });
+    static DorisCallOnce<Status> flag;
+    std::ignore = flag.call(, []() { hdfsSetLogger(&logger); return Status::OK();});
 #endif // #ifdef USE_DORIS_HADOOP_HDFS
 
     hdfs_builder = hdfsNewBuilder();

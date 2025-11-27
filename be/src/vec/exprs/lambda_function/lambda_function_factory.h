@@ -57,11 +57,12 @@ private:
 
 public:
     static LambdaFunctionFactory& instance() {
-        static std::once_flag oc;
+        static DorisCallOnce<Status> oc;
         static LambdaFunctionFactory instance;
-        std::call_once(oc, []() {
+        std::ignore = oc.call([]() {
             register_function_array_map(instance);
             register_function_array_filter(instance);
+            return Status::OK();
         });
         return instance;
     }

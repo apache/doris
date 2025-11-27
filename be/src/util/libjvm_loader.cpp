@@ -60,12 +60,12 @@ LibJVMLoader::JNI_GetCreatedJavaVMsPointer LibJVMLoader::JNI_GetCreatedJavaVMs =
 LibJVMLoader::JNI_CreateJavaVMPointer LibJVMLoader::JNI_CreateJavaVM = nullptr;
 
 LibJVMLoader& LibJVMLoader::instance() {
-    static std::once_flag find_library;
+    static DorisCallOnce<Status> find_library;
     static std::string library;
-    std::call_once(find_library, []() {
+    std::ignore = find_library.call([]() {
         const auto* java_home = getenv("JAVA_HOME");
         if (!java_home) {
-            return;
+            return Status::OK();
         }
         std::string path(java_home);
         for (const auto& entry : std::filesystem::recursive_directory_iterator(path)) {
@@ -74,6 +74,7 @@ LibJVMLoader& LibJVMLoader::instance() {
                 break;
             }
         }
+        return Status::OK();
     });
 
     static LibJVMLoader loader(library);
@@ -85,26 +86,25 @@ Status LibJVMLoader::load() {
         return Status::RuntimeError("Failed to find the library {}.", LIBJVM_SO);
     }
 
-    static std::once_flag resolve_symbols;
-    static Status status;
-    std::call_once(resolve_symbols, [this]() {
+    static DorisCallOnce<Status> resolve_symbols;
+    return resolve_symbols.call([this]() {
+        Status status;
         _handle = std::unique_ptr<void, void (*)(void*)>(dlopen(_library.c_str(), RTLD_LAZY),
                                                          [](void* handle) { dlclose(handle); });
         if (!_handle) {
             status = Status::RuntimeError(dlerror());
-            return;
+            return status;
         }
 
         if (status = resolve_symbol(JNI_GetCreatedJavaVMs, _handle.get(), "JNI_GetCreatedJavaVMs");
             !status.ok()) {
-            return;
+            return status; 
         }
         if (status = resolve_symbol(JNI_CreateJavaVM, _handle.get(), "JNI_CreateJavaVM");
             !status.ok()) {
-            return;
+            return status;             
         }
     });
-    return status;
 }
 
 } // namespace doris

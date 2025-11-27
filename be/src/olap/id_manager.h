@@ -198,12 +198,13 @@ public:
     int64_t get_delayed_expired_timestamp() { return delayed_expired_timestamp; }
 
     void set_external_scan_params(QueryContext* query_ctx, int max_file_scanners) {
-        std::call_once(once_flag_for_external, [&] {
+        std::ignore = _once_flag_for_external.call([&] {
             DCHECK(query_ctx != nullptr);
             _query_global = query_ctx->get_query_globals();
             _query_options = query_ctx->get_query_options();
             _file_scan_range_params_map = query_ctx->file_scan_range_params_map;
             _max_file_scanners = max_file_scanners;
+            return Status::OK();
         });
     }
 
@@ -227,7 +228,7 @@ private:
     TQueryGlobals _query_global;
     TQueryOptions _query_options;
     std::map<int, TFileScanRangeParams> _file_scan_range_params_map;
-    std::once_flag once_flag_for_external;
+    DorisCallOnce<Status> _once_flag_for_external;
     int _max_file_scanners = 10;
 
     // use in Doris Format to keep temp rowsets, preventing them from being deleted by compaction

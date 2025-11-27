@@ -36,8 +36,8 @@
 namespace doris::segment_v2::inverted_index {
 
 void AnalysisFactoryMgr::initialise() {
-    static std::once_flag once_flag;
-    std::call_once(once_flag, [this]() {
+    static DorisCallOnce<Status> once_flag;
+    std::ignore = once_flag.call([this]() {
         // char_filter
         registerFactory<CharFilterFactory>(
                 "empty", []() { return std::make_shared<EmptyCharFilterFactory>(); });
@@ -75,6 +75,7 @@ void AnalysisFactoryMgr::initialise() {
                 "word_delimiter", []() { return std::make_shared<WordDelimiterFilterFactory>(); });
         registerFactory<TokenFilterFactory>(
                 "pinyin", []() { return std::make_shared<PinyinFilterFactory>(); });
+        return Status::OK();
     });
 }
 
