@@ -74,9 +74,6 @@ suite("test_load_single_tablet", "p0") {
                 logger.info("Load label: ${label1}, state: ${state}, errorMsg: ${errorMsg}")
                 
                 if (state == "CANCELLED") {
-                    // (Refrain) the follow msg will be better, but now can not show like this.
-                    // assertTrue(e.message.contains("if load_to_single_tablet set to true, the olap table must be with random distribution"),
-                    // "Expected error message: 'if load_to_single_tablet set to true, the olap table must be with random distribution', but got: ${e.message}")
                     logger.info("Broker load failed as expected with error: ${errorMsg}")
                     foundExpectedError = true
                     break
