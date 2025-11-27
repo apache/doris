@@ -49,6 +49,7 @@ import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.analysis.ExpressionAnalyzer;
 import org.apache.doris.nereids.rules.expression.rules.ConvertAggStateCast;
 import org.apache.doris.nereids.rules.expression.rules.PartitionPruner;
+import org.apache.doris.nereids.rules.expression.rules.PartitionPruner.PartitionTableType;
 import org.apache.doris.nereids.rules.expression.rules.SortedPartitionRanges;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Cast;
@@ -499,7 +500,7 @@ public class NereidsLoadPlanInfoCollector extends DefaultPlanVisitor<Void, PlanT
                 List<Long> prunedPartitions = PartitionPruner.prune(
                         partitionSlots, filterPredicate, idToPartitions,
                         CascadesContext.initContext(new StatementContext(), logicalPlan, PhysicalProperties.ANY),
-                        PartitionPruner.PartitionTableType.OLAP, sortedPartitionRanges);
+                        PartitionTableType.OLAP, sortedPartitionRanges).first;
                 return prunedPartitions;
             } else {
                 return null;
