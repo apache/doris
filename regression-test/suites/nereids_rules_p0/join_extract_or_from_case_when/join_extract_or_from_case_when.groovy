@@ -88,6 +88,20 @@ suite('join_extract_or_from_case_when') {
             on case when t2.x > 0 then 100 when t2.x < 10 then 10000 end + 5 > t1.a + t1.b
     """
 
+    // not push down because not meet push down other requirement
+    qt_case_when_one_side_10 """explain shape plan
+        select t1.a,  t2.x
+        from tbl_join_extract_or_from_case_when_1 t1 left join tbl_join_extract_or_from_case_when_2 t2
+            on case when t2.x > 0 then 100 when t2.x < 10 then 10000 end + 5 > t1.a + t1.b
+    """
+
+    // not push down because not meet push down other requirement
+    qt_case_when_one_side_11 """explain shape plan
+        select t1.a,  t2.x
+        from tbl_join_extract_or_from_case_when_1 t1 right join tbl_join_extract_or_from_case_when_2 t2
+            on case when t1.a > 0 then 100 when t1.b < 10 then 10000 end + 5 > t2.x + t2.y
+    """
+
     qt_case_when_two_side_1 """explain shape plan
         select t1.a,  t2.x
         from tbl_join_extract_or_from_case_when_1 t1 join tbl_join_extract_or_from_case_when_2 t2

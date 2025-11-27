@@ -86,6 +86,24 @@ PhysicalResultSink
 ------PhysicalProject[CASE WHEN (x > 0) THEN 105 WHEN (x < 10) THEN 10005 ELSE NULL END AS `CASE WHEN (x > 0) THEN 105 WHEN (x < 10) THEN 10005 ELSE NULL END`, t2.x]
 --------PhysicalOlapScan[tbl_join_extract_or_from_case_when_2(t2)]
 
+-- !case_when_one_side_10 --
+PhysicalResultSink
+--PhysicalProject[t1.a, t2.x]
+----NestedLoopJoin[LEFT_OUTER_JOIN](CASE WHEN (x > 0) THEN 105 WHEN (x < 10) THEN 10005 ELSE NULL END > (a + b))
+------PhysicalProject[(a + b) AS `(a + b)`, t1.a]
+--------PhysicalOlapScan[tbl_join_extract_or_from_case_when_1(t1)]
+------PhysicalProject[CASE WHEN (x > 0) THEN 105 WHEN (x < 10) THEN 10005 ELSE NULL END AS `CASE WHEN (x > 0) THEN 105 WHEN (x < 10) THEN 10005 ELSE NULL END`, t2.x]
+--------PhysicalOlapScan[tbl_join_extract_or_from_case_when_2(t2)]
+
+-- !case_when_one_side_11 --
+PhysicalResultSink
+--PhysicalProject[t1.a, t2.x]
+----NestedLoopJoin[RIGHT_OUTER_JOIN](CASE WHEN (a > 0) THEN 105 WHEN (b < 10) THEN 10005 ELSE NULL END > (x + y))
+------PhysicalProject[CASE WHEN (a > 0) THEN 105 WHEN (b < 10) THEN 10005 ELSE NULL END AS `CASE WHEN (a > 0) THEN 105 WHEN (b < 10) THEN 10005 ELSE NULL END`, t1.a]
+--------PhysicalOlapScan[tbl_join_extract_or_from_case_when_1(t1)]
+------PhysicalProject[(x + y) AS `(x + y)`, t2.x]
+--------PhysicalOlapScan[tbl_join_extract_or_from_case_when_2(t2)]
+
 -- !case_when_two_side_1 --
 PhysicalCteAnchor ( cteId=CTEId#0 )
 --PhysicalCteProducer ( cteId=CTEId#0 )

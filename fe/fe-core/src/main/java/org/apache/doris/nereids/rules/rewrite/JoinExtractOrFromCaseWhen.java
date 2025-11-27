@@ -88,7 +88,10 @@ public class JoinExtractOrFromCaseWhen implements RewriteRuleFactory {
                 .toRule(RuleType.JOIN_EXTRACT_OR_FROM_CASE_WHEN));
     }
 
-    private boolean needRewrite(LogicalJoin<?, ?> join) {
+    private boolean needRewrite(LogicalJoin<Plan, Plan> join) {
+        if (!PushDownJoinOtherCondition.needRewrite(join) && !OrExpansion.INSTANCE.needRewriteJoin(join)) {
+            return false;
+        }
         Set<Slot> leftSlots = join.left().getOutputSet();
         Set<Slot> rightSlots = join.right().getOutputSet();
         for (Expression expr : join.getOtherJoinConjuncts()) {
@@ -160,6 +163,8 @@ public class JoinExtractOrFromCaseWhen implements RewriteRuleFactory {
             }
         }
 
+        boolean canPushLeft = PushDownJoinOtherCondition.PUSH_DOWN_LEFT_VALID_TYPE.contains(join.getJoinType());
+        boolean canPushRight = PushDownJoinOtherCondition.PUSH_DOWN_RIGHT_VALID_TYPE.contains(join.getJoinType());
         List<SlotFrom> childrenSlotFrom = Lists.newArrayListWithExpectedSize(expr.children().size());
         for (Expression child : expr.children()) {
             childrenSlotFrom.add(getExpressionSlotFrom(child, leftSlots, rightSlots));
@@ -170,15 +175,21 @@ public class JoinExtractOrFromCaseWhen implements RewriteRuleFactory {
             }
             if (otherChildrenFromLeft == null) {
                 // extract expression for left side
-                doExtractExpression(expr, i, true, true, childrenSlotFrom, leftSlots, rightSlots)
-                        .ifPresent(conditions::add);
-                // extract expression for right side
-                doExtractExpression(expr, i, false, false, childrenSlotFrom, leftSlots, rightSlots)
-                        .ifPresent(conditions::add);
+                if (canPushLeft) {
+                    doExtractExpression(expr, i, true, true, childrenSlotFrom, leftSlots, rightSlots)
+                            .ifPresent(conditions::add);
+                }
+                if (canPushRight) {
+                    // extract expression for right side
+                    doExtractExpression(expr, i, false, false, childrenSlotFrom, leftSlots, rightSlots)
+                            .ifPresent(conditions::add);
+                }
             } else {
                 // extract expression for one side, all child slots need from the same side
-                doExtractExpression(expr, i, otherChildrenFromLeft, otherChildrenFromLeft, childrenSlotFrom, leftSlots, rightSlots)
-                        .ifPresent(conditions::add);
+                if ((otherChildrenFromLeft && canPushLeft) || (!otherChildrenFromLeft && canPushRight)) {
+                    doExtractExpression(expr, i, otherChildrenFromLeft, otherChildrenFromLeft,
+                            childrenSlotFrom, leftSlots, rightSlots).ifPresent(conditions::add);
+                }
                 if (expr instanceof EqualPredicate && extractOrExpansionCondition) {
                     // extract expression for hash condition only when the expr is equal predicate
                     doExtractExpression(expr, i, !otherChildrenFromLeft, otherChildrenFromLeft, childrenSlotFrom,
