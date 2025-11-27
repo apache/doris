@@ -369,6 +369,23 @@ DEFINE_mInt32(unused_rowset_monitor_interval, "30");
 DEFINE_mInt32(quering_rowsets_evict_interval, "30");
 DEFINE_String(storage_root_path, "${DORIS_HOME}/storage");
 DEFINE_mString(broken_storage_path, "");
+DEFINE_Int32(min_active_scan_threads, "-1");
+DEFINE_Int32(min_active_file_scan_threads, "-1");
+
+DEFINE_Validator(min_active_scan_threads, [](const int config) -> bool {
+    if (config == -1) {
+        CpuInfo::init();
+        min_active_scan_threads = CpuInfo::num_cores() * 2;
+    }
+    return true;
+});
+DEFINE_Validator(min_active_file_scan_threads, [](const int config) -> bool {
+    if (config == -1) {
+        CpuInfo::init();
+        min_active_file_scan_threads = CpuInfo::num_cores() * 8;
+    }
+    return true;
+});
 
 // Config is used to check incompatible old format hdr_ format
 // whether doris uses strict way. When config is true, process will log fatal

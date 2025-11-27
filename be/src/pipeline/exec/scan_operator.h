@@ -83,6 +83,16 @@ public:
     virtual TPushAggOp::type get_push_down_agg_type() = 0;
 
     virtual int64_t get_push_down_count() = 0;
+    // If scan operator is serial operator(like topn), its real parallelism is 1.
+    // Otherwise, its real parallelism is query_parallel_instance_num.
+    // query_parallel_instance_num of olap table is usually equal to session var parallel_pipeline_task_num.
+    // for file scan operator, its real parallelism will be 1 if it is in batch mode.
+    // Related pr:
+    // https://github.com/apache/doris/pull/42460
+    // https://github.com/apache/doris/pull/44635
+    [[nodiscard]] virtual int max_scanners_concurrency(RuntimeState* state) const;
+    [[nodiscard]] virtual int min_scanners_concurrency(RuntimeState* state) const;
+    [[nodiscard]] virtual vectorized::ScannerScheduler* scan_scheduler(RuntimeState* state) const;
 
     [[nodiscard]] std::string get_name() { return _parent->get_name(); }
 
@@ -358,10 +368,6 @@ public:
 
     [[nodiscard]] virtual bool is_file_scan_operator() const { return false; }
 
-    [[nodiscard]] virtual int query_parallel_instance_num() const {
-        return _query_parallel_instance_num;
-    }
-
     [[nodiscard]] size_t get_reserve_mem_size(RuntimeState* state) override;
 
     const std::vector<TRuntimeFilterDesc>& runtime_filter_descs() override {
@@ -437,8 +443,6 @@ protected:
     // Record the value of the aggregate function 'count' from doris's be
     int64_t _push_down_count = -1;
     const int _parallel_tasks = 0;
-
-    int _query_parallel_instance_num = 0;
 
     std::vector<int> _topn_filter_source_node_ids;
 };
