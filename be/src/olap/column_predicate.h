@@ -25,6 +25,7 @@
 #include "olap/rowset/segment_v2/bloom_filter.h"
 #include "olap/rowset/segment_v2/inverted_index_iterator.h"
 #include "runtime/define_primitive_type.h"
+#include "util/defer_op.h"
 #include "util/runtime_profile.h"
 #include "vec/columns/column.h"
 #include "vec/exec/format/parquet/parquet_predicate.h"
@@ -186,6 +187,8 @@ public:
     // evaluate predicate on IColumn
     // a short circuit eval way
     uint16_t evaluate(const vectorized::IColumn& column, uint16_t* sel, uint16_t size) const {
+        Defer defer([&] { try_reset_judge_selectivity(); });
+
         if (always_true()) {
             return size;
         }
@@ -351,10 +354,13 @@ protected:
         _judge_filter_rows = 0;
     }
 
-    void do_judge_selectivity(uint64_t filter_rows, uint64_t input_rows) const {
-        if ((_judge_counter--) == 0) {
+    void try_reset_judge_selectivity() const {
+        if (_can_ignore() && (_judge_counter == 0)) {
             reset_judge_selectivity();
         }
+    }
+
+    void do_judge_selectivity(uint64_t filter_rows, uint64_t input_rows) const {
         if (!_always_true) {
             _judge_filter_rows += filter_rows;
             _judge_input_rows += input_rows;
