@@ -18,6 +18,7 @@
 package org.apache.doris.transaction;
 
 import org.apache.doris.thrift.TTabletLocation;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
