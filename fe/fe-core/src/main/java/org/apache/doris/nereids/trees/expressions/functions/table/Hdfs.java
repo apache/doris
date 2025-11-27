@@ -21,6 +21,8 @@ import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Properties;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.trees.plans.logical.SupportPruneNestedColumn;
+import org.apache.doris.nereids.trees.plans.logical.SupportPruneNestedColumnFormats;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
 import org.apache.doris.tablefunction.HdfsTableValuedFunction;
 import org.apache.doris.tablefunction.TableValuedFunctionIf;
@@ -29,7 +31,7 @@ import java.util.List;
 import java.util.Map;
 
 /** hdfs */
-public class Hdfs extends TableValuedFunction {
+public class Hdfs extends TableValuedFunction implements SupportPruneNestedColumn {
     public Hdfs(Properties properties) {
         super("hdfs", properties);
     }
@@ -52,5 +54,10 @@ public class Hdfs extends TableValuedFunction {
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitHdfs(this, context);
+    }
+
+    @Override
+    public boolean supportPruneNestedColumn() {
+        return SupportPruneNestedColumnFormats.supportFormat(getTVFProperties());
     }
 }

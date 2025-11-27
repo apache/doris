@@ -25,11 +25,17 @@
 #include "common/status.h"
 #include "vec/columns/column_filter_helper.h"
 #include "vec/common/custom_allocator.h"
-#include "vec/common/hash_table/hash.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
-template <typename Key, typename Hash = DefaultHash<Key>>
+
+inline uint32_t hash_join_table_calc_bucket_size(size_t num_elem) {
+    size_t expect_bucket_size = num_elem + (num_elem - 1) / 7;
+    return (uint32_t)std::min(phmap::priv::NormalizeCapacity(expect_bucket_size) + 1,
+                              static_cast<size_t>(std::numeric_limits<int32_t>::max()) + 1);
+}
+
+template <typename Key, typename Hash, bool DirectMapping>
 class JoinHashTable {
 public:
     using key_type = Key;
@@ -37,25 +43,24 @@ public:
     using value_type = void*;
     size_t hash(const Key& x) const { return Hash()(x); }
 
-    static uint32_t calc_bucket_size(size_t num_elem) {
-        size_t expect_bucket_size = num_elem + (num_elem - 1) / 7;
-        return (uint32_t)std::min(phmap::priv::NormalizeCapacity(expect_bucket_size) + 1,
-                                  static_cast<size_t>(std::numeric_limits<int32_t>::max()) + 1);
-    }
-
     size_t get_byte_size() const {
         auto cal_vector_mem = [](const auto& vec) { return vec.capacity() * sizeof(vec[0]); };
         return cal_vector_mem(visited) + cal_vector_mem(first) + cal_vector_mem(next);
     }
 
     template <int JoinOpType>
-    void prepare_build(size_t num_elem, int batch_size, bool has_null_key) {
+    void prepare_build(size_t num_elem, int batch_size, bool has_null_key,
+                       uint32_t force_bucket_size) {
         _has_null_key = has_null_key;
 
         // the first row in build side is not really from build side table
         _empty_build_side = num_elem <= 1;
         max_batch_size = batch_size;
-        bucket_size = calc_bucket_size(num_elem + 1);
+        if constexpr (DirectMapping) {
+            bucket_size = force_bucket_size;
+        } else {
+            bucket_size = hash_join_table_calc_bucket_size(num_elem + 1);
+        }
         first.resize(bucket_size + 1);
         next.resize(num_elem);
 
@@ -217,6 +222,13 @@ public:
     }
 
 private:
+    bool _eq(const Key& lhs, const Key& rhs) const {
+        if (DirectMapping) {
+            return true;
+        }
+        return lhs == rhs;
+    }
+
     template <int JoinOpType>
     auto _process_null_aware_left_half_join_for_empty_build_side(int probe_idx, int probe_rows,
                                                                  uint32_t* __restrict probe_idxs,
@@ -245,11 +257,20 @@ private:
         while (probe_idx < probe_rows) {
             auto build_idx = build_idx_map[probe_idx];
 
-            while (build_idx) {
-                if (!visited[build_idx] && keys[probe_idx] == build_keys[build_idx]) {
-                    visited[build_idx] = 1;
+            if constexpr (DirectMapping) {
+                if (!visited[build_idx]) {
+                    while (build_idx) {
+                        visited[build_idx] = 1;
+                        build_idx = next[build_idx];
+                    }
                 }
-                build_idx = next[build_idx];
+            } else {
+                while (build_idx) {
+                    if (!visited[build_idx] && _eq(keys[probe_idx], build_keys[build_idx])) {
+                        visited[build_idx] = 1;
+                    }
+                    build_idx = next[build_idx];
+                }
             }
             probe_idx++;
         }
@@ -293,7 +314,7 @@ private:
 
         auto do_the_probe = [&]() {
             while (build_idx && matched_cnt < batch_size) {
-                if (keys[probe_idx] == build_keys[build_idx]) {
+                if (_eq(keys[probe_idx], build_keys[build_idx])) {
                     build_idxs[matched_cnt] = build_idx;
                     probe_idxs[matched_cnt] = probe_idx;
                     matched_cnt++;
@@ -347,7 +368,7 @@ private:
 
         auto do_the_probe = [&]() {
             while (build_idx && matched_cnt < batch_size) {
-                if (keys[probe_idx] == build_keys[build_idx]) {
+                if (_eq(keys[probe_idx], build_keys[build_idx])) {
                     probe_idxs[matched_cnt] = probe_idx;
                     build_idxs[matched_cnt] = build_idx;
                     matched_cnt++;
@@ -408,7 +429,7 @@ private:
             }
 
             while (build_idx && matched_cnt < batch_size) {
-                if (picking_null_keys || keys[probe_idx] == build_keys[build_idx]) {
+                if (picking_null_keys || _eq(keys[probe_idx], build_keys[build_idx])) {
                     build_idxs[matched_cnt] = build_idx;
                     probe_idxs[matched_cnt] = probe_idx;
                     null_flags[matched_cnt] = picking_null_keys;
@@ -476,7 +497,7 @@ private:
     bool _empty_build_side = true;
 };
 
-template <typename Key, typename Hash = DefaultHash<Key>>
-using JoinHashMap = JoinHashTable<Key, Hash>;
+template <typename Key, typename Hash, bool DirectMapping>
+using JoinHashMap = JoinHashTable<Key, Hash, DirectMapping>;
 #include "common/compile_check_end.h"
 } // namespace doris

@@ -18,6 +18,8 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("unionDis") {
+    String db = context.config.getDbNameByFile(context.file)
+    sql "use ${db}"
     sql "SET experimental_enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
     sql """ DROP TABLE IF EXISTS unionDis; """
@@ -39,9 +41,7 @@ suite ("unionDis") {
     sql """insert into unionDis values("2020-01-02",2,"b",2,2,2);"""
     sql """insert into unionDis values("2020-01-03",3,"c",3,3,3);"""
 
-    createMV("create materialized view unionDis_mv as select empid as a1, deptno as a2 from unionDis order by empid, deptno;")
-
-    sleep(3000)
+    create_sync_mv(db, "unionDis", "unionDis_mv", "select empid as a1, deptno as a2 from unionDis order by empid, deptno;")
 
     sql """insert into unionDis values("2020-01-01",1,"a",1,1,1);"""
 

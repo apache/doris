@@ -409,6 +409,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_RUNTIME_FILTER_PARTITION_PRUNE =
             "enable_runtime_filter_partition_prune";
 
+    public static final String ENABLE_PRUNE_NESTED_COLUMN = "enable_prune_nested_column";
+
     static final String SESSION_CONTEXT = "session_context";
 
     public static final String DEFAULT_ORDER_BY_LIMIT = "default_order_by_limit";
@@ -537,6 +539,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_PARQUET_FILTER_BY_MIN_MAX = "enable_parquet_filter_by_min_max";
 
+    public static final String ENABLE_PARQUET_FILTER_BY_BLOOM_FILTER = "enable_parquet_filter_by_bloom_filter";
+
     public static final String ENABLE_ORC_FILTER_BY_MIN_MAX = "enable_orc_filter_by_min_max";
 
     public static final String CHECK_ORC_INIT_SARGS_SUCCESS = "check_orc_init_sargs_success";
@@ -603,8 +607,6 @@ public class SessionVariable implements Serializable, Writable {
     public static final String SERDE_DIALECT = "serde_dialect";
 
     public static final String EXPAND_RUNTIME_FILTER_BY_INNER_JION = "expand_runtime_filter_by_inner_join";
-
-    public static final String TEST_QUERY_CACHE_HIT = "test_query_cache_hit";
 
     public static final String ENABLE_AUTO_ANALYZE = "enable_auto_analyze";
 
@@ -1295,7 +1297,7 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = SKIP_PRUNE_PREDICATE, fuzzy = true,
             description = {
-                    "是否跳过“在分区裁剪后删除恒真谓词”的优化。默认为OFF（即执行此优化）。",
+                    "是否跳过“在分区裁剪后删除恒真谓词”的优化。默认为 OFF（即执行此优化）。",
                     "Skips the removal of always-true predicates after partition pruning. "
                             + "Defaults to OFF (optimization is active)."
             }
@@ -1429,7 +1431,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(
             name = ENABLE_LOCAL_SHUFFLE, fuzzy = false, varType = VariableAnnotation.EXPERIMENTAL,
             description = {"是否在 pipelineX 引擎上开启 local shuffle 优化",
-                    "Whether to enable local shuffle on pipelineX engine."})
+                    "Whether to enable local shuffle on pipelineX engine."}, needForward = true)
     private boolean enableLocalShuffle = true;
 
     @VariableMgr.VarAttr(
@@ -1561,6 +1563,13 @@ public class SessionVariable implements Serializable, Writable {
             fuzzy = false,
             varType = VariableAnnotation.EXPERIMENTAL)
     public int topNLazyMaterializationThreshold = 1024;
+
+    @VariableMgr.VarAttr(name = ENABLE_PRUNE_NESTED_COLUMN, needForward = true,
+            fuzzy = false,
+            varType = VariableAnnotation.EXPERIMENTAL,
+            description = {"是否裁剪 map/struct 类型", "Whether to prune the type of map/struct"}
+    )
+    public boolean enablePruneNestedColumns = true;
 
     public boolean enableTopnLazyMaterialization() {
         return ConnectContext.get() != null
@@ -2233,6 +2242,15 @@ public class SessionVariable implements Serializable, Writable {
     public boolean enableParquetFilterByMinMax = true;
 
     @VariableMgr.VarAttr(
+            name = ENABLE_PARQUET_FILTER_BY_BLOOM_FILTER,
+            fuzzy = true,
+            description = {"控制 parquet reader 是否启用 bloom filter 过滤。默认为 true。",
+                    "Controls whether to filter by bloom filter in parquet reader. "
+                            + "The default value is true."},
+            needForward = true)
+    public boolean enableParquetFilterByBloomFilter = true;
+
+    @VariableMgr.VarAttr(
             name = ENABLE_ORC_FILTER_BY_MIN_MAX,
             description = {"控制 orc reader 是否启用 min-max 值过滤。默认为 true。",
                     "Controls whether to filter by min-max values in orc reader. "
@@ -2361,13 +2379,6 @@ public class SessionVariable implements Serializable, Writable {
             "Used to set the behavior for newly inserted rows in partial update."
             }, checker = "checkPartialUpdateNewKeyBehavior", options = {"APPEND", "ERROR"})
     public String partialUpdateNewKeyPolicy = "APPEND";
-
-    @VariableMgr.VarAttr(name = TEST_QUERY_CACHE_HIT, description = {
-            "用于测试查询缓存是否命中，如果未命中指定类型的缓存，则会报错",
-            "Used to test whether the query cache is hit. "
-                    + "If the specified type of cache is not hit, an error will be reported."},
-            options = {"none", "sql_cache", "partition_cache"})
-    public String testQueryCacheHit = "none";
 
     @VariableMgr.VarAttr(name = ENABLE_AUTO_ANALYZE,
             description = {"该参数控制是否开启自动收集", "Set false to disable auto analyze"},
@@ -3117,7 +3128,7 @@ public class SessionVariable implements Serializable, Writable {
     public int defaultVariantMaxSparseColumnStatisticsSize = 10000;
 
     @VariableMgr.VarAttr(name = ENABLE_EXTENDED_REGEX, needForward = true, affectQueryResult = true,
-            description = {"是否启用扩展的正则表达式, 支持如 look-around 类的零宽断言",
+            description = {"是否启用扩展的正则表达式，支持如 look-around 类的零宽断言",
                     "Enable extended regular expressions, support look-around zero-width assertions"})
     public boolean enableExtendedRegex = false;
 
@@ -3127,6 +3138,15 @@ public class SessionVariable implements Serializable, Writable {
             fuzzy = true
     )
     public int defaultVariantSparseHashShardCount = 0;
+
+    @VariableMgr.VarAttr(
+            name = "random_use_v3_storage_format",
+            fuzzy = true,
+            description = {
+                    "In fuzzy tests, randomly use V3 storage_format (ext_meta) for some tables.",
+                    "Only takes effect when user does not explicitly specify storage_format."}
+    )
+    public boolean randomUseV3StorageFormat = false;
 
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
@@ -3152,6 +3172,7 @@ public class SessionVariable implements Serializable, Writable {
         this.exchangeMultiBlocksByteSize = minBytes + (int) (random.nextDouble() * (maxBytes - minBytes));
         this.defaultVariantMaxSubcolumnsCount = random.nextInt(10);
         this.defaultVariantSparseHashShardCount = random.nextInt(5) + 1;
+        this.randomUseV3StorageFormat = random.nextBoolean();
         int randomInt = random.nextInt(4);
         if (randomInt % 2 == 0) {
             this.rewriteOrToInPredicateThreshold = 100000;
@@ -3281,6 +3302,7 @@ public class SessionVariable implements Serializable, Writable {
         }
         // parquet
         this.enableParquetFilterByMinMax = random.nextBoolean();
+        this.enableParquetFilterByBloomFilter = random.nextBoolean();
         this.enableParquetLazyMat = random.nextBoolean();
 
         // orc
@@ -4811,6 +4833,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setEnableParquetLazyMat(enableParquetLazyMat);
         tResult.setEnableOrcLazyMat(enableOrcLazyMat);
         tResult.setEnableParquetFilterByMinMax(enableParquetFilterByMinMax);
+        tResult.setEnableParquetFilterByBloomFilter(enableParquetFilterByBloomFilter);
         tResult.setEnableOrcFilterByMinMax(enableOrcFilterByMinMax);
         tResult.setCheckOrcInitSargsSuccess(checkOrcInitSargsSuccess);
 

@@ -403,13 +403,15 @@ void GeoShape::encode_to(std::string* buf) {
     encode(buf);
 }
 
-GeoShape* GeoShape::from_wkt(const char* data, size_t size, GeoParseStatus* status) {
-    GeoShape* shape = nullptr;
-    *status = WktParse::parse_wkt(data, size, &shape);
+std::unique_ptr<GeoShape> GeoShape::from_wkt(const char* data, size_t size,
+                                             GeoParseStatus& status) {
+    std::unique_ptr<GeoShape> shape;
+    status = WktParse::parse_wkt(data, size, shape);
     return shape;
 }
 
-GeoShape* GeoShape::from_wkb(const char* data, size_t size, GeoParseStatus* status) {
+std::unique_ptr<GeoShape> GeoShape::from_wkb(const char* data, size_t size,
+                                             GeoParseStatus& status) {
     std::stringstream wkb;
 
     for (int i = 0; i < size; ++i) {
@@ -419,8 +421,8 @@ GeoShape* GeoShape::from_wkb(const char* data, size_t size, GeoParseStatus* stat
         wkb << *data;
         data++;
     }
-    GeoShape* shape = nullptr;
-    *status = WkbParse::parse_wkb(wkb, &shape);
+    std::unique_ptr<GeoShape> shape;
+    status = WkbParse::parse_wkb(wkb, shape);
     return shape;
 }
 
@@ -490,7 +492,7 @@ GeoCoordinateList GeoLine::to_coords() const {
     return coords;
 }
 
-const std::unique_ptr<GeoCoordinateListList> GeoPolygon::to_coords() const {
+std::unique_ptr<GeoCoordinateListList> GeoPolygon::to_coords() const {
     std::unique_ptr<GeoCoordinateListList> coordss(new GeoCoordinateListList());
     for (int i = 0; i < GeoPolygon::numLoops(); ++i) {
         std::unique_ptr<GeoCoordinateList> coords(new GeoCoordinateList());
@@ -510,12 +512,12 @@ const std::unique_ptr<GeoCoordinateListList> GeoPolygon::to_coords() const {
                 coords->add(coord);
             }
         }
-        coordss->add(coords.release());
+        coordss->add(std::move(coords));
     }
     return coordss;
 }
 
-const std::vector<std::unique_ptr<GeoCoordinateListList>> GeoMultiPolygon::to_coords() const {
+std::vector<std::unique_ptr<GeoCoordinateListList>> GeoMultiPolygon::to_coords() const {
     std::vector<std::unique_ptr<GeoCoordinateListList>> coordss;
     for (const auto& polygon : _polygons) {
         std::unique_ptr<GeoCoordinateListList> coords = polygon->to_coords();

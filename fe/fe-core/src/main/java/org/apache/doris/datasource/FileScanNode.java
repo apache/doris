@@ -49,6 +49,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
 
 import java.util.Collections;
@@ -183,6 +184,8 @@ public abstract class FileScanNode extends ExternalScanNode {
         }
         output.append(String.format("numNodes=%s", numNodes)).append("\n");
 
+        printNestedColumns(output, prefix, getTupleDesc());
+
         // pushdown agg
         output.append(prefix).append(String.format("pushdown agg=%s", pushDownAggNoGroupingOp));
         if (pushDownAggNoGroupingOp.equals(TPushAggOp.COUNT)) {
@@ -208,6 +211,11 @@ public abstract class FileScanNode extends ExternalScanNode {
         TExpr tExpr = new TExpr();
         tExpr.setNodes(Lists.newArrayList());
 
+        Map<String, SlotDescriptor> nameToSlotDesc = Maps.newLinkedHashMap();
+        for (SlotDescriptor slot : desc.getSlots()) {
+            nameToSlotDesc.put(slot.getColumn().getName(), slot);
+        }
+
         for (Column column : getColumns()) {
             Expr expr;
             Expression expression;
@@ -223,7 +231,12 @@ public abstract class FileScanNode extends ExternalScanNode {
                     if (useVarcharAsNull) {
                         expression = new NullLiteral(VarcharType.SYSTEM_DEFAULT);
                     } else {
-                        expression = new NullLiteral(DataType.fromCatalogType(column.getType()));
+                        SlotDescriptor slotDescriptor = nameToSlotDesc.get(column.getName());
+                        // the nested type(map/array/struct) maybe pruned,
+                        // we should use the pruned type to avoid be core
+                        expression = new NullLiteral(DataType.fromCatalogType(
+                                slotDescriptor == null ? column.getType() : slotDescriptor.getType()
+                        ));
                     }
                 } else {
                     expression = null;

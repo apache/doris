@@ -40,7 +40,21 @@ public abstract class AlterTableClause extends AlterClause {
         this.tableNameInfo = tableNameInfo;
     }
 
+    /**
+     * Check if this alter operation is allowed on Materialized View (MTMV).
+     * This method is declared as abstract to force each table operation to explicitly
+     * declare its MTMV support, as different operations have different MTMV compatibility.
+     *
+     * @return true if this operation is allowed on MTMV, false otherwise
+     */
     public abstract boolean allowOpMTMV();
 
+    /**
+     * Check if this alter operation requires changing the MTMV state.
+     * This method is declared as abstract to force each table operation to explicitly
+     * declare whether it affects MTMV state (e.g., schema changes that require MTMV rebuild).
+     *
+     * @return true if this operation requires changing MTMV state, false otherwise
+     */
     public abstract boolean needChangeMTMVState();
 }
