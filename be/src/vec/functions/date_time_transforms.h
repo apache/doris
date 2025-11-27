@@ -74,6 +74,22 @@ namespace doris::vectorized {
 #define TO_TIME_FUNCTION(CLASS, UNIT) TIME_FUNCTION_IMPL(CLASS, UNIT, UNIT())
 
 TO_TIME_FUNCTION(ToYearImpl, year);
+template <PrimitiveType PType>
+struct ToCenturyImpl {
+    static constexpr PrimitiveType OpArgType = PType;
+    using NativeType = typename PrimitiveTypeTraits<PType>::CppNativeType;
+    static constexpr auto name = "century";
+
+    static inline auto execute(const NativeType& t) {
+        const auto& date_time_value = (typename PrimitiveTypeTraits<PType>::CppType&)(t);
+        int year = date_time_value.year();
+        return (year - 1) / 100 + 1;
+    }
+
+    static DataTypes get_variadic_argument_types() {
+        return {std::make_shared<typename PrimitiveTypeTraits<PType>::DataType>()};
+    }
+};
 TO_TIME_FUNCTION(ToYearOfWeekImpl, year_of_week);
 TO_TIME_FUNCTION(ToQuarterImpl, quarter);
 TO_TIME_FUNCTION(ToMonthImpl, month);

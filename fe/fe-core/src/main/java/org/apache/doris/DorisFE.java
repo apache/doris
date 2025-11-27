@@ -553,7 +553,7 @@ public class DorisFE {
             releaseFileLockAndCloseFileChannel();
             throw new RuntimeException("Try to lock process failed", e);
         }
-        throw new RuntimeException("FE process has been started，please do not start multiple FE processes at the "
+        throw new RuntimeException("FE process has been started, please do not start multiple FE processes at the "
                 + "same time");
     }
 
@@ -585,7 +585,10 @@ public class DorisFE {
         if (!Config.use_fuzzy_conf) {
             return;
         }
-        if (Config.fuzzy_test_type.equalsIgnoreCase("daily") || Config.fuzzy_test_type.equalsIgnoreCase("rqg")) {
+
+        // Keep global fuzzy knobs that are not session-based.
+        if (Config.fuzzy_test_type.equalsIgnoreCase("daily")
+                || Config.fuzzy_test_type.equalsIgnoreCase("rqg")) {
             Config.random_add_cluster_keys_for_mow = (LocalDate.now().getDayOfMonth() % 2 == 0);
             LOG.info("fuzzy set random_add_cluster_keys_for_mow={}", Config.random_add_cluster_keys_for_mow);
         }
