@@ -429,11 +429,10 @@ Status DataTypeStructSerDe::read_column_from_arrow(IColumn& column, const arrow:
     return Status::OK();
 }
 
-template <bool is_binary_format>
-Status DataTypeStructSerDe::_write_column_to_mysql(const IColumn& column,
-                                                   MysqlRowBuffer<is_binary_format>& result,
-                                                   int64_t row_idx, bool col_const,
-                                                   const FormatOptions& options) const {
+Status DataTypeStructSerDe::write_column_to_mysql_binary(const IColumn& column,
+                                                         MysqlRowBinaryBuffer& result,
+                                                         int64_t row_idx, bool col_const,
+                                                         const FormatOptions& options) const {
     const auto& col = assert_cast<const ColumnStruct&, TypeCheckOnRelease::DISABLE>(column);
     const auto col_index = index_check_const(row_idx, col_const);
     result.open_dynamic_mode();
@@ -473,13 +472,13 @@ Status DataTypeStructSerDe::_write_column_to_mysql(const IColumn& column,
                 if (0 != result.push_string(options.nested_string_wrapper, options.wrapper_len)) {
                     return Status::InternalError("pack mysql buffer failed.");
                 }
-                RETURN_IF_ERROR(elem_serdes_ptrs[j]->write_column_to_mysql(
+                RETURN_IF_ERROR(elem_serdes_ptrs[j]->write_column_to_mysql_binary(
                         col.get_column(j), result, col_index, false, options));
                 if (0 != result.push_string(options.nested_string_wrapper, options.wrapper_len)) {
                     return Status::InternalError("pack mysql buffer failed.");
                 }
             } else {
-                RETURN_IF_ERROR(elem_serdes_ptrs[j]->write_column_to_mysql(
+                RETURN_IF_ERROR(elem_serdes_ptrs[j]->write_column_to_mysql_binary(
                         col.get_column(j), result, col_index, false, options));
             }
         }
@@ -490,20 +489,6 @@ Status DataTypeStructSerDe::_write_column_to_mysql(const IColumn& column,
     }
     result.close_dynamic_mode();
     return Status::OK();
-}
-
-Status DataTypeStructSerDe::write_column_to_mysql_binary(const IColumn& column,
-                                                         MysqlRowBinaryBuffer& row_buffer,
-                                                         int64_t row_idx, bool col_const,
-                                                         const FormatOptions& options) const {
-    return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
-}
-
-Status DataTypeStructSerDe::write_column_to_mysql_text(const IColumn& column,
-                                                       MysqlRowTextBuffer& row_buffer,
-                                                       int64_t row_idx, bool col_const,
-                                                       const FormatOptions& options) const {
-    return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
 }
 
 Status DataTypeStructSerDe::write_column_to_orc(const std::string& timezone, const IColumn& column,

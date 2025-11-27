@@ -44,9 +44,6 @@ public:
     Status write_column_to_mysql_binary(const IColumn& column, MysqlRowBinaryBuffer& row_buffer,
                                         int64_t row_idx, bool col_const,
                                         const FormatOptions& options) const override;
-    Status write_column_to_mysql_text(const IColumn& column, MysqlRowTextBuffer& row_buffer,
-                                      int64_t row_idx, bool col_const,
-                                      const FormatOptions& options) const override;
     Status write_column_to_arrow(const IColumn& column, const NullMap* null_map,
                                  arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
                                  const cctz::time_zone& ctz) const override;
@@ -89,12 +86,6 @@ public:
                                                       FieldInfo& info);
 
     void to_string(const IColumn& column, size_t row_num, BufferWritable& bw) const override;
-
-private:
-    template <bool is_binary_format>
-    Status _write_column_to_mysql(const IColumn& column, MysqlRowBuffer<is_binary_format>& result,
-                                  int64_t row_idx, bool col_const,
-                                  const FormatOptions& options) const;
 };
 
 void convert_jsonb_to_rapidjson(const JsonbValue& val, rapidjson::Value& target,
