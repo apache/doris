@@ -100,11 +100,11 @@ public class PhysicalPlanTranslatorTest extends TestWithFeService {
         String querySql = "select b from test_db.t group by b";
         Planner planner = getSQLPlanner(querySql);
         Assertions.assertNotNull(planner);
-        
+
         List<PlanFragment> fragments = planner.getFragments();
         Assertions.assertNotNull(fragments);
         Assertions.assertFalse(fragments.isEmpty());
-        
+
         List<AggregationNode> aggNodes = new ArrayList<>();
         for (PlanFragment fragment : fragments) {
             PlanNode root = fragment.getPlanRoot();
@@ -119,10 +119,10 @@ public class PhysicalPlanTranslatorTest extends TestWithFeService {
         AggregationNode lowerAggNode = aggNodes.get(1);
 
         boolean lowerNeedsFinalize = needsFinalizeField.getBoolean(lowerAggNode);
-        Assertions.assertFalse(lowerNeedsFinalize, 
+        Assertions.assertFalse(lowerNeedsFinalize,
                 "lower AggregationNode needsFinalize should be false");
         boolean upperNeedsFinalize = needsFinalizeField.getBoolean(upperAggNode);
-        Assertions.assertTrue(upperNeedsFinalize, 
+        Assertions.assertTrue(upperNeedsFinalize,
                 "upper AggregationNode needsFinalize should be true");
     }
 }
