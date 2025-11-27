@@ -77,6 +77,7 @@ suite("test_hive_partitions", "p0,external,hive,external_docker,external_docker_
     }
 
     for (String hivePrefix : ["hive2", "hive3"]) {
+        setHivePrefix(hivePrefix)
         try {
             String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
             String catalog_name = "${hivePrefix}_test_partitions"
