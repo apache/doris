@@ -122,7 +122,6 @@ public:
     void to_string(const IColumn& column, size_t row_num, BufferWritable& bw) const override;
 
 private:
-
     DataTypeSerDeSPtr nested_serde;
 };
 #include "common/compile_check_end.h"

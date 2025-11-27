@@ -71,7 +71,6 @@ public:
     int get_scale() const override { return _scale; }
 
 private:
-
     int _scale;
 };
 #include "common/compile_check_end.h"

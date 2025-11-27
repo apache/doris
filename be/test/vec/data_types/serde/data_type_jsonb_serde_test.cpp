@@ -188,8 +188,8 @@ TEST_F(DataTypeJsonbSerDeTest, serdes) {
             // test write_column_to_mysql with binary format
             MysqlRowBinaryBuffer mysql_rb;
             for (int row_idx = 0; row_idx < row_count; ++row_idx) {
-                auto st = serde.write_column_to_mysql_binary(*source_column, mysql_rb, row_idx, false,
-                                                      option);
+                auto st = serde.write_column_to_mysql_binary(*source_column, mysql_rb, row_idx,
+                                                             false, option);
                 EXPECT_TRUE(st.ok())
                         << "Failed to write column to mysql with binary format: " << st;
             }
