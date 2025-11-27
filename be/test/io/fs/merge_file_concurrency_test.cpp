@@ -433,10 +433,11 @@ private:
 
 class MockRemoteFileSystem : public FileSystem {
 public:
-    MockRemoteFileSystem(MockS3Store* store, std::string bucket)
+    MockRemoteFileSystem(MockS3Store* store, std::string bucket, std::string prefix = {})
             : FileSystem("mock_remote_fs", FileSystemType::S3),
               _store(store),
-              _bucket(std::move(bucket)) {}
+              _bucket(std::move(bucket)),
+              _prefix(std::move(prefix)) {}
 
 protected:
     Status open_file_impl(const Path& file, FileReaderSPtr* reader,
@@ -516,11 +517,16 @@ private:
             DCHECK(uri_bucket.empty() || uri_bucket == _bucket)
                     << "unexpected bucket " << uri_bucket << " for path " << file.native();
         }
-        return std::string(view);
+        std::string normalized(view);
+        if (!_prefix.empty() && normalized.rfind(_prefix, 0) != 0) {
+            normalized = fmt::format("{}/{}", _prefix, normalized);
+        }
+        return normalized;
     }
 
     MockS3Store* _store;
     std::string _bucket;
+    std::string _prefix;
 };
 
 void reset_manager_state(MergeFileManager* manager) {
@@ -586,7 +592,8 @@ protected:
         ASSERT_TRUE(fs_or.has_value()) << fs_or.error();
         _s3_fs = fs_or.value();
         g_remote_file_system =
-                std::make_shared<MockRemoteFileSystem>(&mock_s3_store(), _s3_fs->bucket());
+                std::make_shared<MockRemoteFileSystem>(&mock_s3_store(), _s3_fs->bucket(),
+                                                       _s3_fs->prefix());
 
         std::string cache_path =
                 (std::filesystem::current_path() / "ut_dir/merge_file_cache").string();
