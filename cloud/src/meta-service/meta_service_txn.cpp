@@ -1153,17 +1153,22 @@ void scan_tmp_rowset(
         while (it->has_next()) {
             auto [k, v] = it->next();
             LOG(INFO) << "range_get rowset_tmp_key=" << hex(k) << " txn_id=" << txn_id;
-            tmp_rowsets_meta->emplace_back();
-            if (!tmp_rowsets_meta->back().second.ParseFromArray(v.data(), v.size())) {
+            RowsetMetaCloudPB rs_meta;
+            if (!rs_meta.ParseFromArray(v.data(), v.size())) {
                 code = MetaServiceCode::PROTOBUF_PARSE_ERR;
                 ss << "malformed rowset meta, unable to initialize, txn_id=" << txn_id
-                   << " key=" << hex(k);
+                   << " key=" << hex(k) << " err=" << err;
                 msg = ss.str();
                 LOG(WARNING) << msg;
                 return;
             }
-            // Save keys that will be removed later
-            tmp_rowsets_meta->back().first = std::string(k.data(), k.size());
+            if (rs_meta.has_recycled_marked() && rs_meta.recycled_marked()) {
+                code = MetaServiceCode::TXN_ALREADY_ABORTED;
+                msg = "rowset has already been marked as recycled";
+                LOG(WARNING) << msg;
+                continue;
+            }
+            tmp_rowsets_meta->emplace_back(std::string(k.data(), k.size()), std::move(rs_meta));
             ++num_rowsets;
             if (!it->has_next()) rs_tmp_key0 = k;
         }

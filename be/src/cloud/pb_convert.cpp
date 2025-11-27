@@ -102,6 +102,9 @@ void doris_rowset_meta_to_cloud(RowsetMetaCloudPB* out, const RowsetMetaPB& in) 
     if (in.has_reference_instance_id()) {
         out->set_reference_instance_id(in.reference_instance_id());
     }
+    if (in.has_recycled_marked()) {
+        out->set_recycled_marked(in.recycled_marked());
+    }
 }
 
 void doris_rowset_meta_to_cloud(RowsetMetaCloudPB* out, RowsetMetaPB&& in) {
@@ -170,6 +173,9 @@ void doris_rowset_meta_to_cloud(RowsetMetaCloudPB* out, RowsetMetaPB&& in) {
     }
     if (in.has_reference_instance_id()) {
         out->set_reference_instance_id(in.reference_instance_id());
+    }
+    if (in.has_recycled_marked()) {
+        out->set_recycled_marked(in.recycled_marked());
     }
 }
 
@@ -250,6 +256,9 @@ void cloud_rowset_meta_to_doris(RowsetMetaPB* out, const RowsetMetaCloudPB& in) 
     if (in.has_reference_instance_id()) {
         out->set_reference_instance_id(in.reference_instance_id());
     }
+    if (in.has_recycled_marked()) {
+        out->set_recycled_marked(in.recycled_marked());
+    }
 }
 
 void cloud_rowset_meta_to_doris(RowsetMetaPB* out, RowsetMetaCloudPB&& in) {
@@ -317,6 +326,9 @@ void cloud_rowset_meta_to_doris(RowsetMetaPB* out, RowsetMetaCloudPB&& in) {
     }
     if (in.has_reference_instance_id()) {
         out->set_reference_instance_id(in.reference_instance_id());
+    }
+    if (in.has_recycled_marked()) {
+        out->set_recycled_marked(in.recycled_marked());
     }
 }
 

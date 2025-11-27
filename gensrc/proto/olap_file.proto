@@ -151,6 +151,7 @@ message RowsetMetaPB {
 
     optional int64 visible_ts_ms = 1010;
     optional string reference_instance_id = 1011;  // For cluster snapshot
+    optional bool recycled_marked = 1012;
 }
 
 message SchemaDictKeyList {
@@ -249,6 +250,7 @@ message RowsetMetaCloudPB {
 
     optional int64 visible_ts_ms = 109;
     optional string reference_instance_id = 110;  // For cluster snapshot
+    optional bool recycled_marked = 111;
 }
 
 message SegmentStatisticsPB {
