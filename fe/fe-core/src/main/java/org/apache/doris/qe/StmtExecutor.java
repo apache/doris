@@ -1776,14 +1776,6 @@ public class StmtExecutor {
                 && CacheAnalyzer.canUseSqlCache(context.getSessionVariable());
         try {
             cacheResult = cacheAnalyzer.getCacheData();
-            if (cacheResult == null) {
-                if (ConnectContext.get() != null
-                        && !ConnectContext.get().getSessionVariable().testQueryCacheHit.equals("none")) {
-                    throw new UserException("The variable test_query_cache_hit is set to "
-                            + ConnectContext.get().getSessionVariable().testQueryCacheHit
-                            + ", but the query cache is not hit.");
-                }
-            }
         } finally {
             if (wantToParseSqlForSqlCache) {
                 String originStmt = parsedStmt.getOrigStmt().originStmt;
