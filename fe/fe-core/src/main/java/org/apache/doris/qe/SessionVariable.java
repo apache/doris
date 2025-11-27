@@ -1297,7 +1297,7 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = SKIP_PRUNE_PREDICATE, fuzzy = true,
             description = {
-                    "是否跳过“在分区裁剪后删除恒真谓词”的优化。默认为OFF（即执行此优化）。",
+                    "是否跳过“在分区裁剪后删除恒真谓词”的优化。默认为 OFF（即执行此优化）。",
                     "Skips the removal of always-true predicates after partition pruning. "
                             + "Defaults to OFF (optimization is active)."
             }
@@ -1567,7 +1567,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_PRUNE_NESTED_COLUMN, needForward = true,
             fuzzy = false,
             varType = VariableAnnotation.EXPERIMENTAL,
-            description = {"是否裁剪map/struct类型", "Whether to prune the type of map/struct"}
+            description = {"是否裁剪 map/struct 类型", "Whether to prune the type of map/struct"}
     )
     public boolean enablePruneNestedColumns = true;
 
@@ -3128,7 +3128,7 @@ public class SessionVariable implements Serializable, Writable {
     public int defaultVariantMaxSparseColumnStatisticsSize = 10000;
 
     @VariableMgr.VarAttr(name = ENABLE_EXTENDED_REGEX, needForward = true, affectQueryResult = true,
-            description = {"是否启用扩展的正则表达式, 支持如 look-around 类的零宽断言",
+            description = {"是否启用扩展的正则表达式，支持如 look-around 类的零宽断言",
                     "Enable extended regular expressions, support look-around zero-width assertions"})
     public boolean enableExtendedRegex = false;
 
@@ -3138,6 +3138,15 @@ public class SessionVariable implements Serializable, Writable {
             fuzzy = true
     )
     public int defaultVariantSparseHashShardCount = 0;
+
+    @VariableMgr.VarAttr(
+            name = "random_use_v3_storage_format",
+            fuzzy = true,
+            description = {
+                    "In fuzzy tests, randomly use V3 storage_format (ext_meta) for some tables.",
+                    "Only takes effect when user does not explicitly specify storage_format."}
+    )
+    public boolean randomUseV3StorageFormat = false;
 
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
@@ -3163,6 +3172,7 @@ public class SessionVariable implements Serializable, Writable {
         this.exchangeMultiBlocksByteSize = minBytes + (int) (random.nextDouble() * (maxBytes - minBytes));
         this.defaultVariantMaxSubcolumnsCount = random.nextInt(10);
         this.defaultVariantSparseHashShardCount = random.nextInt(5) + 1;
+        this.randomUseV3StorageFormat = random.nextBoolean();
         int randomInt = random.nextInt(4);
         if (randomInt % 2 == 0) {
             this.rewriteOrToInPredicateThreshold = 100000;
