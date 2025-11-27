@@ -106,7 +106,7 @@ public:
         return true;
     }
 
-    uint64_t get_digest(uint64_t seed) const override { return 0; }
+    uint64_t get_digest(uint64_t seed) const override { return _filter->get_digest(seed); }
 
 private:
     Status _do_execute(VExprContext* context, const Block* block, ColumnPtr& result_column,
