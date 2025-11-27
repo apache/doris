@@ -109,6 +109,7 @@ import org.apache.doris.nereids.rules.rewrite.MergeProjectable;
 import org.apache.doris.nereids.rules.rewrite.MergeSetOperations;
 import org.apache.doris.nereids.rules.rewrite.MergeSetOperationsExcept;
 import org.apache.doris.nereids.rules.rewrite.MergeTopNs;
+import org.apache.doris.nereids.rules.rewrite.NestedColumnPruning;
 import org.apache.doris.nereids.rules.rewrite.NormalizeSort;
 import org.apache.doris.nereids.rules.rewrite.OperativeColumnDerive;
 import org.apache.doris.nereids.rules.rewrite.OrExpansion;
@@ -228,6 +229,8 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                             // so there may be two filters we need to merge them
                                             new MergeFilters()
                                     ),
+                                    custom(RuleType.AGG_SCALAR_SUBQUERY_TO_WINDOW_FUNCTION,
+                                            AggScalarSubQueryToWindowFunction::new),
                                     bottomUp(
                                             new EliminateUselessPlanUnderApply(),
                                             // CorrelateApplyToUnCorrelateApply and ApplyToJoin
@@ -455,6 +458,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                 // so there may be two filters we need to merge them
                                 new MergeFilters()
                         ),
+                        // query rewrite support window, so add this rule here
                         custom(RuleType.AGG_SCALAR_SUBQUERY_TO_WINDOW_FUNCTION, AggScalarSubQueryToWindowFunction::new),
                         bottomUp(
                                 new EliminateUselessPlanUnderApply(),
@@ -910,6 +914,11 @@ public class Rewriter extends AbstractBatchJobExecutor {
                             )
                     ));
                 }
+                rewriteJobs.add(
+                        topic("nested column prune",
+                            custom(RuleType.NESTED_COLUMN_PRUNING, NestedColumnPruning::new)
+                        )
+                );
                 rewriteJobs.addAll(jobs(
                         topic("rewrite cte sub-tree after sub path push down",
                                 custom(RuleType.CLEAR_CONTEXT_STATUS, ClearContextStatus::new),

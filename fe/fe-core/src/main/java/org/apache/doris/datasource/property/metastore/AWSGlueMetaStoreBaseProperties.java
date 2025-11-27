@@ -116,7 +116,9 @@ public class AWSGlueMetaStoreBaseProperties {
                         "glue.access_key and glue.secret_key must be set together")
                 .requireAtLeastOne(new String[]{glueAccessKey, glueIAMRole},
                         "At least one of glue.access_key or glue.role_arn must be set")
-                .require(glueEndpoint, "glue.endpoint must be set");
+                .require(glueEndpoint, "glue.endpoint must be set")
+                .check(() -> StringUtils.isNotBlank(glueEndpoint) && !glueEndpoint.startsWith("https://"),
+                        "glue.endpoint must use https protocol,please set glue.endpoint to https://...");
     }
 
     private void checkAndInit() {

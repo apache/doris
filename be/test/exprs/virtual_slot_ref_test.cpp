@@ -81,7 +81,6 @@ protected:
         slot_desc->_id = SlotId(slot_id);
         slot_desc->_col_name = col_name;
         slot_desc->_type = data_type;
-        // Note: _is_materialized is const, so it's set during construction
         return slot_desc;
     }
 

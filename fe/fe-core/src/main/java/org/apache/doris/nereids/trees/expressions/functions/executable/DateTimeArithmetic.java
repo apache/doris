@@ -55,6 +55,14 @@ public class DateTimeArithmetic {
     }
 
     /**
+     * datetime arithmetic function minute_second-add.
+     */
+    @ExecFunction(name = "minute_second_add")
+    public static Expression minuteSecondAdd(DateTimeV2Literal date, VarcharLiteral minuteSecond) {
+        return date.plusMinuteSecond(minuteSecond);
+    }
+
+    /**
      * datetime arithmetic function date-sub.
      */
     @ExecFunction(name = "date_sub")

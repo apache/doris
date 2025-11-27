@@ -67,6 +67,7 @@ excludeSuites = "000_the_start_sentinel_do_not_touch," + // keep this line as th
     "test_recycler_with_truncate_table," +
     "test_recycler_with_txn_label," +
     "test_recycler," +
+    "test_recycler_cleanup_snapshot," +
     "zzz_the_end_sentinel_do_not_touch" // keep this line as the last line
 
 excludeDirectories = "000_the_start_sentinel_do_not_touch," + // keep this line as the first line

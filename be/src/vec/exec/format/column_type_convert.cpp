@@ -18,12 +18,10 @@
 #include "vec/exec/format/column_type_convert.h"
 
 #include "common/cast_set.h"
+#include "runtime/define_primitive_type.h"
 
 namespace doris::vectorized::converter {
 #include "common/compile_check_begin.h"
-
-const std::set<std::string> SafeCastString<TYPE_BOOLEAN>::FALSE_VALUES = {"false", "off", "no", "0",
-                                                                          ""};
 
 #define FOR_LOGICAL_INTEGER_TYPES(M) \
     M(TYPE_TINYINT)                  \
@@ -224,6 +222,8 @@ static std::unique_ptr<ColumnTypeConverter> _to_string_converter(const DataTypeP
         default:
             return std::make_unique<UnsupportedConverter>(src_type, dst_type);
         }
+    } else if (is_varbinary(src_primitive_type)) {
+        return std::make_unique<VarBinaryConverter<TYPE_STRING, TYPE_STRING>>();
     }
     return std::make_unique<UnsupportedConverter>(src_type, dst_type);
 }
@@ -239,6 +239,9 @@ static std::unique_ptr<ColumnTypeConverter> _from_string_converter(const DataTyp
                 remove_nullable(dst_type));
         FOR_ALL_LOGICAL_TYPES(DISPATCH)
 #undef DISPATCH
+    case TYPE_VARBINARY: {
+        return std::make_unique<VarBinaryConverter<TYPE_STRING, TYPE_VARBINARY>>();
+    }
     default:
         return std::make_unique<UnsupportedConverter>(src_type, dst_type);
     }
