@@ -1576,8 +1576,17 @@ class Suite implements GroovyInterceptable {
             // e.g: jdbc:mysql://locahost:8080
             sql_port = urlWithoutSchema.substring(urlWithoutSchema.indexOf(":") + 1)
         }
+        def tlsUrl = null
         // set server side prepared statement url
-        return "jdbc:mysql://" + sql_ip + ":" + sql_port + "/" + database + "?&useServerPrepStmts=true"
+        if ((context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false) {
+            String useSslconfig = "useSSL=true&requireSSL=true&verifyServerCertificate=true"
+            String clientCAKey = "clientCertificateKeyStoreUrl=file:" + context.config.otherConfigs.get("keyStorePath")
+            String clientCAPwd = "clientCertificateKeyStorePassword=" + context.config.otherConfigs.get("keyStorePassword")
+            String trustCAKey = "trustCertificateKeyStoreUrl=file:" + context.config.otherConfigs.get("trustStorePath")
+            String trustCAPwd = "trustCertificateKeyStorePassword=" + context.config.otherConfigs.get("trustStorePassword")
+            tlsUrl = useSslconfig + "&" + clientCAKey + "&" + clientCAPwd + "&" +  trustCAKey + "&" + trustCAPwd
+        }
+        return "jdbc:mysql://" + sql_ip + ":" + sql_port + "/" + database + "?&useServerPrepStmts=true&" + tlsUrl
     }
 
     DebugPoint GetDebugPoint() {

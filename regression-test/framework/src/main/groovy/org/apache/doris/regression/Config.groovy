@@ -1054,6 +1054,15 @@ class Config {
 
     void createDefaultDb() {
         String dbName = null
+        if ((otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false ){
+            String keyStorePath = otherConfigs.get("keyStorePath")
+            String keyStorePassword = otherConfigs.get("keyStorePassword")
+            String trustStorePath =  otherConfigs.get("trustStorePath")
+            String trustStorePassword = otherConfigs.get("trustStorePassword")
+            jdbcUrl = buildUrlWithDb(jdbcUrl, dbName, keyStorePath, keyStorePassword, trustStorePath, trustStorePassword)
+        } else {
+            jdbcUrl = buildUrlWithDb(jdbcUrl, dbName)
+        }
         try {
             tryCreateDbIfNotExist(defaultDb)
             dbName = defaultDb
@@ -1066,15 +1075,6 @@ class Config {
             log.warn("create default db failed ${defaultDb}".toString())
         }
         
-        if ((otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false ){
-            String keyStorePath = otherConfigs.get("keyStorePath")
-            String keyStorePassword = otherConfigs.get("keyStorePassword")
-            String trustStorePath =  otherConfigs.get("trustStorePath")
-            String trustStorePassword = otherConfigs.get("trustStorePassword")
-            jdbcUrl = buildUrlWithDb(jdbcUrl, dbName, keyStorePath, keyStorePassword, trustStorePath, trustStorePassword)
-        } else {
-            jdbcUrl = buildUrlWithDb(jdbcUrl, dbName)
-        }
         log.info("Reset jdbcUrl to ${jdbcUrl}".toString())
     }
 
