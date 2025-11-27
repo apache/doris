@@ -39,10 +39,9 @@ import java.util.Optional;
 import java.util.Set;
 
 /**
- * Extract case when branches to OR expressions for join conditions.
- * Latter can help to generate more join conditions.
+ * Join extract OR expression from case when / if / nullif expressions.
  *
- * 1. extract conditions for one side only, latter can push down the one side condition:
+ * 1. extract conditions for one side, latter can push down the one side condition:
  *
  *    t1 join t2 on not (case when t1.a = 1 then t2.a else t2.b) + t2.b + t2.c > 10)
  *    =>
@@ -50,9 +49,8 @@ import java.util.Set;
  *                  AND (not (t2.a + t2.b + t2.c > 10) or not (t2.b + t2.b + t2.c > 10))
  *
  *
- * 2. extract or expansion hash conditions for both table sides:
- *    the or expansion hash condition is OR expression and each disjunction need to be equal predicate,
- *    and one side contains only left side slots, another side contains only right side slots.
+ * 2. extract conditions for both sides, which use for OR EXPANSION rule:
+ *    the OR EXPANSION is an OR expression which all its disjuncts are hash join conditions.
  *
  *    t1 join t2 on (case when t1.a = 1 then t2.a else t2.b end) = t1.a + t1.b
  *    =>
@@ -63,7 +61,8 @@ import java.util.Set;
  * because it may generate expressions with combinatorial explosion.
  *
  * (((case c1 then p1 else p2 end) + (case when d1 then q1 else q2 end))) + a  > 10
- * => (p1 + q1 + a > 10)
+ * =>
+ * (p1 + q1 + a > 10)
  *     or (p1 + q2 + a > 10)
  *     or (p2 + q1 + a > 10)
  *     or (p2 + q2 + a > 10)

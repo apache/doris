@@ -1234,8 +1234,6 @@ public class ExpressionUtils {
 
     /**
      * get the results of each branch in CaseWhen like expression
-     * @param expression
-     * @return
      */
     public static Optional<List<Expression>> getCaseWhenLikeBranchResults(Expression expression) {
         if (expression instanceof CaseWhen) {

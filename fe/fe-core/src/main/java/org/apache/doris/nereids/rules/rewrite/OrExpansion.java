@@ -206,9 +206,7 @@ public class OrExpansion extends DefaultPlanRewriter<OrExpandsionContext> implem
     }
 
     /**
-     * check whether need to rewrite the join
-     * @param join
-     * @return
+     * check whether it need to rewrite the join
      */
     public boolean needRewriteJoin(LogicalJoin<? extends Plan, ? extends Plan> join) {
         if (join.isMarkJoin() || !JoinUtils.shouldNestedLoopJoin(join)) {

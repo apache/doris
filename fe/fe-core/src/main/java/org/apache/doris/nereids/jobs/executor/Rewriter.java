@@ -324,7 +324,8 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                             new PushFilterInsideJoin(),
                                             new FindHashConditionForJoin(),
                                             new ConvertInnerOrCrossJoin(),
-                                            new EliminateNullAwareLeftAntiJoin()
+                                            new EliminateNullAwareLeftAntiJoin(),
+                                            new JoinExtractOrFromCaseWhen()
                                     ),
                                     // push down SEMI Join
                                     bottomUp(
@@ -553,9 +554,9 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                         new ReorderJoin(),
                                         new PushFilterInsideJoin(),
                                         new FindHashConditionForJoin(),
-                                        new JoinExtractOrFromCaseWhen(),
                                         new ConvertInnerOrCrossJoin(),
-                                        new EliminateNullAwareLeftAntiJoin()
+                                        new EliminateNullAwareLeftAntiJoin(),
+                                        new JoinExtractOrFromCaseWhen()
                                 ),
                                 // push down SEMI Join
                                 bottomUp(
