@@ -289,7 +289,7 @@ ExchangeSinkOperatorX::ExchangeSinkOperatorX(
            sink.output_partition.type == TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED ||
            sink.output_partition.type == TPartitionType::HIVE_TABLE_SINK_HASH_PARTITIONED ||
            sink.output_partition.type == TPartitionType::HIVE_TABLE_SINK_UNPARTITIONED ||
-           sink.output_partition.type == TPartitionType::LOCAL_RANDOM);
+           sink.output_partition.type == TPartitionType::RANDOM_LOCAL_SHUFFLE);
 #endif
     _name = "ExchangeSinkOperatorX";
     _pool = std::make_shared<ObjectPool>();
@@ -496,7 +496,7 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
             }
         }
         local_state.current_channel_idx = (local_state.current_channel_idx + 1) % _writer_count;
-    } else if (_part_type == TPartitionType::LOCAL_RANDOM) {
+    } else if (_part_type == TPartitionType::RANDOM_LOCAL_SHUFFLE) {
         DCHECK_LT(local_state.current_channel_idx, local_state.local_channel_ids.size())
                 << "local_state.current_channel_idx: " << local_state.current_channel_idx
                 << ", local_channel_ids: " << to_string(local_state.local_channel_ids);

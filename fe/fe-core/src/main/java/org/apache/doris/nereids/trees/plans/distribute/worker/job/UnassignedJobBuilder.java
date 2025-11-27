@@ -217,8 +217,8 @@ public class UnassignedJobBuilder {
             StatementContext statementContext, PlanFragment planFragment,
             ListMultimap<ExchangeNode, UnassignedJob> inputJobs) {
         if (planFragment.getPlanRoot().collectInCurrentFragment(UnionNode.class::isInstance)
-                .stream().map(UnionNode.class::cast).anyMatch(UnionNode::isInplaceUnion)) {
-            return new UnassignedInplaceUnionJob(statementContext, planFragment, inputJobs);
+                .stream().map(UnionNode.class::cast).anyMatch(UnionNode::isLocalShuffleUnion)) {
+            return new UnassignedLocalShuffleUnionJob(statementContext, planFragment, inputJobs);
         } else if (planFragment.isPartitioned()) {
             return new UnassignedShuffleJob(statementContext, planFragment, inputJobs);
         } else {

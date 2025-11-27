@@ -2301,9 +2301,13 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             setOperationNode.setColocate(true);
         }
 
+        // whether accept LocalShuffleUnion.
+        // the backend need `enable_local_exchange=true` to compute whether a channel is `local`,
+        // and LocalShuffleUnion need `local` channels to do random local shuffle, so we need check
+        // `enable_local_exchange`
         if (setOperation instanceof PhysicalUnion
                 && context.getConnectContext().getSessionVariable().getEnableLocalExchange()) {
-            boolean isInplaceUnion = false;
+            boolean isLocalShuffleUnion = false;
             if (setOperation.getPhysicalProperties().getDistributionSpec() instanceof DistributionSpecExecutionAny) {
                 Map<Integer, ExchangeNode> exchangeIdToExchangeNode = new IdentityHashMap<>();
                 for (PlanNode child : setOperationNode.getChildren()) {
@@ -2315,16 +2319,16 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 for (PlanFragment childFragment : setOperationFragment.getChildren()) {
                     DataSink sink = childFragment.getSink();
                     if (sink instanceof DataStreamSink) {
-                        isInplaceUnion |= setLocalRandomPartition(exchangeIdToExchangeNode, (DataStreamSink) sink);
+                        isLocalShuffleUnion |= setLocalRandomPartition(exchangeIdToExchangeNode, (DataStreamSink) sink);
                     } else if (sink instanceof MultiCastDataSink) {
                         MultiCastDataSink multiCastDataSink = (MultiCastDataSink) sink;
                         for (DataStreamSink dataStreamSink : multiCastDataSink.getDataStreamSinks()) {
-                            isInplaceUnion |= setLocalRandomPartition(exchangeIdToExchangeNode, dataStreamSink);
+                            isLocalShuffleUnion |= setLocalRandomPartition(exchangeIdToExchangeNode, dataStreamSink);
                         }
                     }
                 }
             }
-            ((UnionNode) setOperationNode).setInplaceUnion(isInplaceUnion);
+            ((UnionNode) setOperationNode).setLocalShuffleUnion(isLocalShuffleUnion);
         }
 
         return setOperationFragment;
@@ -3294,9 +3298,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         if (exchangeNode == null) {
             return false;
         }
-        exchangeNode.setPartitionType(TPartitionType.LOCAL_RANDOM);
+        exchangeNode.setPartitionType(TPartitionType.RANDOM_LOCAL_SHUFFLE);
 
-        DataPartition p2pPartition = new DataPartition(TPartitionType.LOCAL_RANDOM);
+        DataPartition p2pPartition = new DataPartition(TPartitionType.RANDOM_LOCAL_SHUFFLE);
         dataStreamSink.setOutputPartition(p2pPartition);
         return true;
     }
