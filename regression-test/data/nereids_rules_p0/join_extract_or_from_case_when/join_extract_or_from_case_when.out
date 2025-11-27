@@ -100,14 +100,25 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------------PhysicalCteConsumer ( cteId=CTEId#0 )
 ------------PhysicalCteConsumer ( cteId=CTEId#1 )
 
--- !case_when_one_side_2 --
-PhysicalResultSink
---PhysicalProject[t1.a, t2.x]
-----NestedLoopJoin[INNER_JOIN](CASE WHEN (x > 10) THEN a WHEN (y > 10) THEN (a + b) END = ((x + y) + -4))
-------PhysicalProject[(a + b) AS `(a + b)`, t1.a]
---------PhysicalOlapScan[tbl_join_extract_or_from_case_when_1(t1)]
+-- !case_when_two_side_2 --
+PhysicalCteAnchor ( cteId=CTEId#0 )
+--PhysicalCteProducer ( cteId=CTEId#0 )
+----PhysicalProject[(a + b) AS `(a + b)`, t1.a]
+------PhysicalOlapScan[tbl_join_extract_or_from_case_when_1(t1)]
+--PhysicalCteAnchor ( cteId=CTEId#1 )
+----PhysicalCteProducer ( cteId=CTEId#1 )
 ------PhysicalProject[((x + y) + -4) AS `((x + y) + -4)`, (x > 10) AS `(x > 10)`, (y > 10) AS `(y > 10)`, t2.x]
 --------PhysicalOlapScan[tbl_join_extract_or_from_case_when_2(t2)]
+----PhysicalResultSink
+------PhysicalUnion
+--------PhysicalProject[.a, .x]
+----------hashJoin[INNER_JOIN] hashCondition=((.a = .((x + y) + -4))) otherCondition=((CASE WHEN (x > 10) THEN a WHEN (y > 10) THEN (a + b) END = .((x + y) + -4)))
+------------PhysicalCteConsumer ( cteId=CTEId#0 )
+------------PhysicalCteConsumer ( cteId=CTEId#1 )
+--------PhysicalProject[.a, .x]
+----------hashJoin[INNER_JOIN] hashCondition=((.(a + b) = .((x + y) + -4))) otherCondition=((CASE WHEN (x > 10) THEN a WHEN (y > 10) THEN (a + b) END = .((x + y) + -4)) and OR[( not (a = ((x + y) + -4))),(a = ((x + y) + -4)) IS NULL])
+------------PhysicalCteConsumer ( cteId=CTEId#0 )
+------------PhysicalCteConsumer ( cteId=CTEId#1 )
 
 -- !case_when_two_side_3 --
 PhysicalResultSink
@@ -165,6 +176,15 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----------hashJoin[INNER_JOIN] hashCondition=((.y = .coalesce(a, b))) otherCondition=((if(a IS NULL, x, y) = .coalesce(a, b)) and OR[( not (x = coalesce(a, b))),(x = coalesce(a, b)) IS NULL])
 ------------PhysicalCteConsumer ( cteId=CTEId#0 )
 ------------PhysicalCteConsumer ( cteId=CTEId#1 )
+
+-- !case_when_two_side_7 --
+PhysicalResultSink
+--PhysicalProject[t1.a, t2.x]
+----NestedLoopJoin[INNER_JOIN](CASE WHEN (x > 10) THEN a WHEN (y > 10) THEN (a + b) ELSE 100 END = ((x + y) + -4))
+------PhysicalProject[(a + b) AS `(a + b)`, t1.a]
+--------PhysicalOlapScan[tbl_join_extract_or_from_case_when_1(t1)]
+------PhysicalProject[((x + y) + -4) AS `((x + y) + -4)`, (x > 10) AS `(x > 10)`, (y > 10) AS `(y > 10)`, t2.x]
+--------PhysicalOlapScan[tbl_join_extract_or_from_case_when_2(t2)]
 
 -- !if_one_side_1 --
 PhysicalResultSink
@@ -226,9 +246,9 @@ PhysicalResultSink
 -- !nullif_two_side_1 --
 PhysicalResultSink
 --PhysicalProject[t1.a, t2.x]
-----NestedLoopJoin[INNER_JOIN](nullif(a, x) = (x + y))
+----hashJoin[INNER_JOIN] hashCondition=((t1.a = expr_(x + y))) otherCondition=((nullif(a, x) = (t2.x + t2.y)))
 ------PhysicalProject[t1.a]
 --------PhysicalOlapScan[tbl_join_extract_or_from_case_when_1(t1)]
-------PhysicalProject[(x + y) AS `(x + y)`, t2.x]
+------PhysicalProject[(x + y) AS `expr_(x + y)`, tbl_join_extract_or_from_case_when_2.x, tbl_join_extract_or_from_case_when_2.y]
 --------PhysicalOlapScan[tbl_join_extract_or_from_case_when_2(t2)]
 

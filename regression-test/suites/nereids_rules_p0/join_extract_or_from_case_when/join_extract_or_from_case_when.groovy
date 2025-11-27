@@ -87,8 +87,7 @@ suite('join_extract_or_from_case_when') {
             on (case when t2.x > 10 then t1.a when t2.y > 10 then t1.a + t1.b else t1.b end) + 5 = t2.x + t2.y + 1;
     """
 
-    // any case when branch no contains slot from other side will not extract
-    qt_case_when_one_side_2 """explain shape plan
+    qt_case_when_two_side_2 """explain shape plan
         select t1.a,  t2.x
         from tbl_join_extract_or_from_case_when_1 t1 join tbl_join_extract_or_from_case_when_2 t2
             on (case when t2.x > 10 then t1.a when t2.y > 10 then t1.a + t1.b end) + 5 = t2.x + t2.y + 1;
@@ -119,6 +118,13 @@ suite('join_extract_or_from_case_when') {
         select t1.a,  t2.x
         from tbl_join_extract_or_from_case_when_1 t1 join tbl_join_extract_or_from_case_when_2 t2
             on case when t1.a is null then t2.x else t2.y end = COALESCE(t1.a, t1.b);
+    """
+
+    // any case when branch no contains slot from other side will not extract
+    qt_case_when_two_side_7 """explain shape plan
+        select t1.a,  t2.x
+        from tbl_join_extract_or_from_case_when_1 t1 join tbl_join_extract_or_from_case_when_2 t2
+            on (case when t2.x > 10 then t1.a when t2.y > 10 then t1.a + t1.b else 100 end) + 5 = t2.x + t2.y + 1;
     """
 
     qt_if_one_side_1 """explain shape plan

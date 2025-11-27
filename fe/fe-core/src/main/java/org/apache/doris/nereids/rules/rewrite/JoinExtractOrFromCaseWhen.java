@@ -20,9 +20,10 @@ package org.apache.doris.nereids.rules.rewrite;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
+import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
 import org.apache.doris.nereids.trees.expressions.EqualPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
@@ -37,6 +38,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Join extract OR expression from case when / if / nullif expressions.
@@ -75,7 +77,7 @@ public class JoinExtractOrFromCaseWhen implements RewriteRuleFactory {
     public List<Rule> buildRules() {
         return ImmutableList.of(logicalJoin()
                 .when(this::needRewrite)
-                .then(this::rewrite)
+                .thenApply(ctx -> rewrite(ctx.root, new ExpressionRewriteContext(ctx.root, ctx.cascadesContext)))
                 .toRule(RuleType.JOIN_EXTRACT_OR_FROM_CASE_WHEN));
     }
 
@@ -95,20 +97,20 @@ public class JoinExtractOrFromCaseWhen implements RewriteRuleFactory {
         return getExtractChildIndexAndOtherChildSlotFromLeft(expr, leftSlots, rightSlots).isPresent();
     }
 
-    private Plan rewrite(LogicalJoin<? extends Plan, ? extends Plan> join) {
+    private Plan rewrite(LogicalJoin<? extends Plan, ? extends Plan> join, ExpressionRewriteContext context) {
         Set<Expression> newOtherConditions = Sets.newLinkedHashSetWithExpectedSize(join.getOtherJoinConjuncts().size());
         newOtherConditions.addAll(join.getOtherJoinConjuncts());
         int oldCondSize = newOtherConditions.size();
-        boolean extractHashCondition = OrExpansion.INSTANCE.needRewriteJoin(join);
-        List<Expression> orExpandConds = Lists.newArrayList();
+        boolean extractOrExpansionCondition = OrExpansion.INSTANCE.needRewriteJoin(join);
+        AtomicReference<Pair<Expression, Integer>> leastOrExpandCondRef = new AtomicReference<>();
         for (Expression expr : join.getOtherJoinConjuncts()) {
-            tryAddOrExpansionHashCondition(orExpandConds, expr, join);
+            tryAddOrExpansionHashCondition(expr, join, context, leastOrExpandCondRef);
         }
         for (Expression expr : join.getOtherJoinConjuncts()) {
-            extractExpression(join, expr, extractHashCondition, newOtherConditions, orExpandConds);
+            extractExpression(expr, context, join, extractOrExpansionCondition, newOtherConditions, leastOrExpandCondRef);
         }
-        if (!orExpandConds.isEmpty()) {
-            newOtherConditions.addAll(orExpandConds);
+        if (leastOrExpandCondRef.get() != null) {
+            newOtherConditions.add(leastOrExpandCondRef.get().first);
         }
         if (newOtherConditions.size() == oldCondSize) {
             return join;
@@ -118,8 +120,9 @@ public class JoinExtractOrFromCaseWhen implements RewriteRuleFactory {
         }
     }
 
-    private void extractExpression(LogicalJoin<? extends Plan, ? extends Plan> join, Expression expr,
-            boolean extractHashCondition, Set<Expression> conditions, List<Expression> orExpandConds) {
+    private void extractExpression(Expression expr, ExpressionRewriteContext context,
+            LogicalJoin<? extends Plan, ? extends Plan> join, boolean extractOrExpansionCondition,
+            Set<Expression> conditions, AtomicReference<Pair<Expression, Integer>> leastOrExpandCondRef) {
         Set<Slot> leftSlots = join.left().getOutputSet();
         Set<Slot> rightSlots = join.right().getOutputSet();
         Optional<Pair<Integer, Boolean>> extractOpt
@@ -131,39 +134,54 @@ public class JoinExtractOrFromCaseWhen implements RewriteRuleFactory {
         int extractChildIndex = extractOpt.get().first;
         Boolean otherChildrenFromLeft = extractOpt.get().second;
         if (otherChildrenFromLeft == null) {
+            // extract expression for left side
             doExtractExpression(expr, extractChildIndex, true, leftSlots, rightSlots)
                     .ifPresent(conditions::add);
+            // extract expression for right side
             doExtractExpression(expr, extractChildIndex, false, leftSlots, rightSlots)
                     .ifPresent(conditions::add);
         } else {
+            // extract expression for one side, all child slots need from the same side
             doExtractExpression(expr, extractChildIndex, otherChildrenFromLeft, leftSlots, rightSlots)
                     .ifPresent(conditions::add);
-            if (expr instanceof EqualPredicate && extractHashCondition) {
+            if (expr instanceof EqualPredicate && extractOrExpansionCondition) {
+                // extract expression for hash condition only when the expr is equal predicate
                 doExtractExpression(expr, extractChildIndex, !otherChildrenFromLeft, leftSlots, rightSlots)
-                        .ifPresent(cond -> tryAddOrExpansionHashCondition(orExpandConds, cond, join));
+                        .ifPresent(cond -> tryAddOrExpansionHashCondition(cond, join, context, leastOrExpandCondRef));
             }
         }
     }
 
     // Or Expansion only use one condition, so we keep the one with least disjunctions.
-    private void tryAddOrExpansionHashCondition(List<Expression> orExpandConds,
-            Expression condition, LogicalJoin<? extends Plan, ? extends Plan> join) {
+    private void tryAddOrExpansionHashCondition(Expression condition, LogicalJoin<? extends Plan, ? extends Plan> join,
+            ExpressionRewriteContext context, AtomicReference<Pair<Expression, Integer>> leastOrExpandCondRef) {
         // Or Expansion only works for all the disjunctions are equal predicates
-        if (!JoinUtils.extractExpressionForHashTable(
-                join.left().getOutput(), join.right().getOutput(), ExpressionUtils.extractDisjunction(condition)
-                ).second.isEmpty()) {
+        List<Expression> disjunctions = ExpressionUtils.extractDisjunction(condition);
+        List<Expression> remainOtherConditions = JoinUtils.extractExpressionForHashTable(
+                join.left().getOutput(), join.right().getOutput(), disjunctions).second;
+        int hashCondLen = disjunctions.size() - remainOtherConditions.size();
+        // no hash condition extracted, all are other conditions
+        if (hashCondLen == 0) {
             return;
         }
 
-        if (orExpandConds.isEmpty()) {
-            orExpandConds.add(condition);
-        } else {
-            int childNum = condition instanceof Or ? condition.children().size() : 1;
-            int otherChildNum = orExpandConds.get(0) instanceof Or ? orExpandConds.get(0).children().size() : 1;
-            if (childNum < otherChildNum) {
-                orExpandConds.clear();
-                orExpandConds.add(condition);
+        for (Expression expr : remainOtherConditions) {
+            // for case when t1.a > t2.x then t1.a when t1.b > t2.y then t1. b else null end = t2.x
+            // then will extract E1 = (t1.a = t2.x or t1.b = t2.x or null = t2.x)
+            // but E1 can not use as OR Expansion condition, because null = t2.x is not a valid hash join condition.
+            // but after we fold null = t2.x to null, latter expression simplifier can simplify E1
+            // to (t1.a = t2.x or t1.b = t2.x), then it becomes a valid OR Expansion condition.
+            Expression foldExpr = FoldConstantRuleOnFE.evaluate(expr, context);
+            if (!foldExpr.isLiteral()) {
+                return;
             }
+            // foldExpr should be NULL / TRUE /FALSE,  later expression simplifier can handle them.
+        }
+
+        Pair<Expression, Integer> leastOrExpandCond = leastOrExpandCondRef.get();
+        int oldHashCondLen = leastOrExpandCond == null ? -1 : leastOrExpandCond.second;
+        if (oldHashCondLen == -1 || hashCondLen < oldHashCondLen) {
+            leastOrExpandCondRef.set(Pair.of(condition, hashCondLen));
         }
     }
 
@@ -216,16 +234,19 @@ public class JoinExtractOrFromCaseWhen implements RewriteRuleFactory {
         return Optional.of(Pair.of(extractChildIndex, otherChildSlotFromLeft));
     }
 
+    // extract case when expression from `expr`'s child at `extractChildIndex`.
+    // after extraction, all slots in expr's child at `extractChildIndex`
+    // are from one side indicated by `childSlotFromLeft`.
     private Optional<Expression> doExtractExpression(Expression expr, int extractChildIndex, boolean childSlotFromLeft,
             Set<Slot> leftSlots, Set<Slot> rightSlots) {
-        Expression target = expr.child(extractChildIndex);
-        Optional<List<Expression>> expandTargetOpt = tryExtractCaseWhen(
-                target, childSlotFromLeft, leftSlots, rightSlots);
-        if (!expandTargetOpt.isPresent()) {
+        Expression expandChild = expr.child(extractChildIndex);
+        Optional<List<Expression>> resultOpt = tryExtractCaseWhen(
+                expandChild, childSlotFromLeft, leftSlots, rightSlots);
+        if (!resultOpt.isPresent()) {
             return Optional.empty();
         }
 
-        List<Expression> expandTargetExpressions = expandTargetOpt.get();
+        List<Expression> expandTargetExpressions = resultOpt.get();
         if (expandTargetExpressions.size() <= 1) {
             return Optional.empty();
         }
@@ -245,24 +266,29 @@ public class JoinExtractOrFromCaseWhen implements RewriteRuleFactory {
         return Optional.of(ExpressionUtils.or(result));
     }
 
-    private Optional<List<Expression>> tryExtractCaseWhen(Expression expr, boolean childSlotFromLeft,
+    // try to extract case when like expressions from expr.
+    // after extraction, all slots in expr are from one side indicated by `slotFromLeft`.
+    // if `expr`'s all slots are already from `slotFromLeft`, return expr itself, no need handle with its children.
+    // otherwise will recurse its children to extract case when like expressions.
+    private Optional<List<Expression>> tryExtractCaseWhen(Expression expr, boolean slotFromLeft,
             Set<Slot> leftSlots, Set<Slot> rightSlots) {
-        if (isSlotsEmptyOrFrom(expr, childSlotFromLeft, leftSlots, rightSlots)) {
+        if (isAllSlotsFromLeftSide(expr, slotFromLeft, leftSlots, rightSlots)) {
             return Optional.of(ImmutableList.of(expr));
-        }
-
-        Optional<List<Expression>> caseWhenLikeResults = ExpressionUtils.getCaseWhenLikeBranchResults(expr);
-        if (caseWhenLikeResults.isPresent()) {
-            for (Expression branchResult : caseWhenLikeResults.get()) {
-                if (!isSlotsEmptyOrFrom(branchResult, childSlotFromLeft, leftSlots, rightSlots)) {
-                    return Optional.empty();
-                }
-            }
-            return caseWhenLikeResults;
         }
 
         if (!ExpressionUtils.containsCaseWhenLikeType(expr)) {
             return Optional.empty();
+        }
+
+        // process case when like expression.
+        Optional<List<Expression>> caseWhenLikeResults = ExpressionUtils.getCaseWhenLikeBranchResults(expr);
+        if (caseWhenLikeResults.isPresent()) {
+            for (Expression branchResult : caseWhenLikeResults.get()) {
+                if (!isAllSlotsFromLeftSide(branchResult, slotFromLeft, leftSlots, rightSlots)) {
+                    return Optional.empty();
+                }
+            }
+            return caseWhenLikeResults;
         }
 
         int expandChildIndex = -1;
@@ -271,7 +297,7 @@ public class JoinExtractOrFromCaseWhen implements RewriteRuleFactory {
         for (int i = 0; i < expr.children().size(); i++) {
             Expression child = expr.child(i);
             Optional<List<Expression>> childExtractedOpt = tryExtractCaseWhen(
-                    child, childSlotFromLeft, leftSlots, rightSlots);
+                    child, slotFromLeft, leftSlots, rightSlots);
             if (!childExtractedOpt.isPresent()) {
                 return Optional.empty();
             }
@@ -302,12 +328,15 @@ public class JoinExtractOrFromCaseWhen implements RewriteRuleFactory {
         return Optional.of(resultExpressions);
     }
 
-    private boolean isSlotsEmptyOrFrom(Expression expr, boolean slotFromLeft,
+    // check whether all slots in expr are from one side, allow empty slots.
+    private boolean isAllSlotsFromLeftSide(Expression expr, boolean slotFromLeft,
             Set<Slot> leftSlots, Set<Slot> rightSlots) {
         Set<Slot> exprSlots = expr.getInputSlots();
         if (slotFromLeft) {
+            // no slots from right
             return Collections.disjoint(exprSlots, rightSlots);
         } else {
+            // no slots from left
             return Collections.disjoint(exprSlots, leftSlots);
         }
     }
