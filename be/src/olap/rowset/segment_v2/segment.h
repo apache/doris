@@ -65,12 +65,19 @@ struct RowLocation;
 
 namespace segment_v2 {
 
+// SegmentFooterPB versioning:
+// 1 = V2 baseline
+// 2 = V3 (externalized ColumnMetaPB region + CMO present)
+static constexpr uint32_t kSegmentFooterVersionV2 = 1;
+static constexpr uint32_t kSegmentFooterVersionV3_ExtColMeta = 2;
+
 class BitmapIndexIterator;
 class Segment;
 class InvertedIndexIterator;
 class IndexFileReader;
 class IndexIterator;
 class ColumnReaderCache;
+class ColumnMetaAccessor;
 
 using SegmentSharedPtr = std::shared_ptr<Segment>;
 // A Segment is used to represent a segment in memory format. When segment is
@@ -265,8 +272,8 @@ private:
     // Limited cache for column readers
     std::unique_ptr<ColumnReaderCache> _column_reader_cache;
 
-    // map column unique id ---> it's footer ordinal
-    std::unordered_map<int32_t, size_t> _column_uid_to_footer_ordinal;
+    // Centralized accessor for column metadata layout and uid->column_ordinal mapping.
+    std::unique_ptr<ColumnMetaAccessor> _column_meta_accessor;
 
     // Init from ColumnMetaPB in SegmentFooterPB
     // map column unique id ---> it's inner data type

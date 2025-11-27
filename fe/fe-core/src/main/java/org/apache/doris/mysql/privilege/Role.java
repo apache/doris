@@ -48,6 +48,7 @@ import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.ConcurrentMap;
 
 public class Role implements GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(Role.class);
@@ -80,17 +81,17 @@ public class Role implements GsonPostProcessable {
     private String comment;
     // Will be persisted
     @SerializedName(value = "tblPatternToPrivs")
-    private Map<TablePattern, PrivBitSet> tblPatternToPrivs = Maps.newConcurrentMap();
+    private ConcurrentMap<TablePattern, PrivBitSet> tblPatternToPrivs = Maps.newConcurrentMap();
     @SerializedName(value = "resourcePatternToPrivs")
-    private Map<ResourcePattern, PrivBitSet> resourcePatternToPrivs = Maps.newConcurrentMap();
+    private ConcurrentMap<ResourcePattern, PrivBitSet> resourcePatternToPrivs = Maps.newConcurrentMap();
     @SerializedName(value = "storageVaultPatternToPrivs")
-    private Map<ResourcePattern, PrivBitSet> storageVaultPatternToPrivs = Maps.newConcurrentMap();
+    private ConcurrentMap<ResourcePattern, PrivBitSet> storageVaultPatternToPrivs = Maps.newConcurrentMap();
     @SerializedName(value = "clusterPatternToPrivs")
-    private Map<ResourcePattern, PrivBitSet> clusterPatternToPrivs = Maps.newConcurrentMap();
+    private ConcurrentMap<ResourcePattern, PrivBitSet> clusterPatternToPrivs = Maps.newConcurrentMap();
     @SerializedName(value = "stagePatternToPrivs")
-    private Map<ResourcePattern, PrivBitSet> stagePatternToPrivs = Maps.newConcurrentMap();
+    private ConcurrentMap<ResourcePattern, PrivBitSet> stagePatternToPrivs = Maps.newConcurrentMap();
     @SerializedName(value = "workloadGroupPatternToPrivs")
-    private Map<WorkloadGroupPattern, PrivBitSet> workloadGroupPatternToPrivs = Maps.newConcurrentMap();
+    private ConcurrentMap<WorkloadGroupPattern, PrivBitSet> workloadGroupPatternToPrivs = Maps.newConcurrentMap();
     @SerializedName(value = "colPrivMap")
     private Map<ColPrivilegeKey, Set<String>> colPrivMap = Maps.newHashMap();
 
