@@ -1135,6 +1135,7 @@ void VNodeChannel::cancel(const std::string& cancel_msg) {
     request->set_allocated_id(&_parent->_load_id);
     request->set_index_id(_index_channel->_index_id);
     request->set_sender_id(_parent->_sender_id);
+    request->set_cancel_reason(cancel_msg);
 
     auto cancel_callback = DummyBrpcCallback<PTabletWriterCancelResult>::create_shared();
     auto closure = AutoReleaseClosure<
