@@ -93,7 +93,6 @@ static void read_parquet_lines(std::vector<std::string> numeric_types,
             tslot_desc.nullIndicatorBit = -1;
             tslot_desc.colName = numeric_types[i];
             tslot_desc.slotIdx = 0;
-            tslot_desc.isMaterialized = true;
             t_desc_table.slotDescriptors.push_back(tslot_desc);
         }
     }

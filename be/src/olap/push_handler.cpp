@@ -516,10 +516,7 @@ Status PushBrokerReader::_convert_to_output_block(vectorized::Block* block) {
     size_t rows = _src_block.rows();
     auto filter_column = vectorized::ColumnUInt8::create(rows, 1);
 
-    for (auto slot_desc : _dest_tuple_desc->slots()) {
-        if (!slot_desc->is_materialized()) {
-            continue;
-        }
+    for (auto* slot_desc : _dest_tuple_desc->slots()) {
         int dest_index = ctx_idx++;
         vectorized::ColumnPtr column_ptr;
 
@@ -603,9 +600,6 @@ Status PushBrokerReader::_init_expr_ctxes() {
     }
     bool has_slot_id_map = _params.__isset.dest_sid_to_src_sid_without_trans;
     for (auto slot_desc : _dest_tuple_desc->slots()) {
-        if (!slot_desc->is_materialized()) {
-            continue;
-        }
         auto it = _params.expr_of_dest_slot.find(slot_desc->id());
         if (it == std::end(_params.expr_of_dest_slot)) {
             return Status::InternalError("No expr for dest slot, id={}, name={}", slot_desc->id(),

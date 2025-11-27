@@ -156,6 +156,7 @@ public class CheckCast implements ExpressionPatternRuleFactory {
         allowToBasicType(allowedTypes);
         allowedTypes.add(IPv4Type.class);
         allowedTypes.add(IPv6Type.class);
+        allowedTypes.add(VarBinaryType.class);
         allowToComplexType(allowedTypes);
         allowedTypes.remove(HllType.class);
         allowedTypes.remove(BitmapType.class);
@@ -197,6 +198,7 @@ public class CheckCast implements ExpressionPatternRuleFactory {
         //varbinary
         allowedTypes = Sets.newHashSet();
         allowedTypes.add(VarBinaryType.class);
+        allowToStringLikeType(allowedTypes);
         strictCastWhiteList.put(VarBinaryType.class, allowedTypes);
 
         // array

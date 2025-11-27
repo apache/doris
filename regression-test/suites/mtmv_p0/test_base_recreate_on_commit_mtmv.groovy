@@ -62,7 +62,7 @@ suite("test_base_recreate_on_commit_mtmv","mtmv") {
 
     // drop and recreate
     sql """drop table if exists `${tableName1}`"""
-    order_qt_drop "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName}'"
+    order_qt_drop "select Name,State,RefreshState,SyncWithBaseTables  from mv_infos('database'='${dbName}') where Name='${mvName}'"
 
     sql """
         CREATE TABLE ${tableName1}
@@ -81,6 +81,6 @@ suite("test_base_recreate_on_commit_mtmv","mtmv") {
         """
 
     waitingMTMVTaskFinishedByMvName(mvName)
-    order_qt_recreate "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName}'"
+    order_qt_recreate "select Name,State,RefreshState,SyncWithBaseTables  from mv_infos('database'='${dbName}') where Name='${mvName}'"
     order_qt_select_recreate "select * from ${mvName}"
 }

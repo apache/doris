@@ -25,8 +25,8 @@
 #include <gen_cpp/Types_types.h>
 #include <glog/logging.h>
 #include <google/protobuf/stubs/port.h>
-#include <stdint.h>
 
+#include <cstdint>
 #include <ostream>
 #include <string>
 #include <unordered_map>
@@ -42,6 +42,7 @@
 #include "runtime/define_primitive_type.h"
 #include "runtime/types.h"
 #include "vec/data_types/data_type.h"
+
 namespace google::protobuf {
 template <typename Element>
 class RepeatedField;
@@ -59,14 +60,13 @@ class SlotDescriptor {
 public:
     MOCK_DEFINE(virtual ~SlotDescriptor() = default;)
     SlotId id() const { return _id; }
-    const vectorized::DataTypePtr type() const { return _type; }
+    vectorized::DataTypePtr type() const { return _type; }
     TupleId parent() const { return _parent; }
     // Returns the column index of this slot, including partition keys.
     // (e.g., col_pos - num_partition_keys = the table column this slot corresponds to)
     int col_pos() const { return _col_pos; }
     // Returns the field index in the generated llvm struct for this slot's tuple
     int field_idx() const { return _field_idx; }
-    bool is_materialized() const { return _is_materialized; }
     bool is_nullable() const;
     vectorized::DataTypePtr get_data_type_ptr() const;
 
@@ -131,8 +131,6 @@ private:
     // this is set by TupleDescriptor during codegen and takes into account
     // leading null bytes.
     int _field_idx;
-
-    const bool _is_materialized;
 
     const bool _is_key;
     const std::vector<std::string> _column_paths;
@@ -513,7 +511,7 @@ public:
 
     std::string debug_string() const;
 
-    int get_column_id(int slot_id, bool force_materialize_slot = false) const;
+    int get_column_id(int slot_id) const;
 
 private:
     // Initializes tupleIdxMap during c'tor using the _tuple_desc_map.

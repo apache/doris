@@ -130,8 +130,8 @@ suite("test_compaction_variant_predefine_with_sparse_limit", "nonConcurrent") {
             order_qt_select "select * from ${tableName} order by k, cast(v as string) limit 5;"
         }
     } finally {
-        sql "DROP TABLE IF EXISTS simple_variant_DUPLICATE"
-        sql "DROP TABLE IF EXISTS simple_variant_UNIQUE"
-        sql "DROP TABLE IF EXISTS simple_variant_AGGREGATE"
+        // sql "DROP TABLE IF EXISTS simple_variant_DUPLICATE"
+        // sql "DROP TABLE IF EXISTS simple_variant_UNIQUE"
+        // sql "DROP TABLE IF EXISTS simple_variant_AGGREGATE"
     }
 }
