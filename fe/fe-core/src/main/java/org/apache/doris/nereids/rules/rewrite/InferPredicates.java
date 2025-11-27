@@ -253,7 +253,7 @@ public class InferPredicates extends DefaultPlanRewriter<JobContext> implements 
                     if (newOrChildren.size() == 1) {
                         predicates.add(withInferredIfSupported(newOrChildren.get(0), expr));
                     } else if (newOrChildren.size() > 1) {
-                        predicates.add(new Or(newOrChildren, true));
+                        predicates.add(ExpressionUtils.or(newOrChildren).withInferred(true));
                     }
                 } else {
                     predicates.add(expr);
