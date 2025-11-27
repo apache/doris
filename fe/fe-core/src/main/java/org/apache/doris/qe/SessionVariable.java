@@ -2017,6 +2017,9 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_UNICODE_NAME_SUPPORT, needForward = true)
     public boolean enableUnicodeNameSupport = true;
 
+    @VariableMgr.VarAttr(name = GROUP_CONCAT_MAX_LEN)
+    public long groupConcatMaxLen = 2147483646;
+
     @VariableMgr.VarAttr(
             name = USE_ONE_PHASE_AGG_FOR_GROUP_CONCAT_WITH_ORDER,
             needForward = true,
