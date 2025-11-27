@@ -655,6 +655,13 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                                 fileScan.getTableSample().get().sampleValue, fileScan.getTableSample().get().seek));
                     }
                     break;
+                case HUDI:
+                    // HUDI table should be handled by visitPhysicalHudiScan, not here.
+                    // If we reach here, it means LogicalHudiScan was incorrectly converted to
+                    // PhysicalFileScan.
+                    throw new RuntimeException("HUDI table should use PhysicalHudiScan instead of PhysicalFileScan. "
+                            + "This indicates a bug in the optimizer rules. "
+                            + "FileScan class: " + fileScan.getClass().getSimpleName());
                 default:
                     throw new RuntimeException("do not support DLA type " + ((HMSExternalTable) table).getDlaType());
             }
