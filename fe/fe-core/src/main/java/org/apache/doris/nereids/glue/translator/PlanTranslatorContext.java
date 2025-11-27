@@ -300,7 +300,6 @@ public class PlanTranslatorContext {
         Optional<Column> column = slotReference.getOriginalColumn();
         column.ifPresent(slotDescriptor::setColumn);
         slotDescriptor.setType(slotReference.getDataType().toCatalogDataType());
-        slotDescriptor.setIsMaterialized(true);
         SlotRef slotRef;
         if (slotReference instanceof VirtualSlotReference) {
             slotRef = new VirtualSlotRef(slotDescriptor);
