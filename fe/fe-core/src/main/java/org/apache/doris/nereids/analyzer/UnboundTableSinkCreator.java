@@ -72,6 +72,18 @@ public class UnboundTableSinkCreator {
                 List<String> colNames, List<String> hints, boolean temporaryPartition, List<String> partitions,
                 boolean isPartialUpdate, TPartialUpdateNewRowPolicy partialUpdateNewKeyPolicy,
                 DMLCommandType dmlCommandType, LogicalPlan plan) {
+        return createUnboundTableSink(nameParts, colNames, hints, temporaryPartition, partitions,
+                isPartialUpdate, partialUpdateNewKeyPolicy, dmlCommandType, plan, null);
+    }
+
+    /**
+     * create unbound sink for DML plan with static partition support for Iceberg.
+     */
+    public static LogicalSink<? extends Plan> createUnboundTableSink(List<String> nameParts,
+            List<String> colNames, List<String> hints, boolean temporaryPartition, List<String> partitions,
+            boolean isPartialUpdate, TPartialUpdateNewRowPolicy partialUpdateNewKeyPolicy,
+            DMLCommandType dmlCommandType, LogicalPlan plan,
+            Map<String, Expression> staticPartitionKeyValues) {
         String catalogName = RelationUtil.getQualifierName(ConnectContext.get(), nameParts).get(0);
         CatalogIf<?> curCatalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogName);
         if (curCatalog instanceof InternalCatalog) {
@@ -83,7 +95,7 @@ public class UnboundTableSinkCreator {
                     dmlCommandType, Optional.empty(), Optional.empty(), plan);
         } else if (curCatalog instanceof IcebergExternalCatalog) {
             return new UnboundIcebergTableSink<>(nameParts, colNames, hints, partitions,
-                    dmlCommandType, Optional.empty(), Optional.empty(), plan);
+                    dmlCommandType, Optional.empty(), Optional.empty(), plan, staticPartitionKeyValues);
         } else if (curCatalog instanceof JdbcExternalCatalog) {
             return new UnboundJdbcTableSink<>(nameParts, colNames, hints, partitions,
                     dmlCommandType, Optional.empty(), Optional.empty(), plan);

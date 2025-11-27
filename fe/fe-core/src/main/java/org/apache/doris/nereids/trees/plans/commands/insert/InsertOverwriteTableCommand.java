@@ -370,25 +370,11 @@ public class InsertOverwriteTableCommand extends Command implements NeedAuditEnc
                     false,
                     TPartialUpdateNewRowPolicy.APPEND,
                     sink.getDMLCommandType(),
-                    (LogicalPlan) (sink.child(0)));
+                    (LogicalPlan) (sink.child(0)),
+                    sink.getStaticPartitionKeyValues());
             insertCtx = new IcebergInsertCommandContext();
             ((IcebergInsertCommandContext) insertCtx).setOverwrite(true);
-            // Extract static partition information if present
-            if (sink.hasStaticPartition()) {
-                Map<String, Expression> staticPartitions = sink.getStaticPartitionKeyValues();
-                // Convert Expression to String for storage in context
-                Map<String, String> staticPartitionValues = Maps.newHashMap();
-                for (Map.Entry<String, Expression> entry : staticPartitions.entrySet()) {
-                    Expression expr = entry.getValue();
-                    if (expr instanceof Literal) {
-                        staticPartitionValues.put(entry.getKey(), ((Literal) expr).getStringValue());
-                    } else {
-                        throw new AnalysisException(
-                                String.format("Static partition value must be a literal, but got: %s", expr));
-                    }
-                }
-                ((IcebergInsertCommandContext) insertCtx).setStaticPartitionValues(staticPartitionValues);
-            }
+            setStaticPartitionToContext(sink, (IcebergInsertCommandContext) insertCtx);
             branchName.ifPresent(notUsed -> ((IcebergInsertCommandContext) insertCtx).setBranchName(branchName));
         } else {
             throw new UserException("Current catalog does not support insert overwrite yet.");
@@ -414,31 +400,31 @@ public class InsertOverwriteTableCommand extends Command implements NeedAuditEnc
         } else if (logicalQuery instanceof UnboundHiveTableSink) {
             insertCtx = new HiveInsertCommandContext();
             ((HiveInsertCommandContext) insertCtx).setOverwrite(true);
-        } else if (logicalQuery instanceof UnboundIcebergTableSink) {
-            UnboundIcebergTableSink<?> sink = (UnboundIcebergTableSink<?>) logicalQuery;
-            insertCtx = new IcebergInsertCommandContext();
-            ((IcebergInsertCommandContext) insertCtx).setOverwrite(true);
-            // Extract static partition information if present
-            if (sink.hasStaticPartition()) {
-                Map<String, Expression> staticPartitions = sink.getStaticPartitionKeyValues();
-                // Convert Expression to String for storage in context
-                Map<String, String> staticPartitionValues = Maps.newHashMap();
-                for (Map.Entry<String, Expression> entry : staticPartitions.entrySet()) {
-                    Expression expr = entry.getValue();
-                    if (expr instanceof Literal) {
-                        staticPartitionValues.put(entry.getKey(), ((Literal) expr).getStringValue());
-                    } else {
-                        throw new AnalysisException(
-                                String.format("Static partition value must be a literal, but got: %s", expr));
-                    }
-                }
-                ((IcebergInsertCommandContext) insertCtx).setStaticPartitionValues(staticPartitionValues);
-            }
-            branchName.ifPresent(notUsed -> ((IcebergInsertCommandContext) insertCtx).setBranchName(branchName));
         } else {
-            throw new UserException("Current catalog does not support insert overwrite yet.");
+            throw new UserException("Current catalog does not support insert overwrite with auto-detect partition.");
         }
         runInsertCommand(logicalQuery, insertCtx, ctx, executor);
+    }
+
+    /**
+     * Extract static partition information from sink and set to context.
+     */
+    private void setStaticPartitionToContext(UnboundIcebergTableSink<?> sink,
+            IcebergInsertCommandContext insertCtx) {
+        if (sink.hasStaticPartition()) {
+            Map<String, Expression> staticPartitions = sink.getStaticPartitionKeyValues();
+            Map<String, String> staticPartitionValues = Maps.newHashMap();
+            for (Map.Entry<String, Expression> entry : staticPartitions.entrySet()) {
+                Expression expr = entry.getValue();
+                if (expr instanceof Literal) {
+                    staticPartitionValues.put(entry.getKey(), ((Literal) expr).getStringValue());
+                } else {
+                    throw new AnalysisException(
+                            String.format("Static partition value must be a literal, but got: %s", expr));
+                }
+            }
+            insertCtx.setStaticPartitionValues(staticPartitionValues);
+        }
     }
 
     @Override
