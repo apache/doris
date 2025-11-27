@@ -59,7 +59,6 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.dictionary.LayoutType;
 import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.info.TableNameInfo;
@@ -489,7 +488,6 @@ import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundBlackholeSink;
 import org.apache.doris.nereids.analyzer.UnboundBlackholeSink.UnboundBlackholeSinkContext;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
-import org.apache.doris.nereids.analyzer.UnboundIcebergTableSink;
 import org.apache.doris.nereids.analyzer.UnboundInlineTable;
 import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
@@ -1354,46 +1352,21 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         // Parse partition specification using unified method
         InsertPartitionSpec partitionSpec = parseInsertPartitionSpec(ctx.partitionSpec());
 
-        LogicalSink<?> sink;
-        // Handle Iceberg static partition overwrite
-        if (partitionSpec.isStaticPartition() && isOverwrite) {
-            String catalogName = RelationUtil.getQualifierName(ConnectContext.get(), tableName.build()).get(0);
-            CatalogIf<?> curCatalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogName);
-            if (curCatalog instanceof IcebergExternalCatalog) {
-                sink = new UnboundIcebergTableSink<>(tableName.build(), colNames, ImmutableList.of(),
-                        ImmutableList.of(),
-                        ctx.tableId == null ? DMLCommandType.INSERT : DMLCommandType.GROUP_COMMIT,
-                        Optional.empty(), Optional.empty(), plan, partitionSpec.getStaticPartitionValues());
-            } else {
-                // For non-Iceberg tables with static partition, fall back to normal creation
-                sink = UnboundTableSinkCreator.createUnboundTableSinkMaybeOverwrite(
-                        tableName.build(),
-                        colNames,
-                        ImmutableList.of(),
-                        partitionSpec.isTemporary(),
-                        partitionSpec.getPartitionNames(),
-                        partitionSpec.isAutoDetect(),
-                        isOverwrite,
-                        ConnectContext.get().getSessionVariable().isEnableUniqueKeyPartialUpdate(),
-                        ConnectContext.get().getSessionVariable().getPartialUpdateNewRowPolicy(),
-                        ctx.tableId == null ? DMLCommandType.INSERT : DMLCommandType.GROUP_COMMIT,
-                        plan);
-            }
-        } else {
-            // Normal partition handling (auto-detect, dynamic, or no partition)
-            sink = UnboundTableSinkCreator.createUnboundTableSinkMaybeOverwrite(
-                    tableName.build(),
-                    colNames,
-                    ImmutableList.of(),
-                    partitionSpec.isTemporary(),
-                    partitionSpec.isAutoDetect() ? null : partitionSpec.getPartitionNames(),
-                    partitionSpec.isAutoDetect(),
-                    isOverwrite,
-                    ConnectContext.get().getSessionVariable().isEnableUniqueKeyPartialUpdate(),
-                    ConnectContext.get().getSessionVariable().getPartialUpdateNewRowPolicy(),
-                    ctx.tableId == null ? DMLCommandType.INSERT : DMLCommandType.GROUP_COMMIT,
-                    plan);
-        }
+        // Unified sink creation for all catalog types (including Iceberg static
+        // partition)
+                LogicalSink<?> sink = UnboundTableSinkCreator.createUnboundTableSinkMaybeOverwrite(
+                tableName.build(),
+                colNames,
+                ImmutableList.of(),
+                partitionSpec.isTemporary(),
+                partitionSpec.isAutoDetect() ? null : partitionSpec.getPartitionNames(),
+                partitionSpec.isAutoDetect(),
+                isOverwrite,
+                ConnectContext.get().getSessionVariable().isEnableUniqueKeyPartialUpdate(),
+                ConnectContext.get().getSessionVariable().getPartialUpdateNewRowPolicy(),
+                ctx.tableId == null ? DMLCommandType.INSERT : DMLCommandType.GROUP_COMMIT,
+                plan,
+                partitionSpec.isStaticPartition() ? partitionSpec.getStaticPartitionValues() : null);
         Optional<LogicalPlan> cte = Optional.empty();
         if (ctx.cte() != null) {
             cte = Optional.ofNullable(withCte(plan, ctx.cte()));
