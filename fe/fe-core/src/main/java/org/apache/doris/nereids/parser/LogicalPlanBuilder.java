@@ -57,7 +57,6 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PropertyAnalyzer;
-import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.dictionary.LayoutType;
 import org.apache.doris.info.PartitionNamesInfo;
@@ -1354,7 +1353,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
         // Unified sink creation for all catalog types (including Iceberg static
         // partition)
-                LogicalSink<?> sink = UnboundTableSinkCreator.createUnboundTableSinkMaybeOverwrite(
+        LogicalSink<?> sink = UnboundTableSinkCreator.createUnboundTableSinkMaybeOverwrite(
                 tableName.build(),
                 colNames,
                 ImmutableList.of(),
