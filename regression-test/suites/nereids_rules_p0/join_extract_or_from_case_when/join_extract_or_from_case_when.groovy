@@ -20,7 +20,7 @@ suite('join_extract_or_from_case_when') {
         SET disable_nereids_rules='PRUNE_EMPTY_PARTITION';
         SET detail_shape_nodes='PhysicalProject,PhysicalHashAggregate';
         SET ignore_shape_nodes='PhysicalDistribute';
-        SET runtime_filter_type=2;
+        SET runtime_filter_mode=OFF;
         SET disable_join_reorder=true;
         DROP TABLE IF EXISTS tbl_join_extract_or_from_case_when_1 FORCE;
         DROP TABLE IF EXISTS tbl_join_extract_or_from_case_when_2 FORCE;
