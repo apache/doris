@@ -69,6 +69,7 @@ public class MaterializedViewTopNScanRule extends AbstractMaterializedViewScanRu
         return accept
                 && !checkContext.isContainsTopAggregate()
                 && !checkContext.isContainsTopLimit()
+                && !checkContext.isContainsTopWindow()
                 && checkContext.isContainsTopTopN() && checkContext.getTopTopNNum() == 1;
     }
 

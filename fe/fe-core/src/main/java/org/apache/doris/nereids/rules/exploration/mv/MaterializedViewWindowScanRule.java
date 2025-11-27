@@ -55,16 +55,8 @@ public class MaterializedViewWindowScanRule extends AbstractMaterializedViewWind
         PlanCheckContext checkContext = PlanCheckContext.of(ImmutableSet.of());
         return structInfo.getTopPlan().accept(StructInfo.SCAN_PLAN_PATTERN_CHECKER, checkContext)
                 && !checkContext.isContainsTopAggregate() && checkContext.isContainsTopWindow()
-                && checkContext.getTopWindowNum() <= 1;
-    }
-
-    @Override
-    protected boolean checkMaterializationPattern(StructInfo structInfo, CascadesContext cascadesContext) {
-        PlanCheckContext checkContext = PlanCheckContext.of(SUPPORTED_JOIN_TYPE_SET);
-        return structInfo.getTopPlan().accept(StructInfo.PLAN_PATTERN_CHECKER, checkContext)
-                && !checkContext.isContainsTopAggregate() && checkContext.isContainsTopWindow()
-                && checkContext.getTopWindowNum() <= 1 && !checkContext.isContainsTopTopN()
-                && !checkContext.isContainsTopLimit();
+                && checkContext.getTopWindowNum() <= 1
+                && !checkContext.isContainsTopTopN() && !checkContext.isContainsTopLimit();
     }
 
     @Override

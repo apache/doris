@@ -45,15 +45,6 @@ public class MaterializedViewWindowAggregateRule extends AbstractMaterializedVie
                 tempRewritedPlan, materializationContext, cascadesContext);
     }
 
-    @Override
-    protected boolean checkMaterializationPattern(StructInfo structInfo, CascadesContext cascadesContext) {
-        PlanCheckContext checkContext = PlanCheckContext.of(SUPPORTED_JOIN_TYPE_SET);
-        return structInfo.getTopPlan().accept(StructInfo.PLAN_PATTERN_CHECKER, checkContext)
-                && !checkContext.isContainsTopAggregate() && checkContext.isContainsTopWindow()
-                && checkContext.getTopWindowNum() <= 1 && !checkContext.isContainsTopTopN()
-                && !checkContext.isContainsTopLimit();
-    }
-
     /**
      * Check window pattern is valid or not
      */
@@ -63,7 +54,8 @@ public class MaterializedViewWindowAggregateRule extends AbstractMaterializedVie
         return structInfo.getTopPlan().accept(StructInfo.PLAN_PATTERN_CHECKER, checkContext)
                 && checkContext.isContainsTopAggregate() && checkContext.isContainsTopWindow()
                 && checkContext.getTopAggregateNum() <= 1 && checkContext.getTopWindowNum() <= 1
-                && !checkContext.isWindowUnderAggregate();
+                && !checkContext.isWindowUnderAggregate()
+                && !checkContext.isContainsTopTopN() && !checkContext.isContainsTopLimit();
     }
 
     @Override
