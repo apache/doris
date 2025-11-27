@@ -363,7 +363,7 @@ protected:
     }
 
     void try_reset_judge_selectivity() const {
-        if (_can_ignore() && (_judge_counter == 0)) {
+        if (_can_ignore() && ((_judge_counter--) == 0)) {
             reset_judge_selectivity();
         }
     }
