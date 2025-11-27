@@ -591,9 +591,8 @@ protected:
         auto fs_or = S3FileSystem::create(s3_conf, FileSystem::TMP_FS_ID);
         ASSERT_TRUE(fs_or.has_value()) << fs_or.error();
         _s3_fs = fs_or.value();
-        g_remote_file_system =
-                std::make_shared<MockRemoteFileSystem>(&mock_s3_store(), _s3_fs->bucket(),
-                                                       _s3_fs->prefix());
+        g_remote_file_system = std::make_shared<MockRemoteFileSystem>(
+                &mock_s3_store(), _s3_fs->bucket(), _s3_fs->prefix());
 
         std::string cache_path =
                 (std::filesystem::current_path() / "ut_dir/merge_file_cache").string();
