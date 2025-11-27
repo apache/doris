@@ -27,15 +27,11 @@
 #include <utility>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
-#include "common/exception.h"
 #include "common/status.h"
 #include "io/fs/file_reader.h"
-#include "io/fs/file_system.h"
 #include "olap/block_column_predicate.h"
 #include "olap/column_predicate.h"
-#include "olap/comparison_predicate.h"
 #include "olap/decimal12.h"
-#include "olap/inverted_index_parser.h"
 #include "olap/iterators.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/ann_index/ann_index_reader.h"
@@ -43,6 +39,7 @@
 #include "olap/rowset/segment_v2/binary_plain_page.h"
 #include "olap/rowset/segment_v2/bloom_filter.h"
 #include "olap/rowset/segment_v2/bloom_filter_index_reader.h"
+#include "olap/rowset/segment_v2/column_meta_accessor.h"
 #include "olap/rowset/segment_v2/encoding_info.h" // for EncodingInfo
 #include "olap/rowset/segment_v2/index_file_reader.h"
 #include "olap/rowset/segment_v2/index_reader.h"
@@ -233,28 +230,6 @@ bool ColumnReader::is_compaction_reader_type(ReaderType type) {
            type == ReaderType::READER_FULL_COMPACTION;
 }
 
-Status ColumnReader::create_variant(const ColumnReaderOptions& opts, const SegmentFooterPB& footer,
-                                    uint32_t column_id, uint64_t num_rows,
-                                    const io::FileReaderSPtr& file_reader,
-                                    std::shared_ptr<ColumnReader>* reader) {
-    std::unique_ptr<VariantColumnReader> reader_local(new VariantColumnReader());
-    RETURN_IF_ERROR(reader_local->init(opts, footer, column_id, num_rows, file_reader));
-    *reader = std::move(reader_local);
-    return Status::OK();
-}
-
-Status ColumnReader::create(const ColumnReaderOptions& opts, const SegmentFooterPB& footer,
-                            uint32_t column_id, uint64_t num_rows,
-                            const io::FileReaderSPtr& file_reader,
-                            std::shared_ptr<ColumnReader>* reader) {
-    // create normal column reader or variant subcolumn reader with extracted columns info in footer
-    if ((FieldType)footer.columns(column_id).type() != FieldType::OLAP_FIELD_TYPE_VARIANT) {
-        return ColumnReader::create(opts, footer.columns(column_id), num_rows, file_reader, reader);
-    }
-    // create variant column reader with extracted columns info in footer with hierarchical data info
-    return create_variant(opts, footer, column_id, num_rows, file_reader, reader);
-}
-
 Status ColumnReader::create(const ColumnReaderOptions& opts, const ColumnMetaPB& meta,
                             uint64_t num_rows, const io::FileReaderSPtr& file_reader,
                             std::shared_ptr<ColumnReader>* reader) {
@@ -308,6 +283,7 @@ ColumnReader::ColumnReader(const ColumnReaderOptions& opts, const ColumnMetaPB& 
     if (_meta_type == FieldType::OLAP_FIELD_TYPE_ARRAY) {
         _meta_children_column_type = (FieldType)meta.children_columns(0).type();
     }
+    _data_type = vectorized::DataTypeFactory::instance().create_data_type(meta);
     _meta_is_nullable = meta.is_nullable();
     _meta_dict_page = meta.dict_page();
     _meta_compression = meta.compression();

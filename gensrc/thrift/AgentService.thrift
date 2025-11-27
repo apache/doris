@@ -59,7 +59,9 @@ struct TTabletSchema {
 enum TStorageFormat {
     DEFAULT = 0,
     V1 = 1,
-    V2 = 2
+    V2 = 2,
+    // V3 stands externalized column meta (CMO)
+    V3 = 3
 }
 
 enum TEncryptionAlgorithm {
