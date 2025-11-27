@@ -348,6 +348,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.MilliSecondsS
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Minute;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MinuteCeil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MinuteFloor;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MinuteSecondAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MinutesAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MinutesDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MinutesSub;
@@ -1151,6 +1152,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitDayHourAdd(DayHourAdd dayHourAdd, C context) {
         return visitScalarFunction(dayHourAdd, context);
+    }
+
+    default R visitMinuteSecondAdd(MinuteSecondAdd minuteSecondAdd, C context) {
+        return visitScalarFunction(minuteSecondAdd, context);
     }
 
     default R visitDaysAdd(DaysAdd daysAdd, C context) {
