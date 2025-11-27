@@ -113,6 +113,11 @@ using FunctionDatetimeSubQuarters =
 using FunctionDatetimeSubYears =
         FunctionDateOrDateTimeComputation<SubtractYearsImpl<TYPE_DATETIMEV2>>;
 
+using FunctionAddTimeDatetime = FunctionAddTime<TYPE_DATETIMEV2, AddTimeImpl>;
+using FunctionAddTimeTime = FunctionAddTime<TYPE_TIMEV2, AddTimeImpl>;
+using FunctionSubTimeDatetime = FunctionAddTime<TYPE_DATETIMEV2, SubTimeImpl>;
+using FunctionSubTimeTime = FunctionAddTime<TYPE_TIMEV2, SubTimeImpl>;
+
 #define FUNCTION_TIME_DIFF(NAME, IMPL, TYPE) using NAME##_##TYPE = FunctionTimeDiff<IMPL<TYPE>>;
 
 #define ALL_FUNCTION_TIME_DIFF(NAME, IMPL)          \
@@ -204,6 +209,11 @@ void register_function_date_time_computation(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionDatetimeSubYears>();
     factory.register_function<FunctionDatetimeSubQuarters>();
     factory.register_function<FunctionDatetimeSubWeeks>();
+
+    factory.register_function<FunctionAddTimeDatetime>();
+    factory.register_function<FunctionAddTimeTime>();
+    factory.register_function<FunctionSubTimeDatetime>();
+    factory.register_function<FunctionSubTimeTime>();
 
 #define REGISTER_DATEV2_FUNCTIONS_DIFF(NAME, TYPE) factory.register_function<NAME##_##TYPE>();
 
