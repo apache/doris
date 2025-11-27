@@ -41,6 +41,11 @@ under the License.
             <artifactId>java-common</artifactId>
             <version>${project.version}</version>
         </dependency>
+        <dependency>
+            <groupId>org.apache.doris</groupId>
+            <artifactId>hive-catalog-shade</artifactId>
+            <scope>compile</scope>
+        </dependency>
     </dependencies>
 
     <build>
