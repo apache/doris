@@ -18,6 +18,7 @@
 import groovy.json.JsonSlurper
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import org.apache.doris.regression.action.ProfileAction
 
 suite("test_bloom_filter_hit_with_renamed_column") {
     def tableName = "test_bloom_filter_hit_with_renamed_column"
@@ -79,32 +80,6 @@ suite("test_bloom_filter_hit_with_renamed_column") {
             assertEquals("success", json.Status.toLowerCase())
             assertEquals(json.NumberTotalRows, json.NumberLoadedRows)
             assertTrue(json.NumberLoadedRows > 0 && json.LoadBytes > 0)
-        }
-    }
-
-    def httpGet = { url ->
-        def dst = 'http://' + context.config.feHttpAddress
-        def conn = new URL(dst + url).openConnection()
-        conn.setRequestMethod("GET")
-        def encoding = Base64.getEncoder().encodeToString((context.config.feHttpUser + ":" + 
-                (context.config.feHttpPassword == null ? "" : context.config.feHttpPassword)).getBytes("UTF-8"))
-        conn.setRequestProperty("Authorization", "Basic ${encoding}")
-        conn.setRequestProperty("Cache-Control", "no-cache")
-        conn.setRequestProperty("Pragma", "no-cache")
-        conn.setConnectTimeout(10000) // 10 seconds
-        conn.setReadTimeout(10000) // 10 seconds
-
-        int responseCode = conn.getResponseCode()
-        log.info("HTTP response status: " + responseCode)
-
-        if (responseCode == 200) {
-            InputStream inputStream = conn.getInputStream()
-            String response = inputStream.text
-            inputStream.close()
-            return response
-        } else {
-            log.error("HTTP request failed with response code: " + responseCode)
-            return null
         }
     }
 
