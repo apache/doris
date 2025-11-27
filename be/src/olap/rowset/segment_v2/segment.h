@@ -65,12 +65,6 @@ struct RowLocation;
 
 namespace segment_v2 {
 
-// SegmentFooterPB versioning:
-// 1 = V2 baseline
-// 2 = V3 (externalized ColumnMetaPB region + CMO present)
-static constexpr uint32_t kSegmentFooterVersionV2 = 1;
-static constexpr uint32_t kSegmentFooterVersionV3_ExtColMeta = 2;
-
 class BitmapIndexIterator;
 class Segment;
 class InvertedIndexIterator;

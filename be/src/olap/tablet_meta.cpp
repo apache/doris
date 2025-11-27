@@ -411,7 +411,7 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
     case TStorageFormat::V1:
         break;
     case TStorageFormat::V3:
-        schema->set_is_external_segment_meta_used_default(true);
+        schema->set_is_external_segment_column_meta_used(true);
         _schema->set_external_segment_meta_used_default(true);
         break;
     default:

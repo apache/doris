@@ -22,7 +22,7 @@
 
 #include "io/io_common.h"
 #include "olap/rowset/segment_v2/external_col_meta_util.h"
-#include "olap/rowset/segment_v2/segment.h" // kSegmentFooterVersionV3_ExtColMeta
+#include "olap/rowset/segment_v2/segment.h" // SEGMENT_FOOTER_VERSION_V3_EXT_COL_META
 
 namespace doris::segment_v2 {
 
@@ -174,7 +174,7 @@ ColumnMetaAccessor::~ColumnMetaAccessor() = default;
 Status ColumnMetaAccessor::init(const SegmentFooterPB& footer, io::FileReaderSPtr file_reader) {
     // First check footer version to see if external Column Meta Region might exist,
     // then try to parse external layout; if parsing fails, fall back to V2.
-    if (footer.version() >= kSegmentFooterVersionV3_ExtColMeta) {
+    if (footer.version() >= SEGMENT_FOOTER_VERSION_V3_EXT_COL_META) {
         ExternalColMetaUtil::ExternalMetaPointers ptrs;
         RETURN_IF_ERROR(ExternalColMetaUtil::parse_external_meta_pointers(footer, &ptrs));
         _impl = std::make_unique<ColumnMetaAccessorV3>(std::move(file_reader), ptrs);

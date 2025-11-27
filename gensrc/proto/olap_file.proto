@@ -449,7 +449,7 @@ message TabletSchemaPB {
     optional int64 storage_dict_page_size = 31 [default=262144];
 
     // Whether new segments of this tablet use externalized ColumnMetaPB layout (CMO)
-    optional bool is_external_segment_meta_used_default = 32 [default = false];
+    optional bool is_external_segment_column_meta_used = 32 [default = false];
 
     optional SplitSchemaPB __split_schema = 1000;  // A special field, DO NOT change it.
 }
@@ -488,7 +488,7 @@ message TabletSchemaCloudPB {
     optional int64 storage_dict_page_size = 32 [default=262144];
 
     // Whether new segments of this tablet use externalized ColumnMetaPB layout (CMO)
-    optional bool is_external_segment_meta_used_default = 33 [default = false];
+    optional bool is_external_segment_column_meta_used = 33 [default = false];
 
     optional bool is_dynamic_schema = 100 [default=false];
 
