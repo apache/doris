@@ -221,7 +221,7 @@ under the License.
         <module>be-java-extensions</module>
     </modules>
     <properties>
-        <doris.hive.catalog.shade.version>3.1.0-SNAPSHOT</doris.hive.catalog.shade.version>
+        <doris.hive.catalog.shade.version>3.1.0</doris.hive.catalog.shade.version>
         <!-- iceberg 1.9.1 depends avro on 1.12 -->
         <avro.version>1.12.1</avro.version>
         <parquet.version>1.16.0</parquet.version>
