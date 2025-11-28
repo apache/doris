@@ -185,9 +185,9 @@ public:
                             auto status =
                                     children[0]->execute(context, &lambda_block, &lambda_res_id);
                             if (!status.ok()) [[unlikely]] {
-                                throw Status::InternalError(
+                                throw Exception(Status::InternalError(
                                         "when execute array_sort lambda function: {}",
-                                        status.to_string());
+                                        status.to_string()));
                             }
 
                             // raw_res_col maybe columnVector or ColumnConst
