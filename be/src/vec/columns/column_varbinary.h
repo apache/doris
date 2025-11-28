@@ -118,9 +118,9 @@ public:
 
     size_t get_max_row_byte_size() const override;
 
-    void deserialize(StringRef* keys, const size_t num_rows) override;
+    void deserialize_vec(StringRef* keys, const size_t num_rows) override;
 
-    void serialize(StringRef* keys, const size_t num_rows) const override;
+    void serialize_vec(StringRef* keys, const size_t num_rows) const override;
 
     void pop_back(size_t n) override { resize(size() - n); }
 

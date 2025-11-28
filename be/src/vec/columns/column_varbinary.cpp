@@ -172,13 +172,13 @@ size_t ColumnVarbinary::get_max_row_byte_size() const {
     return max_size + sizeof(uint32_t);
 }
 
-void ColumnVarbinary::serialize(StringRef* keys, size_t num_rows) const {
+void ColumnVarbinary::serialize_vec(StringRef* keys, size_t num_rows) const {
     for (size_t i = 0; i < num_rows; ++i) {
         keys[i].size += serialize_impl(const_cast<char*>(keys[i].data + keys[i].size), i);
     }
 }
 
-void ColumnVarbinary::deserialize(StringRef* keys, const size_t num_rows) {
+void ColumnVarbinary::deserialize_vec(StringRef* keys, const size_t num_rows) {
     for (size_t i = 0; i != num_rows; ++i) {
         auto sz = deserialize_impl(keys[i].data);
         keys[i].data += sz;

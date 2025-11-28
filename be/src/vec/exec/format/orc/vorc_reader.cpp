@@ -644,7 +644,7 @@ std::tuple<bool, orc::Literal, orc::PredicateDataType> OrcReader::_make_orc_lite
     auto* slot = _tuple_descriptor->slots()[slot_ref->column_id()];
     auto slot_type = slot->type();
     auto primitive_type = slot_type->get_primitive_type();
-    auto src_type = OrcReader::convert_to_doris_type(orc_type)->get_primitive_type();
+    auto src_type = convert_to_doris_type(orc_type)->get_primitive_type();
     // should not down predicate for string type change from other type
     if (src_type != primitive_type && !is_string_type(src_type) && is_string_type(primitive_type)) {
         LOG(WARNING) << "Unsupported Push Down Schema Changed Column " << primitive_type << " to "
