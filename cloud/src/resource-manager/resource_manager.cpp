@@ -1414,7 +1414,7 @@ std::pair<MetaServiceCode, std::string> ResourceManager::refresh_instance(
 void ResourceManager::refresh_instance(const std::string& instance_id,
                                        const InstanceInfoPB& instance) {
     bool is_successor_instance = instance.has_original_instance_id();
-    std::string source_instance_id = is_successor_instance ? instance.source_instance_id() : "";
+    std::string source_instance_id = is_successor_instance ? instance.original_instance_id() : "";
 
     std::lock_guard l(mtx_);
     for (auto i = node_info_.begin(); i != node_info_.end();) {
