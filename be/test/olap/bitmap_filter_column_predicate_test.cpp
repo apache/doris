@@ -63,10 +63,6 @@ template <FieldType type>
 void write_index_file(const std::string& filename, FileSystemSPtr fs, const void* values,
                       size_t value_count, size_t null_count, ColumnIndexMetaPB* meta);
 
-template <FieldType type>
-void get_bitmap_reader_iter(const std::string& file_name, const ColumnIndexMetaPB& meta,
-                            BitmapIndexReader** reader, BitmapIndexIterator** iter);
-
 TEST_F(BitmapFilterColumnPredicateTest, evaluate_and) {
     auto filter = std::make_shared<BitmapFilterFunc<PrimitiveType::TYPE_INT>>();
 
