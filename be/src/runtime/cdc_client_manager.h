@@ -58,7 +58,7 @@ private:
     Status extract_meta_from_response(const std::string& cdc_response,
                                           std::string* meta_json);
 
-    Status commit_transaction(const std::string& txn_id, const std::string& meta_json);
+    Status commit_transaction(const int64_t txn_id, const std::string& meta_json);
 
     ExecEnv* _exec_env = nullptr;
     std::unique_ptr<doris::ThreadPool> _thread_pool;
