@@ -1679,7 +1679,8 @@ public class MetadataGenerator {
                     trow.addToColumnValue(new TCell().setIntVal(partition.getDistributionInfo()
                             .getBucketNum())); // BUCKET_NUM
                     trow.addToColumnValue(new TCell().setLongVal(partition.getCommittedVersion())); // COMMITTED_VERSION
-                    trow.addToColumnValue(new TCell().setLongVal(partition.getCachedVisibleVersion())); // VISIBLE_VERSION
+                    trow.addToColumnValue(
+                            new TCell().setLongVal(partition.getCachedVisibleVersion())); // VISIBLE_VERSION
                     if (partitionInfo.getType() == PartitionType.RANGE
                             || partitionInfo.getType() == PartitionType.LIST) {
                         List<Column> partitionColumns = partitionInfo.getPartitionColumns();
