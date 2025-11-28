@@ -1813,7 +1813,7 @@ Status OrcReader::_fill_doris_data_column(const std::string& col_name,
         RETURN_IF_ERROR(_orc_column_to_doris_column<false>(
                 value_col_name, doris_value_column, doris_value_type, root_node->get_value_node(),
                 orc_value_type, orc_map->elements.get(), element_size));
-        return doris_map.deduplicate_keys();
+        return Status::OK();
     }
     case PrimitiveType::TYPE_STRUCT: {
         if (orc_column_type->getKind() != orc::TypeKind::STRUCT) {
