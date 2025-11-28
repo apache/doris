@@ -158,7 +158,6 @@ endfunction()
 set(CUSTUM_LINKER_COMMAND "ld")
 # TODO: mold will link fail on thirdparty brpc now, waiting for investigation.
 # TRY_TO_CHANGE_LINKER("mold" "mold")
-TRY_TO_CHANGE_LINKER("gold" "GNU gold")
 if (NOT CUSTUM_LINKER_COMMAND STREQUAL "ld")
     set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fuse-ld=${CUSTUM_LINKER_COMMAND}")
 endif()
