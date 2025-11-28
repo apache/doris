@@ -195,6 +195,52 @@ TEST(AI_ADAPTER_TEST, local_adapter_parse_response) {
     ASSERT_EQ(results[0], "ollama chat");
 }
 
+TEST(AI_ADAPTER_TEST, local_adapter_request_default_endpoint) {
+    LocalAdapter adapter;
+    TAIResource config;
+    config.model_name = "local-default";
+    config.temperature = 0.3;
+    config.max_tokens = 42;
+    config.endpoint = "http://localhost:8000/v1/completions";
+    adapter.init(config);
+
+    std::vector<std::string> inputs = {"default prompt"};
+    std::string request_body;
+    Status st =
+            adapter.build_request_payload(inputs, FunctionAISummarize::system_prompt, request_body);
+    ASSERT_TRUE(st.ok()) << st.to_string();
+
+    rapidjson::Document doc;
+    doc.Parse(request_body.c_str());
+    ASSERT_FALSE(doc.HasParseError()) << "JSON parse error";
+    ASSERT_TRUE(doc.IsObject()) << "JSON is not an object";
+
+    ASSERT_TRUE(doc.HasMember("model"));
+    ASSERT_STREQ(doc["model"].GetString(), "local-default");
+
+    ASSERT_TRUE(doc.HasMember("temperature"));
+    ASSERT_DOUBLE_EQ(doc["temperature"].GetDouble(), 0.3);
+
+    ASSERT_TRUE(doc.HasMember("max_tokens"));
+    ASSERT_EQ(doc["max_tokens"].GetInt(), 42);
+
+    ASSERT_TRUE(doc.HasMember("messages"));
+    ASSERT_TRUE(doc["messages"].IsArray());
+    ASSERT_GE(doc["messages"].Size(), 2);
+
+    const auto& system_msg = doc["messages"][0];
+    ASSERT_TRUE(system_msg.HasMember("role"));
+    ASSERT_STREQ(system_msg["role"].GetString(), "system");
+    ASSERT_TRUE(system_msg.HasMember("content"));
+    ASSERT_STREQ(system_msg["content"].GetString(), FunctionAISummarize::system_prompt);
+
+    const auto& user_msg = doc["messages"][doc["messages"].Size() - 1];
+    ASSERT_TRUE(user_msg.HasMember("role"));
+    ASSERT_STREQ(user_msg["role"].GetString(), "user");
+    ASSERT_TRUE(user_msg.HasMember("content"));
+    ASSERT_STREQ(user_msg["content"].GetString(), inputs[0].c_str());
+}
+
 TEST(AI_ADAPTER_TEST, openai_adapter_completions_request) {
     OpenAIAdapter adapter;
     TAIResource config;
