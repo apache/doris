@@ -21,6 +21,8 @@
 #include <gtest/gtest-test-part.h>
 #include <gtest/gtest.h>
 
+#include <algorithm>
+
 #include "gtest/gtest_pred_impl.h"
 
 namespace doris::simd {
@@ -75,10 +77,10 @@ TEST(BitsTest, CountZeroNum) {
         EXPECT_EQ(count_zero_num<size_t>(v.data(), null_map.data(), v.size()), 10U);
     }
 
-    // Case 3: no zero, some nulls (use 0xFF to be SIMD-visible)
+    // Case 3: no zero, some nulls
     {
-        std::vector<int8_t> v = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10};
-        std::vector<uint8_t> null_map = {0, 0xFF, 0, 0, 0xFF, 0, 0, 0xFF, 0, 0};
+        std::vector<int8_t> v = {1, 1, 1, 1, 1, 1, 1, 1, 1, 1};
+        std::vector<uint8_t> null_map = {0, 1, 0, 0, 1, 0, 0, 1, 0, 0};
         EXPECT_EQ(count_zero_num<size_t>(v.data(), v.size()), 0U);
         EXPECT_EQ(count_zero_num<size_t>(v.data(), null_map.data(), v.size()), 3U);
     }
@@ -86,8 +88,8 @@ TEST(BitsTest, CountZeroNum) {
     // Case 4: mixed zeros and nulls union
     {
         // zeros at 0,2,5 ; nulls at 1,4,6
-        std::vector<int8_t> v = {0, 5, 0, 7, 9, 0, 1, 2};
-        std::vector<uint8_t> null_map = {0, 0xFF, 0, 0, 0xFF, 0, 0xFF, 0};
+        std::vector<int8_t> v = {0, 1, 0, 1, 1, 0, 1, 1};
+        std::vector<uint8_t> null_map = {0, 1, 0, 0, 1, 0, 1, 0};
         EXPECT_EQ(count_zero_num<size_t>(v.data(), v.size()), 3U);
         EXPECT_EQ(count_zero_num<size_t>(v.data(), null_map.data(), v.size()), 6U);
     }
@@ -99,37 +101,35 @@ TEST(BitsTest, CountZeroNum) {
         size_t expect_zero = 0;
         size_t expect_union = 0;
         for (size_t i = 0; i < v.size(); ++i) {
-            v[i] = (i % 7 == 0) ? 0 : static_cast<int8_t>(i & 0x7f);
+            v[i] = (i % 5 == 0) ? 0 : 1;
+            null_map[i] = (i % 7 == 0) ? 1 : 0;
             if (v[i] == 0) {
                 ++expect_zero;
             }
-            null_map[i] = (i % 13 == 0) ? 0xFF : 0x00;
-            if (v[i] == 0 || null_map[i] != 0) {
-                ++expect_union;
-            }
+            expect_union += static_cast<uint8_t>(!v[i]) | null_map[i];
         }
         EXPECT_EQ(count_zero_num<size_t>(v.data(), v.size()), expect_zero);
         EXPECT_EQ(count_zero_num<size_t>(v.data(), null_map.data(), v.size()), expect_union);
     }
 
-    // Case 6: tail-only (size not multiple of 16/64)
+    // Case 6: tail check (size not multiple of 16/64)
     {
-        size_t n = 31;
+        size_t n = 128 + 13;
         std::vector<int8_t> v(n);
         std::vector<uint8_t> null_map(n);
-        size_t ez = 0, eu = 0;
+        size_t expect_zero = 0;
+        size_t expect_union = 0;
         for (size_t i = 0; i < n; ++i) {
-            v[i] = (i % 5 == 0) ? 0 : static_cast<int8_t>(i);
-            null_map[i] = (i % 7 == 0) ? 0xFF : 0x00;
+            v[i] = (i % 5 == 0) ? 0 : 1;
+            // Use 2 instead of 1 to check `|` operation
+            null_map[i] = (i % 7 == 0) ? 2 : 0;
             if (v[i] == 0) {
-                ++ez;
+                ++expect_zero;
             }
-            if (v[i] == 0 || null_map[i] != 0) {
-                ++eu;
-            }
+            expect_union += static_cast<uint8_t>(!v[i]) | null_map[i];
         }
-        EXPECT_EQ(count_zero_num<size_t>(v.data(), n), ez);
-        EXPECT_EQ(count_zero_num<size_t>(v.data(), null_map.data(), n), eu);
+        EXPECT_EQ(count_zero_num<size_t>(v.data(), n), expect_zero);
+        EXPECT_EQ(count_zero_num<size_t>(v.data(), null_map.data(), n), expect_union);
     }
 }
 

@@ -179,10 +179,14 @@ inline T count_zero_num(const int8_t* __restrict data, const uint8_t* __restrict
         svbool_t pg = svwhilelt_b8(ptr - data, end - data);
         svint8_t v = svld1_s8(pg, ptr);
         svuint8_t nmv = svld1_u8(pg, nmp);
+
         svbool_t p_zero = svcmpeq_n_s8(pg, v, 0);
-        svbool_t p_null = svcmpne_n_u8(pg, nmv, 0);
-        svbool_t p = svorr_b_z(pg, p_zero, p_null);
-        num += static_cast<T>(svcntp_b8(svptrue_b8(), p));
+        svuint8_t one = svdup_n_u8(1);
+        svuint8_t zero = svdup_n_u8(0);
+        svuint8_t ones = svsel_u8(p_zero, one, zero);
+
+        svuint8_t r = svorr_u8_z(pg, ones, nmv);
+        num += static_cast<T>(svaddv_u8(pg, r));
         ptr += svcntb();
         nmp += svcntb();
     }
@@ -218,7 +222,7 @@ inline T count_zero_num(const int8_t* __restrict data, const uint8_t* __restrict
     }
 #endif
     for (; data < end; ++data, ++null_map) {
-        num += ((*data == 0) | *null_map);
+        num += (static_cast<uint8_t>(!*data) | *null_map);
     }
     return num;
 }
