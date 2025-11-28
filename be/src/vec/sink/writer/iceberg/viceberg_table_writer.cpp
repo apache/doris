@@ -129,48 +129,47 @@ void VIcebergTableWriter::_init_static_partition_values() {
     }
 
     _has_static_partition = true;
-    _static_partition_values = iceberg_sink.static_partition_values;
+    const auto& static_values_map = iceberg_sink.static_partition_values;
 
-    // Determine which partition columns are dynamic (not in static_partition_values)
-    _dynamic_partition_column_indices.clear();
-    for (size_t i = 0; i < _iceberg_partition_columns.size(); ++i) {
+    size_t num_cols = _iceberg_partition_columns.size();
+    _partition_column_static_values.resize(num_cols);
+    _partition_column_is_static.assign(num_cols, 0);
+
+    size_t dynamic_count = 0;
+    for (size_t i = 0; i < num_cols; ++i) {
         const std::string& col_name = _iceberg_partition_columns[i].field().name();
-        if (_static_partition_values.find(col_name) == _static_partition_values.end()) {
-            _dynamic_partition_column_indices.push_back(i);
+        auto it = static_values_map.find(col_name);
+        if (it != static_values_map.end()) {
+            _partition_column_static_values[i] = it->second;
+            _partition_column_is_static[i] = 1;
+        } else {
+            dynamic_count++;
         }
     }
 
     // Check if all partition columns are statically specified
-    _is_full_static_partition = _dynamic_partition_column_indices.empty();
+    _is_full_static_partition = (dynamic_count == 0);
 
     // Build static partition path prefix
     _static_partition_path = _build_static_partition_path();
 
     // For full static mode, build complete partition value list
     if (_is_full_static_partition) {
-        _static_partition_value_list.clear();
-        _static_partition_value_list.reserve(_iceberg_partition_columns.size());
-        for (const auto& partition_col : _iceberg_partition_columns) {
-            const std::string& col_name = partition_col.field().name();
-            auto it = _static_partition_values.find(col_name);
-            // In full static mode, all columns must be in static_partition_values
-            _static_partition_value_list.push_back(it->second);
-        }
+        _static_partition_value_list = _partition_column_static_values;
     }
 }
 
 std::string VIcebergTableWriter::_build_static_partition_path() {
     std::stringstream ss;
     bool first = true;
-    for (const auto& partition_col : _iceberg_partition_columns) {
-        const std::string& col_name = partition_col.field().name();
-        auto it = _static_partition_values.find(col_name);
-        if (it != _static_partition_values.end()) {
+    for (size_t i = 0; i < _iceberg_partition_columns.size(); ++i) {
+        if (_partition_column_is_static[i]) {
             if (!first) {
                 ss << "/";
             }
             first = false;
-            ss << _escape(col_name) << "=" << _escape(it->second);
+            ss << _escape(_iceberg_partition_columns[i].field().name()) << "="
+               << _escape(_partition_column_static_values[i]);
         }
     }
     return ss.str();
@@ -277,9 +276,19 @@ Status VIcebergTableWriter::write(RuntimeState* state, vectorized::Block& block)
         Block transformed_block;
         SCOPED_RAW_TIMER(&_partition_writers_dispatch_ns);
         transformed_block.reserve(_iceberg_partition_columns.size());
-        for (auto& iceberg_partition_columns : _iceberg_partition_columns) {
-            transformed_block.insert(iceberg_partition_columns.partition_column_transform().apply(
-                    output_block, iceberg_partition_columns.source_idx()));
+        for (int i = 0; i < _iceberg_partition_columns.size(); ++i) {
+            auto& iceberg_partition_columns = _iceberg_partition_columns[i];
+            if (_has_static_partition && _partition_column_is_static[i]) {
+                auto result_type =
+                        iceberg_partition_columns.partition_column_transform().get_result_type();
+                auto col = result_type->create_column_const_with_default_value(output_block.rows());
+                transformed_block.insert(
+                        {std::move(col), result_type, iceberg_partition_columns.field().name()});
+            } else {
+                transformed_block.insert(
+                        iceberg_partition_columns.partition_column_transform().apply(
+                                output_block, iceberg_partition_columns.source_idx()));
+            }
         }
         for (int i = 0; i < output_block.rows(); ++i) {
             std::optional<PartitionData> partition_data;
@@ -366,8 +375,7 @@ Status VIcebergTableWriter::_filter_block(doris::vectorized::Block& block,
     const ColumnsWithTypeAndName& columns_with_type_and_name =
             block.get_columns_with_type_and_name();
     vectorized::ColumnsWithTypeAndName result_columns;
-    for (int i = 0; i < columns_with_type_and_name.size(); ++i) {
-        const auto& col = columns_with_type_and_name[i];
+    for (const auto& col : columns_with_type_and_name) {
         result_columns.emplace_back(col.column->clone_resized(col.column->size()), col.type,
                                     col.name);
     }
@@ -424,10 +432,9 @@ std::string VIcebergTableWriter::_partition_to_path(const doris::iceberg::Struct
 
         std::string value_string;
         // In hybrid mode, check if this column is statically specified
-        auto static_it = _static_partition_values.find(col_name);
-        if (_has_static_partition && static_it != _static_partition_values.end()) {
+        if (_has_static_partition && _partition_column_is_static[i]) {
             // Use static partition value
-            value_string = static_it->second;
+            value_string = _partition_column_static_values[i];
         } else {
             // Compute from data (dynamic partition)
             value_string = iceberg_partition_column.partition_column_transform().to_human_string(
@@ -454,13 +461,11 @@ std::vector<std::string> VIcebergTableWriter::_partition_values(
     partition_values.reserve(_iceberg_partition_columns.size());
     for (size_t i = 0; i < _iceberg_partition_columns.size(); i++) {
         auto& iceberg_partition_column = _iceberg_partition_columns[i];
-        const std::string& col_name = iceberg_partition_column.field().name();
 
         // In hybrid mode, check if this column is statically specified
-        auto static_it = _static_partition_values.find(col_name);
-        if (_has_static_partition && static_it != _static_partition_values.end()) {
+        if (_has_static_partition && _partition_column_is_static[i]) {
             // Use static partition value
-            partition_values.emplace_back(static_it->second);
+            partition_values.emplace_back(_partition_column_static_values[i]);
         } else {
             // Compute from data (dynamic partition)
             partition_values.emplace_back(
@@ -513,11 +518,12 @@ std::shared_ptr<VIcebergPartitionWriter> VIcebergTableWriter::_create_partition_
         write_path = output_path;
     }
 
-    VIcebergPartitionWriter::WriteInfo write_info = {std::move(write_path),
-                                                     std::move(original_write_path),
-                                                     std::move(target_path),
-                                                     iceberg_table_sink.file_type,
-                                                     {}};
+    VIcebergPartitionWriter::WriteInfo write_info = {
+            .write_path = std::move(write_path),
+            .original_write_path = std::move(original_write_path),
+            .target_path = std::move(target_path),
+            .file_type = iceberg_table_sink.file_type,
+            .broker_addresses = {}};
     if (iceberg_table_sink.__isset.broker_addresses) {
         write_info.broker_addresses.assign(iceberg_table_sink.broker_addresses.begin(),
                                            iceberg_table_sink.broker_addresses.end());
@@ -527,7 +533,7 @@ std::shared_ptr<VIcebergPartitionWriter> VIcebergTableWriter::_create_partition_
     std::vector<std::string> column_names;
     column_names.reserve(_write_output_vexpr_ctxs.size());
     for (int i = 0; i < _schema->columns().size(); i++) {
-        if (_non_write_columns_indices.find(i) == _non_write_columns_indices.end()) {
+        if (!_non_write_columns_indices.contains(i)) {
             column_names.emplace_back(_schema->columns()[i].field_name());
         }
     }
@@ -546,14 +552,18 @@ PartitionData VIcebergTableWriter::_get_partition_data(vectorized::Block* transf
     values.reserve(_iceberg_partition_columns.size());
     int column_idx = 0;
     for (auto& iceberg_partition_column : _iceberg_partition_columns) {
-        const vectorized::ColumnWithTypeAndName& partition_column =
-                transformed_block->get_by_position(column_idx);
-        auto value =
-                _get_iceberg_partition_value(iceberg_partition_column.partition_column_transform()
-                                                     .get_result_type()
-                                                     ->get_primitive_type(),
-                                             partition_column, position);
-        values.emplace_back(value);
+        if (_has_static_partition && _partition_column_is_static[column_idx]) {
+            values.emplace_back();
+        } else {
+            const vectorized::ColumnWithTypeAndName& partition_column =
+                    transformed_block->get_by_position(column_idx);
+            auto value = _get_iceberg_partition_value(
+                    iceberg_partition_column.partition_column_transform()
+                            .get_result_type()
+                            ->get_primitive_type(),
+                    partition_column, position);
+            values.emplace_back(value);
+        }
         ++column_idx;
     }
     return PartitionData(std::move(values));
@@ -566,11 +576,11 @@ std::any VIcebergTableWriter::_get_iceberg_partition_value(
     ColumnPtr col_ptr = partition_column.column->convert_to_full_column_if_const();
     CHECK(col_ptr);
     if (col_ptr->is_nullable()) {
-        const ColumnNullable* nullable_column =
+        const auto* nullable_column =
                 reinterpret_cast<const vectorized::ColumnNullable*>(col_ptr.get());
-        auto* __restrict null_map_data = nullable_column->get_null_map_data().data();
+        const auto* __restrict null_map_data = nullable_column->get_null_map_data().data();
         if (null_map_data[position]) {
-            return std::any();
+            return {};
         }
         col_ptr = nullable_column->get_nested_column_ptr();
     }

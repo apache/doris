@@ -130,9 +130,12 @@ private:
     std::set<size_t> _non_write_columns_indices;
     std::vector<IcebergPartitionColumn> _iceberg_partition_columns;
 
-    // Static partition values from FE for static partition overwrite
-    // Key: partition column name, Value: partition value as string
-    std::map<std::string, std::string> _static_partition_values;
+    // Static partition values for each partition column (indexed by column index)
+    // If _partition_column_is_static[i] is true, this stores the static value.
+    std::vector<std::string> _partition_column_static_values;
+    // Flags to indicate if the partition column at index i is static
+    std::vector<uint8_t> _partition_column_is_static;
+
     // Whether any static partition columns are specified
     bool _has_static_partition = false;
     // Whether ALL partition columns are statically specified (full static mode)
@@ -142,9 +145,6 @@ private:
     std::string _static_partition_path;
     // Pre-computed static partition value list (for full static mode only)
     std::vector<std::string> _static_partition_value_list;
-    // Indices of partition columns that are dynamic (not in _static_partition_values)
-    // Used in hybrid mode to compute dynamic part of partition path
-    std::vector<size_t> _dynamic_partition_column_indices;
 
     std::unordered_map<std::string, std::shared_ptr<VIcebergPartitionWriter>>
             _partitions_to_writers;
