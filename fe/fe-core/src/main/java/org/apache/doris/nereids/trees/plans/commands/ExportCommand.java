@@ -71,7 +71,7 @@ import java.util.UUID;
  *          [PROPERTIES("key"="value")]
  *          WITH BROKER 'broker_name' [( $broker_attrs)]
  */
-public class ExportCommand extends Command implements ForwardWithSync {
+public class ExportCommand extends Command implements NeedAuditEncryption, ForwardWithSync {
     public static final String PARALLELISM = "parallelism";
     public static final String LABEL = "label";
     public static final String DATA_CONSISTENCY = "data_consistency";
@@ -404,6 +404,11 @@ public class ExportCommand extends Command implements ForwardWithSync {
     @Override
     public StmtType stmtType() {
         return StmtType.EXPORT;
+    }
+
+    @Override
+    public boolean needAuditEncryption() {
+        return true;
     }
 }
 
