@@ -1189,7 +1189,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
 
         aggregationNode.setNereidsId(aggregate.getId());
         context.getNereidsIdToPlanNodeIdMap().put(aggregate.getId(), aggregationNode.getId());
-        if (isPartial) {
+        if (isPartial || aggregate.getAggregateParam().aggPhase.isLocal()) {
             aggregationNode.unsetNeedsFinalize();
         }
 
