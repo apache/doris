@@ -82,17 +82,22 @@ void BlockFileCacheTtlMgr::run_background_tablet_id_flush() {
         items->clear();
     };
 
-    while (!_stop_background.load(std::memory_order_acquire)) {
-        bool drained = false;
+    auto drain_queue = [this, &pending, &flush_pending](bool* drained_flag) {
         int64_t tablet_id = 0;
         while (_tablet_id_queue.try_dequeue(tablet_id)) {
-            drained = true;
+            if (drained_flag != nullptr) {
+                *drained_flag = true;
+            }
             pending.push_back(tablet_id);
             if (pending.size() >= kBatchSize) {
                 flush_pending(&pending);
             }
         }
+    };
 
+    while (!_stop_background.load(std::memory_order_acquire)) {
+        bool drained = false;
+        drain_queue(&drained);
         flush_pending(&pending);
 
         if (!drained) {
@@ -102,19 +107,8 @@ void BlockFileCacheTtlMgr::run_background_tablet_id_flush() {
     }
 
     // Drain remaining items before exit
-    int64_t tablet_id = 0;
-    while (_tablet_id_queue.try_dequeue(tablet_id)) {
-        pending.push_back(tablet_id);
-        if (pending.size() >= kBatchSize) {
-            std::lock_guard<std::mutex> lock(_tablet_id_mutex);
-            _tablet_id_set.insert(pending.begin(), pending.end());
-            pending.clear();
-        }
-    }
-    if (!pending.empty()) {
-        std::lock_guard<std::mutex> lock(_tablet_id_mutex);
-        _tablet_id_set.insert(pending.begin(), pending.end());
-    }
+    drain_queue(nullptr);
+    flush_pending(&pending);
 }
 
 FileBlocks BlockFileCacheTtlMgr::get_file_blocks_from_tablet_id(int64_t tablet_id) {

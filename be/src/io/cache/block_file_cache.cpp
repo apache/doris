@@ -383,13 +383,13 @@ Status BlockFileCache::initialize_unlocked(std::lock_guard<std::mutex>& cache_lo
         restore_lru_queues_from_disk(cache_lock);
     }
     RETURN_IF_ERROR(_storage->init(this));
-    if (!_ttl_mgr) {
-        if (auto* fs_storage = dynamic_cast<FSFileCacheStorage*>(_storage.get())) {
-            if (auto* meta_store = fs_storage->get_meta_store()) {
-                _ttl_mgr = std::make_unique<BlockFileCacheTtlMgr>(this, meta_store);
-            }
+
+    if (auto* fs_storage = dynamic_cast<FSFileCacheStorage*>(_storage.get())) {
+        if (auto* meta_store = fs_storage->get_meta_store()) {
+            _ttl_mgr = std::make_unique<BlockFileCacheTtlMgr>(this, meta_store);
         }
     }
+
     _cache_background_monitor_thread = std::thread(&BlockFileCache::run_background_monitor, this);
     _cache_background_gc_thread = std::thread(&BlockFileCache::run_background_gc, this);
     _cache_background_evict_in_advance_thread =
