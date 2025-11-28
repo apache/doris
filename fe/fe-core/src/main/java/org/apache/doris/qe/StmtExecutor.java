@@ -329,9 +329,8 @@ public class StmtExecutor {
         try {
             ComputeGroup computeGroup = context.getComputeGroup();
             if (computeGroup != null) {
-                WorkloadGroupMgr wgMgr = Env.getCurrentEnv().getWorkloadGroupMgr();
-                String workloadGroupName = computeGroup.getName();
-                List<WorkloadGroup> list = computeGroup.getWorkloadGroup(workloadGroupName, wgMgr); // wgName 要真的是 workload group 名
+                List<WorkloadGroup> list = Env.getCurrentEnv().getWorkloadGroupMgr().getWorkloadGroup(ConnectContext.get())
+                    .stream().collect(Collectors.toList());
                 if (!list.isEmpty()) {
                     WorkloadGroup wg = list.get(0);
                     builder.cpuShare(wg.CPU_SHARE);
