@@ -70,6 +70,15 @@ public class VarBinaryLiteral extends Literal implements ComparableLiteral {
         return byteValues;
     }
 
+    protected String castValueToString() {
+        return toString();
+    }
+
+    @Override
+    public String getStringValue() {
+        return toString();
+    }
+
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitVarBinaryLiteral(this, context);
