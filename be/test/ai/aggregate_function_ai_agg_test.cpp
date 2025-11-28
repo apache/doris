@@ -434,7 +434,7 @@ TEST_F(AggregateFunctionAIAggTest, missing_ai_resources_metadata_test) {
         _agg_function->add(place, columns, 0, _arena);
         FAIL() << "Expected exception for missing AI resources";
     } catch (const Exception& e) {
-        EXPECT_EQ(e.code(), ErrorCode::FATAL_ERROR);
+        EXPECT_EQ(e.code(), ErrorCode::INTERNAL_ERROR);
         EXPECT_NE(e.to_string().find("AI resources metadata missing"), std::string::npos);
     }
 
