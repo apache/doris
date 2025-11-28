@@ -43,5 +43,23 @@ suite("test_oracle_all_types_select", "p0,external,oracle,external_docker,extern
         qt_select_all_types_multi_block """select count(*) from DORIS_TEST.EXTREME_TEST_MULTI_BLOCK;"""
 
         sql """drop catalog if exists oracle_all_type_test """
+
+
+        sql """drop catalog if exists oracle_varbinary_type_test """
+        sql """create catalog if not exists oracle_varbinary_type_test properties(
+                    "type"="jdbc",
+                    "user"="doris_test",
+                    "password"="123456",
+                    "jdbc_url" = "jdbc:oracle:thin:@${externalEnvIp}:${oracle_port}:${SID}",
+                    "driver_url" = "${driver_url}",
+                    "driver_class" = "oracle.jdbc.driver.OracleDriver",
+                    "enable.mapping.varbinary"="true"
+        );"""
+
+        sql """use oracle_varbinary_type_test.DORIS_TEST"""
+        order_qt_desc "desc VARBINARY_TEST;"
+        qt_select_varbinary_types "select * from VARBINARY_TEST order by id;"
+        sql """ insert into  VARBINARY_TEST values (4,"insert",X"AB");"""
+        qt_select_varbinary_types2 "select * from VARBINARY_TEST order by id;"
     }
 }

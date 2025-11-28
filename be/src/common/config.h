@@ -398,6 +398,8 @@ DECLARE_mInt32(unused_rowset_monitor_interval);
 DECLARE_mInt32(quering_rowsets_evict_interval);
 DECLARE_String(storage_root_path);
 DECLARE_mString(broken_storage_path);
+DECLARE_Int32(min_active_scan_threads);
+DECLARE_Int32(min_active_file_scan_threads);
 
 // Config is used to check incompatible old format hdr_ format
 // whether doris uses strict way. When config is true, process will log fatal

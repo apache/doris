@@ -56,7 +56,12 @@ ScannerContext::ScannerContext(
         RuntimeState* state, pipeline::ScanLocalStateBase* local_state,
         const TupleDescriptor* output_tuple_desc, const RowDescriptor* output_row_descriptor,
         const std::list<std::shared_ptr<vectorized::ScannerDelegate>>& scanners, int64_t limit_,
-        std::shared_ptr<pipeline::Dependency> dependency, int parallism_of_scan_operator)
+        std::shared_ptr<pipeline::Dependency> dependency
+#ifdef BE_TEST
+        ,
+        int num_parallel_instances
+#endif
+        )
         : HasTaskExecutionCtx(state),
           _state(state),
           _local_state(local_state),
@@ -67,9 +72,18 @@ ScannerContext::ScannerContext(
           _batch_size(state->batch_size()),
           limit(limit_),
           _all_scanners(scanners.begin(), scanners.end()),
-          _parallism_of_scan_operator(parallism_of_scan_operator),
-          _min_scan_concurrency_of_scan_scheduler(_state->min_scan_concurrency_of_scan_scheduler()),
-          _min_scan_concurrency(_state->min_scan_concurrency_of_scanner()) {
+#ifndef BE_TEST
+          _scanner_scheduler(local_state->scan_scheduler(state)),
+          _min_scan_concurrency_of_scan_scheduler(
+                  _scanner_scheduler->get_min_active_scan_threads()),
+          _max_scan_concurrency(std::min(local_state->max_scanners_concurrency(state),
+                                         cast_set<int>(scanners.size()))),
+#else
+          _scanner_scheduler(state->get_query_ctx()->get_scan_scheduler()),
+          _min_scan_concurrency_of_scan_scheduler(0),
+          _max_scan_concurrency(num_parallel_instances),
+#endif
+          _min_scan_concurrency(local_state->min_scanners_concurrency(state)) {
     DCHECK(_state != nullptr);
     DCHECK(_output_row_descriptor == nullptr ||
            _output_row_descriptor->tuple_descriptors().size() == 1);
@@ -106,14 +120,6 @@ Status ScannerContext::init() {
     auto scanner = _all_scanners.front().lock();
     DCHECK(scanner != nullptr);
 
-    // TODO: Maybe need refactor.
-    // A query could have remote scan task and local scan task at the same time.
-    // So we need to compute the _scanner_scheduler in each scan operator instead of query context.
-    if (scanner->_scanner->get_storage_type() == TabletStorageType::STORAGE_TYPE_LOCAL) {
-        _scanner_scheduler = _state->get_query_ctx()->get_scan_scheduler();
-    } else {
-        _scanner_scheduler = _state->get_query_ctx()->get_remote_scan_scheduler();
-    }
     if (auto* task_executor_scheduler =
                 dynamic_cast<TaskExecutorSimplifiedScanScheduler*>(_scanner_scheduler)) {
         std::shared_ptr<TaskExecutor> task_executor = task_executor_scheduler->task_executor();
@@ -132,42 +138,10 @@ Status ScannerContext::init() {
     // Provide more memory for wide tables, increase proportionally by multiples of 300
     _max_bytes_in_queue *= _output_tuple_desc->slots().size() / 300 + 1;
 
-    if (_min_scan_concurrency_of_scan_scheduler == 0) {
-        // _scanner_scheduler->get_max_threads() is setted by workload group.
-        _min_scan_concurrency_of_scan_scheduler = 2 * _scanner_scheduler->get_max_threads();
-    }
-
     if (_all_scanners.empty()) {
         _is_finished = true;
         _set_scanner_done();
     }
-
-    // The overall target of our system is to make full utilization of the resources.
-    // At the same time, we dont want too many tasks are queued by scheduler, that is not necessary.
-    // Each scan operator can submit _max_scan_concurrency scanner to scheduelr if scheduler has enough resource.
-    // So that for a single query, we can make sure it could make full utilization of the resource.
-    _max_scan_concurrency = _state->num_scanner_threads();
-    if (_max_scan_concurrency == 0) {
-        // Why this is safe:
-        /*
-            1. If num cpu cores is less than or equal to 24:
-                _max_concurrency_of_scan_scheduler will be 96. _parallism_of_scan_operator will be 1 or C/2.
-                so _max_scan_concurrency will be 96 or (96 * 2 / C).
-                For a single scan node, most scanner it can submit will be 96 or (96 * 2 / C) * (C / 2) which is 96 too.
-                So a single scan node could make full utilization of the resource without sumbiting all its tasks.
-            2. If num cpu cores greater than 24:
-                _max_concurrency_of_scan_scheduler will be 4 * C. _parallism_of_scan_operator will be 1 or C/2.
-                so _max_scan_concurrency will be 4 * C or (4 * C * 2 / C).
-                For a single scan node, most scanner it can submit will be 4 * C or (4 * C * 2 / C) * (C / 2) which is 4 * C too.
-
-            So, in all situations, when there is only one scan node, it could make full utilization of the resource.
-        */
-        _max_scan_concurrency =
-                _min_scan_concurrency_of_scan_scheduler / _parallism_of_scan_operator;
-        _max_scan_concurrency = _max_scan_concurrency == 0 ? 1 : _max_scan_concurrency;
-    }
-
-    _max_scan_concurrency = std::min(_max_scan_concurrency, (int32_t)_pending_scanners.size());
 
     // when user not specify scan_thread_num, so we can try downgrade _max_thread_num.
     // becaue we found in a table with 5k columns, column reader may ocuppy too much memory.
@@ -190,15 +164,6 @@ Status ScannerContext::init() {
             }
         }
     }
-
-    // For select * from table limit 10; should just use one thread.
-    if (_local_state->should_run_serial()) {
-        _max_scan_concurrency = 1;
-        _min_scan_concurrency = 1;
-    }
-
-    // Avoid corner case.
-    _min_scan_concurrency = std::min(_min_scan_concurrency, _max_scan_concurrency);
 
     COUNTER_SET(_local_state->_max_scan_concurrency, (int64_t)_max_scan_concurrency);
     COUNTER_SET(_local_state->_min_scan_concurrency, (int64_t)_min_scan_concurrency);
