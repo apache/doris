@@ -129,6 +129,10 @@ AggregateFunctionPtr create_aggregate_function_single_value(const String& name,
         return creator_without_type::create_unary_arguments<
                 AggregateFunctionsSingleValue<Data<SingleValueDataDecimal<TYPE_DECIMAL256>>>>(
                 argument_types, result_is_nullable, attr);
+    case PrimitiveType::TYPE_ARRAY:
+        return creator_without_type::create_unary_arguments<
+                AggregateFunctionsSingleValue<Data<SingleValueMaxMinDataComplexType>>>(
+                argument_types, result_is_nullable, attr);
     default:
         return nullptr;
     }

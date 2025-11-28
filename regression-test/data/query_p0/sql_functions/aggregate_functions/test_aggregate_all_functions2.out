@@ -372,3 +372,9 @@ true
 -- !select_histogram_k13_all_null --
 {"num_buckets":0,"buckets":[]}
 
+-- !max_array --
+[11, 22, 33, 44]
+
+-- !min_array --
+[]
+

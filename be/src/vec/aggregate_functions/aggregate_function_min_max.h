@@ -36,8 +36,11 @@
 #include "runtime/type_limit.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
+#include "vec/columns/column_array.h"
 #include "vec/columns/column_fixed_length_object.h"
+#include "vec/columns/column_map.h"
 #include "vec/columns/column_string.h"
+#include "vec/columns/column_struct.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/string_buffer.hpp"
 #include "vec/common/string_ref.h"
@@ -522,11 +525,145 @@ public:
     }
 };
 
+struct SingleValueMaxMinDataComplexType {
+private:
+    using Self = SingleValueMaxMinDataComplexType;
+
+    DataTypePtr column_type;
+    bool has_value =
+            false; /// We need to remember if at least one value has been passed. This is necessary for AggregateFunctionIf.
+    MutableColumnPtr column_data; // a column ptr only save a single value
+    int be_exec_version = -1;
+
+public:
+    SingleValueMaxMinDataComplexType() = default;
+    SingleValueMaxMinDataComplexType(const DataTypes& argument_types, int be_version) {
+        column_type = argument_types[0];
+        column_data = column_type->create_column();
+        be_exec_version = be_version;
+    }
+
+    bool has() const { return has_value; }
+
+    constexpr static bool IsFixedLength = false;
+
+    void insert_result_into(IColumn& to) const {
+        if (has()) {
+            to.insert_from(*column_data, 0);
+        } else {
+            to.insert_default();
+        }
+    }
+
+    void reset() {
+        has_value = false;
+        column_data->clear();
+    }
+
+    void write(BufferWritable& buf) const {
+        buf.write_binary(has_value);
+        if (!has()) {
+            return;
+        }
+        auto size_bytes =
+                column_type->get_uncompressed_serialized_bytes(*column_data, be_exec_version);
+        std::string memory_buffer(size_bytes, '0');
+        auto* p = column_type->serialize(*column_data, memory_buffer.data(), be_exec_version);
+        buf.write_binary(memory_buffer);
+        DCHECK_EQ(p, memory_buffer.data() + size_bytes);
+    }
+
+    void read(BufferReadable& buf, Arena& arena) {
+        buf.read_binary(has_value);
+        if (!has()) {
+            return;
+        }
+        std::string memory_buffer;
+        buf.read_binary(memory_buffer);
+        const auto* p =
+                column_type->deserialize(memory_buffer.data(), &column_data, be_exec_version);
+        DCHECK_EQ(p, memory_buffer.data() + memory_buffer.size());
+    }
+
+    void change(const IColumn& column, size_t row_num, Arena&) {
+        has_value = true;
+        column_data->clear();
+        column_data->insert_from(column, row_num);
+    }
+
+    /// Assuming to.has()
+    void change(const Self& to, Arena&) {
+        has_value = true;
+        column_data->clear();
+        column_data->insert_from(*to.column_data, 0);
+    }
+
+    bool change_if_less(const IColumn& column, size_t row_num, Arena& arena) {
+        if (!has() || column_data->compare_at(0, row_num, column, -1) == 1) {
+            change(column, row_num, arena);
+            return true;
+        } else {
+            return false;
+        }
+    }
+
+    bool change_if_less(const Self& to, Arena& arena) {
+        if (to.has() && (!has() || column_data->compare_at(0, 0, *to.column_data, -1) == 1)) {
+            change(to, arena);
+            return true;
+        } else {
+            return false;
+        }
+    }
+
+    bool change_if_greater(const IColumn& column, size_t row_num, Arena& arena) {
+        if (!has() || column_data->compare_at(0, row_num, column, -1) == -1) {
+            change(column, row_num, arena);
+            return true;
+        } else {
+            return false;
+        }
+    }
+
+    bool change_if_greater(const Self& to, Arena& arena) {
+        if (to.has() && (!has() || column_data->compare_at(0, 0, *to.column_data, -1) == -1)) {
+            change(to, arena);
+            return true;
+        } else {
+            return false;
+        }
+    }
+
+    bool check_if_equal(const IColumn& column, size_t row_num) const {
+        if (!has()) {
+            return false;
+        }
+        return !column_data->compare_at(0, row_num, column, -1);
+    }
+
+    void change_first_time(const IColumn& column, size_t row_num, Arena& arena) {
+        if (UNLIKELY(!has())) {
+            change(column, row_num, arena);
+        }
+    }
+
+    void change_first_time(const Self& to, Arena& arena) {
+        if (UNLIKELY(!has() && to.has())) {
+            change(to, arena);
+        }
+    }
+};
+
 template <typename Data>
 struct AggregateFunctionMaxData : public Data {
     using Self = AggregateFunctionMaxData;
     using Data::IsFixedLength;
     constexpr static bool IS_ANY = false;
+
+    AggregateFunctionMaxData(const DataTypes& argument_types, int be_version)
+            : Data(argument_types, be_version) {
+        this->reset();
+    }
 
     AggregateFunctionMaxData() { reset(); }
 
@@ -555,6 +692,11 @@ struct AggregateFunctionMinData : Data {
     using Self = AggregateFunctionMinData;
     using Data::IsFixedLength;
     constexpr static bool IS_ANY = false;
+
+    AggregateFunctionMinData(const DataTypes& argument_types, int be_version)
+            : Data(argument_types, be_version) {
+        this->reset();
+    }
 
     AggregateFunctionMinData() { reset(); }
 
@@ -693,7 +835,11 @@ public:
               type(this->argument_types[0]) {}
 
     void create(AggregateDataPtr __restrict place) const override {
-        if constexpr (std::is_same_v<Data, SingleValueDataComplexType>) {
+        if constexpr (std::is_same_v<Data, SingleValueDataComplexType> ||
+                      std::is_same_v<Data,
+                                     AggregateFunctionMaxData<SingleValueMaxMinDataComplexType>> ||
+                      std::is_same_v<Data,
+                                     AggregateFunctionMinData<SingleValueMaxMinDataComplexType>>) {
             new (place) Data(argument_types, IAggregateFunction::version);
         } else {
             new (place) Data;

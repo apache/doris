@@ -57,7 +57,7 @@ public class Max extends NullableAggregateFunction
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
-        if (getArgumentType(0).isOnlyMetricType()) {
+        if (getArgumentType(0).isOnlyMetricType() && !getArgumentType(0).isArrayType()) {
             throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
         }
     }
