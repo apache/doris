@@ -505,7 +505,7 @@ TEST_F(ColumnVarbinaryTest, SerializeDeserializeKeysArray) {
         keys[i].size = 0; // used bytes starts at 0
     }
     // serialize each row independently
-    col->serialize(keys.data(), n);
+    col->serialize_vec(keys.data(), n);
 
     for (size_t i = 0; i < n; ++i) {
         size_t expected_sz = vals[i].size() + sizeof(uint32_t);
@@ -524,7 +524,7 @@ TEST_F(ColumnVarbinaryTest, SerializeDeserializeKeysArray) {
         dkeys[i].data = buffers[i].data();
         dkeys[i].size = keys[i].size; // remaining bytes to consume
     }
-    col2->deserialize(dkeys.data(), n);
+    col2->deserialize_vec(dkeys.data(), n);
 
     ASSERT_EQ(col2->size(), n);
     for (size_t i = 0; i < n; ++i) {
