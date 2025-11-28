@@ -91,7 +91,6 @@ static void create_table_desc(TDescriptorTable& t_desc_table, TTableDescriptor& 
             tslot_desc.nullIndicatorBit = -1;
             tslot_desc.colName = table_column_names[i];
             tslot_desc.slotIdx = 0;
-            tslot_desc.isMaterialized = true;
             t_desc_table.slotDescriptors.push_back(tslot_desc);
         }
     }

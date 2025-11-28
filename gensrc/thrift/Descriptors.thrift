@@ -65,12 +65,12 @@ struct TSlotDescriptor {
   7: required i32 nullIndicatorBit
   8: required string colName;
   9: required i32 slotIdx
-  10: required bool isMaterialized
+  10: required bool isMaterialized // deprecated
   11: optional i32 col_unique_id = -1
   12: optional bool is_key = false
   // If set to false, then such slots will be ignored during
-  // materialize them.Used to optmize to read less data and less memory usage
-  13: optional bool need_materialize = true
+  // materialize them.Used to optimize to read less data and less memory usage
+  13: optional bool need_materialize = true // deprecated
   14: optional bool is_auto_increment = false;
   // subcolumn path info list for semi structure column(variant)
   15: optional list<string> column_paths

@@ -152,10 +152,6 @@ Status MetaScanner::_fill_block_with_remote_data(const std::vector<MutableColumn
     VLOG_CRITICAL << "MetaScanner::_fill_block_with_remote_data";
     for (int col_idx = 0; col_idx < columns.size(); col_idx++) {
         auto slot_desc = _tuple_desc->slots()[col_idx];
-        // because the fe planner filter the non_materialize column
-        if (!slot_desc->is_materialized()) {
-            continue;
-        }
 
         for (int _row_idx = 0; _row_idx < _batch_data.size(); _row_idx++) {
             vectorized::IColumn* col_ptr = columns[col_idx].get();
