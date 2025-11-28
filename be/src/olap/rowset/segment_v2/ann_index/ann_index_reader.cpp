@@ -125,8 +125,8 @@ Status AnnIndexReader::query(io::IOContext* io_ctx, AnnTopNParam* param, AnnInde
             stats->engine_convert_ns.update(index_search_result.engine_convert_ns);
             stats->engine_prepare_ns.update(index_search_result.engine_prepare_ns);
         } else {
-            throw Status::NotSupported("Unsupported index type: {}",
-                                       ann_index_type_to_string(_index_type));
+            throw Exception(Status::NotSupported("Unsupported index type: {}",
+                                                 ann_index_type_to_string(_index_type)));
         }
 
         DCHECK(index_search_result.roaring != nullptr);
@@ -174,8 +174,8 @@ Status AnnIndexReader::range_search(const AnnRangeSearchParams& params,
             hnsw_param->bounded_queue = custom_params.hnsw_bounded_queue;
             search_param = std::move(hnsw_param);
         } else {
-            throw Status::NotSupported("Unsupported index type: {}",
-                                       ann_index_type_to_string(_index_type));
+            throw Exception(Status::NotSupported("Unsupported index type: {}",
+                                                 ann_index_type_to_string(_index_type)));
         }
 
         search_param->is_le_or_lt = params.is_le_or_lt;
