@@ -234,6 +234,8 @@ public:
 
     size_t range_size() { return _ranges.size(); }
 
+    RowRange get_range(size_t index) { return _ranges[index]; }
+
     int64_t get_range_from(size_t range_index) { return _ranges[range_index].from(); }
 
     int64_t get_range_to(size_t range_index) { return _ranges[range_index].to(); }

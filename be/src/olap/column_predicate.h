@@ -216,6 +216,10 @@ public:
         return false;
     }
 
+    virtual bool evaluate_and(const vectorized::ParquetBlockSplitBloomFilter* bf) const {
+        return true;
+    }
+
     virtual bool evaluate_and(const BloomFilter* bf) const { return true; }
 
     virtual bool evaluate_and(const StringRef* dict_words, const size_t dict_count) const {
@@ -228,6 +232,13 @@ public:
      * Figure out whether this page is matched partially or completely.
      */
     virtual bool evaluate_and(vectorized::ParquetPredicate::ColumnStat* statistic) const {
+        throw Exception(ErrorCode::INTERNAL_ERROR,
+                        "ParquetPredicate is not supported by this predicate!");
+        return true;
+    }
+
+    virtual bool evaluate_and(vectorized::ParquetPredicate::CachedPageIndexStat* statistic,
+                              RowRanges* row_ranges) const {
         throw Exception(ErrorCode::INTERNAL_ERROR,
                         "ParquetPredicate is not supported by this predicate!");
         return true;

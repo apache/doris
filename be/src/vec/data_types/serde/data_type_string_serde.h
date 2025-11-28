@@ -215,6 +215,9 @@ public:
                                const NullMap* null_map, orc::ColumnVectorBatch* orc_col_batch,
                                int64_t start, int64_t end, vectorized::Arena& arena) const override;
 
+    bool write_column_to_presto_text(const IColumn& column, BufferWritable& bw,
+                                     int64_t row_idx) const override;
+
     void write_one_cell_to_binary(const IColumn& src_column, ColumnString::Chars& chars,
                                   int64_t row_num) const override {
         const uint8_t type = static_cast<uint8_t>(FieldType::OLAP_FIELD_TYPE_STRING);

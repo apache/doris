@@ -56,11 +56,11 @@ suite("test_outfile_csv_compress", "p0") {
     create_table(table_name)
 
     def outFilePath = """s3://${bucket}/outfile_"""
-    def csv_outfile_result = { the_table_name, compression_type ->
+    def csv_outfile_result = { the_table_name, compression_type, format_type ->
         def result = sql """
                 select * from ${the_table_name}
                 into outfile "${outFilePath}"
-                FORMAT AS CSV
+                FORMAT AS ${format_type}
                 PROPERTIES(
                     "s3.endpoint" = "${s3_endpoint}",
                     "s3.region" = "${region}",
@@ -73,43 +73,82 @@ suite("test_outfile_csv_compress", "p0") {
     }
 
     for (String compression_type: ["plain", "gz", "bz2", "snappyblock", "lz4block", "zstd"]) {
-        def outfile_url = csv_outfile_result(table_name, compression_type);
-        print("http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.")
-        qt_select """ select c1, c2 from s3(
-                    "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}*",
-                    "ACCESS_KEY"= "${ak}",
-                    "SECRET_KEY" = "${sk}",
-                    "format" = "csv",
-                    "provider" = "${getS3Provider()}",
-                    "region" = "${region}",
-                    "compress_type" = "${compression_type}"
-                ) order by c1, c2 limit 10;
-                """
-        qt_select """ select count(c1), count(c2) from s3(
-                    "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}*",
-                    "ACCESS_KEY"= "${ak}",
-                    "SECRET_KEY" = "${sk}",
-                    "format" = "csv",
-                    "provider" = "${getS3Provider()}",
-                    "region" = "${region}",
-                    "compress_type" = "${compression_type}"
-                );
-                """
-        qt_select """desc function s3(
-                    "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}*",
-                    "ACCESS_KEY"= "${ak}",
-                    "SECRET_KEY" = "${sk}",
-                    "format" = "csv",
-                    "provider" = "${getS3Provider()}",
-                    "region" = "${region}",
-                    "compress_type" = "${compression_type}"
-                );
-                """
+        for (String format_type : ["csv"]) {
+            def outfile_url = csv_outfile_result(table_name, compression_type, format_type);
+            print("http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.")
+            qt_select """ select c1, c2 from s3(
+                        "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}*",
+                        "ACCESS_KEY"= "${ak}",
+                        "SECRET_KEY" = "${sk}",
+                        "format" = "${format_type}",
+                        "provider" = "${getS3Provider()}",
+                        "region" = "${region}",
+                        "compress_type" = "${compression_type}"
+                    ) order by c1, c2 limit 10;
+                    """
+            qt_select """ select count(c1), count(c2) from s3(
+                        "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}*",
+                        "ACCESS_KEY"= "${ak}",
+                        "SECRET_KEY" = "${sk}",
+                        "format" = "${format_type}",
+                        "provider" = "${getS3Provider()}",
+                        "region" = "${region}",
+                        "compress_type" = "${compression_type}"
+                    );
+                    """
+            qt_select """desc function s3(
+                        "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}*",
+                        "ACCESS_KEY"= "${ak}",
+                        "SECRET_KEY" = "${sk}",
+                        "format" = "${format_type}",
+                        "provider" = "${getS3Provider()}",
+                        "region" = "${region}",
+                        "compress_type" = "${compression_type}"
+                    );
+                    """
+        }
+    }
+
+    for (String compression_type: ["plain", "gz", "bz2", "snappyblock", "lz4block", "zstd"]) {
+        for (String format_type : ["csv_with_names", "csv_with_names_and_types"]) {
+            def outfile_url = csv_outfile_result(table_name, compression_type, format_type);
+            print("http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.")
+            qt_select """ select id, name from s3(
+                        "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}*",
+                        "ACCESS_KEY"= "${ak}",
+                        "SECRET_KEY" = "${sk}",
+                        "format" = "${format_type}",
+                        "provider" = "${getS3Provider()}",
+                        "region" = "${region}",
+                        "compress_type" = "${compression_type}"
+                    ) order by id, name limit 10;
+                    """
+            qt_select """ select count(id), count(name) from s3(
+                        "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}*",
+                        "ACCESS_KEY"= "${ak}",
+                        "SECRET_KEY" = "${sk}",
+                        "format" = "${format_type}",
+                        "provider" = "${getS3Provider()}",
+                        "region" = "${region}",
+                        "compress_type" = "${compression_type}"
+                    );
+                    """
+            qt_select """desc function s3(
+                        "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}*",
+                        "ACCESS_KEY"= "${ak}",
+                        "SECRET_KEY" = "${sk}",
+                        "format" = "${format_type}",
+                        "provider" = "${getS3Provider()}",
+                        "region" = "${region}",
+                        "compress_type" = "${compression_type}"
+                    );
+                    """
+        }
     }
 
     for (String compression_type: ["plain", "gz", "bz2", "snappyblock", "lz4block", "zstd"]) {
         def small = "small_${table_name}"
-        def outfile_url = csv_outfile_result(small, compression_type);
+        def outfile_url = csv_outfile_result(small, compression_type, "csv");
         print("http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.")
         qt_select """ select c1, c2 from s3(
                     "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}*",
@@ -163,7 +202,7 @@ suite("test_outfile_csv_compress", "p0") {
     // test empty table
     sql """drop table if exists test_outfile_csv_compress_empty_table"""
     sql """create table test_outfile_csv_compress_empty_table(k1 int) distributed by hash(k1) buckets 1 properties("replication_num" = "1")"""
-    def empty_outfile_url = csv_outfile_result("test_outfile_csv_compress_empty_table", "gz");
+    def empty_outfile_url = csv_outfile_result("test_outfile_csv_compress_empty_table", "gz", "csv");
     qt_select """desc function s3(
                 "uri" = "http://${bucket}.${s3_endpoint}${empty_outfile_url.substring(5 + bucket.length(), empty_outfile_url.length() - 1)}*",
                 "ACCESS_KEY"= "${ak}",
@@ -173,6 +212,34 @@ suite("test_outfile_csv_compress", "p0") {
                 "region" = "${region}",
                 "compress_type" = "gz"
             );
+            """
+
+    // test bom compress
+    def result = sql """
+            select * from ${table_name}
+            into outfile "${outFilePath}"
+            FORMAT AS CSV
+            PROPERTIES(
+                "s3.endpoint" = "${s3_endpoint}",
+                "s3.region" = "${region}",
+                "s3.secret_key"="${sk}",
+                "s3.access_key" = "${ak}",
+                "compress_type" = "gz",
+                "with_bom" = "true"
+            );
+        """
+    def outfile_url = result[0][3]
+    print("http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.")
+    qt_select """ select c1, c2 from s3(
+                "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}*",
+                "ACCESS_KEY"= "${ak}",
+                "SECRET_KEY" = "${sk}",
+                "format" = "csv",
+                "with_bom" = "true",
+                "provider" = "${getS3Provider()}",
+                "region" = "${region}",
+                "compress_type" = "gz"
+            ) order by c1, c2 limit 10;
             """
 }
 

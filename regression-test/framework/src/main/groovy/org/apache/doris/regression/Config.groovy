@@ -176,6 +176,10 @@ class Config {
     public String tdeAlgorithm
     public String tdeKeyId
 
+    // for multi version status and cluster snapshot
+    public boolean enableMultiVersionStatus
+    public boolean enableClusterSnapshot
+
     Config() {}
 
     Config(
@@ -240,7 +244,9 @@ class Config {
             String tdeKeyRegion,
             String tdeKeyProvider,
             String tdeAlgorithm,
-            String tdeKeyId) {
+            String tdeKeyId,
+            boolean enableMultiVersionStatus,
+            boolean enableClusterSnapshot) {
         this.s3Source = s3Source
         this.caseNamePrefix = caseNamePrefix
         this.validateBackupPrefix = validateBackupPrefix
@@ -303,6 +309,8 @@ class Config {
         this.tdeKeyProvider = tdeKeyProvider
         this.tdeAlgorithm = tdeAlgorithm
         this.tdeKeyId = tdeKeyId
+        this.enableMultiVersionStatus = enableMultiVersionStatus
+        this.enableClusterSnapshot = enableClusterSnapshot
     }
 
     static String removeDirectoryPrefix(String str) {
@@ -653,7 +661,9 @@ class Config {
             configToString(obj.tdeKeyRegion),
             configToString(obj.tdeKeyProvider),
             configToString(obj.tdeAlgorithm),
-            configToString(obj.tdeKeyId)
+            configToString(obj.tdeKeyId),
+            configToBoolean(obj.enableMultiVersionStatus),
+            configToBoolean(obj.enableClusterSnapshot)
         )
 
         config.ccrDownstreamUrl = configToString(obj.ccrDownstreamUrl)
@@ -1022,6 +1032,16 @@ class Config {
         if (config.actionParallel == null) {
             config.actionParallel = 10
             log.info("Set actionParallel to 10 because not specify.".toString())
+        }
+
+        if (config.enableMultiVersionStatus == null) {
+            config.enableMultiVersionStatus = false
+            log.info("Set enableMultiVersionStatus to '${config.enableMultiVersionStatus}' because not specify.".toString())
+        }
+
+        if (config.enableClusterSnapshot == null) {
+            config.enableClusterSnapshot = false
+            log.info("Set enableClusterSnapshot to '${config.enableClusterSnapshot}' because not specify.".toString())
         }
     }
 

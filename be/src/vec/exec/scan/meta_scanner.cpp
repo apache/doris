@@ -71,14 +71,12 @@ Status MetaScanner::open(RuntimeState* state) {
         // TODO: refactor this code
         auto reader = IcebergSysTableJniReader::create_unique(_tuple_desc->slots(), state, _profile,
                                                               _scan_range.meta_scan_range);
-        const std::unordered_map<std::string, ColumnValueRangeType> colname_to_value_range;
-        RETURN_IF_ERROR(reader->init_reader(&colname_to_value_range));
+        RETURN_IF_ERROR(reader->init_reader());
         _reader = std::move(reader);
     } else if (_scan_range.meta_scan_range.metadata_type == TMetadataType::PAIMON) {
         auto reader = PaimonSysTableJniReader::create_unique(_tuple_desc->slots(), state, _profile,
                                                              _scan_range.meta_scan_range);
-        const std::unordered_map<std::string, ColumnValueRangeType> colname_to_value_range;
-        RETURN_IF_ERROR(reader->init_reader(&colname_to_value_range));
+        RETURN_IF_ERROR(reader->init_reader());
         _reader = std::move(reader);
     } else {
         RETURN_IF_ERROR(_fetch_metadata(_scan_range.meta_scan_range));
@@ -152,10 +150,6 @@ Status MetaScanner::_fill_block_with_remote_data(const std::vector<MutableColumn
     VLOG_CRITICAL << "MetaScanner::_fill_block_with_remote_data";
     for (int col_idx = 0; col_idx < columns.size(); col_idx++) {
         auto slot_desc = _tuple_desc->slots()[col_idx];
-        // because the fe planner filter the non_materialize column
-        if (!slot_desc->is_materialized()) {
-            continue;
-        }
 
         for (int _row_idx = 0; _row_idx < _batch_data.size(); _row_idx++) {
             vectorized::IColumn* col_ptr = columns[col_idx].get();

@@ -87,14 +87,23 @@ public class AdminCreateClusterSnapshotCommand extends Command implements Forwar
                             "Invalid value: " + entry.getValue() + " of property: " + entry.getKey());
                 }
                 if (ttl <= 0) {
-                    throw new AnalysisException(
-                            "Invalid value: " + entry.getValue() + " of property: " + entry.getKey());
+                    throw new AnalysisException("Property 'ttl' must be positive: " + entry.getValue());
                 }
             } else if (entry.getKey().equalsIgnoreCase(PROP_LABEL)) {
                 label = entry.getValue();
+                if (label == null || label.isEmpty()) {
+                    throw new AnalysisException("Property 'label' cannot be empty");
+                }
             } else {
                 throw new AnalysisException("Unknown property: " + entry.getKey());
             }
+        }
+
+        if (ttl <= 0) {
+            throw new AnalysisException("Property 'ttl' is required");
+        }
+        if (label == null || label.isEmpty()) {
+            throw new AnalysisException("Property 'label' is required");
         }
     }
 

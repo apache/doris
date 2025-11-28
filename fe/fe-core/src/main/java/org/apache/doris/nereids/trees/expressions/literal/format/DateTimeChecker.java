@@ -38,9 +38,9 @@ public class DateTimeChecker extends FormatChecker {
                             // 2024-10-12
                             and(
                                 digit(1, 4), // year
-                                chars(DateLiteral.punctuations::contains),
+                                ch('-'),
                                 digit(1, 2), // month
-                                chars(DateLiteral.punctuations::contains),
+                                ch('-'),
                                 digit(1, 2) // day
                             )
                         )
@@ -65,19 +65,19 @@ public class DateTimeChecker extends FormatChecker {
                             // 2024-01-01 01:02:03
                             and("NormalDateTime",
                                 digit(1, 4), // year
-                                chars(DateLiteral.punctuations::contains),
+                                ch('-'),
                                 digit(1, 2), // month
-                                chars(DateLiteral.punctuations::contains),
+                                ch('-'),
                                 digit(1, 2), // day
                                 atLeast(1, c -> c == 'T' || c == ' ' || DateLiteral.punctuations.contains(c)),
                                 digit(1, 2), // hour
                                 option(
                                     and(
-                                        chars(DateLiteral.punctuations::contains),
+                                        ch(':'),
                                         digit(1, 2), // minute
                                         option(
                                             and(
-                                                chars(DateLiteral.punctuations::contains),
+                                                ch(':'),
                                                 digit(1, 2) // second
                                             )
                                         )

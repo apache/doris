@@ -94,7 +94,7 @@ public class Lead extends WindowFunction implements TernaryExpression, Explicitl
     }
 
     @Override
-    public void checkLegalityBeforeTypeCoercion() {
+    public void checkLegalityAfterRewrite() {
         if (children().size() == 1) {
             return;
         }
@@ -107,7 +107,7 @@ public class Lead extends WindowFunction implements TernaryExpression, Explicitl
                 }
             } else {
                 throw new AnalysisException(
-                    "The offset parameter of LAG must be a constant positive integer: " + this.toSql());
+                    "The offset parameter of LEAD must be a constant positive integer: " + this.toSql());
             }
         }
     }

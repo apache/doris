@@ -660,11 +660,8 @@ Status ScrollParser::fill_columns(const TupleDescriptor* tuple_desc,
 
     for (int i = 0; i < tuple_desc->slots().size(); ++i) {
         const SlotDescriptor* slot_desc = tuple_desc->slots()[i];
-        auto col_ptr = columns[i].get();
+        auto* col_ptr = columns[i].get();
 
-        if (!slot_desc->is_materialized()) {
-            continue;
-        }
         if (slot_desc->col_name() == FIELD_ID) {
             // actually this branch will not be reached, this is guaranteed by Doris FE.
             if (pure_doc_value) {

@@ -17,6 +17,8 @@
 
 #include "writer.h"
 
+#include <type_traits>
+
 #include "pipeline/exec/exchange_sink_operator.h"
 #include "vec/core/block.h"
 
@@ -30,7 +32,7 @@ void Writer::_handle_eof_channel(RuntimeState* state, ChannelPtrType channel, St
 }
 
 Status Writer::write(ExchangeSinkLocalState* local_state, RuntimeState* state,
-                     vectorized::Block* block, bool eos) const {
+                     vectorized::Block* block, bool eos) {
     bool already_sent = false;
     {
         SCOPED_TIMER(local_state->split_block_hash_compute_timer());
@@ -64,35 +66,46 @@ Status Writer::_channel_add_rows(RuntimeState* state,
                                  std::vector<std::shared_ptr<vectorized::Channel>>& channels,
                                  size_t partition_count,
                                  const ChannelIdType* __restrict channel_ids, size_t rows,
-                                 vectorized::Block* block, bool eos) const {
-    std::vector<uint32_t> partition_rows_histogram;
-    auto row_idx = vectorized::PODArray<uint32_t>(rows);
+                                 vectorized::Block* block, bool eos) {
+    _row_idx.resize(rows);
     {
-        partition_rows_histogram.assign(partition_count + 2, 0);
+        _partition_rows_histogram.resize(partition_count);
+        _channel_start_offsets.resize(partition_count);
+        for (size_t i = 0; i < partition_count; ++i) {
+            _partition_rows_histogram[i] = 0;
+        }
         for (size_t i = 0; i < rows; ++i) {
-            partition_rows_histogram[channel_ids[i] + 1]++;
+            _partition_rows_histogram[channel_ids[i]]++;
         }
-        for (size_t i = 1; i <= partition_count + 1; ++i) {
-            partition_rows_histogram[i] += partition_rows_histogram[i - 1];
+        _channel_start_offsets[0] = 0;
+        for (size_t i = 1; i < partition_count; ++i) {
+            _channel_start_offsets[i] =
+                    _channel_start_offsets[i - 1] + _partition_rows_histogram[i - 1];
         }
-        for (int32_t i = cast_set<int32_t>(rows) - 1; i >= 0; --i) {
-            row_idx[partition_rows_histogram[channel_ids[i] + 1] - 1] = i;
-            partition_rows_histogram[channel_ids[i] + 1]--;
+        for (uint32_t i = 0; i < rows; i++) {
+            if constexpr (std::is_signed_v<ChannelIdType>) {
+                // -1 means this row is filtered by table sink hash partitioner
+                if (channel_ids[i] == -1) {
+                    continue;
+                }
+            }
+            _row_idx[_channel_start_offsets[channel_ids[i]]++] = i;
         }
     }
     Status status = Status::OK();
+    uint32_t offset = 0;
     for (size_t i = 0; i < partition_count; ++i) {
-        uint32_t start = partition_rows_histogram[i + 1];
-        uint32_t size = partition_rows_histogram[i + 2] - start;
+        uint32_t size = _partition_rows_histogram[i];
         if (!channels[i]->is_receiver_eof() && size > 0) {
-            status = channels[i]->add_rows(block, row_idx.data(), start, size, false);
+            status = channels[i]->add_rows(block, _row_idx.data(), offset, size, false);
             HANDLE_CHANNEL_STATUS(state, channels[i], status);
         }
+        offset += size;
     }
     if (eos) {
         for (int i = 0; i < partition_count; ++i) {
             if (!channels[i]->is_receiver_eof()) {
-                status = channels[i]->add_rows(block, row_idx.data(), 0, 0, true);
+                status = channels[i]->add_rows(block, _row_idx.data(), 0, 0, true);
                 HANDLE_CHANNEL_STATUS(state, channels[i], status);
             }
         }

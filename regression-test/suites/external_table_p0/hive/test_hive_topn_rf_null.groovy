@@ -62,7 +62,7 @@ suite("test_hive_topn_rf_null", "p0,external,hive,external_docker,external_docke
         sql """switch ${catalog};"""
 
         sql """ use `default`; """
-        sql """ set num_scanner_threads = 1 """
+        sql """ set max_file_scanners_concurrency = 1 """
 
         sql """ set topn_filter_ratio=1"""
         runTopnRfNullTest();

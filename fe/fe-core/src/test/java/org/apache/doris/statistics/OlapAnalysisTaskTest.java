@@ -375,6 +375,11 @@ public class OlapAnalysisTaskTest {
         Assertions.assertEquals("", params.get("sampleHints"));
         Assertions.assertEquals("ROUND(NDV(`${colName}`) * ${scaleFactor})", params.get("ndvFunction"));
         Assertions.assertNull(params.get("preAggHint"));
+        Assertions.assertEquals("COUNT(1)", params.get("rowCount"));
+        params.clear();
+
+        task.getSampleParams(params, 10000);
+        Assertions.assertEquals("10000", params.get("rowCount"));
         params.clear();
 
         new MockUp<OlapTable>() {

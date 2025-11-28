@@ -171,13 +171,22 @@ public abstract class StorageProperties extends ConnectionProperties {
             Arrays.asList(
                     props -> (isFsSupport(props, FS_HDFS_SUPPORT)
                             || HdfsProperties.guessIsMe(props)) ? new HdfsProperties(props) : null,
-                    props -> ((isFsSupport(props, FS_OSS_HDFS_SUPPORT)
-                            || isFsSupport(props, DEPRECATED_OSS_HDFS_SUPPORT))
-                            || OSSHdfsProperties.guessIsMe(props)) ? new OSSHdfsProperties(props) : null,
+                    props -> {
+                        // OSS-HDFS and OSS are mutually exclusive - check OSS-HDFS first
+                        if ((isFsSupport(props, FS_OSS_HDFS_SUPPORT)
+                                || isFsSupport(props, DEPRECATED_OSS_HDFS_SUPPORT))
+                                || OSSHdfsProperties.guessIsMe(props)) {
+                            return new OSSHdfsProperties(props);
+                        }
+                        // Only check for regular OSS if OSS-HDFS is not enabled
+                        if (isFsSupport(props, FS_OSS_SUPPORT)
+                                || OSSProperties.guessIsMe(props)) {
+                            return new OSSProperties(props);
+                        }
+                        return null;
+                    },
                     props -> (isFsSupport(props, FS_S3_SUPPORT)
                             || S3Properties.guessIsMe(props)) ? new S3Properties(props) : null,
-                    props -> (isFsSupport(props, FS_OSS_SUPPORT)
-                            || OSSProperties.guessIsMe(props)) ? new OSSProperties(props) : null,
                     props -> (isFsSupport(props, FS_OBS_SUPPORT)
                             || OBSProperties.guessIsMe(props)) ? new OBSProperties(props) : null,
                     props -> (isFsSupport(props, FS_COS_SUPPORT)

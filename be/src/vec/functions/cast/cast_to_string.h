@@ -60,7 +60,7 @@ struct CastToString {
     static inline void push_datev2(const DateV2Value<DateV2ValueType>& from, BufferWritable& bw);
 
     static inline std::string from_datetimev2(const DateV2Value<DateTimeV2ValueType>& from,
-                                              UInt32 scale);
+                                              UInt32 scale = -1);
     static inline void push_datetimev2(const DateV2Value<DateTimeV2ValueType>& from, UInt32 scale,
                                        ColumnString::Chars& chars);
 

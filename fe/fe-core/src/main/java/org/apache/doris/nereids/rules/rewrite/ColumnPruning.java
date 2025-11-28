@@ -217,7 +217,7 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
     @Override
     public Plan visitLogicalUnion(LogicalUnion union, PruneContext context) {
         if (union.getQualifier() == Qualifier.DISTINCT) {
-            return skipPruneThisAndFirstLevelChildren(union);
+            return skipPruneThis(union);
         }
         LogicalUnion prunedOutputUnion = pruneUnionOutput(union, context);
         // start prune children of union
@@ -256,12 +256,12 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
     // we should keep the output of LogicalSetOperation and all the children
     @Override
     public Plan visitLogicalExcept(LogicalExcept except, PruneContext context) {
-        return skipPruneThisAndFirstLevelChildren(except);
+        return skipPruneThis(except);
     }
 
     @Override
     public Plan visitLogicalIntersect(LogicalIntersect intersect, PruneContext context) {
-        return skipPruneThisAndFirstLevelChildren(intersect);
+        return skipPruneThis(intersect);
     }
 
     @Override
@@ -284,7 +284,7 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
 
     @Override
     public Plan visitLogicalCTEProducer(LogicalCTEProducer<? extends Plan> cteProducer, PruneContext context) {
-        return skipPruneThisAndFirstLevelChildren(cteProducer);
+        return skipPruneThis(cteProducer);
     }
 
     @Override
@@ -325,8 +325,8 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
         return pruneChildren(fillUpAggregate, new RoaringBitmap());
     }
 
-    private Plan skipPruneThisAndFirstLevelChildren(Plan plan) {
-        return pruneChildren(plan, plan.getChildrenOutputExprIdBitSet());
+    private Plan skipPruneThis(Plan plan) {
+        return pruneChildren(plan, plan.getOutputExprIdBitSet());
     }
 
     // some rules want to match the aggregate which contains all the group by keys and aggregate functions

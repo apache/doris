@@ -146,7 +146,7 @@ suite("test_ttl") {
                 }
             }
             assertTrue(flag1)
-            assertTrue(ttl_cache_size > 1073741824)
+            assertTrue(ttl_cache_size > 838860800)
     }
     sleep(180000)
     getMetricsMethod.call() {

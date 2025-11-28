@@ -101,18 +101,7 @@ Status JniConnector::open(RuntimeState* state, RuntimeProfile* profile) {
     return Status::OK();
 }
 
-Status JniConnector::init(
-        const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range) {
-    // TODO: This logic need to be changed.
-    // See the comment of "predicates" field in JniScanner.java
-
-    // _generate_predicates(colname_to_value_range);
-    // if (_predicates_length != 0 && _predicates != nullptr) {
-    //     int64_t predicates_address = (int64_t)_predicates.get();
-    //     // We can call org.apache.doris.common.jni.vec.ScanPredicate#parseScanPredicates to parse the
-    //     // serialized predicates in java side.
-    //     _scanner_params.emplace("push_down_predicates", std::to_string(predicates_address));
-    // }
+Status JniConnector::init() {
     return Status::OK();
 }
 
@@ -324,8 +313,10 @@ Status JniConnector::_fill_block(Block* block, size_t num_rows) {
     SCOPED_RAW_TIMER(&_fill_block_watcher);
     JNIEnv* env = nullptr;
     RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
+    // todo: maybe do not need to build name to index map every time
+    auto name_to_pos_map = block->get_name_to_pos_map();
     for (int i = 0; i < _column_names.size(); ++i) {
-        auto& column_with_type_and_name = block->get_by_name(_column_names[i]);
+        auto& column_with_type_and_name = block->get_by_position(name_to_pos_map[_column_names[i]]);
         auto& column_ptr = column_with_type_and_name.column;
         auto& column_type = column_with_type_and_name.type;
         RETURN_IF_ERROR(_fill_column(_table_meta, column_ptr, column_type, num_rows));
@@ -497,18 +488,6 @@ Status JniConnector::_fill_struct_column(TableMetaAddress& address, MutableColum
         RETURN_IF_ERROR(_fill_column(address, struct_field, field_type, num_rows));
     }
     return Status::OK();
-}
-
-void JniConnector::_generate_predicates(
-        const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range) {
-    if (colname_to_value_range == nullptr) {
-        return;
-    }
-    for (auto& kv : *colname_to_value_range) {
-        const std::string& column_name = kv.first;
-        const ColumnValueRangeType& col_val_range = kv.second;
-        std::visit([&](auto&& range) { _parse_value_range(range, column_name); }, col_val_range);
-    }
 }
 
 std::string JniConnector::get_jni_type(const DataTypePtr& data_type) {

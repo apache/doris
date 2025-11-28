@@ -547,7 +547,7 @@ suite('test_manager_interface_1',"p0") {
         assertTrue(result[0][0] == "audit_log")
 
         assertTrue(result[0][1].contains("CREATE TABLE `audit_log`"))
-        assertTrue(result[0][1].contains("`query_id` varchar(48) NULL,"))
+        assertTrue(result[0][1].contains("`query_id` varchar(128) NULL,"))
         assertTrue(result[0][1].contains("`time` datetime(3) NULL,"))
         assertTrue(result[0][1].contains("`client_ip` varchar(128) NULL,")) 
         assertTrue(result[0][1].contains("`user` varchar(128) NULL,")) 

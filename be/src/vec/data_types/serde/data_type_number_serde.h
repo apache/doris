@@ -130,6 +130,11 @@ public:
     void write_one_cell_to_binary(const IColumn& src_column, ColumnString::Chars& chars,
                                   int64_t row_num) const override;
 
+    bool write_column_to_presto_text(const IColumn& column, BufferWritable& bw,
+                                     int64_t row_idx) const override;
+    bool write_column_to_hive_text(const IColumn& column, BufferWritable& bw,
+                                   int64_t row_idx) const override;
+
     void to_string(const IColumn& column, size_t row_num, BufferWritable& bw) const override;
 
     void to_string_batch(const IColumn& column, ColumnString& column_to) const override;

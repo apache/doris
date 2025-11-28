@@ -29,4 +29,10 @@ public class MinioConnectivityTester extends AbstractS3CompatibleConnectivityTes
     public String getTestType() {
         return "Minio";
     }
+
+    @Override
+    public String getErrorHint() {
+        return "Please check Minio credentials (access_key and secret_key), "
+                + "endpoint, and bucket (warehouse location) access permissions";
+    }
 }

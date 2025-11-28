@@ -23,6 +23,7 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.thrift.TColumnAccessPath;
 import org.apache.doris.thrift.TSlotDescriptor;
 
 import com.google.common.base.MoreObjects;
@@ -59,11 +60,12 @@ public class SlotDescriptor {
     // if false, this slot cannot be NULL
     private boolean isNullable;
 
-    // If set to false, then such slots will be ignored during
-    // materialize them.Used to optimize to read less data and less memory usage
-    private boolean needMaterialize = true;
     private boolean isAutoInc = false;
     private Expr virtualColumn = null;
+    private List<TColumnAccessPath> allAccessPaths;
+    private List<TColumnAccessPath> predicateAccessPaths;
+    private List<TColumnAccessPath> displayAllAccessPaths;
+    private List<TColumnAccessPath> displayPredicateAccessPaths;
 
     public SlotDescriptor(SlotId id, TupleDescriptor parent) {
 
@@ -81,14 +83,6 @@ public class SlotDescriptor {
         this.sourceExprs.add(new SlotRef(src));
     }
 
-    public void setNeedMaterialize(boolean needMaterialize) {
-        this.needMaterialize = needMaterialize;
-    }
-
-    public boolean isInvalid() {
-        return !this.needMaterialize;
-    }
-
     public SlotId getId() {
         return id;
     }
@@ -99,6 +93,38 @@ public class SlotDescriptor {
 
     public List<String> getSubColLables() {
         return this.subColPath;
+    }
+
+    public List<TColumnAccessPath> getAllAccessPaths() {
+        return allAccessPaths;
+    }
+
+    public void setAllAccessPaths(List<TColumnAccessPath> allAccessPaths) {
+        this.allAccessPaths = allAccessPaths;
+    }
+
+    public List<TColumnAccessPath> getPredicateAccessPaths() {
+        return predicateAccessPaths;
+    }
+
+    public void setPredicateAccessPaths(List<TColumnAccessPath> predicateAccessPaths) {
+        this.predicateAccessPaths = predicateAccessPaths;
+    }
+
+    public List<TColumnAccessPath> getDisplayAllAccessPaths() {
+        return displayAllAccessPaths;
+    }
+
+    public void setDisplayAllAccessPaths(List<TColumnAccessPath> displayAllAccessPaths) {
+        this.displayAllAccessPaths = displayAllAccessPaths;
+    }
+
+    public List<TColumnAccessPath> getDisplayPredicateAccessPaths() {
+        return displayPredicateAccessPaths;
+    }
+
+    public void setDisplayPredicateAccessPaths(List<TColumnAccessPath> displayPredicateAccessPaths) {
+        this.displayPredicateAccessPaths = displayPredicateAccessPaths;
     }
 
     public TupleDescriptor getParent() {
@@ -185,7 +211,6 @@ public class SlotDescriptor {
         TSlotDescriptor tSlotDescriptor = new TSlotDescriptor(id.asInt(), parent.getId().asInt(), type.toThrift(), -1,
                 0, 0, getIsNullable() ? 0 : -1, colName, -1,
                 true);
-        tSlotDescriptor.setNeedMaterialize(needMaterialize);
         tSlotDescriptor.setIsAutoIncrement(isAutoInc);
         if (column != null) {
             if (LOG.isDebugEnabled()) {
@@ -201,6 +226,12 @@ public class SlotDescriptor {
         }
         if (virtualColumn != null) {
             tSlotDescriptor.setVirtualColumnExpr(virtualColumn.treeToThrift());
+        }
+        if (allAccessPaths != null) {
+            tSlotDescriptor.setAllAccessPaths(allAccessPaths);
+        }
+        if (predicateAccessPaths != null) {
+            tSlotDescriptor.setPredicateAccessPaths(predicateAccessPaths);
         }
         return tSlotDescriptor;
     }

@@ -37,7 +37,8 @@ suite("test_table_properties") {
 	DISTRIBUTED BY HASH(`user_id`) BUCKETS 1
 	PROPERTIES (
     "enable_mow_light_delete" = "false",
-	"replication_allocation" = "tag.location.default: 1"
+	"replication_allocation" = "tag.location.default: 1",
+    "storage_format" = "V2"
 	);
         """
     sql """
@@ -52,7 +53,8 @@ suite("test_table_properties") {
 	)
 	DISTRIBUTED BY HASH(`type`) BUCKETS 1
 	PROPERTIES (
-	"replication_allocation" = "tag.location.default: 1"
+	"replication_allocation" = "tag.location.default: 1",
+    "storage_format" = "V2"
 	);
         """
     sql """
@@ -80,7 +82,8 @@ suite("test_table_properties") {
 	DISTRIBUTED BY HASH(`user_id`) BUCKETS 16
 	PROPERTIES
 	(
-    		"replication_num" = "1"
+    		"replication_num" = "1",
+            "storage_format" = "V2"
 	);
     """
 

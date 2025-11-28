@@ -106,9 +106,13 @@ public class IcebergSysTableJniScanner extends JniScanner {
     protected int getNext() throws IOException {
         try (ThreadClassLoaderContext ignored = new ThreadClassLoaderContext(classLoader)) {
             int rows = 0;
+            long startAppendDataTime = System.nanoTime();
+            long scanTime = 0;
             while (rows < getBatchSize()) {
                 while (!reader.hasNext() && scanTasks.hasNext()) {
+                    long startScanTaskTime = System.nanoTime();
                     nextScanTask();
+                    scanTime = System.nanoTime() - startScanTaskTime;
                 }
                 if (!reader.hasNext()) {
                     break;
@@ -122,6 +126,7 @@ public class IcebergSysTableJniScanner extends JniScanner {
                 }
                 rows++;
             }
+            appendDataTime += System.nanoTime() - startAppendDataTime - scanTime;
             return rows;
         }
     }

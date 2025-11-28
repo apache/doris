@@ -26,6 +26,9 @@
 
 #include "gen_cpp/Exprs_types.h"
 #include "olap/rowset/segment_v2/index_iterator.h"
+#include "olap/rowset/segment_v2/inverted_index/query_v2/phrase_query/multi_phrase_query.h"
+#include "olap/rowset/segment_v2/inverted_index/query_v2/phrase_query/multi_phrase_weight.h"
+#include "olap/rowset/segment_v2/inverted_index/query_v2/phrase_query/phrase_query.h"
 #include "vec/core/block.h"
 
 namespace doris::vectorized {
@@ -1678,9 +1681,83 @@ TEST_F(FunctionSearchTest, TestOrWithNotSameFieldMatchesMatchAllRows) {
     EXPECT_TRUE(result_diff.isEmpty());
 }
 
-// Note: Full testing of evaluate_inverted_index_with_search_param with real InvertedIndexIterator
-// and actual file operations would require complex setup with real index files
-// and is better suited for integration tests. The tests above cover the main
-// execution paths and error handling logic in the function.
+TEST_F(FunctionSearchTest, TestBuildLeafQueryPhrase) {
+    TSearchClause clause;
+    clause.clause_type = "PHRASE";
+    clause.field_name = "content";
+    clause.value = "hello world";
+    clause.__isset.field_name = true;
+    clause.__isset.value = true;
+
+    auto context = std::make_shared<IndexQueryContext>();
+
+    std::unordered_map<std::string, vectorized::IndexFieldNameAndTypePair> data_type_with_names;
+    data_type_with_names.emplace("content",
+                                 vectorized::IndexFieldNameAndTypePair {"content", nullptr});
+
+    std::unordered_map<std::string, IndexIterator*> iterators;
+    FieldReaderResolver resolver(data_type_with_names, iterators, context);
+
+    FieldReaderBinding binding;
+    binding.logical_field_name = "content";
+    binding.stored_field_name = "content";
+    binding.stored_field_wstr = L"content";
+    binding.index_properties["parser"] = "unicode";
+    binding.query_type = InvertedIndexQueryType::MATCH_PHRASE_QUERY;
+
+    auto* dummy_reader = reinterpret_cast<lucene::index::IndexReader*>(0x1);
+    binding.lucene_reader = std::shared_ptr<lucene::index::IndexReader>(
+            dummy_reader, [](lucene::index::IndexReader* /*ptr*/) {});
+
+    std::string key =
+            resolver.binding_key_for("content", InvertedIndexQueryType::MATCH_PHRASE_QUERY);
+    binding.binding_key = key;
+    resolver._cache[key] = binding;
+
+    inverted_index::query_v2::QueryPtr out;
+    std::string out_binding_key;
+    Status st =
+            function_search->build_leaf_query(clause, context, resolver, &out, &out_binding_key);
+    EXPECT_TRUE(st.ok());
+
+    auto phrase_query = std::dynamic_pointer_cast<inverted_index::query_v2::PhraseQuery>(out);
+    EXPECT_NE(phrase_query, nullptr);
+}
+
+TEST_F(FunctionSearchTest, TestMultiPhraseQueryCase) {
+    using doris::segment_v2::InvertedIndexQueryInfo;
+    using doris::segment_v2::TermInfo;
+    using doris::CollectionStatistics;
+    using doris::CollectionStatisticsPtr;
+
+    auto context = std::make_shared<IndexQueryContext>();
+    context->collection_statistics = std::make_shared<CollectionStatistics>();
+    context->collection_similarity = std::make_shared<CollectionSimilarity>();
+
+    std::wstring field = doris::segment_v2::inverted_index::StringHelper::to_wstring("content");
+
+    std::vector<TermInfo> term_infos;
+
+    TermInfo t1;
+    t1.term = std::vector<std::string> {"quick", "fast", "speedy"};
+    t1.position = 0;
+    term_infos.push_back(t1);
+
+    TermInfo t2;
+    t2.term = std::string("brown");
+    t2.position = 1;
+    term_infos.push_back(t2);
+
+    auto query = std::make_shared<doris::segment_v2::inverted_index::query_v2::MultiPhraseQuery>(
+            context, field, term_infos);
+    ASSERT_NE(query, nullptr);
+
+    auto weight = query->weight(false);
+    ASSERT_NE(weight, nullptr);
+
+    auto multi_phrase_weight = std::dynamic_pointer_cast<
+            doris::segment_v2::inverted_index::query_v2::MultiPhraseWeight>(weight);
+    ASSERT_NE(multi_phrase_weight, nullptr);
+}
 
 } // namespace doris::vectorized

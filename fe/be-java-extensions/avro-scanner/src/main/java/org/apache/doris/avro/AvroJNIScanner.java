@@ -196,6 +196,7 @@ public class AvroJNIScanner extends JniScanner {
     @Override
     protected int getNext() throws IOException {
         int numRows = 0;
+        long startTime = System.nanoTime();
         for (; numRows < getBatchSize(); numRows++) {
             if (!avroReader.hasNext(inputPair, ignore)) {
                 break;
@@ -211,6 +212,7 @@ public class AvroJNIScanner extends JniScanner {
                 }
             }
         }
+        appendDataTime += System.nanoTime() - startTime;
         return numRows;
     }
 

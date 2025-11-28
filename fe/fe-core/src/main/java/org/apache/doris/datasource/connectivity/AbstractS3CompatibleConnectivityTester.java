@@ -17,7 +17,6 @@
 
 package org.apache.doris.datasource.connectivity;
 
-import org.apache.doris.common.util.S3URI;
 import org.apache.doris.common.util.S3Util;
 import org.apache.doris.datasource.property.storage.AbstractS3CompatibleProperties;
 import org.apache.doris.thrift.TStorageBackendType;
@@ -35,7 +34,14 @@ public abstract class AbstractS3CompatibleConnectivityTester implements StorageC
 
     public AbstractS3CompatibleConnectivityTester(AbstractS3CompatibleProperties properties, String testLocation) {
         this.properties = properties;
-        this.testLocation = testLocation;
+        // Normalize s3a:// and s3n:// schemes to s3://
+        String normalized = testLocation.replaceFirst("^s3[an]://", "s3://");
+        // If the path is just a bucket (e.g., s3://bucket or s3://bucket/), add a test key
+        // because BE's S3URI parser requires a non-empty key
+        if (normalized.matches("^s3://[^/]+/?$")) {
+            normalized = normalized.replaceFirst("/?$", "/.connectivity_test");
+        }
+        this.testLocation = normalized;
     }
 
     @Override
@@ -52,10 +58,7 @@ public abstract class AbstractS3CompatibleConnectivityTester implements StorageC
 
     @Override
     public void testFeConnection() throws Exception {
-        S3URI s3Uri = S3URI.create(testLocation,
-                Boolean.parseBoolean(properties.getUsePathStyle()),
-                Boolean.parseBoolean(properties.getForceParsingByStandardUrl()));
-
+        String bucket = URI.create(testLocation).getAuthority();
         String endpoint = properties.getEndpoint();
 
         try (S3Client client = S3Util.buildS3Client(
@@ -63,7 +66,13 @@ public abstract class AbstractS3CompatibleConnectivityTester implements StorageC
                 properties.getRegion(),
                 Boolean.parseBoolean(properties.getUsePathStyle()),
                 properties.getAwsCredentialsProvider())) {
-            client.headBucket(b -> b.bucket(s3Uri.getBucket()));
+            client.headBucket(b -> b.bucket(bucket));
         }
+    }
+
+    @Override
+    public String getErrorHint() {
+        return "Please check S3 credentials (access_key and secret_key or IAM role), "
+                + "region, and bucket (warehouse location) access permissions";
     }
 }

@@ -29,7 +29,6 @@ class time_zone;
 namespace doris {
 namespace vectorized {
 struct FieldSchema;
-struct RowRange;
 } // namespace vectorized
 } // namespace doris
 namespace tparquet {
@@ -44,13 +43,11 @@ class PageIndex {
 public:
     PageIndex() = default;
     ~PageIndex() = default;
-    Status create_skipped_row_range(tparquet::OffsetIndex& offset_index,
-                                    int64_t total_rows_of_group, int page_idx, RowRange* row_range);
     bool check_and_get_page_index_ranges(const std::vector<tparquet::ColumnChunk>& columns);
     Status parse_column_index(const tparquet::ColumnChunk& chunk, const uint8_t* buff,
-                              tparquet::ColumnIndex* column_index);
+                              tparquet::ColumnIndex* column_index) const;
     Status parse_offset_index(const tparquet::ColumnChunk& chunk, const uint8_t* buff,
-                              tparquet::OffsetIndex* offset_index);
+                              tparquet::OffsetIndex* offset_index) const;
 
 private:
     friend class ParquetReader;

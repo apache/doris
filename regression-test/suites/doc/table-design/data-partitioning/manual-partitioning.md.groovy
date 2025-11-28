@@ -67,8 +67,9 @@ suite("docs/table-design/data-partitioning/manual-partitioning.md") {
             sql " insert into null_range2 values (null) "
             Assertions.fail("The SQL above should throw an exception as follows:\n\t\terrCode = 2, detailMessage = Insert has filtered data in strict mode. url: http://127.0.0.1:8040/api/_load_error_log?file=__shard_0/error_log_insert_stmt_b3a6d1f1fac74750-b3bb5d6e92a66da4_b3a6d1f1fac74750_b3bb5d6e92a66da4")
         } catch (Exception e) {
-            assertTrue(e.getMessage().contains("errCode = 2, detailMessage = Insert has filtered data in strict mode."))
-            assertTrue(e.getMessage().contains("url:"))
+            log.info("Caught exception message: " + e.getMessage())
+            assertTrue(e.getMessage().contains("errCode = 2"))
+            assertTrue(e.getMessage().contains("no partition for this tuple"))
         }
     } catch (Throwable t) {
         Assertions.fail("examples in docs/table-design/data-partitioning/manual-partitioning.md failed to exec, please fix it", t)

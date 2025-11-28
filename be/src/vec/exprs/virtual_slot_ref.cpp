@@ -75,14 +75,7 @@ Status VirtualSlotRef::prepare(doris::RuntimeState* state, const doris::RowDescr
     _column_name = &slot_desc->col_name();
     _column_data_type = slot_desc->get_data_type_ptr();
     DCHECK(_column_data_type != nullptr);
-    if (!context->force_materialize_slot() && !slot_desc->is_materialized()) {
-        // slot should be ignored manually
-        _column_id = -1;
-        _prepare_finished = true;
-        return Status::OK();
-    }
-
-    _column_id = desc.get_column_id(_slot_id, context->force_materialize_slot());
+    _column_id = desc.get_column_id(_slot_id);
     if (_column_id < 0) {
         return Status::Error<ErrorCode::INTERNAL_ERROR>(
                 "VirtualSlotRef {} has invalid slot id: "

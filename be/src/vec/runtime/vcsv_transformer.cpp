@@ -86,17 +86,26 @@ VCSVTransformer::VCSVTransformer(RuntimeState* state, doris::io::FileWriter* fil
 Status VCSVTransformer::open() {
     RETURN_IF_ERROR(get_block_compression_codec(_compress_type, &_compress_codec));
     if (_with_bom) {
+        Slice bom_slice(reinterpret_cast<const char*>(bom), sizeof(bom));
         if (_compress_codec) {
-            return Status::InternalError("compressed csv with bom is not supported yet");
+            faststring compressed_data;
+            RETURN_IF_ERROR(_compress_codec->compress(bom_slice, &compressed_data));
+            RETURN_IF_ERROR(
+                    _file_writer->append(Slice(compressed_data.data(), compressed_data.size())));
+        } else {
+            RETURN_IF_ERROR(_file_writer->append(bom_slice));
         }
-        RETURN_IF_ERROR(
-                _file_writer->append(Slice(reinterpret_cast<const char*>(bom), sizeof(bom))));
     }
     if (!_csv_header.empty()) {
+        Slice header(_csv_header.data(), _csv_header.size());
         if (_compress_codec) {
-            return Status::InternalError("compressed csv with header is not supported yet");
+            faststring compressed_data;
+            RETURN_IF_ERROR(_compress_codec->compress(header, &compressed_data));
+            RETURN_IF_ERROR(
+                    _file_writer->append(Slice(compressed_data.data(), compressed_data.size())));
+        } else {
+            return _file_writer->append(header);
         }
-        return _file_writer->append(Slice(_csv_header.data(), _csv_header.size()));
     }
     return Status::OK();
 }

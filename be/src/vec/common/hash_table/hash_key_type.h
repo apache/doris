@@ -37,6 +37,7 @@ enum class HashKeyType {
     int256_key,
     string_key,
     fixed64,
+    fixed72,
     fixed128,
     fixed136,
     fixed256
@@ -59,6 +60,8 @@ inline HashKeyType get_hash_key_type_with_fixed(size_t size) {
     using namespace vectorized;
     if (size <= sizeof(UInt64)) {
         return HashKeyType::fixed64;
+    } else if (size <= sizeof(UInt72)) {
+        return HashKeyType::fixed72;
     } else if (size <= sizeof(UInt128)) {
         return HashKeyType::fixed128;
     } else if (size <= sizeof(UInt136)) {

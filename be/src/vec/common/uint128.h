@@ -62,6 +62,15 @@ struct UInt128TrivialHash {
 using UInt256 = wide::UInt256;
 
 #pragma pack(1)
+struct UInt72 {
+    UInt8 a;
+    UInt64 b;
+
+    bool operator==(const UInt72& rhs) const { return a == rhs.a && b == rhs.b; }
+};
+#pragma pack()
+
+#pragma pack(1)
 struct UInt136 {
     UInt8 a;
     UInt64 b;

@@ -19,14 +19,12 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("aggHaveDupBase") {
 
+    String db = context.config.getDbNameByFile(context.file)
+    sql "use ${db}"
     // this mv rewrite would not be rewritten in RBO, so set NOT_IN_RBO explicitly
     sql "set pre_materialized_view_rewrite_strategy = NOT_IN_RBO"
 
     def tbName1 = "agg_have_dup_base"
-    def getJobState = { tableName ->
-        def jobStateResult = sql """  SHOW ALTER TABLE MATERIALIZED VIEW WHERE TableName='${tableName}' ORDER BY CreateTime DESC LIMIT 1; """
-        return jobStateResult[0][8]
-    }
     sql """ DROP TABLE IF EXISTS agg_have_dup_base; """
     sql """
             create table agg_have_dup_base(
@@ -46,8 +44,7 @@ suite ("aggHaveDupBase") {
     sql "insert into agg_have_dup_base select 3,-3,null,'c';"
     sql "insert into agg_have_dup_base select 3,-3,null,'c';"
 
-    createMV( "create materialized view k12s3m as select k1 as a1,sum(k2),max(k2) from agg_have_dup_base group by k1;")
-
+    create_sync_mv(db, "agg_have_dup_base", "k12s3m", "select k1 as a1,sum(k2),max(k2) from agg_have_dup_base group by k1;")
 
     sql "insert into agg_have_dup_base select -4,-4,-4,'d';"
 

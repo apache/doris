@@ -441,7 +441,7 @@ Status PartitionedAggSinkLocalState::revoke_memory(
                     status = Status::InternalError(
                             "fault_inject partitioned_agg_sink "
                             "revoke_memory canceled");
-                    ExecEnv::GetInstance()->fragment_mgr()->cancel_query(query_id, status);
+                    state->get_query_ctx()->cancel(status);
                     return status;
                 });
                 Defer defer {[&]() {

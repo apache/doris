@@ -195,7 +195,7 @@ PhysicalResultSink
 -- !infer_predicate_join_with_case_when --
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
-----filter((if((score > 170), 'high', 'low') = 'high'))
+----filter((t1.score > 170))
 ------PhysicalOlapScan[t(t1)]
 ----PhysicalOlapScan[t(t2)]
 
@@ -354,14 +354,14 @@ PhysicalResultSink
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((t12.id = t34.id)) otherCondition=()
 ----hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
-------filter(( not (id = 3)) and ( not (id = 4)) and (t1.id < 9) and (t1.id > 1))
+------filter(( not id IN (3, 4)) and (t12.id < 9) and (t12.id > 1))
 --------PhysicalOlapScan[t1]
-------filter(( not (id = 3)) and ( not (id = 4)) and (t2.id < 9) and (t2.id > 1))
+------filter(( not id IN (3, 4)) and (t2.id < 9) and (t2.id > 1))
 --------PhysicalOlapScan[t2]
 ----hashJoin[INNER_JOIN] hashCondition=((t3.id = t4.id)) otherCondition=()
-------filter(( not (id = 3)) and ( not (id = 4)) and (t34.id < 9) and (t34.id > 1))
+------filter(( not id IN (3, 4)) and (t3.id < 9) and (t3.id > 1))
 --------PhysicalOlapScan[t3]
-------filter(( not (id = 3)) and ( not (id = 4)) and (t4.id < 9) and (t4.id > 1))
+------filter(( not id IN (3, 4)) and (t4.id < 9) and (t4.id > 1))
 --------PhysicalOlapScan[t4]
 
 -- !infer8 --

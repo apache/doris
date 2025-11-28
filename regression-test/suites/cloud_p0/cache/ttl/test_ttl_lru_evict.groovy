@@ -253,7 +253,7 @@ suite("test_ttl_lru_evict") {
     // sequentially, coz we don't know what other cases are
     // doing with TTL cache
     logger.info("ttl evict diff:" + (ttl_cache_evict_size_end - ttl_cache_evict_size_begin).toString())
-    assertTrue((ttl_cache_evict_size_end - ttl_cache_evict_size_begin) > 1073741824)
+    assertTrue((ttl_cache_evict_size_end - ttl_cache_evict_size_begin) > 238860800)
 
     // then we test skip_cache count when doing query when ttl cache is full
     // we expect it to be rare

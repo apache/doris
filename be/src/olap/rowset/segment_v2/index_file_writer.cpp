@@ -225,6 +225,20 @@ Status IndexFileWriter::close() {
     return Status::OK();
 }
 
+std::vector<std::string> IndexFileWriter::get_index_file_names() const {
+    std::vector<std::string> file_names;
+    if (_storage_format == InvertedIndexStorageFormatPB::V2) {
+        file_names.emplace_back(
+                InvertedIndexDescriptor::get_index_file_name_v2(_rowset_id, _seg_id));
+    } else {
+        for (const auto& [index_info, _] : _indices_dirs) {
+            file_names.emplace_back(InvertedIndexDescriptor::get_index_file_name_v1(
+                    _rowset_id, _seg_id, index_info.first, index_info.second));
+        }
+    }
+    return file_names;
+}
+
 std::string IndexFileWriter::debug_string() const {
     std::stringstream indices_dirs;
     for (const auto& [index, dir] : _indices_dirs) {

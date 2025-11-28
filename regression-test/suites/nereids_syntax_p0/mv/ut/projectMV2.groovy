@@ -18,6 +18,8 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("projectMV2") {
+    String db = context.config.getDbNameByFile(context.file)
+    sql "use ${db}"
     // this mv rewrite would not be rewritten in RBO phase, so set TRY_IN_RBO explicitly to make case stable
     sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
     sql "SET experimental_enable_nereids_planner=true"
@@ -39,9 +41,7 @@ suite ("projectMV2") {
     sql """insert into projectMV2 values("2020-01-01",1,"a",1,1,1);"""
     sql """insert into projectMV2 values("2020-01-02",2,"b",2,2,2);"""
 
-    createMV("create materialized view projectMV2_mv as select deptno as a1, empid as a2 from projectMV2 order by deptno;")
-
-    sleep(3000)
+    create_sync_mv(db, "projectMV2", "projectMV2_mv", "select deptno as a1, empid as a2 from projectMV2 order by deptno;")
 
     sql """insert into projectMV2 values("2020-01-01",1,"a",1,1,1);"""
 

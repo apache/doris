@@ -26,6 +26,12 @@ public class IcebergS3TablesMetaStoreConnectivityTester extends AbstractIcebergC
     }
 
     @Override
+    public String getErrorHint() {
+        return "Please check S3 credentials (access_key and secret_key or IAM role), endpoint, region, "
+                + "and warehouse location";
+    }
+
+    @Override
     public void testConnection() throws Exception {
         // TODO: Implement Iceberg S3 Tables connectivity test in the future if needed
     }

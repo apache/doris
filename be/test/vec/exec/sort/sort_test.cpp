@@ -82,7 +82,7 @@ public:
     }
 
     void append_block(ColumnInt32::Ptr column) {
-        Block block = VectorizedUtils::create_empty_block(*row_desc, true /*ignore invalid slot*/);
+        Block block = VectorizedUtils::create_empty_block(*row_desc);
         block.get_by_position(0).column = column->clone();
         EXPECT_TRUE(sorter->append_block(&block).ok());
     }

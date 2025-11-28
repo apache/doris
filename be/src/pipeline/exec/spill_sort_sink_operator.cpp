@@ -264,12 +264,12 @@ Status SpillSortSinkLocalState::revoke_memory(RuntimeState* state,
         return Status::OK();
     };
 
-    auto exception_catch_func = [query_id, spill_func]() {
+    auto exception_catch_func = [query_id, state, spill_func]() {
         DBUG_EXECUTE_IF("fault_inject::spill_sort_sink::revoke_memory_cancel", {
             auto status = Status::InternalError(
                     "fault_inject spill_sort_sink "
                     "revoke_memory canceled");
-            ExecEnv::GetInstance()->fragment_mgr()->cancel_query(query_id, status);
+            state->get_query_ctx()->cancel(status);
             return status;
         });
 

@@ -27,6 +27,7 @@
 #include "vec/core/accurate_comparison.h"
 #include "vec/core/decimal_comparison.h"
 #include "vec/data_types/data_type_decimal.h"
+#include "vec/functions/cast/cast_to_string.h"
 #include "vec/io/io_helper.h"
 #include "vec/io/var_int.h"
 #include "vec/runtime/vdatetime_value.h"
@@ -765,10 +766,16 @@ std::string_view Field::as_string_view() const {
 
 #undef MATCH_PRIMITIVE_TYPE
 
-#define MATCH_PRIMITIVE_TYPE(primite_type)                                                   \
+#define MATCH_NUMBER_TYPE(primite_type)                                                      \
     if (type == primite_type) {                                                              \
         const auto& v = get<typename PrimitiveTypeTraits<primite_type>::NearestFieldType>(); \
-        return std::to_string(v);                                                            \
+        return CastToString::from_number(v);                                                 \
+    }
+
+#define MATCH_DECIMAL_TYPE(primite_type)                                                     \
+    if (type == primite_type) {                                                              \
+        const auto& v = get<typename PrimitiveTypeTraits<primite_type>::NearestFieldType>(); \
+        return CastToString::from_decimal(v.get_value(), v.get_scale());                     \
     }
 
 std::string Field::to_string() const {
@@ -777,63 +784,41 @@ std::string Field::to_string() const {
         const auto& s = get<String>();
         return {s.data(), s.size()};
     }
-    if (type == TYPE_DECIMAL32) {
-        const auto& v = get<typename PrimitiveTypeTraits<TYPE_DECIMAL32>::NearestFieldType>();
-        return v.get_value().to_string(v.get_scale());
-    }
-    if (type == TYPE_DECIMAL64) {
-        const auto& v = get<typename PrimitiveTypeTraits<TYPE_DECIMAL64>::NearestFieldType>();
-        return v.get_value().to_string(v.get_scale());
-    }
-    if (type == TYPE_DECIMALV2) {
-        const auto& v = get<typename PrimitiveTypeTraits<TYPE_DECIMALV2>::NearestFieldType>();
-        return v.get_value().to_string(v.get_scale());
-    }
-    if (type == TYPE_DECIMAL128I) {
-        const auto& v = get<typename PrimitiveTypeTraits<TYPE_DECIMAL128I>::NearestFieldType>();
-        return v.get_value().to_string(v.get_scale());
-    }
-    if (type == TYPE_DECIMAL256) {
-        const auto& v = get<typename PrimitiveTypeTraits<TYPE_DECIMAL256>::NearestFieldType>();
-        return v.get_value().to_string(v.get_scale());
-    }
-    if (type == TYPE_LARGEINT) {
-        const auto& v = get<typename PrimitiveTypeTraits<TYPE_LARGEINT>::NearestFieldType>();
-        return int128_to_string(v);
-    }
+    MATCH_DECIMAL_TYPE(TYPE_DECIMAL32);
+    MATCH_DECIMAL_TYPE(TYPE_DECIMAL64);
+    MATCH_DECIMAL_TYPE(TYPE_DECIMALV2);
+    MATCH_DECIMAL_TYPE(TYPE_DECIMAL128I);
+    MATCH_DECIMAL_TYPE(TYPE_DECIMAL256);
+
     if (type == TYPE_DATE || type == TYPE_DATETIME) {
-        const auto& v = get<typename PrimitiveTypeTraits<TYPE_DATE>::NearestFieldType>();
-        std::string buf(40, 0);
-        auto* to = binary_cast<int64_t, doris::VecDateTimeValue>(v).to_string(buf.data());
-        buf.resize(to - buf.data() - 1);
-        return buf;
+        const auto& v = binary_cast<int64_t, doris::VecDateTimeValue>(
+                get<typename PrimitiveTypeTraits<TYPE_DATE>::NearestFieldType>());
+        return CastToString::from_date_or_datetime(v);
     }
     if (type == TYPE_DATEV2) {
-        const auto& v = get<typename PrimitiveTypeTraits<TYPE_DATEV2>::NearestFieldType>();
-        return binary_cast<uint32_t, DateV2Value<DateV2ValueType>>((uint32_t)v).to_string();
+        const auto& v = binary_cast<uint32_t, DateV2Value<DateV2ValueType>>(
+                (uint32_t)get<typename PrimitiveTypeTraits<TYPE_DATEV2>::NearestFieldType>());
+        return CastToString::from_datev2(v);
     }
     if (type == TYPE_DATETIMEV2) {
-        const auto& v = get<typename PrimitiveTypeTraits<TYPE_DATETIMEV2>::NearestFieldType>();
-        return binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(v).to_string();
+        const auto& v = binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(
+                (uint64_t)get<typename PrimitiveTypeTraits<TYPE_DATETIMEV2>::NearestFieldType>());
+        return CastToString::from_datetimev2(v);
     }
-    MATCH_PRIMITIVE_TYPE(TYPE_BOOLEAN);
-    MATCH_PRIMITIVE_TYPE(TYPE_TINYINT);
-    MATCH_PRIMITIVE_TYPE(TYPE_SMALLINT);
-    MATCH_PRIMITIVE_TYPE(TYPE_INT);
-    MATCH_PRIMITIVE_TYPE(TYPE_BIGINT);
-    MATCH_PRIMITIVE_TYPE(TYPE_FLOAT);
-    MATCH_PRIMITIVE_TYPE(TYPE_DOUBLE);
-    MATCH_PRIMITIVE_TYPE(TYPE_TIME);
-    MATCH_PRIMITIVE_TYPE(TYPE_TIMEV2);
-    //    MATCH_PRIMITIVE_TYPE(TYPE_IPV4);
-    //    MATCH_PRIMITIVE_TYPE(TYPE_IPV6);
-    MATCH_PRIMITIVE_TYPE(TYPE_UINT32);
-    MATCH_PRIMITIVE_TYPE(TYPE_UINT64);
+    MATCH_NUMBER_TYPE(TYPE_BOOLEAN);
+    MATCH_NUMBER_TYPE(TYPE_TINYINT);
+    MATCH_NUMBER_TYPE(TYPE_SMALLINT);
+    MATCH_NUMBER_TYPE(TYPE_INT);
+    MATCH_NUMBER_TYPE(TYPE_BIGINT);
+    MATCH_NUMBER_TYPE(TYPE_LARGEINT);
+    MATCH_NUMBER_TYPE(TYPE_FLOAT);
+    MATCH_NUMBER_TYPE(TYPE_DOUBLE);
     throw Exception(
             Status::FatalError("type not supported for to_string, type={}", get_type_name()));
 }
 
-#undef MATCH_PRIMITIVE_TYPE
+#undef MATCH_NUMBER_TYPE
+#undef MATCH_DECIMAL_TYPE
 
 #define DECLARE_FUNCTION(FUNC_NAME)                                                          \
     template void Field::FUNC_NAME<TYPE_NULL>(                                               \

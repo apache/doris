@@ -36,6 +36,7 @@
 #include "runtime/result_block_buffer.h"
 #include "runtime/runtime_state.h"
 #include "runtime/types.h"
+#include "util/mysql_global.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
@@ -174,6 +175,42 @@ Status VMysqlResultWriter<is_binary_format>::_set_options(
     return Status::OK();
 }
 
+void direct_write_to_mysql_result_string(std::string& mysql_rows, const char* str, size_t size) {
+    // MySQL protocol length encoding:
+    // <= 250: 1 byte for length
+    // < 65536: 1 byte (252) + 2 bytes for length
+    // < 16777216: 1 byte (253) + 3 bytes for length
+    // >= 16777216: 1 byte (254) + 8 bytes for length
+
+    char buf[16];
+    if (size < 251ULL) {
+        int1store(buf, size);
+        mysql_rows.append(buf, 1);
+    } else if (size < 65536ULL) {
+        buf[0] = static_cast<char>(252);
+        uint16_t temp16 = static_cast<uint16_t>(size);
+        memcpy(buf + 1, &temp16, sizeof(temp16));
+        mysql_rows.append(buf, 3);
+    } else if (size < 16777216ULL) {
+        buf[0] = static_cast<char>(253);
+        int3store(buf + 1, size);
+        mysql_rows.append(buf, 4);
+    } else {
+        buf[0] = static_cast<char>(254);
+        uint64_t temp64 = static_cast<uint64_t>(size);
+        memcpy(buf + 1, &temp64, sizeof(temp64));
+        mysql_rows.append(buf, 9);
+    }
+
+    // Append string content
+    mysql_rows.append(str, size);
+}
+
+void direct_write_to_mysql_result_null(std::string& mysql_rows) {
+    // MySQL protocol for NULL value is a single byte with value 251
+    mysql_rows.push_back(static_cast<char>(251));
+}
+
 template <bool is_binary_format>
 Status VMysqlResultWriter<is_binary_format>::_write_one_block(RuntimeState* state, Block& block) {
     Status status = Status::OK();
@@ -232,20 +269,55 @@ Status VMysqlResultWriter<is_binary_format>::_write_one_block(RuntimeState* stat
                         num_rows, argument.column->get_name(), argument.column->size());
             }
         }
+        auto mysql_output_tmp_col = ColumnString::create();
+        BufferWriter write_buffer(*mysql_output_tmp_col);
+        size_t write_buffer_index = 0;
+        if (!is_binary_format) {
+            const auto& serde_dialect = state->query_options().serde_dialect;
+            auto write_to_text = [serde_dialect](DataTypeSerDeSPtr& serde, const IColumn* column,
+                                                 BufferWriter& write_buffer, size_t col_index) {
+                if (serde_dialect == TSerdeDialect::DORIS) {
+                    return serde->write_column_to_mysql_text(*column, write_buffer, col_index);
+                } else if (serde_dialect == TSerdeDialect::PRESTO) {
+                    return serde->write_column_to_presto_text(*column, write_buffer, col_index);
+                } else if (serde_dialect == TSerdeDialect::HIVE) {
+                    return serde->write_column_to_hive_text(*column, write_buffer, col_index);
+                } else {
+                    return false;
+                }
+            };
 
-        for (int row_idx = 0; row_idx < num_rows; ++row_idx) {
-            for (size_t col_idx = 0; col_idx < num_cols; ++col_idx) {
-                RETURN_IF_ERROR(arguments[col_idx].serde->write_column_to_mysql(
-                        *(arguments[col_idx].column), row_buffer, row_idx,
-                        arguments[col_idx].is_const, _options));
+            for (int row_idx = 0; row_idx < num_rows; ++row_idx) {
+                auto& mysql_rows = result->result_batch.rows[row_idx];
+                for (size_t col_idx = 0; col_idx < num_cols; ++col_idx) {
+                    const auto col_index = index_check_const(row_idx, arguments[col_idx].is_const);
+                    const auto* column = arguments[col_idx].column;
+                    if (write_to_text(arguments[col_idx].serde, column, write_buffer, col_index)) {
+                        write_buffer.commit();
+                        auto str = mysql_output_tmp_col->get_data_at(write_buffer_index);
+                        direct_write_to_mysql_result_string(mysql_rows, str.data, str.size);
+                        write_buffer_index++;
+                    } else {
+                        direct_write_to_mysql_result_null(mysql_rows);
+                    }
+                }
+                bytes_sent += mysql_rows.size();
             }
+        } else {
+            for (int row_idx = 0; row_idx < num_rows; ++row_idx) {
+                for (size_t col_idx = 0; col_idx < num_cols; ++col_idx) {
+                    RETURN_IF_ERROR(arguments[col_idx].serde->write_column_to_mysql(
+                            *(arguments[col_idx].column), row_buffer, row_idx,
+                            arguments[col_idx].is_const, _options));
+                }
 
-            // copy MysqlRowBuffer to Thrift
-            result->result_batch.rows[row_idx].append(row_buffer.buf(), row_buffer.length());
-            bytes_sent += row_buffer.length();
-            row_buffer.reset();
-            if constexpr (is_binary_format) {
-                row_buffer.start_binary_row(_output_vexpr_ctxs.size());
+                // copy MysqlRowBuffer to Thrift
+                result->result_batch.rows[row_idx].append(row_buffer.buf(), row_buffer.length());
+                bytes_sent += row_buffer.length();
+                row_buffer.reset();
+                if constexpr (is_binary_format) {
+                    row_buffer.start_binary_row(_output_vexpr_ctxs.size());
+                }
             }
         }
     }

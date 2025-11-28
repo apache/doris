@@ -155,4 +155,8 @@ SELECT
     t1, t2, t3, t4, t5, t6, t7
 FROM doris_test.extreme_test;
 
+INSERT INTO doris_test.varbinary_test VALUES (1, 'empty', EMPTY_BLOB());
+INSERT INTO doris_test.varbinary_test VALUES (2, 'NULL', NULL);
+INSERT INTO doris_test.varbinary_test VALUES (3, 'normal', HEXTORAW('48656C6C6F20576F726C64'));
+
 commit;

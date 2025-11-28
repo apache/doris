@@ -216,8 +216,21 @@ public class PushDownJoinOnAssertNumRows extends OneRewriteRuleFactory {
 
     @VisibleForTesting
     LogicalProject<? extends Plan> projectAliasOnPlan(List<Alias> projections, Plan child) {
-        List<NamedExpression> newProjections = Lists.newArrayList(child.getOutput());
-        newProjections.addAll(projections);
-        return new LogicalProject<>(newProjections, child);
+        if (child instanceof LogicalProject) {
+            LogicalProject<? extends Plan> project = (LogicalProject<? extends Plan>) child;
+            List<NamedExpression> newProjections =
+                    Lists.newArrayList(project.getProjects());
+            for (Alias alias : projections) {
+                if (!project.getOutput().contains(alias.toSlot())) {
+                    NamedExpression expr = (NamedExpression) project.pushDownExpressionPastProject(alias);
+                    newProjections.add(expr);
+                }
+            }
+            return project.withProjects(newProjections);
+        } else {
+            List<NamedExpression> newProjections = Lists.newArrayList(child.getOutput());
+            newProjections.addAll(projections);
+            return new LogicalProject<>(newProjections, child);
+        }
     }
 }

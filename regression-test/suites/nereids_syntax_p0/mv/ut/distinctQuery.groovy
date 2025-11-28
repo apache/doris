@@ -18,6 +18,8 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("distinctQuery") {
+    String db = context.config.getDbNameByFile(context.file)
+    sql "use ${db}"
     // this mv rewrite would not be rewritten in RBO phase, so set TRY_IN_RBO explicitly to make case stable
     sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
     sql "SET experimental_enable_nereids_planner=true"
@@ -44,9 +46,9 @@ suite ("distinctQuery") {
     sql """insert into distinctQuery values("2020-01-01",1,"a",1,1,1);"""
     sql """insert into distinctQuery values("2020-01-01",2,"a",1,1,1);"""
 
-    createMV("create materialized view distinctQuery_mv as select deptno as a1, count(salary) as a2 from distinctQuery group by deptno;")
+    create_sync_mv(db, "distinctQuery", "distinctQuery_mv", "select deptno as a1, count(salary) as a2 from distinctQuery group by deptno;")
 
-    createMV("create materialized view distinctQuery_mv2 as select empid as a3, deptno as a4, count(salary) as a5 from distinctQuery group by empid, deptno;")
+    create_sync_mv(db, "distinctQuery", "distinctQuery_mv2", "select empid as a3, deptno as a4, count(distinct empid) as a5 from distinctQuery group by empid, deptno;")
 
     sql "analyze table distinctQuery with sync;"
     

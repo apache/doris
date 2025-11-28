@@ -68,6 +68,7 @@
 #include "io/fs/stream_load_pipe.h"
 #include "io/io_common.h"
 #include "olap/data_dir.h"
+#include "olap/delta_writer.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/beta_rowset.h"
@@ -414,6 +415,7 @@ void PInternalService::open_load_stream(google::protobuf::RpcController* control
         LOG(INFO) << "open load stream, load_id=" << request->load_id()
                   << ", src_id=" << request->src_id();
 
+        std::vector<BaseTabletSPtr> tablets;
         for (const auto& req : request->tablets()) {
             BaseTabletSPtr tablet;
             if (auto res = ExecEnv::get_tablet(req.tablet_id()); !res.has_value()) [[unlikely]] {
@@ -428,6 +430,14 @@ void PInternalService::open_load_stream(google::protobuf::RpcController* control
             resp->set_index_id(req.index_id());
             resp->set_enable_unique_key_merge_on_write(tablet->enable_unique_key_merge_on_write());
             tablet->tablet_schema()->to_schema_pb(resp->mutable_tablet_schema());
+            tablets.push_back(tablet);
+        }
+        if (!tablets.empty()) {
+            auto* tablet_load_infos = response->mutable_tablet_load_rowset_num_infos();
+            for (const auto& tablet : tablets) {
+                BaseDeltaWriter::collect_tablet_load_rowset_num_info(tablet.get(),
+                                                                     tablet_load_infos);
+            }
         }
 
         LoadStream* load_stream = nullptr;
@@ -725,14 +735,23 @@ void PInternalService::outfile_write_success(google::protobuf::RpcController* co
             }
         }
 
-        auto&& res = FileFactory::create_file_writer(
-                FileFactory::convert_storage_type(result_file_sink.storage_backend_type),
-                ExecEnv::GetInstance(), file_options.broker_addresses,
-                file_options.broker_properties, file_name,
-                {
-                        .write_file_cache = false,
-                        .sync_file_data = false,
-                });
+        auto file_type_res =
+                FileFactory::convert_storage_type(result_file_sink.storage_backend_type);
+        if (!file_type_res.has_value()) [[unlikely]] {
+            st = std::move(file_type_res).error();
+            st.to_protobuf(result->mutable_status());
+            LOG(WARNING) << "encounter unkonw type=" << result_file_sink.storage_backend_type
+                         << ", st=" << st;
+            return;
+        }
+
+        auto&& res = FileFactory::create_file_writer(file_type_res.value(), ExecEnv::GetInstance(),
+                                                     file_options.broker_addresses,
+                                                     file_options.broker_properties, file_name,
+                                                     {
+                                                             .write_file_cache = false,
+                                                             .sync_file_data = false,
+                                                     });
         using T = std::decay_t<decltype(res)>;
         if (!res.has_value()) [[unlikely]] {
             st = std::forward<T>(res).error();
@@ -2108,8 +2127,8 @@ void PInternalService::multiget_data_v2(google::protobuf::RpcController* control
     }
 
     doris::pipeline::TaskScheduler* exec_sched = nullptr;
-    vectorized::SimplifiedScanScheduler* scan_sched = nullptr;
-    vectorized::SimplifiedScanScheduler* remote_scan_sched = nullptr;
+    vectorized::ScannerScheduler* scan_sched = nullptr;
+    vectorized::ScannerScheduler* remote_scan_sched = nullptr;
     wg->get_query_scheduler(&exec_sched, &scan_sched, &remote_scan_sched);
     DCHECK(remote_scan_sched);
 

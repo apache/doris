@@ -135,6 +135,24 @@ void DataTypeSerDe::to_string(const IColumn& column, size_t row_num, BufferWrita
                            "Data type {} to_string_batch not implement.", get_name());
 }
 
+bool DataTypeSerDe::write_column_to_mysql_text(const IColumn& column, BufferWritable& bw,
+                                               int64_t row_idx) const {
+    to_string(column, row_idx, bw);
+    return true;
+}
+
+bool DataTypeSerDe::write_column_to_presto_text(const IColumn& column, BufferWritable& bw,
+                                                int64_t row_idx) const {
+    to_string(column, row_idx, bw);
+    return true;
+}
+
+bool DataTypeSerDe::write_column_to_hive_text(const IColumn& column, BufferWritable& bw,
+                                              int64_t row_idx) const {
+    to_string(column, row_idx, bw);
+    return true;
+}
+
 const std::string DataTypeSerDe::NULL_IN_COMPLEX_TYPE = "null";
 const std::string DataTypeSerDe::NULL_IN_CSV_FOR_ORDINARY_TYPE = "\\N";
 

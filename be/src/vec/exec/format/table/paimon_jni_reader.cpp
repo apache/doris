@@ -109,10 +109,8 @@ Status PaimonJniReader::get_next_block(Block* block, size_t* read_rows, bool* eo
     return _jni_connector->get_next_block(block, read_rows, eof);
 }
 
-Status PaimonJniReader::init_reader(
-        const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range) {
-    _colname_to_value_range = colname_to_value_range;
-    RETURN_IF_ERROR(_jni_connector->init(colname_to_value_range));
+Status PaimonJniReader::init_reader() {
+    RETURN_IF_ERROR(_jni_connector->init());
     return _jni_connector->open(_state, _profile);
 }
 #include "common/compile_check_end.h"

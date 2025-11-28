@@ -18,6 +18,8 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("single_slot") {
+    String db = context.config.getDbNameByFile(context.file)
+    sql "use ${db}"
     // this mv rewrite would not be rewritten in RBO phase, so set TRY_IN_RBO explicitly to make case stable
     sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
     sql """ DROP TABLE IF EXISTS single_slot; """
@@ -38,9 +40,7 @@ suite ("single_slot") {
     sql "insert into single_slot select 1,3,2,'b';"
     sql "insert into single_slot select 2,5,null,'c';"
 
-    createMV("create materialized view k1ap2spa as select abs(k1)+1,sum(abs(k2+1)) from single_slot group by abs(k1)+1;")
-
-    sleep(3000)
+    create_sync_mv(db, "single_slot", "k1ap2spa", "select abs(k1)+1 t,sum(abs(k2+1)) from single_slot group by abs(k1)+1;")
 
     sql "insert into single_slot select 2,-4,-4,'d';"
 

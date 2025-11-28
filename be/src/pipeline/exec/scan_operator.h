@@ -83,6 +83,16 @@ public:
     virtual TPushAggOp::type get_push_down_agg_type() = 0;
 
     virtual int64_t get_push_down_count() = 0;
+    // If scan operator is serial operator(like topn), its real parallelism is 1.
+    // Otherwise, its real parallelism is query_parallel_instance_num.
+    // query_parallel_instance_num of olap table is usually equal to session var parallel_pipeline_task_num.
+    // for file scan operator, its real parallelism will be 1 if it is in batch mode.
+    // Related pr:
+    // https://github.com/apache/doris/pull/42460
+    // https://github.com/apache/doris/pull/44635
+    [[nodiscard]] virtual int max_scanners_concurrency(RuntimeState* state) const;
+    [[nodiscard]] virtual int min_scanners_concurrency(RuntimeState* state) const;
+    [[nodiscard]] virtual vectorized::ScannerScheduler* scan_scheduler(RuntimeState* state) const;
 
     [[nodiscard]] std::string get_name() { return _parent->get_name(); }
 
@@ -320,20 +330,15 @@ protected:
     // Parsed from conjuncts
     phmap::flat_hash_map<int, std::pair<SlotDescriptor*, ColumnValueRangeType>>
             _slot_id_to_value_range;
-    // column -> ColumnValueRange
-    // We use _colname_to_value_range to store a column and its conresponding value ranges.
-    std::unordered_map<std::string, ColumnValueRangeType> _colname_to_value_range;
 
     // But if a col is with value range, eg: 1 < col < 10, which is "!is_fixed_range",
     // in this case we can not merge "1 < col < 10" with "col not in (2)".
     // So we have to save "col not in (2)" to another structure: "_not_in_value_ranges".
     // When the data source try to use the value ranges, it should use both ranges in
-    // "_colname_to_value_range" and in "_not_in_value_ranges"
+    // "_slot_id_to_value_range" and in "_not_in_value_ranges"
     std::vector<ColumnValueRangeType> _not_in_value_ranges;
 
     std::atomic<bool> _eos = false;
-
-    std::mutex _block_lock;
 
     std::vector<std::shared_ptr<Dependency>> _filter_dependencies;
 
@@ -362,10 +367,6 @@ public:
     [[nodiscard]] bool is_source() const override { return true; }
 
     [[nodiscard]] virtual bool is_file_scan_operator() const { return false; }
-
-    [[nodiscard]] virtual int query_parallel_instance_num() const {
-        return _query_parallel_instance_num;
-    }
 
     [[nodiscard]] size_t get_reserve_mem_size(RuntimeState* state) override;
 
@@ -442,8 +443,6 @@ protected:
     // Record the value of the aggregate function 'count' from doris's be
     int64_t _push_down_count = -1;
     const int _parallel_tasks = 0;
-
-    int _query_parallel_instance_num = 0;
 
     std::vector<int> _topn_filter_source_node_ids;
 };

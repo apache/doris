@@ -17,6 +17,7 @@
 
 package org.apache.doris.qe.runtime;
 
+import org.apache.doris.common.QueryTimeoutException;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
@@ -132,6 +133,8 @@ public class QueryProcessor extends AbstractJobProcessor {
                 tryFinishSchedule();
             }
             return resultBatch;
+        } catch (QueryTimeoutException e) {
+            throw e;
         } catch (Throwable t) {
             tryFinishSchedule();
             throw t;
