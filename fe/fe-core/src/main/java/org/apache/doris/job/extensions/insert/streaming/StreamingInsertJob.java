@@ -60,11 +60,20 @@ import org.apache.doris.nereids.trees.plans.commands.insert.InsertUtils;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.proto.InternalService;
+import org.apache.doris.proto.InternalService.PRequestCdcClientResult;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
+import org.apache.doris.resource.Tag;
+import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.RpcException;
+import org.apache.doris.system.Backend;
+import org.apache.doris.system.BeSelectionPolicy;
+import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TCell;
+import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TRow;
+import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.transaction.TransactionException;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TxnStateChangeCallback;
@@ -82,10 +91,15 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
@@ -137,8 +151,73 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         super(Env.getCurrentEnv().getNextId(), jobName, jobStatus, dbName, comment, createUser,
                 jobConfig, createTimeMs, executeSql);
         this.properties = properties;
+        try {
+            log.info("======fetch cdc split");
+            fetchCdcSplit();
+        } catch (JobException e) {
+            throw new RuntimeException(e);
+        }
         init();
     }
+
+    // todo: down to offset provider
+    private void fetchCdcSplit() throws JobException{
+        Backend backend = selectBackend(1L);
+        Map<String, Object> params = new HashMap<>();
+        params.put("jobId", "1");
+        params.put("dataSource", "MYSQL");
+        params.put("snapshotTable", "user_info");
+        Map<String, Object> config = new HashMap<>();
+        config.put("host", "127.0.0.1");
+        config.put("port", "3308");
+        config.put("username", "root");
+        config.put("password", "123456");
+        config.put("database", "test");
+        config.put("include_tables", "user_info");
+        params.put("config", config);
+
+        InternalService.PRequestCdcClientRequest request = InternalService.PRequestCdcClientRequest.newBuilder()
+                .setApi("/api/fetchSplits")
+                .setParams(GsonUtils.GSON.toJson(params)).build();
+        TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
+        InternalService.PRequestCdcClientResult result = null;
+        try {
+            Future<PRequestCdcClientResult> future =
+                    BackendServiceProxy.getInstance().requestCdcClient(address, request);
+            result = future.get();
+            TStatusCode code = TStatusCode.findByValue(result.getStatus().getStatusCode());
+            if (code != TStatusCode.OK) {
+                log.error("Failed to get split from backend, {}", result.getStatus().getErrorMsgs(0));
+                throw new JobException("Failed to get split from backend," + result.getStatus().getErrorMsgs(0) + ", response: " + result.getResponse());
+            }
+        } catch (ExecutionException | InterruptedException ex) {
+            log.error("Get splits error: ", ex);
+            throw new JobException(ex);
+        }
+        log.info("========fetch cdc split {}", result.getResponse());
+    }
+
+    public static Backend selectBackend(Long jobId) throws JobException {
+        Backend backend = null;
+        BeSelectionPolicy policy = null;
+
+        policy = new BeSelectionPolicy.Builder()
+                .setEnableRoundRobin(true)
+                .needLoadAvailable().build();
+        List<Long> backendIds;
+        backendIds = Env.getCurrentSystemInfo().selectBackendIdsByPolicy(policy, 1);
+        if (backendIds.isEmpty()) {
+            throw new JobException(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG + ", policy: " + policy);
+        }
+        //jobid % backendSize
+        long index = backendIds.get(jobId.intValue() % backendIds.size());
+        backend = Env.getCurrentSystemInfo().getBackend(index);
+        if (backend == null) {
+            throw new JobException(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG + ", policy: " + policy);
+        }
+        return backend;
+    }
+
 
     private void init() {
         try {

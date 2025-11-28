@@ -209,6 +209,16 @@ public class BackendServiceClient {
         return stub.withDeadlineAfter(timeoutSec, TimeUnit.SECONDS).abortRefreshDictionary(request);
     }
 
+    public Future<InternalService.PRequestCdcClientResult> requestCdcClient(
+            InternalService.PRequestCdcClientRequest request) {
+        return stub.requestCdcClient(request);
+    }
+
+    public Future<InternalService.PRequestCdcClientResult> executeCdcScanCommit(
+            InternalService.PRequestCdcClientRequest request) {
+        return stub.executeCdcScanCommit(request);
+    }
+
     public void shutdown() {
         ConnectivityState state = channel.getState(false);
         LOG.warn("shut down backend service client: {}, channel state: {}", address, state);
