@@ -626,8 +626,8 @@ public class LoadStmt extends DdlStmt implements NotFallbackInParser {
     }
 
     public void checkS3Param() throws UserException {
-        if (brokerDesc.getFileType() != null && brokerDesc.getFileType().equals(TFileType.FILE_S3)) {
-
+        if (brokerDesc.getFileType() != null && brokerDesc.getFileType().equals(TFileType.FILE_S3)
+                && brokerDesc.getStorageProperties() instanceof ObjectStorageProperties) {
             ObjectStorageProperties storageProperties = (ObjectStorageProperties) brokerDesc.getStorageProperties();
             String endpoint = storageProperties.getEndpoint();
             checkEndpoint(endpoint);
