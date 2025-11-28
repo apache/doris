@@ -160,22 +160,20 @@ void BlockFileCacheTtlMgr::run_backgroud_update_ttl_info_map() {
                 uint64_t tablet_ctime = 0;
                 uint64_t ttl = 0;
 
-                auto res = ExecEnv::get_tablet(tablet_id, nullptr, false, false);
-                if (!res.has_value()) {
-                    LOG(WARNING) << "Failed to get tablet for tablet_id: " << tablet_id
-                                 << ", err: " << res.error();
+                TabletMetaSharedPtr tablet_meta;
+                auto meta_status = ExecEnv::get_tablet_meta(tablet_id, &tablet_meta, false);
+                if (!meta_status.ok()) {
+                    LOG(WARNING) << "Failed to get tablet meta for tablet_id: " << tablet_id
+                                 << ", err: " << meta_status;
                     continue;
                 }
 
-                auto tablet = res.value();
-                const auto& tablet_meta = tablet->tablet_meta();
                 if (tablet_meta != nullptr) {
                     tablet_ctime = tablet_meta->creation_time();
-                }
-
-                int64_t ttl_seconds = tablet->ttl_seconds();
-                if (ttl_seconds > 0 && tablet_ctime > 0) {
-                    ttl = static_cast<uint64_t>(ttl_seconds);
+                    int64_t ttl_seconds = tablet_meta->ttl_seconds();
+                    if (ttl_seconds > 0 && tablet_ctime > 0) {
+                        ttl = static_cast<uint64_t>(ttl_seconds);
+                    }
                 }
 
                 // Update TTL info map
@@ -192,8 +190,8 @@ void BlockFileCacheTtlMgr::run_backgroud_update_ttl_info_map() {
                             FileBlocks blocks = get_file_blocks_from_tablet_id(tablet_id);
                             for (auto& block : blocks) {
                                 if (block->cache_type() != FileCacheType::TTL) {
-                                    auto st = block->change_cache_type(FileCacheType::TTL);
-                                    if (!st.ok()) {
+                                    auto change_status = block->change_cache_type(FileCacheType::TTL);
+                                    if (!change_status.ok()) {
                                         LOG(WARNING) << "Failed to convert block to TTL cache_type";
                                     }
                                 }

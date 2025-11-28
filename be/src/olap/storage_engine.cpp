@@ -1362,6 +1362,21 @@ Result<BaseTabletSPtr> StorageEngine::get_tablet(int64_t tablet_id, SyncRowsetSt
     return tablet;
 }
 
+Status StorageEngine::get_tablet_meta(int64_t tablet_id, TabletMetaSharedPtr* tablet_meta,
+                                      bool force_use_only_cached) {
+    if (tablet_meta == nullptr) {
+        return Status::InvalidArgument("tablet_meta output is null");
+    }
+
+    auto res = get_tablet(tablet_id, nullptr, force_use_only_cached, true);
+    if (!res.has_value()) {
+        return res.error();
+    }
+
+    *tablet_meta = res.value()->tablet_meta();
+    return Status::OK();
+}
+
 Status StorageEngine::obtain_shard_path(TStorageMedium::type storage_medium, int64_t path_hash,
                                         std::string* shard_path, DataDir** store,
                                         int64_t partition_id) {

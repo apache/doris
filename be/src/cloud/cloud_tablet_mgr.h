@@ -26,6 +26,7 @@
 
 #include "common/status.h"
 #include "olap/olap_common.h"
+#include "olap/tablet_fwd.h"
 
 namespace doris {
 
@@ -57,6 +58,9 @@ public:
                                                     SyncRowsetStats* sync_stats = nullptr,
                                                     bool force_use_only_cached = false,
                                                     bool cache_on_miss = true);
+
+    // Return true if cached tablet meta is found (without triggering RPC) and filled.
+    bool peek_tablet_meta(int64_t tablet_id, TabletMetaSharedPtr* tablet_meta);
 
     void erase_tablet(int64_t tablet_id);
 

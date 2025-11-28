@@ -182,6 +182,9 @@ public:
                                              bool force_use_only_cached = false,
                                              bool cache_on_miss = true);
 
+    static Status get_tablet_meta(int64_t tablet_id, TabletMetaSharedPtr* tablet_meta,
+                                  bool force_use_only_cached = false);
+
     static bool ready() { return _s_ready.load(std::memory_order_acquire); }
     static bool tracking_memory() { return _s_tracking_memory.load(std::memory_order_acquire); }
     static bool get_is_upgrading() { return _s_upgrading.load(std::memory_order_acquire); }

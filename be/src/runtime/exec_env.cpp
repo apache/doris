@@ -61,6 +61,15 @@ Result<BaseTabletSPtr> ExecEnv::get_tablet(int64_t tablet_id, SyncRowsetStats* s
                    : ResultError(Status::InternalError("failed to get tablet {}", tablet_id));
 }
 
+Status ExecEnv::get_tablet_meta(int64_t tablet_id, TabletMetaSharedPtr* tablet_meta,
+                                bool force_use_only_cached) {
+    auto storage_engine = GetInstance()->_storage_engine.get();
+    if (storage_engine == nullptr) {
+        return Status::InternalError("storage engine is not initialized");
+    }
+    return storage_engine->get_tablet_meta(tablet_id, tablet_meta, force_use_only_cached);
+}
+
 const std::string& ExecEnv::token() const {
     return _cluster_info->token;
 }

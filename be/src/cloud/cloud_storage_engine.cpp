@@ -287,6 +287,27 @@ Result<BaseTabletSPtr> CloudStorageEngine::get_tablet(int64_t tablet_id,
             .transform([](auto&& t) { return static_pointer_cast<BaseTablet>(std::move(t)); });
 }
 
+Status CloudStorageEngine::get_tablet_meta(int64_t tablet_id, TabletMetaSharedPtr* tablet_meta,
+                                           bool force_use_only_cached) {
+    if (tablet_meta == nullptr) {
+        return Status::InvalidArgument("tablet_meta output is null");
+    }
+
+    if (_tablet_mgr && _tablet_mgr->peek_tablet_meta(tablet_id, tablet_meta)) {
+        return Status::OK();
+    }
+
+    if (force_use_only_cached) {
+        return Status::NotFound("tablet meta {} not found in cache", tablet_id);
+    }
+
+    if (_meta_mgr == nullptr) {
+        return Status::InternalError("cloud meta manager is not initialized");
+    }
+
+    return _meta_mgr->get_tablet_meta(tablet_id, tablet_meta);
+}
+
 Status CloudStorageEngine::start_bg_threads(std::shared_ptr<WorkloadGroup> wg_sptr) {
     RETURN_IF_ERROR(Thread::create(
             "CloudStorageEngine", "refresh_s3_info_thread",

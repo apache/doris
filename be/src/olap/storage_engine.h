@@ -123,6 +123,9 @@ public:
                                               bool force_use_only_cached = false,
                                               bool cache_on_miss = true) = 0;
 
+    virtual Status get_tablet_meta(int64_t tablet_id, TabletMetaSharedPtr* tablet_meta,
+                                   bool force_use_only_cached = false) = 0;
+
     void register_report_listener(ReportWorker* listener);
     void deregister_report_listener(ReportWorker* listener);
     void notify_listeners();
@@ -253,6 +256,9 @@ public:
     Result<BaseTabletSPtr> get_tablet(int64_t tablet_id, SyncRowsetStats* sync_stats = nullptr,
                                       bool force_use_only_cached = false,
                                       bool cache_on_miss = true) override;
+
+    Status get_tablet_meta(int64_t tablet_id, TabletMetaSharedPtr* tablet_meta,
+                           bool force_use_only_cached = false) override;
 
     void clear_transaction_task(const TTransactionId transaction_id);
     void clear_transaction_task(const TTransactionId transaction_id,
