@@ -1117,6 +1117,17 @@ message PFetchPeerDataResponse {
     repeated CacheBlockPB datas = 2;
 }
 
+message PRequestCdcClientRequest {
+    optional string api = 1; 
+    optional string params = 2; 
+    optional int64 txn_id = 3;
+}
+
+message PRequestCdcClientResult {
+    optional PStatus status = 1;
+    optional string response = 2;
+}
+
 service PBackendService {
     // If #fragments of a query is < 3, use exec_plan_fragment directly.
     // If #fragments of a query is >=3, use exec_plan_fragment_prepare + exec_plan_fragment_start
@@ -1174,5 +1185,7 @@ service PBackendService {
     rpc abort_refresh_dictionary(PAbortRefreshDictionaryRequest) returns (PAbortRefreshDictionaryResponse);
     rpc get_tablet_rowsets(PGetTabletRowsetsRequest) returns (PGetTabletRowsetsResponse);
     rpc fetch_peer_data(PFetchPeerDataRequest) returns (PFetchPeerDataResponse);
+    rpc request_cdc_client(PRequestCdcClientRequest) returns (PRequestCdcClientResult);
+    rpc execute_cdc_scan_commit(PRequestCdcClientRequest) returns (PRequestCdcClientResult);
 };
 

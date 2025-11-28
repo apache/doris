@@ -65,6 +65,8 @@ DEFINE_Int32(brpc_port, "8060");
 
 DEFINE_Int32(arrow_flight_sql_port, "8050");
 
+DEFINE_Int32(cdc_client_port, "9096");
+
 // If the external client cannot directly access priority_networks, set public_host to be accessible
 // to external client.
 // There are usually two usage scenarios:
@@ -752,6 +754,8 @@ DEFINE_mInt32(max_consumer_num_per_group, "3");
 // the max size of thread pool for routine load task.
 // this should be larger than FE config 'max_routine_load_task_num_per_be' (default 5)
 DEFINE_Int32(max_routine_load_thread_pool_size, "1024");
+
+DEFINE_mInt32(max_cdc_client_thread_pool_size, "128");
 
 // the timeout of condition variable wait in blocking_get and blocking_put
 DEFINE_mInt32(blocking_queue_cv_wait_timeout_ms, "1000");

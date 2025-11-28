@@ -75,6 +75,7 @@
 #include "runtime/external_scan_context_mgr.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/group_commit_mgr.h"
+#include "runtime/cdc_client_manager.h"
 #include "runtime/heartbeat_flags.h"
 #include "runtime/index_policy/index_policy_mgr.h"
 #include "runtime/load_channel_mgr.h"
@@ -335,6 +336,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     RETURN_IF_ERROR(_routine_load_task_executor->init(MemInfo::mem_limit()));
     _small_file_mgr = new SmallFileMgr(this, config::small_file_dir);
     _group_commit_mgr = new GroupCommitMgr(this);
+    _cdc_client_mgr = new CdcClientManager(this);
     _memtable_memory_limiter = std::make_unique<MemTableMemoryLimiter>();
     _load_stream_map_pool = std::make_unique<LoadStreamMapPool>();
     _delta_writer_v2_pool = std::make_unique<vectorized::DeltaWriterV2Pool>();
@@ -842,6 +844,7 @@ void ExecEnv::destroy() {
     SAFE_DELETE(_result_mgr);
     SAFE_DELETE(_file_meta_cache);
     SAFE_DELETE(_group_commit_mgr);
+    SAFE_DELETE(_cdc_client_mgr);
     SAFE_DELETE(_routine_load_task_executor);
     SAFE_DELETE(_stream_load_recorder_manager);
     // _stream_load_executor

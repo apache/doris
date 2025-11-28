@@ -100,6 +100,9 @@ DECLARE_Int32(brpc_port);
 // Default -1, do not start arrow flight sql server.
 DECLARE_Int32(arrow_flight_sql_port);
 
+// port for cdc client scan oltp cdc data
+DECLARE_Int32(cdc_client_port);
+
 // If the external client cannot directly access priority_networks, set public_host to be accessible
 // to external client.
 // There are usually two usage scenarios:
@@ -777,6 +780,9 @@ DECLARE_mInt32(max_consumer_num_per_group);
 // the max size of thread pool for routine load task.
 // this should be larger than FE config 'max_routine_load_task_num_per_be' (default 5)
 DECLARE_Int32(max_routine_load_thread_pool_size);
+
+// Thread pool size for CDC client manager
+DECLARE_mInt32(max_cdc_client_thread_pool_size);
 
 // max external scan cache batch count, means cache max_memory_cache_batch_count * batch_size row
 // default is 20, batch_size's default value is 1024 means 20 * 1024 rows will be cached
