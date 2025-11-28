@@ -114,7 +114,7 @@ void build_segment(SegmentWriterOptions opts, TabletSchemaSPtr build_schema, siz
 // Test V2 (inline) mode with valid column metadata
 TEST(ColumnMetaAccessorTest, V2_BasicInlineColumns) {
     SegmentFooterPB footer;
-    footer.set_version(kSegmentFooterVersionV2);
+    footer.set_version(SEGMENT_FOOTER_VERSION_V2_BASELINE);
 
     // Add 3 columns with different types
     auto* col0 = footer.add_columns();
@@ -184,7 +184,7 @@ TEST(ColumnMetaAccessorTest, V2_BasicInlineColumns) {
 // Test V2 mode with variant subcolumns (unique_id == -1 should be skipped)
 TEST(ColumnMetaAccessorTest, V2_SkipVariantSubcolumns) {
     SegmentFooterPB footer;
-    footer.set_version(kSegmentFooterVersionV2);
+    footer.set_version(SEGMENT_FOOTER_VERSION_V2_BASELINE);
 
     // Regular column
     auto* col0 = footer.add_columns();
@@ -223,7 +223,7 @@ TEST(ColumnMetaAccessorTest, V2_SkipVariantSubcolumns) {
 // Test V2 mode error cases
 TEST(ColumnMetaAccessorTest, V2_ErrorCases) {
     SegmentFooterPB footer;
-    footer.set_version(kSegmentFooterVersionV2);
+    footer.set_version(SEGMENT_FOOTER_VERSION_V2_BASELINE);
 
     // Add one column
     auto* col0 = footer.add_columns();
@@ -241,7 +241,7 @@ TEST(ColumnMetaAccessorTest, V2_ErrorCases) {
 
     // Test empty footer
     SegmentFooterPB empty_footer;
-    empty_footer.set_version(kSegmentFooterVersionV2);
+    empty_footer.set_version(SEGMENT_FOOTER_VERSION_V2_BASELINE);
     ColumnMetaAccessor empty_accessor;
     ASSERT_TRUE(empty_accessor.init(empty_footer, nullptr).ok());
 
@@ -256,7 +256,7 @@ TEST(ColumnMetaAccessorTest, V2_ErrorCases) {
 TEST(ColumnMetaAccessorTest, V3_ExternalMetaRegion) {
     // 1. Create a V3 footer with external meta layout
     SegmentFooterPB footer;
-    footer.set_version(kSegmentFooterVersionV3_ExtColMeta);
+    footer.set_version(SEGMENT_FOOTER_VERSION_V3_EXT_COL_META);
 
     // Prepare 2 columns
     std::vector<ColumnMetaPB> columns;
@@ -344,7 +344,7 @@ TEST(ColumnMetaAccessorTest, V3_ExternalMetaRegion) {
 // Test V3 mode error cases
 TEST(ColumnMetaAccessorTest, V3_ErrorCases_InvalidColumnId) {
     SegmentFooterPB footer;
-    footer.set_version(kSegmentFooterVersionV3_ExtColMeta);
+    footer.set_version(SEGMENT_FOOTER_VERSION_V3_EXT_COL_META);
 
     // Create minimal valid external meta
     std::string file_path = make_test_file_path("v3_error_test.bin");
@@ -394,7 +394,7 @@ TEST(ColumnMetaAccessorTest, V3_ErrorCases_InvalidColumnId) {
 // Test V3 mode with empty external meta region
 TEST(ColumnMetaAccessorTest, V3_EmptyExternalMetaRegion) {
     SegmentFooterPB footer;
-    footer.set_version(kSegmentFooterVersionV3_ExtColMeta);
+    footer.set_version(SEGMENT_FOOTER_VERSION_V3_EXT_COL_META);
     footer.set_col_meta_region_start(100);
     // No column_meta_entries added (empty)
 
@@ -414,7 +414,7 @@ TEST(ColumnMetaAccessorTest, V3_MismatchedEntriesCount) {
     ASSERT_TRUE(fs->create_file(file_path, &fw).ok());
 
     SegmentFooterPB footer;
-    footer.set_version(kSegmentFooterVersionV3_ExtColMeta);
+    footer.set_version(SEGMENT_FOOTER_VERSION_V3_EXT_COL_META);
 
     // Write some padding before meta region so that region_start is non-zero.
     std::string dummy_data(16, 'X');
@@ -469,7 +469,7 @@ TEST(ColumnMetaAccessorTest, V3_CorruptedProtobufData) {
     ASSERT_TRUE(fs->create_file(file_path, &fw).ok());
 
     SegmentFooterPB footer;
-    footer.set_version(kSegmentFooterVersionV3_ExtColMeta);
+    footer.set_version(SEGMENT_FOOTER_VERSION_V3_EXT_COL_META);
 
     // Write some padding before meta region so that region_start is non-zero.
     std::string dummy_data(16, 'X');
@@ -525,7 +525,7 @@ TEST(ColumnMetaAccessorTest, VersionDetection) {
     // V2 footer should use V2 accessor
     {
         SegmentFooterPB footer;
-        footer.set_version(kSegmentFooterVersionV2);
+        footer.set_version(SEGMENT_FOOTER_VERSION_V2_BASELINE);
         auto* col = footer.add_columns();
         col->set_unique_id(20);
         col->set_column_id(0);
@@ -542,7 +542,7 @@ TEST(ColumnMetaAccessorTest, VersionDetection) {
     // init() should fail (no automatic fallback to V2 inline mode).
     {
         SegmentFooterPB footer;
-        footer.set_version(kSegmentFooterVersionV3_ExtColMeta);
+        footer.set_version(SEGMENT_FOOTER_VERSION_V3_EXT_COL_META);
         auto* col = footer.add_columns();
         col->set_unique_id(30);
         col->set_column_id(0);
@@ -557,7 +557,7 @@ TEST(ColumnMetaAccessorTest, VersionDetection) {
 // Test large number of columns
 TEST(ColumnMetaAccessorTest, LargeNumberOfColumns) {
     SegmentFooterPB footer;
-    footer.set_version(kSegmentFooterVersionV2);
+    footer.set_version(SEGMENT_FOOTER_VERSION_V2_BASELINE);
 
     const int num_columns = 1000;
     for (int i = 0; i < num_columns; ++i) {
@@ -681,7 +681,7 @@ TEST(ColumnMetaAccessorTest, FooterSizeWithManyColumnsExternalVsInline) {
 // but test that multiple sequential calls work correctly)
 TEST(ColumnMetaAccessorTest, MultipleSequentialAccesses) {
     SegmentFooterPB footer;
-    footer.set_version(kSegmentFooterVersionV2);
+    footer.set_version(SEGMENT_FOOTER_VERSION_V2_BASELINE);
 
     for (int i = 0; i < 10; ++i) {
         auto* col = footer.add_columns();

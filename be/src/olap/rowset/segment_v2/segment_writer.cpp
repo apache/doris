@@ -1122,8 +1122,8 @@ Status SegmentWriter::_write_primary_key_index() {
 Status SegmentWriter::_write_footer() {
     _footer.set_num_rows(_row_count);
     // Decide whether to externalize ColumnMetaPB by tablet default, and stamp footer version
-    if (_tablet_schema->is_external_segment_meta_used_default()) {
-        _footer.set_version(kSegmentFooterVersionV3_ExtColMeta);
+    if (_tablet_schema->is_external_segment_column_meta_used()) {
+        _footer.set_version(SEGMENT_FOOTER_VERSION_V3_EXT_COL_META);
         VLOG_DEBUG << "use external column meta";
         // External ColumnMetaPB writing (optional)
         RETURN_IF_ERROR(ExternalColMetaUtil::write_external_column_meta(

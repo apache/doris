@@ -493,7 +493,7 @@ public class CreateTableInfo {
             // In fuzzy tests, randomly set storage_format=V3 (ext_meta) for some tables.
             SessionVariable sv = ctx.getSessionVariable();
             boolean randomUseV3 =
-                    sv != null && sv.randomUseV3StorageFormat && Config.use_fuzzy_session_variable;
+                    sv != null && sv.useV3StorageFormat;
             if (randomUseV3
                     && properties != null
                     && !properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_FORMAT)) {
