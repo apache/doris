@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.nereids.types.coercion.DateLikeType;
 import org.apache.doris.nereids.util.DateUtils;
@@ -242,8 +243,11 @@ public class DateTimeLiteral extends DateLiteral {
                     .of((int) year, (int) month, (int) day, (int) hour, (int) minute, (int) second, 0, zoneId)
                     .toInstant();
 
-            int offset = DateUtils.getTimeZone().getRules().getOffset(thatTime).getTotalSeconds()
-                    - zoneId.getRules().getOffset(thatTime).getTotalSeconds();
+            int offset = 0;
+            if (!(this.dataType instanceof TimeStampTzType)) {
+                offset = DateUtils.getTimeZone().getRules().getOffset(thatTime).getTotalSeconds()
+                        - zoneId.getRules().getOffset(thatTime).getTotalSeconds();
+            }
             if (offset != 0) {
                 DateTimeLiteral result = (DateTimeLiteral) this.plusSeconds(offset);
                 this.second = result.second;
