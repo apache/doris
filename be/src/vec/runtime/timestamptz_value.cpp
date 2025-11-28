@@ -75,7 +75,7 @@ std::string TimestampTzValue::to_string(const cctz::time_zone& tz, int scale) co
 
     int len = tmp_dt.to_buffer(buffer, scale);
     // timezone +03:00
-    buffer[len++] = ' ';
+    // buffer[len++] = ' ';
     buffer[len++] = (offset_hours >= 0 ? '+' : '-');
     buffer[len++] = static_cast<char>('0' + std::abs(offset_hours) / 10);
     buffer[len++] = '0' + std::abs(offset_hours) % 10;
