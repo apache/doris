@@ -445,20 +445,22 @@ public class IcebergTransaction implements Transaction {
                 // Get source field to determine the type
                 Types.NestedField sourceField = schema.findField(field.sourceId());
                 if (sourceField == null) {
-                    LOG.warn("Source field not found for partition field: {}", partitionColName);
-                    continue;
+                    throw new RuntimeException(String.format("Source field not found for partition field: %s",
+                        partitionColName));
                 }
 
                 // Convert partition value string to appropriate type
                 Object partitionValue = IcebergUtils.parsePartitionValueFromString(
                         partitionValueStr, sourceField.type());
 
-                // Build equality expression: partition_col = value
+                // Build equality expression using source field name (not partition field name)
+                // For identity partitions, Iceberg requires the source column name in expressions
+                String sourceColName = sourceField.name();
                 Expression eqExpr;
                 if (partitionValue == null) {
-                    eqExpr = Expressions.isNull(partitionColName);
+                    eqExpr = Expressions.isNull(sourceColName);
                 } else {
-                    eqExpr = Expressions.equal(partitionColName, partitionValue);
+                    eqExpr = Expressions.equal(sourceColName, partitionValue);
                 }
                 predicates.add(eqExpr);
             }

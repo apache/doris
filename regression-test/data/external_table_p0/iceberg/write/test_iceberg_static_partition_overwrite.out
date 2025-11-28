@@ -102,3 +102,24 @@
 11	Frank	true	2
 3	Charlie	false	1
 
+-- !q17 --
+10	Eve	100.50
+2	Bob	200.75
+3	Charlie	300.25
+
+-- !q18 --
+10	Eve	100.50	10
+11	Frank	100.50	20
+3	Charlie	200.75	10
+
+-- !q19 --
+10	Eve	1	85.5	true	A
+2	Bob	1	85.5	true	B
+3	Charlie	2	90.0	false	A
+4	David	1	85.5	false	A
+
+-- !q20 --
+10	Eve	1	85.5	true	A
+11	Frank	1	85.5	false	B
+4	David	2	90.0	true	A
+
