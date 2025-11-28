@@ -419,7 +419,7 @@ TEST(ExternalColMetaUtilTest, WriteAndReadV3SegmentExternalMetaRoundTrip) {
     }
 
     // Stamp V3 version like SegmentWriter::_write_footer does for external meta enabled tablets.
-    footer.set_version(segment_v2::kSegmentFooterVersionV3_ExtColMeta);
+    footer.set_version(segment_v2::SEGMENT_FOOTER_VERSION_V3_EXT_COL_META);
 
     std::string file_path = make_test_file_path("v3_ext_col_meta_segment.bin");
     auto fs = io::global_local_filesystem();
@@ -459,7 +459,7 @@ TEST(ExternalColMetaUtilTest, WriteAndReadV3SegmentExternalMetaRoundTrip) {
     SegmentFooterPB loaded_footer;
     st = read_footer_from_file(fr, &loaded_footer);
     ASSERT_TRUE(st.ok()) << st.to_json();
-    EXPECT_EQ(loaded_footer.version(), segment_v2::kSegmentFooterVersionV3_ExtColMeta);
+    EXPECT_EQ(loaded_footer.version(), segment_v2::SEGMENT_FOOTER_VERSION_V3_EXT_COL_META);
 
     // 5. Parse external meta pointers and uid->col_id mapping from the loaded footer.
     ExternalColMetaUtil::ExternalMetaPointers ptrs;
@@ -529,7 +529,7 @@ TEST(ExternalColMetaUtilTest, BuildSegmentAndVerifyDataAndFooterMeta) {
     SegmentFooterPB loaded_footer;
     st = read_footer_from_file(fr, &loaded_footer);
     ASSERT_TRUE(st.ok()) << st.to_json();
-    EXPECT_EQ(loaded_footer.version(), segment_v2::kSegmentFooterVersionV3_ExtColMeta);
+    EXPECT_EQ(loaded_footer.version(), segment_v2::SEGMENT_FOOTER_VERSION_V3_EXT_COL_META);
 
     ExternalColMetaUtil::ExternalMetaPointers ptrs;
     ASSERT_TRUE(ExternalColMetaUtil::parse_external_meta_pointers(loaded_footer, &ptrs).ok());
