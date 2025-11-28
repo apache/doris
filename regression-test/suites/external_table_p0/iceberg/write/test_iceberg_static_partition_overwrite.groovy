@@ -298,8 +298,445 @@ suite("test_iceberg_static_partition_overwrite", "p0,external,iceberg,external_d
     sql """ DROP TABLE IF EXISTS ${tb2_src} """
     sql """ DROP TABLE IF EXISTS ${tb2} """
 
-    // Cleanup
+    // Test Case 7: Static partition with LONG type
     sql """ DROP TABLE IF EXISTS ${tb1} """
-    sql """ drop database if exists ${db1} force"""
-    sql """drop catalog if exists ${catalog_name}"""
+    sql """
+        CREATE TABLE ${tb1} (
+            id BIGINT,
+            name STRING,
+            timestamp_val BIGINT
+        ) ENGINE=iceberg
+        PARTITION BY LIST (timestamp_val) ()
+    """
+    sql """
+        INSERT INTO ${tb1} VALUES
+        (1, 'Alice', 1706140800000),
+        (2, 'Bob', 1706227200000),
+        (3, 'Charlie', 1706313600000)
+    """
+    sql """
+        INSERT OVERWRITE TABLE ${tb1} 
+        PARTITION (timestamp_val=1706140800000)
+        SELECT 10, 'Eve'
+    """
+    order_qt_q07 """ SELECT * FROM ${tb1} ORDER BY id """
+
+    // Test Case 8: Hybrid mode with LONG type (static) + STRING (dynamic)
+    sql """ DROP TABLE IF EXISTS ${tb1} """
+    sql """
+        CREATE TABLE ${tb1} (
+            id BIGINT,
+            name STRING,
+            timestamp_val BIGINT,
+            region STRING
+        ) ENGINE=iceberg
+        PARTITION BY LIST (timestamp_val, region) ()
+    """
+    String tb_long_src = db1 + "_long_src"
+    sql """ DROP TABLE IF EXISTS ${tb_long_src} """
+    sql """
+        CREATE TABLE ${tb_long_src} (
+            id BIGINT,
+            name STRING,
+            region STRING
+        ) ENGINE=iceberg
+    """
+    sql """
+        INSERT INTO ${tb_long_src} VALUES
+        (10, 'Eve', 'bj'),
+        (11, 'Frank', 'sh')
+    """
+    sql """
+        INSERT INTO ${tb1} VALUES
+        (1, 'Alice', 1706140800000, 'bj'),
+        (2, 'Bob', 1706140800000, 'sh'),
+        (3, 'Charlie', 1706227200000, 'bj')
+    """
+    sql """
+        INSERT OVERWRITE TABLE ${tb1} 
+        PARTITION (timestamp_val=1706140800000)
+        SELECT id, name, region FROM ${tb_long_src}
+    """
+    order_qt_q08 """ SELECT * FROM ${tb1} ORDER BY id """
+    sql """ DROP TABLE IF EXISTS ${tb_long_src} """
+
+    // Test Case 9: Static partition with FLOAT type
+    sql """ DROP TABLE IF EXISTS ${tb1} """
+    sql """
+        CREATE TABLE ${tb1} (
+            id BIGINT,
+            name STRING,
+            score FLOAT
+        ) ENGINE=iceberg
+        PARTITION BY LIST (score) ()
+    """
+    sql """
+        INSERT INTO ${tb1} VALUES
+        (1, 'Alice', 85.5),
+        (2, 'Bob', 90.0),
+        (3, 'Charlie', 75.5)
+    """
+    sql """
+        INSERT OVERWRITE TABLE ${tb1} 
+        PARTITION (score=85.5)
+        SELECT 10, 'Eve'
+    """
+    order_qt_q09 """ SELECT * FROM ${tb1} ORDER BY id """
+
+    // Test Case 10: Hybrid mode with FLOAT type (static) + INTEGER (dynamic)
+    sql """ DROP TABLE IF EXISTS ${tb1} """
+    sql """
+        CREATE TABLE ${tb1} (
+            id BIGINT,
+            name STRING,
+            score FLOAT,
+            level INT
+        ) ENGINE=iceberg
+        PARTITION BY LIST (score, level) ()
+    """
+    String tb_float_src = db1 + "_float_src"
+    sql """ DROP TABLE IF EXISTS ${tb_float_src} """
+    sql """
+        CREATE TABLE ${tb_float_src} (
+            id BIGINT,
+            name STRING,
+            level INT
+        ) ENGINE=iceberg
+    """
+    sql """
+        INSERT INTO ${tb_float_src} VALUES
+        (10, 'Eve', 1),
+        (11, 'Frank', 2)
+    """
+    sql """
+        INSERT INTO ${tb1} VALUES
+        (1, 'Alice', 85.5, 1),
+        (2, 'Bob', 85.5, 2),
+        (3, 'Charlie', 90.0, 1)
+    """
+    sql """
+        INSERT OVERWRITE TABLE ${tb1} 
+        PARTITION (score=85.5)
+        SELECT id, name, level FROM ${tb_float_src}
+    """
+    order_qt_q10 """ SELECT * FROM ${tb1} ORDER BY id """
+    sql """ DROP TABLE IF EXISTS ${tb_float_src} """
+
+    // Test Case 11: Static partition with DOUBLE type
+    sql """ DROP TABLE IF EXISTS ${tb1} """
+    sql """
+        CREATE TABLE ${tb1} (
+            id BIGINT,
+            name STRING,
+            price DOUBLE
+        ) ENGINE=iceberg
+        PARTITION BY LIST (price) ()
+    """
+    sql """
+        INSERT INTO ${tb1} VALUES
+        (1, 'Alice', 99.99),
+        (2, 'Bob', 199.99),
+        (3, 'Charlie', 299.99)
+    """
+    sql """
+        INSERT OVERWRITE TABLE ${tb1} 
+        PARTITION (price=99.99)
+        SELECT 10, 'Eve'
+    """
+    order_qt_q11 """ SELECT * FROM ${tb1} ORDER BY id """
+
+    // Test Case 12: Hybrid mode with DOUBLE type (static) + STRING (dynamic)
+    sql """ DROP TABLE IF EXISTS ${tb1} """
+    sql """
+        CREATE TABLE ${tb1} (
+            id BIGINT,
+            name STRING,
+            price DOUBLE,
+            category STRING
+        ) ENGINE=iceberg
+        PARTITION BY LIST (price, category) ()
+    """
+    String tb_double_src = db1 + "_double_src"
+    sql """ DROP TABLE IF EXISTS ${tb_double_src} """
+    sql """
+        CREATE TABLE ${tb_double_src} (
+            id BIGINT,
+            name STRING,
+            category STRING
+        ) ENGINE=iceberg
+    """
+    sql """
+        INSERT INTO ${tb_double_src} VALUES
+        (10, 'Eve', 'A'),
+        (11, 'Frank', 'B')
+    """
+    sql """
+        INSERT INTO ${tb1} VALUES
+        (1, 'Alice', 99.99, 'A'),
+        (2, 'Bob', 99.99, 'B'),
+        (3, 'Charlie', 199.99, 'A')
+    """
+    sql """
+        INSERT OVERWRITE TABLE ${tb1} 
+        PARTITION (price=99.99)
+        SELECT id, name, category FROM ${tb_double_src}
+    """
+    order_qt_q12 """ SELECT * FROM ${tb1} ORDER BY id """
+    sql """ DROP TABLE IF EXISTS ${tb_double_src} """
+
+    // Test Case 13: Static partition with BOOLEAN type
+    sql """ DROP TABLE IF EXISTS ${tb1} """
+    sql """
+        CREATE TABLE ${tb1} (
+            id BIGINT,
+            name STRING,
+            is_active BOOLEAN
+        ) ENGINE=iceberg
+        PARTITION BY LIST (is_active) ()
+    """
+    sql """
+        INSERT INTO ${tb1} VALUES
+        (1, 'Alice', true),
+        (2, 'Bob', false),
+        (3, 'Charlie', true)
+    """
+    sql """
+        INSERT OVERWRITE TABLE ${tb1} 
+        PARTITION (is_active=true)
+        SELECT 10, 'Eve'
+    """
+    order_qt_q13 """ SELECT * FROM ${tb1} ORDER BY id """
+
+    // Test Case 14: Hybrid mode with BOOLEAN type (static) + INTEGER (dynamic)
+    sql """ DROP TABLE IF EXISTS ${tb1} """
+    sql """
+        CREATE TABLE ${tb1} (
+            id BIGINT,
+            name STRING,
+            is_active BOOLEAN,
+            status INT
+        ) ENGINE=iceberg
+        PARTITION BY LIST (is_active, status) ()
+    """
+    String tb_bool_src = db1 + "_bool_src"
+    sql """ DROP TABLE IF EXISTS ${tb_bool_src} """
+    sql """
+        CREATE TABLE ${tb_bool_src} (
+            id BIGINT,
+            name STRING,
+            status INT
+        ) ENGINE=iceberg
+    """
+    sql """
+        INSERT INTO ${tb_bool_src} VALUES
+        (10, 'Eve', 1),
+        (11, 'Frank', 2)
+    """
+    sql """
+        INSERT INTO ${tb1} VALUES
+        (1, 'Alice', true, 1),
+        (2, 'Bob', true, 2),
+        (3, 'Charlie', false, 1)
+    """
+    sql """
+        INSERT OVERWRITE TABLE ${tb1} 
+        PARTITION (is_active=true)
+        SELECT id, name, status FROM ${tb_bool_src}
+    """
+    order_qt_q14 """ SELECT * FROM ${tb1} ORDER BY id """
+    sql """ DROP TABLE IF EXISTS ${tb_bool_src} """
+
+    // Test Case 15: Static partition with DATETIME type
+    sql """ DROP TABLE IF EXISTS ${tb1} """
+    sql """
+        CREATE TABLE ${tb1} (
+            id BIGINT,
+            name STRING,
+            ts DATETIME
+        ) ENGINE=iceberg
+        PARTITION BY LIST (ts) ()
+    """
+    sql """
+        INSERT INTO ${tb1} VALUES
+        (1, 'Alice', '2025-01-25 10:00:00'),
+        (2, 'Bob', '2025-01-25 11:00:00'),
+        (3, 'Charlie', '2025-01-26 10:00:00')
+    """
+    sql """
+        INSERT OVERWRITE TABLE ${tb1} 
+        PARTITION (ts='2025-01-25 10:00:00')
+        SELECT 10, 'Eve'
+    """
+    order_qt_q15 """ SELECT * FROM ${tb1} ORDER BY id """
+
+    // Test Case 16: Hybrid mode with DATETIME type (static) + STRING (dynamic)
+    sql """ DROP TABLE IF EXISTS ${tb1} """
+    sql """
+        CREATE TABLE ${tb1} (
+            id BIGINT,
+            name STRING,
+            ts DATETIME,
+            region STRING
+        ) ENGINE=iceberg
+        PARTITION BY LIST (ts, region) ()
+    """
+    String tb_ts_src = db1 + "_ts_src"
+    sql """ DROP TABLE IF EXISTS ${tb_ts_src} """
+    sql """
+        CREATE TABLE ${tb_ts_src} (
+            id BIGINT,
+            name STRING,
+            region STRING
+        ) ENGINE=iceberg
+    """
+    sql """
+        INSERT INTO ${tb_ts_src} VALUES
+        (10, 'Eve', 'bj'),
+        (11, 'Frank', 'sh')
+    """
+    sql """
+        INSERT INTO ${tb1} VALUES
+        (1, 'Alice', '2025-01-25 10:00:00', 'bj'),
+        (2, 'Bob', '2025-01-25 10:00:00', 'sh'),
+        (3, 'Charlie', '2025-01-26 10:00:00', 'bj')
+    """
+    sql """
+        INSERT OVERWRITE TABLE ${tb1} 
+        PARTITION (ts='2025-01-25 10:00:00')
+        SELECT id, name, region FROM ${tb_ts_src}
+    """
+    order_qt_q16 """ SELECT * FROM ${tb1} ORDER BY id """
+    sql """ DROP TABLE IF EXISTS ${tb_ts_src} """
+
+    // Test Case 17: Static partition with DECIMAL type
+    sql """ DROP TABLE IF EXISTS ${tb1} """
+    sql """
+        CREATE TABLE ${tb1} (
+            id BIGINT,
+            name STRING,
+            amount DECIMAL(10,2)
+        ) ENGINE=iceberg
+        PARTITION BY LIST (amount) ()
+    """
+    sql """
+        INSERT INTO ${tb1} VALUES
+        (1, 'Alice', 100.50),
+        (2, 'Bob', 200.75),
+        (3, 'Charlie', 300.25)
+    """
+    sql """
+        INSERT OVERWRITE TABLE ${tb1} 
+        PARTITION (amount=100.50)
+        SELECT 10, 'Eve'
+    """
+    order_qt_q17 """ SELECT * FROM ${tb1} ORDER BY id """
+
+    // Test Case 18: Hybrid mode with DECIMAL type (static) + INTEGER (dynamic)
+    sql """ DROP TABLE IF EXISTS ${tb1} """
+    sql """
+        CREATE TABLE ${tb1} (
+            id BIGINT,
+            name STRING,
+            amount DECIMAL(10,2),
+            quantity INT
+        ) ENGINE=iceberg
+        PARTITION BY LIST (amount, quantity) ()
+    """
+    String tb_decimal_src = db1 + "_decimal_src"
+    sql """ DROP TABLE IF EXISTS ${tb_decimal_src} """
+    sql """
+        CREATE TABLE ${tb_decimal_src} (
+            id BIGINT,
+            name STRING,
+            quantity INT
+        ) ENGINE=iceberg
+    """
+    sql """
+        INSERT INTO ${tb_decimal_src} VALUES
+        (10, 'Eve', 10),
+        (11, 'Frank', 20)
+    """
+    sql """
+        INSERT INTO ${tb1} VALUES
+        (1, 'Alice', 100.50, 10),
+        (2, 'Bob', 100.50, 20),
+        (3, 'Charlie', 200.75, 10)
+    """
+    sql """
+        INSERT OVERWRITE TABLE ${tb1} 
+        PARTITION (amount=100.50)
+        SELECT id, name, quantity FROM ${tb_decimal_src}
+    """
+    order_qt_q18 """ SELECT * FROM ${tb1} ORDER BY id """
+    sql """ DROP TABLE IF EXISTS ${tb_decimal_src} """
+
+    // Test Case 19: Multiple types in static partition (INTEGER, FLOAT, BOOLEAN, STRING)
+    sql """ DROP TABLE IF EXISTS ${tb1} """
+    sql """
+        CREATE TABLE ${tb1} (
+            id BIGINT,
+            name STRING,
+            level INT,
+            score FLOAT,
+            is_active BOOLEAN,
+            category STRING
+        ) ENGINE=iceberg
+        PARTITION BY LIST (level, score, is_active, category) ()
+    """
+    sql """
+        INSERT INTO ${tb1} VALUES
+        (1, 'Alice', 1, 85.5, true, 'A'),
+        (2, 'Bob', 1, 85.5, true, 'B'),
+        (3, 'Charlie', 2, 90.0, false, 'A'),
+        (4, 'David', 1, 85.5, false, 'A')
+    """
+    sql """
+        INSERT OVERWRITE TABLE ${tb1} 
+        PARTITION (level=1, score=85.5, is_active=true, category='A')
+        SELECT 10, 'Eve'
+    """
+    order_qt_q19 """ SELECT * FROM ${tb1} ORDER BY id """
+
+    // Test Case 20: Hybrid mode with multiple types (2 static + 2 dynamic)
+    sql """ DROP TABLE IF EXISTS ${tb1} """
+    sql """
+        CREATE TABLE ${tb1} (
+            id BIGINT,
+            name STRING,
+            level INT,
+            score FLOAT,
+            is_active BOOLEAN,
+            category STRING
+        ) ENGINE=iceberg
+        PARTITION BY LIST (level, score, is_active, category) ()
+    """
+    String tb_multi_src = db1 + "_multi_src"
+    sql """ DROP TABLE IF EXISTS ${tb_multi_src} """
+    sql """
+        CREATE TABLE ${tb_multi_src} (
+            id BIGINT,
+            name STRING,
+            is_active BOOLEAN,
+            category STRING
+        ) ENGINE=iceberg
+    """
+    sql """
+        INSERT INTO ${tb_multi_src} VALUES
+        (10, 'Eve', true, 'A'),
+        (11, 'Frank', false, 'B')
+    """
+    sql """
+        INSERT INTO ${tb1} VALUES
+        (1, 'Alice', 1, 85.5, true, 'A'),
+        (2, 'Bob', 1, 85.5, true, 'B'),
+        (3, 'Charlie', 1, 85.5, false, 'A'),
+        (4, 'David', 2, 90.0, true, 'A')
+    """
+    sql """
+        INSERT OVERWRITE TABLE ${tb1} 
+        PARTITION (level=1, score=85.5)
+        SELECT id, name, is_active, category FROM ${tb_multi_src}
+    """
+    order_qt_q20 """ SELECT * FROM ${tb1} ORDER BY id """
+    sql """ DROP TABLE IF EXISTS ${tb_multi_src} """
 }
