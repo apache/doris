@@ -3678,9 +3678,12 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     .getCoordinator(request.getQueryId());
             // For single-instance imports (like stream load from FE), we don't need cache either
             // Only multi-instance imports need to ensure consistent tablet replica information
-            int instanceNum = coordinator.getCoordinatorContext().instanceNum.get();
-            if (instanceNum > 1) {
-                needUseCache = true;
+            // Coordinator may be null for stream load or other BE-initiated loads
+            if (coordinator != null) {
+                int instanceNum = coordinator.getCoordinatorContext().instanceNum.get();
+                if (instanceNum > 1) {
+                    needUseCache = true;
+                }
             }
         }
         OlapTable olapTable = (OlapTable) table;
