@@ -11,9 +11,27 @@
 3	Charlie	2025-01-26	bj
 4	David	2025-01-26	sh
 
--- !q03 --
-20	Frank	2025-01-25	sz
+-- !q03_before --
+1	Alice	2025-01-25	bj
+2	Bob	2025-01-25	sh
 3	Charlie	2025-01-26	bj
+4	David	2025-01-26	sh
+
+-- !q03_after --
+10	Eve	2025-01-25	bj
+11	Frank	2025-01-25	sh
+12	Grace	2025-01-25	gz
+3	Charlie	2025-01-26	bj
+4	David	2025-01-26	sh
+
+-- !q03_partition_25 --
+10	Eve	2025-01-25	bj
+11	Frank	2025-01-25	sh
+12	Grace	2025-01-25	gz
+
+-- !q03_partition_26 --
+3	Charlie	2025-01-26	bj
+4	David	2025-01-26	sh
 
 -- !q04 --
 2	Bob	2025-01-25	sh
@@ -24,4 +42,24 @@
 2	Bob	2025-01-25	bj	200
 3	Charlie	2025-01-25	sh	100
 4	David	2025-01-26	bj	100
+
+-- !q06_before --
+1	Alice	2025-01-25	bj	food
+2	Bob	2025-01-25	bj	drink
+3	Charlie	2025-01-25	sh	food
+4	David	2025-01-26	bj	food
+
+-- !q06_after --
+10	Eve	2025-01-25	bj	electronics
+11	Frank	2025-01-25	bj	clothing
+3	Charlie	2025-01-25	sh	food
+4	David	2025-01-26	bj	food
+
+-- !q06_static_partition --
+10	Eve	2025-01-25	bj	electronics
+11	Frank	2025-01-25	bj	clothing
+
+-- !q06_other_partitions --
+3	Charlie	2025-01-25	sh	food
+4	David	2025-01-26	bj	food
 

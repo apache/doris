@@ -77,7 +77,7 @@ suite("test_iceberg_static_partition_overwrite", "p0,external,iceberg,external_d
     sql """
         INSERT OVERWRITE TABLE ${tb1} 
         PARTITION (dt='2025-01-25', region='bj')
-        SELECT 10, 'Eve', '2025-01-25', 'bj'
+        SELECT 10, 'Eve'
     """
 
     // Verify: Only (dt='2025-01-25', region='bj') partition is overwritten
@@ -175,7 +175,7 @@ suite("test_iceberg_static_partition_overwrite", "p0,external,iceberg,external_d
     sql """
         INSERT OVERWRITE TABLE ${tb1} 
         PARTITION (dt='2025-01-25', region='bj')
-        SELECT * FROM ${tb1} WHERE 1=0
+        SELECT id, name FROM ${tb1} WHERE 1=0
     """
 
     // Verify: Specified partition is deleted, other partitions remain unchanged
