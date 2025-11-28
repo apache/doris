@@ -2254,7 +2254,7 @@ void PInternalService::get_tablet_rowsets(google::protobuf::RpcController* contr
     auto maybe_tablet =
             storage.tablet_mgr().get_tablet(request->tablet_id(), /*warmup data*/ false,
                                             /*syn_delete_bitmap*/ false, /*delete_bitmap*/ nullptr,
-                                            /*local_only*/ true);
+                                            /*force_use_only_cached*/ true);
     if (!maybe_tablet) {
         maybe_tablet.error().to_protobuf(response->mutable_status());
         return;
