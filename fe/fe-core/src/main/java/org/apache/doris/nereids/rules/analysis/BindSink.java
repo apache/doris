@@ -696,25 +696,27 @@ public class BindSink implements AnalysisRuleFactory {
                                 partitionColName, table.getName(), partitionFieldMap.keySet()));
             }
 
-            // 2. Check if partition value is a constant expression
+            // 2. Check if it's an identity partition.
+            // Static partition overwrite is only supported for identity partitions.
+            PartitionField field = partitionFieldMap.get(partitionColName);
+            if (!field.transform().isIdentity()) {
+                throw new AnalysisException(
+                        String.format("Cannot use static partition syntax for non-identity partition field '%s'"
+                                + " (transform: %s).", partitionColName, field.transform().toString()));
+            }
+
+            // 3. Check if partition value is a constant expression
             if (!partitionValue.isConstant()) {
                 throw new AnalysisException(
                         String.format("Partition value for column '%s' must be a constant expression, but got: %s",
                                 partitionColName, partitionValue));
             }
 
-            // 3. Validate partition value type (basic check)
-            // Note: Detailed type conversion will be handled in execution phase
+            // 4. Validate partition value type
             if (!(partitionValue instanceof Literal)) {
                 throw new AnalysisException(
                         String.format("Partition value for column '%s' must be a literal, but got: %s",
                                 partitionColName, partitionValue));
-            }
-
-            // 4. Check for NULL values (Iceberg allows NULL partition values, but we should
-            // warn or validate)
-            if (partitionValue instanceof NullLiteral) {
-                // TODO: add warning or validation based on table properties
             }
         }
     }

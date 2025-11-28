@@ -81,21 +81,21 @@ public class ParseInsertPartitionSpecTest {
         // Use NereidsParser.toAst() to parse the SQL and get the AST
         ParserRuleContext tree = NereidsParser.toAst(
                 insertSql, DorisParser::singleStatement);
-        
+
         // The tree is a SingleStatementContext, which contains a StatementContext
         // which contains a StatementBaseContext which contains an InsertTableContext
         // Use reflection to navigate the AST structure
         Method getChildMethod = ParserRuleContext.class.getMethod("getChild", int.class);
-        
+
         // Get statement from singleStatement (index 0)
         Object statement = getChildMethod.invoke(tree, 0);
-        
+
         // Get statementBase from statement (index 0)
         Object statementBase = getChildMethod.invoke(statement, 0);
-        
+
         // Get insertTable from statementBase (index 0)
         Object insertTableCtx = getChildMethod.invoke(statementBase, 0);
-        
+
         // Get partitionSpec() from insertTableCtx using the method
         Method partitionSpecMethod = insertTableCtx.getClass().getMethod("partitionSpec");
         return partitionSpecMethod.invoke(insertTableCtx);
