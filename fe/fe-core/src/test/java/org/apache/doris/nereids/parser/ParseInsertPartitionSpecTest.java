@@ -17,13 +17,15 @@
 
 package org.apache.doris.nereids.parser;
 
+import org.apache.doris.nereids.DorisParser;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Maps;
 import mockit.Mock;
 import mockit.MockUp;
+import org.antlr.v4.runtime.ParserRuleContext;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -76,20 +78,27 @@ public class ParseInsertPartitionSpecTest {
      * Helper method to parse SQL and extract PartitionSpecContext using reflection.
      */
     private Object parsePartitionSpec(String insertSql) throws Exception {
-        NereidsParser parser = new NereidsParser();
-        // Use reflection to access internal methods
-        Method createDorisParserMethod = NereidsParser.class.getDeclaredMethod(
-                "createDorisParser", String.class);
-        createDorisParserMethod.setAccessible(true);
-        Object dorisParser = createDorisParserMethod.invoke(parser, insertSql);
-
-        // Call insertTable() on the parser
-        Method insertTableMethod = dorisParser.getClass().getMethod("insertTable");
-        Object insertCtx = insertTableMethod.invoke(dorisParser);
-
-        // Get partitionSpec() from insertCtx
-        Method partitionSpecMethod = insertCtx.getClass().getMethod("partitionSpec");
-        return partitionSpecMethod.invoke(insertCtx);
+        // Use NereidsParser.toAst() to parse the SQL and get the AST
+        ParserRuleContext tree = NereidsParser.toAst(
+                insertSql, DorisParser::singleStatement);
+        
+        // The tree is a SingleStatementContext, which contains a StatementContext
+        // which contains a StatementBaseContext which contains an InsertTableContext
+        // Use reflection to navigate the AST structure
+        Method getChildMethod = ParserRuleContext.class.getMethod("getChild", int.class);
+        
+        // Get statement from singleStatement (index 0)
+        Object statement = getChildMethod.invoke(tree, 0);
+        
+        // Get statementBase from statement (index 0)
+        Object statementBase = getChildMethod.invoke(statement, 0);
+        
+        // Get insertTable from statementBase (index 0)
+        Object insertTableCtx = getChildMethod.invoke(statementBase, 0);
+        
+        // Get partitionSpec() from insertTableCtx using the method
+        Method partitionSpecMethod = insertTableCtx.getClass().getMethod("partitionSpec");
+        return partitionSpecMethod.invoke(insertTableCtx);
     }
 
     @Test
@@ -166,8 +175,8 @@ public class ParseInsertPartitionSpecTest {
 
     @Test
     public void testParseStaticPartitionStringValue() throws Exception {
-        // Parse: INSERT OVERWRITE tbl PARTITION (dt='2025-01-25') SELECT ...
-        String sql = "INSERT OVERWRITE tbl PARTITION (dt='2025-01-25') SELECT * FROM src";
+        // Parse: INSERT OVERWRITE TABLE tbl PARTITION (dt='2025-01-25') SELECT ...
+        String sql = "INSERT OVERWRITE TABLE tbl PARTITION (dt='2025-01-25') SELECT * FROM src";
         Object ctx = parsePartitionSpec(sql);
 
         InsertPartitionSpec spec = invokeParseInsertPartitionSpec(ctx);
@@ -180,15 +189,15 @@ public class ParseInsertPartitionSpecTest {
         Map<String, Expression> staticValues = spec.getStaticPartitionValues();
         Assertions.assertEquals(1, staticValues.size());
         Assertions.assertTrue(staticValues.containsKey("dt"));
-        Assertions.assertTrue(staticValues.get("dt") instanceof StringLiteral);
-        Assertions.assertEquals("2025-01-25", ((StringLiteral) staticValues.get("dt")).getStringValue());
+        Assertions.assertTrue(staticValues.get("dt") instanceof StringLikeLiteral);
+        Assertions.assertEquals("2025-01-25", ((StringLikeLiteral) staticValues.get("dt")).getStringValue());
     }
 
     @Test
     public void testParseStaticPartitionMultipleValues() throws Exception {
-        // Parse: INSERT OVERWRITE tbl PARTITION (dt='2025-01-25', region='bj') SELECT
+        // Parse: INSERT OVERWRITE TABLE tbl PARTITION (dt='2025-01-25', region='bj') SELECT
         // ...
-        String sql = "INSERT OVERWRITE tbl PARTITION (dt='2025-01-25', region='bj') SELECT * FROM src";
+        String sql = "INSERT OVERWRITE TABLE tbl PARTITION (dt='2025-01-25', region='bj') SELECT * FROM src";
         Object ctx = parsePartitionSpec(sql);
 
         InsertPartitionSpec spec = invokeParseInsertPartitionSpec(ctx);
@@ -200,14 +209,14 @@ public class ParseInsertPartitionSpecTest {
         Assertions.assertEquals(2, staticValues.size());
         Assertions.assertTrue(staticValues.containsKey("dt"));
         Assertions.assertTrue(staticValues.containsKey("region"));
-        Assertions.assertEquals("2025-01-25", ((StringLiteral) staticValues.get("dt")).getStringValue());
-        Assertions.assertEquals("bj", ((StringLiteral) staticValues.get("region")).getStringValue());
+        Assertions.assertEquals("2025-01-25", ((StringLikeLiteral) staticValues.get("dt")).getStringValue());
+        Assertions.assertEquals("bj", ((StringLikeLiteral) staticValues.get("region")).getStringValue());
     }
 
     @Test
     public void testParseStaticPartitionIntegerValue() throws Exception {
-        // Parse: INSERT OVERWRITE tbl PARTITION (year=2025) SELECT ...
-        String sql = "INSERT OVERWRITE tbl PARTITION (year=2025) SELECT * FROM src";
+        // Parse: INSERT OVERWRITE TABLE tbl PARTITION (year=2025) SELECT ...
+        String sql = "INSERT OVERWRITE TABLE tbl PARTITION (year=2025) SELECT * FROM src";
         Object ctx = parsePartitionSpec(sql);
 
         InsertPartitionSpec spec = invokeParseInsertPartitionSpec(ctx);
@@ -239,9 +248,9 @@ public class ParseInsertPartitionSpecTest {
 
     @Test
     public void testParseStaticPartitionMixedTypes() throws Exception {
-        // Parse: INSERT OVERWRITE tbl PARTITION (year=2025, month='01', day=25) SELECT
+        // Parse: INSERT OVERWRITE TABLE tbl PARTITION (year=2025, month='01', day=25) SELECT
         // ...
-        String sql = "INSERT OVERWRITE tbl PARTITION (year=2025, month='01', day=25) SELECT * FROM src";
+        String sql = "INSERT OVERWRITE TABLE tbl PARTITION (year=2025, month='01', day=25) SELECT * FROM src";
         Object ctx = parsePartitionSpec(sql);
 
         InsertPartitionSpec spec = invokeParseInsertPartitionSpec(ctx);
@@ -256,7 +265,7 @@ public class ParseInsertPartitionSpecTest {
         Assertions.assertTrue(staticValues.containsKey("day"));
 
         // month should be string
-        Assertions.assertTrue(staticValues.get("month") instanceof StringLiteral);
-        Assertions.assertEquals("01", ((StringLiteral) staticValues.get("month")).getStringValue());
+        Assertions.assertTrue(staticValues.get("month") instanceof StringLikeLiteral);
+        Assertions.assertEquals("01", ((StringLikeLiteral) staticValues.get("month")).getStringValue());
     }
 }
