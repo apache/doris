@@ -129,6 +129,7 @@
 #include "vec/jsonb/serialize.h"
 #include "vec/runtime/vdata_stream_mgr.h"
 #include "vec/sink/vmysql_result_writer.h"
+#include "runtime/cdc_client_manager.h"
 
 namespace google {
 namespace protobuf {

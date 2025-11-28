@@ -46,6 +46,9 @@
 #include "service/backend_options.h"
 #include "util/thrift_util.h"
 #include "util/threadpool.h"
+#include <gen_cpp/FrontendService.h>
+#include <gen_cpp/FrontendService_types.h>
+#include "runtime/client_cache.h"
 
 namespace doris {
 
@@ -88,7 +91,7 @@ Status check_cdc_client_health(int retry_times, int sleep_time, std::string& hea
 }
 
 // Start CDC client process
-Status start_cdc_client(const std::string& params, PForwardCdcClientResult* result) {
+Status start_cdc_client(const std::string& params, PRequestCdcClientResult* result) {
     Status st = Status::OK();
     
     // Check DORIS_HOME environment variable
@@ -111,12 +114,12 @@ Status start_cdc_client(const std::string& params, PForwardCdcClientResult* resu
         return st;
     }
     
-    string cdc_jar_path = string(doris_home) + "/lib/cdc-client/cdc-client.jar";
-    string cdc_jar_port = "--server.port=" + std::to_string(doris::config::cdc_client_port);
-    string backend_host_port =
+    const std::string cdc_jar_path = std::string(doris_home) + "/lib/cdc_client/cdc-client.jar";
+    const std::string cdc_jar_port = "--server.port=" + std::to_string(doris::config::cdc_client_port);
+    const std::string backend_host_port =
             BackendOptions::get_localhost() + ":" + std::to_string(config::webserver_port);
-    string cdc_jar_params = params;
-    string java_opts = "-Dlog.path=" + string(log_dir);
+    const std::string cdc_jar_params = params;
+    const std::string java_opts = "-Xmx2048m -Dlog.path=" + std::string(log_dir);
     
     // check cdc jar exists
     struct stat buffer;
@@ -129,7 +132,7 @@ Status start_cdc_client(const std::string& params, PForwardCdcClientResult* resu
     }
 
     // check cdc process already started
-    string check_response;
+    std::string check_response;
     auto check_st = check_cdc_client_health(1, 0, check_response);
     if (check_st.ok()) {
         LOG(INFO) << "cdc client already started.";
@@ -181,7 +184,7 @@ Status start_cdc_client(const std::string& params, PForwardCdcClientResult* resu
         exit(1);
     } else {
         // Waiting for cdc to start, failed after more than 30 seconds
-        string health_response;
+        std::string health_response;
         Status status = check_cdc_client_health(5, 6, health_response);
         if (!status.ok()) {
             LOG(ERROR) << "Failed to start cdc client process, status=" << status.to_string()
@@ -291,15 +294,13 @@ Status CdcClientManager::extract_meta_from_response(const std::string& cdc_respo
     return Status::OK();
 }
 
-Status CdcClientManager::commit_transaction(const std::string& txn_id,
+Status CdcClientManager::commit_transaction(int64_t txn_id,
                                                  const std::string& meta_json) {
+    TNetworkAddress master_addr = _exec_env->cluster_info()->master_fe_addr;                                                
+    /**
     TLoadTxnCommitRequest commit_request;
-    commit_request.__set_txn_id(txn_id);
+    commit_request.__set_txnId(txn_id);
 
-    StreamingTaskCommitAttachmentPB attachment;
-    attachment.set_offset(meta_json);
-
-    commit_request.__set_txnCommitAttachment(attachment);
 
     TNetworkAddress master_addr = _exec_env->cluster_info()->master_fe_addr;
     TLoadTxnCommitResult commit_result;
@@ -323,14 +324,14 @@ Status CdcClientManager::commit_transaction(const std::string& txn_id,
                 fmt::format("FE loadTxnCommit returned error, status={}, txn_id={}",
                             result_status.to_string(), txn_id));
     }
-
+   */
     return Status::OK();
 }
 
 void CdcClientManager::execute_cdc_scan_commit_impl(const PRequestCdcClientRequest* request,
                                                      PRequestCdcClientResult* result,
                                                      google::protobuf::Closure* done) {
-    VLOG_RPC << "forward request to cdc client, api " << request->api();
+    VLOG_RPC << "request to cdc client, api " << request->api();
     brpc::ClosureGuard closure_guard(done);
 
     // Start CDC client if not started
@@ -343,14 +344,14 @@ void CdcClientManager::execute_cdc_scan_commit_impl(const PRequestCdcClientReque
 
     // Extract parameters from request
     std::string api = request->api();
-    std::string txn_id = request->txn_id();
+    int64_t txn_id = request->txn_id();
     std::string params_body = request->params();
 
     // Submit async task to handle CDC scan and commit using internal thread_pool
     Status submit_st = _thread_pool->submit_func([this, api, params_body, txn_id]() {
         // Request cdc client to read and load data
         std::string cdc_response;
-        Status st = send_http_request_to_cdc_client(api, params_body, &cdc_response);
+        Status st = send_request_to_cdc_client(api, params_body, &cdc_response);
         if (!st.ok()) {
             LOG(ERROR) << "CDC client HTTP request failed, status=" << st.to_string()
                        << ", api=" << api << ", txn_id=" << txn_id;
