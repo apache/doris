@@ -1066,7 +1066,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
     }
 
-    public void eraseTableDropBackendReplicas(OlapTable olapTable, boolean isReplay) {
+    public void eraseTableDropBackendReplicas(long dbId, OlapTable olapTable, boolean isReplay) {
         if (isReplay || Env.isCheckpointThread()) {
             return;
         }
@@ -1098,7 +1098,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         // no need send be delete task, when be report its tablets, fe will send delete task then.
     }
 
-    public void eraseDroppedIndex(long tableId, List<Long> indexIdList) {
+    public void eraseDroppedIndex(long dbId, long tableId, List<Long> indexIdList) {
         // nothing to do in non cloud mode
     }
 
