@@ -26,6 +26,8 @@ import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
 
 public class UnionNode extends SetOperationNode {
+    private boolean localShuffleUnion;
+
     public UnionNode(PlanNodeId id, TupleId tupleId) {
         super(id, tupleId, "UNION", StatisticalType.UNION_NODE);
     }
@@ -40,5 +42,13 @@ public class UnionNode extends SetOperationNode {
     @Override
     public boolean isSerialOperator() {
         return children.isEmpty();
+    }
+
+    public boolean isLocalShuffleUnion() {
+        return localShuffleUnion;
+    }
+
+    public void setLocalShuffleUnion(boolean localShuffleUnion) {
+        this.localShuffleUnion = localShuffleUnion;
     }
 }
