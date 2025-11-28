@@ -120,7 +120,9 @@ import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.cache.Cache;
 import org.apache.doris.qe.cache.CacheAnalyzer;
 import org.apache.doris.qe.cache.SqlCache;
+import org.apache.doris.resource.computegroup.ComputeGroup;
 import org.apache.doris.resource.computegroup.ComputeGroupMgr;
+import org.apache.doris.resource.workloadgroup.WorkloadGroup;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.statistics.ResultRow;
@@ -135,6 +137,7 @@ import org.apache.doris.thrift.TResultFileSinkOptions;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TSyncLoadForTabletsRequest;
 import org.apache.doris.thrift.TUniqueId;
+import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -323,6 +326,21 @@ public class StmtExecutor {
                 taskState = context.getState().toString();
             }
         }
+        try {
+            ComputeGroup computeGroup = context.getComputeGroup();
+            if (computeGroup != null) {
+                WorkloadGroupMgr wgMgr = Env.getCurrentEnv().getWorkloadGroupMgr();
+                String workloadGroupName = computeGroup.getName();
+                List<WorkloadGroup> list = computeGroup.getWorkloadGroup(workloadGroupName, wgMgr); // wgName 要真的是 workload group 名
+                if (!list.isEmpty()) {
+                    WorkloadGroup wg = list.get(0);
+                    builder.cpuShare(wg.CPU_SHARE);
+                }
+            }
+        } catch (UserException e) {
+            throw new RuntimeException(e);
+        }
+
         builder.taskState(taskState);
         builder.user(context.getQualifiedUser());
         builder.defaultCatalog(context.getCurrentCatalog().getName());
