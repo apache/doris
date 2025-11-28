@@ -222,7 +222,7 @@ inline T count_zero_num(const int8_t* __restrict data, const uint8_t* __restrict
     }
 #endif
     for (; data < end; ++data, ++null_map) {
-        num += (static_cast<uint8_t>(!*data) | *null_map);
+        num += ((*data == 0) | *null_map);
     }
     return num;
 }
