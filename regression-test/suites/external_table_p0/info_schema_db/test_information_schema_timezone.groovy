@@ -225,4 +225,15 @@ suite("test_information_schema_timezone", "p0,external,hive,kerberos,external_do
 
     // set time_zone back
     sql """ SET time_zone = "Asia/Shanghai" """
+
+    // 8. Test offset format timezone (e.g. +08:00)
+    // This tests the fix for cctz returning "Fixed/UTC+08:00:00" format
+    sql """ SET time_zone = '+08:00' """
+    sql """
+        select a.*, b.*, c.NAME as WORKLOAD_GROUP_NAME
+        from information_schema.active_queries a
+        left join information_schema.backend_active_tasks b on a.QUERY_ID = b.QUERY_ID
+        left join information_schema.workload_groups c on a.WORKLOAD_GROUP_ID = c.ID
+    """
+    sql """ SET time_zone = "Asia/Shanghai" """
 }
