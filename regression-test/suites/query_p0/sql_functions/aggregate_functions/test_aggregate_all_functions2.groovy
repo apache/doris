@@ -288,17 +288,21 @@ suite("test_aggregate_all_functions2") {
 
     sql """
         INSERT INTO test_maxmin (id, arr, mp, st, weight) VALUES
-        (1, [1,2,3],        {"k1": 10, "k2": 20},         NAMED_STRUCT("a", 1, "b", "alpha"),   5),
-        (2, [5,6],          {"k1": 30, "k2": 15},         NAMED_STRUCT("a", 2, "b", "beta"),    10),
-        (3, [7],            {"x": 100, "y": 200},         NAMED_STRUCT("a", 3, "b", "gamma"),   3),
-        (4, [],             {"x": 50,  "y": 60},          NAMED_STRUCT("a", 4, "b", "delta"),   8),
-        (5, [9,9,9],        {"foo": 1, "bar": 2},         NAMED_STRUCT("a", 5, "b", "echo"),    15),
-        (6, [10,20,30],     {"foo": 2, "bar": 1},         NAMED_STRUCT("a", 6, "b", "zulu"),    7),
-        (7, [11, 22],       {"key1": -1, "key2": -5},     NAMED_STRUCT("a", 7, "b", "seven"),   12),
-        (8, [3,1],          {"key1": 99, "key2": 98},     NAMED_STRUCT("a", 8, "b", "eight"),   9),
-        (9, [10],           {"A": 5, "B": 10},            NAMED_STRUCT("a", 9, "b", "nine"),    6),
-        (10,[11,22,33,44],  {"A": 10, "B": 5},            NAMED_STRUCT("a", 10,"b", "ten"),     1),
-        (11,null,           null,                         null,     17);
+        (1,  [1,2,3],            {"k1": 10, "k2": 20},         NAMED_STRUCT("a", 1, "b", "alpha"),   5),
+        (2,  [5,6],              {"k1": 30, "k2": 15},         NAMED_STRUCT("a", 2, "b", "beta"),    10),
+        (3,  [7],                {"x": 100, "y": 200},         NAMED_STRUCT("a", 3, "b", "gamma"),   3),
+        (4,  [],                 {"x": 50,  "y": 60},          NAMED_STRUCT("a", 4, "b", "delta"),   8),
+        (5,  [9,9,9],            {"foo": 1, "bar": 2},         NAMED_STRUCT("a", 5, "b", "echo"),    15),
+        (6,  [10,20,30],         {"foo": 2, "bar": 1},         NAMED_STRUCT("a", 6, "b", "zulu"),    7),
+        (7,  [11, 22],           {"key1": -1, "key2": -5},     NAMED_STRUCT("a", 7, "b", "seven"),   12),
+        (8,  [3,1],              {"key1": 99, "key2": 98},     NAMED_STRUCT("a", 8, "b", "eight"),   9),
+        (9,  [10],               {"A": 5, "B": 10},            NAMED_STRUCT("a", 9, "b", "nine"),    6),
+        (10, [11,22,33,44],      {"A": 10, "B": 5},            NAMED_STRUCT("a", 10,"b", "ten"),     1),
+        (11, null,               null,                         null,                                 17),
+        (12, [11,22,null,44],    {"A": null, "B": 5},          NAMED_STRUCT("a", null,"b", "ten"),   1),
+        (13, [null,2,null,4],    {"A": 100, "B": null},        NAMED_STRUCT("a", 10,"b", null),      1),
+        (14, [null,null,null,4], {"A": null, "B": null},       NAMED_STRUCT("a", null,"b", null),    1),
+        (15, [11,null,null,55],  {"A": 10, "B": 5},            NAMED_STRUCT("a", 10,"b", "ten"),     1);
     """
 
     qt_max_array """SELECT max(arr) from test_maxmin"""
