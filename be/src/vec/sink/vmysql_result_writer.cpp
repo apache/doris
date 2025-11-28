@@ -36,6 +36,7 @@
 #include "runtime/result_block_buffer.h"
 #include "runtime/runtime_state.h"
 #include "runtime/types.h"
+#include "udf/udf.h"
 #include "util/mysql_global.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
@@ -189,6 +190,7 @@ Status VMysqlResultWriter<is_binary_format>::_write_one_block(RuntimeState* stat
             const IColumn* column;
             bool is_const;
             DataTypeSerDeSPtr serde;
+            DataTypePtr type;
         };
 
         const size_t num_cols = _output_vexpr_ctxs.size();
@@ -215,7 +217,8 @@ Status VMysqlResultWriter<is_binary_format>::_write_one_block(RuntimeState* stat
                 serde = block.get_by_position(col_idx).type->get_serde();
             }
             serde->set_return_object_as_string(output_object_data());
-            arguments.emplace_back(column_ptr.get(), col_const, serde);
+            arguments.emplace_back(column_ptr.get(), col_const, serde,
+                                   block.get_by_position(col_idx).type);
         }
 
         for (size_t col_idx = 0; col_idx < num_cols; ++col_idx) {
@@ -269,9 +272,27 @@ Status VMysqlResultWriter<is_binary_format>::_write_one_block(RuntimeState* stat
 
             for (int row_idx = 0; row_idx < num_rows; ++row_idx) {
                 for (size_t col_idx = 0; col_idx < num_cols; ++col_idx) {
-                    RETURN_IF_ERROR(arguments[col_idx].serde->write_column_to_mysql_binary(
-                            *(arguments[col_idx].column), row_buffer, row_idx,
-                            arguments[col_idx].is_const, _options));
+                    auto type = arguments[col_idx].type->get_primitive_type();
+                    if (type == PrimitiveType::TYPE_ARRAY || type == PrimitiveType::TYPE_MAP ||
+                        type == PrimitiveType::TYPE_STRUCT) {
+                        const auto col_index =
+                                index_check_const(row_idx, arguments[col_idx].is_const);
+                        const auto* column = arguments[col_idx].column;
+                        if (arguments[col_idx].serde->write_column_to_mysql_text(
+                                    *column, write_buffer, col_index)) {
+                            write_buffer.commit();
+                            auto str = mysql_output_tmp_col->get_data_at(write_buffer_index);
+                            row_buffer.push_string(str.data, str.size);
+                            write_buffer_index++;
+                        } else {
+                            row_buffer.push_null();
+                        }
+
+                    } else {
+                        RETURN_IF_ERROR(arguments[col_idx].serde->write_column_to_mysql_binary(
+                                *(arguments[col_idx].column), row_buffer, row_idx,
+                                arguments[col_idx].is_const, _options));
+                    }
                 }
 
                 // copy MysqlRowBuffer to Thrift
