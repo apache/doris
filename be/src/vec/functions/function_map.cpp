@@ -808,25 +808,16 @@ public:
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         DCHECK(arguments.size()>0)
                 <<"function: "<<get_name()<<", arguments should not be empty";
-        for (const auto&arg : arguments) {
-            DCHECK(arg->get_primitive_type() == TYPE_MAP)
-                    << "argument for function map_concat should be DataTypeMap"
-                    << "and argument is "<<arg->get_name();
-        }
-        LOG(INFO) << "[FunctionMapConcat.get_return_type_impl] return type:"<< arguments[0]->get_name();
         return arguments[0];
     }
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         const uint32_t result, size_t input_rows_count) const override {
         auto result_col = block.get_by_position(result).type->create_column();
-        LOG(INFO)<<"[FunctionMapConcat.execute_impl] result:"<<block.get_by_position(result).dump_structure();
         auto* result_map_column = assert_cast<ColumnMap*>(result_col.get());
         // map keys column
         auto& result_col_map_keys_data = result_map_column->get_keys();
-        result_col_map_keys_data.reserve(10);
         // map values column
         auto& result_col_map_vals_data = result_map_column->get_values();
-        result_col_map_vals_data.reserve(10);
         ColumnArray::Offsets64& column_offsets = result_map_column->get_offsets();
         column_offsets.resize(input_rows_count);
 
@@ -852,27 +843,11 @@ public:
                 for(size_t i=src_column_offsets[row-1];i<src_column_offsets[row];i++){
                     result_col_map_keys_data.insert_from(map_column->get_keys(),i);
                     result_col_map_vals_data.insert_from(map_column->get_values(),i);
-                    LOG(INFO)<<"[FunctionMapConcat.execute_impl] last key:"<<result_col_map_keys_data[result_col_map_keys_data.size()-1];
-                    LOG(INFO)<<"[FunctionMapConcat.execute_impl] last value:"<<result_col_map_vals_data[result_col_map_vals_data.size()-1];
-                    LOG(INFO)<<"[FunctionMapConcat.execute_impl] internel key:"<<row<<" "<<col<<" "<<i<<":"<<map_column->get_keys()[i].to_string();
-                    LOG(INFO)<<"[FunctionMapConcat.execute_impl] internel value:"<<row<<" "<<col<<" "<<i<<":"<<map_column->get_values()[i].to_string();
                 }
-                LOG(INFO) << "[FunctionMapConcat.execute_impl] map_column:"<< block.get_by_position(col).dump_structure()<<" row "<<row<<" length: "<<length;
-                LOG(INFO) << "[FunctionMapConcat.execute_impl] start: "<<src_column_offsets[row-1]<<" end: "<<src_column_offsets[row];
             }
             column_offsets[row] = off;
         }
-        LOG(INFO) << "[DEBUG] Before deduplicate - total keys: " << result_col_map_keys_data.size();
-        for (size_t i = 0; i < result_col_map_keys_data.size(); ++i) {
-            Field key_field = result_col_map_keys_data[i];
-            LOG(INFO) << "[DEBUG] Key " << i << ": " << key_field.to_string();
-        }
         RETURN_IF_ERROR(result_map_column->deduplicate_keys());
-        LOG(INFO) << "[DEBUG] After deduplicate - total keys: " << result_col_map_keys_data.size();
-        for (size_t i = 0; i < result_col_map_keys_data.size(); ++i) {
-            Field key_field = result_col_map_keys_data[i];
-            LOG(INFO) << "[DEBUG] Key " << i << ": " << key_field.to_string();
-        }
         block.replace_by_position(result, std::move(result_col));
 
         return Status::OK();
