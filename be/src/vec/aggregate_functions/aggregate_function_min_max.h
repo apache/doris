@@ -564,10 +564,11 @@ public:
         }
         auto size_bytes =
                 column_type->get_uncompressed_serialized_bytes(*column_data, be_exec_version);
-        std::string memory_buffer(size_bytes, '0');
-        auto* p = column_type->serialize(*column_data, memory_buffer.data(), be_exec_version);
-        buf.write_binary(memory_buffer);
-        DCHECK_EQ(p, memory_buffer.data() + size_bytes);
+        buf.write_binary(size_bytes);
+        buf.resize(size_bytes);
+        auto* p = column_type->serialize(*column_data, buf.data(), be_exec_version);
+        DCHECK_EQ(p, buf.data() + size_bytes);
+        buf.add_offset(size_bytes);
     }
 
     void read(BufferReadable& buf, Arena& arena) {
@@ -575,11 +576,11 @@ public:
         if (!has()) {
             return;
         }
-        std::string memory_buffer;
-        buf.read_binary(memory_buffer);
-        const auto* p =
-                column_type->deserialize(memory_buffer.data(), &column_data, be_exec_version);
-        DCHECK_EQ(p, memory_buffer.data() + memory_buffer.size());
+        int64_t size;
+        buf.read_binary(size);
+        const auto* p = column_type->deserialize(buf.data(), &column_data, be_exec_version);
+        DCHECK_EQ(p, buf.data() + size);
+        buf.add_offset(size);
     }
 
     void change(const IColumn& column, size_t row_num, Arena&) {
