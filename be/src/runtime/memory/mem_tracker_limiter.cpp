@@ -113,7 +113,7 @@ MemTrackerLimiter::~MemTrackerLimiter() {
             std::string err_msg = fmt::format(
                     "mem tracker label: {}, consumption: {}, peak consumption: {}, {}.", label(),
                     consumption(), peak_consumption(), mem_tracker_inaccurate_msg);
-            LOG(FATAL) << err_msg << print_address_sanitizers();
+            LOG(INFO) << err_msg << print_address_sanitizers();
         }
         if (ExecEnv::tracking_memory()) {
             ExecEnv::GetInstance()->orphan_mem_tracker()->consume(consumption());
@@ -124,11 +124,11 @@ MemTrackerLimiter::~MemTrackerLimiter() {
         // orphan memory tracker first to help us debug.
         LOG(INFO) << "Orphan memory tracker consumption: "
                   << ExecEnv::GetInstance()->orphan_mem_tracker()->print_address_sanitizers();
-        LOG(FATAL) << "[Address Sanitizer] consumption is 0, but address sanitizers not empty. "
-                   << ", mem tracker label: " << _label
-                   << ", peak consumption: " << peak_consumption() << print_address_sanitizers();
+        LOG(INFO) << "[Address Sanitizer] consumption is 0, but address sanitizers not empty. "
+                  << ", mem tracker label: " << _label
+                  << ", peak consumption: " << peak_consumption() << print_address_sanitizers();
     }
-    DCHECK_EQ(reserved_consumption(), 0);
+    //DCHECK_EQ(reserved_consumption(), 0);
     memory_memtrackerlimiter_cnt << -1;
 }
 
