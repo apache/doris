@@ -102,9 +102,9 @@ public:
         return this->init(optimal_bit_num(n, fpp) / 8, strategy);
     }
 
-    Status init(uint64_t filter_size) { return init(filter_size, HASH_MURMUR3_X64_64); }
+    virtual Status init(uint64_t filter_size) { return init(filter_size, HASH_MURMUR3_X64_64); }
 
-    Status init(uint64_t filter_size, HashStrategyPB strategy) {
+    virtual Status init(uint64_t filter_size, HashStrategyPB strategy) {
         if (strategy == HASH_MURMUR3_X64_64) {
             _hash_func = murmur_hash3_x64_64;
         } else {
@@ -182,7 +182,7 @@ public:
         add_hash(code);
     }
 
-    bool test_bytes(const char* buf, size_t size) const {
+    virtual bool test_bytes(const char* buf, size_t size) const {
         if (buf == nullptr) {
             return *_has_null;
         }
@@ -200,7 +200,7 @@ public:
 
     virtual size_t size() const { return _size; }
 
-    void set_has_null(bool has_null) { *_has_null = has_null; }
+    virtual void set_has_null(bool has_null) { *_has_null = has_null; }
 
     virtual bool has_null() const { return *_has_null; }
 
@@ -239,7 +239,6 @@ protected:
     // is this bf used for write
     bool _is_write = false;
 
-private:
     std::function<void(const void*, const int64_t, const uint64_t, void*)> _hash_func;
 };
 

@@ -1101,10 +1101,7 @@ TEST(BlockTest, ctor) {
     tuple_builder
             .add_slot(
                     TSlotDescriptorBuilder().type(PrimitiveType::TYPE_INT).nullable(false).build())
-            .add_slot(TSlotDescriptorBuilder()
-                              .type(PrimitiveType::TYPE_STRING)
-                              .set_isMaterialized(false)
-                              .build());
+            .add_slot(TSlotDescriptorBuilder().type(PrimitiveType::TYPE_STRING).build());
     tuple_builder.build(&builder);
 
     auto t_table = builder.desc_tbl();

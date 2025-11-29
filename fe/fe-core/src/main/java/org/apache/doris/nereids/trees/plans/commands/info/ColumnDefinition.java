@@ -17,12 +17,14 @@
 
 package org.apache.doris.nereids.trees.plans.commands.info;
 
+import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.analysis.ColumnDef;
 import org.apache.doris.analysis.ColumnNullableType;
 import org.apache.doris.analysis.DefaultValueExprDef;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
+import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -651,5 +653,31 @@ public class ColumnDefinition {
                 throw new AnalysisException("Generated columns cannot have on update default value.");
             }
         }
+    }
+
+    /**
+     * nameEquals
+     */
+    public boolean nameEquals(String otherColName, boolean ignorePrefix) {
+        if (CaseSensibility.COLUMN.getCaseSensibility()) {
+            if (!ignorePrefix) {
+                return name.equals(otherColName);
+            } else {
+                return removeNamePrefix(name).equals(removeNamePrefix(otherColName));
+            }
+        } else {
+            if (!ignorePrefix) {
+                return name.equalsIgnoreCase(otherColName);
+            } else {
+                return removeNamePrefix(name).equalsIgnoreCase(removeNamePrefix(otherColName));
+            }
+        }
+    }
+
+    public static String removeNamePrefix(String colName) {
+        if (colName.startsWith(SchemaChangeHandler.SHADOW_NAME_PREFIX)) {
+            return colName.substring(SchemaChangeHandler.SHADOW_NAME_PREFIX.length());
+        }
+        return colName;
     }
 }

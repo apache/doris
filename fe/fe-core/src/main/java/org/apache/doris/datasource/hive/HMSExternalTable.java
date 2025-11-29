@@ -58,6 +58,7 @@ import org.apache.doris.mtmv.MTMVSnapshotIf;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 import org.apache.doris.qe.GlobalVariable;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.BaseAnalysisTask;
 import org.apache.doris.statistics.ColumnStatistic;
@@ -65,6 +66,7 @@ import org.apache.doris.statistics.ColumnStatisticBuilder;
 import org.apache.doris.statistics.HMSAnalysisTask;
 import org.apache.doris.statistics.StatsType;
 import org.apache.doris.statistics.util.StatisticsUtil;
+import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.THiveTable;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
@@ -709,7 +711,8 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
             String fieldName = field.getName().toLowerCase(Locale.ROOT);
             String defaultValue = colDefaultValues.getOrDefault(fieldName, null);
             columns.add(new Column(fieldName,
-                    HiveMetaStoreClientHelper.hiveTypeToDorisType(field.getType()), true, null,
+                    HiveMetaStoreClientHelper.hiveTypeToDorisType(field.getType(), catalog.getEnableMappingVarbinary()),
+                    true, null,
                     true, defaultValue, field.getComment(), true, -1));
         }
         List<Column> partitionColumns = initPartitionColumns(columns);
@@ -1183,6 +1186,44 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
                 return Lists.newArrayList();
         }
     }
+
+    public TFileFormatType getFileFormatType(SessionVariable sessionVariable) throws UserException {
+        TFileFormatType type = null;
+        Table table = getRemoteTable();
+        String inputFormatName = table.getSd().getInputFormat();
+        String hiveFormat = HiveMetaStoreClientHelper.HiveFileFormat.getFormat(inputFormatName);
+        if (hiveFormat.equals(HiveMetaStoreClientHelper.HiveFileFormat.PARQUET.getDesc())) {
+            type = TFileFormatType.FORMAT_PARQUET;
+        } else if (hiveFormat.equals(HiveMetaStoreClientHelper.HiveFileFormat.ORC.getDesc())) {
+            type = TFileFormatType.FORMAT_ORC;
+        } else if (hiveFormat.equals(HiveMetaStoreClientHelper.HiveFileFormat.TEXT_FILE.getDesc())) {
+            String serDeLib = table.getSd().getSerdeInfo().getSerializationLib();
+            if (serDeLib.equals(HiveMetaStoreClientHelper.HIVE_JSON_SERDE)
+                    || serDeLib.equals(HiveMetaStoreClientHelper.LEGACY_HIVE_JSON_SERDE)) {
+                type = TFileFormatType.FORMAT_JSON;
+            } else if (serDeLib.equals(HiveMetaStoreClientHelper.OPENX_JSON_SERDE)) {
+                if (!sessionVariable.isReadHiveJsonInOneColumn()) {
+                    type = TFileFormatType.FORMAT_JSON;
+                } else if (sessionVariable.isReadHiveJsonInOneColumn() && firstColumnIsString()) {
+                    type = TFileFormatType.FORMAT_CSV_PLAIN;
+                } else {
+                    throw new UserException("You set read_hive_json_in_one_column = true, but the first column of "
+                            + "table " + getName()
+                            + " is not a string column.");
+                }
+            } else if (serDeLib.equals(HiveMetaStoreClientHelper.HIVE_TEXT_SERDE)) {
+                type = TFileFormatType.FORMAT_TEXT;
+            } else if (serDeLib.equals(HiveMetaStoreClientHelper.HIVE_OPEN_CSV_SERDE)) {
+                type = TFileFormatType.FORMAT_CSV_PLAIN;
+            } else if (serDeLib.equals(HiveMetaStoreClientHelper.HIVE_MULTI_DELIMIT_SERDE)) {
+                type = TFileFormatType.FORMAT_TEXT;
+            } else {
+                throw new UserException("Unsupported hive table serde: " + serDeLib);
+            }
+        }
+        return type;
+    }
+
 
     private Table loadHiveTable() {
         HMSCachedClient client = ((HMSExternalCatalog) catalog).getClient();

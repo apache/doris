@@ -37,7 +37,7 @@ timestamp3	datetime(6)	Yes	true	\N
 char	char(5)	Yes	true	\N	
 varchar	varchar(10)	Yes	true	\N	
 text	text	Yes	true	\N	
-blob	text	Yes	true	\N	
+blob	varbinary(65535)	Yes	true	\N	
 json	text	Yes	true	\N	
 set	text	Yes	true	\N	
 bit	text	Yes	true	\N	
@@ -89,7 +89,7 @@ timestamp3	datetime(6)	No	true	\N
 char	char(5)	No	true	\N	
 varchar	varchar(10)	No	true	\N	
 text	text	No	true	\N	
-blob	text	No	true	\N	
+blob	varbinary(65535)	No	true	\N	
 json	text	No	true	\N	
 set	text	No	true	\N	
 bit	text	No	true	\N	

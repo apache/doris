@@ -18,6 +18,9 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("case_ignore") {
+
+    String db = context.config.getDbNameByFile(context.file)
+    sql "use ${db}"
     // this mv rewrite would not be rewritten in RBO, so set NOT_IN_RBO explicitly
     sql "set pre_materialized_view_rewrite_strategy = NOT_IN_RBO"
     sql """ DROP TABLE IF EXISTS case_ignore; """
@@ -38,9 +41,7 @@ suite ("case_ignore") {
     sql "insert into case_ignore select 2,2,2,'b';"
     sql "insert into case_ignore select 3,-3,null,'c';"
 
-
-    createMV ("create materialized view k12a as select K1 as a1,abs(K2) from case_ignore;")
-    sleep(3000)
+    create_sync_mv(db, "case_ignore", "k12a", "select K1 as a1,abs(K2) from case_ignore;")
 
     sql "insert into case_ignore select -4,-4,-4,'d';"
     sql "SET experimental_enable_nereids_planner=true"

@@ -42,7 +42,6 @@ namespace doris {
 
 class DescriptorTbl;
 class RuntimeProfile;
-class Schema;
 class TBrokerScanRange;
 class TDescriptorTable;
 class TTabletInfo;
@@ -90,8 +89,7 @@ class PushBrokerReader {
     ENABLE_FACTORY_CREATOR(PushBrokerReader);
 
 public:
-    PushBrokerReader(const Schema* schema, const TBrokerScanRange& t_scan_range,
-                     const TDescriptorTable& t_desc_tbl);
+    PushBrokerReader(const TBrokerScanRange& t_scan_range, const TDescriptorTable& t_desc_tbl);
     ~PushBrokerReader() = default;
     Status init();
     Status next(vectorized::Block* block);
@@ -141,7 +139,6 @@ private:
 
     // col names from _slot_descs
     std::vector<std::string> _all_col_names;
-    std::unordered_map<std::string, ColumnValueRangeType>* _colname_to_value_range;
     vectorized::VExprContextSPtrs _push_down_exprs;
     const std::unordered_map<std::string, int>* _col_name_to_slot_id;
     // single slot filter conjuncts

@@ -355,11 +355,31 @@ void DataTypeJsonbSerDe::to_string(const IColumn& column, size_t row_num,
     const auto& col = assert_cast<const ColumnString&, TypeCheckOnRelease::DISABLE>(column);
     const auto& data_ref = col.get_data_at(row_num);
     if (data_ref.size > 0) {
+        if (_nesting_level > 1) {
+            bw.write('"');
+        }
+        std::string str = JsonbToJson::jsonb_to_json_string(data_ref.data, data_ref.size);
+        bw.write(str.c_str(), str.size());
+        if (_nesting_level > 1) {
+            bw.write('"');
+        }
+    } else {
+        bw.write("NULL", 4);
+    }
+}
+
+bool DataTypeJsonbSerDe::write_column_to_presto_text(const IColumn& column, BufferWritable& bw,
+                                                     int64_t row_idx) const {
+    const auto& col = assert_cast<const ColumnString&, TypeCheckOnRelease::DISABLE>(column);
+    const auto& data_ref = col.get_data_at(row_idx);
+    if (data_ref.size > 0) {
         std::string str = JsonbToJson::jsonb_to_json_string(data_ref.data, data_ref.size);
         bw.write(str.c_str(), str.size());
     } else {
         bw.write("NULL", 4);
     }
+    return true;
 }
+
 } // namespace vectorized
 } // namespace doris

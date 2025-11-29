@@ -324,12 +324,14 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
             resultValues.add(new EmptyValue(context, reference));
         }
 
+        // RangeAll = (a is not null or null), only a is not nullable, then RangeAll equals IsNotNull
         // process is null and is not null
         // for non-nullable a: EmptyValue(a) = a is null and null
         boolean hasIsNullValue = collector.hasIsNullValue || collector.hasEmptyValue && reference.nullable();
         boolean hasIsNotNullValue = collector.isNotNullValueOpt.isPresent()
                 || collector.isGenerateNotNullValueOpt.isPresent()
-                || mergeRangeValue != null && !mergeRangeValue.hasLowerBound() && !mergeRangeValue.hasUpperBound();
+                || (!reference.nullable() && mergeRangeValue != null
+                    && !mergeRangeValue.hasLowerBound() && !mergeRangeValue.hasUpperBound());
         if (hasIsNullValue && hasIsNotNullValue) {
             return new UnknownValue(context, BooleanLiteral.FALSE);
         }

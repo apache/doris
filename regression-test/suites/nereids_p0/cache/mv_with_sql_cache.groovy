@@ -88,6 +88,7 @@ suite("mv_with_sql_cache") {
                             def prefix_str = "rename_mv_with_sql_cache_"
                             def tb_name1 = prefix_str + "table1"
                             createTestTable tb_name1
+                            sleep(10 * 1000)
 
                             def mv_name1 = prefix_str + "mv1"
                             def new_mv_name1 = prefix_str + "new_mv1"
@@ -114,6 +115,7 @@ suite("mv_with_sql_cache") {
                             // create mv
                             create_sync_mv(dbName, tb_name1, mv_name1, mv_sql1)
                             create_sync_mv(dbName, tb_name1, mv_name2, mv_sql2)
+                            sleep(10 * 1000)
 
                             assertHasCache "select * from ${tb_name1}"
                             assertHasCache mv_sql1
@@ -125,6 +127,7 @@ suite("mv_with_sql_cache") {
 
                             // alter rename
                             sql """ALTER TABLE ${tb_name1} RENAME ROLLUP ${mv_name1} ${new_mv_name1};"""
+                            sleep(10 * 1000)
 
                             assertNoCache "select * from ${tb_name1}"
                             assertNoCache mv_sql1
@@ -148,6 +151,7 @@ suite("mv_with_sql_cache") {
                             def prefix_str = "create_mv_with_insert_data_sql_cache_"
                             def tb_name1 = prefix_str + "table1"
                             createTestTable tb_name1
+                            sleep(10 * 1000)
 
                             def mv_name1 = prefix_str + "mv1"
                             def new_mv_name1 = prefix_str + "new_mv1"
@@ -174,6 +178,7 @@ suite("mv_with_sql_cache") {
                             // create mv
                             create_sync_mv(dbName, tb_name1, mv_name1, mv_sql1)
                             create_sync_mv(dbName, tb_name1, mv_name2, mv_sql2)
+                            sleep(10 * 1000)
 
                             assertHasCache "select * from ${tb_name1}"
                             assertHasCache mv_sql1
@@ -185,6 +190,7 @@ suite("mv_with_sql_cache") {
 
                             // insert data
                             sql """insert into ${tb_name1} values (1, 3);"""
+                            sleep(10 * 1000)
                             assertNoCache "select * from ${tb_name1}"
                             sql "select * from ${tb_name1}"
                             assertHasCache "select * from ${tb_name1}"
@@ -208,6 +214,7 @@ suite("mv_with_sql_cache") {
                             def prefix_str = "drop_mv_with_sql_cache_"
                             def tb_name1 = prefix_str + "table1"
                             createTestTable tb_name1
+                            sleep(10 * 1000)
 
                             def mv_name1 = prefix_str + "mv1"
                             def new_mv_name1 = prefix_str + "new_mv1"
@@ -234,6 +241,7 @@ suite("mv_with_sql_cache") {
                             // create mv
                             create_sync_mv(dbName, tb_name1, mv_name1, mv_sql1)
                             create_sync_mv(dbName, tb_name1, mv_name2, mv_sql2)
+                            sleep(10 * 1000)
 
                             assertHasCache "select * from ${tb_name1}"
                             assertHasCache mv_sql1
@@ -245,6 +253,7 @@ suite("mv_with_sql_cache") {
 
                             // drop mv
                             sql """drop materialized view ${mv_name1} on ${tb_name1};"""
+                            sleep(10 * 1000)
 
                             assertHasCache "select * from ${tb_name1}"
                             assertHasCache mv_sql1

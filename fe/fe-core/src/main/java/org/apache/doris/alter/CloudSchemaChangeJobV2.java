@@ -149,7 +149,7 @@ public class CloudSchemaChangeJobV2 extends SchemaChangeJobV2 {
         while (true) {
             try {
                 ((CloudInternalCatalog) Env.getCurrentInternalCatalog())
-                    .dropMaterializedIndex(tableId, idxList, false);
+                    .dropMaterializedIndex(dbId, tableId, idxList, false);
                 break;
             } catch (Exception e) {
                 LOG.warn("drop index failed, retry times {}, dbId: {}, tableId: {}, jobId: {}, idxList: {}:",

@@ -42,6 +42,7 @@
 #include "runtime/define_primitive_type.h"
 #include "runtime/descriptors.h"
 #include "runtime/memory/lru_cache_policy.h"
+#include "udf/udf.h"
 #include "util/debug_points.h"
 #include "util/string_parser.hpp"
 #include "util/string_util.h"
@@ -545,6 +546,8 @@ public:
 
     bool has_ngram_bf_index(int32_t col_unique_id) const;
     const TabletIndex* get_ngram_bf_index(int32_t col_unique_id) const;
+    const TabletIndex* get_index(int32_t col_unique_id, IndexType index_type,
+                                 const std::string& suffix_path) const;
     void update_indexes_from_thrift(const std::vector<doris::TOlapTableIndex>& indexes);
     // If schema version is not set, it should be -1
     int32_t schema_version() const { return _schema_version; }
@@ -682,6 +685,23 @@ public:
         return 0;
     }
 
+    void add_pruned_columns_data_type(int32_t col_unique_id, vectorized::DataTypePtr data_type) {
+        _pruned_columns_data_type[col_unique_id] = std::move(data_type);
+    }
+
+    void clear_pruned_columns_data_type() { _pruned_columns_data_type.clear(); }
+
+    bool has_pruned_columns() const { return !_pruned_columns_data_type.empty(); }
+
+    // Whether new segments use externalized ColumnMetaPB layout (CMO) by default
+    bool is_external_segment_column_meta_used() const {
+        return _is_external_segment_column_meta_used;
+    }
+
+    void set_external_segment_meta_used_default(bool v) {
+        _is_external_segment_column_meta_used = v;
+    }
+
 private:
     friend bool operator==(const TabletSchema& a, const TabletSchema& b);
     friend bool operator!=(const TabletSchema& a, const TabletSchema& b);
@@ -752,6 +772,7 @@ private:
     bool _enable_variant_flatten_nested = false;
 
     std::map<size_t, int32_t> _vir_col_idx_to_unique_id;
+    std::map<int32_t, vectorized::DataTypePtr> _pruned_columns_data_type;
 
     // value: extracted path set and sparse path set
     std::unordered_map<int32_t, PathsSetInfo> _path_set_info_map;
@@ -760,6 +781,9 @@ private:
     // value: indexes
     using PatternToIndex = std::unordered_map<std::string, std::vector<TabletIndexPtr>>;
     std::unordered_map<int32_t, PatternToIndex> _index_by_unique_id_with_pattern;
+
+    // Default behavior for new segments: use external ColumnMeta region + CMO table if true
+    bool _is_external_segment_column_meta_used = false;
 };
 
 bool operator==(const TabletSchema& a, const TabletSchema& b);

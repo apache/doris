@@ -387,7 +387,7 @@ void CloudTablet::add_rowsets(std::vector<RowsetSharedPtr> to_add, bool version_
 
     auto add_rowsets_directly = [=, this](std::vector<RowsetSharedPtr>& rowsets) {
         for (auto& rs : rowsets) {
-            if (version_overlap || warmup_delta_data) {
+            if (warmup_delta_data) {
 #ifndef BE_TEST
                 bool warm_up_state_updated = false;
                 // Warmup rowset data in background

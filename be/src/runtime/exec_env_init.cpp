@@ -301,7 +301,6 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     _init_runtime_filter_timer_queue();
 
     _workload_group_manager = new WorkloadGroupMgr();
-    _scanner_scheduler = new doris::vectorized::ScannerScheduler();
 
     _fragment_mgr = new FragmentMgr(this);
     _result_cache = new ResultCache(config::query_cache_max_size_mb,
@@ -355,7 +354,6 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     }
     _broker_mgr->init();
     static_cast<void>(_small_file_mgr->init());
-    status = _scanner_scheduler->init(this);
     if (!status.ok()) {
         LOG(ERROR) << "Scanner scheduler init failed. " << status;
         return status;
@@ -768,7 +766,6 @@ void ExecEnv::destroy() {
     SAFE_STOP(_wal_manager);
     _wal_manager.reset();
     SAFE_STOP(_load_channel_mgr);
-    SAFE_STOP(_scanner_scheduler);
     SAFE_STOP(_broker_mgr);
     SAFE_STOP(_load_path_mgr);
     SAFE_STOP(_result_mgr);
@@ -831,8 +828,6 @@ void ExecEnv::destroy() {
     SAFE_DELETE(_tablet_schema_cache);
     SAFE_DELETE(_tablet_column_object_pool);
 
-    // _scanner_scheduler must be desotried before _storage_page_cache
-    SAFE_DELETE(_scanner_scheduler);
     // _storage_page_cache must be destoried before _cache_manager
     SAFE_DELETE(_storage_page_cache);
 
