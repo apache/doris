@@ -20,6 +20,7 @@ package org.apache.doris.datasource.doris;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.SchemaCacheValue;
@@ -44,6 +45,7 @@ public class RemoteDorisExternalTable extends ExternalTable {
     private volatile long tableId = -1;
     private volatile boolean isSyncOlapTable = false;
     private volatile RemoteOlapTable remoteOlapTable = null;
+    private volatile Exception lastException = null;
 
     public RemoteDorisExternalTable(long id, String name, String remoteName,
             RemoteDorisExternalCatalog catalog, ExternalDatabase db) {
@@ -65,18 +67,26 @@ public class RemoteDorisExternalTable extends ExternalTable {
                     try {
                         isSyncOlapTable = true;
                         remoteOlapTable = null;
+                        lastException = null; // clear previous exception
+
                         List<Partition> cachedPartitions = Lists.newArrayList(partitions);
                         RemoteOlapTable olapTable = ((RemoteDorisExternalCatalog) catalog).getFeServiceClient()
                                 .getOlapTable(dbName, remoteName, tableId, cachedPartitions);
                         olapTable.setCatalog((RemoteDorisExternalCatalog) catalog);
                         olapTable.setDatabase((RemoteDorisExternalDatabase) db);
-                        synchronized (this) {
-                            tableId = olapTable.getId();
-                            partitions = Lists.newArrayList(olapTable.getPartitions());
-                        }
+
+                        // Remove redundant nested synchronized block
+                        tableId = olapTable.getId();
+                        partitions = Lists.newArrayList(olapTable.getPartitions());
+
                         olapTable.setId(id); // change id in case of possible conflicts
                         olapTable.invalidateBackendsIfNeed();
                         remoteOlapTable = olapTable;
+                    } catch (Exception e) {
+                        // Save exception for waiting threads
+                        lastException = e;
+                        LOG.warn("Failed to get remote doris olap table: {}.{}", dbName, remoteName, e);
+                        throw e; // Re-throw the exception
                     } finally {
                         isSyncOlapTable = false;
                         this.notifyAll();
@@ -85,15 +95,23 @@ public class RemoteDorisExternalTable extends ExternalTable {
                 }
             }
         }
+
         synchronized (this) {
             while (isSyncOlapTable) {
                 try {
                     this.wait();
                 } catch (InterruptedException e) {
-                    throw new AnalysisException("interrupted while getting doris olap table");
+                    throw new AnalysisException("interrupted while getting doris olap table", e);
                 }
             }
+
+            // If there is a saved exception, throw it with more details
             if (remoteOlapTable == null) {
+                if (lastException != null) {
+                    throw new AnalysisException(
+                            "failed to get remote doris olap table: " + Util.getRootCauseMessage(lastException),
+                            lastException);
+                }
                 throw new AnalysisException("failed to get remote doris olap table");
             }
             return remoteOlapTable;
