@@ -30,7 +30,7 @@ suite("test_sync_mv") {
     set enable_decimal256=true;
     drop materialized view if exists mv_var_sync_1 on test_decimal_mul_overflow_for_sync_mv;
     """
-    create_sync_mv("""create materialized view mv_var_sync_1
+    createMV("""create materialized view mv_var_sync_1
             as select f1 as c1, f2 as c2, f1*f2 multi_col from test_decimal_mul_overflow_for_sync_mv;""")
 
     // test refresh
@@ -69,7 +69,7 @@ suite("test_sync_mv") {
 
     sql """set enable_decimal256=true;
     drop materialized view if exists mv_var_sync_1 on test_decimal_mul_overflow_for_sync_mv;"""
-    create_sync_mv("""create materialized view mv_var_sync_1
+    createMV("""create materialized view mv_var_sync_1
             as select f1 as c1, f2 as c2, f1*f2 multi_col from test_decimal_mul_overflow_for_sync_mv
             where f1*f2==999999999999998246906000000000.76833464320;""")
     // turn off 256 and insert，expect can insert this row

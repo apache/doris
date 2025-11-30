@@ -25,6 +25,15 @@ suite("test_mtmv") {
     PROPERTIES("replication_num" = "1");
     insert into test_decimal_mul_overflow_for_mv values(999999999999999.12345,999999999999999.123456);"""
 
+    multi_sql """drop table if exists test_decimal_mul_overflow_for_mv2;
+    CREATE TABLE `test_decimal_mul_overflow_for_mv2` (
+    `f1` decimal(20,5) NULL,
+    `f2` decimal(21,6) NULL
+    )DISTRIBUTED BY HASH(f1)
+    PROPERTIES("replication_num" = "1");
+    insert into test_decimal_mul_overflow_for_mv2 values(999999999999999.12345,999999999999999.123456);"""
+
+
     def query_sql = """select f1, f2, f1*f2 multi_col from test_decimal_mul_overflow_for_mv"""
 
     // turn on and create
@@ -41,6 +50,7 @@ suite("test_mtmv") {
     sql """set enable_decimal256=false;
     insert into test_decimal_mul_overflow_for_mv values(1.12345,1.234567);"""
     sql "analyze table test_decimal_mul_overflow_for_mv with sync;"
+    sql "analyze table test_decimal_mul_overflow_for_mv2 with sync;"
 
     sql """
             REFRESH MATERIALIZED VIEW mv_var_1 auto
@@ -49,7 +59,7 @@ suite("test_mtmv") {
     def job_name = getJobName(db, "mv_var_1");
     waitingMTMVTaskFinished(job_name)
     sql """sync;"""
-
+    sql "analyze table mv_var_1 with sync"
     // expect scale is 11
     qt_refresh "select f1,f2,multi_col from mv_var_1 order by 1,2,3;"
 
@@ -86,7 +96,7 @@ suite("test_mtmv") {
     def job_name2 = getJobName(db, "mv_pre_mv_rewrite");
     waitingMTMVTaskFinished(job_name2)
     sql "sync;"
-
+    sql "analyze table mv_pre_mv_rewrite with sync;"
     sql """set enable_decimal256=true;
     drop view if EXISTS v_distinct_agg_rewrite;
     create view v_distinct_agg_rewrite as
