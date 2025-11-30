@@ -192,6 +192,12 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
 
         String formatString = getOrDefaultAndRemove(copiedProps, FileFormatConstants.PROP_FORMAT, "").toLowerCase();
         fileFormatProperties = FileFormatProperties.createFileFormatProperties(formatString);
+
+        // Parse enable_mapping_varbinary property
+        String enableMappingVarbinaryStr = getOrDefaultAndRemove(copiedProps,
+                FileFormatConstants.PROP_ENABLE_MAPPING_VARBINARY, "false");
+        fileFormatProperties.enableMappingVarbinary = Boolean.parseBoolean(enableMappingVarbinaryStr);
+
         fileFormatProperties.analyzeFileFormatProperties(copiedProps, true);
 
         if (fileFormatProperties instanceof CsvFileFormatProperties
@@ -425,6 +431,8 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         fileScanRangeParams.setFileAttributes(getFileAttributes());
         ConnectContext ctx = ConnectContext.get();
         fileScanRangeParams.setLoadId(ctx.queryId());
+        // table function fetch schema, whether to enable mapping varbinary
+        fileScanRangeParams.setEnableMappingVarbinary(fileFormatProperties.enableMappingVarbinary);
 
         if (getTFileType() == TFileType.FILE_STREAM) {
             fileStatuses.add(new TBrokerFileStatus("", false, -1, true));

@@ -130,6 +130,12 @@ bool MetaChecker::do_meta_tablet_key_check(std::vector<TabletInfo>& tablets_info
         result = mysql_store_result(&conn);
         if (result) {
             MYSQL_ROW row = mysql_fetch_row(result);
+            if (!row) {
+                LOG(WARNING) << "check failed, fdb meta: " << tablet_info.debug_string()
+                             << " fe tablet not found";
+                check_res = false;
+                continue;
+            }
             auto [db_id, table_id, partition_id, index_id] =
                     std::make_tuple(atoll(row[4]), atoll(row[5]), atoll(row[6]), atoll(row[7]));
             if (tablet_info.table_id != table_id) {
@@ -298,6 +304,12 @@ bool MetaChecker::do_meta_tablet_key_index_check(std::vector<TabletInfo>& tablet
         result = mysql_store_result(&conn);
         if (result) {
             MYSQL_ROW row = mysql_fetch_row(result);
+            if (!row) {
+                LOG(WARNING) << "check failed, fdb meta: " << tablet_info.debug_string()
+                             << " fe tablet not found";
+                check_res = false;
+                continue;
+            }
             auto [db_id, table_id, partition_id, index_id] =
                     std::make_tuple(atoll(row[4]), atoll(row[5]), atoll(row[6]), atoll(row[7]));
             if (tablet_info.db_id != db_id) {
@@ -407,6 +419,12 @@ bool MetaChecker::do_meta_schema_key_check(std::vector<TabletInfo>& tablets_info
         result = mysql_store_result(&conn);
         if (result) {
             MYSQL_ROW row = mysql_fetch_row(result);
+            if (!row) {
+                LOG(WARNING) << "check failed, fdb meta: " << tablet_schema.ShortDebugString()
+                             << " fe tablet schema not found";
+                check_res = false;
+                continue;
+            }
             int64_t schema_version = atoll(row[2]);
             if (tablet_schema.schema_version() != schema_version) {
                 LOG(WARNING) << "check failed, fdb meta: " << tablet_schema.ShortDebugString()
@@ -454,6 +472,12 @@ bool MetaChecker::do_version_partition_key_check(std::vector<PartitionInfo>& par
         result = mysql_store_result(&conn);
         if (result) {
             MYSQL_ROW row = mysql_fetch_row(result);
+            if (!row) {
+                LOG(WARNING) << "check failed, fdb meta: " << partition_info.debug_string()
+                             << " fe partition not found";
+                check_res = false;
+                continue;
+            }
             if (partition_info.table_id != atoll(row[4])) {
                 LOG(WARNING) << "check failed, fdb meta: " << partition_info.debug_string()
                              << " fe partition of table_id: " << atoll(row[4]);
@@ -505,6 +529,12 @@ bool MetaChecker::do_version_table_key_check(std::vector<TableInfo>& tables_info
         result = mysql_store_result(&conn);
         if (result) {
             MYSQL_ROW row = mysql_fetch_row(result);
+            if (!row) {
+                LOG(WARNING) << "check failed, fdb meta: " << table_info.debug_string()
+                             << " fe table not found";
+                check_res = false;
+                continue;
+            }
             int64_t db_id = atoll(row[2]);
             if (table_info.db_id != db_id) {
                 LOG(WARNING) << "check failed, fdb meta: " << table_info.debug_string()
@@ -794,6 +824,9 @@ void MetaChecker::init_db_meta() {
         int num_row = mysql_num_rows(result);
         for (int i = 0; i < num_row; ++i) {
             MYSQL_ROW row = mysql_fetch_row(result);
+            if (!row) {
+                continue;
+            }
             auto [db_id, db_name] = std::make_tuple(atoll(row[0]), row[1]);
             db_meta_.insert({db_id, db_name});
         }
@@ -899,6 +932,9 @@ void MetaChecker::init_tablet_and_partition_info_from_fe_meta() {
         int num_row = mysql_num_rows(result);
         for (int i = 0; i < num_row; ++i) {
             MYSQL_ROW row = mysql_fetch_row(result);
+            if (!row) {
+                continue;
+            }
             if (strcmp(row[0], "__internal_schema") == 0 ||
                 strcmp(row[0], "information_schema") == 0 || strcmp(row[0], "mysql") == 0) {
                 continue;
@@ -917,7 +953,9 @@ void MetaChecker::init_tablet_and_partition_info_from_fe_meta() {
             int num_row = mysql_num_rows(result);
             for (int i = 0; i < num_row; ++i) {
                 MYSQL_ROW row = mysql_fetch_row(result);
-                elem.second.emplace_back(row[0]);
+                if (row) {
+                    elem.second.emplace_back(row[0]);
+                }
             }
             mysql_free_result(result);
         }
@@ -933,6 +971,9 @@ void MetaChecker::init_tablet_and_partition_info_from_fe_meta() {
                 int num_row = mysql_num_rows(result);
                 for (int i = 0; i < num_row; ++i) {
                     MYSQL_ROW row = mysql_fetch_row(result);
+                    if (!row) {
+                        continue;
+                    }
                     TabletInfo tablet_info;
                     tablet_info.tablet_id = atoll(row[0]);
                     VLOG_DEBUG << "get tablet info log"
@@ -961,6 +1002,9 @@ void MetaChecker::init_tablet_and_partition_info_from_fe_meta() {
             int num_row = mysql_num_rows(result);
             for (int i = 0; i < num_row; ++i) {
                 MYSQL_ROW row = mysql_fetch_row(result);
+                if (!row) {
+                    continue;
+                }
                 tablet_info.db_id = atoll(row[4]);
                 tablet_info.table_id = atoll(row[5]);
                 tablet_info.partition_id = atoll(row[6]);
@@ -978,6 +1022,9 @@ void MetaChecker::init_tablet_and_partition_info_from_fe_meta() {
                         continue;
                     }
                     MYSQL_ROW row = mysql_fetch_row(result);
+                    if (!row) {
+                        continue;
+                    }
                     schema_version = atoll(row[2]);
                     mysql_free_result(result);
                 }

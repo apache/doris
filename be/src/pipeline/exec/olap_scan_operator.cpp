@@ -503,7 +503,7 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::ScannerSPtr>* sc
             // TODO: Use optimize_index_scan_parallelism for ann range search in the future.
             // Currently, ann topn is enough
             if (_ann_topn_runtime != nullptr) {
-                scanner_builder.set_scan_parallelism_by_segment(true);
+                scanner_builder.set_scan_parallelism_by_per_segment(true);
             }
         }
 
@@ -892,10 +892,16 @@ Status OlapScanLocalState::_build_key_ranges_and_filters() {
         for (int column_index = 0; column_index < column_names.size() &&
                                    !_scan_keys.has_range_value() && !eos && !should_break;
              ++column_index) {
-            auto iter = _colname_to_value_range.find(column_names[column_index]);
-            if (_colname_to_value_range.end() == iter) {
+            if (p._colname_to_slot_id.find(column_names[column_index]) ==
+                p._colname_to_slot_id.end()) {
                 break;
             }
+            auto iter =
+                    _slot_id_to_value_range.find(p._colname_to_slot_id[column_names[column_index]]);
+            if (_slot_id_to_value_range.end() == iter) {
+                break;
+            }
+            const auto& value_range = iter->second.second;
 
             RETURN_IF_ERROR(std::visit(
                     [&](auto&& range) {
@@ -908,11 +914,11 @@ Status OlapScanLocalState::_build_key_ranges_and_filters() {
                                     _scan_keys.extend_scan_key(temp_range, p._max_scan_key_num,
                                                                &exact_range, &eos, &should_break));
                             if (exact_range) {
-                                _colname_to_value_range.erase(iter->first);
+                                _slot_id_to_value_range.erase(iter->first);
                             }
                         } else {
                             // if exceed max_pushdown_conditions_per_column, use whole_value_rang instead
-                            // and will not erase from _colname_to_value_range, it must be not exact_range
+                            // and will not erase from _slot_id_to_value_range, it must be not exact_range
                             temp_range.set_whole_value_range();
                             RETURN_IF_ERROR(
                                     _scan_keys.extend_scan_key(temp_range, p._max_scan_key_num,
@@ -920,16 +926,16 @@ Status OlapScanLocalState::_build_key_ranges_and_filters() {
                         }
                         return Status::OK();
                     },
-                    iter->second));
+                    value_range));
         }
         if (eos) {
             _eos = true;
             _scan_dependency->set_ready();
         }
 
-        for (auto& iter : _colname_to_value_range) {
+        for (auto& iter : _slot_id_to_value_range) {
             std::vector<FilterOlapParam<TCondition>> filters;
-            std::visit([&](auto&& range) { range.to_olap_filter(filters); }, iter.second);
+            std::visit([&](auto&& range) { range.to_olap_filter(filters); }, iter.second.second);
 
             for (const auto& filter : filters) {
                 _olap_filters.emplace_back(filter);

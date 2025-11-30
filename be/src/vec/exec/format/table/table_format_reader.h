@@ -133,6 +133,13 @@ public:
             throw std::logic_error("get_children_node should not be called on base TableInfoNode");
         };
 
+        virtual std::shared_ptr<Node> get_children_node_by_file_column_name(
+                std::string file_column_name) const {
+            throw std::logic_error(
+                    "get_children_node_by_file_column_name should not be called on base "
+                    "TableInfoNode");
+        };
+
         virtual std::string children_file_column_name(std::string table_column_name) const {
             throw std::logic_error(
                     "children_file_column_name should not be called on base TableInfoNode");
@@ -182,6 +189,19 @@ public:
             DCHECK(children.contains(table_column_name));
             DCHECK(children_column_exists(table_column_name));
             return children.at(table_column_name).node;
+        }
+
+        std::shared_ptr<Node> get_children_node_by_file_column_name(
+                std::string file_column_name) const override {
+            // Search for the child by file column name
+            for (const auto& [table_name, child] : children) {
+                if (child.exists && child.column_name == file_column_name) {
+                    return child.node;
+                }
+            }
+            // Not found - throw or return nullptr
+            throw std::runtime_error("File column name '" + file_column_name +
+                                     "' not found in struct children");
         }
 
         std::string children_file_column_name(std::string table_column_name) const override {
@@ -235,6 +255,11 @@ public:
         // you can use constNode (of course, you need to pay attention to case sensitivity).
     public:
         std::shared_ptr<Node> get_children_node(std::string table_column_name) const override {
+            return get_instance();
+        };
+
+        std::shared_ptr<Node> get_children_node_by_file_column_name(
+                std::string file_column_name) const override {
             return get_instance();
         };
 
@@ -386,6 +411,17 @@ public:
                                       std::shared_ptr<TableSchemaChangeHelper::Node>& node,
                                       bool& exist_field_id);
     };
+};
+
+struct ColumnIdResult {
+    std::set<uint64_t> column_ids;
+    std::set<uint64_t> filter_column_ids;
+
+    ColumnIdResult() = default; // Add default constructor
+
+    ColumnIdResult(std::set<uint64_t> column_ids_, std::set<uint64_t> filter_column_ids_)
+            : column_ids(std::move(column_ids_)),
+              filter_column_ids(std::move(filter_column_ids_)) {}
 };
 
 #include "common/compile_check_end.h"

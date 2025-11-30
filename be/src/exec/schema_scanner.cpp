@@ -162,6 +162,7 @@ Status SchemaScanner::init(RuntimeState* state, SchemaScannerParam* param, Objec
     }
 
     _param = param;
+    _timezone = state->timezone();
     _timezone_obj = state->timezone_obj();
     _is_init = true;
 

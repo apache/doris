@@ -326,8 +326,11 @@ suite("query_with_limit") {
             o_orderkey,
             l_partkey,
             l_suppkey
+            order by l_orderkey
             limit 2 offset 3;
             """
+    // because query explain memo is too big without order by, so add order by
+    // if query explain memo is too big fixed, then remove order by l_orderkey
     async_mv_rewrite_success(db, mv1_5, query1_5, "mv1_5", [TRY_IN_RBO, FORCE_IN_RBO])
     async_mv_rewrite_fail(db, mv1_5, query1_5, "mv1_5", [NOT_IN_RBO])
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_5"""
@@ -958,7 +961,7 @@ suite("query_with_limit") {
                   orders on l_orderkey = o_orderkey
                 limit 2 offset 1;
             """
-    async_mv_rewrite_success(db, mv3_1, query3_1, "mv3_1")
+    async_mv_rewrite_success(db, mv3_1, query3_1, "mv3_1", [TRY_IN_RBO, FORCE_IN_RBO])
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv3_1"""
 
 

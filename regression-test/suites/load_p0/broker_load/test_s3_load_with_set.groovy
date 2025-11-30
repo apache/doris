@@ -37,8 +37,8 @@ suite("test_s3_load_with_set", "load_p0") {
             k07 LARGEINT        NULL,
             k08 FLOAT           NULL,
             k09 DOUBLE          NULL,
-            k10 DECIMAL(9,1)           NULL,
-            k11 DECIMALV3(9,1)         NULL,
+            k10 DECIMAL(9,1)    NULL,
+            k11 DECIMALV3(9,1)  NULL,
             k12 DATETIME        NULL,
             k13 DATEV2          NULL,
             k14 DATETIMEV2      NULL,
@@ -46,7 +46,10 @@ suite("test_s3_load_with_set", "load_p0") {
             k16 VARCHAR         NULL,
             k17 STRING          NULL,
             k18 JSON            NULL,
-            kd01 DATE            NOT NULL 
+            kd01 DATE           NOT NULL,
+            kd02 INT            NULL,
+            kd03 VARCHAR(256)   NULL,
+            kd04 DATE           NOT NULL
         )
         DUPLICATE KEY(k00)
         DISTRIBUTED BY HASH(k00) BUCKETS 1
@@ -61,27 +64,27 @@ suite("test_s3_load_with_set", "load_p0") {
 
     attributesList.add(new LoadAttributes("s3://${s3BucketName}/regression/load/data/basic_data.csv",
             "${table}", "LINES TERMINATED BY \"\n\"", "COLUMNS TERMINATED BY \"|\"", "FORMAT AS \"CSV\"", "(k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18)",
-            "set(kd01=20240123)", "", "", "", ""))
+            "set(kd01=20240123, kd02=abs(-2)+3, kd03=uuid(), kd04=now())", "", "", "", ""))
 
     attributesList.add(new LoadAttributes("s3://${s3BucketName}/regression/load/data/basic_data.csv",
             "${table}", "LINES TERMINATED BY \"\n\"", "COLUMNS TERMINATED BY \"|\"", "FORMAT AS \"CSV\"", "",
-            "set(kd01=20240123)", "", "", "", ""))
+            "set(kd01=20240123, kd02=abs(-2)+3, kd03=uuid(), kd04=now())", "", "", "", ""))
 
     attributesList.add(new LoadAttributes("s3://${s3BucketName}/regression/load/data/basic_data.parq",
             "${table}", "", "", "FORMAT AS \"parquet\"", "(K00,K01,K02,K03,K04,K05,K06,K07,K08,K09,K10,K11,K12,K13,K14,K15,K16,K17,K18)",
-            "set(kd01=20240123)", "", "", "", ""))
+            "set(kd01=20240123, kd02=abs(-2)+3, kd03=uuid(), kd04=now())", "", "", "", ""))
 
     attributesList.add(new LoadAttributes("s3://${s3BucketName}/regression/load/data/basic_data.parq",
             "${table}", "", "", "FORMAT AS \"parquet\"", "",
-            "set(kd01=20240123)", "", "", "", ""))
+            "set(kd01=20240123, kd02=abs(-2)+3, kd03=uuid(), kd04=now())", "", "", "", ""))
 
     attributesList.add(new LoadAttributes("s3://${s3BucketName}/regression/load/data/basic_data.orc",
             "${table}", "", "", "FORMAT AS \"orc\"", "(K00,K01,K02,K03,K04,K05,K06,K07,K08,K09,K10,K11,K12,K13,K14,K15,K16,K17,K18)",
-            "set(kd01=20240123)", "", "", "", ""))
+            "set(kd01=20240123, kd02=abs(-2)+3, kd03=uuid(), kd04=now())", "", "", "", ""))
 
     attributesList.add(new LoadAttributes("s3://${s3BucketName}/regression/load/data/basic_data.orc",
             "${table}", "", "", "FORMAT AS \"orc\"", "",
-            "set(kd01=20240123)", "", "", "", ""))
+            "set(kd01=20240123, kd02=abs(-2)+3, kd03=uuid(), kd04=now())", "", "", "", ""))
 
     def ak = getS3AK()
     def sk = getS3SK()

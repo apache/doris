@@ -52,25 +52,6 @@
 
 namespace doris::vectorized {
 
-ScannerScheduler::ScannerScheduler() = default;
-
-ScannerScheduler::~ScannerScheduler() = default;
-
-void ScannerScheduler::stop() {
-    if (!_is_init) {
-        return;
-    }
-
-    _is_closed = true;
-
-    LOG(INFO) << "ScannerScheduler stopped";
-}
-
-Status ScannerScheduler::init(ExecEnv* env) {
-    _is_init = true;
-    return Status::OK();
-}
-
 Status ScannerScheduler::submit(std::shared_ptr<ScannerContext> ctx,
                                 std::shared_ptr<ScanTask> scan_task) {
     if (ctx->done()) {
@@ -90,7 +71,6 @@ Status ScannerScheduler::submit(std::shared_ptr<ScannerContext> ctx,
     scanner_delegate->_scanner->start_wait_worker_timer();
     TabletStorageType type = scanner_delegate->_scanner->get_storage_type();
     auto sumbit_task = [&]() {
-        SimplifiedScanScheduler* scan_sched = ctx->get_scan_scheduler();
         auto work_func = [scanner_ref = scan_task, ctx]() {
             auto status = [&] {
                 RETURN_IF_CATCH_EXCEPTION(_scanner_scan(ctx, scanner_ref));
@@ -105,7 +85,7 @@ Status ScannerScheduler::submit(std::shared_ptr<ScannerContext> ctx,
             return scanner_ref->is_eos();
         };
         SimplifiedScanTask simple_scan_task = {work_func, ctx, scan_task};
-        return scan_sched->submit_scan_task(simple_scan_task);
+        return this->submit_scan_task(simple_scan_task);
     };
 
     Status submit_status = sumbit_task();

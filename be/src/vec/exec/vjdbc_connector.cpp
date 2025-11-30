@@ -204,12 +204,7 @@ Status JdbcConnector::query() {
         return Status::InternalError("Query before open of JdbcConnector.");
     }
     // check materialize num equal
-    int materialize_num = 0;
-    for (int i = 0; i < _tuple_desc->slots().size(); ++i) {
-        if (_tuple_desc->slots()[i]->is_materialized()) {
-            materialize_num++;
-        }
-    }
+    auto materialize_num = _tuple_desc->slots().size();
 
     JNIEnv* env = nullptr;
     RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
@@ -423,30 +418,27 @@ Status JdbcConnector::_get_reader_params(Block* block, JNIEnv* env, size_t colum
 
     for (int i = 0; i < column_size; ++i) {
         auto* slot = _tuple_desc->slots()[i];
-        if (slot->is_materialized()) {
-            auto type = slot->type();
-            // Record if column is nullable
-            columns_nullable << (slot->is_nullable() ? "true" : "false") << ",";
-            // Check column type and replace accordingly
-            std::string replace_type = "not_replace";
-            if (type->get_primitive_type() == PrimitiveType::TYPE_BITMAP) {
-                replace_type = "bitmap";
-            } else if (type->get_primitive_type() == PrimitiveType::TYPE_HLL) {
-                replace_type = "hll";
-            } else if (type->get_primitive_type() == PrimitiveType::TYPE_JSONB) {
-                replace_type = "jsonb";
-            }
-            columns_replace_string << replace_type << ",";
-            if (replace_type != "not_replace") {
-                block->get_by_position(i).column = std::make_shared<DataTypeString>()
-                                                           ->create_column()
-                                                           ->convert_to_full_column_if_const();
-                block->get_by_position(i).type = std::make_shared<DataTypeString>();
-                if (slot->is_nullable()) {
-                    block->get_by_position(i).column =
-                            make_nullable(block->get_by_position(i).column);
-                    block->get_by_position(i).type = make_nullable(block->get_by_position(i).type);
-                }
+        auto type = slot->type();
+        // Record if column is nullable
+        columns_nullable << (slot->is_nullable() ? "true" : "false") << ",";
+        // Check column type and replace accordingly
+        std::string replace_type = "not_replace";
+        if (type->get_primitive_type() == PrimitiveType::TYPE_BITMAP) {
+            replace_type = "bitmap";
+        } else if (type->get_primitive_type() == PrimitiveType::TYPE_HLL) {
+            replace_type = "hll";
+        } else if (type->get_primitive_type() == PrimitiveType::TYPE_JSONB) {
+            replace_type = "jsonb";
+        }
+        columns_replace_string << replace_type << ",";
+        if (replace_type != "not_replace") {
+            block->get_by_position(i).column = std::make_shared<DataTypeString>()
+                                                       ->create_column()
+                                                       ->convert_to_full_column_if_const();
+            block->get_by_position(i).type = std::make_shared<DataTypeString>();
+            if (slot->is_nullable()) {
+                block->get_by_position(i).column = make_nullable(block->get_by_position(i).column);
+                block->get_by_position(i).type = make_nullable(block->get_by_position(i).type);
             }
         }
         // Record required fields and column types
@@ -473,10 +465,6 @@ Status JdbcConnector::_get_reader_params(Block* block, JNIEnv* env, size_t colum
 Status JdbcConnector::_cast_string_to_special(Block* block, JNIEnv* env, size_t column_size) {
     for (size_t column_index = 0; column_index < column_size; ++column_index) {
         auto* slot_desc = _tuple_desc->slots()[column_index];
-        // because the fe planner filter the non_materialize column
-        if (!slot_desc->is_materialized()) {
-            continue;
-        }
         jint num_rows = env->CallNonvirtualIntMethod(_executor_obj, _executor_clazz,
                                                      _executor_block_rows_id);
 

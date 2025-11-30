@@ -118,9 +118,10 @@ Status VFileResultWriter::_create_next_file_writer() {
 }
 
 Status VFileResultWriter::_create_file_writer(const std::string& file_name) {
+    auto file_type = DORIS_TRY(FileFactory::convert_storage_type(_storage_type));
     _file_writer_impl = DORIS_TRY(FileFactory::create_file_writer(
-            FileFactory::convert_storage_type(_storage_type), _state->exec_env(),
-            _file_opts->broker_addresses, _file_opts->broker_properties, file_name,
+            file_type, _state->exec_env(), _file_opts->broker_addresses,
+            _file_opts->broker_properties, file_name,
             {
                     .write_file_cache = false,
                     .sync_file_data = false,
