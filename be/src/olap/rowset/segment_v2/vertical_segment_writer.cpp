@@ -24,6 +24,7 @@
 #include <cassert>
 #include <memory>
 #include <ostream>
+#include <set>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -952,6 +953,26 @@ Status VerticalSegmentWriter::write_batch() {
         }
     }
 
+    // Build set of column IDs that need to be kept for key index generation
+    std::set<uint32_t> keep_columns_for_index;
+    // Add key columns
+    for (uint32_t cid = 0; cid < _tablet_schema->num_key_columns(); ++cid) {
+        keep_columns_for_index.insert(cid);
+    }
+    // Add sequence column if exists
+    if (_tablet_schema->has_sequence_col()) {
+        keep_columns_for_index.insert(_tablet_schema->sequence_col_idx());
+    }
+    // Add cluster key columns if MOW with cluster key
+    if (_is_mow_with_cluster_key()) {
+        for (auto unique_id : _tablet_schema->cluster_key_uids()) {
+            auto cid = _tablet_schema->field_index(unique_id);
+            if (cid >= 0) {
+                keep_columns_for_index.insert(cid);
+            }
+        }
+    }
+
     std::vector<vectorized::IOlapColumnDataAccessor*> key_columns;
     vectorized::IOlapColumnDataAccessor* seq_column = nullptr;
     // the key is cluster key column unique id
@@ -983,6 +1004,18 @@ Status VerticalSegmentWriter::write_batch() {
             RETURN_IF_ERROR(_column_writers[cid]->append(column->get_nullmap(), column->get_data(),
                                                          data.num_rows));
             _olap_data_convertor->clear_source_content();
+
+            // Free memory for this column in block if it's not needed for key index generation
+            if (keep_columns_for_index.find(cid) == keep_columns_for_index.end()) {
+                // Replace the column with an empty column to free memory
+                // Note: We need to cast away const to modify the block for memory optimization
+                const auto& typed_column = data.block->get_by_position(cid);
+                auto empty_column = typed_column.type->create_column();
+                // Resize to maintain row count consistency with other columns in the block
+                empty_column->resize(data.block->rows());
+                const_cast<vectorized::Block*>(data.block)
+                        ->replace_by_position(cid, std::move(empty_column));
+            }
         }
         if (_data_dir != nullptr &&
             _data_dir->reach_capacity_limit(_column_writers[cid]->estimate_buffer_size())) {
@@ -1000,8 +1033,13 @@ Status VerticalSegmentWriter::write_batch() {
         column_meta->set_raw_data_bytes(_column_writers[cid]->get_raw_data_bytes());
     }
 
+    // Convert keep_columns_for_index to vector for set_source_content_with_specifid_columns
+    std::vector<uint32_t> key_index_cids(keep_columns_for_index.begin(),
+                                         keep_columns_for_index.end());
+
     for (auto& data : _batched_blocks) {
-        _olap_data_convertor->set_source_content(data.block, data.row_pos, data.num_rows);
+        RETURN_IF_ERROR(_olap_data_convertor->set_source_content_with_specifid_columns(
+                data.block, data.row_pos, data.num_rows, key_index_cids));
         RETURN_IF_ERROR(_generate_key_index(data, key_columns, seq_column, cid_to_column));
         _olap_data_convertor->clear_source_content();
         _num_rows_written += data.num_rows;
