@@ -157,6 +157,8 @@ suite("test_mtmv") {
 
     // ********************** test agg_func rewrite *****************************
     sql "set enable_decimal256=true;"
+    def var_result1 = sql "show variables"
+    logger.info("show variales result: " + var_result1 )
     sql """
     drop materialized view  if exists sum_mv;
     create materialized view sum_mv
@@ -171,6 +173,8 @@ suite("test_mtmv") {
     waitingMTMVTaskFinished(job_name2)
     sql "sync;"
     sql "analyze table sum_mv with sync;"
+    def value = sql "show create materialized view sum_mv";
+    logger.info("mtmv:" + value.toString())
     explain {
         sql "select sum(f1) from test_decimal_mul_overflow_for_mv t1;"
         contains "sum_mv chose"
