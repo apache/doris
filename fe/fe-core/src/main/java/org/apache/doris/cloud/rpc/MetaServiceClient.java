@@ -20,6 +20,7 @@ package org.apache.doris.cloud.rpc;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.proto.MetaServiceGrpc;
 import org.apache.doris.common.Config;
+import org.apache.doris.rpc.GrpcTlsContextFactory;
 
 import com.google.common.base.Preconditions;
 import com.google.gson.Gson;
@@ -29,19 +30,15 @@ import io.grpc.ManagedChannel;
 import io.grpc.NameResolverRegistry;
 import io.grpc.netty.NettyChannelBuilder;
 import io.netty.channel.ChannelOption;
-import io.netty.handler.ssl.SslContext;
-import io.netty.handler.ssl.SslContextBuilder;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.File;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import java.util.Random;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
-import javax.net.ssl.SSLException;
 
 public class MetaServiceClient {
     public static final Logger LOG = LogManager.getLogger(MetaServiceClient.class);
@@ -84,26 +81,7 @@ public class MetaServiceClient {
 
 
         if (Config.enable_tls) {
-            File caFile = new File(Config.tls_ca_certificate_path);
-            File clientCertFile = new File(Config.tls_certificate_path);
-            File clientKeyFile = new File(Config.tls_private_key_path);
-            SslContext sslContext;
-
-            try {
-                SslContextBuilder sslBuilder = io.grpc.netty.GrpcSslContexts.forClient()
-                        .trustManager(caFile);
-
-                String keyPassword = Config.tls_private_key_password;
-                if (keyPassword == null || keyPassword.isEmpty()) {
-                    sslBuilder.keyManager(clientCertFile, clientKeyFile);
-                } else {
-                    sslBuilder.keyManager(clientCertFile, clientKeyFile, keyPassword);
-                }
-                sslContext = sslBuilder.build();
-            } catch (SSLException e) {
-                throw new RuntimeException(e);
-            }
-            builder.sslContext(sslContext);
+            builder.sslContext(GrpcTlsContextFactory.newClientContext());
         } else {
             builder.usePlaintext();
         }

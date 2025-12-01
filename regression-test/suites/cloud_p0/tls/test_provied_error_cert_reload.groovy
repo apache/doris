@@ -547,12 +547,11 @@ ${sanEntries}
                 basicTest("${certFileDir[0]}", false)
             } catch (Exception e) {
                 logger.info("Expected error during corrupt cert test: ${e.message}")
-                // Restore certificates after catching error
-                logger.info("Restoring normal certificates after error")
-                updateAllCertificate("${certFileDir[0]}")
-                sleep(10000)
             }
             thread.join()
+            logger.info("Restoring normal certificates after error")
+            updateAllCertificate("${certFileDir[0]}")
+            sleep(10000)
 
             // Verify that system works with restored cert
             logger.info("Verifying system works after restoring from corrupt cert")
@@ -586,12 +585,10 @@ ${sanEntries}
                 basicTest("${certFileDir[0]}", false)
             } catch (Exception e) {
                 logger.info("Expected error during partial cert test: ${e.message}")
-                // Restore certificates after catching error
-                logger.info("Restoring normal certificates after error")
-                updateAllCertificate("${certFileDir[0]}")
-                sleep(10000)
             }
             thread.join()
+            logger.info("Restoring normal certificates after error")
+            updateAllCertificate("${certFileDir[0]}")
             sleep(10000)
             logger.info("Verifying system still works after partial cert attempt")
             basicTest("${certFileDir[0]}", true)
@@ -635,11 +632,10 @@ ${sanEntries}
                 basicTest("${certFileDir[0]}", false)
             } catch (Exception e) {
                 logger.info("Expected error when certificate files are missing: ${e.message}")
-                // Restore certificates after catching error
-                logger.info("Restoring normal certificates after error")
-                updateAllCertificate("${certFileDir[0]}")
-                sleep(10000)
             }
+            logger.info("Restoring normal certificates after error")
+            updateAllCertificate("${certFileDir[0]}")
+            sleep(10000)
 
             logger.info("Verifying system works after restoring certificates")
             basicTest("${certFileDir[0]}", true)
