@@ -70,7 +70,7 @@ public:
     }
 
     Status execute(VExprContext*, Block*, int*) const override { return Status::OK(); }
-    Status execute_column(VExprContext* context, const Block* block,
+    Status execute_column(VExprContext* context, const Block* block, size_t count,
                           ColumnPtr& result_column) const override {
         return Status::OK();
     }
