@@ -2603,7 +2603,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                     try {
                         LOG.info("drop the origin olap table {}. table={}" + " isAtomicRestore: {}",
                                 originOlapTbl.getName(), originOlapTbl.getId(), isAtomicRestore);
-                        Env.getCurrentEnv().onEraseOlapTable(originOlapTbl, isReplay);
+                        Env.getCurrentEnv().onEraseOlapTable(db.getId(), originOlapTbl, isReplay);
                     } finally {
                         originOlapTbl.writeUnlock();
                     }

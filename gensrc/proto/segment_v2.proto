@@ -220,6 +220,16 @@ message ColumnMetaPB {
     optional uint64 raw_data_bytes = 26;
 }
 
+// External column meta entry describing one top-level column's externalized
+// ColumnMetaPB in the Column Meta Region.
+message ColumnMetaEntryPB {
+    // unique column id (top-level only, including variant roots)
+    optional int32 unique_id = 1;
+    // serialized length in bytes of this column's ColumnMetaPB in the
+    // external Column Meta Region.
+    optional uint32 length = 2;
+}
+
 message PrimaryKeyIndexMetaPB {
     // primary key index
     optional IndexedColumnMetaPB primary_key_index = 1;
@@ -230,8 +240,17 @@ message PrimaryKeyIndexMetaPB {
     optional bytes max_key = 4;
 }
 
+// SegmentFooterPB versioning (must stay in sync with be/src/olap/rowset/segment_v2/segment.h).
+enum SegmentFooterVersionPB {
+    // 1 = V2 baseline
+    SEGMENT_FOOTER_VERSION_V2_BASELINE = 1;
+    // 2 = V3 (externalized ColumnMetaPB region + CMO present)
+    SEGMENT_FOOTER_VERSION_V3_EXT_COL_META = 2;
+}
+
 message SegmentFooterPB {
-    optional uint32 version = 1 [default = 1]; // file version
+    // file version; see SegmentFooterVersionPB for the semantic meaning of values.
+    optional uint32 version = 1 [default = 1];
     repeated ColumnMetaPB columns = 2; // tablet schema
     optional uint32 num_rows = 3; // number of values
     optional uint64 index_footprint = 4; // total index footprint of all columns
@@ -246,6 +265,14 @@ message SegmentFooterPB {
 
     // Primary key index meta
     optional PrimaryKeyIndexMetaPB primary_key_index_meta = 10;
+
+    // Externalized ColumnMetaPB layout (optional; presence indicates v2 meta layout available)
+    // Start offset of the contiguous per-column ColumnMetaPB region (absolute file offset).
+    optional uint64 col_meta_region_start = 11;
+    // Per-column external meta entries, in col_id order. Each entry contains the top-level
+    // unique id and the serialized length (in bytes) of its ColumnMetaPB in the external
+    // Column Meta Region.
+    repeated ColumnMetaEntryPB column_meta_entries = 12;
 }
 
 message BTreeMetaPB {
@@ -324,6 +351,7 @@ message BitmapIndexPB {
 enum HashStrategyPB {
     HASH_MURMUR3_X64_64 = 0;
     CITY_HASH_64 = 1;
+    XX_HASH_64 = 2;
 }
 
 enum BloomFilterAlgorithmPB {

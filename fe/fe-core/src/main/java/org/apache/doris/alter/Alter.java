@@ -826,7 +826,7 @@ public class Alter {
             // not swap, the origin table is not used anymore, need to drop all its tablets.
             // put original table to recycle bin.
             if (isForce) {
-                Env.getCurrentEnv().onEraseOlapTable(origTable, isReplay);
+                Env.getCurrentEnv().onEraseOlapTable(db.getId(), origTable, isReplay);
             } else {
                 Env.getCurrentRecycleBin().recycleTable(db.getId(), origTable, isReplay, isForce, 0);
             }

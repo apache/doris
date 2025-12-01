@@ -156,6 +156,10 @@ suite("test_export_external_table", "p0,external,mysql,external_docker,external_
             """
             waiting_export.call(catalog_name, ex_db_name, label)
 
+            def export_res = sql """show export where label='${label}'"""
+            logger.info("get export res ${export_res}")
+            def outfileinfo = export_res[0][11];
+            logger.info("get export outfile info ${outfileinfo}")
             // check data correctness
             create_load_table(table_load_name)
 
@@ -164,18 +168,20 @@ suite("test_export_external_table", "p0,external,mysql,external_docker,external_
             def portList = [:]
             getBackendIpHeartbeatPort(ipList, portList)
             ipList.each { beid, ip ->
-                logger.info("Begin to insert into internal.${internal_db_name}.${table_load_name} from local()")
-                sql """
-                    insert into  internal.${internal_db_name}.${table_load_name}
-                    select * from local(
-                        "file_path" = "${local_tvf_prefix}/${table_export_name}_${uuid}/*",
-                        "backend_id" = "${beid}",
-                        "format" = "csv",
-                        "column_separator" = ","
-                    );         
-                """ 
-                def insert_res = sql "show last insert;"
-                logger.info("insert from local(), BE id = ${beid}, result: " + insert_res.toString())
+                if (outfileinfo.contains(ip)) {
+                    logger.info("Begin to insert into internal.${internal_db_name}.${table_load_name} from local()")
+                    sql """
+                        insert into  internal.${internal_db_name}.${table_load_name}
+                        select * from local(
+                            "file_path" = "${local_tvf_prefix}/${table_export_name}_${uuid}/*",
+                            "backend_id" = "${beid}",
+                            "format" = "csv",
+                            "column_separator" = ","
+                        );
+                    """
+                    def insert_res = sql "show last insert;"
+                    logger.info("insert from local(), BE id = ${beid}, result: " + insert_res.toString())
+                }
             }
 
             order_qt_select_load1 """ SELECT * FROM internal.${internal_db_name}.${table_load_name} order by k8; """

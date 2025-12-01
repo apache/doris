@@ -31,9 +31,12 @@
 #include "olap/rowset/rowset_fwd.h"
 #include "olap/rowset/rowset_writer_context.h"
 #include "olap/rowset/segment_v2/column_writer.h"
+#include "olap/rowset/segment_v2/indexed_column_writer.h"
 #include "olap/segment_loader.h"
 #include "olap/tablet_schema.h"
+#include "olap/types.h"
 #include "util/simd/bits.h"
+#include "util/slice.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_variant.h"
@@ -458,6 +461,9 @@ Status VariantColumnWriterImpl::_process_subcolumns(vectorized::ColumnVariant* p
     };
     _subcolumns_indexes.resize(ptr->get_subcolumns().size());
     // convert sub column data from engine format to storage layer format
+    // NOTE: We only keep up to variant_max_subcolumns_count as extracted columns; others are externalized.
+    // uint32_t extracted = 0;
+    // uint32_t extract_limit = _tablet_column->variant_max_subcolumns_count();
     for (const auto& entry :
          vectorized::schema_util::get_sorted_subcolumns(ptr->get_subcolumns())) {
         const auto& least_common_type = entry->data.get_least_common_type();
@@ -471,7 +477,7 @@ Status VariantColumnWriterImpl::_process_subcolumns(vectorized::ColumnVariant* p
         }
         CHECK(entry->data.is_finalized());
 
-        // create subcolumn writer
+        // create subcolumn writer if under limit; otherwise externalize ColumnMetaPB via IndexedColumn
         int current_column_id = column_id++;
         TabletColumn tablet_column;
         int64_t none_null_value_size = entry->data.get_non_null_value_size();

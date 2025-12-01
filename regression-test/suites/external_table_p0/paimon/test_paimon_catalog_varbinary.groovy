@@ -75,8 +75,8 @@ suite("test_paimon_catalog_varbinary", "p0,external,doris,external_docker,extern
         // no mapping
         qt_varbinary_7 """ 
             select * from hdfs(
-            "uri" = "hdfs://127.0.0.1:8020/user/doris/paimon1/db1.db/binary_demo3/bucket-0/data-01367323-fe57-4cf2-8d63-658136eef42a-0.parquet",
-            "fs.defaultFS" = "hdfs://127.0.0.1:8020",
+            "uri" = "hdfs://${externalEnvIp}:${hdfs_port}/user/doris/paimon1/db1.db/binary_demo3/bucket-0/data-01367323-fe57-4cf2-8d63-658136eef42a-0.parquet",
+            "fs.defaultFS" = "hdfs://${externalEnvIp}:${hdfs_port}",
             "hadoop.username" = "doris",
             "format" = "parquet");
         """
@@ -84,8 +84,8 @@ suite("test_paimon_catalog_varbinary", "p0,external,doris,external_docker,extern
         // with mapping
         qt_varbinary_8 """ 
             select * from hdfs(
-            "uri" = "hdfs://127.0.0.1:8020/user/doris/paimon1/db1.db/binary_demo3/bucket-0/data-01367323-fe57-4cf2-8d63-658136eef42a-0.parquet",
-            "fs.defaultFS" = "hdfs://127.0.0.1:8020",
+            "uri" = "hdfs://${externalEnvIp}:${hdfs_port}/user/doris/paimon1/db1.db/binary_demo3/bucket-0/data-01367323-fe57-4cf2-8d63-658136eef42a-0.parquet",
+            "fs.defaultFS" = "hdfs://${externalEnvIp}:${hdfs_port}",
             "hadoop.username" = "doris",
             "enable_mapping_varbinary" = "true",
             "format" = "parquet");

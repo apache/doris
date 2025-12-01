@@ -52,15 +52,9 @@ public:
         _tablet_schema->_cols.push_back(std::make_shared<TabletColumn>());
         _tablet_schema->_cols.back()->set_unique_id(col_uid);
         _tablet_schema->_field_uniqueid_to_index[col_uid] = footer_ordinal;
-        _column_uid_to_footer_ordinal[col_uid] = footer_ordinal;
     }
 
     void set_footer(std::shared_ptr<SegmentFooterPB> footer) { _footer = footer; }
-
-    // Access to internal data for testing
-    const std::unordered_map<int32_t, size_t>& get_column_uid_mapping() const {
-        return _column_uid_to_footer_ordinal;
-    }
 
     std::shared_ptr<SegmentFooterPB> get_footer() const { return _footer; }
 

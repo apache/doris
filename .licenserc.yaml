@@ -28,6 +28,7 @@ header:
     - "**/apache-orc/**"
     - "**/glibc-compatibility/**"
     - "**/gutil/**"
+    - "**/go.sum"
     - "**/test_data/**"
     - "**/jmockit/**"
     - "**/*.json"

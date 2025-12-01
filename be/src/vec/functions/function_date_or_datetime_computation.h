@@ -287,6 +287,72 @@ struct AddDayHourImpl {
 };
 
 template <PrimitiveType PType>
+struct AddMinuteSecondImpl {
+    static constexpr PrimitiveType ArgPType = PType;
+    static constexpr PrimitiveType ReturnType = PType;
+    static constexpr PrimitiveType IntervalPType = PrimitiveType ::TYPE_STRING;
+    using InputNativeType = typename PrimitiveTypeTraits<PType>::DataType ::FieldType;
+    using ReturnNativeType = InputNativeType;
+    using IntervalDataType = typename PrimitiveTypeTraits<IntervalPType>::DataType;
+    using IntervalNativeType = IntervalDataType::FieldType; // string
+    using ConvertedType = typename PrimitiveTypeTraits<TYPE_BIGINT>::DataType::FieldType;
+
+    static constexpr auto name = "minute_second_add";
+    static constexpr auto is_nullable = false;
+
+    static inline ReturnNativeType execute(const InputNativeType& t, IntervalNativeType delta) {
+        long seconds = parse_minute_second_string_to_seconds(delta);
+        return date_time_add<TimeUnit::SECOND, PType, ConvertedType>(t, seconds);
+    }
+
+    static DataTypes get_variadic_argument_types() {
+        return {std ::make_shared<typename PrimitiveTypeTraits<PType>::DataType>(),
+                std ::make_shared<typename PrimitiveTypeTraits<IntervalPType>::DataType>()};
+    }
+
+    static long parse_minute_second_string_to_seconds(IntervalNativeType time_str_ref) {
+        bool is_negative = false;
+        auto time_str = StringRef {time_str_ref.data(), time_str_ref.length()}.trim();
+        // string format: "m:s"
+        size_t colon_pos = time_str.find_first_of(':');
+        if (colon_pos == std::string::npos) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "Invalid time format, missing colon in '{}'",
+                            std::string_view {time_str.data, time_str.size});
+        }
+        // minute
+        StringRef minutes_sub = time_str.substring(0, colon_pos).trim();
+        StringParser::ParseResult success;
+        int minutes = StringParser::string_to_int_internal<int32_t, true>(
+                minutes_sub.data, minutes_sub.size, &success);
+        if (success != StringParser::PARSE_SUCCESS) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT, "Invalid minutes format in '{}'",
+                            std::string_view {time_str.data, time_str.size});
+        }
+        if (minutes < 0) {
+            is_negative = true;
+        }
+
+        // second
+        StringRef second_sub = time_str.substring(colon_pos + 1).trim();
+        int seconds = StringParser::string_to_int_internal<int32_t, true>(
+                second_sub.data, second_sub.size, &success);
+        if (success != StringParser::PARSE_SUCCESS) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT, "Invalid seconds format in '{}'",
+                            std::string_view {time_str.data, time_str.size});
+        }
+
+        long part0 = minutes * 60;
+        // NOTE: Compatible with MySQL
+        long part1 = std::abs(seconds);
+        if (is_negative) {
+            part1 *= -1;
+        }
+        return part0 + part1;
+    }
+};
+
+template <PrimitiveType PType>
 struct AddQuartersImpl {
     static constexpr PrimitiveType ArgPType = PType;
     static constexpr PrimitiveType ReturnType = PType;
@@ -1065,8 +1131,9 @@ struct TimeToSecImpl {
 
         auto& res_data = res_col->get_data();
         for (int i = 0; i < input_rows_count; ++i) {
-            res_data[i] = cast_set<int>(static_cast<int64_t>(column_data.get_element(i)) /
-                                        (TimeValue::ONE_SECOND_MICROSECONDS));
+            res_data[i] =
+                    cast_set<int, int64_t, false>(static_cast<int64_t>(column_data.get_element(i)) /
+                                                  (TimeValue::ONE_SECOND_MICROSECONDS));
         }
         block.replace_by_position(result, std::move(res_col));
 
