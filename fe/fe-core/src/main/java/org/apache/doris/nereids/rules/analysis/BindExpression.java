@@ -1446,6 +1446,9 @@ public class BindExpression implements AnalysisRuleFactory {
                 || input.child(0) instanceof LogicalRepeat)) {
             input = input.child(0);
         }
+        if (input instanceof LogicalQualify) {
+            input = input.child(0);
+        }
         // we should skip LogicalHaving to bind slot in LogicalSort;
         if (input instanceof LogicalHaving) {
             input = input.child(0);
