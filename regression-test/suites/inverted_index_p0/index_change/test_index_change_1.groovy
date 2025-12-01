@@ -70,17 +70,12 @@ suite("test_index_change_1") {
     sql """ CREATE INDEX idx_city ON ${tableName}(`city`) using inverted properties("support_phrase" = "true", "parser" = "english", "lower_case" = "true") """
     wait_for_last_col_change_finish(tableName, timeout)
 
-    // create bitmap index
-    sql """ CREATE INDEX idx_sex ON ${tableName}(`sex`) USING BITMAP """
-    wait_for_last_col_change_finish(tableName, timeout)
-
     def show_result = sql "show index from ${tableName}"
     logger.info("show index from " + tableName + " result: " + show_result)
-    assertEquals(show_result.size(), 4)
+    assertEquals(show_result.size(), 3)
     assertEquals(show_result[0][2], "idx_user_id")
     assertEquals(show_result[1][2], "idx_note")
     assertEquals(show_result[2][2], "idx_city")
-    assertEquals(show_result[3][2], "idx_sex")
 
     qt_select2 """ SELECT * FROM ${tableName} t WHERE city MATCH 'beijing' ORDER BY user_id; """
     qt_select3 """ SELECT * FROM ${tableName} t WHERE city MATCH 'beijing' and sex = 1 ORDER BY user_id; """
@@ -137,17 +132,12 @@ suite("test_index_change_1") {
     sql """ CREATE INDEX idx_city ON ${tableName}(`city`) using inverted properties("support_phrase" = "true", "parser" = "english", "lower_case" = "true") """
     wait_for_last_col_change_finish(tableName, timeout)
 
-    // create bitmap index
-    sql """ CREATE INDEX idx_sex ON ${tableName}(`sex`) USING BITMAP """
-    wait_for_last_col_change_finish(tableName, timeout)
-
     show_result = sql "show index from ${tableName}"
     logger.info("show index from " + tableName + " result: " + show_result)
-    assertEquals(show_result.size(), 4)
+    assertEquals(show_result.size(), 3)
     assertEquals(show_result[0][2], "idx_user_id")
     assertEquals(show_result[1][2], "idx_note")
     assertEquals(show_result[2][2], "idx_city")
-    assertEquals(show_result[3][2], "idx_sex")
 
     qt_select2_v1 """ SELECT * FROM ${tableName} t WHERE city MATCH 'beijing' ORDER BY user_id; """
     qt_select3_v1 """ SELECT * FROM ${tableName} t WHERE city MATCH 'beijing' and sex = 1 ORDER BY user_id; """

@@ -167,7 +167,7 @@ suite('test_warm_up_cluster_event_schema_change', 'docker') {
 
         // sql "set experimental_enable_nereids_planner = true"
         // add, drop index
-        sql "alter table ${table_name} add index btm_idxk (k) using bitmap ;"
+        sql "alter table ${table_name} add index btm_idxk (k) using inverted ;"
         sql """INSERT INTO ${table_name} SELECT k, v, v from ${table_name}"""
         wait_for_latest_op_on_table_finish(table_name, timeout)
 
