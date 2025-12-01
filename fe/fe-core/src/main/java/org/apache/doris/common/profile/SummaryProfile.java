@@ -151,6 +151,7 @@ public class SummaryProfile {
     public static final ImmutableList<String> EXECUTION_SUMMARY_KEYS = ImmutableList.of(
         WORKLOAD_GROUP,
         PARSE_SQL_TIME,
+        CPU_SHARE,
         PLAN_TIME,
         NEREIDS_GARBAGE_COLLECT_TIME,
         NEREIDS_LOCK_TABLE_TIME,
@@ -195,8 +196,7 @@ public class SummaryProfile {
         TRANSACTION_COMMIT_TIME,
         SYSTEM_MESSAGE,
         EXECUTED_BY_FRONTEND,
-        SPLITS_ASSIGNMENT_WEIGHT,
-        CPU_SHARE
+        SPLITS_ASSIGNMENT_WEIGHT
     );
 
     // Ident of each item. Default is 0, which doesn't need to present in this Map.
@@ -238,7 +238,7 @@ public class SummaryProfile {
         .put(HMS_ADD_PARTITION_CNT, 2)
         .put(HMS_UPDATE_PARTITION_TIME, 1)
         .put(HMS_UPDATE_PARTITION_CNT, 2)
-        .put(CPU_SHARE, 1)
+        .put(CPU_SHARE, 0)
         .build();
 
     @SerializedName(value = "summaryProfile")
@@ -251,6 +251,9 @@ public class SummaryProfile {
     private long parseSqlFinishTime = -1;
     @SerializedName(value = "nereidsLockTableFinishTime")
     private long nereidsLockTableFinishTime = -1;
+
+    @SerializedName(value = "cpuShare")
+    private long cpuShare = 0;
 
     @SerializedName(value = "nereidsCollectTablePartitionFinishTime")
     private long nereidsCollectTablePartitionFinishTime = -1;
@@ -361,8 +364,6 @@ public class SummaryProfile {
     private long externalTvfInitTime = 0;
     @SerializedName(value = "nereidsPartitiionPruneTime")
     private long nereidsPartitiionPruneTime = 0;
-    @SerializedName(value = "cpuShare")
-    private long cpuShare = 0;
     // BE -> (RPC latency from FE to BE, Execution latency on bthread, Duration of doing work, RPC latency from BE
     // to FE)
     private Map<TNetworkAddress, List<Long>> rpcPhase1Latency;
