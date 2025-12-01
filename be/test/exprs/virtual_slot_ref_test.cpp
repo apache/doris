@@ -81,7 +81,6 @@ protected:
         slot_desc->_id = SlotId(slot_id);
         slot_desc->_col_name = col_name;
         slot_desc->_type = data_type;
-        // Note: _is_materialized is const, so it's set during construction
         return slot_desc;
     }
 
@@ -171,6 +170,11 @@ TEST_F(VirtualSlotRefTest, EqualsFunction_WithDifferentTypes) {
         Status execute(VExprContext* context, Block* block, int* result_column_id) const override {
             return Status::OK();
         }
+        Status execute_column(VExprContext* context, const Block* block,
+                              ColumnPtr& result_column) const override {
+            return Status::OK();
+        }
+
         const std::string& expr_name() const override {
             static std::string name = "mock";
             return name;
@@ -286,6 +290,12 @@ TEST_F(VirtualSlotRefTest, EqualsFunction_TestAllBranches) {
         Status execute(VExprContext* context, Block* block, int* result_column_id) const override {
             return Status::OK();
         }
+
+        Status execute_column(VExprContext* context, const Block* block,
+                              ColumnPtr& result_column) const override {
+            return Status::OK();
+        }
+
         const std::string& expr_name() const override {
             static std::string name = "different";
             return name;
@@ -304,6 +314,10 @@ TEST_F(VirtualSlotRefTest, EqualsFunction_TestAllBranches) {
             _node_type = TExprNodeType::VIRTUAL_SLOT_REF; // Same type but different class
         }
         Status execute(VExprContext* context, Block* block, int* result_column_id) const override {
+            return Status::OK();
+        }
+        Status execute_column(VExprContext* context, const Block* block,
+                              ColumnPtr& result_column) const override {
             return Status::OK();
         }
         const std::string& expr_name() const override {

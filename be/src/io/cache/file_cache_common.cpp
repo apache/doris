@@ -202,6 +202,10 @@ std::optional<int64_t> get_tablet_id(std::string file_path) {
         return std::nullopt;
     }
 
+    if (data_prefix.length() + data_pos >= path_view.length()) {
+        return std::nullopt;
+    }
+
     // Extract the part after "data/"
     path_view = path_view.substr(data_pos + data_prefix.length() + 1);
 

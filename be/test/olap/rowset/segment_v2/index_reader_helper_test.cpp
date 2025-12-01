@@ -33,7 +33,7 @@
 using namespace doris;
 using namespace doris::segment_v2;
 
-class MockIndexReader : public IndexReader {
+class MockIndexReader : public segment_v2::IndexReader {
 public:
     MockIndexReader(IndexType type, uint64_t id) : _type(type), _id(id) {}
 

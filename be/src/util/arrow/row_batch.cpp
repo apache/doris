@@ -161,6 +161,10 @@ Status convert_to_arrow_type(const vectorized::DataTypePtr& origin_type,
         *result = arrow::binary();
         break;
     }
+    case TYPE_VARBINARY: {
+        *result = arrow::binary();
+        break;
+    }
     default:
         return Status::InvalidArgument("Unknown primitive type({}) convert to Arrow type",
                                        type->get_name());

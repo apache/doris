@@ -17,9 +17,15 @@
 
 package org.apache.doris.datasource.iceberg;
 
+import org.apache.doris.analysis.AddPartitionFieldClause;
+import org.apache.doris.analysis.DropPartitionFieldClause;
+import org.apache.doris.analysis.ReplacePartitionFieldClause;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ThreadPoolManager;
+import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.ExternalCatalog;
+import org.apache.doris.datasource.ExternalObjectLog;
 import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.operations.ExternalMetadataOperations;
@@ -143,5 +149,51 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
     @Override
     public boolean viewExists(String dbName, String viewName) {
         return metadataOps.viewExists(dbName, viewName);
+    }
+
+    /**
+     * Add partition field to Iceberg table for partition evolution
+     */
+    public void addPartitionField(IcebergExternalTable table, AddPartitionFieldClause clause) throws UserException {
+        makeSureInitialized();
+        if (metadataOps == null) {
+            throw new UserException("Add partition field operation is not supported for catalog: " + getName());
+        }
+        ((IcebergMetadataOps) metadataOps).addPartitionField(table, clause);
+        Env.getCurrentEnv().getEditLog()
+                .logRefreshExternalTable(
+                        ExternalObjectLog.createForRefreshTable(table.getCatalog().getId(),
+                                table.getDbName(), table.getName()));
+    }
+
+    /**
+     * Drop partition field from Iceberg table for partition evolution
+     */
+    public void dropPartitionField(IcebergExternalTable table, DropPartitionFieldClause clause) throws UserException {
+        makeSureInitialized();
+        if (metadataOps == null) {
+            throw new UserException("Drop partition field operation is not supported for catalog: " + getName());
+        }
+        ((IcebergMetadataOps) metadataOps).dropPartitionField(table, clause);
+        Env.getCurrentEnv().getEditLog()
+                .logRefreshExternalTable(
+                        ExternalObjectLog.createForRefreshTable(table.getCatalog().getId(),
+                                table.getDbName(), table.getName()));
+    }
+
+    /**
+     * Replace partition field in Iceberg table for partition evolution
+     */
+    public void replacePartitionField(IcebergExternalTable table,
+            ReplacePartitionFieldClause clause) throws UserException {
+        makeSureInitialized();
+        if (metadataOps == null) {
+            throw new UserException("Replace partition field operation is not supported for catalog: " + getName());
+        }
+        ((IcebergMetadataOps) metadataOps).replacePartitionField(table, clause);
+        Env.getCurrentEnv().getEditLog()
+                .logRefreshExternalTable(
+                        ExternalObjectLog.createForRefreshTable(table.getCatalog().getId(),
+                                table.getDbName(), table.getName()));
     }
 }

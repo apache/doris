@@ -369,6 +369,23 @@ DEFINE_mInt32(unused_rowset_monitor_interval, "30");
 DEFINE_mInt32(quering_rowsets_evict_interval, "30");
 DEFINE_String(storage_root_path, "${DORIS_HOME}/storage");
 DEFINE_mString(broken_storage_path, "");
+DEFINE_Int32(min_active_scan_threads, "-1");
+DEFINE_Int32(min_active_file_scan_threads, "-1");
+
+DEFINE_Validator(min_active_scan_threads, [](const int config) -> bool {
+    if (config == -1) {
+        CpuInfo::init();
+        min_active_scan_threads = CpuInfo::num_cores() * 2;
+    }
+    return true;
+});
+DEFINE_Validator(min_active_file_scan_threads, [](const int config) -> bool {
+    if (config == -1) {
+        CpuInfo::init();
+        min_active_file_scan_threads = CpuInfo::num_cores() * 8;
+    }
+    return true;
+});
 
 // Config is used to check incompatible old format hdr_ format
 // whether doris uses strict way. When config is true, process will log fatal
@@ -627,6 +644,12 @@ DEFINE_mInt32(slave_replica_writer_rpc_timeout_sec, "60");
 // Whether to enable stream load record function, the default is false.
 // False: disable stream load record
 DEFINE_mBool(enable_stream_load_record, "false");
+// Whether to enable stream load record to audit log table, the default is true.
+DEFINE_mBool(enable_stream_load_record_to_audit_log_table, "false");
+// the maximum bytes of a batch of stream load records to audit log table
+DEFINE_mInt64(stream_load_record_batch_bytes, "104857600"); // 100MB
+// the interval to send a batch of stream load records to audit log table
+DEFINE_mInt64(stream_load_record_batch_interval_secs, "120"); // 2 minutes
 // batch size of stream load record reported to FE
 DEFINE_mInt32(stream_load_record_batch_size, "50");
 // expire time of stream load record in rocksdb.
@@ -1154,6 +1177,7 @@ DEFINE_mBool(enable_file_cache_adaptive_write, "true");
 DEFINE_mDouble(file_cache_keep_base_compaction_output_min_hit_ratio, "0.7");
 // if difference below this threshold, we consider cache's progressive upgrading (2.0->3.0) successful
 DEFINE_mDouble(file_cache_meta_store_vs_file_system_diff_num_threshold, "0.3");
+DEFINE_mDouble(file_cache_keep_schema_change_output_min_hit_ratio, "0.7");
 
 DEFINE_mInt64(file_cache_remove_block_qps_limit, "1000");
 DEFINE_mInt64(file_cache_background_gc_interval_ms, "100");
@@ -1603,14 +1627,15 @@ DEFINE_mInt64(max_csv_line_reader_output_buffer_size, "4294967296");
 // -1 means auto: use 80% of the available CPU cores.
 DEFINE_Int32(omp_threads_limit, "-1");
 DEFINE_Validator(omp_threads_limit, [](const int config) -> bool {
+    if (config > 0) {
+        omp_threads_limit = config;
+        return true;
+    }
     CpuInfo::init();
     int core_cap = config::num_cores > 0 ? config::num_cores : CpuInfo::num_cores();
     core_cap = std::max(1, core_cap);
-    int limit = config;
-    if (limit < 0) {
-        limit = std::max(1, core_cap * 4 / 5);
-    }
-    omp_threads_limit = std::max(1, std::min(limit, core_cap));
+    // Use at most 80% of the available CPU cores.
+    omp_threads_limit = std::max(1, core_cap * 4 / 5);
     return true;
 });
 // The capacity of segment partial column cache, used to cache column readers for each segment.

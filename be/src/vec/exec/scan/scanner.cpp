@@ -94,10 +94,6 @@ Status Scanner::get_block(RuntimeState* state, Block* block, bool* eof) {
     int64_t rows_read_threshold = _num_rows_read + config::doris_scanner_row_num;
     if (!block->mem_reuse()) {
         for (auto* const slot_desc : _output_tuple_desc->slots()) {
-            if (!slot_desc->is_materialized()) {
-                // should be ignore from reading
-                continue;
-            }
             block->insert(ColumnWithTypeAndName(slot_desc->get_empty_mutable_column(),
                                                 slot_desc->get_data_type_ptr(),
                                                 slot_desc->col_name()));
@@ -113,8 +109,6 @@ Status Scanner::get_block(RuntimeState* state, Block* block, bool* eof) {
                 RETURN_IF_ERROR(_get_block_impl(state, block, eof));
                 if (*eof) {
                     DCHECK(block->rows() == 0);
-                    // clear TEMP columns to avoid column align problem
-                    block->erase_tmp_columns();
                     break;
                 }
                 _num_rows_read += block->rows();
@@ -145,11 +139,6 @@ Status Scanner::get_block(RuntimeState* state, Block* block, bool* eof) {
 }
 
 Status Scanner::_filter_output_block(Block* block) {
-    Defer clear_tmp_block([&]() { block->erase_tmp_columns(); });
-    if (block->has(BeConsts::BLOCK_TEMP_COLUMN_SCANNER_FILTERED)) {
-        // scanner filter_block is already done (only by _topn_next currently), just skip it
-        return Status::OK();
-    }
     auto old_rows = block->rows();
     Status st = VExprContext::filter_block(_conjuncts, block, block->columns());
     _counter.num_rows_unselected += old_rows - block->rows();
@@ -184,10 +173,9 @@ Status Scanner::_do_projections(vectorized::Block* origin_block, vectorized::Blo
     DCHECK_EQ(mutable_columns.size(), _projections.size());
 
     for (int i = 0; i < mutable_columns.size(); ++i) {
-        auto result_column_id = -1;
-        RETURN_IF_ERROR(_projections[i]->execute(&input_block, &result_column_id));
-        auto column_ptr = input_block.get_by_position(result_column_id)
-                                  .column->convert_to_full_column_if_const();
+        ColumnPtr column_ptr;
+        RETURN_IF_ERROR(_projections[i]->execute(&input_block, column_ptr));
+        column_ptr = column_ptr->convert_to_full_column_if_const();
         if (mutable_columns[i]->is_nullable() != column_ptr->is_nullable()) {
             throw Exception(ErrorCode::INTERNAL_ERROR, "Nullable mismatch");
         }

@@ -353,6 +353,54 @@ Status DataTypeNullableSerDe::read_column_from_arrow(IColumn& column,
                                                 ctz);
 }
 
+bool DataTypeNullableSerDe::write_column_to_mysql_text(const IColumn& column, BufferWritable& bw,
+                                                       int64_t row_idx) const {
+    if (column.is_null_at(row_idx)) {
+        return false;
+    } else {
+        const auto& col = assert_cast<const ColumnNullable&>(column);
+        return nested_serde->write_column_to_mysql_text(col.get_nested_column(), bw, row_idx);
+    }
+}
+
+bool DataTypeNullableSerDe::write_column_to_presto_text(const IColumn& column, BufferWritable& bw,
+                                                        int64_t row_idx) const {
+    if (column.is_null_at(row_idx)) {
+        if (_nesting_level > 1) {
+            // if is nested type
+            //  array: [abc, def, , NULL]
+            //  map: {k1=NULL, k2=v3}
+            bw.write("NULL", 4);
+            return true;
+        } else {
+            // NULL
+            return false;
+        }
+    } else {
+        const auto& col = assert_cast<const ColumnNullable&>(column);
+        return nested_serde->write_column_to_presto_text(col.get_nested_column(), bw, row_idx);
+    }
+}
+
+bool DataTypeNullableSerDe::write_column_to_hive_text(const IColumn& column, BufferWritable& bw,
+                                                      int64_t row_idx) const {
+    if (column.is_null_at(row_idx)) {
+        if (_nesting_level > 1) {
+            // if is nested type
+            //  array: ["abc","def","",null]
+            //  map: {"k1":null,"k2":"v3"}
+            bw.write("null", 4);
+            return true;
+        } else {
+            // NULL
+            return false;
+        }
+    } else {
+        const auto& col = assert_cast<const ColumnNullable&>(column);
+        return nested_serde->write_column_to_hive_text(col.get_nested_column(), bw, row_idx);
+    }
+}
+
 template <bool is_binary_format>
 Status DataTypeNullableSerDe::_write_column_to_mysql(const IColumn& column,
                                                      MysqlRowBuffer<is_binary_format>& result,

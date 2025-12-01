@@ -57,10 +57,16 @@ public:
         return Status::OK();
     }
 
-    Status execute(VExprContext* context, Block* block, int* result_column_id) const override {
+    Status execute_column(VExprContext* context, const Block* block,
+                          ColumnPtr& result_column) const override {
         DCHECK(_open_finished || _getting_const_col);
-        *result_column_id = _column_id + _gap;
+        result_column = block->get_by_position(_column_id + _gap).column;
         return Status::OK();
+    }
+
+    DataTypePtr execute_type(const Block* block) const override {
+        DCHECK(_open_finished || _getting_const_col);
+        return block->get_by_position(_column_id + _gap).type;
     }
 
     bool is_constant() const override { return false; }

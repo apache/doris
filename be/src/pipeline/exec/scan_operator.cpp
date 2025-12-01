@@ -72,6 +72,41 @@ bool ScanLocalState<Derived>::should_run_serial() const {
     return _parent->cast<typename Derived::Parent>()._should_run_serial;
 }
 
+int ScanLocalStateBase::max_scanners_concurrency(RuntimeState* state) const {
+    // For select * from table limit 10; should just use one thread.
+    if (should_run_serial()) {
+        return 1;
+    }
+    /*
+     * The max concurrency of scanners for each ScanLocalStateBase is determined by:
+     * 1. User specified max_scanners_concurrency which is set through session variable.
+     * 2. Default: 4
+     *
+     * If this is a serial operator, the max concurrency should multiply by the number of parallel instances of the operator.
+     */
+    return (state->max_scanners_concurrency() > 0 ? state->max_scanners_concurrency() : 4) *
+           (state->query_parallel_instance_num() / _parent->parallelism(state));
+}
+
+int ScanLocalStateBase::min_scanners_concurrency(RuntimeState* state) const {
+    if (should_run_serial()) {
+        return 1;
+    }
+    /*
+     * The min concurrency of scanners for each ScanLocalStateBase is determined by:
+     * 1. User specified min_scanners_concurrency which is set through session variable.
+     * 2. Default: 1
+     *
+     * If this is a serial operator, the max concurrency should multiply by the number of parallel instances of the operator.
+     */
+    return (state->min_scanners_concurrency() > 0 ? state->min_scanners_concurrency() : 1) *
+           (state->query_parallel_instance_num() / _parent->parallelism(state));
+}
+
+vectorized::ScannerScheduler* ScanLocalStateBase::scan_scheduler(RuntimeState* state) const {
+    return state->get_query_ctx()->get_scan_scheduler();
+}
+
 template <typename Derived>
 Status ScanLocalState<Derived>::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(PipelineXLocalState<>::init(state, info));
@@ -236,6 +271,7 @@ Status ScanLocalState<Derived>::_normalize_conjuncts(RuntimeState* state) {
         }
         ++it;
     }
+
     for (auto& it : _slot_id_to_value_range) {
         std::visit(
                 [&](auto&& range) {
@@ -245,7 +281,6 @@ Status ScanLocalState<Derived>::_normalize_conjuncts(RuntimeState* state) {
                     }
                 },
                 it.second.second);
-        _colname_to_value_range[it.second.first->col_name()] = it.second.second;
     }
 
     return Status::OK();
@@ -1052,19 +1087,14 @@ template <typename Derived>
 Status ScanLocalState<Derived>::_start_scanners(
         const std::list<std::shared_ptr<vectorized::ScannerDelegate>>& scanners) {
     auto& p = _parent->cast<typename Derived::Parent>();
-    // If scan operator is serial operator(like topn), its real parallelism is 1.
-    // Otherwise, its real parallelism is query_parallel_instance_num.
-    // query_parallel_instance_num of olap table is usually equal to session var parallel_pipeline_task_num.
-    // for file scan operator, its real parallelism will be 1 if it is in batch mode.
-    // Related pr:
-    // https://github.com/apache/doris/pull/42460
-    // https://github.com/apache/doris/pull/44635
-    const int parallism_of_scan_operator =
-            p.is_serial_operator() ? 1 : p.query_parallel_instance_num();
-
-    _scanner_ctx = vectorized::ScannerContext::create_shared(
-            state(), this, p._output_tuple_desc, p.output_row_descriptor(), scanners, p.limit(),
-            _scan_dependency, parallism_of_scan_operator);
+    _scanner_ctx = vectorized::ScannerContext::create_shared(state(), this, p._output_tuple_desc,
+                                                             p.output_row_descriptor(), scanners,
+                                                             p.limit(), _scan_dependency
+#ifdef BE_TEST
+                                                             ,
+                                                             max_scanners_concurrency(state())
+#endif
+    );
     return Status::OK();
 }
 
@@ -1273,8 +1303,6 @@ Status ScanOperatorX<LocalStateType>::init(const TPlanNode& tnode, RuntimeState*
         }
     }
 
-    _query_parallel_instance_num = state->query_parallel_instance_num();
-
     return Status::OK();
 }
 
@@ -1332,13 +1360,6 @@ Status ScanOperatorX<LocalStateType>::get_block(RuntimeState* state, vectorized:
                                                 bool* eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
-    // in inverted index apply logic, in order to optimize query performance,
-    // we built some temporary columns into block, these columns only used in scan node level,
-    // remove them when query leave scan node to avoid other nodes use block->columns() to make a wrong decision
-    Defer drop_block_temp_column {[&]() {
-        std::unique_lock l(local_state._block_lock);
-        block->erase_tmp_columns();
-    }};
 
     if (state->is_cancelled()) {
         if (local_state._scanner_ctx) {

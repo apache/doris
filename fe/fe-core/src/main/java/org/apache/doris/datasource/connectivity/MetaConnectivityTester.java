@@ -34,4 +34,12 @@ public interface MetaConnectivityTester {
     default String getTestType() {
         return "Meta";
     }
+
+    /**
+     * Returns error hint for this connectivity test.
+     * Subclasses can override to provide specific hints for troubleshooting.
+     */
+    default String getErrorHint() {
+        return "";
+    }
 }

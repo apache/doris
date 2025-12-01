@@ -75,14 +75,7 @@ Status VirtualSlotRef::prepare(doris::RuntimeState* state, const doris::RowDescr
     _column_name = &slot_desc->col_name();
     _column_data_type = slot_desc->get_data_type_ptr();
     DCHECK(_column_data_type != nullptr);
-    if (!context->force_materialize_slot() && !slot_desc->is_materialized()) {
-        // slot should be ignored manually
-        _column_id = -1;
-        _prepare_finished = true;
-        return Status::OK();
-    }
-
-    _column_id = desc.get_column_id(_slot_id, context->force_materialize_slot());
+    _column_id = desc.get_column_id(_slot_id);
     if (_column_id < 0) {
         return Status::Error<ErrorCode::INTERNAL_ERROR>(
                 "VirtualSlotRef {} has invalid slot id: "
@@ -110,7 +103,8 @@ Status VirtualSlotRef::open(RuntimeState* state, VExprContext* context,
     return Status::OK();
 }
 
-Status VirtualSlotRef::execute(VExprContext* context, Block* block, int* result_column_id) const {
+Status VirtualSlotRef::execute_column(VExprContext* context, const Block* block,
+                                      ColumnPtr& result_column) const {
     if (_column_id >= 0 && _column_id >= block->columns()) {
         return Status::Error<ErrorCode::INTERNAL_ERROR>(
                 "input block not contain slot column {}, column_id={}, block={}", *_column_name,
@@ -118,6 +112,7 @@ Status VirtualSlotRef::execute(VExprContext* context, Block* block, int* result_
     }
 
     ColumnWithTypeAndName col_type_name = block->get_by_position(_column_id);
+    result_column = col_type_name.column;
 
     if (!col_type_name.column) {
         // Maybe we need to create a column in this situation.
@@ -126,25 +121,21 @@ Status VirtualSlotRef::execute(VExprContext* context, Block* block, int* result_
                 *_column_name);
     }
 
-    const vectorized::ColumnNothing* col_nothing =
-            check_and_get_column<ColumnNothing>(col_type_name.column.get());
+    const auto* col_nothing = check_and_get_column<ColumnNothing>(col_type_name.column.get());
 
     if (this->_virtual_column_expr != nullptr) {
         if (col_nothing != nullptr) {
             // Virtual column is not materialized, so we need to materialize it.
             // Note: After executing 'execute', we cannot use the column from line 120 in subsequent code,
             // because the vector might be resized during execution, causing previous references to become invalid.
-            int tmp_column_id = -1;
-            RETURN_IF_ERROR(_virtual_column_expr->execute(context, block, &tmp_column_id));
-
-            // Maybe do clone.
-            block->replace_by_position(_column_id,
-                                       std::move(block->get_by_position(tmp_column_id).column));
+            ColumnPtr tmp_column;
+            RETURN_IF_ERROR(_virtual_column_expr->execute_column(context, block, tmp_column));
+            result_column = std::move(tmp_column);
 
             VLOG_DEBUG << fmt::format(
                     "Materialization of virtual column, slot_id {}, column_id {}, "
-                    "tmp_column_id {}, column_name {}, column size {}",
-                    _slot_id, _column_id, tmp_column_id, *_column_name,
+                    "column_name {}, column size {}",
+                    _slot_id, _column_id, *_column_name,
                     block->get_by_position(_column_id).column->size());
         }
 
@@ -168,10 +159,6 @@ Status VirtualSlotRef::execute(VExprContext* context, Block* block, int* result_
             return Status::OK();
         }
     }
-
-    *result_column_id = _column_id;
-    VLOG_DEBUG << fmt::format("VirtualSlotRef execute, slot_id {}, column_id {}, column_name {}",
-                              _slot_id, _column_id, *_column_name);
     return Status::OK();
 }
 

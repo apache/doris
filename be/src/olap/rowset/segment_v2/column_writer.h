@@ -492,7 +492,7 @@ private:
     std::unique_ptr<OffsetColumnWriter> _offset_writer;
     std::unique_ptr<ScalarColumnWriter> _null_writer;
     std::unique_ptr<ColumnWriter> _item_writer;
-    std::unique_ptr<IndexColumnWriter> _inverted_index_builder;
+    std::unique_ptr<IndexColumnWriter> _inverted_index_writer;
     std::unique_ptr<AnnIndexColumnWriter> _ann_index_writer;
     ColumnWriterOptions _opts;
 };

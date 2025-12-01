@@ -34,6 +34,7 @@
 #include "cloud/config.h"
 #include "common/signal_handler.h"
 #include "exec/tablet_info.h"
+#include "olap/delta_writer.h"
 #include "olap/tablet.h"
 #include "olap/tablet_fwd.h"
 #include "olap/tablet_schema.h"
@@ -370,6 +371,13 @@ void IndexStream::_init_tablet_stream(TabletStreamSharedPtr& tablet_stream, int6
     }
 }
 
+void IndexStream::get_all_write_tablet_ids(std::vector<int64_t>* tablet_ids) {
+    std::lock_guard lock_guard(_lock);
+    for (const auto& [tablet_id, _] : _tablet_streams_map) {
+        tablet_ids->push_back(tablet_id);
+    }
+}
+
 void IndexStream::close(const std::vector<PTabletID>& tablets_to_commit,
                         std::vector<int64_t>* success_tablet_ids, FailedTablets* failed_tablets) {
     std::lock_guard lock_guard(_lock);
@@ -560,6 +568,40 @@ void LoadStream::_report_schema(StreamId stream, const PStreamHeader& hdr) {
     }
 }
 
+void LoadStream::_report_tablet_load_info(StreamId stream, int64_t index_id) {
+    std::vector<int64_t> write_tablet_ids;
+    auto it = _index_streams_map.find(index_id);
+    if (it != _index_streams_map.end()) {
+        it->second->get_all_write_tablet_ids(&write_tablet_ids);
+    }
+
+    if (!write_tablet_ids.empty()) {
+        butil::IOBuf buf;
+        PLoadStreamResponse response;
+        auto* tablet_load_infos = response.mutable_tablet_load_rowset_num_infos();
+        _collect_tablet_load_info_from_tablets(write_tablet_ids, tablet_load_infos);
+        buf.append(response.SerializeAsString());
+        auto wst = _write_stream(stream, buf);
+        if (!wst.ok()) {
+            LOG(WARNING) << "report tablet load info failed with " << wst << ", " << *this;
+        }
+    }
+}
+
+void LoadStream::_collect_tablet_load_info_from_tablets(
+        const std::vector<int64_t>& tablet_ids,
+        google::protobuf::RepeatedPtrField<PTabletLoadRowsetInfo>* tablet_load_infos) {
+    for (auto tablet_id : tablet_ids) {
+        BaseTabletSPtr tablet;
+        if (auto res = ExecEnv::get_tablet(tablet_id); res.has_value()) {
+            tablet = std::move(res).value();
+        } else {
+            continue;
+        }
+        BaseDeltaWriter::collect_tablet_load_rowset_num_info(tablet.get(), tablet_load_infos);
+    }
+}
+
 Status LoadStream::_write_stream(StreamId stream, butil::IOBuf& buf) {
     for (;;) {
         int ret = 0;
@@ -675,6 +717,8 @@ void LoadStream::_dispatch(StreamId id, const PStreamHeader& hdr, butil::IOBuf* 
         auto st = _append_data(hdr, data);
         if (!st.ok()) {
             _report_failure(id, st, hdr);
+        } else {
+            _report_tablet_load_info(id, hdr.index_id());
         }
     } break;
     case PStreamHeader::CLOSE_LOAD: {
