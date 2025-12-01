@@ -71,6 +71,10 @@ public class StructType extends DataType implements ComplexDataType {
         return nameToFields.get();
     }
 
+    public StructField getField(String name) {
+        return nameToFields.get().get(name.toLowerCase());
+    }
+
     @Override
     public DataType conversion() {
         return new StructType(fields.stream().map(StructField::conversion).collect(Collectors.toList()));
