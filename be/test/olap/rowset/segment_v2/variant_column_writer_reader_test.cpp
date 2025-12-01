@@ -2068,11 +2068,12 @@ TEST_F(VariantColumnWriterReaderTest, test_nested_subcolumn) {
     storageReadOptions.io_ctx.reader_type = ReaderType::READER_CUMULATIVE_COMPACTION;
 
     MockColumnReaderCache column_reader_cache(footer, file_reader, _tablet_schema);
+    DataTypePtr nested_storage_type;
 
     ColumnIteratorUPtr nested_column_iter;
-    st = variant_column_reader->_new_iterator_with_flat_leaves(&nested_column_iter, target_column,
-                                                               &storageReadOptions, false, false,
-                                                               &column_reader_cache);
+    st = variant_column_reader->_new_iterator_with_flat_leaves(
+            &nested_column_iter, &nested_storage_type, target_column, &storageReadOptions, false,
+            false, &column_reader_cache);
     EXPECT_TRUE(st.ok()) << st.msg();
     // check iter for read_by_rowids, next_batch
     auto nested_iter = assert_cast<DefaultNestedColumnIterator*>(nested_column_iter.get());
@@ -2100,8 +2101,8 @@ TEST_F(VariantColumnWriterReaderTest, test_nested_subcolumn) {
     {
         ColumnIteratorUPtr nested_column_iter11;
         st = variant_column_reader->_new_iterator_with_flat_leaves(
-                &nested_column_iter11, target_column, &storageReadOptions, false, false,
-                &column_reader_cache);
+                &nested_column_iter11, &nested_storage_type, target_column, &storageReadOptions,
+                false, false, &column_reader_cache);
         EXPECT_TRUE(st.ok()) << st.msg();
         st = nested_column_iter11->init(nested_column_iter_opts);
         EXPECT_TRUE(st.ok()) << st.msg();
@@ -2146,9 +2147,9 @@ TEST_F(VariantColumnWriterReaderTest, test_nested_subcolumn) {
             << target_column._column_path->has_nested_part();
 
     ColumnIteratorUPtr nested_column_iter1;
-    st = variant_column_reader->_new_iterator_with_flat_leaves(&nested_column_iter1, target_column,
-                                                               &storageReadOptions, false, false,
-                                                               &column_reader_cache);
+    st = variant_column_reader->_new_iterator_with_flat_leaves(
+            &nested_column_iter1, &nested_storage_type, target_column, &storageReadOptions, false,
+            false, &column_reader_cache);
     EXPECT_TRUE(st.ok()) << st.msg();
     // check iter for read_by_rowids, next_batch
     // dst is array<nullable(string)>
@@ -2166,8 +2167,8 @@ TEST_F(VariantColumnWriterReaderTest, test_nested_subcolumn) {
         // make read by nested_iter1 directly
         ColumnIteratorUPtr nested_column_iter11;
         st = variant_column_reader->_new_iterator_with_flat_leaves(
-                &nested_column_iter11, target_column, &storageReadOptions, false, false,
-                &column_reader_cache);
+                &nested_column_iter11, &nested_storage_type, target_column, &storageReadOptions,
+                false, false, &column_reader_cache);
         EXPECT_TRUE(st.ok()) << st.msg();
         st = nested_column_iter11->init(nested_column_iter_opts);
         EXPECT_TRUE(st.ok()) << st.msg();

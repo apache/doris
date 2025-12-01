@@ -270,7 +270,8 @@ TEST_F(ColumnReaderCacheTest, VariantColumnPathReading) {
     vectorized::PathInData path("field1");
     std::shared_ptr<ColumnReader> path_reader;
     Status status = _cache->get_path_column_reader(1, path, &path_reader, &_stats);
-    EXPECT_TRUE(status.ok());
+    // For non-existent subcolumn path, ColumnReaderCache propagates NOT_FOUND and returns nullptr.
+    EXPECT_TRUE(status.is<ErrorCode::NOT_FOUND>());
     EXPECT_EQ(path_reader, nullptr);
 }
 
@@ -279,7 +280,8 @@ TEST_F(ColumnReaderCacheTest, NonExistentColumn) {
     // Don't set up any column mapping
     std::shared_ptr<ColumnReader> reader;
     Status status = _cache->get_column_reader(999, &reader, &_stats);
-    EXPECT_TRUE(status.ok());
+    // Non-existent column uid should return NOT_FOUND and nullptr reader.
+    EXPECT_TRUE(status.is<ErrorCode::NOT_FOUND>());
     EXPECT_EQ(reader, nullptr);
 }
 
@@ -297,7 +299,8 @@ TEST_F(ColumnReaderCacheTest, NonExistentVariantPath) {
     vectorized::PathInData non_existent_path("non_existent_field");
     std::shared_ptr<ColumnReader> reader;
     Status status = _cache->get_path_column_reader(1, non_existent_path, &reader, &_stats);
-    EXPECT_TRUE(status.ok());
+    // Missing variant path should surface as NOT_FOUND with nullptr reader.
+    EXPECT_TRUE(status.is<ErrorCode::NOT_FOUND>());
     EXPECT_EQ(reader, nullptr);
 }
 

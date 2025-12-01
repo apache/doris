@@ -291,7 +291,7 @@ Status SegmentIterator::_init_impl(const StorageReadOptions& opts) {
 
     for (const auto& predicate : opts.column_predicates) {
         if (!_segment->can_apply_predicate_safely(predicate->column_id(), predicate, *_schema,
-                                                  _opts.io_ctx.reader_type)) {
+                                                  _opts)) {
             continue;
         }
         _col_predicates.emplace_back(predicate);
@@ -315,8 +315,7 @@ Status SegmentIterator::_init_impl(const StorageReadOptions& opts) {
     for (int i = 0; i < _schema->columns().size(); ++i) {
         const Field* col = _schema->column(i);
         if (col) {
-            auto storage_type = _segment->get_data_type_of(
-                    col->get_desc(), _opts.io_ctx.reader_type != ReaderType::READER_QUERY);
+            auto storage_type = _segment->get_data_type_of(col->get_desc(), _opts);
             if (storage_type == nullptr) {
                 storage_type = vectorized::DataTypeFactory::instance().create_data_type(*col);
             }
@@ -593,7 +592,7 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
         for (auto& cid : cids) {
             DCHECK(_opts.col_id_to_predicates.count(cid) > 0);
             if (!_segment->can_apply_predicate_safely(cid, _opts.col_id_to_predicates.at(cid).get(),
-                                                      *_schema, _opts.io_ctx.reader_type)) {
+                                                      *_schema, _opts)) {
                 continue;
             }
             // get row ranges by bf index of this column,
@@ -622,7 +621,7 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
         for (const auto& cid : cids) {
             DCHECK(_opts.col_id_to_predicates.count(cid) > 0);
             if (!_segment->can_apply_predicate_safely(cid, _opts.col_id_to_predicates.at(cid).get(),
-                                                      *_schema, _opts.io_ctx.reader_type)) {
+                                                      *_schema, _opts)) {
                 continue;
             }
             // do not check zonemap if predicate does not support zonemap
@@ -655,7 +654,7 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
                                 _opts.topn_filter_target_node_id);
                 if (_segment->can_apply_predicate_safely(runtime_predicate->column_id(),
                                                          runtime_predicate.get(), *_schema,
-                                                         _opts.io_ctx.reader_type)) {
+                                                         _opts)) {
                     AndBlockColumnPredicate and_predicate;
                     and_predicate.add_column_predicate(
                             SingleColumnBlockPredicate::create_unique(runtime_predicate.get()));
@@ -686,9 +685,8 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
         if (_opts.io_ctx.reader_type == ReaderType::READER_QUERY) {
             RowRanges dict_row_ranges = RowRanges::create_single(num_rows());
             for (auto cid : cids) {
-                if (!_segment->can_apply_predicate_safely(cid,
-                                                          _opts.col_id_to_predicates.at(cid).get(),
-                                                          *_schema, _opts.io_ctx.reader_type)) {
+                if (!_segment->can_apply_predicate_safely(
+                            cid, _opts.col_id_to_predicates.at(cid).get(), *_schema, _opts)) {
                     continue;
                 }
                 RowRanges tmp_row_ranges = RowRanges::create_single(num_rows());
