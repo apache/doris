@@ -696,6 +696,23 @@ public class DateTimeExtractAndTransform {
     }
 
     /**
+     * timestamp with two arguments: timestamp(date, time)
+     */
+    @ExecFunction(name = "timestamp")
+    public static Expression timestamp(DateV2Literal date, TimeV2Literal time) {
+        DateTimeV2Literal dateTime = date.toBeginOfTheDay();
+        return dateTime.plusMicroSeconds(((Number) time.getValue()).longValue());
+    }
+
+    /**
+     * timestamp with two arguments: timestamp(datetime, time)
+     */
+    @ExecFunction(name = "timestamp")
+    public static Expression timestamp(DateTimeV2Literal datetime, TimeV2Literal time) {
+        return datetime.plusMicroSeconds(((Number) time.getValue()).longValue());
+    }
+
+    /**
      * date transformation function: convert_tz
      */
     @ExecFunction(name = "convert_tz")

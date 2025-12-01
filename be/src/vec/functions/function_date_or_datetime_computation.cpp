@@ -223,6 +223,8 @@ void register_function_date_time_computation(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionAddTimeTime>();
     factory.register_function<FunctionSubTimeDatetime>();
     factory.register_function<FunctionSubTimeTime>();
+    factory.register_function<FunctionTimestampTwoArgsDatetime>();
+    factory.register_function<FunctionTimestampTwoArgsDate>();
 
 #define REGISTER_DATEV2_FUNCTIONS_DIFF(NAME, TYPE) factory.register_function<NAME##_##TYPE>();
 

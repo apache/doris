@@ -24,6 +24,8 @@ import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.types.DateV2Type;
+import org.apache.doris.nereids.types.TimeV2Type;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -39,13 +41,23 @@ public class Timestamp extends ScalarFunction
     // This preference follows original planner. refer to
     // ScalarType.getDefaultDateType()
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(DateTimeV2Type.WILDCARD).args(DateTimeV2Type.WILDCARD));
+            FunctionSignature.ret(DateTimeV2Type.WILDCARD).args(DateTimeV2Type.WILDCARD),
+            FunctionSignature.ret(DateTimeV2Type.WILDCARD).args(DateTimeV2Type.WILDCARD, TimeV2Type.WILDCARD),
+            FunctionSignature.ret(DateTimeV2Type.WILDCARD).args(DateV2Type.INSTANCE, TimeV2Type.WILDCARD)
+    );
 
     /**
      * constructor with 1 argument.
      */
     public Timestamp(Expression arg) {
         super("timestamp", arg);
+    }
+
+    /**
+     * constructor with 2 argument.
+     */
+    public Timestamp(Expression arg0, Expression arg1) {
+        super("timestamp", arg0, arg1);
     }
 
     /** constructor for withChildren and reuse signature */
@@ -58,7 +70,7 @@ public class Timestamp extends ScalarFunction
      */
     @Override
     public Timestamp withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() == 1);
+        Preconditions.checkArgument(children.size() == 1 || children.size() == 2);
         return new Timestamp(getFunctionParams(children));
     }
 
