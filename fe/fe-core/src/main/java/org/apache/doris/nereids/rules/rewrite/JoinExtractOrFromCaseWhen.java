@@ -82,14 +82,22 @@ public class JoinExtractOrFromCaseWhen implements RewriteRuleFactory {
     }
 
     private boolean needRewrite(LogicalJoin<Plan, Plan> join) {
-        if (!PushDownJoinOtherCondition.needRewrite(join) && !OrExpansion.INSTANCE.needRewriteJoin(join)) {
-            return false;
+        if (PushDownJoinOtherCondition.needRewrite(join) || OrExpansion.INSTANCE.needRewriteJoin(join)) {
+            Set<Slot> leftSlots = join.left().getOutputSet();
+            Set<Slot> rightSlots = join.right().getOutputSet();
+            for (Expression expr : join.getOtherJoinConjuncts()) {
+                if (isConditionNeedRewrite(expr, leftSlots, rightSlots)) {
+                    return true;
+                }
+            }
         }
-        Set<Slot> leftSlots = join.left().getOutputSet();
-        Set<Slot> rightSlots = join.right().getOutputSet();
-        for (Expression expr : join.getOtherJoinConjuncts()) {
-            if (isConditionNeedRewrite(expr, leftSlots, rightSlots)) {
-                return true;
+        if (!join.isMarkJoin()) {
+            Set<Slot> leftSlots = join.left().getOutputSet();
+            Set<Slot> rightSlots = join.right().getOutputSet();
+            for (Expression expr : join.getHashJoinConjuncts()) {
+                if (isConditionNeedRewrite(expr, leftSlots, rightSlots)) {
+                    return true;
+                }
             }
         }
         return false;
@@ -109,7 +117,7 @@ public class JoinExtractOrFromCaseWhen implements RewriteRuleFactory {
         return true;
     }
 
-    private Plan rewrite(LogicalJoin<? extends Plan, ? extends Plan> join, ExpressionRewriteContext context) {
+    private Plan rewrite(LogicalJoin<Plan, Plan> join, ExpressionRewriteContext context) {
         Set<Expression> newOtherConditions = Sets.newLinkedHashSetWithExpectedSize(join.getOtherJoinConjuncts().size());
         newOtherConditions.addAll(join.getOtherJoinConjuncts());
         int oldCondSize = newOtherConditions.size();
@@ -119,6 +127,17 @@ public class JoinExtractOrFromCaseWhen implements RewriteRuleFactory {
         }
         for (Expression expr : join.getOtherJoinConjuncts()) {
             extractExpression(expr, context, join, newOtherConditions, leastOrExpandCondRef);
+        }
+        if (!join.isMarkJoin()) {
+            // Notice: if join's hash conditions is not empty, then OrExpansion.needRewriteJoin will return fail
+            // so it will not extract OrExpansion from the hash condition, it only extract one side condition
+            // for hash condition:  if(t1.a > 10, 1, 100) = if(t2.x > 10, 2, 200),
+            // we can still extract two one-side condition:
+            // 1) if(t1.a > 10, 1, 100) = 2 or if(t1.a > 10, 1, 100) = 200
+            // 2) if(t2.x > 10, 2, 200) = 1 or if(t2.x > 10, 2, 200) = 100
+            for (Expression expr : join.getHashJoinConjuncts()) {
+                extractExpression(expr, context, join, newOtherConditions, leastOrExpandCondRef);
+            }
         }
         if (leastOrExpandCondRef.get() != null) {
             newOtherConditions.add(leastOrExpandCondRef.get().first);
@@ -132,7 +151,7 @@ public class JoinExtractOrFromCaseWhen implements RewriteRuleFactory {
     }
 
     private void extractExpression(Expression expr, ExpressionRewriteContext context,
-            LogicalJoin<? extends Plan, ? extends Plan> join, Set<Expression> newOtherConditions,
+            LogicalJoin<Plan, Plan> join, Set<Expression> newOtherConditions,
             AtomicReference<Pair<Expression, Integer>> leastOrExpandCondRef) {
         Set<Slot> leftSlots = join.left().getOutputSet();
         Set<Slot> rightSlots = join.right().getOutputSet();
@@ -154,9 +173,10 @@ public class JoinExtractOrFromCaseWhen implements RewriteRuleFactory {
         if (containsLeftSlotChildIndexes.isEmpty() || containsRightSlotChildIndexes.isEmpty()) {
             return;
         }
-        boolean extractedLeftSideCond = PushDownJoinOtherCondition.PUSH_DOWN_LEFT_VALID_TYPE
+        boolean canPushDownOther = PushDownJoinOtherCondition.needRewrite(join);
+        boolean extractedLeftSideCond = canPushDownOther && PushDownJoinOtherCondition.PUSH_DOWN_LEFT_VALID_TYPE
                 .contains(join.getJoinType());
-        boolean extractedRightSideCond = PushDownJoinOtherCondition.PUSH_DOWN_RIGHT_VALID_TYPE
+        boolean extractedRightSideCond = canPushDownOther && PushDownJoinOtherCondition.PUSH_DOWN_RIGHT_VALID_TYPE
                 .contains(join.getJoinType());
         boolean extractOrExpansionCond = OrExpansion.INSTANCE.needRewriteJoin(join);
         // eliminate all the right slots of all children, but we rewrite at most 1 case when expression,
@@ -190,7 +210,7 @@ public class JoinExtractOrFromCaseWhen implements RewriteRuleFactory {
     }
 
     // Or Expansion only use one condition, so we keep the one with least disjunctions.
-    private void tryAddOrExpansionHashCondition(Expression condition, LogicalJoin<? extends Plan, ? extends Plan> join,
+    private void tryAddOrExpansionHashCondition(Expression condition, LogicalJoin<Plan, Plan> join,
             ExpressionRewriteContext context, AtomicReference<Pair<Expression, Integer>> leastOrExpandCondRef) {
         // Or Expansion only works for all the disjunctions are equal predicates
         List<Expression> disjunctions = ExpressionUtils.extractDisjunction(condition);
@@ -247,12 +267,7 @@ public class JoinExtractOrFromCaseWhen implements RewriteRuleFactory {
             disjuncts.add(expr.withChildren(newChildren));
         }
 
-        Expression result = ExpressionUtils.or(disjuncts);
-        if (result.getInputSlots().isEmpty()) {
-            return Optional.empty();
-        }
-
-        return Optional.of(ExpressionUtils.or(result));
+        return Optional.of(ExpressionUtils.or(disjuncts));
     }
 
     // try to extract case when like expressions from expr.

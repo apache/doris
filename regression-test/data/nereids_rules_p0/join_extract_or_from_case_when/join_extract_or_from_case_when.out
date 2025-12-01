@@ -104,6 +104,17 @@ PhysicalResultSink
 ------PhysicalProject[(x + y) AS `(x + y)`, t2.x]
 --------PhysicalOlapScan[tbl_join_extract_or_from_case_when_2(t2)]
 
+-- !hash_cond_for_one_side_1 --
+PhysicalResultSink
+--PhysicalProject[t1.a, t2.x]
+----hashJoin[INNER_JOIN] hashCondition=((expr_if((a > 1), 1, 100) = expr_if((x > 2), 1, 200))) otherCondition=()
+------PhysicalProject[if((a > 1), 1, 100) AS `expr_if((a > 1), 1, 100)`, t1.a]
+--------filter((t1.a > 1))
+----------PhysicalOlapScan[tbl_join_extract_or_from_case_when_1(t1)]
+------PhysicalProject[if((x > 2), 1, 200) AS `expr_if((x > 2), 1, 200)`, t2.x]
+--------filter((t2.x > 2))
+----------PhysicalOlapScan[tbl_join_extract_or_from_case_when_2(t2)]
+
 -- !case_when_two_side_1 --
 PhysicalCteAnchor ( cteId=CTEId#0 )
 --PhysicalCteProducer ( cteId=CTEId#0 )

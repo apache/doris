@@ -102,6 +102,12 @@ suite('join_extract_or_from_case_when') {
             on case when t1.a > 0 then 100 when t1.b < 10 then 10000 end + 5 > t2.x + t2.y
     """
 
+    qt_hash_cond_for_one_side_1 """explain shape plan
+        select t1.a,  t2.x
+        from tbl_join_extract_or_from_case_when_1 t1 join tbl_join_extract_or_from_case_when_2 t2
+            on if(t1.a > 1, 1, 100) = if(t2.x > 2, 1, 200)
+    """
+
     qt_case_when_two_side_1 """explain shape plan
         select t1.a,  t2.x
         from tbl_join_extract_or_from_case_when_1 t1 join tbl_join_extract_or_from_case_when_2 t2

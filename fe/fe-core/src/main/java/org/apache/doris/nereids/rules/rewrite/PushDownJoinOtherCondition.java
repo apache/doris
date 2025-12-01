@@ -66,6 +66,7 @@ public class PushDownJoinOtherCondition extends OneRewriteRuleFactory {
     public Rule build() {
         return logicalJoin()
                 // TODO: we may need another rule to handle on true or on false condition
+                .when(join -> !join.getOtherJoinConjuncts().isEmpty())
                 .when(PushDownJoinOtherCondition::needRewrite)
                 .then(join -> {
                     List<Expression> otherJoinConjuncts = join.getOtherJoinConjuncts();
@@ -103,10 +104,7 @@ public class PushDownJoinOtherCondition extends OneRewriteRuleFactory {
      * check need rewrite
      */
     public static boolean needRewrite(LogicalJoin<Plan, Plan> join) {
-        return !join.getOtherJoinConjuncts().isEmpty()
-                && !join.isMarkJoin()
-                && (PUSH_DOWN_LEFT_VALID_TYPE.contains(join.getJoinType())
-                        || PUSH_DOWN_RIGHT_VALID_TYPE.contains(join.getJoinType()));
+        return !join.isMarkJoin();
     }
 
     private static boolean allCoveredBy(Expression predicate, Set<Slot> inputSlotSet) {
