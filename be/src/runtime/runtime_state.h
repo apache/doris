@@ -713,7 +713,7 @@ public:
     VectorSearchUserParams get_vector_search_params() const {
         return VectorSearchUserParams(_query_options.hnsw_ef_search,
                                       _query_options.hnsw_check_relative_distance,
-                                      _query_options.hnsw_bounded_queue);
+                                      _query_options.hnsw_bounded_queue, _query_options.ivf_nprobe);
     }
 
 private:
