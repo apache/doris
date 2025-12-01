@@ -20,6 +20,8 @@
 
 #include "vec/columns/column_string.h"
 
+#include <crc32c/crc32c.h>
+
 #include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
 #include <cstring>
@@ -315,6 +317,19 @@ void ColumnStr<T>::update_crcs_with_value(uint32_t* __restrict hashes, doris::Pr
                         data_ref.data, static_cast<uint32_t>(data_ref.size), hashes[i]);
             }
         }
+    }
+}
+
+template <typename T>
+void ColumnStr<T>::update_crc32cs_with_value(uint32_t* __restrict hashes, uint32_t rows,
+                                             uint32_t offset,
+                                             const uint8_t* __restrict null_data) const {
+    auto s = rows;
+    DCHECK(s == size());
+
+    for (size_t i = 0; i < s; i++) {
+        auto data_ref = get_data_at(i);
+        hashes[i] = crc32c_extend(hashes[i], (const uint8_t*)(data_ref.data), data_ref.size);
     }
 }
 

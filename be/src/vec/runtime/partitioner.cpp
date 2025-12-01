@@ -18,6 +18,7 @@
 #include "partitioner.h"
 
 #include "common/cast_set.h"
+#include "common/status.h"
 #include "pipeline/local_exchange/local_exchange_sink_operator.h"
 #include "runtime/thread_context.h"
 #include "vec/columns/column_const.h"
@@ -40,7 +41,7 @@ Status Crc32HashPartitioner<ChannelIds>::do_partitioning(RuntimeState* state, Bl
         _hash_vals.resize(rows);
         std::fill(_hash_vals.begin(), _hash_vals.end(), 0);
         auto* __restrict hashes = _hash_vals.data();
-        { RETURN_IF_ERROR(_get_partition_column_result(block, result)); }
+        RETURN_IF_ERROR(_get_partition_column_result(block, result));
         for (int j = 0; j < result_size; ++j) {
             const auto& [col, is_const] = unpack_if_const(block->get_by_position(result[j]).column);
             if (is_const) {
@@ -53,7 +54,7 @@ Status Crc32HashPartitioner<ChannelIds>::do_partitioning(RuntimeState* state, Bl
             hashes[i] = ChannelIds()(hashes[i], _partition_count);
         }
 
-        { Block::erase_useless_column(block, column_to_keep); }
+        Block::erase_useless_column(block, column_to_keep);
     }
     return Status::OK();
 }
@@ -70,6 +71,24 @@ template <typename ChannelIds>
 Status Crc32HashPartitioner<ChannelIds>::clone(RuntimeState* state,
                                                std::unique_ptr<PartitionerBase>& partitioner) {
     auto* new_partitioner = new Crc32HashPartitioner<ChannelIds>(cast_set<int>(_partition_count));
+
+    partitioner.reset(new_partitioner);
+    new_partitioner->_partition_expr_ctxs.resize(_partition_expr_ctxs.size());
+    for (size_t i = 0; i < _partition_expr_ctxs.size(); i++) {
+        RETURN_IF_ERROR(
+                _partition_expr_ctxs[i]->clone(state, new_partitioner->_partition_expr_ctxs[i]));
+    }
+    return Status::OK();
+}
+
+void Crc32CHashPartitioner::_do_hash(const ColumnPtr& column, uint32_t* __restrict result,
+                                     int idx) const {
+    column->update_crc32cs_with_value(result, cast_set<uint32_t>(column->size()), 0);
+}
+
+Status Crc32CHashPartitioner::clone(RuntimeState* state,
+                                    std::unique_ptr<PartitionerBase>& partitioner) {
+    auto* new_partitioner = new Crc32CHashPartitioner(cast_set<int>(_partition_count));
 
     partitioner.reset(new_partitioner);
     new_partitioner->_partition_expr_ctxs.resize(_partition_expr_ctxs.size());

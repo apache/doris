@@ -17,7 +17,6 @@
 
 #pragma once
 
-#include "util/runtime_profile.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
 
@@ -81,7 +80,9 @@ public:
     Status do_partitioning(RuntimeState* state, Block* block, bool eos,
                            bool* already_sent) const override;
 
-    ChannelField get_channel_ids() const override { return {_hash_vals.data(), sizeof(uint32_t)}; }
+    ChannelField get_channel_ids() const override {
+        return {.channel_id = _hash_vals.data(), .len = sizeof(uint32_t)};
+    }
 
     Status clone(RuntimeState* state, std::unique_ptr<PartitionerBase>& partitioner) override;
 
@@ -94,7 +95,7 @@ protected:
         return Status::OK();
     }
 
-    void _do_hash(const ColumnPtr& column, uint32_t* __restrict result, int idx) const;
+    virtual void _do_hash(const ColumnPtr& column, uint32_t* __restrict result, int idx) const;
 
     VExprContextSPtrs _partition_expr_ctxs;
     mutable std::vector<uint32_t> _hash_vals;
@@ -113,5 +114,17 @@ struct SpillPartitionChannelIds {
         return ((l >> 16) | (l << 16)) % r;
     }
 };
+
+class Crc32CHashPartitioner : public Crc32HashPartitioner<ShuffleChannelIds> {
+public:
+    Crc32CHashPartitioner(int partition_count)
+            : Crc32HashPartitioner<ShuffleChannelIds>(partition_count) {}
+
+    Status clone(RuntimeState* state, std::unique_ptr<PartitionerBase>& partitioner) override;
+
+private:
+    void _do_hash(const ColumnPtr& column, uint32_t* __restrict result, int idx) const override;
+};
+
 #include "common/compile_check_end.h"
 } // namespace doris::vectorized

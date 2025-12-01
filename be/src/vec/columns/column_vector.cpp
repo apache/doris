@@ -20,6 +20,7 @@
 
 #include "vec/columns/column_vector.h"
 
+#include <crc32c/crc32c.h>
 #include <fmt/format.h>
 #include <glog/logging.h>
 #include <pdqsort.h>
@@ -231,6 +232,43 @@ void ColumnVector<T>::update_crcs_with_value(uint32_t* __restrict hashes, Primit
                     hashes[i] = HashUtil::zlib_crc_hash(
                             &data[i], sizeof(typename PrimitiveTypeTraits<T>::ColumnItemType),
                             hashes[i]);
+            }
+        }
+    }
+}
+
+template <PrimitiveType T>
+void ColumnVector<T>::update_crc32cs_with_value(uint32_t* __restrict hashes, uint32_t rows,
+                                                uint32_t offset,
+                                                const uint8_t* __restrict null_data) const {
+    auto s = rows;
+    DCHECK(s == size());
+
+    if constexpr (is_date_or_datetime(T)) {
+        char buf[64];
+        auto date_convert_do_crc = [&](size_t i) {
+            const auto& date_val = (const VecDateTimeValue&)data[i];
+            auto len = date_val.to_buffer(buf);
+            hashes[i] = crc32c_extend(hashes[i], (const uint8_t*)buf, len);
+        };
+
+        for (size_t i = 0; i < s; i++) {
+            date_convert_do_crc(i);
+        }
+    } else {
+        for (size_t i = 0; i < s; i++) {
+            if constexpr (sizeof(typename PrimitiveTypeTraits<T>::ColumnItemType) == 1) {
+                hashes[i] = _mm_crc32_u8(hashes[i], *reinterpret_cast<const uint8_t*>(&data[i]));
+            } else if constexpr (sizeof(typename PrimitiveTypeTraits<T>::ColumnItemType) == 2) {
+                hashes[i] = _mm_crc32_u16(hashes[i], *reinterpret_cast<const uint16_t*>(&data[i]));
+            } else if constexpr (sizeof(typename PrimitiveTypeTraits<T>::ColumnItemType) == 4) {
+                hashes[i] = _mm_crc32_u32(hashes[i], *reinterpret_cast<const uint32_t*>(&data[i]));
+            } else if constexpr (sizeof(typename PrimitiveTypeTraits<T>::ColumnItemType) == 8) {
+                hashes[i] = (uint32_t)_mm_crc32_u64(hashes[i],
+                                                    *reinterpret_cast<const uint64_t*>(&data[i]));
+            } else {
+                hashes[i] = crc32c_extend(hashes[i], (const uint8_t*)&data[i],
+                                          sizeof(typename PrimitiveTypeTraits<T>::ColumnItemType));
             }
         }
     }

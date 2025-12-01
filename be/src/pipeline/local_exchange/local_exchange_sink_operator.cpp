@@ -54,8 +54,7 @@ Status LocalExchangeSinkOperatorX::init(ExchangeType type, const int num_buckets
                 _shuffle_idx_to_instance_idx[i] = i;
             }
         }
-        _partitioner.reset(new vectorized::Crc32HashPartitioner<vectorized::ShuffleChannelIds>(
-                _num_partitions));
+        _partitioner.reset(new vectorized::Crc32CHashPartitioner(_num_partitions));
         RETURN_IF_ERROR(_partitioner->init(_texprs));
     } else if (_type == ExchangeType::BUCKET_HASH_SHUFFLE) {
         DCHECK_GT(num_buckets, 0);

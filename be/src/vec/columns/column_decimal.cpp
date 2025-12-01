@@ -20,6 +20,7 @@
 
 #include "vec/columns/column_decimal.h"
 
+#include <crc32c/crc32c.h>
 #include <fmt/format.h>
 
 #include <limits>
@@ -205,6 +206,19 @@ void ColumnDecimal<T>::update_crcs_with_value(uint32_t* __restrict hashes, Primi
                 if (null_data[i] == 0) decimalv2_do_crc(i, hashes[i]);
             }
         }
+    }
+}
+
+template <PrimitiveType T>
+void ColumnDecimal<T>::update_crc32cs_with_value(uint32_t* __restrict hashes, uint32_t rows,
+                                                 uint32_t offset,
+                                                 const uint8_t* __restrict null_data) const {
+    auto s = rows;
+    DCHECK(s == size());
+
+    for (size_t i = 0; i < s; i++) {
+        hashes[i] = crc32c_extend(hashes[i], (const uint8_t*)&data[i],
+                                  sizeof(typename PrimitiveTypeTraits<T>::ColumnItemType));
     }
 }
 
