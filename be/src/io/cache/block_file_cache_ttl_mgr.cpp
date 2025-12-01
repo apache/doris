@@ -190,7 +190,8 @@ void BlockFileCacheTtlMgr::run_backgroud_update_ttl_info_map() {
                             FileBlocks blocks = get_file_blocks_from_tablet_id(tablet_id);
                             for (auto& block : blocks) {
                                 if (block->cache_type() != FileCacheType::TTL) {
-                                    auto change_status = block->change_cache_type(FileCacheType::TTL);
+                                    auto change_status =
+                                            block->change_cache_type(FileCacheType::TTL);
                                     if (!change_status.ok()) {
                                         LOG(WARNING) << "Failed to convert block to TTL cache_type";
                                     }
