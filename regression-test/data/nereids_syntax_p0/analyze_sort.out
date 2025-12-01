@@ -129,3 +129,27 @@ PhysicalResultSink
 2	3	2
 3	3	6
 
+-- !sort_7_shape --
+PhysicalResultSink
+--PhysicalProject
+----PhysicalQuickSort[MERGE_SORT]
+------PhysicalQuickSort[LOCAL_SORT]
+--------PhysicalProject
+----------filter((sum((a + b)) OVER() > 0))
+------------PhysicalWindow
+--------------PhysicalProject
+----------------PhysicalOlapScan[tbl_analyze_sort]
+
+-- !sort_7_result --
+1
+1
+2
+2
+3
+2
+2
+2
+3
+3
+3
+

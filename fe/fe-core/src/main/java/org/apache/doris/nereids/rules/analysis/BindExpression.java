@@ -1436,6 +1436,10 @@ public class BindExpression implements AnalysisRuleFactory {
         Plan input = sort.child();
         List<Slot> childOutput = input.getOutput();
 
+        if (input instanceof LogicalQualify) {
+            input = input.child(0);
+        }
+
         // we should skip distinct project to bind slot in LogicalSort;
         // check input.child(0) to avoid process SELECT DISTINCT a FROM t ORDER BY b by mistake
         // NOTICE: SELECT a FROM (SELECT sum(a) AS a FROM t GROUP BY b) v ORDER BY b will not raise error result
@@ -1446,9 +1450,7 @@ public class BindExpression implements AnalysisRuleFactory {
                 || input.child(0) instanceof LogicalRepeat)) {
             input = input.child(0);
         }
-        if (input instanceof LogicalQualify) {
-            input = input.child(0);
-        }
+
         // we should skip LogicalHaving to bind slot in LogicalSort;
         if (input instanceof LogicalHaving) {
             input = input.child(0);
