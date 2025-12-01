@@ -354,7 +354,7 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
 
     public LogicalAggregate<Plan> withChildGroupByAndOutputAndSourceRepeat(List<Expression> groupByExprList,
                                                             List<NamedExpression> outputExpressionList, Plan newChild,
-                                                                           Optional<LogicalRepeat<?>> sourceRepeat) {
+                                                            Optional<LogicalRepeat<? extends Plan>> sourceRepeat) {
         return new LogicalAggregate<>(groupByExprList, outputExpressionList, normalized, ordinalIsResolved, generated,
                 hasPushed, withInProjection, sourceRepeat, Optional.empty(), Optional.empty(), newChild);
     }
