@@ -27,6 +27,7 @@ import org.apache.iceberg.DataFiles;
 import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.PartitionData;
 import org.apache.iceberg.PartitionSpec;
+import org.apache.iceberg.Schema;
 import org.apache.iceberg.io.WriteResult;
 import org.apache.iceberg.types.Types;
 
@@ -43,6 +44,7 @@ public class IcebergWriterHelper {
     public static WriteResult convertToWriterResult(
             FileFormat format,
             PartitionSpec spec,
+            Schema schema,
             List<TIcebergCommitData> commitDataList) {
         List<DataFile> dataFiles = new ArrayList<>();
         for (TIcebergCommitData commitData : commitDataList) {
