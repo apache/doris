@@ -33,6 +33,7 @@ public class MTMVPropertyUtil {
     public static final Set<String> MV_PROPERTY_KEYS = Sets.newHashSet(
             PropertyAnalyzer.PROPERTIES_GRACE_PERIOD,
             PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES,
+            PropertyAnalyzer.ASYNC_MV_QUERY_REWRITE_CONSISTENCY_RELAXED_TABLES,
             PropertyAnalyzer.PROPERTIES_REFRESH_PARTITION_NUM,
             PropertyAnalyzer.PROPERTIES_WORKLOAD_GROUP,
             PropertyAnalyzer.PROPERTIES_PARTITION_SYNC_LIMIT,
@@ -52,6 +53,9 @@ public class MTMVPropertyUtil {
                 break;
             case PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES:
                 analyzeExcludedTriggerTables(value);
+                break;
+            case PropertyAnalyzer.ASYNC_MV_QUERY_REWRITE_CONSISTENCY_RELAXED_TABLES:
+                analyzeDataChangeStillRewrittenTables(value);
                 break;
             case PropertyAnalyzer.PROPERTIES_WORKLOAD_GROUP:
                 analyzeWorkloadGroup(value);
@@ -118,6 +122,10 @@ public class MTMVPropertyUtil {
     }
 
     private static void analyzeExcludedTriggerTables(String value) {
+        // do nothing
+    }
+
+    private static void analyzeDataChangeStillRewrittenTables(String value) {
         // do nothing
     }
 

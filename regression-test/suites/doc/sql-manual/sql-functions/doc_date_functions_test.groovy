@@ -35,22 +35,22 @@
 suite("doc_date_functions_test") {
     //FIXME: make FE and BE have same range of timezone
     // sql "set debug_skip_fold_constant=true;"
-    // Test Group 1: Basic Date Functions (序号 1-12)
+    // Test Group 1: Basic Date Functions(1 - 12)
     
     // 1. CONVERT_TZ function tests
-    // 中国上海时间转换到美国洛杉矶
+    // Convert China Shanghai time to America Los Angeles
     qt_convert_tz_1 """select CONVERT_TZ(CAST('2019-08-01 13:21:03' AS DATETIME), 'Asia/Shanghai', 'America/Los_Angeles')"""
     
-    // 将东八区（+08:00）的时间转换为美国洛杉矶
+    // Convert East 8 zone (+08:00) time to America Los Angeles
     qt_convert_tz_2 """select CONVERT_TZ(CAST('2019-08-01 13:21:03' AS DATETIME), '+08:00', 'America/Los_Angeles')"""
     
-    // 输入为date类型，时间部分自动转换为 00:00:00
+    // Input is date type, time part is automatically converted to 00:00:00
     qt_convert_tz_3 """select CONVERT_TZ(CAST('2019-08-01 13:21:03' AS DATE), 'Asia/Shanghai', 'America/Los_Angeles')"""
     
-    // 转换时间为NULL,输出NULL
+    // Convert time is NULL, output NULL
     qt_convert_tz_4 """select CONVERT_TZ(NULL, 'Asia/Shanghai', 'America/New_York')"""
     
-    // 任一时区为NULL，返回NULL
+    // Any timezone is NULL, return NULL
     qt_convert_tz_5 """select CONVERT_TZ('2019-08-01 13:21:03', NULL, 'America/Los_Angeles')"""
     qt_convert_tz_6 """select CONVERT_TZ('2019-08-01 13:21:03', '+08:00', NULL)"""
     
@@ -59,7 +59,7 @@ suite("doc_date_functions_test") {
         exception "Operation convert_tz invalid timezone"
     }
     
-    // 带有 scale 的时间
+    // Time with scale
     qt_convert_tz_8 """select CONVERT_TZ('2019-08-01 13:21:03.636', '+08:00', 'America/Los_Angeles')"""
 
     // test {
@@ -68,88 +68,88 @@ suite("doc_date_functions_test") {
     // }
 
     // 5. DATE_ADD function tests
-    // 添加天数
+    // Add days
     qt_date_add_1 """select date_add(cast('2010-11-30 23:59:59' as datetime), INTERVAL 2 DAY)"""
     
-    // 添加季度
+    // Add quarter
     qt_date_add_2 """select DATE_ADD(cast('2023-01-01' as date), INTERVAL 1 QUARTER)"""
     
-    // 添加周数
+    // Add weeks
     qt_date_add_3 """select DATE_ADD('2023-01-01', INTERVAL 1 WEEK)"""
     
-    // 添加月数,因为2023年2月只有28天，所以1月31加一个月返回2月28
+    // Add month, because February 2023 only has 28 days, so January 31 plus one month returns February 28
     qt_date_add_4 """select DATE_ADD('2023-01-31', INTERVAL 1 MONTH)"""
     
-    // 负数测试
+    // Negative number test
     qt_date_add_5 """select DATE_ADD('2019-01-01', INTERVAL -3 DAY)"""
     
-    // 跨年的小时增加
+    // Cross-year hour increment
     qt_date_add_6 """select DATE_ADD('2023-12-31 23:00:00', INTERVAL 2 HOUR)"""
     
-    // 参数为NULL,返回NULL
+    // Parameter is NULL, return NULL
     qt_date_add_7 """select DATE_ADD(NULL, INTERVAL 1 MONTH)"""
 
     // 6. DATE_CEIL function tests  
-    // 秒数按五秒向上取整
+    // Round up seconds to five-second intervals
     qt_date_ceil_1 """select date_ceil(cast('2023-07-13 22:28:18' as datetime),interval 5 second)"""
     
-    // 带有 scale 的日期时间参数
+    // Datetime parameter with scale
     qt_date_ceil_2 """select date_ceil(cast('2023-07-13 22:28:18.123' as datetime(3)),interval 5 second)"""
     
-    // 按五分钟向上取整
+    // Round up to five-minute intervals
     qt_date_ceil_3 """select date_ceil('2023-07-13 22:28:18',interval 5 minute)"""
     
-    // 按五周向上取整
+    // Round up to five-week intervals
     qt_date_ceil_4 """select date_ceil('2023-07-13 22:28:18',interval 5 WEEK)"""
     
-    // 按五小时向上取整
+    // Round up to five-hour intervals
     qt_date_ceil_5 """select date_ceil('2023-07-13 22:28:18',interval 5 hour)"""
     
-    // 按五天向上取整
+    // Round up to five-day intervals
     qt_date_ceil_6 """select date_ceil('2023-07-13 22:28:18',interval 5 day)"""
     
-    // 按五个月向上取整
+    // Round up to five-month intervals
     qt_date_ceil_7 """select date_ceil('2023-07-13 22:28:18',interval 5 month)"""
     
-    // 按五年向上取整
+    // Round up to five-year intervals
     qt_date_ceil_8 """select date_ceil('2023-07-13 22:28:18',interval 5 year)"""
     
-    // 任一参数为 NULL
+    // Any parameter is NULL
     qt_date_ceil_9 """select date_ceil('9900-07-13',interval NULL year)"""
     qt_date_ceil_10 """select date_ceil(NULL,interval 5 year)"""
 
     // 7. DATEDIFF function tests
-    // 两个日期相差1天（忽略时间部分）
+    // Two dates differ by 1 day (ignore time part)
     qt_datediff_1 """select datediff(CAST('2007-12-31 23:59:59' AS DATETIME), CAST('2007-12-30' AS DATETIME))"""
     
-    // 前一个日期早于后一个日期，返回负数
+    // First date is earlier than second date, return negative number
     qt_datediff_2 """select datediff(CAST('2010-11-30 23:59:59' AS DATETIME), CAST('2010-12-31' AS DATETIME))"""
     
-    // 任一参数为 NULL
+    // Any parameter is NULL
     qt_datediff_3 """select datediff('2023-01-01', NULL)"""
     
-    // 若输入 datetime 类型，会忽略时间部分
+    // If input is datetime type, time part will be ignored
     qt_datediff_4 """select datediff('2023-01-02 13:00:00', '2023-01-01 12:00:00')"""
     qt_datediff_5 """select datediff('2023-01-02 12:00:00', '2023-01-01 13:00:00')"""
 
     // 8. DATE_FLOOR function tests
-    // 按 5 秒向下取整
+    // Round down to 5-second intervals
     qt_date_floor_1 """select date_floor(cast('0001-01-01 00:00:18' as datetime), INTERVAL 5 SECOND)"""
     
-    // 带有 scale 的日期时间，返回值也会带有 scale
+    // Datetime with scale, return value also has scale
     qt_date_floor_2 """select date_floor(cast('0001-01-01 00:00:18.123' as datetime), INTERVAL 5 SECOND)"""
     
-    // 输入时间恰好是 5 天周期的起点
+    // Input time is exactly at the start of a 5-day cycle
     qt_date_floor_3 """select date_floor('2023-07-10 00:00:00', INTERVAL 5 DAY)"""
     
-    // date 类型的向下取整
+    // Round down date type
     qt_date_floor_4 """select date_floor('2023-07-13', INTERVAL 5 YEAR)"""
     
-    // 任一参数为 NULL
+    // Any parameter is NULL
     qt_date_floor_5 """select date_floor(NULL, INTERVAL 5 HOUR)"""
 
     // 9. DATE_FORMAT function tests
-    // 基本格式化测试
+    // Basic formatting tests
     qt_date_format_1 """SELECT DATE_FORMAT('2009-10-04 22:23:00', '%W %M %Y')"""
     qt_date_format_2 """SELECT DATE_FORMAT('2007-10-04 22:23:00', '%H:%i:%s')"""
     qt_date_format_3 """SELECT DATE_FORMAT('1999-01-01', '%Y-%m-%d')"""
@@ -187,52 +187,52 @@ suite("doc_date_functions_test") {
         exception "Operation date_format of 142335765945253888, %p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p is invalid"
     }
     
-    // 特殊格式符测试
+    // Special format specifier tests
     qt_date_format_5 """SELECT DATE_FORMAT('2009-10-04', '%a %b %c')"""
     qt_date_format_6 """SELECT DATE_FORMAT('2009-10-04', '%D %e %f')"""
     
-    // 任一参数为 NULL
+    // Any parameter is NULL
     qt_date_format_7 """SELECT DATE_FORMAT(NULL, '%Y-%m-%d')"""
     qt_date_format_8 """SELECT DATE_FORMAT('2009-10-04', NULL)"""
 
     // 10. DATE function tests
-    // 从datetime中提取日期部分
+    // Extract date part from datetime
     qt_date_1 """SELECT DATE('2003-12-31 01:02:03')"""
     qt_date_2 """SELECT DATE('2003-12-31')"""
     
-    // 参数为 NULL
+    // Parameter is NULL
     qt_date_3 """SELECT DATE(NULL)"""
 
     // 11. DATE_SUB function tests
-    // 减去天数
+    // Subtract days
     qt_date_sub_1 """SELECT DATE_SUB('2018-05-01', INTERVAL 1 DAY)"""
     
-    // 减去月数
+    // Subtract months
     qt_date_sub_2 """SELECT DATE_SUB('2018-05-01', INTERVAL 1 MONTH)"""
     
-    // 减去年数
+    // Subtract years
     qt_date_sub_3 """SELECT DATE_SUB('2018-05-01', INTERVAL 1 YEAR)"""
     
-    // 减去小时
+    // Subtract hours
     qt_date_sub_4 """SELECT DATE_SUB('2018-05-01 12:00:00', INTERVAL 2 HOUR)"""
     
-    // 参数为 NULL
+    // Parameter is NULL
     qt_date_sub_5 """SELECT DATE_SUB(NULL, INTERVAL 1 DAY)"""
 
     // 12. DATE_TRUNC function tests
-    // 截断到年
+    // Truncate to year
     qt_date_trunc_1 """SELECT DATE_TRUNC('2019-05-09', 'year')"""
     
-    // 截断到月
+    // Truncate to month
     qt_date_trunc_2 """SELECT DATE_TRUNC('2019-05-09', 'month')"""
     
-    // 截断到日
+    // Truncate to day
     qt_date_trunc_3 """SELECT DATE_TRUNC('2019-05-09 12:30:45', 'day')"""
     
-    // 截断到小时
+    // Truncate to hour
     qt_date_trunc_4 """SELECT DATE_TRUNC('2019-05-09 12:30:45', 'hour')"""
     
-    // 参数为 NULL
+    // Parameter is NULL
     qt_date_trunc_5 """SELECT DATE_TRUNC(NULL, 'year')"""
 
     // Group 2: Day functions and related date extraction functions
@@ -469,22 +469,23 @@ suite("doc_date_functions_test") {
     qt_extract_3 """select extract(week from '2024-01-06') as week"""
     qt_extract_4 """select extract(week from '2024-01-07') as week"""
     qt_extract_5 """select extract(week from '2024-12-31') as week"""
-    
+
     // 20. FROM_DAYS function tests
     qt_from_days_1 """select from_days(730669),from_days(5),from_days(59), from_days(60)"""
     // qt_from_days_2 """select from_days(-60)"""
     qt_from_days_3 """select from_days(NULL)"""
-    
+
     // 21. FROM_ISO8601_DATE function tests
     qt_from_iso8601_date_1 """select from_iso8601_date('2023') as year_only, from_iso8601_date('2023-10') as year_month, from_iso8601_date('2023-10-05') as full_date"""
     qt_from_iso8601_date_2 """select from_iso8601_date('2021-001') as day_1, from_iso8601_date('2021-059') as day_59, from_iso8601_date('2021-060') as day_60, from_iso8601_date('2024-366') as day_366"""
     qt_from_iso8601_date_3 """select from_iso8601_date('0522-W01-1') as week_1"""
     qt_from_iso8601_date_4 """select from_iso8601_date('0522-W01-4') as week_4"""
     qt_from_iso8601_date_5 """select from_iso8601_date('0522-W01') as week_1"""
-    // qt_from_iso8601_date_6 """select from_iso8601_date('2023-10-01T12:34:10')"""
-    // qt_from_iso8601_date_7 """select from_iso8601_date('0522-W61') as week_61"""
-    // qt_from_iso8601_date_8 """select from_iso8601_date('0522-661') as day_661"""
+    qt_from_iso8601_date_6 """select from_iso8601_date('2023-10-01T12:34:10')"""
+    qt_from_iso8601_date_7 """select from_iso8601_date('0522-W61') as week_61"""
+    qt_from_iso8601_date_8 """select from_iso8601_date('0522-661') as day_661"""
     qt_from_iso8601_date_9 """select from_iso8601_date(NULL)"""
+            sql """select from_iso8601_date('2023-10-01T12:34:10');"""
     
     // 22. FROM_MICROSECOND function tests
     qt_from_microsecond_1 """SELECT FROM_MICROSECOND(0)"""
@@ -1135,14 +1136,14 @@ suite("doc_date_functions_test") {
     qt_str_to_date_1 """SELECT STR_TO_DATE('2025-01-23 12:34:56', '%Y-%m-%d %H:%i:%s')"""
     qt_str_to_date_2 """SELECT STR_TO_DATE('2025-01-23 12:34:56', 'yyyy-MM-dd HH:mm:ss')"""
     qt_str_to_date_3 """SELECT STR_TO_DATE('20230713', 'yyyyMMdd')"""
-    // qt_str_to_date_4 """SELECT STR_TO_DATE('15:30:45', '%H:%i:%s')"""
+    qt_str_to_date_4 """SELECT STR_TO_DATE('15:30:45', '%H:%i:%s')"""
     qt_str_to_date_5 """SELECT STR_TO_DATE('200442 Monday', '%X%V %W')"""
     qt_str_to_date_6 """SELECT STR_TO_DATE('Oct 5 2023 3:45:00 PM', '%b %d %Y %h:%i:%s %p')"""
-    // qt_str_to_date_7 """SELECT STR_TO_DATE('2023/01/01', '%Y-%m-%d')"""
-    // qt_str_to_date_8 """SELECT STR_TO_DATE('2023-01-01 10:00:00 (GMT)', '%Y-%m-%d %H:%i:%s')"""
+    qt_str_to_date_7 """SELECT STR_TO_DATE('2023/01/01', '%Y-%m-%d')"""
+    qt_str_to_date_8 """SELECT STR_TO_DATE('2023-01-01 10:00:00 (GMT)', '%Y-%m-%d %H:%i:%s')"""
     qt_str_to_date_9 """SELECT STR_TO_DATE('2023-07-13 12:34:56.789', '%Y-%m-%d %H:%i:%s.%f')"""
     qt_str_to_date_10 """SELECT STR_TO_DATE(NULL, '%Y-%m-%d'), STR_TO_DATE('2023-01-01', NULL)"""
-    // qt_str_to_date_11 """SELECT STR_TO_DATE('2023-01-01', '')"""
+    qt_str_to_date_11 """SELECT STR_TO_DATE('2023-01-01', '')"""
     
     // 72. TIMEDIFF function tests
     qt_timediff_1 """SELECT TIMEDIFF('2024-07-20 16:59:30', '2024-07-11 16:35:21')"""
@@ -1368,6 +1369,30 @@ suite("doc_date_functions_test") {
     qt_yearweek_4 """SELECT YEARWEEK('2023-01-02', 5) AS yearweek_mode5"""
     qt_yearweek_5 """SELECT YEARWEEK('2023-12-25', 1) AS date_type_mode1"""
 
+    // 100. MAKETIME function test;
+    sql """DROP TABLE IF EXISTS maketime_test"""
+    sql """CREATE TABLE maketime_test (
+            `id` INT,
+            `hour` INT,
+            `minute` INT,
+            `sec` FLOAT
+        ) DUPLICATE KEY(id)
+        PROPERTIES ( 'replication_num' = '1' );"""
+    sql """ INSERT INTO maketime_test VALUES
+                (1, 12, 15, 30),
+                (2, 111, 0, 23.1234567),
+                (3, 1234, 11, 4),
+                (4, -1234, 6, 52),
+                (5, 20, 60, 12),
+                (6, 14, 51, 66),
+                (7, NULL, 15, 16),
+                (8, 7, NULL, 8),
+                (9, 1, 2, NULL),
+                (10, 123, -4, 52),
+                (11, 7, 23, -6);"""
+    qt_maketime_test_1 """SELECT MAKETIME(hour,minute,sec) FROM maketime_test ORDER BY id;"""
+    qt_maketime_test_2 """SELECT MAKETIME(hour, minute, 25) FROM maketime_test ORDER BY id;"""
+
     // Test constant folding for YEARWEEK function
     testFoldConst("SELECT YEARWEEK('2021-01-01') AS yearweek_mode0")
     testFoldConst("SELECT YEARWEEK('2020-07-01', 1) AS yearweek_mode1")
@@ -1515,9 +1540,9 @@ suite("doc_date_functions_test") {
     testFoldConst("SELECT FROM_ISO8601_DATE('2021-060') as day_60")
     testFoldConst("SELECT FROM_ISO8601_DATE('2024-366') as day_366")
     testFoldConst("SELECT FROM_ISO8601_DATE('0522-W01-1') as week_1")
-    // testFoldConst("SELECT FROM_ISO8601_DATE('2023-10-01T12:34:10')")
-    // testFoldConst("SELECT FROM_ISO8601_DATE('0522-661') as day_661")
-    // testFoldConst("SELECT FROM_ISO8601_DATE('invalid-date')")
+    testFoldConst("SELECT FROM_ISO8601_DATE('2023-10-01T12:34:10')")
+    testFoldConst("SELECT FROM_ISO8601_DATE('0522-661') as day_661")
+    testFoldConst("SELECT FROM_ISO8601_DATE('invalid-date')")
     testFoldConst("SELECT FROM_ISO8601_DATE(NULL)")
 
     // 22. FROM_MILLISECOND function constant folding tests
@@ -1810,12 +1835,12 @@ suite("doc_date_functions_test") {
     testFoldConst("SELECT STR_TO_DATE('2025-01-23 12:34:56', '%Y-%m-%d %H:%i:%s')")
     testFoldConst("SELECT STR_TO_DATE('2025-01-23 12:34:56', 'yyyy-MM-dd HH:mm:ss')")
     testFoldConst("SELECT STR_TO_DATE('20230713', 'yyyyMMdd')")
-    // testFoldConst("SELECT STR_TO_DATE('15:30:45', '%H:%i:%s')")
+    testFoldConst("SELECT STR_TO_DATE('15:30:45', '%H:%i:%s')")
     testFoldConst("SELECT STR_TO_DATE('200442 Monday', '%X%V %W')")
     testFoldConst("SELECT STR_TO_DATE('Oct 5 2023 3:45:00 PM', '%b %d %Y %h:%i:%s %p')")
     testFoldConst("SELECT STR_TO_DATE('2023-01-01 10:00:00 (GMT)', '%Y-%m-%d %H:%i:%s')")
     testFoldConst("SELECT STR_TO_DATE('2023-07-13 12:34:56.789', '%Y-%m-%d %H:%i:%s.%f')")
-    // testFoldConst("SELECT STR_TO_DATE('2023-01-01', '')")
+    testFoldConst("SELECT STR_TO_DATE('2023-01-01', '')")
 
     // 72. TIMEDIFF function constant folding tests
     testFoldConst("SELECT TIMEDIFF('2024-07-20 16:59:30', '2024-07-11 16:35:21')")
@@ -1985,6 +2010,19 @@ suite("doc_date_functions_test") {
     testFoldConst("SELECT YEARS_SUB('2022-12-25', 3) AS sub_3_year_date")
     testFoldConst("SELECT YEARS_SUB('2020-02-29', 1) AS leap_day_adjust_1")
 
+    // 99. MAKETIME function constant folding tests
+    testFoldConst("SELECT MAKETIME(12, 15, 30)")
+    testFoldConst("SELECT MAKETIME(111, 0, 23.1234567)")
+    testFoldConst("SELECT MAKETIME(1234, 11, 4)")
+    testFoldConst("SELECT MAKETIME(-1234, 6, 52)")
+    testFoldConst("SELECT MAKETIME(20, 60, 12)")
+    testFoldConst("SELECT MAKETIME(14, 51, 66)")
+    testFoldConst("SELECT MAKETIME(NULL, 15, 16)")
+    testFoldConst("SELECT MAKETIME(7, NULL, 8)")
+    testFoldConst("SELECT MAKETIME(1, 2, NULL)")
+    testFoldConst("SELECT MAKETIME(123, -4, 40)")
+    testFoldConst("SELECT MAKETIME(7, 8, -23)")
+
     // Additional NULL parameter tests for comprehensive coverage
     
     // MINUTE functions NULL tests
@@ -2070,4 +2108,67 @@ suite("doc_date_functions_test") {
     // testFoldConst("SELECT SECOND_CEIL('2025-01-23 12:34:56', -5)")
     // testFoldConst("SELECT WEEK_CEIL('2023-07-13 22:28:18', -2)")
     // testFoldConst("SELECT YEAR_CEIL('2023-07-13 22:28:18', -5)")
+
+
+    sql "DROP TABLE IF EXISTS test_datetime_ceil"
+
+    sql """
+    CREATE TABLE test_datetime_ceil (
+        id INT,
+        dt DATETIME,
+        f DECIMAL
+    ) ENGINE=OLAP
+    PROPERTIES("replication_num" = "1");
+    """
+
+   sql "INSERT INTO test_datetime_ceil VALUES (1, '2025-10-10 12:34:56', 123.12);"
+   sql "INSERT INTO test_datetime_ceil VALUES (2, '2025-01-01 00:00:00', 2.22);"
+   sql "INSERT INTO test_datetime_ceil VALUES (3, '2025-12-31 23:59:59', 3.34);"
+
+   qt_dateceil """
+   SELECT
+       dt,
+        year_ceil(dt) AS year_ceil,
+        month_ceil(dt) AS month_ceil,
+        day_ceil(dt) AS day_ceil,
+        hour_ceil(dt) AS hour_ceil,
+        minute_ceil(dt) AS minute_ceil,
+        second_ceil(dt) AS second_ceil
+    FROM test_datetime_ceil ORDER BY id;
+    """
+
+    qt_todays """
+    SELECT
+        id,
+        dt,
+        to_days(dt) AS to_days_result
+    FROM test_datetime_ceil ORDER BY id;
+"""
+
+    qt_ceil """
+    SELECT
+        id,
+        ceil(f) AS ceil_f from test_datetime_ceil ORDER BY id;
+    """
+
+    testFoldConst("""SELECT
+       dt,
+        year_ceil(dt) AS year_ceil,
+        month_ceil(dt) AS month_ceil,
+        day_ceil(dt) AS day_ceil,
+        hour_ceil(dt) AS hour_ceil,
+        minute_ceil(dt) AS minute_ceil,
+        second_ceil(dt) AS second_ceil
+    FROM test_datetime_ceil ORDER BY id;""")
+
+    testFoldConst("""SELECT
+        id,
+        dt,
+        to_days(dt) AS to_days_result
+    FROM test_datetime_ceil ORDER BY id;""")
+
+    testFoldConst("""SELECT
+        id,
+        ceil(f) AS ceil_f from test_datetime_ceil ORDER BY id;""")
+
 }

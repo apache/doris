@@ -31,7 +31,7 @@ import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
-import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.collections4.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -288,15 +288,6 @@ public class TableRef implements ParseNode {
 
     public String getMarkTupleName() {
         return markTupleName;
-    }
-
-    public void setMark(TupleDescriptor markTuple) {
-        this.isMark = markTuple != null;
-        if (isMark) {
-            this.markTupleName = markTuple.getAlias();
-        } else {
-            this.markTupleName = null;
-        }
     }
 
     public Expr getOnClause() {

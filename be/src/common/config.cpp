@@ -852,6 +852,11 @@ DEFINE_mInt32(max_tablet_version_num, "2000");
 
 DEFINE_mInt32(time_series_max_tablet_version_num, "20000");
 
+// the max sleep time when meeting high pressure load task
+DEFINE_mInt64(max_load_back_pressure_version_wait_time_ms, "3000");
+// the threshold of rowset number gap that triggers back pressure
+DEFINE_mInt64(load_back_pressure_version_threshold, "80"); // 80%
+
 // Frontend mainly use two thrift sever type: THREAD_POOL, THREADED_SELECTOR. if fe use THREADED_SELECTOR model for thrift server,
 // the thrift_server_type_of_fe should be set THREADED_SELECTOR to make be thrift client to fe constructed with TFramedTransport
 DEFINE_String(thrift_server_type_of_fe, "THREAD_POOL");
@@ -1592,14 +1597,15 @@ DEFINE_mInt64(max_csv_line_reader_output_buffer_size, "4294967296");
 // -1 means auto: use 80% of the available CPU cores.
 DEFINE_Int32(omp_threads_limit, "-1");
 DEFINE_Validator(omp_threads_limit, [](const int config) -> bool {
+    if (config > 0) {
+        omp_threads_limit = config;
+        return true;
+    }
     CpuInfo::init();
     int core_cap = config::num_cores > 0 ? config::num_cores : CpuInfo::num_cores();
     core_cap = std::max(1, core_cap);
-    int limit = config;
-    if (limit < 0) {
-        limit = std::max(1, core_cap * 4 / 5);
-    }
-    omp_threads_limit = std::max(1, std::min(limit, core_cap));
+    // Use at most 80% of the available CPU cores.
+    omp_threads_limit = std::max(1, core_cap * 4 / 5);
     return true;
 });
 // The capacity of segment partial column cache, used to cache column readers for each segment.

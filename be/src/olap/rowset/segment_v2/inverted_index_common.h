@@ -17,47 +17,50 @@
 
 #pragma once
 
-#include <CLucene.h> // IWYU pragma: keep
-
+#include <exception>
 #include <memory>
+#include <string>
 
-#include "common/logging.h"
+namespace lucene {
+namespace store {
+class Directory;
+} // namespace store
+
+namespace index {
+class Term;
+class TermDocs;
+class TermPositions;
+class IndexReader;
+} // namespace index
+} // namespace lucene
+
+class CLuceneError;
 
 namespace doris::segment_v2 {
 
 struct DirectoryDeleter {
-    void operator()(lucene::store::Directory* ptr) const { _CLDECDELETE(ptr); }
+    void operator()(lucene::store::Directory* p) const;
 };
 
 struct TermDeleter {
-    void operator()(lucene::index::Term* p) const { _CLDECDELETE(p); }
+    void operator()(lucene::index::Term* p) const;
 };
 using TermPtr = std::unique_ptr<lucene::index::Term, TermDeleter>;
 
 template <typename... Args>
-TermPtr make_term_ptr(Args&&... args) {
-    return TermPtr(new lucene::index::Term(std::forward<Args>(args)...));
-}
+TermPtr make_term_ptr(Args&&... args);
 
 struct CLuceneDeleter {
-    void operator()(lucene::index::TermDocs* p) const {
-        if (p) {
-            _CLDELETE(p);
-        }
-    }
+    void operator()(lucene::index::TermDocs* p) const;
 };
 using TermDocsPtr = std::unique_ptr<lucene::index::TermDocs, CLuceneDeleter>;
 using TermPositionsPtr = std::unique_ptr<lucene::index::TermPositions, CLuceneDeleter>;
 
 template <typename... Args>
-TermDocsPtr make_term_doc_ptr(lucene::index::IndexReader* reader, Args&&... args) {
-    return TermDocsPtr(reader->termDocs(std::forward<Args>(args)...));
-}
+TermDocsPtr make_term_doc_ptr(lucene::index::IndexReader* reader, Args&&... args);
 
 template <typename... Args>
-TermPositionsPtr make_term_positions_ptr(lucene::index::IndexReader* reader, Args&&... args) {
-    return TermPositionsPtr(reader->termPositions(std::forward<Args>(args)...));
-}
+TermPositionsPtr make_term_positions_ptr(lucene::index::IndexReader* reader, Args&&... args);
 
 struct ErrorContext {
     std::string err_msg;
@@ -71,22 +74,7 @@ concept HasClose = requires(T t) {
 
 template <typename PtrType>
     requires HasClose<PtrType>
-void finally_close(PtrType& resource, ErrorContext& error_context) {
-    if (resource) {
-        try {
-            resource->close();
-        } catch (CLuceneError& err) {
-            error_context.eptr = std::current_exception();
-            error_context.err_msg.append("Error occurred while closing resource: ");
-            error_context.err_msg.append(err.what());
-            LOG(ERROR) << error_context.err_msg;
-        } catch (...) {
-            error_context.eptr = std::current_exception();
-            error_context.err_msg.append("Error occurred while closing resource");
-            LOG(ERROR) << error_context.err_msg;
-        }
-    }
-}
+void finally_close(PtrType& resource, ErrorContext& error_context);
 
 #if defined(__clang__)
 #pragma clang diagnostic push
@@ -127,3 +115,5 @@ void finally_close(PtrType& resource, ErrorContext& error_context) {
 #endif
 
 } // namespace doris::segment_v2
+
+#include "inverted_index_common_impl.h"

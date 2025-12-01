@@ -410,6 +410,12 @@ struct TQueryOptions {
 
   175: optional bool enable_fuzzy_blockable_task = false;
 
+  177: optional bool enable_extended_regex = false;
+
+  // Target file size in bytes for Iceberg write operations
+  // Default 0 means use config::iceberg_sink_max_file_size
+  178: optional i64 iceberg_write_target_file_size_bytes = 0;
+
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.
   // In read path, read from file cache or remote storage when execute query.

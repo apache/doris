@@ -97,13 +97,6 @@ public class VariantField {
         return sb.toString();
     }
 
-    public static boolean canCastTo(VariantField field, VariantField targetField) {
-        if (targetField.type.isStringType() && field.type.isStringType()) {
-            return true;
-        }
-        return Type.canCastTo(field.type, targetField.type);
-    }
-
     public boolean matchesField(VariantField f) {
         if (equals(f)) {
             return true;

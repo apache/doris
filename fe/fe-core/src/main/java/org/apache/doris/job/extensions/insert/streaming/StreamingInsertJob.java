@@ -26,6 +26,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
@@ -73,7 +74,7 @@ import com.google.gson.annotations.SerializedName;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.extern.log4j.Log4j2;
-import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 
 import java.io.DataOutput;
@@ -227,7 +228,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         return offset;
     }
 
-    public void alterJob(AlterJobCommand alterJobCommand) throws AnalysisException {
+    public void alterJob(AlterJobCommand alterJobCommand) throws AnalysisException, JobException {
         List<String> logParts = new ArrayList<>();
         // update sql
         if (StringUtils.isNotEmpty(alterJobCommand.getSql())) {
@@ -260,6 +261,12 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         } finally {
             lock.writeLock().unlock();
         }
+    }
+
+    public void resetFailureInfo(FailureReason reason) {
+        this.setFailureReason(reason);
+        // Currently, only delayMsg is present here, which needs to be cleared when the status changes.
+        this.setJobRuntimeMsg("");
     }
 
     @Override
@@ -355,11 +362,19 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             offsetProvider.fetchRemoteMeta(originTvfProps);
         } catch (Exception ex) {
             log.warn("fetch remote meta failed, job id: {}", getJobId(), ex);
+            failureReason = new FailureReason(InternalErrorCode.GET_REMOTE_DATA_ERROR,
+                    "Failed to fetch meta, " + ex.getMessage());
         }
     }
 
     public boolean needScheduleTask() {
-        return (getJobStatus().equals(JobStatus.RUNNING) || getJobStatus().equals(JobStatus.PENDING));
+        readLock();
+        try {
+            return (getJobStatus().equals(JobStatus.RUNNING)
+                    || getJobStatus().equals(JobStatus.PENDING));
+        } finally {
+            readUnlock();
+        }
     }
 
     public void clearRunningStreamTask(JobStatus newJobStatus) {
@@ -456,28 +471,59 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         setJobStatus(replayJob.getJobStatus());
         try {
             modifyPropertiesInternal(replayJob.getProperties());
+            // When the pause state is restarted, it also needs to be updated
+            if (Config.isCloudMode()) {
+                replayOnCloudMode();
+            }
         } catch (Exception e) {
             // should not happen
             log.error("replay modify streaming insert job properties failed, job id: {}", getJobId(), e);
         }
         setExecuteSql(replayJob.getExecuteSql());
+        setSucceedTaskCount(replayJob.getSucceedTaskCount());
+        setFailedTaskCount(replayJob.getFailedTaskCount());
+        setCanceledTaskCount(replayJob.getCanceledTaskCount());
     }
 
     /**
      * When updating offset, you need to reset the currentOffset
      */
-    private void modifyPropertiesInternal(Map<String, String> inputProperties) throws AnalysisException {
+    private void modifyPropertiesInternal(Map<String, String> inputProperties) throws AnalysisException, JobException {
         StreamingJobProperties inputStreamProps = new StreamingJobProperties(inputProperties);
         if (StringUtils.isNotEmpty(inputStreamProps.getOffsetProperty())) {
             Offset offset = validateOffset(inputStreamProps.getOffsetProperty());
             this.offsetProvider.updateOffset(offset);
-
             if (Config.isCloudMode()) {
-                // todo: reset cloud currentOffset
+                resetCloudProgress(offset);
             }
         }
         this.properties.putAll(inputProperties);
         this.jobProperties = new StreamingJobProperties(this.properties);
+    }
+
+    private void resetCloudProgress(Offset offset) throws JobException {
+        Cloud.ResetStreamingJobOffsetRequest.Builder builder = Cloud.ResetStreamingJobOffsetRequest.newBuilder();
+        builder.setCloudUniqueId(Config.cloud_unique_id);
+        builder.setDbId(getDbId());
+        builder.setJobId(getJobId());
+        builder.setOffset(offset.toSerializedJson());
+
+        Cloud.ResetStreamingJobOffsetResponse response;
+        try {
+            response = MetaServiceProxy.getInstance().resetStreamingJobOffset(builder.build());
+            if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
+                log.warn("failed to reset streaming job cloud offset, response: {}", response);
+                if (response.getStatus().getCode() == Cloud.MetaServiceCode.ROUTINE_LOAD_PROGRESS_NOT_FOUND) {
+                    log.warn("not found streaming job offset, response: {}", response);
+                    return;
+                } else {
+                    throw new JobException(response.getStatus().getMsg());
+                }
+            }
+        } catch (RpcException e) {
+            log.info("failed to reset cloud progress, ", e);
+            throw new JobException(e.getMessage());
+        }
     }
 
     @Override
@@ -678,6 +724,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             } catch (AnalysisException e) {
                 log.warn("failed to get db id for streaming insert job {}, db name: {}, msg: {}",
                         getJobId(), getCurrentDbName(), e.getMessage());
+                failureReason = new FailureReason(InternalErrorCode.DB_ERR, "Failed to get db id, " + e.getMessage());
             }
         }
         return dbId;

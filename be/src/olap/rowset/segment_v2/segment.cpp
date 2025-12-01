@@ -125,6 +125,7 @@ Status Segment::_open(io::FileSystemSPtr fs, const std::string& path, uint32_t s
 
         st = fs->open_file(path, &file_reader, &reader_options);
         if (st) {
+            segment->_fs = fs;
             segment->_file_reader = std::move(file_reader);
             st = segment->_open(stats);
         }
@@ -139,6 +140,7 @@ Status Segment::_open(io::FileSystemSPtr fs, const std::string& path, uint32_t s
             io::FileReaderOptions opt = reader_options;
             opt.cache_type = io::FileCachePolicy::NO_CACHE; // skip cache
             RETURN_IF_ERROR(fs->open_file(path, &file_reader, &opt));
+            segment->_fs = fs;
             segment->_file_reader = std::move(file_reader);
             st = segment->_open(stats);
             if (!st.ok()) {
@@ -149,6 +151,7 @@ Status Segment::_open(io::FileSystemSPtr fs, const std::string& path, uint32_t s
         }
     }
     RETURN_IF_ERROR(st);
+    DCHECK(segment->_fs != nullptr) << "file system is nullptr after segment open";
     *output = std::move(segment);
     return Status::OK();
 }
@@ -622,7 +625,7 @@ vectorized::DataTypePtr Segment::get_data_type_of(const TabletColumn& column,
     // Find the specific node within the variant structure using the relative path.
     const auto* node = variant_reader->get_subcolumn_meta_by_path(relative_path);
 
-    if (relative_path.get_path() == SPARSE_COLUMN_PATH) {
+    if (relative_path.get_path().find(BeConsts::SPARSE_COLUMN_PATH) != std::string::npos) {
         return vectorized::DataTypeFactory::instance().create_data_type(column);
     }
 
@@ -983,22 +986,6 @@ Status Segment::read_key_by_rowid(uint32_t row_id, std::string* key) {
         *key = sought_key_without_rowid.to_string();
     }
     return Status::OK();
-}
-
-bool Segment::same_with_storage_type(int32_t cid, const Schema& schema, bool read_flat_leaves) {
-    const auto* col = schema.column(cid);
-    auto file_column_type = get_data_type_of(col->get_desc(), read_flat_leaves);
-    auto expected_type = Schema::get_data_type_ptr(*col);
-#ifndef NDEBUG
-    if (file_column_type && !file_column_type->equals(*expected_type)) {
-        VLOG_DEBUG << fmt::format("Get column {}, file column type {}, exepected type {}",
-                                  col->name(), file_column_type->get_name(),
-                                  expected_type->get_name());
-    }
-#endif
-    bool same =
-            (!file_column_type) || (file_column_type && file_column_type->equals(*expected_type));
-    return same;
 }
 
 Status Segment::seek_and_read_by_rowid(const TabletSchema& schema, SlotDescriptor* slot,

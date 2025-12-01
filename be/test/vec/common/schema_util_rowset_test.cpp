@@ -18,6 +18,7 @@
 #include <gmock/gmock-more-matchers.h>
 #include <gtest/gtest.h>
 
+#include "common/consts.h"
 #include "olap/rowset/beta_rowset_writer.h"
 #include "olap/rowset/rowset_factory.h"
 #include "olap/rowset/segment_v2/variant/variant_column_writer_impl.h"
@@ -437,6 +438,34 @@ TEST_F(SchemaUtilRowsetTest, collect_path_stats_and_get_extended_compaction_sche
     data_type = segment->get_data_type_of(subcolumn_in_sparse, true);
     EXPECT_TRUE(data_type != nullptr);
     EXPECT_TRUE(data_type->get_storage_field_type() == FieldType::OLAP_FIELD_TYPE_STRING);
+
+    // path contains sparse marker, should return default column type (OLAP_FIELD_TYPE_MAP)
+    TabletColumn sparse_typed_col;
+    sparse_typed_col.set_name("v1.__DORIS_VARIANT_SPARSE__");
+    sparse_typed_col.set_type(FieldType::OLAP_FIELD_TYPE_MAP);
+    sparse_typed_col.set_unique_id(-1);
+    sparse_typed_col.set_parent_unique_id(1);
+    sparse_typed_col.set_path_info(PathInData(std::string("v1.") + BeConsts::SPARSE_COLUMN_PATH));
+    sparse_typed_col.set_variant_max_subcolumns_count(3);
+    sparse_typed_col.set_is_nullable(true);
+    // add key/value subcolumns for MAP to satisfy DataTypeFactory checks
+    // key: STRING, value: VARIANT
+    {
+        TabletColumn key_col;
+        key_col.set_name("__key");
+        key_col.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
+        key_col.set_is_nullable(false);
+        sparse_typed_col.add_sub_column(key_col);
+
+        TabletColumn value_col;
+        value_col.set_name("__value");
+        value_col.set_type(FieldType::OLAP_FIELD_TYPE_INT);
+        value_col.set_is_nullable(true);
+        sparse_typed_col.add_sub_column(value_col);
+    }
+    data_type = segment->get_data_type_of(sparse_typed_col, true);
+    EXPECT_TRUE(data_type != nullptr);
+    EXPECT_TRUE(data_type->get_storage_field_type() == FieldType::OLAP_FIELD_TYPE_MAP);
 
     subcolumn_in_sparse.set_name("v1.keyb");
     subcolumn_in_sparse.set_type(FieldType::OLAP_FIELD_TYPE_INT);

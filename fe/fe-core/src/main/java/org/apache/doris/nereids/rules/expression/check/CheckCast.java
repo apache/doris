@@ -72,8 +72,8 @@ import java.util.Set;
  */
 public class CheckCast implements ExpressionPatternRuleFactory {
     public static CheckCast INSTANCE = new CheckCast();
-    private static final Map<Class<? extends DataType>, Set<Class<? extends DataType>>> strictCastWhiteList;
-    private static final Map<Class<? extends DataType>, Set<Class<? extends DataType>>> unStrictCastWhiteList;
+    public static final Map<Class<? extends DataType>, Set<Class<? extends DataType>>> strictCastWhiteList;
+    public static final Map<Class<? extends DataType>, Set<Class<? extends DataType>>> unStrictCastWhiteList;
 
     static {
         Set<Class<? extends DataType>> allowedTypes = Sets.newHashSet();
@@ -156,6 +156,7 @@ public class CheckCast implements ExpressionPatternRuleFactory {
         allowToBasicType(allowedTypes);
         allowedTypes.add(IPv4Type.class);
         allowedTypes.add(IPv6Type.class);
+        allowedTypes.add(VarBinaryType.class);
         allowToComplexType(allowedTypes);
         allowedTypes.remove(HllType.class);
         allowedTypes.remove(BitmapType.class);
@@ -197,6 +198,7 @@ public class CheckCast implements ExpressionPatternRuleFactory {
         //varbinary
         allowedTypes = Sets.newHashSet();
         allowedTypes.add(VarBinaryType.class);
+        allowToStringLikeType(allowedTypes);
         strictCastWhiteList.put(VarBinaryType.class, allowedTypes);
 
         // array

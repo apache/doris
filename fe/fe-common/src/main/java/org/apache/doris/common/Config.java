@@ -562,6 +562,15 @@ public class Config extends ConfigBase {
             "Whether to enable parallel publish version"})
     public static boolean enable_parallel_publish_version = true;
 
+
+    @ConfField(masterOnly = true, description = {"Tablet report 线程池的数目",
+        "Num of thread to handle tablet report task"})
+    public static int tablet_report_thread_pool_num = 10;
+
+    @ConfField(masterOnly = true, description = {"Tablet report 线程池的队列大小",
+        "Queue size to store tablet report task in publish thread pool"})
+    public static int tablet_report_queue_size = 1024;
+
     @ConfField(mutable = true, masterOnly = true, description = {"提交事务的最大超时时间，单位是秒。"
             + "该参数仅用于事务型 insert 操作中。",
             "Maximal waiting time for all data inserted before one transaction to be committed, in seconds. "
@@ -683,6 +692,12 @@ public class Config extends ConfigBase {
             "是否禁用 show stream load 和 clear stream load 命令，以及是否清理内存中的 stream load 记录。",
             "Whether to disable show stream load and clear stream load records in memory."})
     public static boolean disable_show_stream_load = false;
+
+    @ConfField(mutable = true, description = {
+            "是否开启stream load profile",
+            "Whether to enable stream load profile"
+    })
+    public static boolean enable_stream_load_profile = false;
 
     @ConfField(mutable = true, masterOnly = true, description = {
             "是否启用 stream load 和 broker load 的单副本写入。",
@@ -862,14 +877,11 @@ public class Config extends ConfigBase {
      * Set to true if you deploy Palo using thirdparty deploy manager
      * Valid options are:
      *      disable:    no deploy manager
-     *      k8s:        Kubernetes
-     *      ambari:     Ambari
+     *      k8s:        Kubernetes NB:Support removed starting from version 3.1.X
+     *      ambari:     Ambari NB: Support removed starting from version 3.1.X
      *      local:      Local File (for test or Boxer2 BCC version)
      */
     @ConfField public static String enable_deploy_manager = "disable";
-
-    // If use k8s deploy manager locally, set this to true and prepare the certs files
-    @ConfField public static boolean with_k8s_certs = false;
 
     // Set runtime locale when exec some cmds
     @ConfField public static String locale = "zh_CN.UTF-8";
@@ -1970,10 +1982,10 @@ public class Config extends ConfigBase {
                     + " greater than 0, otherwise it defaults to 3." })
     public static int job_dictionary_task_consumer_thread_num = 3;
 
-    @ConfField(masterOnly = true, description = {"用于执行 Streaming 任务的线程数,值应该大于0，否则默认为10",
+    @ConfField(masterOnly = true, description = {"用于执行 Streaming 任务的线程数,值应该大于0，否则默认为100",
             "The number of threads used to execute Streaming Tasks, "
-                    + "the value should be greater than 0, if it is <=0, default is 10."})
-    public static int job_streaming_task_exec_thread_num = 10;
+                    + "the value should be greater than 0, if it is <=0, default is 100."})
+    public static int job_streaming_task_exec_thread_num = 100;
 
     @ConfField(masterOnly = true, description = {"最大的 Streaming 作业数量,值应该大于0，否则默认为1024",
             "The maximum number of Streaming jobs, "
@@ -3307,7 +3319,7 @@ public class Config extends ConfigBase {
     public static int drop_user_notify_ms_max_times = 86400;
 
     @ConfField(mutable = true, masterOnly = true)
-    public static long cloud_tablet_rebalancer_interval_second = 20;
+    public static long cloud_tablet_rebalancer_interval_second = 1;
 
     @ConfField(mutable = true, masterOnly = true)
     public static boolean enable_cloud_partition_balance = true;
@@ -3333,8 +3345,26 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int cloud_min_balance_tablet_num_per_run = 2;
 
-    @ConfField(mutable = true, masterOnly = true)
-    public static boolean enable_cloud_warm_up_for_rebalance = true;
+    @ConfField(description = {"指定存算分离模式下所有Compute group的扩缩容预热方式。"
+            + "without_warmup: 直接修改tablet分片映射，首次读从S3拉取，均衡最快但性能波动最大；"
+            + "async_warmup: 异步预热，尽力而为拉取cache，均衡较快但可能cache miss；"
+            + "sync_warmup: 同步预热，确保cache迁移完成，均衡较慢但无cache miss；"
+            + "peer_read_async_warmup: 直接修改tablet分片映射，首次读从Peer BE拉取，均衡最快可能会影响同计算组中其他BE性能。"
+            + "注意：此为全局FE配置，也可通过SQL（ALTER COMPUTE GROUP cg PROPERTIES）"
+            + "设置compute group维度的balance类型，compute group维度配置优先级更高",
+        "Specify the scaling and warming methods for all Compute groups in a cloud mode. "
+            + "without_warmup: Directly modify shard mapping, first read from S3,"
+            + "fastest re-balance but largest fluctuation; "
+            + "async_warmup: Asynchronous warmup, best-effort cache pulling, "
+            + "faster re-balance but possible cache miss; "
+            + "sync_warmup: Synchronous warmup, ensure cache migration completion, "
+            + "slower re-balance but no cache miss; "
+            + "peer_read_async_warmup: Directly modify shard mapping, first read from Peer BE, "
+            + "fastest re-balance but may affect other BEs in the same compute group performance. "
+            + "Note: This is a global FE configuration, you can also use SQL (ALTER COMPUTE GROUP cg PROPERTIES) "
+            + "to set balance type at compute group level, compute group level configuration has higher priority"},
+            options = {"without_warmup", "async_warmup", "sync_warmup", "peer_read_async_warmup"})
+    public static String cloud_warm_up_for_rebalance_type = "async_warmup";
 
     @ConfField(mutable = true, masterOnly = false)
     public static String security_checker_class_name = "";
@@ -3623,6 +3653,20 @@ public class Config extends ConfigBase {
         "The encryption algorithm used for data, default is AES256, may be set to empty later for KMS to decide"
     })
     public static String doris_tde_algorithm = "PLAINTEXT";
+
+    @ConfField(mutable = true, description = {
+            "数据加密自动rotate master key的时间间隔，单位为毫秒，默认间隔是一个月",
+            "The time interval for automatic rotation of the master key in data encryption, in milliseconds."
+                    + "The default interval is one month."
+    })
+    public static long doris_tde_rotate_master_key_interval_ms = 30 * 24 * 3600 * 1000L;
+
+    @ConfField(mutable = true, description = {
+            "数据加密检查是否要rotate的时间间隔，单位为毫秒，默认间隔是五分钟",
+            "Data encryption checks whether to rotate the time interval in milliseconds, "
+                    + "and the default interval is five minutes."
+    })
+    public static long doris_tde_check_rotate_master_key_interval_ms = 5 * 60 * 1000L;
 
     @ConfField(mutable = true, description = {
         "数据质量错误时，第一行错误信息的最大长度，默认 256 字节",

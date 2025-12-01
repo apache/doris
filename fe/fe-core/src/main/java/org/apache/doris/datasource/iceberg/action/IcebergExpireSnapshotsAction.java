@@ -22,7 +22,6 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ArgumentParsers;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.commands.info.PartitionNamesInfo;
 
@@ -49,9 +48,8 @@ public class IcebergExpireSnapshotsAction extends BaseIcebergAction {
 
     public IcebergExpireSnapshotsAction(Map<String, String> properties,
             Optional<PartitionNamesInfo> partitionNamesInfo,
-            Optional<Expression> whereCondition,
-            IcebergExternalTable icebergTable) {
-        super("expire_snapshots", properties, partitionNamesInfo, whereCondition, icebergTable);
+            Optional<Expression> whereCondition) {
+        super("expire_snapshots", properties, partitionNamesInfo, whereCondition);
     }
 
     @Override

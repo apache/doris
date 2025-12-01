@@ -40,15 +40,21 @@ import java.util.concurrent.TimeUnit;
 
 @Log4j2
 public class StreamingTaskScheduler extends MasterDaemon {
-    private final ThreadPoolExecutor threadPool = new ThreadPoolExecutor(
-                    Config.job_streaming_task_exec_thread_num,
-                    Config.job_streaming_task_exec_thread_num,
-                    0,
-                    TimeUnit.SECONDS,
-                    new ArrayBlockingQueue<>(Config.max_streaming_job_num),
-                    new CustomThreadFactory("streaming-task-execute"),
-                    new ThreadPoolExecutor.AbortPolicy()
-            );
+    private final ThreadPoolExecutor threadPool;
+
+    {
+        threadPool = new ThreadPoolExecutor(
+                Config.job_streaming_task_exec_thread_num,
+                Config.job_streaming_task_exec_thread_num,
+                60L,
+                TimeUnit.SECONDS,
+                new ArrayBlockingQueue<>(Config.max_streaming_job_num),
+                new CustomThreadFactory("streaming-task-execute"),
+                new ThreadPoolExecutor.AbortPolicy()
+        );
+        threadPool.allowCoreThreadTimeOut(true);
+    }
+
     private final ScheduledThreadPoolExecutor delayScheduler
                 = new ScheduledThreadPoolExecutor(1, new CustomThreadFactory("streaming-task-delay-scheduler"));
 
@@ -110,8 +116,8 @@ public class StreamingTaskScheduler extends MasterDaemon {
 
         // reject invalid task
         if (!job.needScheduleTask()) {
-            log.info("do not need to schedule invalid task, task id: {}, job id: {}",
-                        task.getTaskId(), task.getJobId());
+            log.info("do not need to schedule invalid task, task id: {}, job id: {}, job status: {}",
+                        task.getTaskId(), task.getJobId(), job.getJobStatus());
             return;
         }
         // reject task if no more data to consume

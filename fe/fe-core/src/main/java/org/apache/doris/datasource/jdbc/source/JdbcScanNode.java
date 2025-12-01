@@ -42,7 +42,6 @@ import org.apache.doris.datasource.jdbc.JdbcExternalTable;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.StatisticalType;
-import org.apache.doris.statistics.StatsRecursiveDerive;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TJdbcScanNode;
 import org.apache.doris.thrift.TOdbcTableType;
@@ -70,6 +69,7 @@ public class JdbcScanNode extends ExternalScanNode {
     private String query = "";
 
     private JdbcTable tbl;
+    private long catalogId;
 
     public JdbcScanNode(PlanNodeId id, TupleDescriptor desc, boolean isJdbcExternalTable) {
         super(id, desc, "JdbcScanNode", StatisticalType.JDBC_SCAN_NODE, false);
@@ -90,6 +90,7 @@ public class JdbcScanNode extends ExternalScanNode {
         tbl = (JdbcTable) desc.getTable();
         jdbcType = tbl.getJdbcTableType();
         tableName = tbl.getExternalTableName();
+        catalogId = tbl.getCatalogId();
     }
 
 
@@ -100,8 +101,7 @@ public class JdbcScanNode extends ExternalScanNode {
     public void init() throws UserException {
         super.init();
         numNodes = numNodes <= 0 ? 1 : numNodes;
-        StatsRecursiveDerive.getStatsRecursiveDerive().statsRecursiveDerive(this);
-        cardinality = (long) statsDeriveResult.getRowCount();
+        cardinality = -1;
     }
 
     private void createJdbcFilters() {
@@ -154,9 +154,6 @@ public class JdbcScanNode extends ExternalScanNode {
     private void createJdbcColumns() {
         columns.clear();
         for (SlotDescriptor slot : desc.getSlots()) {
-            if (!slot.isMaterialized()) {
-                continue;
-            }
             Column col = slot.getColumn();
             columns.add(tbl.getProperRemoteColumnName(jdbcType, col.getName()));
         }
@@ -219,8 +216,10 @@ public class JdbcScanNode extends ExternalScanNode {
         StringBuilder output = new StringBuilder();
         if (isTableValuedFunction) {
             output.append(prefix).append("TABLE VALUE FUNCTION\n");
+            output.append(prefix).append("CATALOG ID: ").append(catalogId).append("\n");
             output.append(prefix).append("QUERY: ").append(query).append("\n");
         } else {
+            output.append(prefix).append("CATALOG ID: ").append(catalogId).append("\n");
             output.append(prefix).append("TABLE: ").append(tableName).append("\n");
             if (detailLevel == TExplainLevel.BRIEF) {
                 return output.toString();

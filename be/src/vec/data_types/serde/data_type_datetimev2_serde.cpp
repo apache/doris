@@ -397,8 +397,13 @@ Status DataTypeDateTimeV2SerDe::read_column_from_arrow(IColumn& column,
                                            type->unit());
         }
         }
+        const auto* base_ptr = reinterpret_cast<const uint8_t*>(concrete_array->raw_values());
+        const size_t element_size = sizeof(int64_t);
         for (auto value_i = start; value_i < end; ++value_i) {
-            auto utc_epoch = static_cast<UInt64>(concrete_array->Value(value_i));
+            int64_t date_value = 0;
+            const uint8_t* raw_byte_ptr = base_ptr + value_i * element_size;
+            memcpy(&date_value, raw_byte_ptr, element_size);
+            auto utc_epoch = static_cast<UInt64>(date_value);
 
             DateV2Value<DateTimeV2ValueType> v;
             // convert second
@@ -446,17 +451,17 @@ Status DataTypeDateTimeV2SerDe::_write_column_to_mysql(const IColumn& column,
     return Status::OK();
 }
 
-Status DataTypeDateTimeV2SerDe::write_column_to_mysql(const IColumn& column,
-                                                      MysqlRowBuffer<true>& row_buffer,
-                                                      int64_t row_idx, bool col_const,
-                                                      const FormatOptions& options) const {
+Status DataTypeDateTimeV2SerDe::write_column_to_mysql_binary(const IColumn& column,
+                                                             MysqlRowBinaryBuffer& row_buffer,
+                                                             int64_t row_idx, bool col_const,
+                                                             const FormatOptions& options) const {
     return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
 }
 
-Status DataTypeDateTimeV2SerDe::write_column_to_mysql(const IColumn& column,
-                                                      MysqlRowBuffer<false>& row_buffer,
-                                                      int64_t row_idx, bool col_const,
-                                                      const FormatOptions& options) const {
+Status DataTypeDateTimeV2SerDe::write_column_to_mysql_text(const IColumn& column,
+                                                           MysqlRowTextBuffer& row_buffer,
+                                                           int64_t row_idx, bool col_const,
+                                                           const FormatOptions& options) const {
     return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
 }
 

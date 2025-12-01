@@ -93,7 +93,6 @@ static void read_parquet_lines(std::vector<std::string> numeric_types,
             tslot_desc.nullIndicatorBit = -1;
             tslot_desc.colName = numeric_types[i];
             tslot_desc.slotIdx = 0;
-            tslot_desc.isMaterialized = true;
             t_desc_table.slotDescriptors.push_back(tslot_desc);
         }
     }
@@ -172,8 +171,8 @@ static void read_parquet_lines(std::vector<std::string> numeric_types,
     bool eof = false;
     size_t read_row = 0;
     static_cast<void>(p_reader->get_next_block(block.get(), &read_row, &eof));
-    auto row_id_string_column =
-            static_cast<const ColumnString&>(*block->get_by_name("row_id").column.get());
+    auto row_id_string_column = static_cast<const ColumnString&>(
+            *block->get_by_position(block->get_position_by_name("row_id")).column.get());
     auto read_lines_tmp = read_lines;
     for (auto i = 0; i < row_id_string_column.size(); i++) {
         GlobalRowLoacationV2 info =
@@ -184,7 +183,7 @@ static void read_parquet_lines(std::vector<std::string> numeric_types,
         EXPECT_EQ(info.backend_id, BackendOptions::get_backend_id());
         EXPECT_EQ(info.version, IdManager::ID_VERSION);
     }
-    block->erase("row_id");
+    block->erase(block->get_position_by_name("row_id"));
 
     EXPECT_EQ(block->dump_data(), block_dump);
     std::cout << block->dump_data();

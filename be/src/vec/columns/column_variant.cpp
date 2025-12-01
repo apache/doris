@@ -2316,7 +2316,9 @@ void ColumnVariant::Subcolumn::deserialize_from_sparse_column(const ColumnString
 
     // array needs to check nested type is same as least common type's nested type
     if (!same_as_least_common_type && type == PrimitiveType::TYPE_ARRAY) {
-        const auto* nested_start_data = start_data + 1;
+        // |PrimitiveType::TYPE_ARRAY| + |size_t| + |nested_type|
+        // skip the first 1 byte for PrimitiveType::TYPE_ARRAY and the next sizeof(size_t) bytes for the size of the array
+        const auto* nested_start_data = start_data + 1 + sizeof(size_t);
         const PrimitiveType nested_type = TabletColumn::get_primitive_type_by_field_type(
                 static_cast<FieldType>(*nested_start_data));
         same_as_least_common_type = (nested_type != least_common_type.get_base_type_id());

@@ -41,6 +41,7 @@ import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.planner.PlanNodeId;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
@@ -64,6 +65,7 @@ import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.ManifestFile;
 import org.apache.iceberg.MetadataColumns;
 import org.apache.iceberg.PartitionData;
+import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableScan;
@@ -159,10 +161,9 @@ public class IcebergScanNode extends FileQueryScanNode {
         isPartitionedTable = icebergTable.spec().isPartitioned();
         formatVersion = ((BaseTable) icebergTable).operations().current().formatVersion();
         preExecutionAuthenticator = source.getCatalog().getExecutionAuthenticator();
-        IcebergExternalCatalog catalog = (IcebergExternalCatalog) source.getCatalog();
         storagePropertiesMap = VendedCredentialsFactory.getStoragePropertiesMapWithVendedCredentials(
-                catalog.getCatalogProperty().getMetastoreProperties(),
-                catalog.getCatalogProperty().getStoragePropertiesMap(),
+                source.getCatalog().getCatalogProperty().getMetastoreProperties(),
+                source.getCatalog().getCatalogProperty().getStoragePropertiesMap(),
                 icebergTable
         );
         backendStorageProperties = CredentialUtils.getBackendPropertiesFromStorageMap(storagePropertiesMap);
@@ -248,6 +249,25 @@ public class IcebergScanNode extends FileQueryScanNode {
                 throw new RuntimeException(ExceptionUtils.getRootCauseMessage(e), e);
             }
         }
+    }
+
+    /**
+     * Get FileScanTasks from StatementContext for rewrite operations.
+     * This allows setting file scan tasks before the plan is generated.
+     */
+    private List<FileScanTask> getFileScanTasksFromContext() {
+        ConnectContext ctx = ConnectContext.get();
+        Preconditions.checkNotNull(ctx);
+        Preconditions.checkNotNull(ctx.getStatementContext());
+
+        // Get the rewrite file scan tasks from statement context
+        List<FileScanTask> tasks = ctx.getStatementContext().getAndClearIcebergRewriteFileScanTasks();
+        if (tasks != null && !tasks.isEmpty()) {
+            LOG.info("Retrieved {} file scan tasks from context for table {}",
+                    tasks.size(), icebergTable.name());
+            return new ArrayList<>(tasks);
+        }
+        return null;
     }
 
     @Override
@@ -364,10 +384,19 @@ public class IcebergScanNode extends FileQueryScanNode {
         if (isPartitionedTable) {
             PartitionData partitionData = (PartitionData) fileScanTask.file().partition();
             if (sessionVariable.isEnableRuntimeFilterPartitionPrune()) {
-                // If the partition data is not in the map, we need to calculate the partition
-                Map<String, String> partitionInfoMap = partitionMapInfos.computeIfAbsent(partitionData, k -> {
-                    return IcebergUtils.getPartitionInfoMap(partitionData, sessionVariable.getTimeZone());
-                });
+                // Get specId and corresponding PartitionSpec to handle partition evolution
+                int specId = fileScanTask.file().specId();
+                PartitionSpec partitionSpec = icebergTable.specs().get(specId);
+
+                Preconditions.checkNotNull(partitionSpec, "Partition spec with specId %s not found for table %s",
+                        specId, icebergTable.name());
+                Map<String, String> partitionInfoMap = partitionMapInfos.computeIfAbsent(
+                        partitionData, k -> {
+                            return IcebergUtils.getPartitionInfoMap(partitionData, partitionSpec,
+                                    sessionVariable.getTimeZone());
+                        });
+                // Only set partition values if all partitions are identity transform
+                // For non-identity partitions, getPartitionInfoMap returns null to skip dynamic partition pruning
                 if (partitionInfoMap != null) {
                     split.setIcebergPartitionValues(partitionInfoMap);
                 }
@@ -380,8 +409,20 @@ public class IcebergScanNode extends FileQueryScanNode {
 
     private List<Split> doGetSplits(int numBackends) throws UserException {
 
-        TableScan scan = createTableScan();
         List<Split> splits = new ArrayList<>();
+
+        // Use custom file scan tasks if available (for rewrite operations)
+        List<FileScanTask> customFileScanTasks = getFileScanTasksFromContext();
+        if (customFileScanTasks != null) {
+            for (FileScanTask task : customFileScanTasks) {
+                splits.add(createIcebergSplit(task));
+            }
+            selectedPartitionNum = partitionMapInfos.size();
+            return splits;
+        }
+
+        // Normal table scan planning
+        TableScan scan = createTableScan();
 
         try (CloseableIterable<FileScanTask> fileScanTasks = planFileScanTask(scan)) {
             if (tableLevelPushDownCount) {

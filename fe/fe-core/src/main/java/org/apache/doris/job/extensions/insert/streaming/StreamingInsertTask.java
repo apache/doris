@@ -61,7 +61,7 @@ public class StreamingInsertTask {
     private long taskId;
     private String labelName;
     @Setter
-    private TaskStatus status;
+    private volatile TaskStatus status;
     private String errMsg;
     private Long createTimeMs;
     private Long startTimeMs;
@@ -132,19 +132,19 @@ public class StreamingInsertTask {
     }
 
     private void before() throws Exception {
-        this.status = TaskStatus.RUNNING;
-        this.startTimeMs = System.currentTimeMillis();
-
         if (isCanceled.get()) {
             log.info("streaming insert task has been canceled, task id is {}", getTaskId());
             return;
         }
+        this.status = TaskStatus.RUNNING;
+        this.startTimeMs = System.currentTimeMillis();
         ctx = InsertTask.makeConnectContext(userIdentity, currentDb);
-        ctx.setSessionVariable(jobProperties.getSessionVariable());
+        ctx.setSessionVariable(jobProperties.getSessionVariable(ctx.getSessionVariable()));
         StatementContext statementContext = new StatementContext();
         ctx.setStatementContext(statementContext);
 
         this.runningOffset = offsetProvider.getNextOffset(jobProperties, originTvfProps);
+        log.info("streaming insert task {} get running offset: {}", taskId, runningOffset.toString());
         InsertIntoTableCommand baseCommand = (InsertIntoTableCommand) new NereidsParser().parseSingle(sql);
         baseCommand.setJobId(getTaskId());
         StmtExecutor baseStmtExecutor =
@@ -181,7 +181,7 @@ public class StreamingInsertTask {
     }
 
     public boolean onSuccess() throws JobException {
-        if (TaskStatus.CANCELED.equals(status)) {
+        if (isCanceled.get()) {
             return false;
         }
         this.status = TaskStatus.SUCCESS;
@@ -201,10 +201,10 @@ public class StreamingInsertTask {
     }
 
     public void onFail(String errMsg) throws JobException {
-        this.errMsg = errMsg;
-        if (TaskStatus.CANCELED.equals(status)) {
+        if (isCanceled.get()) {
             return;
         }
+        this.errMsg = errMsg;
         this.status = TaskStatus.FAILED;
         this.finishTimeMs = System.currentTimeMillis();
         if (!isCallable()) {
@@ -304,7 +304,7 @@ public class StreamingInsertTask {
         }
         trow.addToColumnValue(new TCell().setStringVal(""));
         trow.addToColumnValue(new TCell().setStringVal(runningOffset == null
-                ? FeConstants.null_string : runningOffset.toString()));
+                ? FeConstants.null_string : runningOffset.showRange()));
         return trow;
     }
 }

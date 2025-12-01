@@ -443,17 +443,6 @@ private:
             default:
                 break;
             }
-        } else if (is_date_or_datetime(right_type->get_primitive_type()) &&
-                   is_date_or_datetime(left_element_type->get_primitive_type())) {
-            if (left_element_type->get_primitive_type() == PrimitiveType::TYPE_DATE) {
-                res = _execute_number_expanded<ColumnDate>(offsets, *nested_column, *right_column,
-                                                           nested_null_map, right_nested_null_map,
-                                                           array_null_map);
-            } else if (left_element_type->get_primitive_type() == PrimitiveType::TYPE_DATETIME) {
-                res = _execute_number_expanded<ColumnDateTime>(
-                        offsets, *nested_column, *right_column, nested_null_map,
-                        right_nested_null_map, array_null_map);
-            }
         } else if (is_date_v2_or_datetime_v2(right_type->get_primitive_type()) &&
                    is_date_v2_or_datetime_v2(left_element_type->get_primitive_type())) {
             if (left_element_type->get_primitive_type() == PrimitiveType::TYPE_DATEV2) {

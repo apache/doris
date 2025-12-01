@@ -71,7 +71,6 @@ import org.apache.doris.job.extensions.insert.streaming.StreamingInsertJob;
 import org.apache.doris.job.extensions.insert.streaming.StreamingInsertTask;
 import org.apache.doris.job.extensions.mtmv.MTMVJob;
 import org.apache.doris.job.task.AbstractTask;
-import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVPartitionUtil;
 import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.mtmv.MTMVStatus;
@@ -131,8 +130,8 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Stream;
 
 public class MetadataGenerator {
     private static final Logger LOG = LogManager.getLogger(MetadataGenerator.class);
@@ -712,19 +711,19 @@ public class MetadataGenerator {
                         continue;
                     }
                     MTMVRelation relation = ((MTMV) table).getRelation();
-                    Set<BaseTableInfo> tablesOneLevel = relation.getBaseTablesOneLevel();
-                    for (BaseTableInfo info : tablesOneLevel) {
-                        TRow trow = new TRow();
-                        trow.addToColumnValue(new TCell().setStringVal(InternalCatalog.INTERNAL_CATALOG_NAME));
-                        trow.addToColumnValue(new TCell().setStringVal(dbName));
-                        trow.addToColumnValue(new TCell().setStringVal(tableName));
-                        trow.addToColumnValue(new TCell().setStringVal(table.getType().name()));
-                        trow.addToColumnValue(new TCell().setStringVal(info.getCtlName()));
-                        trow.addToColumnValue(new TCell().setStringVal(info.getDbName()));
-                        trow.addToColumnValue(new TCell().setStringVal(info.getTableName()));
-                        trow.addToColumnValue(new TCell().setStringVal(info.getType()));
-                        dataBatch.add(trow);
-                    }
+                    Stream.concat(relation.getBaseTablesOneLevel().stream(), relation.getBaseViewsOneLevel().stream())
+                            .forEach(info -> {
+                                TRow trow = new TRow();
+                                trow.addToColumnValue(new TCell().setStringVal(InternalCatalog.INTERNAL_CATALOG_NAME));
+                                trow.addToColumnValue(new TCell().setStringVal(dbName));
+                                trow.addToColumnValue(new TCell().setStringVal(tableName));
+                                trow.addToColumnValue(new TCell().setStringVal(table.getType().name()));
+                                trow.addToColumnValue(new TCell().setStringVal(info.getCtlName()));
+                                trow.addToColumnValue(new TCell().setStringVal(info.getDbName()));
+                                trow.addToColumnValue(new TCell().setStringVal(info.getTableName()));
+                                trow.addToColumnValue(new TCell().setStringVal(info.getType()));
+                                dataBatch.add(trow);
+                            });
                 } else if (table instanceof View) {
                     String tableName = table.getName();
                     if (FrontendConjunctsUtils.isFiltered(viewNameConjuncts, "VIEW_NAME", tableName)) {
@@ -1824,10 +1823,8 @@ public class MetadataGenerator {
                     "column " + colNames + " does not match partition columns of table " + tbl.getName());
         }
 
-        HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
-                .getMetaStoreCache((HMSExternalCatalog) tbl.getCatalog());
-        HiveMetaStoreCache.HivePartitionValues hivePartitionValues = cache.getPartitionValues(
-                tbl, tbl.getPartitionColumnTypes(MvccUtil.getSnapshotFromContext(tbl)));
+        HiveMetaStoreCache.HivePartitionValues hivePartitionValues = tbl.getHivePartitionValues(
+                MvccUtil.getSnapshotFromContext(tbl));
         Map<Long, List<String>> valuesMap = hivePartitionValues.getPartitionValuesMap();
         List<TRow> dataBatch = Lists.newArrayList();
         for (Map.Entry<Long, List<String>> entry : valuesMap.entrySet()) {

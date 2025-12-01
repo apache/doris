@@ -92,6 +92,7 @@ import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
@@ -397,6 +398,19 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
                     newChildrenBuilder.add(unboundFunction.child(i));
                 }
                 unboundFunction = unboundFunction.withChildren(newChildrenBuilder.build());
+            } else if (StringUtils.isEmpty(unboundFunction.getDbName())
+                    && "get_format".equalsIgnoreCase(unboundFunction.getName())
+                    && unboundFunction.arity() == 2
+                    && unboundFunction.child(0) instanceof UnboundSlot) {
+                SlotReference slotReference = new SlotReference(new ExprId(-1),
+                        ((UnboundSlot) unboundFunction.child(0)).getName(),
+                        StringType.INSTANCE, false, ImmutableList.of());
+                ImmutableList.Builder<Expression> newChildrenBuilder = ImmutableList.builder();
+                newChildrenBuilder.add(slotReference);
+                for (int i = 1; i < unboundFunction.arity(); i++) {
+                    newChildrenBuilder.add(unboundFunction.child(i));
+                }
+                unboundFunction = unboundFunction.withChildren(newChildrenBuilder.build());
             }
             unboundFunction = (UnboundFunction) super.visit(unboundFunction, context);
         }
@@ -445,6 +459,14 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
                     return TypeCoercionUtils.processBinaryArithmetic((BinaryArithmetic) ret);
                 } else if (ret instanceof BitNot) {
                     return TypeCoercionUtils.processBitNot((BitNot) ret);
+                } else {
+                    return ret;
+                }
+            }
+            if (GetFormatFunctionBinder.isGetFormatFunction(unboundFunction.getName())) {
+                Expression ret = GetFormatFunctionBinder.INSTANCE.bind(unboundFunction);
+                if (ret instanceof BoundFunction) {
+                    return TypeCoercionUtils.processBoundFunction((BoundFunction) ret);
                 } else {
                     return ret;
                 }

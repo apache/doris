@@ -195,9 +195,9 @@ public:
 
     TUniqueId query_id() const { return _query_id; }
 
-    vectorized::SimplifiedScanScheduler* get_scan_scheduler() { return _scan_task_scheduler; }
+    vectorized::ScannerScheduler* get_scan_scheduler() { return _scan_task_scheduler; }
 
-    vectorized::SimplifiedScanScheduler* get_remote_scan_scheduler() {
+    vectorized::ScannerScheduler* get_remote_scan_scheduler() {
         return _remote_scan_task_scheduler;
     }
 
@@ -260,14 +260,11 @@ public:
 
     void set_ai_resources(std::map<std::string, TAIResource> ai_resources) {
         _ai_resources =
-                std::make_unique<std::map<std::string, TAIResource>>(std::move(ai_resources));
+                std::make_shared<std::map<std::string, TAIResource>>(std::move(ai_resources));
     }
 
-    const std::map<std::string, TAIResource>& get_ai_resources() const {
-        if (_ai_resources == nullptr) {
-            throw Status::InternalError("AI resources not found");
-        }
-        return *_ai_resources;
+    const std::shared_ptr<std::map<std::string, TAIResource>>& get_ai_resources() const {
+        return _ai_resources;
     }
 
     std::unordered_map<TNetworkAddress, std::shared_ptr<PBackendService_Stub>>
@@ -317,8 +314,8 @@ private:
     AtomicStatus _exec_status;
 
     doris::pipeline::TaskScheduler* _task_scheduler = nullptr;
-    vectorized::SimplifiedScanScheduler* _scan_task_scheduler = nullptr;
-    vectorized::SimplifiedScanScheduler* _remote_scan_task_scheduler = nullptr;
+    vectorized::ScannerScheduler* _scan_task_scheduler = nullptr;
+    vectorized::ScannerScheduler* _remote_scan_task_scheduler = nullptr;
     // This dependency indicates if the 2nd phase RPC received from FE.
     std::unique_ptr<pipeline::Dependency> _execution_dependency;
     // This dependency indicates if memory is sufficient to execute.
@@ -360,7 +357,7 @@ private:
     std::unordered_map<int, std::vector<std::shared_ptr<TRuntimeProfileTree>>> _profile_map;
     std::unordered_map<int, std::shared_ptr<TRuntimeProfileTree>> _load_channel_profile_map;
 
-    std::unique_ptr<std::map<std::string, TAIResource>> _ai_resources;
+    std::shared_ptr<std::map<std::string, TAIResource>> _ai_resources;
 
     void _report_query_profile();
 

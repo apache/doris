@@ -21,7 +21,6 @@
 package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SortInfo;
 import org.apache.doris.common.Pair;
 import org.apache.doris.qe.ConnectContext;
@@ -217,27 +216,12 @@ public class SortNode extends PlanNode {
         return output.toString();
     }
 
-    private void removeUnusedExprs() {
-        if (!isUnusedExprRemoved) {
-            if (resolvedTupleExprs != null) {
-                List<SlotDescriptor> slotDescriptorList = this.info.getSortTupleDescriptor().getSlots();
-                for (int i = slotDescriptorList.size() - 1; i >= 0; i--) {
-                    if (!slotDescriptorList.get(i).isMaterialized()) {
-                        resolvedTupleExprs.remove(i);
-                    }
-                }
-            }
-            isUnusedExprRemoved = true;
-        }
-    }
-
     @Override
     protected void toThrift(TPlanNode msg) {
         msg.node_type = TPlanNodeType.SORT_NODE;
 
         TSortInfo sortInfo = info.toThrift();
         Preconditions.checkState(tupleIds.size() == 1, "Incorrect size for tupleIds in SortNode");
-        removeUnusedExprs();
         if (resolvedTupleExprs != null) {
             sortInfo.setSortTupleSlotExprs(Expr.treesToThrift(resolvedTupleExprs));
         }

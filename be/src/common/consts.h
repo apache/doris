@@ -24,8 +24,6 @@ namespace BeConsts {
 const std::string CSV = "csv";
 const std::string CSV_WITH_NAMES = "csv_with_names";
 const std::string CSV_WITH_NAMES_AND_TYPES = "csv_with_names_and_types";
-const std::string BLOCK_TEMP_COLUMN_PREFIX = "__TEMP__";
-const std::string BLOCK_TEMP_COLUMN_SCANNER_FILTERED = "__TEMP__scanner_filtered";
 const std::string ROWID_COL = "__DORIS_ROWID_COL__";
 const std::string GLOBAL_ROWID_COL = "__DORIS_GLOBAL_ROWID_COL__";
 const std::string ROW_STORE_COL = "__DORIS_ROW_STORE_COL__";
@@ -50,5 +48,6 @@ static constexpr int MAX_DECIMALV2_SCALE = 9;
 static constexpr int MAX_DECIMALV3_PRECISION = MAX_DECIMAL256_PRECISION;
 static constexpr int MAX_DECIMALV3_SCALE = MAX_DECIMALV3_PRECISION;
 static constexpr int DEFAULT_VARIANT_MAX_SPARSE_COLUMN_STATS_SIZE = 10000;
+static constexpr int DEFAULT_VARIANT_SPARSE_HASH_SHARD_COUNT = 1;
 } // namespace BeConsts
 } // namespace doris

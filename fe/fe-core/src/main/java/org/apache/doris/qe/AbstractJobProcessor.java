@@ -24,6 +24,8 @@ import org.apache.doris.qe.runtime.MultiFragmentsPipelineTask;
 import org.apache.doris.qe.runtime.PipelineExecutionTask;
 import org.apache.doris.qe.runtime.SingleFragmentPipelineTask;
 import org.apache.doris.thrift.TReportExecStatusParams;
+import org.apache.doris.thrift.TStatus;
+import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Preconditions;
@@ -35,11 +37,13 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /** AbstractJobProcessor */
 public abstract class AbstractJobProcessor implements JobProcessor {
     private final Logger logger = LogManager.getLogger(getClass());
 
+    protected final AtomicBoolean finished = new AtomicBoolean(false);
     protected final CoordinatorContext coordinatorContext;
     protected volatile Optional<PipelineExecutionTask> executionTask;
     protected volatile Optional<Map<BackendFragmentId, SingleFragmentPipelineTask>> backendFragmentTasks;
@@ -68,7 +72,21 @@ public abstract class AbstractJobProcessor implements JobProcessor {
     protected void afterSetPipelineExecutionTask(PipelineExecutionTask pipelineExecutionTask) {}
 
     @Override
+    public void tryFinishSchedule() {
+        if (finished.compareAndSet(false, true)) {
+            this.executionTask.ifPresent(sqlPipelineTask -> {
+                for (MultiFragmentsPipelineTask fragmentsTask : sqlPipelineTask.getChildrenTasks().values()) {
+                    fragmentsTask.cancelExecute(Status.FINISHED);
+                }
+            });
+        }
+    }
+
+    @Override
     public final void updateFragmentExecStatus(TReportExecStatusParams params) {
+        if (params.status.status_code == TStatusCode.FINISHED) {
+            params.status = new TStatus(TStatusCode.OK);
+        }
         SingleFragmentPipelineTask fragmentTask = backendFragmentTasks.get().get(
                 new BackendFragmentId(params.getBackendId(), params.getFragmentId()));
         if (fragmentTask == null) {

@@ -81,7 +81,6 @@ protected:
         slot_desc->_id = SlotId(slot_id);
         slot_desc->_col_name = col_name;
         slot_desc->_type = data_type;
-        // Note: _is_materialized is const, so it's set during construction
         return slot_desc;
     }
 
@@ -168,9 +167,14 @@ TEST_F(VirtualSlotRefTest, EqualsFunction_WithDifferentTypes) {
     class MockVExpr : public VExpr {
     public:
         MockVExpr() : VExpr(std::make_shared<DataTypeString>(), false) {}
-        Status execute(VExprContext* context, Block* block, int* result_column_id) override {
+        Status execute(VExprContext* context, Block* block, int* result_column_id) const override {
             return Status::OK();
         }
+        Status execute_column(VExprContext* context, const Block* block,
+                              ColumnPtr& result_column) const override {
+            return Status::OK();
+        }
+
         const std::string& expr_name() const override {
             static std::string name = "mock";
             return name;
@@ -283,9 +287,15 @@ TEST_F(VirtualSlotRefTest, EqualsFunction_TestAllBranches) {
         DifferentVExpr() : VExpr(std::make_shared<DataTypeString>(), false) {
             _node_type = TExprNodeType::SLOT_REF; // Different from VIRTUAL_SLOT_REF
         }
-        Status execute(VExprContext* context, Block* block, int* result_column_id) override {
+        Status execute(VExprContext* context, Block* block, int* result_column_id) const override {
             return Status::OK();
         }
+
+        Status execute_column(VExprContext* context, const Block* block,
+                              ColumnPtr& result_column) const override {
+            return Status::OK();
+        }
+
         const std::string& expr_name() const override {
             static std::string name = "different";
             return name;
@@ -303,7 +313,11 @@ TEST_F(VirtualSlotRefTest, EqualsFunction_TestAllBranches) {
         NonVirtualSlotRefExpr() : VExpr(std::make_shared<DataTypeString>(), false) {
             _node_type = TExprNodeType::VIRTUAL_SLOT_REF; // Same type but different class
         }
-        Status execute(VExprContext* context, Block* block, int* result_column_id) override {
+        Status execute(VExprContext* context, Block* block, int* result_column_id) const override {
+            return Status::OK();
+        }
+        Status execute_column(VExprContext* context, const Block* block,
+                              ColumnPtr& result_column) const override {
             return Status::OK();
         }
         const std::string& expr_name() const override {

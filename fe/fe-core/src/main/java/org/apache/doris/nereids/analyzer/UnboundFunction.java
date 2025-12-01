@@ -131,6 +131,20 @@ public class UnboundFunction extends Function implements Unbound, PropagateNulla
     }
 
     @Override
+    public String toDigest() {
+        StringBuilder sb = new StringBuilder();
+        sb.append(getName().toUpperCase());
+        sb.append("(");
+        sb.append(isDistinct ? "distinct " : "");
+        sb.append(
+                children.stream().map(Expression::toDigest)
+                        .collect(Collectors.joining(", "))
+        );
+        sb.append(")");
+        return sb.toString();
+    }
+
+    @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitUnboundFunction(this, context);
     }

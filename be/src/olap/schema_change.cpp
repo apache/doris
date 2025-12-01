@@ -327,8 +327,7 @@ Status BlockChanger::change_block(vectorized::Block* ref_block,
         RETURN_IF_ERROR(ctx->prepare(state.get(), row_desc));
         RETURN_IF_ERROR(ctx->open(state.get()));
 
-        RETURN_IF_ERROR(
-                vectorized::VExprContext::filter_block(ctx.get(), ref_block, ref_block->columns()));
+        RETURN_IF_ERROR(vectorized::VExprContext::filter_block(ctx.get(), ref_block));
     }
 
     const int row_num = cast_set<int>(ref_block->rows());
@@ -545,6 +544,20 @@ Status LinkedSchemaChange::process(RowsetReaderSharedPtr rowset_reader, RowsetWr
     return Status::OK();
 }
 
+Status next_batch(RowsetReaderSharedPtr rowset_reader, vectorized::Block* input_block,
+                  std::vector<bool>& row_same_bit) {
+    Status st;
+    if (rowset_reader->is_merge_iterator()) {
+        row_same_bit.clear();
+        BlockWithSameBit block_with_same_bit = {.block = input_block, .same_bit = row_same_bit};
+        st = rowset_reader->next_batch(&block_with_same_bit);
+        // todo: use row_same_bit to clean some useless row
+    } else {
+        st = rowset_reader->next_batch(input_block);
+    }
+    return st;
+}
+
 Status VSchemaChangeDirectly::_inner_process(RowsetReaderSharedPtr rowset_reader,
                                              RowsetWriter* rowset_writer, BaseTabletSPtr new_tablet,
                                              TabletSchemaSPtr base_tablet_schema,
@@ -552,9 +565,9 @@ Status VSchemaChangeDirectly::_inner_process(RowsetReaderSharedPtr rowset_reader
     bool eof = false;
     do {
         auto new_block = vectorized::Block::create_unique(new_tablet_schema->create_block());
-        auto ref_block = vectorized::Block::create_unique(base_tablet_schema->create_block());
+        auto ref_block = vectorized::Block::create_unique(base_tablet_schema->create_block(false));
 
-        auto st = rowset_reader->next_block(ref_block.get());
+        Status st = next_batch(rowset_reader, ref_block.get(), _row_same_bit);
         if (!st) {
             if (st.is<ErrorCode::END_OF_FILE>()) {
                 if (ref_block->rows() == 0) {
@@ -621,8 +634,8 @@ Status VBaseSchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowset
 
     bool eof = false;
     do {
-        auto ref_block = vectorized::Block::create_unique(base_tablet_schema->create_block());
-        auto st = rowset_reader->next_block(ref_block.get());
+        auto ref_block = vectorized::Block::create_unique(base_tablet_schema->create_block(false));
+        Status st = next_batch(rowset_reader, ref_block.get(), _row_same_bit);
         if (!st) {
             if (st.is<ErrorCode::END_OF_FILE>()) {
                 if (ref_block->rows() == 0) {

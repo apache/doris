@@ -428,18 +428,27 @@ suite("test_date_function") {
     // SECOND
     qt_sql """ select second('2018-12-31 23:59:59') """
     qt_sql """ select second('2018-12-31 00:00:00') """
-
+    // Test SECOND function with time strings containing microseconds
+    qt_sql_second_time_with_micro1 """ select second('12:00:01.12') """
+    qt_sql_second_time_with_micro2 """ select second('23:59:59.999999') """
+    qt_sql_second_time_with_micro3 """ select second('00:00:00.000001') """
+    qt_sql_second_time_with_micro4 """ select second('15:30:45.5') """
+    
     // MICROSECOND
     qt_sql """ select microsecond(cast('1999-01-02 10:11:12.767890' as datetimev2(6))) """
+    // Test MICROSECOND function with time strings containing microseconds
+    qt_sql_microsecond_special_format """ select microsecond('120000.12') """
+    qt_sql_microsecond_time_with_micro1 """ select microsecond('12:00:00.123456') """
+    qt_sql_microsecond_time_with_micro2 """ select microsecond('23:59:59.999999') """
+    qt_sql_microsecond_time_with_micro3 """ select microsecond('00:00:00.000001') """
+    qt_sql_microsecond_time_with_micro4 """ select microsecond('15:30:45.5') """
+    qt_sql_microsecond_time_with_micro5 """ select microsecond('12:34:56.789') """
 
     // STR_TO_DATE
     sql """ truncate table ${tableName} """
     sql """ insert into ${tableName} values ("2014-12-21 12:34:56")  """
     qt_sql """ select str_to_date(test_datetime, '%Y-%m-%d %H:%i:%s') from ${tableName}; """
-    test {
-        sql """ select str_to_date("", "%Y-%m-%d %H:%i:%s"); """
-        exception "is invalid"
-    }
+    qt_sql """ select str_to_date("", "%Y-%m-%d %H:%i:%s"); """
     qt_sql """ select str_to_date("2014-12-21 12:34%3A56", '%Y-%m-%d %H:%i%%3A%s'); """
     qt_sql """ select str_to_date('11.09.2011 11:09:30', '%m.%d.%Y %h:%i:%s'); """
     qt_sql """ select str_to_date("2014-12-21 12:34:56.789 PM", '%Y-%m-%d %h:%i:%s.%f %p'); """
@@ -506,7 +515,12 @@ suite("test_date_function") {
         sql """ select utc_timestamp(7) """
         exception "scale must be between 0 and 6"
     }
+    test {
+        sql """ SELECT UTC_TIMESTAMP(NULL); """
+        exception "UTC_TIMESTAMP argument cannot be NULL."
+    }
 
+    // UTC_TIME
     def utc_time_str = sql """ select utc_time(),utc_time() + 1 """
     assertTrue(utc_time_str[0].size() == 2)
     utc_time_str = sql """ select utc_time(6), utc_time(6) + 1 """
@@ -514,6 +528,10 @@ suite("test_date_function") {
     test {
         sql """ select utc_time(7) """
         exception "scale must be between 0 and 6"
+    }
+    test {
+        sql """ SELECT UTC_TIME(NULL); """
+        exception "UTC_TIME argument cannot be NULL."
     }
 
     def utc_date_str = sql """ select utc_date(),utc_date() + 1 """
@@ -537,6 +555,33 @@ suite("test_date_function") {
     qt_sql """ select year('1987-01-01') """
     qt_sql """ select year('2050-01-01') """
     qt_sql """ select test_datetime, year(test_datetime) from ${tableName} order by test_datetime """
+
+    // CENTURY
+    qt_sql """ select century('1900-01-01') """
+    qt_sql """ select century('1901-01-01') """
+    qt_sql """ select century('2000-01-01') """
+    qt_sql """ select century('2001-01-01') """
+    qt_sql """ select century('2023-12-31') """
+    qt_sql """ select century('0001-01-01') """
+    qt_sql """ select century('9999-12-31') """
+    qt_sql """ select century('1999-12-31 23:59:59') """
+    qt_sql """ select century(cast('2000-01-01' as date)) """
+    qt_sql """ select century(cast('2000-01-01 12:00:00' as datetime)) """
+    
+    // Test century with different date formats
+    qt_sql """ select century('1900-12-31') """  // 19th century
+    qt_sql """ select century('1899-12-31') """  // 19th century
+    qt_sql """ select century('2000-12-31') """  // 20th century
+    qt_sql """ select century('2001-01-01') """  // 21st century
+    qt_sql """ select century('2100-01-01') """  // 21st century
+    qt_sql """ select century('2101-01-01') """  // 22nd century
+    
+    // Test century with NULL values
+    qt_sql """ select century(NULL) """
+    
+    // Test century with invalid dates
+    qt_sql """ select century('0000-00-00') """
+    qt_sql """ select century('2023-13-45') """
 
     // YEAROFWEEK
     qt_sql """ select year_of_week('1987-01-01') """
@@ -583,8 +628,50 @@ suite("test_date_function") {
            CREATE TABLE IF NOT EXISTS ${tableName} (k1 datetimev2(6)) duplicate key(k1) distributed by hash(k1) buckets 1 properties('replication_num' = '1');
         """
     sql """ insert into ${tableName} values('1999-01-02 10:11:12.767891') """
+    sql """ insert into ${tableName} values('2023-05-15 08:30:45.123456') """
+    sql """ insert into ${tableName} values('2024-01-01 00:00:00.000001') """
+    sql """ insert into ${tableName} values('2024-12-31 23:59:59.999999') """
 
-    qt_sql """ select microsecond(k1) from ${tableName}; """
+    qt_sql """ select microsecond(k1) from ${tableName} order by k1; """
+    
+    // Test microsecond extraction from different datetime formats
+    qt_sql """ select microsecond(k1), k1 from ${tableName} where microsecond(k1) > 500000 order by k1; """
+    qt_sql """ select microsecond(k1), k1 from ${tableName} where microsecond(k1) < 100000 order by k1; """
+
+    // Simple tests for basic functionality
+    qt_sql_second_simple """ select second('12:34:56') """
+    // qt_sql_microsecond_simple """ select microsecond('12:34:56.123456') """
+    
+    // Test with datetime values
+    qt_sql_second_datetime_with_micro """ select second('2024-01-01 12:34:56.789') """
+    qt_sql_microsecond_datetime_with_micro """ select microsecond('2024-01-01 12:34:56.789123') """
+
+    // Test SECOND and MICROSECOND functions with table containing time_str column
+    tableName = "test_time_str_functions"
+    sql """ DROP TABLE IF EXISTS ${tableName} """
+    sql """
+            CREATE TABLE IF NOT EXISTS ${tableName} (
+                `id` INT NOT NULL COMMENT "ID",
+                `time_str` VARCHAR(50) NOT NULL COMMENT "时间字符串"
+            ) ENGINE=OLAP
+            DUPLICATE KEY(`id`)
+            DISTRIBUTED BY HASH(`id`) BUCKETS 1
+            PROPERTIES("replication_num" = "1");
+        """
+    
+    // Insert key test data
+    sql """ insert into ${tableName} values 
+            (1, '120000.12'),
+            (2, '12:00:01.12'),
+            (3, '23:59:59.999999'),
+            (4, '2024-01-01 12:34:56.789123');
+        """
+    
+    // Test SECOND function with time_str column
+    qt_sql_table_second_all """ select second(time_str) from ${tableName} order by id; """
+    
+    // Test MICROSECOND function with time_str column  
+    qt_sql_table_microsecond_all """ select microsecond(time_str) from ${tableName} order by id; """
 
     tableName = "test_from_unixtime"
 
@@ -624,10 +711,7 @@ suite("test_date_function") {
     qt_sql """ select date_format('1999-01-01', '%X %V'); """
     qt_sql """ select date_format('2025-01-01', '%X %V'); """
     qt_sql """ select date_format('2022-08-04', '%X %V %w'); """
-    test {
-        sql """ select STR_TO_DATE('Tue Jul 12 20:00:45 CST 2022', '%a %b %e %H:%i:%s %Y'); """
-        exception "is invalid"
-    }
+    qt_sql """ select STR_TO_DATE('Tue Jul 12 20:00:45 CST 2022', '%a %b %e %H:%i:%s %Y'); """
     qt_sql """ select STR_TO_DATE('Tue Jul 12 20:00:45 CST 2022', '%a %b %e %T CST %Y'); """
     qt_sql """ select STR_TO_DATE('2018-4-2 15:3:28','%Y-%m-%d %H:%i:%s'); """
 
@@ -936,4 +1020,5 @@ suite("test_date_function") {
     FROM date_add_test123; """
 
     order_qt_sql2 """ SELECT invalid_col,     DATE_ADD(invalid_col, INTERVAL 1+2 DAY)     FROM date_add_test123 """
+
 }

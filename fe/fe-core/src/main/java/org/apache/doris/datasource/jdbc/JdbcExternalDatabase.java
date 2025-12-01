@@ -41,9 +41,4 @@ public class JdbcExternalDatabase extends ExternalDatabase<JdbcExternalTable> {
         return new JdbcExternalTable(tblId, localTableName, remoteTableName, (JdbcExternalCatalog) extCatalog,
                 (JdbcExternalDatabase) db);
     }
-
-    public void addTableForTest(JdbcExternalTable tbl) {
-        idToTbl.put(tbl.getId(), tbl);
-        tableNameToId.put(tbl.getName(), tbl.getId());
-    }
 }

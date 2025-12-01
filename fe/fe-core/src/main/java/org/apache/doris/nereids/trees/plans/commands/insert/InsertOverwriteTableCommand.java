@@ -65,7 +65,7 @@ import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
-import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.collections4.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.awaitility.Awaitility;
@@ -210,7 +210,7 @@ public class InsertOverwriteTableCommand extends Command implements NeedAuditEnc
         try {
             if (isAutoDetectOverwrite(getLogicalQuery())) {
                 // taskId here is a group id. it contains all replace tasks made and registered in rpc process.
-                taskId = insertOverwriteManager.registerTaskGroup();
+                taskId = insertOverwriteManager.registerTaskGroup(targetTable.getId());
                 // When inserting, BE will call to replace partition by FrontendService. FE will register new temp
                 // partitions and return. for transactional, the replacement will really occur when insert successed,
                 // i.e. `insertInto` finished. then we call taskGroupSuccess to make replacement.
@@ -442,5 +442,17 @@ public class InsertOverwriteTableCommand extends Command implements NeedAuditEnc
     @Override
     public boolean needAuditEncryption() {
         return originLogicalQuery.anyMatch(node -> node instanceof TVFRelation);
+    }
+
+    @Override
+    public String toDigest() {
+        // if with cte, query will be print twice
+        StringBuilder sb = new StringBuilder();
+        sb.append("OVERWRITE TABLE "); // there is no way add overwrite flag in sink(logic query), so add it here
+        sb.append(originLogicalQuery.toDigest());
+        if (cte.isPresent()) {
+            sb.append(" (").append(cte.get().toDigest()).append(")");
+        }
+        return sb.toString();
     }
 }

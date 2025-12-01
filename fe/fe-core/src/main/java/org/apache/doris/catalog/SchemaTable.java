@@ -51,6 +51,8 @@ public class SchemaTable extends Table {
     private static final int PRIVILEGE_TYPE_LEN = 64;
     private static final int IS_GRANTABLE_LEN = 3;
 
+    public static final String BLACKHOLE_TABLE_NAME = "blackhole";
+
     // Now we just mock tables, table_privileges, referential_constraints, key_column_usage and routines table
     // Because in MySQL ODBC, these tables are used.
     // TODO(zhaochun): Review some commercial BI to check if we need support where clause in show statement
@@ -688,6 +690,11 @@ public class SchemaTable extends Table {
                             .column("REF_NAME", ScalarType.createVarchar(NAME_CHAR_LEN))
                             .column("REF_TYPE", ScalarType.createVarchar(NAME_CHAR_LEN))
                             .build())
+            )
+            .put(BLACKHOLE_TABLE_NAME,
+                    new SchemaTable(SystemIdGenerator.getNextId(), BLACKHOLE_TABLE_NAME, TableType.SCHEMA,
+                            builder().column("VERSION", ScalarType.createType(PrimitiveType.INT))
+                                    .build())
             )
             .put("encryption_keys",
                     new SchemaTable(SystemIdGenerator.getNextId(), "encryption_keys", TableType.SCHEMA,

@@ -294,7 +294,7 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
 import com.google.protobuf.InvalidProtocolBufferException;
-import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -950,7 +950,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             desc.setColumnScale(decimalDigits);
         }
         desc.setIsAllowNull(column.isAllowNull());
-        if (column.getChildren().size() > 0) {
+        if (CollectionUtils.isNotEmpty(column.getChildren())) {
             ArrayList<TColumnDesc> children = new ArrayList<>();
             for (Column child : column.getChildren()) {
                 children.add(getColumnDesc(child));

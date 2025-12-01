@@ -20,6 +20,8 @@
 #include <memory>
 #include <string>
 
+#include "common/exception.h"
+#include "common/status.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/doc_set.h"
 
 namespace roaring {
@@ -49,6 +51,7 @@ public:
     virtual float score() = 0;
 
     virtual bool has_null_bitmap(const NullBitmapResolver* /*resolver*/ = nullptr) { return false; }
+
     virtual const roaring::Roaring* get_null_bitmap(
             const NullBitmapResolver* /*resolver*/ = nullptr) {
         return nullptr;
@@ -67,14 +70,6 @@ public:
     uint32_t size_hint() const override { return 0; }
 
     float score() override { return 0.0F; }
-
-    bool has_null_bitmap(const NullBitmapResolver* /*resolver*/ = nullptr) override {
-        return false;
-    }
-    const roaring::Roaring* get_null_bitmap(
-            const NullBitmapResolver* /*resolver*/ = nullptr) override {
-        return nullptr;
-    }
 };
 
 } // namespace doris::segment_v2::inverted_index::query_v2

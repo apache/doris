@@ -172,9 +172,9 @@ public class NereidsLoadScanProvider {
                 copiedColumnExprs.add(importColumnDesc);
             } else if (tbl.getColumn(mappingColumnName) != null) {
                 copiedColumnExprs.add(importColumnDesc);
-                // Only track columns with constant expressions (e.g., "k1 = 'constant'")
+                // Only track columns with constant expressions (e.g., k1 = 'constant', k1 = 'uuid()', ...)
                 // Non-constant expressions (e.g., "k1 = k1 + 1") still need to read from file
-                if (importColumnDesc.getExpr().isConstant()) {
+                if (importColumnDesc.getExpr().getInputSlots().isEmpty()) {
                     constantMappingColumns.add(mappingColumnName);
                 }
             }
@@ -536,12 +536,8 @@ public class NereidsLoadScanProvider {
                         exprs.add(funcExpr.child(1));
                     } else {
                         if (column.getDefaultValue() != null) {
-                            if (column.getDefaultValueExprDef() != null) {
-                                String exprSql = column.getDefaultValueExpr().toSql();
-                                exprs.add(NereidsLoadUtils.parseExpressionSeq(exprSql).get(0));
-                            } else {
-                                exprs.add(new StringLiteral(column.getDefaultValue()));
-                            }
+                            String exprSql = column.getDefaultValueSql();
+                            exprs.add(NereidsLoadUtils.parseExpressionSeq(exprSql).get(0));
                         } else {
                             if (column.isAllowNull()) {
                                 exprs.add(new NullLiteral(VarcharType.SYSTEM_DEFAULT));
@@ -560,12 +556,8 @@ public class NereidsLoadScanProvider {
                         innerIfExprs.add(funcExpr.child(1));
                     } else {
                         if (column.getDefaultValue() != null) {
-                            if (column.getDefaultValueExprDef() != null) {
-                                String exprSql = column.getDefaultValueExpr().toSql();
-                                innerIfExprs.add(NereidsLoadUtils.parseExpressionSeq(exprSql).get(0));
-                            } else {
-                                innerIfExprs.add(new StringLiteral(column.getDefaultValue()));
-                            }
+                            String exprSql = column.getDefaultValueSql();
+                            innerIfExprs.add(NereidsLoadUtils.parseExpressionSeq(exprSql).get(0));
                         } else {
                             if (column.isAllowNull()) {
                                 innerIfExprs.add(new NullLiteral(VarcharType.SYSTEM_DEFAULT));

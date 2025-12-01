@@ -39,7 +39,6 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PartitionInfo;
-import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.cloud.catalog.CloudPartition;
 import org.apache.doris.common.Config;
@@ -65,7 +64,7 @@ import com.google.common.collect.Range;
 import com.google.common.collect.RangeSet;
 import com.google.common.collect.Sets;
 import com.google.common.collect.TreeRangeSet;
-import org.apache.commons.collections.map.CaseInsensitiveMap;
+import org.apache.commons.collections4.map.CaseInsensitiveMap;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -127,23 +126,6 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
 
     public TupleDescriptor getTupleDesc() {
         return desc;
-    }
-
-    /**
-     * cast expr to SlotDescriptor type
-     */
-    protected Expr castToSlot(SlotDescriptor slotDesc, Expr expr) throws UserException {
-        PrimitiveType dstType = slotDesc.getType().getPrimitiveType();
-        PrimitiveType srcType = expr.getType().getPrimitiveType();
-        if (PrimitiveType.typeWithPrecision.contains(dstType) && PrimitiveType.typeWithPrecision.contains(srcType)
-                && !slotDesc.getType().equals(expr.getType())) {
-            return expr.castTo(slotDesc.getType());
-        } else if (dstType != srcType || slotDesc.getType().isAggStateType() && expr.getType().isAggStateType()
-                && !slotDesc.getType().equals(expr.getType())) {
-            return expr.castTo(slotDesc.getType());
-        } else {
-            return expr;
-        }
     }
 
     protected abstract void createScanRangeLocations() throws UserException;

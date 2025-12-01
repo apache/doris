@@ -360,6 +360,10 @@ Status CompactionMixin::do_compact_ordered_rowsets() {
     rowset_meta->set_segments_key_bounds(segment_key_bounds);
 
     _output_rowset = _output_rs_writer->manual_build(rowset_meta);
+
+    // 2. check variant column path stats
+    RETURN_IF_ERROR(vectorized::schema_util::VariantCompactionUtil::check_path_stats(
+            _input_rowsets, _output_rowset, _tablet));
     return Status::OK();
 }
 
@@ -1638,6 +1642,13 @@ Status CloudCompactionMixin::garbage_collection() {
             auto file_key = io::BlockFileCache::hash(file_writer->path().filename().native());
             auto* file_cache = io::FileCacheFactory::instance()->get_by_path(file_key);
             file_cache->remove_if_cached_async(file_key);
+        }
+        for (const auto& [_, index_writer] : beta_rowset_writer->index_file_writers()) {
+            for (const auto& file_name : index_writer->get_index_file_names()) {
+                auto file_key = io::BlockFileCache::hash(file_name);
+                auto* file_cache = io::FileCacheFactory::instance()->get_by_path(file_key);
+                file_cache->remove_if_cached_async(file_key);
+            }
         }
     }
     return Status::OK();

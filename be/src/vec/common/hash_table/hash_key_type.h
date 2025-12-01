@@ -37,6 +37,7 @@ enum class HashKeyType {
     int256_key,
     string_key,
     fixed64,
+    fixed72,
     fixed128,
     fixed136,
     fixed256
@@ -59,6 +60,8 @@ inline HashKeyType get_hash_key_type_with_fixed(size_t size) {
     using namespace vectorized;
     if (size <= sizeof(UInt64)) {
         return HashKeyType::fixed64;
+    } else if (size <= sizeof(UInt72)) {
+        return HashKeyType::fixed72;
     } else if (size <= sizeof(UInt128)) {
         return HashKeyType::fixed128;
     } else if (size <= sizeof(UInt136)) {
@@ -103,7 +106,8 @@ inline HashKeyType get_hash_key_type(const std::vector<vectorized::DataTypePtr>&
     auto t = remove_nullable(data_types[0]);
     // serialized cannot be used in the case of single column, because the join operator will have some processing of column nullable, resulting in incorrect serialized results.
     if (!t->have_maximum_size_of_value()) {
-        if (is_string_type(t->get_primitive_type()) || t->get_primitive_type() == TYPE_ARRAY) {
+        if (is_string_type(t->get_primitive_type()) || t->get_primitive_type() == TYPE_ARRAY ||
+            t->get_primitive_type() == TYPE_JSONB) {
             return HashKeyType::string_key;
         }
         throw Exception(ErrorCode::INTERNAL_ERROR, "meet invalid type, type={}", t->get_name());
