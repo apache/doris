@@ -528,7 +528,7 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
 
     // if the map type is changed, we can not prune the type, because the map type need distinct the keys,
     // e.g. select map_values(cast(map(3.0, 1, 3.1, 2) as map<int, int>));
-    // the result is [1] because the keys: 3.0 and 3.1 will cast to 3 and the first entry remained.
+    // the result is [2] because the keys: 3.0 and 3.1 will cast to 3 and the second entry remained.
     // backend will throw exception because it can not only access the values without the cast keys,
     // so we should check whether the map type is changed, if not changed, we can prune the type.
     private static boolean mapTypeIsChanged(DataType originType, DataType castType, boolean inMap) {
