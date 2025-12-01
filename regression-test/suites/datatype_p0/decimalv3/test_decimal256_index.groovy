@@ -111,7 +111,7 @@ suite("test_decimal256_index") {
     // RowsStatsFiltered in profile
     qt_decimal256_zonemap_0 "select * from test_decimal256_zonemap_index where k2 < 900000000000000000000000000000000000000000000000000000000000000010.9999999999 order by k1, k2;"
 
-    sql "DROP TABLE IF EXISTS `test_decimal256"
+    sql "DROP TABLE IF EXISTS `test_decimal256`"
     sql """
     CREATE TABLE IF NOT EXISTS `test_decimal256` (
       `k1` decimalv3(76, 9) NULL COMMENT "",

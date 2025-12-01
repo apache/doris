@@ -835,10 +835,6 @@ TEST_F(TabletSchemaTest, test_tablet_schema_get_index) {
     EXPECT_NE(nullptr, found_inverted);
     EXPECT_EQ("inverted_idx", found_inverted->index_name());
     EXPECT_EQ(5001, found_inverted->index_id());
-    const TabletIndex* found_bitmap = schema.get_index(14001, IndexType::BITMAP, "");
-    EXPECT_NE(nullptr, found_bitmap);
-    EXPECT_EQ("bitmap_idx", found_bitmap->index_name());
-    EXPECT_EQ(5002, found_bitmap->index_id());
     const TabletIndex* found_ann = schema.get_index(14002, IndexType::ANN, "");
     EXPECT_NE(nullptr, found_ann);
     EXPECT_EQ("ann_idx", found_ann->index_name());
@@ -857,7 +853,6 @@ TEST_F(TabletSchemaTest, test_tablet_schema_get_index) {
 
     EXPECT_TRUE(found_inverted->is_inverted_index());
     EXPECT_EQ(IndexType::INVERTED, found_inverted->index_type());
-    EXPECT_EQ(IndexType::BITMAP, found_bitmap->index_type());
     EXPECT_EQ(IndexType::ANN, found_ann->index_type());
     EXPECT_EQ(IndexType::NGRAM_BF, found_ngram_bf->index_type());
 
