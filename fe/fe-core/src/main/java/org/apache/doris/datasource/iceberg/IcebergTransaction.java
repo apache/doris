@@ -179,11 +179,10 @@ public class IcebergTransaction implements Transaction {
 
         // Get table specification information
         PartitionSpec spec = transaction.table().spec();
-        Schema schema = transaction.table().schema();
         FileFormat fileFormat = IcebergUtils.getFileFormat(transaction.table());
 
         // Convert commit data to DataFile objects using the same logic as insert
-        WriteResult writeResult = IcebergWriterHelper.convertToWriterResult(fileFormat, spec, schema, commitDataList);
+        WriteResult writeResult = IcebergWriterHelper.convertToWriterResult(fileFormat, spec, commitDataList);
 
         // Add the generated DataFiles to filesToAdd list
         synchronized (filesToAdd) {
@@ -251,7 +250,6 @@ public class IcebergTransaction implements Transaction {
 
     private void updateManifestAfterInsert(TUpdateMode updateMode) {
         PartitionSpec spec = transaction.table().spec();
-        Schema schema = transaction.table().schema();
         FileFormat fileFormat = IcebergUtils.getFileFormat(transaction.table());
 
         List<WriteResult> pendingResults;
@@ -260,7 +258,7 @@ public class IcebergTransaction implements Transaction {
         } else {
             //convert commitDataList to writeResult
             WriteResult writeResult = IcebergWriterHelper
-                    .convertToWriterResult(fileFormat, spec, schema, commitDataList);
+                    .convertToWriterResult(fileFormat, spec, commitDataList);
             pendingResults = Lists.newArrayList(writeResult);
         }
 
