@@ -552,7 +552,6 @@ public class SummaryProfile {
         executionSummaryProfile.addInfoString(NEREIDS_BE_FOLD_CONST_TIME, getPrettyNereidsBeFoldConstTime());
         executionSummaryProfile.addInfoString(INIT_SCAN_NODE_TIME,
             getPrettyTime(initScanNodeFinishTime, initScanNodeStartTime, TUnit.TIME_MS));
-        executionSummaryProfile.addInfoString(MEMORY_LIMIT, getPrettyGetMetaVersionTime());
         executionSummaryProfile.addInfoString(FINALIZE_SCAN_NODE_TIME,
             getPrettyTime(finalizeScanNodeFinishTime, finalizeScanNodeStartTime, TUnit.TIME_MS));
         executionSummaryProfile.addInfoString(GET_SPLITS_TIME,
