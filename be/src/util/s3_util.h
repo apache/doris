@@ -31,10 +31,10 @@
 #include <string>
 #include <unordered_map>
 
+#include "client/obj_storage_client.h"
 #include "common/status.h"
 #include "cpp/aws_common.h"
 #include "cpp/s3_rate_limiter.h"
-#include "io/fs/obj_storage_client.h"
 #include "vec/common/string_ref.h"
 
 namespace Aws::S3 {
@@ -48,19 +48,6 @@ class Adder;
 
 namespace doris {
 
-namespace s3_bvar {
-extern bvar::LatencyRecorder s3_get_latency;
-extern bvar::LatencyRecorder s3_put_latency;
-extern bvar::LatencyRecorder s3_delete_object_latency;
-extern bvar::LatencyRecorder s3_delete_objects_latency;
-extern bvar::LatencyRecorder s3_head_latency;
-extern bvar::LatencyRecorder s3_multi_part_upload_latency;
-extern bvar::LatencyRecorder s3_list_latency;
-extern bvar::LatencyRecorder s3_list_object_versions_latency;
-extern bvar::LatencyRecorder s3_get_bucket_version_latency;
-extern bvar::LatencyRecorder s3_copy_object_latency;
-}; // namespace s3_bvar
-
 std::string hide_access_key(const std::string& ak);
 int reset_s3_rate_limiter(S3RateLimitType type, size_t max_speed, size_t max_burst, size_t limit);
 
@@ -73,7 +60,7 @@ struct S3ClientConf {
     std::string token;
     // For azure we'd better support the bucket at the first time init azure blob container client
     std::string bucket;
-    io::ObjStorageType provider = io::ObjStorageType::AWS;
+    ObjStorageType provider = ObjStorageType::AWS;
     int max_connections = -1;
     int request_timeout_ms = -1;
     int connect_timeout_ms = -1;
@@ -137,7 +124,7 @@ public:
 
     static S3ClientFactory& instance();
 
-    std::shared_ptr<io::ObjStorageClient> create(const S3ClientConf& s3_conf);
+    std::shared_ptr<ObjStorageClient> create(const S3ClientConf& s3_conf);
 
     static Status convert_properties_to_s3_conf(const std::map<std::string, std::string>& prop,
                                                 const S3URI& s3_uri, S3Conf* s3_conf);
@@ -155,8 +142,8 @@ public:
     S3RateLimiterHolder* rate_limiter(S3RateLimitType type);
 
 private:
-    std::shared_ptr<io::ObjStorageClient> _create_s3_client(const S3ClientConf& s3_conf);
-    std::shared_ptr<io::ObjStorageClient> _create_azure_client(const S3ClientConf& s3_conf);
+    std::shared_ptr<ObjStorageClient> _create_s3_client(const S3ClientConf& s3_conf);
+    std::shared_ptr<ObjStorageClient> _create_azure_client(const S3ClientConf& s3_conf);
     std::shared_ptr<Aws::Auth::AWSCredentialsProvider> _get_aws_credentials_provider_v1(
             const S3ClientConf& s3_conf);
     std::shared_ptr<Aws::Auth::AWSCredentialsProvider> _get_aws_credentials_provider_v2(
@@ -168,7 +155,7 @@ private:
 
     Aws::SDKOptions _aws_options;
     std::mutex _lock;
-    std::unordered_map<uint64_t, std::shared_ptr<io::ObjStorageClient>> _cache;
+    std::unordered_map<uint64_t, std::shared_ptr<ObjStorageClient>> _cache;
     std::string _ca_cert_file_path;
     std::array<std::unique_ptr<S3RateLimiterHolder>, 2> _rate_limiters;
 };

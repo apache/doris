@@ -39,8 +39,8 @@
 #include <string_view>
 #include <utility>
 
+#include "client/s3_common.h"
 #include "common/defer.h"
-#include "common/stopwatch.h"
 #include "meta-service/meta_service.h"
 #include "meta-service/meta_service_helper.h"
 #include "meta-service/meta_service_schema.h"

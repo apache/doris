@@ -15,78 +15,44 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "io/fs/azure_obj_storage_client.h"
-
-#include <aws/core/utils/Array.h>
-#include <aws/core/utils/HashingUtils.h>
-
-#include <algorithm>
-#include <azure/core/http/http.hpp>
-#include <azure/core/http/http_status_code.hpp>
-#include <azure/core/io/body_stream.hpp>
-#include <azure/storage/blobs.hpp>
-#include <azure/storage/blobs/blob_batch.hpp>
-#include <azure/storage/blobs/blob_client.hpp>
-#include <azure/storage/blobs/blob_container_client.hpp>
-#include <azure/storage/blobs/blob_sas_builder.hpp>
-#include <azure/storage/blobs/rest_client.hpp>
-#include <azure/storage/common/account_sas_builder.hpp>
-#include <azure/storage/common/storage_credential.hpp>
-#include <azure/storage/common/storage_exception.hpp>
-#include <chrono>
-#include <exception>
-#include <iterator>
-#include <ranges>
-
-#include "common/exception.h"
-#include "common/logging.h"
-#include "common/status.h"
-#include "io/fs/obj_storage_client.h"
-#include "util/bvar_helper.h"
-#include "util/coding.h"
-#include "util/s3_util.h"
+#include "azure_obj_storage_client.h"
 
 using namespace Azure::Storage::Blobs;
 
 namespace {
-std::string wrap_object_storage_path_msg(const doris::io::ObjectStoragePathOptions& opts) {
-    return fmt::format("bucket {}, key {}, prefix {}, path {}", opts.bucket, opts.key, opts.prefix,
-                       opts.path.native());
+std::string wrap_object_storage_path_msg(const doris::ObjectStoragePathOptions& opts) {
+    return fmt::format("bucket {}, key {}, prefix {}, path {}", opts.bucket, opts.key,
+                       opts.full_path.native());
+}
+
+template <std::endian target, typename T>
+T to_endian(T value) {
+    if constexpr (std::endian::native == target) {
+        return value; // No swap needed
+    } else {
+        static_assert(std::endian::native == std::endian::big ||
+                              std::endian::native == std::endian::little,
+                      "Unsupported endianness");
+        return byte_swap(value);
+    }
+}
+
+inline void encode_fixed32_le(uint8_t* buf, uint32_t val) {
+    val = to_endian<std::endian::little>(val);
+    memcpy(buf, &val, sizeof(val));
 }
 
 auto base64_encode_part_num(int part_num) {
     uint8_t buf[4];
-    doris::encode_fixed32_le(buf, static_cast<uint32_t>(part_num));
+    encode_fixed32_le(buf, static_cast<uint32_t>(part_num));
     return Aws::Utils::HashingUtils::Base64Encode({buf, sizeof(buf)});
-}
-
-template <typename Func>
-auto s3_rate_limit(doris::S3RateLimitType op, Func callback) -> decltype(callback()) {
-    if (!doris::config::enable_s3_rate_limiter) {
-        return callback();
-    }
-    auto sleep_duration = doris::S3ClientFactory::instance().rate_limiter(op)->add(1);
-    if (sleep_duration < 0) {
-        throw std::runtime_error("Azure exceeds request limit");
-    }
-    return callback();
-}
-
-template <typename Func>
-auto s3_get_rate_limit(Func callback) -> decltype(callback()) {
-    return s3_rate_limit(doris::S3RateLimitType::GET, std::move(callback));
-}
-
-template <typename Func>
-auto s3_put_rate_limit(Func callback) -> decltype(callback()) {
-    return s3_rate_limit(doris::S3RateLimitType::PUT, std::move(callback));
 }
 
 constexpr char SAS_TOKEN_URL_TEMPLATE[] = "{}/{}/{}{}";
 constexpr char BlobNotFound[] = "BlobNotFound";
 } // namespace
 
-namespace doris::io {
+namespace doris {
 
 // As Azure's doc said, the batch size is 256
 // You can find out the num in https://learn.microsoft.com/en-us/rest/api/storageservices/blob-batch?tabs=microsoft-entra-id
@@ -102,17 +68,19 @@ ObjectStorageResponse do_azure_client_call(Func f, const ObjectStoragePathOption
                 "Azure request failed because {}, error msg {}, http code {}, path msg {}",
                 e.what(), e.Message, static_cast<int>(e.StatusCode),
                 wrap_object_storage_path_msg(opts));
-        LOG_WARNING(msg);
-        return {.status = convert_to_obj_response(Status::InternalError<false>(std::move(msg))),
+        LOG(WARNING) << msg;
+        return {.status = ObjectStorageStatus {TStatusCode::INTERNAL_ERROR, std::move(msg)},
                 .http_code = static_cast<int>(e.StatusCode),
                 .request_id = std::move(e.RequestId)};
     } catch (std::exception& e) {
         auto msg = fmt::format("Azure request failed because {}, path msg {}", e.what(),
                                wrap_object_storage_path_msg(opts));
-        LOG_WARNING(msg);
-        return {.status = convert_to_obj_response(Status::InternalError<false>(std::move(msg)))};
+        LOG(WARNING) << msg;
+        return {.status = ObjectStorageStatus {TStatusCode::INTERNAL_ERROR, std::move(msg)},
+                .http_code = 0,
+                .request_id = ""};
     }
-    return ObjectStorageResponse::OK();
+    return {ObjectStorageResponse::OK()};
 }
 
 struct AzureBatchDeleter {
@@ -128,13 +96,11 @@ struct AzureBatchDeleter {
         }
         auto resp = do_azure_client_call(
                 [&]() {
-                    s3_put_rate_limit([&]() {
-                        SCOPED_BVAR_LATENCY(s3_bvar::s3_delete_objects_latency);
-                        _client->SubmitBatch(_batch);
-                    });
+                    SCOPED_BVAR_LATENCY(client_bvar::s3_delete_objects_latency);
+                    _client->SubmitBatch(_batch);
                 },
                 _opts);
-        if (resp.status.code != ErrorCode::OK) {
+        if (resp.status.code != TStatusCode::OK) {
             return resp;
         }
 
@@ -144,9 +110,11 @@ struct AzureBatchDeleter {
                 if (!r.Value.Deleted) {
                     auto msg = fmt::format("Azure batch delete failed, path msg {}",
                                            wrap_object_storage_path_msg(_opts));
-                    LOG_WARNING(msg);
-                    return {.status = convert_to_obj_response(
-                                    Status::InternalError<false>(std::move(msg)))};
+                    LOG(WARNING) << msg;
+                    return {.status = ObjectStorageStatus {TStatusCode::INTERNAL_ERROR,
+                                                           std::move(msg)},
+                            .http_code = 0,
+                            .request_id = ""};
                 }
             } catch (Azure::Core::RequestFailedException& e) {
                 if (Azure::Core::Http::HttpStatusCode::NotFound == e.StatusCode &&
@@ -157,9 +125,8 @@ struct AzureBatchDeleter {
                         "Azure request failed because {}, error msg {}, http code {}, path msg {}",
                         e.what(), e.Message, static_cast<int>(e.StatusCode),
                         wrap_object_storage_path_msg(_opts));
-                LOG_WARNING(msg);
-                return {.status = convert_to_obj_response(
-                                Status::InternalError<false>(std::move(msg))),
+                LOG(WARNING) << msg;
+                return {.status = ObjectStorageStatus {TStatusCode::INTERNAL_ERROR, std::move(msg)},
                         .http_code = static_cast<int>(e.StatusCode),
                         .request_id = std::move(e.RequestId)};
             }
@@ -188,11 +155,8 @@ ObjectStorageResponse AzureObjStorageClient::put_object(const ObjectStoragePathO
     auto client = _client->GetBlockBlobClient(opts.key);
     return do_azure_client_call(
             [&]() {
-                s3_put_rate_limit([&]() {
-                    SCOPED_BVAR_LATENCY(s3_bvar::s3_put_latency);
-                    client.UploadFrom(reinterpret_cast<const uint8_t*>(stream.data()),
-                                      stream.size());
-                });
+                SCOPED_BVAR_LATENCY(client_bvar::s3_put_latency);
+                client.UploadFrom(reinterpret_cast<const uint8_t*>(stream.data()), stream.size());
             },
             opts);
 }
@@ -205,30 +169,25 @@ ObjectStorageUploadResponse AzureObjStorageClient::upload_part(const ObjectStora
         Azure::Core::IO::MemoryBodyStream memory_body(
                 reinterpret_cast<const uint8_t*>(stream.data()), stream.size());
         // The blockId must be base64 encoded
-        s3_put_rate_limit([&]() {
-            SCOPED_BVAR_LATENCY(s3_bvar::s3_multi_part_upload_latency);
-            return client.StageBlock(base64_encode_part_num(part_num), memory_body);
-        });
+        SCOPED_BVAR_LATENCY(client_bvar::s3_multi_part_upload_latency);
+        client.StageBlock(base64_encode_part_num(part_num), memory_body);
     } catch (Azure::Core::RequestFailedException& e) {
         auto msg = fmt::format(
                 "Azure request failed because {}, error msg {}, http code {}, path msg {}",
                 e.what(), e.Message, static_cast<int>(e.StatusCode),
                 wrap_object_storage_path_msg(opts));
-        LOG_WARNING(msg);
+        LOG(WARNING) << msg;
         // clang-format off
         return {
             .resp = {
-                .status = convert_to_obj_response(
-                        Status::InternalError<false>(std::move(msg))),
+                .status = ObjectStorageStatus {TStatusCode::INTERNAL_ERROR, std::move(msg)},
                 .http_code = static_cast<int>(e.StatusCode),
                 .request_id = std::move(e.RequestId),
             },
         };
         // clang-format on
     }
-    return ObjectStorageUploadResponse {
-            .resp = ObjectStorageResponse::OK(),
-    };
+    return ObjectStorageUploadResponse {.resp = ObjectStorageResponse::OK()};
 }
 
 ObjectStorageResponse AzureObjStorageClient::complete_multipart_upload(
@@ -239,27 +198,20 @@ ObjectStorageResponse AzureObjStorageClient::complete_multipart_upload(
     std::ranges::transform(
             completed_parts, std::back_inserter(string_block_ids),
             [](const ObjectCompleteMultiPart& i) { return base64_encode_part_num(i.part_num); });
-    return do_azure_client_call(
-            [&]() {
-                s3_put_rate_limit([&]() {
-                    SCOPED_BVAR_LATENCY(s3_bvar::s3_multi_part_upload_latency);
-                    client.CommitBlockList(string_block_ids);
-                });
-            },
-            opts);
+    return do_azure_client_call([&]() { client.CommitBlockList(string_block_ids); }, opts);
 }
 
 ObjectStorageHeadResponse AzureObjStorageClient::head_object(const ObjectStoragePathOptions& opts) {
     try {
-        Models::BlobProperties properties = s3_get_rate_limit([&]() {
-            SCOPED_BVAR_LATENCY(s3_bvar::s3_head_latency);
+        Models::BlobProperties properties = [&]() {
+            SCOPED_BVAR_LATENCY(client_bvar::s3_head_latency);
             return _client->GetBlockBlobClient(opts.key).GetProperties().Value;
-        });
-        return {.file_size = properties.BlobSize};
+        }();
+        return {.resp = ObjectStorageResponse::OK(), .file_size = properties.BlobSize};
     } catch (Azure::Core::RequestFailedException& e) {
         if (e.StatusCode == Azure::Core::Http::HttpStatusCode::NotFound) {
             return ObjectStorageHeadResponse {
-                    .resp = {.status = convert_to_obj_response(Status::NotFound<false>("")),
+                    .resp = {.status = ObjectStorageStatus {TStatusCode::NOT_FOUND, ""},
                              .http_code = static_cast<int>(e.StatusCode),
                              .request_id = std::move(e.RequestId)},
             };
@@ -269,8 +221,8 @@ ObjectStorageHeadResponse AzureObjStorageClient::head_object(const ObjectStorage
                 e.what(), e.Message, static_cast<int>(e.StatusCode),
                 wrap_object_storage_path_msg(opts));
         return ObjectStorageHeadResponse {
-                .resp = {.status = convert_to_obj_response(
-                                 Status::InternalError<false>(std::move(msg))),
+                .resp = {.status =
+                                 ObjectStorageStatus {TStatusCode::INTERNAL_ERROR, std::move(msg)},
                          .http_code = static_cast<int>(e.StatusCode),
                          .request_id = std::move(e.RequestId)},
         };
@@ -284,45 +236,19 @@ ObjectStorageResponse AzureObjStorageClient::get_object(const ObjectStoragePathO
     return do_azure_client_call(
             [&]() {
                 DownloadBlobToOptions download_opts;
-                Azure::Core::Http::HttpRange range {static_cast<int64_t>(offset), bytes_read};
+                Azure::Core::Http::HttpRange range {.Offset = static_cast<int64_t>(offset),
+                                                    .Length = bytes_read};
                 download_opts.Range = range;
-                auto resp = s3_get_rate_limit([&]() {
-                    SCOPED_BVAR_LATENCY(s3_bvar::s3_get_latency);
-                    return client.DownloadTo(reinterpret_cast<uint8_t*>(buffer), bytes_read,
-                                             download_opts);
-                });
+                auto resp = client.DownloadTo(reinterpret_cast<uint8_t*>(buffer), bytes_read,
+                                              download_opts);
                 *size_return = resp.Value.ContentRange.Length.Value();
             },
             opts);
 }
 
-ObjectStorageResponse AzureObjStorageClient::list_objects(const ObjectStoragePathOptions& opts,
-                                                          std::vector<FileInfo>* files) {
-    auto get_file_file = [&](ListBlobsPagedResponse& resp) {
-        std::ranges::transform(resp.Blobs, std::back_inserter(*files), [](auto&& blob_item) {
-            return FileInfo {
-                    .file_name = blob_item.Name, .file_size = blob_item.BlobSize, .is_file = true};
-        });
-    };
-    return do_azure_client_call(
-            [&]() {
-                ListBlobsOptions list_opts;
-                list_opts.Prefix = opts.prefix;
-                auto resp = s3_get_rate_limit([&]() {
-                    SCOPED_BVAR_LATENCY(s3_bvar::s3_list_latency);
-                    return _client->ListBlobs(list_opts);
-                });
-                get_file_file(resp);
-                while (resp.NextPageToken.HasValue()) {
-                    list_opts.ContinuationToken = resp.NextPageToken;
-                    resp = s3_get_rate_limit([&]() {
-                        SCOPED_BVAR_LATENCY(s3_bvar::s3_list_latency);
-                        return _client->ListBlobs(list_opts);
-                    });
-                    get_file_file(resp);
-                }
-            },
-            opts);
+std::unique_ptr<ObjectListIterator> AzureObjStorageClient::list_objects(
+        const ObjectStoragePathOptions& opts) {
+    return std::make_unique<AzureListIterator>(_client, opts.key);
 }
 
 // As Azure's doc said, the batch size is 256
@@ -344,7 +270,7 @@ ObjectStorageResponse AzureObjStorageClient::delete_objects(const ObjectStorageP
         std::ranges::for_each(std::ranges::subrange(begin, chunk_end),
                               [&](const std::string& obj) { deleter.delete_blob(obj); });
         begin = chunk_end;
-        if (auto resp = deleter.execute(); resp.status.code != ErrorCode::OK) {
+        if (auto resp = deleter.execute(); resp.status.code != TStatusCode::OK) {
             return resp;
         }
     }
@@ -354,21 +280,27 @@ ObjectStorageResponse AzureObjStorageClient::delete_objects(const ObjectStorageP
 ObjectStorageResponse AzureObjStorageClient::delete_object(const ObjectStoragePathOptions& opts) {
     return do_azure_client_call(
             [&]() {
-                auto resp = s3_put_rate_limit([&]() {
-                    SCOPED_BVAR_LATENCY(s3_bvar::s3_delete_object_latency);
+                auto resp = [&]() {
+                    SCOPED_BVAR_LATENCY(client_bvar::s3_delete_object_latency);
                     return _client->DeleteBlob(opts.key);
-                });
+                }();
                 if (!resp.Value.Deleted) {
-                    throw Exception(Status::IOError<false>("Delete azure blob failed"));
+                    return ObjectStorageResponse {
+                            .status = ObjectStorageStatus {TStatusCode::IO_ERROR,
+                                                           "Delete azure blob failed"},
+                            .http_code = 0,
+                            .request_id = "",
+                    };
                 }
+                return ObjectStorageResponse::OK();
             },
             opts);
 }
 
 ObjectStorageResponse AzureObjStorageClient::delete_objects_recursively(
-        const ObjectStoragePathOptions& opts) {
+        const ObjectStoragePathOptions& opts, const std::string& prefix) {
     ListBlobsOptions list_opts;
-    list_opts.Prefix = opts.prefix;
+    list_opts.Prefix = prefix;
     list_opts.PageSizeHint = BlobBatchMaxOperations;
     auto delete_func = [&](const std::vector<Models::BlobItem>& blobs) -> ObjectStorageResponse {
         auto deleter = AzureBatchDeleter(_client.get(), opts);
@@ -376,27 +308,21 @@ ObjectStorageResponse AzureObjStorageClient::delete_objects_recursively(
         for (auto&& blob_item : blobs) {
             deleter.delete_blob(blob_item.Name);
         }
-        if (auto response = deleter.execute(); response.status.code != ErrorCode::OK) {
+        if (auto response = deleter.execute(); response.status.code != TStatusCode::OK) {
             return response;
         }
         return ObjectStorageResponse::OK();
     };
-    auto resp = s3_get_rate_limit([&]() {
-        SCOPED_BVAR_LATENCY(s3_bvar::s3_list_latency);
-        return _client->ListBlobs(list_opts);
-    });
-    if (auto response = delete_func(resp.Blobs); response.status.code != ErrorCode::OK) {
+    auto resp = _client->ListBlobs(list_opts);
+    if (auto response = delete_func(resp.Blobs); response.status.code != TStatusCode::OK) {
         return response;
     }
 
     while (resp.NextPageToken.HasValue()) {
         list_opts.ContinuationToken = resp.NextPageToken;
-        resp = s3_get_rate_limit([&]() {
-            SCOPED_BVAR_LATENCY(s3_bvar::s3_list_latency);
-            return _client->ListBlobs(list_opts);
-        });
+        resp = _client->ListBlobs(list_opts);
 
-        if (auto response = delete_func(resp.Blobs); response.status.code != ErrorCode::OK) {
+        if (auto response = delete_func(resp.Blobs); response.status.code != TStatusCode::OK) {
             return response;
         }
     }
@@ -404,8 +330,7 @@ ObjectStorageResponse AzureObjStorageClient::delete_objects_recursively(
 }
 
 std::string AzureObjStorageClient::generate_presigned_url(const ObjectStoragePathOptions& opts,
-                                                          int64_t expiration_secs,
-                                                          const S3ClientConf& conf) {
+                                                          int64_t expiration_secs) {
     Azure::Storage::Sas::BlobSasBuilder sas_builder;
     sas_builder.ExpiresOn =
             std::chrono::system_clock::now() + std::chrono::seconds(expiration_secs);
@@ -416,16 +341,38 @@ std::string AzureObjStorageClient::generate_presigned_url(const ObjectStoragePat
     sas_builder.SetPermissions(Azure::Storage::Sas::BlobSasPermissions::Read);
 
     std::string sasToken = sas_builder.GenerateSasToken(
-            Azure::Storage::StorageSharedKeyCredential(conf.ak, conf.sk));
+            Azure::Storage::StorageSharedKeyCredential(_config.ak, _config.sk));
 
-    std::string endpoint = conf.endpoint;
-    if (doris::config::force_azure_blob_global_endpoint) {
-        endpoint = fmt::format("https://{}.blob.core.windows.net", conf.ak);
+    std::string endpoint = _config.endpoint;
+    // TODO: config to force use global endpoint
+    if (false) {
+        endpoint = fmt::format("https://{}.blob.core.windows.net", _config.ak, _config.sk);
     }
-    auto sasURL = fmt::format(SAS_TOKEN_URL_TEMPLATE, endpoint, conf.bucket, opts.key, sasToken);
+    auto sasURL = fmt::format(SAS_TOKEN_URL_TEMPLATE, endpoint, opts.bucket, opts.key, sasToken);
     if (sasURL.find("://") == std::string::npos) {
         sasURL = "https://" + sasURL;
     }
     return sasURL;
 }
-} // namespace doris::io
+
+ObjectStorageResponse AzureObjStorageClient::get_life_cycle(const std::string& endpoint,
+                                                            const std::string& bucket,
+                                                            int64_t* expiration_days) {
+    // TODO(plat1ko)
+    *expiration_days = INT64_MAX;
+    return ObjectStorageResponse::OK();
+}
+
+ObjectStorageResponse AzureObjStorageClient::check_versioning(const std::string& endpoint_,
+                                                              const std::string& bucket) {
+    // TODO(plat1ko)
+    return ObjectStorageResponse::OK();
+}
+
+ObjectStorageResponse AzureObjStorageClient::abort_multipart_upload(
+        const ObjectStoragePathOptions& opts, const std::string& upload_id) {
+    // delete uncommitted blobs
+    // https://learn.microsoft.com/en-us/rest/api/storageservices/delete-blob?tabs=microsoft-entra-id#remarks
+    return delete_object(opts);
+}
+} // namespace doris
