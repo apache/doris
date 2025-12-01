@@ -74,7 +74,7 @@ void LoadChannelMgr::stop() {
 }
 
 Status LoadChannelMgr::init(int64_t process_mem_limit) {
-    _last_success_channels = std::make_unique<LastSuccessChannelCache>(1024);
+    _load_state_channels = std::make_unique<LoadStateChannelCache>(1024);
     RETURN_IF_ERROR(_start_bg_worker());
     return Status::OK();
 }
@@ -117,15 +117,28 @@ Status LoadChannelMgr::_get_load_channel(std::shared_ptr<LoadChannel>& channel, 
     std::lock_guard<std::mutex> l(_lock);
     auto it = _load_channels.find(load_id);
     if (it == _load_channels.end()) {
-        auto* handle = _last_success_channels->lookup(load_id.to_string());
-        // success only when eos be true
+        Cache::Handle* handle = _load_state_channels->lookup(load_id.to_string());
         if (handle != nullptr) {
-            _last_success_channels->release(handle);
-            if (request.has_eos() && request.eos()) {
-                is_eof = true;
-                return Status::OK();
+            // load is cancelled
+            if (auto* value = _load_state_channels->value(handle); value != nullptr) {
+                const auto& cancel_reason = reinterpret_cast<CacheValue*>(value)->_cancel_reason;
+                _load_state_channels->release(handle);
+                if (!cancel_reason.empty()) {
+                    LOG(INFO) << fmt::format(
+                            "The channel has been cancelled, load_id = {}, error = {}",
+                            print_id(load_id), cancel_reason);
+                    return Status::Cancelled(cancel_reason);
+                }
+            } else {
+                // load is success, success only when eos be true
+                _load_state_channels->release(handle);
+                if (request.has_eos() && request.eos()) {
+                    is_eof = true;
+                    return Status::OK();
+                }
             }
         }
+
         return Status::InternalError<false>(
                 "Fail to add batch in load channel: unknown load_id={}. "
                 "This may be due to a BE restart. Please retry the load.",
@@ -179,11 +192,11 @@ void LoadChannelMgr::_finish_load_channel(const UniqueId load_id) {
     VLOG_NOTICE << "removing load channel " << load_id << " because it's finished";
     {
         std::lock_guard<std::mutex> l(_lock);
-        if (_load_channels.find(load_id) != _load_channels.end()) {
+        if (_load_channels.contains(load_id)) {
             _load_channels.erase(load_id);
         }
-        auto* handle = _last_success_channels->insert(load_id.to_string(), nullptr, 1, 1);
-        _last_success_channels->release(handle);
+        auto* handle = _load_state_channels->insert(load_id.to_string(), nullptr, 1, 1);
+        _load_state_channels->release(handle);
     }
     VLOG_CRITICAL << "removed load channel " << load_id;
 }
@@ -193,9 +206,27 @@ Status LoadChannelMgr::cancel(const PTabletWriterCancelRequest& params) {
     std::shared_ptr<LoadChannel> cancelled_channel;
     {
         std::lock_guard<std::mutex> l(_lock);
-        if (_load_channels.find(load_id) != _load_channels.end()) {
+        if (_load_channels.contains(load_id)) {
             cancelled_channel = _load_channels[load_id];
             _load_channels.erase(load_id);
+        }
+        // We just need to record the first cancel msg
+        auto* existing_handle = _load_state_channels->lookup(load_id.to_string());
+        if (existing_handle == nullptr) {
+            if (params.has_cancel_reason() && !params.cancel_reason().empty()) {
+                std::unique_ptr<CacheValue> cancel_reason_ptr = std::make_unique<CacheValue>();
+                cancel_reason_ptr->_cancel_reason = params.cancel_reason();
+                size_t cache_capacity =
+                        cancel_reason_ptr->_cancel_reason.capacity() + sizeof(CacheValue);
+                auto* handle = _load_state_channels->insert(
+                        load_id.to_string(), cancel_reason_ptr.get(), 1, cache_capacity);
+                cancel_reason_ptr.release();
+                _load_state_channels->release(handle);
+                LOG(INFO) << fmt::format("load_id = {}, record_error reason = {}",
+                                         print_id(load_id), params.cancel_reason());
+            }
+        } else {
+            _load_state_channels->release(existing_handle);
         }
     }
 

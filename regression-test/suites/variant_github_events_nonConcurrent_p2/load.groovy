@@ -156,6 +156,20 @@ suite("regression_test_variant_github_events_p2", "nonConcurrent,p2"){
     qt_sql """select cast(v["payload"]["pull_request"]["additions"] as int)  from github_events where v["repo"]["name"] match 'xpressengine' order by 1;"""
     qt_sql """select count()  from github_events where v["repo"]["name"] match 'apache' order by 1;"""
 
+    sql """ALTER TABLE github_events SET("bloom_filter_columns" = "k,v")"""
+
+    waitForSchemaChangeDone {
+        sql """SHOW ALTER TABLE COLUMN WHERE IndexName='github_events' ORDER BY createtime DESC LIMIT 1"""
+        time 600
+    }
+
+    sql """ALTER TABLE github_events2 SET("bloom_filter_columns" = "k,v")"""
+
+    waitForSchemaChangeDone {
+        sql """SHOW ALTER TABLE COLUMN WHERE IndexName='github_events' ORDER BY createtime DESC LIMIT 1"""
+        time 600
+    }
+
     // specify schema
     // sql "alter table github_events2 modify column v variant<`payload.comment.id`:int,`payload.commits.url`:text,`payload.forkee.has_pages`:tinyint>"
     // load_json_data.call("github_events2", """${getS3Url() + '/regression/gharchive.m/2022-11-07-23.json'}""")

@@ -20,6 +20,7 @@ package org.apache.doris.datasource.property;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.function.BooleanSupplier;
 
 public class ParamRules {
 
@@ -212,6 +213,28 @@ public class ParamRules {
                 }
             }
             if (!anyPresent) {
+                throw new IllegalArgumentException(errorMessage);
+            }
+        });
+        return this;
+    }
+
+    /**
+     * Add a custom validation rule using a lambda expression.
+     * <p>
+     * The validation rule will be executed when {@link #validate()} is called.
+     * If the condition evaluates to true, an {@link IllegalArgumentException} will be thrown
+     * with the provided error message.
+     *
+     * @param condition a BooleanSupplier that returns true if validation should fail
+     * @param errorMessage the error message to throw if condition evaluates to true
+     * @return this ParamRules instance for chaining
+     *
+     * @see #validate()
+     */
+    public ParamRules check(BooleanSupplier condition, String errorMessage) {
+        rules.add(() -> {
+            if (condition.getAsBoolean()) {
                 throw new IllegalArgumentException(errorMessage);
             }
         });

@@ -385,8 +385,53 @@ public class SimplifyRangeTest extends ExpressionRewrite {
 
         assertRewrite("(TA is not null or null) and TA > 10", "TA > 10");
         assertRewrite("(TA is not null or null) or TA > 10", "TA is not null or null");
+
+        assertRewrite("(TA is null and null) and TA is null", "TA is null and null");
+        assertRewrite("(TA is null and null) or TA is null", "TA is null");
+        // can simplify to 'TA is null', but not supported yet
+        assertRewrite("(TA is null or null) and TA is null", "(TA is null or null) and TA is null");
+        assertRewrite("(TA is null or null) or TA is null", "TA is null or null");
+        assertRewrite("(TA is not null and null) and TA is null", "FALSE");
+        assertRewrite("(TA is not null and null) or TA is null", "TA is not null and null or TA is null");
+        // can simplify to 'TA is null and null', but not supported yet, because it treat 'TA is not null or null' to RangeAll
+        assertRewrite("(TA is not null or null) and TA is null", "(TA is not null or null) and TA is null");
         assertRewrite("(TA is not null or null) or TA is null", "TRUE");
-        assertRewrite("TA is not null or null or TA is not null", "TA is not null or null");
+        assertRewrite("(TA is null and null) and TA is not null", "FALSE");
+        assertRewrite("(TA is null and null) or TA is not null", "TA is not null or TA is null and null");
+        assertRewrite("(TA is null or null) and TA is not null", "(TA is null or null) and TA is not null");
+        assertRewrite("(TA is null or null) or TA is not null", "TRUE");
+        assertRewrite("(TA is not null and null) and TA is not null", "TA is not null and null");
+        // can simplify to 'TA is not null', but not supported yet
+        assertRewrite("(TA is not null and null) or TA is not null", "TA is not null and null or TA is not null");
+        // can simplify to 'TA is not null', but not supported yet
+        assertRewrite("(TA is not null or null) and TA is not null", "(TA is not null or null) and TA is not null");
+        assertRewrite("(TA is not null or null) or TA is not null", "TA is not null or null");
+
+        assertRewrite("(XA is null and null) and XA is null", "FALSE");
+        // can simplify to 'FALSE', but not supported yet
+        assertRewrite("(XA is null and null) or XA is null", "XA is null");
+        // can simplify to 'FALSE', but not supported yet
+        assertRewrite("(XA is null or null) and XA is null", "(XA is null or null) and XA is null");
+        // can simplify to 'null', but not supported yet
+        assertRewrite("(XA is null or null) or XA is null", "XA is null or null");
+        assertRewrite("(XA is not null and null) and XA is null", "FALSE");
+        // can simplify to 'null', but not supported yet
+        assertRewrite("(XA is not null and null) or XA is null", "(XA is not null and null) or XA is null");
+        assertRewrite("(XA is not null or null) and XA is null", "FALSE");
+        assertRewrite("(XA is not null or null) or XA is null", "TRUE");
+        assertRewrite("(XA is null and null) and XA is not null", "FALSE");
+        // can simplify to 'TRUE', but not supported yet
+        assertRewrite("(XA is null and null) or XA is not null", "XA is not null");
+        // can simplify to 'NULL', but not supported yet
+        assertRewrite("(XA is null or null) and XA is not null", "(XA is null or null) and XA is not null");
+        assertRewrite("(XA is null or null) or XA is not null", "TRUE");
+        // can simplify to 'NULL', but not supported yet
+        assertRewrite("(XA is not null and null) and XA is not null", "XA is not null and null");
+        // can simplify to 'NULL', but not supported yet
+        assertRewrite("(XA is not null and null) or XA is not null", "XA is not null and null or XA is not null");
+        // can simplify to 'TRUE', but not supported yet
+        assertRewrite("(XA is not null or null) and XA is not null", "XA is not null");
+        assertRewrite("(XA is not null or null) or XA is not null", "TRUE");
 
         assertRewrite("TA + TC", "TA + TC");
         assertRewrite("(TA + TC >= 1 and TA + TC <=3 ) or (TA + TC > 5 and TA + TC < 7)", "(TA + TC >= 1 and TA + TC <=3 ) or (TA + TC > 5 and TA + TC < 7)");

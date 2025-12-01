@@ -123,6 +123,21 @@ public class DateTimeExtractAndTransform {
         return new SmallIntLiteral(((short) date.getYear()));
     }
 
+
+    /**
+     * Executable datetime extract century
+     */
+    @ExecFunction(name = "century")
+    public static Expression century(DateV2Literal date) {
+        return new SmallIntLiteral((short) ((date.getYear() - 1) / 100 + 1));
+    }
+
+    @ExecFunction(name = "century")
+    public static Expression century(DateTimeV2Literal date) {
+        return new SmallIntLiteral((short) ((date.getYear() - 1) / 100 + 1));
+    }
+
+
     /**
      * Executable datetime extract quarter
      */
@@ -187,11 +202,27 @@ public class DateTimeExtractAndTransform {
     }
 
     /**
+     * Executable time extract second
+     */
+    @ExecFunction(name = "second")
+    public static Expression second(TimeV2Literal time) {
+        return new TinyIntLiteral(((byte) time.getSecond()));
+    }
+
+    /**
      * Executable datetime extract microsecond
      */
     @ExecFunction(name = "microsecond")
     public static Expression microsecond(DateTimeV2Literal date) {
         return new IntegerLiteral(((int) date.getMicroSecond()));
+    }
+
+    /**
+     * Executable time extract microsecond
+     */
+    @ExecFunction(name = "microsecond")
+    public static Expression microsecond(TimeV2Literal time) {
+        return new IntegerLiteral(((int) time.getMicroSecond()));
     }
 
     /**

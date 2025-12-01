@@ -83,7 +83,9 @@ RowGroupReader::RowGroupReader(io::FileReaderSPtr file_reader,
                                const int32_t row_group_id, const tparquet::RowGroup& row_group,
                                const cctz::time_zone* ctz, io::IOContext* io_ctx,
                                const PositionDeleteContext& position_delete_ctx,
-                               const LazyReadContext& lazy_read_ctx, RuntimeState* state)
+                               const LazyReadContext& lazy_read_ctx, RuntimeState* state,
+                               const std::set<uint64_t>& column_ids,
+                               const std::set<uint64_t>& filter_column_ids)
         : _file_reader(file_reader),
           _read_table_columns(read_columns),
           _row_group_id(row_group_id),
@@ -94,7 +96,9 @@ RowGroupReader::RowGroupReader(io::FileReaderSPtr file_reader,
           _position_delete_ctx(position_delete_ctx),
           _lazy_read_ctx(lazy_read_ctx),
           _state(state),
-          _obj_pool(new ObjectPool()) {}
+          _obj_pool(new ObjectPool()),
+          _column_ids(column_ids),
+          _filter_column_ids(filter_column_ids) {}
 
 RowGroupReader::~RowGroupReader() {
     _column_readers.clear();
@@ -102,7 +106,7 @@ RowGroupReader::~RowGroupReader() {
 }
 
 Status RowGroupReader::init(
-        const FieldDescriptor& schema, std::vector<RowRange>& row_ranges,
+        const FieldDescriptor& schema, RowRanges& row_ranges,
         std::unordered_map<int, tparquet::OffsetIndex>& col_offsets,
         const TupleDescriptor* tuple_descriptor, const RowDescriptor* row_descriptor,
         const std::unordered_map<std::string, int>* colname_to_slot_id,
@@ -112,7 +116,9 @@ Status RowGroupReader::init(
     _row_descriptor = row_descriptor;
     _col_name_to_slot_id = colname_to_slot_id;
     _slot_id_to_filter_conjuncts = slot_id_to_filter_conjuncts;
-    _merge_read_ranges(row_ranges);
+    _read_ranges = row_ranges;
+    _remaining_rows = row_ranges.count();
+
     if (_read_table_columns.empty()) {
         // Query task that only select columns in path.
         return Status::OK();
@@ -131,9 +137,9 @@ Status RowGroupReader::init(
         const tparquet::OffsetIndex* offset_index =
                 col_offsets.find(physical_index) != col_offsets.end() ? &col_offsets[physical_index]
                                                                       : nullptr;
-        RETURN_IF_ERROR(ParquetColumnReader::create(_file_reader, field, _row_group_meta,
-                                                    _read_ranges, _ctz, _io_ctx, reader,
-                                                    max_buf_size, offset_index));
+        RETURN_IF_ERROR(ParquetColumnReader::create(
+                _file_reader, field, _row_group_meta, _read_ranges, _ctz, _io_ctx, reader,
+                max_buf_size, offset_index, _column_ids, _filter_column_ids));
         if (reader == nullptr) {
             VLOG_DEBUG << "Init row group(" << _row_group_id << ") reader failed";
             return Status::Corruption("Init row group reader failed");
@@ -321,8 +327,8 @@ Status RowGroupReader::next_batch(Block* block, size_t batch_size, size_t* read_
         return _do_lazy_read(block, batch_size, read_rows, batch_eof);
     } else {
         FilterMap filter_map;
-        RETURN_IF_ERROR(_read_column_data(block, _lazy_read_ctx.all_read_columns, batch_size,
-                                          read_rows, batch_eof, filter_map));
+        RETURN_IF_ERROR((_read_column_data(block, _lazy_read_ctx.all_read_columns, batch_size,
+                                           read_rows, batch_eof, filter_map)));
         RETURN_IF_ERROR(
                 _fill_partition_columns(block, *read_rows, _lazy_read_ctx.partition_columns));
         RETURN_IF_ERROR(_fill_missing_columns(block, *read_rows, _lazy_read_ctx.missing_columns));
@@ -379,14 +385,6 @@ Status RowGroupReader::next_batch(Block* block, size_t batch_size, size_t* read_
     }
 }
 
-void RowGroupReader::_merge_read_ranges(std::vector<RowRange>& row_ranges) {
-    _read_ranges = row_ranges;
-    _remaining_rows = 0;
-    for (auto& range : row_ranges) {
-        _remaining_rows += range.last_row - range.first_row;
-    }
-}
-
 Status RowGroupReader::_read_column_data(Block* block,
                                          const std::vector<std::string>& table_columns,
                                          size_t batch_size, size_t* read_rows, bool* batch_eof,
@@ -435,9 +433,18 @@ Status RowGroupReader::_read_column_data(Block* block,
             RETURN_IF_ERROR(_column_readers[read_col_name]->read_column_data(
                     column_ptr, column_type, _table_info_node_ptr->get_children_node(read_col_name),
                     filter_map, batch_size - col_read_rows, &loop_rows, &col_eof, is_dict_filter));
+            VLOG_DEBUG << "[RowGroupReader] column '" << read_col_name
+                       << "' loop_rows=" << loop_rows << " col_read_rows_so_far=" << col_read_rows
+                       << std::endl;
             col_read_rows += loop_rows;
         }
+        VLOG_DEBUG << "[RowGroupReader] column '" << read_col_name
+                   << "' read_rows=" << col_read_rows << std::endl;
         if (batch_read_rows > 0 && batch_read_rows != col_read_rows) {
+            LOG(WARNING) << "[RowGroupReader] Mismatched read rows among parquet columns. "
+                            "previous_batch_read_rows="
+                         << batch_read_rows << ", current_column='" << read_col_name
+                         << "', current_col_read_rows=" << col_read_rows;
             return Status::Corruption("Can't read the same number of rows among parquet columns");
         }
         batch_read_rows = col_read_rows;
@@ -602,15 +609,10 @@ Status RowGroupReader::_do_lazy_read(Block* block, size_t batch_size, size_t* re
     {
         SCOPED_RAW_TIMER(&_predicate_filter_time);
         if (filter_map.has_filter()) {
-            if (block->columns() == origin_column_num) {
-                // the whole row group has been filtered by _lazy_read_ctx.vconjunct_ctx, and batch_eof is
-                // generated from next batch, so the filter column is removed ahead.
-                DCHECK_EQ(block->rows(), 0);
-            } else {
-                RETURN_IF_CATCH_EXCEPTION(Block::filter_block_internal(
-                        block, _lazy_read_ctx.all_predicate_col_ids, result_filter));
-                Block::erase_useless_column(block, origin_column_num);
-            }
+            RETURN_IF_CATCH_EXCEPTION(Block::filter_block_internal(
+                    block, _lazy_read_ctx.all_predicate_col_ids, result_filter));
+            Block::erase_useless_column(block, origin_column_num);
+
         } else {
             Block::erase_useless_column(block, origin_column_num);
         }
@@ -808,14 +810,15 @@ Status RowGroupReader::_get_current_batch_row_id(size_t read_rows) {
 
     int64_t idx = 0;
     int64_t read_range_rows = 0;
-    for (auto& range : _read_ranges) {
+    for (size_t range_idx = 0; range_idx < _read_ranges.range_size(); range_idx++) {
+        auto range = _read_ranges.get_range(range_idx);
         if (read_rows == 0) {
             break;
         }
-        if (read_range_rows + (range.last_row - range.first_row) > _total_read_rows) {
+        if (read_range_rows + (range.to() - range.from()) > _total_read_rows) {
             int64_t fi =
-                    std::max(_total_read_rows, read_range_rows) - read_range_rows + range.first_row;
-            size_t len = std::min(read_rows, (size_t)(std::max(range.last_row, fi) - fi));
+                    std::max(_total_read_rows, read_range_rows) - read_range_rows + range.from();
+            size_t len = std::min(read_rows, (size_t)(std::max(range.to(), fi) - fi));
 
             read_rows -= len;
 
@@ -824,7 +827,7 @@ Status RowGroupReader::_get_current_batch_row_id(size_t read_rows) {
                         (rowid_t)(fi + i + _current_row_group_idx.first_row);
             }
         }
-        read_range_rows += range.last_row - range.first_row;
+        read_range_rows += range.to() - range.from();
     }
     return Status::OK();
 }
@@ -858,13 +861,14 @@ Status RowGroupReader::_build_pos_delete_filter(size_t read_rows) {
                 _position_delete_ctx.first_row_id;
         int64_t read_range_rows = 0;
         size_t remaining_read_rows = _total_read_rows + read_rows;
-        for (auto& range : _read_ranges) {
-            if (delete_row_index_in_row_group < range.first_row) {
+        for (size_t range_idx = 0; range_idx < _read_ranges.range_size(); range_idx++) {
+            auto range = _read_ranges.get_range(range_idx);
+            if (delete_row_index_in_row_group < range.from()) {
                 ++_position_delete_ctx.index;
                 break;
-            } else if (delete_row_index_in_row_group < range.last_row) {
-                int64_t index = (delete_row_index_in_row_group - range.first_row) +
-                                read_range_rows - _total_read_rows;
+            } else if (delete_row_index_in_row_group < range.to()) {
+                int64_t index = (delete_row_index_in_row_group - range.from()) + read_range_rows -
+                                _total_read_rows;
                 if (index > read_rows - 1) {
                     _total_read_rows += read_rows;
                     return Status::OK();
@@ -875,7 +879,7 @@ Status RowGroupReader::_build_pos_delete_filter(size_t read_rows) {
             } else { // delete_row >= range.last_row
             }
 
-            int64_t range_size = range.last_row - range.first_row;
+            int64_t range_size = range.to() - range.from();
             // Don't search next range when there is no remaining_read_rows.
             if (remaining_read_rows <= range_size) {
                 _total_read_rows += read_rows;
@@ -920,10 +924,6 @@ Status RowGroupReader::_rewrite_dict_predicates() {
         int dict_pos = -1;
         int index = 0;
         for (const auto slot_desc : _tuple_descriptor->slots()) {
-            if (!slot_desc->is_materialized()) {
-                // should be ignored from reading
-                continue;
-            }
             if (slot_desc->id() == slot_id) {
                 auto data_type = slot_desc->get_data_type_ptr();
                 if (data_type->is_nullable()) {

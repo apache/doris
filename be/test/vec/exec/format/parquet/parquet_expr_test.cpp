@@ -53,8 +53,12 @@
 #include "common/status.h"
 #include "exec/schema_scanner.h"
 #include "exprs/create_predicate_function.h"
+#include "exprs/hybrid_set.h"
 #include "gtest/gtest_pred_impl.h"
 #include "io/fs/local_file_system.h"
+#include "olap/comparison_predicate.h"
+#include "olap/in_list_predicate.h"
+#include "olap/null_predicate.h"
 #include "runtime/decimalv2_value.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/descriptors.h"
@@ -65,6 +69,7 @@
 #include "util/timezone_utils.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
+#include "vec/exec/format/parquet/parquet_block_split_bloom_filter.h"
 #include "vec/exec/format/parquet/parquet_thrift_util.h"
 #include "vec/exec/format/parquet/schema_desc.h"
 #include "vec/exec/format/parquet/vparquet_column_chunk_reader.h"
@@ -92,10 +97,10 @@ public:
         st = io::global_local_filesystem()->create_directory(test_dir);
         ASSERT_TRUE(st.ok()) << st;
 
-        // 1. 构造各种类型的 Arrow Array
+        // 1. Construct various types of Arrow Arrays
         const int num_rows = 6;
 
-        // int32 部分为 null
+        // int32 partially null
         arrow::Int32Builder int32_partial_null_builder;
         for (int i = 0; i < num_rows; ++i) {
             if (i % 3 == 0) {
@@ -107,7 +112,7 @@ public:
         std::shared_ptr<arrow::Array> int32_partial_null_array;
         ASSERT_TRUE(int32_partial_null_builder.Finish(&int32_partial_null_array).ok());
 
-        // int32 全为 null
+        // int32 all null
         arrow::Int32Builder int32_all_null_builder;
         for (int i = 0; i < num_rows; ++i) {
             ASSERT_TRUE(int32_all_null_builder.AppendNull().ok());
@@ -158,9 +163,9 @@ public:
         // date32
         arrow::Date32Builder date_builder;
         for (int i = 0; i < num_rows; ++i) {
-            // 以 2020-01-01 为基准，每行递增一天
-            ASSERT_TRUE(
-                    date_builder.Append(18262 + i).ok()); // 18262 是 2020-01-01 的 days since epoch
+            // Use 2020-01-01 as the base, increment one day per row
+            ASSERT_TRUE(date_builder.Append(18262 + i)
+                                .ok()); // 18262 represents 2020-01-01 days since epoch
         }
         std::shared_ptr<arrow::Array> date_array;
         ASSERT_TRUE(date_builder.Finish(&date_array).ok());
@@ -169,7 +174,8 @@ public:
         arrow::TimestampBuilder ts_builder(arrow::timestamp(arrow::TimeUnit::SECOND),
                                            arrow::default_memory_pool());
         for (int i = 0; i < num_rows; ++i) {
-            ASSERT_TRUE(ts_builder.Append(1609459200 + i * 3600).ok()); // 每小时递增
+            ASSERT_TRUE(
+                    ts_builder.Append(1609459200 + i * 3600).ok()); // Increase by one hour per row
         }
         std::shared_ptr<arrow::Array> timestamp_array;
         ASSERT_TRUE(ts_builder.Finish(&timestamp_array).ok());
@@ -194,7 +200,7 @@ public:
         std::shared_ptr<arrow::Array> decimal_array_18_6;
         ASSERT_TRUE(decimal_builder_18_6.Finish(&decimal_array_18_6).ok());
 
-        // 2. 构造 Arrow Schema
+        // 2. Construct Arrow Schema
         std::vector<std::shared_ptr<arrow::Field>> fields = {
                 arrow::field("int32_partial_null_col", arrow::int32()),
                 arrow::field("int32_all_null_col", arrow::int32()),
@@ -209,7 +215,7 @@ public:
                 arrow::field("decimal_col_18_6", decimal_type_18_6)};
         auto arrow_schema = arrow::schema(fields);
 
-        // 3. 构造 Arrow Table
+        // 3. Construct Arrow Table
         auto table = arrow::Table::Make(
                 arrow_schema, {int32_partial_null_array, int32_all_null_array, int64_array,
                                float_array, double_array, string_array, bool_array, date_array,
@@ -273,12 +279,12 @@ public:
                                                 &ctz, nullptr, nullptr);
         p_reader->set_file_reader(local_file_reader);
         colname_to_slot_id.emplace("int64_col", 2);
-        static_cast<void>(p_reader->init_reader(column_names, nullptr, {}, tuple_desc, nullptr,
+        static_cast<void>(p_reader->init_reader(column_names, {}, tuple_desc, nullptr,
                                                 &colname_to_slot_id, nullptr, nullptr));
 
         size_t meta_size;
         static_cast<void>(parse_thrift_footer(p_reader->_file_reader, &doris_file_metadata,
-                                              &meta_size, nullptr));
+                                              &meta_size, nullptr, false));
         doris_metadata = doris_file_metadata->to_thrift();
 
         p_reader->_ctz = &ctz;
@@ -294,7 +300,7 @@ public:
         t_desc_table.tableDescriptors.push_back(t_table_desc);
         t_desc_table.__isset.tableDescriptors = true;
 
-        // init boolean and numeric slot
+        // Initialize boolean and numeric slots
         for (int i = 0; i < table_column_names.size(); i++) {
             TSlotDescriptor tslot_desc;
             {
@@ -324,7 +330,6 @@ public:
                 tslot_desc.nullIndicatorBit = -1;
                 tslot_desc.colName = table_column_names[i];
                 tslot_desc.slotIdx = 0;
-                tslot_desc.isMaterialized = true;
                 t_desc_table.slotDescriptors.push_back(tslot_desc);
             }
         }
@@ -513,6 +518,7 @@ TEST_F(ParquetExprTest, test_lt) {
 }
 
 TEST_F(ParquetExprTest, test_ge_2) { // int64_col = 10000000001   [10000000000 , 10000000000+3)
+                                     // int64_col = 10000000001   [10000000000 , 10000000000+3)
     int loc = 2;
     auto slot_ref = std::make_shared<MockSlotRef>(loc, std::make_shared<DataTypeInt64>());
     auto fn_eq = MockFnCall::create("eq");
@@ -564,6 +570,7 @@ TEST_F(ParquetExprTest, test_ge_2) { // int64_col = 10000000001   [10000000000 ,
 }
 
 TEST_F(ParquetExprTest, test_lt_2) { // string_col < name_1
+                                     // string_col < name_1
     int loc = 5;
     auto slot_ref = std::make_shared<MockSlotRef>(loc, std::make_shared<DataTypeString>());
     auto fn_eq = MockFnCall::create("lt");
@@ -607,6 +614,7 @@ TEST_F(ParquetExprTest, test_lt_2) { // string_col < name_1
 }
 
 TEST_F(ParquetExprTest, test_is_null) { // int32_all_null_col is null
+                                        // int32_all_null_col is null
 
     auto slot_ref = std::make_shared<MockSlotRef>(1, std::make_shared<DataTypeInt64>());
     auto fn_eq = MockFnCall::create("is_null_pred");
@@ -658,6 +666,7 @@ TEST_F(ParquetExprTest, test_is_null) { // int32_all_null_col is null
 }
 
 TEST_F(ParquetExprTest, test_is_not_null) { // int32_all_null_col is not null
+                                            // int32_all_null_col is not null
     auto slot_ref = std::make_shared<MockSlotRef>(1, std::make_shared<DataTypeInt64>());
     auto fn_eq = MockFnCall::create("is_not_null_pred");
     auto const_val = std::make_shared<MockLiteral>(
@@ -708,6 +717,7 @@ TEST_F(ParquetExprTest, test_is_not_null) { // int32_all_null_col is not null
 }
 
 TEST_F(ParquetExprTest, test_is_null_2) { // int32_partial_null_col is null
+                                          // int32_partial_null_col is null
     auto slot_ref = std::make_shared<MockSlotRef>(0, std::make_shared<DataTypeInt64>());
     auto fn_eq = MockFnCall::create("is_null_pred");
     auto const_val = std::make_shared<MockLiteral>(
@@ -767,9 +777,9 @@ TEST_F(ParquetExprTest, test_min_max_p) {
                                                         doris_metadata.created_by, &stat)
                             .ok());
 
-        ASSERT_TRUE(ParquetPredicate::get_min_max_value(col_schema, stat.encoded_min_value,
-                                                        stat.encoded_max_value,
-                                                        cctz::utc_time_zone(), min_field, max_field)
+        ASSERT_TRUE(ParquetPredicate::parse_min_max_value(
+                            col_schema, stat.encoded_min_value, stat.encoded_max_value,
+                            cctz::utc_time_zone(), min_field, max_field)
                             .ok());
     };
 
@@ -1238,24 +1248,30 @@ TEST_F(ParquetExprTest, test_expr_push_down_and) {
     ASSERT_TRUE(p_reader->check_expr_can_push_down(and_expr));
 
     p_reader->_enable_filter_by_min_max = true;
-    p_reader->_push_down_simple_predicates.clear();
-    p_reader->_push_down_simple_predicates.emplace(
-            2, std::vector<std::unique_ptr<ColumnPredicate>> {});
+    std::map<int, std::vector<std::unique_ptr<ColumnPredicate>>> push_down_simple_predicates;
+    push_down_simple_predicates.emplace(2, std::vector<std::unique_ptr<ColumnPredicate>> {});
     p_reader->_push_down_predicates.push_back(AndBlockColumnPredicate::create_unique());
-    ASSERT_TRUE(p_reader->convert_predicates({and_expr}, p_reader->_push_down_simple_predicates[2],
+    ASSERT_TRUE(p_reader->convert_predicates({and_expr}, push_down_simple_predicates[2],
                                              p_reader->_push_down_predicates.back(),
                                              p_reader->_arena)
                         .ok());
 
     bool filter_group = false;
-    ASSERT_TRUE(p_reader->_process_column_stat_filter(doris_metadata.row_groups[0], &filter_group)
+    bool filtered_by_min_max = false;
+    bool filtered_by_bloom_filter = false;
+    ASSERT_TRUE(p_reader->_process_column_stat_filter(
+                                doris_metadata.row_groups[0], p_reader->_push_down_predicates,
+                                &filter_group, &filtered_by_min_max, &filtered_by_bloom_filter)
                         .OK());
     ASSERT_FALSE(filter_group);
     filter_group = true;
-    ASSERT_TRUE(p_reader->_process_column_stat_filter(doris_metadata.row_groups[1], &filter_group)
+    filtered_by_min_max = false;
+    filtered_by_bloom_filter = false;
+    ASSERT_TRUE(p_reader->_process_column_stat_filter(
+                                doris_metadata.row_groups[1], p_reader->_push_down_predicates,
+                                &filter_group, &filtered_by_min_max, &filtered_by_bloom_filter)
                         .OK());
     ASSERT_TRUE(filter_group);
-    p_reader->_push_down_simple_predicates.clear();
 }
 
 TEST_F(ParquetExprTest, test_expr_push_down_or_string) {
@@ -1313,6 +1329,568 @@ TEST_F(ParquetExprTest, test_expr_push_down_or_string) {
         return true;
     };
     ASSERT_TRUE(p_reader->check_expr_can_push_down(or_expr));
+}
+
+TEST_F(ParquetExprTest, test_bloom_filter_skipped_when_range_miss) {
+    const int col_idx = 2;
+    const int64_t predicate_value = 10000000001;
+    ComparisonPredicateBase<TYPE_BIGINT, PredicateType::EQ> eq_pred(col_idx, predicate_value);
+
+    ParquetPredicate::ColumnStat stat;
+    stat.ctz = &ctz;
+    const FieldSchema* col_schema = doris_file_metadata->schema().get_column(col_idx);
+
+    auto encode_value = [](int64_t v) {
+        return std::string(reinterpret_cast<const char*>(&v), sizeof(v));
+    };
+
+    const int64_t min_value = predicate_value + 1;
+    const int64_t max_value = predicate_value + 5;
+    const std::string encoded_min = encode_value(min_value);
+    const std::string encoded_max = encode_value(max_value);
+
+    std::function<bool(ParquetPredicate::ColumnStat*, int)> get_stat_func =
+            [&](ParquetPredicate::ColumnStat* current_stat, int cid) {
+                EXPECT_EQ(col_idx, cid);
+                current_stat->col_schema = col_schema;
+                current_stat->has_null = false;
+                current_stat->is_all_null = false;
+                current_stat->encoded_min_value = encoded_min;
+                current_stat->encoded_max_value = encoded_max;
+                return true;
+            };
+    stat.get_stat_func = &get_stat_func;
+
+    int loader_calls = 0;
+    std::function<bool(ParquetPredicate::ColumnStat*, int)> get_bloom_filter_func =
+            [&](ParquetPredicate::ColumnStat*, int) {
+                loader_calls++;
+                return false;
+            };
+    stat.get_bloom_filter_func = &get_bloom_filter_func;
+
+    EXPECT_FALSE(eq_pred.evaluate_and(&stat));
+    EXPECT_EQ(0, loader_calls);
+}
+
+TEST_F(ParquetExprTest, test_bloom_filter_rejects_value) {
+    const int col_idx = 2;
+    const int64_t predicate_value = 10000000001;
+    ComparisonPredicateBase<TYPE_BIGINT, PredicateType::EQ> eq_pred(col_idx, predicate_value);
+
+    ParquetPredicate::ColumnStat stat;
+    stat.ctz = &ctz;
+    const FieldSchema* col_schema = doris_file_metadata->schema().get_column(col_idx);
+
+    auto encode_value = [](int64_t v) {
+        return std::string(reinterpret_cast<const char*>(&v), sizeof(v));
+    };
+
+    const int64_t min_value = predicate_value;
+    const int64_t max_value = predicate_value + 5;
+    const std::string encoded_min = encode_value(min_value);
+    const std::string encoded_max = encode_value(max_value);
+
+    std::function<bool(ParquetPredicate::ColumnStat*, int)> get_stat_func =
+            [&](ParquetPredicate::ColumnStat* current_stat, int cid) {
+                EXPECT_EQ(col_idx, cid);
+                current_stat->col_schema = col_schema;
+                current_stat->has_null = false;
+                current_stat->is_all_null = false;
+                current_stat->encoded_min_value = encoded_min;
+                current_stat->encoded_max_value = encoded_max;
+                return true;
+            };
+    stat.get_stat_func = &get_stat_func;
+
+    int loader_calls = 0;
+    std::function<bool(ParquetPredicate::ColumnStat*, int)> get_bloom_filter_func =
+            [&](ParquetPredicate::ColumnStat* current_stat, int cid) {
+                EXPECT_EQ(col_idx, cid);
+                loader_calls++;
+                current_stat->bloom_filter =
+                        std::make_unique<vectorized::ParquetBlockSplitBloomFilter>();
+                auto* bf = static_cast<vectorized::ParquetBlockSplitBloomFilter*>(
+                        current_stat->bloom_filter.get());
+                Status st = bf->init(256, segment_v2::HashStrategyPB::XX_HASH_64);
+                EXPECT_TRUE(st.ok());
+                const int64_t other_value = predicate_value + 10;
+                bf->add_bytes(reinterpret_cast<const char*>(&other_value), sizeof(other_value));
+                return true;
+            };
+    stat.get_bloom_filter_func = &get_bloom_filter_func;
+
+    EXPECT_FALSE(eq_pred.evaluate_and(&stat));
+    EXPECT_EQ(1, loader_calls);
+}
+
+TEST_F(ParquetExprTest, test_bloom_filter_accepts_value) {
+    const int col_idx = 2;
+    const int64_t predicate_value = 10000000001;
+    ComparisonPredicateBase<TYPE_BIGINT, PredicateType::EQ> eq_pred(col_idx, predicate_value);
+
+    ParquetPredicate::ColumnStat stat;
+    stat.ctz = &ctz;
+    const FieldSchema* col_schema = doris_file_metadata->schema().get_column(col_idx);
+
+    auto encode_value = [](int64_t v) {
+        return std::string(reinterpret_cast<const char*>(&v), sizeof(v));
+    };
+
+    const int64_t min_value = predicate_value - 1;
+    const int64_t max_value = predicate_value + 5;
+    const std::string encoded_min = encode_value(min_value);
+    const std::string encoded_max = encode_value(max_value);
+
+    std::function<bool(ParquetPredicate::ColumnStat*, int)> get_stat_func =
+            [&](ParquetPredicate::ColumnStat* current_stat, int cid) {
+                EXPECT_EQ(col_idx, cid);
+                current_stat->col_schema = col_schema;
+                current_stat->has_null = false;
+                current_stat->is_all_null = false;
+                current_stat->encoded_min_value = encoded_min;
+                current_stat->encoded_max_value = encoded_max;
+                return true;
+            };
+    stat.get_stat_func = &get_stat_func;
+
+    int loader_calls = 0;
+    std::function<bool(ParquetPredicate::ColumnStat*, int)> get_bloom_filter_func =
+            [&](ParquetPredicate::ColumnStat* current_stat, int cid) {
+                EXPECT_EQ(col_idx, cid);
+                loader_calls++;
+                current_stat->bloom_filter =
+                        std::make_unique<vectorized::ParquetBlockSplitBloomFilter>();
+                auto* bf = static_cast<vectorized::ParquetBlockSplitBloomFilter*>(
+                        current_stat->bloom_filter.get());
+                Status st = bf->init(256, segment_v2::HashStrategyPB::XX_HASH_64);
+                EXPECT_TRUE(st.ok());
+                bf->add_bytes(reinterpret_cast<const char*>(&predicate_value),
+                              sizeof(predicate_value));
+                return true;
+            };
+    stat.get_bloom_filter_func = &get_bloom_filter_func;
+
+    EXPECT_TRUE(eq_pred.evaluate_and(&stat));
+    EXPECT_EQ(1, loader_calls);
+}
+
+TEST_F(ParquetExprTest, test_bloom_filter_skipped_when_min_max_evicts_rowgroup) {
+    const int col_idx = 2;
+    const int64_t predicate_value = 10000000001;
+    ComparisonPredicateBase<TYPE_BIGINT, PredicateType::EQ> eq_pred(col_idx, predicate_value);
+
+    ParquetPredicate::ColumnStat stat;
+    stat.ctz = &ctz;
+    stat.bloom_filter = std::make_unique<vectorized::ParquetBlockSplitBloomFilter>();
+    const FieldSchema* col_schema = doris_file_metadata->schema().get_column(col_idx);
+
+    auto encode_value = [](int64_t v) {
+        return std::string(reinterpret_cast<const char*>(&v), sizeof(v));
+    };
+
+    const int64_t min_value = predicate_value - 5;
+    const int64_t max_value = predicate_value - 1;
+    const std::string encoded_min = encode_value(min_value);
+    const std::string encoded_max = encode_value(max_value);
+
+    std::function<bool(ParquetPredicate::ColumnStat*, int)> get_stat_func =
+            [&](ParquetPredicate::ColumnStat* current_stat, int cid) {
+                EXPECT_EQ(col_idx, cid);
+                current_stat->col_schema = col_schema;
+                current_stat->encoded_min_value = encoded_min;
+                current_stat->encoded_max_value = encoded_max;
+                current_stat->has_null = false;
+                current_stat->is_all_null = false;
+                return true;
+            };
+    stat.get_stat_func = &get_stat_func;
+
+    int loader_calls = 0;
+    std::function<bool(ParquetPredicate::ColumnStat*, int)> get_bloom_filter_func =
+            [&](ParquetPredicate::ColumnStat*, int) {
+                loader_calls++;
+                return true;
+            };
+    stat.get_bloom_filter_func = &get_bloom_filter_func;
+
+    EXPECT_FALSE(eq_pred.evaluate_and(&stat));
+    EXPECT_EQ(0, loader_calls);
+}
+
+TEST_F(ParquetExprTest, test_bloom_filter_loader_called_when_min_max_allows) {
+    const int col_idx = 2;
+    const int64_t predicate_value = 10000000001;
+    ComparisonPredicateBase<TYPE_BIGINT, PredicateType::EQ> eq_pred(col_idx, predicate_value);
+
+    ParquetPredicate::ColumnStat stat;
+    stat.ctz = &ctz;
+    const FieldSchema* col_schema = doris_file_metadata->schema().get_column(col_idx);
+
+    auto encode_value = [](int64_t v) {
+        return std::string(reinterpret_cast<const char*>(&v), sizeof(v));
+    };
+
+    const int64_t min_value = predicate_value - 5;
+    const int64_t max_value = predicate_value + 5;
+    const std::string encoded_min = encode_value(min_value);
+    const std::string encoded_max = encode_value(max_value);
+
+    std::function<bool(ParquetPredicate::ColumnStat*, int)> get_stat_func =
+            [&](ParquetPredicate::ColumnStat* current_stat, int cid) {
+                EXPECT_EQ(col_idx, cid);
+                current_stat->col_schema = col_schema;
+                current_stat->encoded_min_value = encoded_min;
+                current_stat->encoded_max_value = encoded_max;
+                current_stat->has_null = false;
+                current_stat->is_all_null = false;
+                return true;
+            };
+    stat.get_stat_func = &get_stat_func;
+
+    int loader_calls = 0;
+    std::function<bool(ParquetPredicate::ColumnStat*, int)> get_bloom_filter_func =
+            [&](ParquetPredicate::ColumnStat* current_stat, int cid) {
+                EXPECT_EQ(col_idx, cid);
+                loader_calls++;
+                current_stat->bloom_filter =
+                        std::make_unique<vectorized::ParquetBlockSplitBloomFilter>();
+                auto* bf = static_cast<vectorized::ParquetBlockSplitBloomFilter*>(
+                        current_stat->bloom_filter.get());
+                Status st = bf->init(256, segment_v2::HashStrategyPB::XX_HASH_64);
+                EXPECT_TRUE(st.ok());
+                bf->add_bytes(reinterpret_cast<const char*>(&predicate_value),
+                              sizeof(predicate_value));
+                return true;
+            };
+    stat.get_bloom_filter_func = &get_bloom_filter_func;
+
+    EXPECT_TRUE(eq_pred.evaluate_and(&stat));
+    EXPECT_EQ(1, loader_calls);
+}
+
+TEST_F(ParquetExprTest, test_bloom_filter_loader_not_called_when_missing_metadata) {
+    const int col_idx = 2;
+    const int64_t predicate_value = 10000000001;
+    ComparisonPredicateBase<TYPE_BIGINT, PredicateType::EQ> eq_pred(col_idx, predicate_value);
+
+    ParquetPredicate::ColumnStat stat;
+    stat.ctz = &ctz;
+    const FieldSchema* col_schema = doris_file_metadata->schema().get_column(col_idx);
+
+    auto encode_value = [](int64_t v) {
+        return std::string(reinterpret_cast<const char*>(&v), sizeof(v));
+    };
+
+    const int64_t min_value = predicate_value - 5;
+    const int64_t max_value = predicate_value + 5;
+    const std::string encoded_min = encode_value(min_value);
+    const std::string encoded_max = encode_value(max_value);
+
+    std::function<bool(ParquetPredicate::ColumnStat*, int)> get_stat_func =
+            [&](ParquetPredicate::ColumnStat* current_stat, int cid) {
+                EXPECT_EQ(col_idx, cid);
+                current_stat->col_schema = col_schema;
+                current_stat->encoded_min_value = encoded_min;
+                current_stat->encoded_max_value = encoded_max;
+                current_stat->has_null = false;
+                current_stat->is_all_null = false;
+                return true;
+            };
+    stat.get_stat_func = &get_stat_func;
+
+    int loader_calls = 0;
+    std::function<bool(ParquetPredicate::ColumnStat*, int)> get_bloom_filter_func =
+            [&](ParquetPredicate::ColumnStat*, int) {
+                loader_calls++;
+                return false;
+            };
+    stat.get_bloom_filter_func = &get_bloom_filter_func;
+
+    EXPECT_TRUE(eq_pred.evaluate_and(&stat));
+    EXPECT_EQ(1, loader_calls);
+}
+
+TEST_F(ParquetExprTest, test_bloom_filter_loader_resets_on_failure) {
+    const int col_idx = 2;
+    const int64_t predicate_value = 10000000001;
+    ComparisonPredicateBase<TYPE_BIGINT, PredicateType::EQ> eq_pred(col_idx, predicate_value);
+
+    ParquetPredicate::ColumnStat stat;
+    stat.ctz = &ctz;
+    const FieldSchema* col_schema = doris_file_metadata->schema().get_column(col_idx);
+
+    auto encode_value = [](int64_t v) {
+        return std::string(reinterpret_cast<const char*>(&v), sizeof(v));
+    };
+
+    const int64_t min_value = predicate_value - 5;
+    const int64_t max_value = predicate_value + 5;
+    const std::string encoded_min = encode_value(min_value);
+    const std::string encoded_max = encode_value(max_value);
+
+    std::function<bool(ParquetPredicate::ColumnStat*, int)> get_stat_func =
+            [&](ParquetPredicate::ColumnStat* current_stat, int cid) {
+                EXPECT_EQ(col_idx, cid);
+                current_stat->col_schema = col_schema;
+                current_stat->encoded_min_value = encoded_min;
+                current_stat->encoded_max_value = encoded_max;
+                current_stat->has_null = false;
+                current_stat->is_all_null = false;
+                return true;
+            };
+    stat.get_stat_func = &get_stat_func;
+
+    int loader_calls = 0;
+    std::function<bool(ParquetPredicate::ColumnStat*, int)> get_bloom_filter_func =
+            [&](ParquetPredicate::ColumnStat* current_stat, int cid) {
+                EXPECT_EQ(col_idx, cid);
+                loader_calls++;
+                current_stat->bloom_filter =
+                        std::make_unique<vectorized::ParquetBlockSplitBloomFilter>();
+                current_stat->bloom_filter.reset();
+                return false;
+            };
+    stat.get_bloom_filter_func = &get_bloom_filter_func;
+
+    EXPECT_TRUE(eq_pred.evaluate_and(&stat));
+    EXPECT_EQ(1, loader_calls);
+    EXPECT_EQ(nullptr, stat.bloom_filter);
+}
+
+TEST_F(ParquetExprTest, test_bloom_filter_not_supported_type) {
+    const int col_idx = 6; // bool column
+    const bool predicate_value = true;
+    ComparisonPredicateBase<TYPE_BOOLEAN, PredicateType::EQ> eq_pred(col_idx, predicate_value);
+
+    ParquetPredicate::ColumnStat stat;
+    stat.ctz = &ctz;
+    const FieldSchema* col_schema = doris_file_metadata->schema().get_column(col_idx);
+
+    uint8_t min_value = 0;
+    uint8_t max_value = 1;
+    const std::string encoded_min =
+            std::string(reinterpret_cast<const char*>(&min_value), sizeof(min_value));
+    const std::string encoded_max =
+            std::string(reinterpret_cast<const char*>(&max_value), sizeof(max_value));
+
+    std::function<bool(ParquetPredicate::ColumnStat*, int)> get_stat_func =
+            [&](ParquetPredicate::ColumnStat* current_stat, int cid) {
+                EXPECT_EQ(col_idx, cid);
+                current_stat->col_schema = col_schema;
+                current_stat->encoded_min_value = encoded_min;
+                current_stat->encoded_max_value = encoded_max;
+                current_stat->has_null = false;
+                current_stat->is_all_null = false;
+                return true;
+            };
+    stat.get_stat_func = &get_stat_func;
+
+    int loader_calls = 0;
+    std::function<bool(ParquetPredicate::ColumnStat*, int)> get_bloom_filter_func =
+            [&](ParquetPredicate::ColumnStat*, int) {
+                loader_calls++;
+                return false;
+            };
+    stat.get_bloom_filter_func = &get_bloom_filter_func;
+
+    EXPECT_TRUE(eq_pred.evaluate_and(&stat));
+    EXPECT_EQ(1, loader_calls);
+}
+
+TEST_F(ParquetExprTest, test_bloom_filter_min_max_overlap_but_no_loader) {
+    const int col_idx = 2;
+    const int64_t predicate_value = 10000000001;
+    ComparisonPredicateBase<TYPE_BIGINT, PredicateType::EQ> eq_pred(col_idx, predicate_value);
+
+    ParquetPredicate::ColumnStat stat;
+    stat.ctz = &ctz;
+    const FieldSchema* col_schema = doris_file_metadata->schema().get_column(col_idx);
+
+    auto encode_value = [](int64_t v) {
+        return std::string(reinterpret_cast<const char*>(&v), sizeof(v));
+    };
+
+    const int64_t min_value = predicate_value - 1;
+    const int64_t max_value = predicate_value + 1;
+    const std::string encoded_min = encode_value(min_value);
+    const std::string encoded_max = encode_value(max_value);
+
+    std::function<bool(ParquetPredicate::ColumnStat*, int)> get_stat_func =
+            [&](ParquetPredicate::ColumnStat* current_stat, int cid) {
+                EXPECT_EQ(col_idx, cid);
+                current_stat->col_schema = col_schema;
+                current_stat->encoded_min_value = encoded_min;
+                current_stat->encoded_max_value = encoded_max;
+                current_stat->has_null = false;
+                current_stat->is_all_null = false;
+                return true;
+            };
+    stat.get_stat_func = &get_stat_func;
+
+    stat.get_bloom_filter_func = nullptr;
+
+    EXPECT_TRUE(eq_pred.evaluate_and(&stat));
+}
+
+TEST_F(ParquetExprTest, test_in_list_predicate_uses_bloom_filter) {
+    const int col_idx = 2;
+    const int64_t min_candidate = 10000000000;
+    const int64_t max_candidate = 10000000005;
+
+    auto set = std::make_shared<HybridSet<PrimitiveType::TYPE_BIGINT>>(false);
+    for (int64_t v : {min_candidate, max_candidate, max_candidate + 10}) {
+        set->insert(&v);
+    }
+
+    InListPredicateBase<TYPE_BIGINT, PredicateType::IN_LIST, HybridSet<PrimitiveType::TYPE_BIGINT>>
+            in_pred(col_idx, set);
+
+    ParquetPredicate::ColumnStat stat;
+    stat.ctz = &ctz;
+    const FieldSchema* col_schema = doris_file_metadata->schema().get_column(col_idx);
+
+    auto encode_value = [](int64_t v) {
+        return std::string(reinterpret_cast<const char*>(&v), sizeof(v));
+    };
+
+    const std::string encoded_min = encode_value(min_candidate);
+    const std::string encoded_max = encode_value(max_candidate);
+
+    std::function<bool(ParquetPredicate::ColumnStat*, int)> get_stat_func =
+            [&](ParquetPredicate::ColumnStat* current_stat, int cid) {
+                EXPECT_EQ(col_idx, cid);
+                current_stat->col_schema = col_schema;
+                current_stat->encoded_min_value = encoded_min;
+                current_stat->encoded_max_value = encoded_max;
+                current_stat->has_null = false;
+                current_stat->is_all_null = false;
+                return true;
+            };
+    stat.get_stat_func = &get_stat_func;
+
+    int loader_calls = 0;
+    std::function<bool(ParquetPredicate::ColumnStat*, int)> get_bloom_filter_func =
+            [&](ParquetPredicate::ColumnStat* current_stat, int cid) {
+                EXPECT_EQ(col_idx, cid);
+                loader_calls++;
+                current_stat->bloom_filter =
+                        std::make_unique<vectorized::ParquetBlockSplitBloomFilter>();
+                auto* bf = static_cast<vectorized::ParquetBlockSplitBloomFilter*>(
+                        current_stat->bloom_filter.get());
+                Status st = bf->init(256, segment_v2::HashStrategyPB::XX_HASH_64);
+                EXPECT_TRUE(st.ok());
+                bf->add_bytes(reinterpret_cast<const char*>(&min_candidate), sizeof(min_candidate));
+                bf->add_bytes(reinterpret_cast<const char*>(&max_candidate), sizeof(max_candidate));
+                return true;
+            };
+    stat.get_bloom_filter_func = &get_bloom_filter_func;
+
+    EXPECT_TRUE(in_pred.evaluate_and(&stat));
+    EXPECT_EQ(1, loader_calls);
+}
+
+TEST_F(ParquetExprTest, test_in_list_predicate_no_loader_on_range_miss) {
+    const int col_idx = 2;
+    auto set = std::make_shared<HybridSet<PrimitiveType::TYPE_BIGINT>>(false);
+    for (int64_t v : {20000000000, 20000000001}) {
+        set->insert(&v);
+    }
+
+    InListPredicateBase<TYPE_BIGINT, PredicateType::IN_LIST, HybridSet<PrimitiveType::TYPE_BIGINT>>
+            in_pred(col_idx, set);
+
+    ParquetPredicate::ColumnStat stat;
+    stat.ctz = &ctz;
+    const FieldSchema* col_schema = doris_file_metadata->schema().get_column(col_idx);
+
+    auto encode_value = [](int64_t v) {
+        return std::string(reinterpret_cast<const char*>(&v), sizeof(v));
+    };
+
+    const int64_t min_value = 10000000000;
+    const int64_t max_value = 10000000005;
+    const std::string encoded_min = encode_value(min_value);
+    const std::string encoded_max = encode_value(max_value);
+
+    std::function<bool(ParquetPredicate::ColumnStat*, int)> get_stat_func =
+            [&](ParquetPredicate::ColumnStat* current_stat, int cid) {
+                EXPECT_EQ(col_idx, cid);
+                current_stat->col_schema = col_schema;
+                current_stat->encoded_min_value = encoded_min;
+                current_stat->encoded_max_value = encoded_max;
+                current_stat->has_null = false;
+                current_stat->is_all_null = false;
+                return true;
+            };
+    stat.get_stat_func = &get_stat_func;
+
+    int loader_calls = 0;
+    std::function<bool(ParquetPredicate::ColumnStat*, int)> get_bloom_filter_func =
+            [&](ParquetPredicate::ColumnStat*, int) {
+                loader_calls++;
+                return false;
+            };
+    stat.get_bloom_filter_func = &get_bloom_filter_func;
+
+    EXPECT_FALSE(in_pred.evaluate_and(&stat));
+    EXPECT_EQ(0, loader_calls);
+}
+
+TEST_F(ParquetExprTest, test_bloom_filter_reused_after_first_load) {
+    const int col_idx = 2;
+    const int64_t predicate_value = 10000000001;
+    ComparisonPredicateBase<TYPE_BIGINT, PredicateType::EQ> eq_pred(col_idx, predicate_value);
+
+    ParquetPredicate::ColumnStat stat;
+    stat.ctz = &ctz;
+    const FieldSchema* col_schema = doris_file_metadata->schema().get_column(col_idx);
+
+    auto encode_value = [](int64_t v) {
+        return std::string(reinterpret_cast<const char*>(&v), sizeof(v));
+    };
+
+    const int64_t min_value = predicate_value - 5;
+    const int64_t max_value = predicate_value + 5;
+    const std::string encoded_min = encode_value(min_value);
+    const std::string encoded_max = encode_value(max_value);
+
+    std::function<bool(ParquetPredicate::ColumnStat*, int)> get_stat_func =
+            [&](ParquetPredicate::ColumnStat* current_stat, int cid) {
+                EXPECT_EQ(col_idx, cid);
+                current_stat->col_schema = col_schema;
+                current_stat->encoded_min_value = encoded_min;
+                current_stat->encoded_max_value = encoded_max;
+                current_stat->has_null = false;
+                current_stat->is_all_null = false;
+                return true;
+            };
+    stat.get_stat_func = &get_stat_func;
+
+    int loader_calls = 0;
+    std::function<bool(ParquetPredicate::ColumnStat*, int)> get_bloom_filter_func =
+            [&](ParquetPredicate::ColumnStat* current_stat, int cid) {
+                EXPECT_EQ(col_idx, cid);
+                loader_calls++;
+                if (!current_stat->bloom_filter) {
+                    current_stat->bloom_filter =
+                            std::make_unique<vectorized::ParquetBlockSplitBloomFilter>();
+                    auto* bf = static_cast<vectorized::ParquetBlockSplitBloomFilter*>(
+                            current_stat->bloom_filter.get());
+                    Status st = bf->init(256, segment_v2::HashStrategyPB::XX_HASH_64);
+                    EXPECT_TRUE(st.ok());
+                    bf->add_bytes(reinterpret_cast<const char*>(&predicate_value),
+                                  sizeof(predicate_value));
+                }
+                return true;
+            };
+    stat.get_bloom_filter_func = &get_bloom_filter_func;
+
+    EXPECT_TRUE(eq_pred.evaluate_and(&stat));
+    EXPECT_EQ(1, loader_calls);
+
+    EXPECT_TRUE(eq_pred.evaluate_and(&stat));
+    EXPECT_EQ(2, loader_calls);
 }
 
 } // namespace vectorized

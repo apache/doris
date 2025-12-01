@@ -35,6 +35,12 @@ public class HiveGlueMetaStoreConnectivityTester extends AbstractHiveConnectivit
     }
 
     @Override
+    public String getErrorHint() {
+        return "Please check AWS Glue credentials (access_key and secret_key or IAM role), region, "
+                + "and endpoint";
+    }
+
+    @Override
     public void testConnection() throws Exception {
         glueTester.testConnection();
     }

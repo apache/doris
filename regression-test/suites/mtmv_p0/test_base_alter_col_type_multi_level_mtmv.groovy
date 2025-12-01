@@ -128,10 +128,10 @@ suite("test_base_alter_col_type_multi_level_mtmv","mtmv") {
     sql """
         alter table ${tableName1} modify COLUMN k3 VARCHAR(100);
         """
-    order_qt_add_col_t1_mv1 "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName1}'"
-    order_qt_add_col_t1_mv2 "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName2}'"
-    order_qt_add_col_t1_mv3 "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName3}'"
-    order_qt_add_col_t1_mv4 "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName4}'"
+    order_qt_add_col_t1_mv1 "select Name,State,RefreshState,SyncWithBaseTables  from mv_infos('database'='${dbName}') where Name='${mvName1}'"
+    order_qt_add_col_t1_mv2 "select Name,State,RefreshState,SyncWithBaseTables  from mv_infos('database'='${dbName}') where Name='${mvName2}'"
+    order_qt_add_col_t1_mv3 "select Name,State,RefreshState,SyncWithBaseTables  from mv_infos('database'='${dbName}') where Name='${mvName3}'"
+    order_qt_add_col_t1_mv4 "select Name,State,RefreshState,SyncWithBaseTables  from mv_infos('database'='${dbName}') where Name='${mvName4}'"
 
     mv_rewrite_success_without_check_chosen(querySql, mvName2)
     mv_not_part_in(querySql, mvName1)

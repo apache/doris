@@ -753,6 +753,12 @@ alterTableClause
     | createOrReplaceBranchClause                                                   #createOrReplaceBranchClauses
     | dropBranchClause                                                              #dropBranchClauses
     | dropTagClause                                                                 #dropTagClauses
+    | ADD PARTITION KEY partitionTransform (AS partitionFieldName=identifier)?      #addPartitionFieldClause
+    | DROP PARTITION KEY (partitionFieldName=identifier | partitionTransform)       #dropPartitionFieldClause
+    | REPLACE PARTITION KEY
+        (oldPartitionFieldName=identifier | oldPartitionTransform=partitionTransform)
+        WITH newPartitionTransform=partitionTransform (AS newPartitionFieldName=identifier)?
+                                                                                    #replacePartitionFieldClause
     ;
 
 createOrReplaceTagClause
@@ -797,6 +803,12 @@ dropBranchClause
 
 dropTagClause
     : DROP TAG (IF EXISTS)? name=identifier
+    ;
+
+partitionTransform
+    : identifier LEFT_PAREN INTEGER_VALUE COMMA identifier RIGHT_PAREN  #partitionTransformWithArgs
+    | identifier LEFT_PAREN identifier RIGHT_PAREN                      #partitionTransformWithColumn
+    | identifier                                                        #partitionTransformIdentity
     ;
 
 columnPosition
@@ -911,7 +923,7 @@ supportedSetStatement
     ;
 
 optionWithType
-    : statementScope identifier EQ (expression | DEFAULT)   #setVariableWithType
+    : statementScope identifier EQ (expression | DEFAULT | ON | ALL)    #setVariableWithType
     ;
 
 optionWithoutType
@@ -927,8 +939,9 @@ optionWithoutType
     ;
 
 variable
-    : (DOUBLEATSIGN (statementScope DOT)?)? identifier EQ (expression | DEFAULT) #setSystemVariable
-    | ATSIGN identifier EQ expression #setUserVariable
+    : (DOUBLEATSIGN (statementScope DOT)?)? identifier EQ
+        (expression | DEFAULT | ON | ALL)                               #setSystemVariable
+    | ATSIGN identifier EQ expression                                   #setUserVariable
     ;
 
 transactionAccessMode
@@ -1756,6 +1769,7 @@ interval
 
 unitIdentifier
 	: YEAR | QUARTER | MONTH | WEEK | DAY | HOUR | MINUTE | SECOND | DAY_SECOND | DAY_HOUR
+    | MINUTE_SECOND
     ;
 
 dataTypeWithNullable

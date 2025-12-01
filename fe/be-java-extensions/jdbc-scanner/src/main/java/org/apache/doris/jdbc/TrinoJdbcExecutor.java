@@ -98,6 +98,8 @@ public class TrinoJdbcExecutor extends BaseJdbcExecutor {
                 }
                 return Arrays.asList(dataArray);
             }
+            case VARBINARY:
+                return resultSet.getObject(columnIndex + 1, byte[].class);
             default:
                 throw new IllegalArgumentException("Unsupported column type: " + type.getType());
         }
