@@ -24,7 +24,6 @@ import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Triple;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -537,6 +536,26 @@ public class CloudWarmUpJob implements Writable {
         beToAddr = null;
     }
 
+    private String getBackendEndpoint(long beId) {
+        if (beToAddr != null) {
+            TNetworkAddress addr = beToAddr.get(beId);
+            if (addr != null) {
+                String host = addr.getHostname();
+                if (host == null) {
+                    host = "unknown";
+                }
+                return host + ":" + addr.getPort();
+            }
+        }
+        if (beToThriftAddress != null) {
+            String addr = beToThriftAddress.get(beId);
+            if (addr != null) {
+                return addr;
+            }
+        }
+        return "unknown";
+    }
+
     private final void clearJobOnBEs() {
         try {
             initClients();
@@ -553,18 +572,21 @@ public class CloudWarmUpJob implements Writable {
                     TWarmUpEventType event = getTWarmUpEventType();
                     if (event == null) {
                         // If event type is unknown, skip this BE but continue others.
-                        LOG.warn("Unknown SyncEvent {}, skip CLEAR_JOB for BE {}", syncEvent, beId);
+                        LOG.warn("Unknown SyncEvent {}, skip CLEAR_JOB for BE {} ({})",
+                                syncEvent, beId, getBackendEndpoint(beId));
                         continue;
                     }
                     request.setEvent(event);
                 }
-                LOG.info("send warm up request to BE {}. job_id={}, request_type=CLEAR_JOB", beId, jobId);
+                LOG.info("send warm up request to BE {} ({}). job_id={}, request_type=CLEAR_JOB",
+                        beId, getBackendEndpoint(beId), jobId);
                 try {
                     client.warmUpTablets(request);
                 } catch (Exception e) {
                     // If RPC to this BE fails, invalidate this client and remove it from map,
                     // then continue to next BE so that one bad BE won't block others.
-                    LOG.warn("send warm up request to BE {} failed: {}", beId, e.getMessage());
+                    LOG.warn("send warm up request to BE {} ({}) failed: {}",
+                            beId, getBackendEndpoint(beId), e.getMessage());
                     try {
                         TNetworkAddress addr = beToAddr == null ? null : beToAddr.get(beId);
                         if (addr != null) {
@@ -676,8 +698,8 @@ public class CloudWarmUpJob implements Writable {
                     throw new IllegalArgumentException("Unknown SyncEvent " + syncEvent);
                 }
                 request.setEvent(event);
-                LOG.debug("send warm up request to BE {}. job_id={}, event={}, request_type=SET_JOB(EVENT)",
-                        entry.getKey(), jobId, syncEvent);
+                LOG.debug("send warm up request to BE {} ({}). job_id={}, event={}, request_type=SET_JOB(EVENT)",
+                        entry.getKey(), getBackendEndpoint(entry.getKey()), jobId, syncEvent);
                 TWarmUpTabletsResponse response = entry.getValue().warmUpTablets(request);
                 if (response.getStatus().getStatusCode() != TStatusCode.OK) {
                     if (!response.getStatus().getErrorMsgs().isEmpty()) {
@@ -721,9 +743,10 @@ public class CloudWarmUpJob implements Writable {
                     request.setJobId(jobId);
                     request.setBatchId(lastBatchId + 1);
                     request.setJobMetas(buildJobMetas(entry.getKey(), request.batch_id));
-                    LOG.info("send warm up request to BE {}. job_id={}, batch_id={}"
+                    LOG.info("send warm up request to BE {} ({}). job_id={}, batch_id={}"
                             + ", job_size={}, request_type=SET_JOB",
-                            entry.getKey(), jobId, request.batch_id, request.job_metas.size());
+                            entry.getKey(), getBackendEndpoint(entry.getKey()),
+                            jobId, request.batch_id, request.job_metas.size());
                     TWarmUpTabletsResponse response = entry.getValue().warmUpTablets(request);
                     if (response.getStatus().getStatusCode() != TStatusCode.OK) {
                         if (!response.getStatus().getErrorMsgs().isEmpty()) {
@@ -738,8 +761,9 @@ public class CloudWarmUpJob implements Writable {
                 for (Map.Entry<Long, Client> entry : beToClient.entrySet()) {
                     TWarmUpTabletsRequest request = new TWarmUpTabletsRequest();
                     request.setType(TWarmUpTabletsRequestType.GET_CURRENT_JOB_STATE_AND_LEASE);
-                    LOG.info("send warm up request to BE {}. job_id={}, request_type=GET_CURRENT_JOB_STATE_AND_LEASE",
-                            entry.getKey(), jobId);
+                    LOG.info("send warm up request to BE {} ({}). job_id={}"
+                            + ", request_type=GET_CURRENT_JOB_STATE_AND_LEASE",
+                            entry.getKey(), getBackendEndpoint(entry.getKey()), jobId);
                     TWarmUpTabletsResponse response = entry.getValue().warmUpTablets(request);
                     if (response.getStatus().getStatusCode() != TStatusCode.OK) {
                         if (!response.getStatus().getErrorMsgs().isEmpty()) {
@@ -777,9 +801,10 @@ public class CloudWarmUpJob implements Writable {
                         if (!request.job_metas.isEmpty()) {
                             // check all batches is done or not
                             allBatchesDone = false;
-                            LOG.info("send warm up request to BE {}. job_id={}, batch_id={}"
+                            LOG.info("send warm up request to BE {} ({}). job_id={}, batch_id={}"
                                     + ", job_size={}, request_type=SET_BATCH",
-                                    entry.getKey(), jobId, request.batch_id, request.job_metas.size());
+                                    entry.getKey(), getBackendEndpoint(entry.getKey()),
+                                    jobId, request.batch_id, request.job_metas.size());
                             TWarmUpTabletsResponse response = entry.getValue().warmUpTablets(request);
                             if (response.getStatus().getStatusCode() != TStatusCode.OK) {
                                 if (!response.getStatus().getErrorMsgs().isEmpty()) {
