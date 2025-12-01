@@ -582,6 +582,10 @@ public class SummaryProfile {
             RuntimeProfile.printCounter(queryFetchResultConsumeTime, TUnit.TIME_MS));
         executionSummaryProfile.addInfoString(WRITE_RESULT_TIME,
             RuntimeProfile.printCounter(queryWriteResultConsumeTime, TUnit.TIME_MS));
+        executionSummaryProfile.addInfoString(CPU_SHARE,
+            RuntimeProfile.printCounter(cpuShare, TUnit.NONE));
+        executionSummaryProfile.addInfoString(MEMORY_LIMIT,
+            RuntimeProfile.printCounter(memoryLimit, TUnit.NONE));
         setTransactionSummary();
 
         if (Config.isCloudMode()) {
@@ -619,10 +623,6 @@ public class SummaryProfile {
                 getPrettyTime(hmsUpdatePartitionTime, 0, TUnit.TIME_MS));
             executionSummaryProfile.addInfoString(HMS_UPDATE_PARTITION_CNT,
                 getPrettyCount(hmsUpdatePartitionCnt));
-            executionSummaryProfile.addInfoString(CPU_SHARE,
-                getPrettyCount(cpuShare));
-            executionSummaryProfile.addInfoString(MEMORY_LIMIT,
-                getPrettyCount(memoryLimit));
             executionSummaryProfile.addInfoString(ENABLE_MEMORY_OVERCOMMIT,
                 getPrettyCount(enableMemoryOvercommit));
             executionSummaryProfile.addInfoString(MEMORY_LOW_WATERMARK,
