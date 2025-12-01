@@ -28,12 +28,10 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
-import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -105,12 +103,16 @@ public class UseCloudClusterStmt extends StatementBase implements NotFallbackInP
         }
         if (!Env.getCurrentEnv().getAccessManager()
                 .checkDbPriv(ConnectContext.get(),
-                        StringUtils.isEmpty(catalogName) ? InternalCatalog.INTERNAL_CATALOG_NAME : catalogName,
+                        getAuthCatalogName(),
                         database,
                         PrivPredicate.SHOW)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_DBACCESS_DENIED_ERROR,
                     analyzer.getQualifiedUser(), database);
         }
+    }
+
+    public String getAuthCatalogName() {
+        return catalogName == null ? ConnectContext.get().getDefaultCatalog() : catalogName;
     }
 
     @Override
