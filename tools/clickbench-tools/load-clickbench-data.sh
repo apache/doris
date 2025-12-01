@@ -121,6 +121,29 @@ function check_doris_conf() {
     fi
 }
 
+# 将 FE_HOST 格式化为可用于 URL 的主机部分
+# - IPv4或主机名：原样返回
+# - IPv6字面量：加方括号；若含scope id(%)，转义为%25
+format_host_for_url() {
+  local h="$1"
+
+  # 去掉外层已有的方括号（若有），避免重复包裹
+  if [[ "$h" =~ ^\[(.*)\]$ ]]; then
+    h="${BASH_REMATCH[1]}"
+  fi
+
+  # 判断是否为IPv6字面量：包含冒号基本可以判定（主机名不会含冒号）
+  if [[ "$h" == *:* ]]; then
+    # RFC 6874：scope id 中的 % 在 URI 中必须写作 %25
+    h="${h//%/%25}"
+    printf '[%s]\n' "$h"
+  else
+    printf '%s\n' "$h"
+  fi
+}
+
+URL_HOST="$(format_host_for_url "${FE_HOST}")"
+
 function load() {
     echo "(1/2) prepare clickbench data file"
     need_download=false
@@ -148,7 +171,7 @@ function load() {
                 -T "$DATA_DIR/hits_split${i}" \
                 -H "Expect: 100-continue" \
                 -H "columns:WatchID,JavaEnable,Title,GoodEvent,EventTime,EventDate,CounterID,ClientIP,RegionID,UserID,CounterClass,OS,UserAgent,URL,Referer,IsRefresh,RefererCategoryID,RefererRegionID,URLCategoryID,URLRegionID,ResolutionWidth,ResolutionHeight,ResolutionDepth,FlashMajor,FlashMinor,FlashMinor2,NetMajor,NetMinor,UserAgentMajor,UserAgentMinor,CookieEnable,JavascriptEnable,IsMobile,MobilePhone,MobilePhoneModel,Params,IPNetworkID,TraficSourceID,SearchEngineID,SearchPhrase,AdvEngineID,IsArtifical,WindowClientWidth,WindowClientHeight,ClientTimeZone,ClientEventTime,SilverlightVersion1,SilverlightVersion2,SilverlightVersion3,SilverlightVersion4,PageCharset,CodeVersion,IsLink,IsDownload,IsNotBounce,FUniqID,OriginalURL,HID,IsOldCounter,IsEvent,IsParameter,DontCountHits,WithHash,HitColor,LocalEventTime,Age,Sex,Income,Interests,Robotness,RemoteIP,WindowName,OpenerName,HistoryLength,BrowserLanguage,BrowserCountry,SocialNetwork,SocialAction,HTTPError,SendTiming,DNSTiming,ConnectTiming,ResponseStartTiming,ResponseEndTiming,FetchTiming,SocialSourceNetworkID,SocialSourcePage,ParamPrice,ParamOrderID,ParamCurrency,ParamCurrencyID,OpenstatServiceName,OpenstatCampaignID,OpenstatAdID,OpenstatSourceID,UTMSource,UTMMedium,UTMCampaign,UTMContent,UTMTerm,FromTag,HasGCLID,RefererHash,URLHash,CLID" \
-                http://$FE_HOST:$FE_HTTP_PORT/api/$DB/hits/_stream_load
+                http://$URL_HOST:$FE_HTTP_PORT/api/$DB/hits/_stream_load
         else
             curl --location-trusted \
                 -u $USER:$PASSWORD \
@@ -156,7 +179,7 @@ function load() {
                 -H "Expect: 100-continue" \
                 -H "label:${TXN_ID}_${i}" \
                 -H "columns:WatchID,JavaEnable,Title,GoodEvent,EventTime,EventDate,CounterID,ClientIP,RegionID,UserID,CounterClass,OS,UserAgent,URL,Referer,IsRefresh,RefererCategoryID,RefererRegionID,URLCategoryID,URLRegionID,ResolutionWidth,ResolutionHeight,ResolutionDepth,FlashMajor,FlashMinor,FlashMinor2,NetMajor,NetMinor,UserAgentMajor,UserAgentMinor,CookieEnable,JavascriptEnable,IsMobile,MobilePhone,MobilePhoneModel,Params,IPNetworkID,TraficSourceID,SearchEngineID,SearchPhrase,AdvEngineID,IsArtifical,WindowClientWidth,WindowClientHeight,ClientTimeZone,ClientEventTime,SilverlightVersion1,SilverlightVersion2,SilverlightVersion3,SilverlightVersion4,PageCharset,CodeVersion,IsLink,IsDownload,IsNotBounce,FUniqID,OriginalURL,HID,IsOldCounter,IsEvent,IsParameter,DontCountHits,WithHash,HitColor,LocalEventTime,Age,Sex,Income,Interests,Robotness,RemoteIP,WindowName,OpenerName,HistoryLength,BrowserLanguage,BrowserCountry,SocialNetwork,SocialAction,HTTPError,SendTiming,DNSTiming,ConnectTiming,ResponseStartTiming,ResponseEndTiming,FetchTiming,SocialSourceNetworkID,SocialSourcePage,ParamPrice,ParamOrderID,ParamCurrency,ParamCurrencyID,OpenstatServiceName,OpenstatCampaignID,OpenstatAdID,OpenstatSourceID,UTMSource,UTMMedium,UTMCampaign,UTMContent,UTMTerm,FromTag,HasGCLID,RefererHash,URLHash,CLID" \
-                http://$FE_HOST:$FE_HTTP_PORT/api/$DB/hits/_stream_load
+                http://$URL_HOST:$FE_HTTP_PORT/api/$DB/hits/_stream_load
         fi
     done
 }
