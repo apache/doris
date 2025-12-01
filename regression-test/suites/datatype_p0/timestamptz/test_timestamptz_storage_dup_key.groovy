@@ -15,26 +15,138 @@
 // specific language governing permissions and limitations
 // under the License.
 
-
+import java.time.ZonedDateTime
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.text.SimpleDateFormat
+import java.time.temporal.ChronoUnit
 suite("test_timestamptz_storage_dup_key") {
-    sql "set time_zone = '+08:00'; "
+    def timezone_str = "+08:00"
+    sql "set time_zone = '${timezone_str}'; "
 
     // default value
-    // java.sql.SQLException: errCode = 2, detailMessage = Types other than DATETIME and DATETIMEV2 cannot use current_timestamp as the default value
-    // sql """
-    //     DROP TABLE IF EXISTS `timestamptz_storage_dup_key`;
-    // """
-    // sql """
-    //     CREATE TABLE `timestamptz_storage_dup_key` (
-    //       `ts_tz` TIMESTAMPTZ,
-    //       `ts_tz_value` TIMESTAMPTZ default current_timestamp,
-    //       `VALUE` INT
-    //     ) DUPLICATE KEY(`ts_tz`)
-    //     DISTRIBUTED BY HASH(`ts_tz`) BUCKETS 16
-    //     PROPERTIES (
-    //     "replication_num" = "1"
-    //     );
-    // """
+    sql """
+        DROP TABLE IF EXISTS `timestamptz_storage_dup_key_default_value_no_scale`;
+    """
+    sql """
+        CREATE TABLE `timestamptz_storage_dup_key_default_value_no_scale` (
+          `ts_tz` TIMESTAMPTZ default current_timestamp,
+          `ts_tz_value` TIMESTAMPTZ default current_timestamp,
+          `VALUE` INT
+        ) DUPLICATE KEY(`ts_tz`)
+        DISTRIBUTED BY HASH(`ts_tz`) BUCKETS 16
+        PROPERTIES (
+        "replication_num" = "1"
+        );
+    """
+    sql """
+        insert into timestamptz_storage_dup_key_default_value_no_scale(value) VALUES(1), (2), (3);
+    """
+    qt_default_value_no_scale """
+        SELECT value FROM timestamptz_storage_dup_key_default_value_no_scale order by value;
+    """
+
+    def zoned_now = ZonedDateTime.now(ZoneId.of(timezone_str))
+    def formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ssXXX")
+
+    for (col_name in ["ts_tz ", "ts_tz_value"]) {
+        def query_result = sql """ 
+            SELECT ${col_name} FROM timestamptz_storage_dup_key_default_value_no_scale;
+        """
+        assertEquals(3, query_result.size())
+        // query_result: [[2025-12-01 15:22:50+08:00], [2025-12-01 15:22:50+08:00], [2025-12-01 15:22:50+08:00]]
+        for (row in query_result) {
+            def query_result_value = row[0].toString()
+            // println("row: " + row + ", column: " + query_result_value)
+            def query_result_value_zdt  = ZonedDateTime.parse(query_result_value, formatter)
+            def diff_in_seconds = ChronoUnit.SECONDS.between(query_result_value_zdt, zoned_now)
+            assertTrue(diff_in_seconds >=0 && diff_in_seconds < 60)
+        }
+    }
+
+    sql """
+        DROP TABLE IF EXISTS `timestamptz_storage_dup_key_default_value_with_scale`;
+    """
+    sql """
+        CREATE TABLE `timestamptz_storage_dup_key_default_value_with_scale` (
+          `ts_tz` TIMESTAMPTZ(6) default current_timestamp(6),
+          `ts_tz_value` TIMESTAMPTZ(6) default current_timestamp(6),
+          `VALUE` INT
+        ) DUPLICATE KEY(`ts_tz`)
+        DISTRIBUTED BY HASH(`ts_tz`) BUCKETS 16
+        PROPERTIES (
+        "replication_num" = "1"
+        );
+    """
+    sql """
+        insert into timestamptz_storage_dup_key_default_value_with_scale(value) VALUES (1), (2), (3);
+    """
+    qt_default_value_with_scale """
+        SELECT value FROM timestamptz_storage_dup_key_default_value_with_scale order by value;
+    """
+    formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSSSSSXXX")
+    zoned_now = ZonedDateTime.now(ZoneId.of(timezone_str))
+
+    for (col_name in ["ts_tz ", "ts_tz_value"]) {
+        def query_result = sql """ 
+            SELECT ${col_name} FROM timestamptz_storage_dup_key_default_value_with_scale;
+        """
+        assertEquals(3, query_result.size())
+        for (row in query_result) {
+            def query_result_value = row[0].toString()
+            // println("row: " + row + ", column: " + query_result_value)
+            def query_result_value_zdt  = ZonedDateTime.parse(query_result_value, formatter)
+            def diff_in_seconds = ChronoUnit.SECONDS.between(query_result_value_zdt, zoned_now)
+            assertTrue(diff_in_seconds >=0 && diff_in_seconds < 60)
+        }
+    }
+
+/*
+        CREATE TABLE `dt_storage_dup_key_no_scale` (
+          `ts_tz` datetimev2,
+          `ts_tz_value` datetimev2,
+          `VALUE` INT
+        ) DUPLICATE KEY(`ts_tz`)
+        partition by RANGE(`ts_tz`) (
+            PARTITION p2023_01 VALUES LESS THAN ('2023-02-01 00:00:00 +00:00'),
+            PARTITION p2023_02 VALUES LESS THAN ('2023-03-01 00:00:00 +00:00'),
+            PARTITION p2023_03 VALUES LESS THAN ('2023-04-01 00:00:00 +00:00'),
+            PARTITION p2023_04 VALUES LESS THAN ('2023-05-01 00:00:00 +00:00'),
+            PARTITION p2023_05 VALUES LESS THAN ('2023-06-01 00:00:00 +00:00'),
+            PARTITION p2023_06 VALUES LESS THAN ('2023-07-01 00:00:00 +00:00'),
+            PARTITION p2023_07 VALUES LESS THAN ('2023-08-01 00:00:00 +00:00'),
+            PARTITION p2023_08 VALUES LESS THAN ('2023-09-01 00:00:00 +00:00'),
+            PARTITION p2023_09 VALUES LESS THAN ('2023-10-01 00:00:00 +00:00'),
+            PARTITION p2023_10 VALUES LESS THAN ('2023-11-01 00:00:00 +00:00'),
+            PARTITION p2023_11 VALUES LESS THAN ('2023-12-01 00:00:00 +00:00'),
+            PARTITION p2023_12 VALUES LESS THAN ('2024-01-01 00:00:00 +00:00')
+        )
+        DISTRIBUTED BY HASH(`ts_tz`) BUCKETS 16
+        PROPERTIES (
+        "replication_num" = "1"
+        );
+
+    INSERT INTO dt_storage_dup_key_no_scale VALUES
+    (null, null, -1),
+    (null, '0000-01-01 00:00:00 +00:00', -1),
+    (null, '1000-01-01 00:00:00 +00:00', -1),
+    ('0000-01-01 00:00:00 +00:00', '0000-01-01 00:00:00 +00:00', 0),
+    ('0000-01-01 00:00:00 +00:00', '9000-01-01 00:00:00 +00:00', 0),
+    ('2023-01-01 12:00:00 +03:00', '2023-01-01 12:00:00 +03:00', 1),
+    ('2023-02-02 12:00:00 +03:00', '2023-02-02 12:00:00 +03:00', 2),
+    ('2023-02-02 12:00:00 +03:00', '0000-01-01 00:00:00 +00:00', 2),
+    ('2023-02-02 12:00:00 +03:00', '9999-12-31 23:59:59 +08:00', 2),
+    ('2023-03-03 12:00:00 -05:00', '2023-03-03 12:00:00 -05:00', 3),
+    ('2023-09-09 09:09:09 +01:00', '2023-09-09 09:09:09 +01:00', 9),
+    ('2023-10-10 10:10:10 -03:00', '2023-10-10 10:10:10 -03:00', 10),
+    ('2023-11-11 11:11:11 +00:00', '2023-11-11 11:11:11 +00:00', 11),
+    ('2023-04-04 23:59:59 +00:00', '2023-04-04 23:59:59 +00:00', 4),
+    ('2023-05-05 00:00:00 +08:00', '2023-05-05 00:00:00 +08:00', 5),
+    ('2023-06-06 15:30:30 -02:00', '2023-06-06 15:30:30 -02:00', 6),
+    ('2023-07-07 07:07:07 +05:30', '2023-07-07 07:07:07 +05:30', 7),
+    ('2023-08-08 20:20:20 -04:00', '2023-08-08 20:20:20 -04:00', 8),
+    ('2023-12-12 12:12:12 +09:00', '2023-12-12 12:12:12 +09:00', 12);
+    */
 
     sql """
         DROP TABLE IF EXISTS `timestamptz_storage_dup_key_no_scale`;
@@ -65,7 +177,8 @@ suite("test_timestamptz_storage_dup_key") {
         );
     """
 
-    sql """INSERT INTO timestamptz_storage_dup_key_no_scale VALUES
+    sql """
+    INSERT INTO timestamptz_storage_dup_key_no_scale VALUES
     (null, null, -1),
     (null, '0000-01-01 00:00:00 +00:00', -1),
     (null, '1000-01-01 00:00:00 +00:00', -1),

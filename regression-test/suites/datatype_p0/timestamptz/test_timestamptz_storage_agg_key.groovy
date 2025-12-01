@@ -15,9 +15,97 @@
 // specific language governing permissions and limitations
 // under the License.
 
-
+import java.time.ZonedDateTime
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.text.SimpleDateFormat
+import java.time.temporal.ChronoUnit
 suite("test_timestamptz_storage_agg_key") {
-    sql "set time_zone = '+08:00'; "
+    def timezone_str = "+08:00"
+    sql "set time_zone = '${timezone_str}'; "
+
+    // default value
+    sql """
+        DROP TABLE IF EXISTS `timestamptz_storage_agg_key_default_value_no_scale`;
+    """
+    sql """
+        CREATE TABLE `timestamptz_storage_agg_key_default_value_no_scale` (
+          `ts_tz` TIMESTAMPTZ default current_timestamp,
+          `ts_tz_replace` TIMESTAMPTZ replace default current_timestamp,
+          `ts_tz_replace_if_not_null` TIMESTAMPTZ REPLACE_IF_NOT_NULL default current_timestamp,
+          `ts_tz_min` TIMESTAMPTZ min default current_timestamp,
+          `ts_tz_max` TIMESTAMPTZ max default current_timestamp,
+          `int_val` INT sum
+        ) AGGREGATE KEY(`ts_tz`)
+        DISTRIBUTED BY HASH(`ts_tz`) BUCKETS 16
+        PROPERTIES (
+        "replication_num" = "1"
+        );
+    """
+    sql """
+    insert into timestamptz_storage_agg_key_default_value_no_scale(int_val) VALUES (1), (2), (3);
+    """
+    qt_default_value_no_scale """
+        SELECT int_val FROM timestamptz_storage_agg_key_default_value_no_scale order by int_val;
+    """
+    def zoned_now = ZonedDateTime.now(ZoneId.of(timezone_str))
+    def formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ssXXX")
+
+    for (col_name in ["ts_tz ", "ts_tz_replace", "ts_tz_replace_if_not_null", "ts_tz_min", "ts_tz_max"]) {
+        def query_result = sql """ 
+            SELECT ${col_name} FROM timestamptz_storage_agg_key_default_value_no_scale;
+        """
+        assertEquals(1, query_result.size())
+        // query_result: [[2025-12-01 15:22:50+08:00], [2025-12-01 15:22:50+08:00], [2025-12-01 15:22:50+08:00]]
+        for (row in query_result) {
+            def query_result_value = row[0].toString()
+            println("row: " + row + ", column: " + query_result_value)
+            def query_result_value_zdt  = ZonedDateTime.parse(query_result_value, formatter)
+            def diff_in_seconds = ChronoUnit.SECONDS.between(query_result_value_zdt, zoned_now)
+            assertTrue(diff_in_seconds >=0 && diff_in_seconds < 60)
+        }
+    }
+
+    sql """
+        DROP TABLE IF EXISTS `timestamptz_storage_agg_key_default_value_with_scale`;
+    """
+    sql """
+        CREATE TABLE `timestamptz_storage_agg_key_default_value_with_scale` (
+          `ts_tz` TIMESTAMPTZ(6) default current_timestamp(6),
+          `ts_tz_replace` TIMESTAMPTZ(6) replace default current_timestamp(6),
+          `ts_tz_replace_if_not_null` TIMESTAMPTZ(6) REPLACE_IF_NOT_NULL default current_timestamp(6),
+          `ts_tz_min` TIMESTAMPTZ(6) min default current_timestamp(6),
+          `ts_tz_max` TIMESTAMPTZ(6) max default current_timestamp(6),
+          `int_val` INT sum
+        ) AGGREGATE KEY(`ts_tz`)
+        DISTRIBUTED BY HASH(`ts_tz`) BUCKETS 16
+        PROPERTIES (
+        "replication_num" = "1"
+        );
+    """
+    sql """
+    insert into timestamptz_storage_agg_key_default_value_with_scale(int_val) VALUES (1), (2), (3);
+    """
+    qt_default_value_with_scale """
+        SELECT int_val FROM timestamptz_storage_agg_key_default_value_with_scale order by int_val;
+    """
+    zoned_now = ZonedDateTime.now(ZoneId.of(timezone_str))
+    formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSSSSSXXX")
+
+    for (col_name in ["ts_tz ", "ts_tz_replace", "ts_tz_replace_if_not_null", "ts_tz_min", "ts_tz_max"]) {
+        def query_result = sql """ 
+            SELECT ${col_name} FROM timestamptz_storage_agg_key_default_value_with_scale;
+        """
+        assertEquals(1, query_result.size())
+        // query_result: [[2025-12-01 15:22:50+08:00], [2025-12-01 15:22:50+08:00], [2025-12-01 15:22:50+08:00]]
+        for (row in query_result) {
+            def query_result_value = row[0].toString()
+            println("row: " + row + ", column: " + query_result_value)
+            def query_result_value_zdt  = ZonedDateTime.parse(query_result_value, formatter)
+            def diff_in_seconds = ChronoUnit.SECONDS.between(query_result_value_zdt, zoned_now)
+            assertTrue(diff_in_seconds >=0 && diff_in_seconds < 60)
+        }
+    }
 
     sql """
         DROP TABLE IF EXISTS `timestamptz_storage_agg_key_no_scale`;

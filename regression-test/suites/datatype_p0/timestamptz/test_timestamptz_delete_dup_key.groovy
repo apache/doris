@@ -60,23 +60,23 @@ suite("test_timestamptz_delete_dup_key") {
     """
 
     def dup_key_insert_data = {
-    sql """INSERT INTO timestamptz_delete_dup_key_no_scale VALUES
-    (null, null, -1),
-    ('0000-01-01 00:00:00 +00:00', '0000-01-01 00:00:00 +00:00', 0),
-    ('0000-01-01 00:00:00 +00:00', '0000-01-01 00:00:00 +00:00', 10),
-    ('2023-01-01 12:00:00 +00:00', '2023-01-01 12:00:00 +00:00', 1),
-    ('2023-08-08 20:20:20 +00:00', '2023-08-08 20:20:20 +00:00', 8),
-    ('2023-12-12 12:12:12 +00:00', '2023-12-12 12:12:12 +00:00', 12),
-    ('9999-12-30 23:59:59 +00:00', '9999-12-30 23:59:59 +00:00', 8998),
-    ('9999-12-31 23:59:59 +00:00', '9999-12-31 23:59:59 +00:00', 9998),
-    ('9999-12-31 23:59:59 +00:00', '9999-12-31 23:59:59 +00:00', 9999);
-    """
+        sql """INSERT INTO timestamptz_delete_dup_key_no_scale VALUES
+        (null, null, -1),
+        ('0000-01-01 00:00:00 +00:00', '0000-01-01 00:00:00 +00:00', 0),
+        ('0000-01-01 00:00:00 +00:00', '0000-01-01 00:00:00 +00:00', 10),
+        ('2023-01-01 12:00:00 +00:00', '2023-01-01 12:00:00 +00:00', 1),
+        ('2023-08-08 20:20:20 +00:00', '2023-08-08 20:20:20 +00:00', 8),
+        ('2023-12-12 12:12:12 +00:00', '2023-12-12 12:12:12 +00:00', 12),
+        ('9999-12-30 23:59:59 +00:00', '9999-12-30 23:59:59 +00:00', 8998),
+        ('9999-12-31 23:59:59 +00:00', '9999-12-31 23:59:59 +00:00', 9998),
+        ('9999-12-31 23:59:59 +00:00', '9999-12-31 23:59:59 +00:00', 9999);
+        """
     }
 
     dup_key_insert_data()
 
     qt_all0 """
-        SELECT * FROM timestamptz_delete_dup_key_no_scale ORDER BY 1, 2;
+        SELECT * FROM timestamptz_delete_dup_key_no_scale ORDER BY 1, 2, 3;
     """
 
     // test delete with =
@@ -86,7 +86,7 @@ suite("test_timestamptz_delete_dup_key") {
         DELETE FROM timestamptz_delete_dup_key_no_scale WHERE ts_tz = '0000-01-01 00:00:00 +00:00';
     """
     qt_delete_dup_key_eq1 """
-        SELECT * FROM timestamptz_delete_dup_key_no_scale ORDER BY 1, 2;
+        SELECT * FROM timestamptz_delete_dup_key_no_scale ORDER BY 1, 2, 3;
     """
 
     // delete max value
@@ -94,14 +94,14 @@ suite("test_timestamptz_delete_dup_key") {
         DELETE FROM timestamptz_delete_dup_key_no_scale WHERE ts_tz = '9999-12-31 23:59:59 +00:00';
     """
     qt_delete_dup_key_eq2 """
-        SELECT * FROM timestamptz_delete_dup_key_no_scale ORDER BY 1, 2;
+        SELECT * FROM timestamptz_delete_dup_key_no_scale ORDER BY 1, 2, 3;
     """
 
     sql """
         DELETE FROM timestamptz_delete_dup_key_no_scale WHERE ts_tz = '2023-12-12 12:12:12 +00:00';
     """
     qt_delete_dup_key_eq3 """
-        SELECT * FROM timestamptz_delete_dup_key_no_scale ORDER BY 1, 2;
+        SELECT * FROM timestamptz_delete_dup_key_no_scale ORDER BY 1, 2, 3;
     """
 
     // test delete with !=
@@ -114,7 +114,7 @@ suite("test_timestamptz_delete_dup_key") {
         DELETE FROM timestamptz_delete_dup_key_no_scale WHERE ts_tz != '0000-01-01 00:00:00 +00:00';
     """
     qt_delete_dup_key_ne0 """
-        SELECT * FROM timestamptz_delete_dup_key_no_scale ORDER BY 1, 2;
+        SELECT * FROM timestamptz_delete_dup_key_no_scale ORDER BY 1, 2, 3;
     """
 
     sql """
@@ -125,7 +125,7 @@ suite("test_timestamptz_delete_dup_key") {
         DELETE FROM timestamptz_delete_dup_key_no_scale WHERE ts_tz != '9999-12-31 23:59:59 +00:00';
     """
     qt_delete_dup_key_ne1 """
-        SELECT * FROM timestamptz_delete_dup_key_no_scale ORDER BY 1, 2;
+        SELECT * FROM timestamptz_delete_dup_key_no_scale ORDER BY 1, 2, 3;
     """
 
     sql """
@@ -136,7 +136,7 @@ suite("test_timestamptz_delete_dup_key") {
         DELETE FROM timestamptz_delete_dup_key_no_scale WHERE ts_tz != '2023-08-08 20:20:20 +00:00';
     """
     qt_delete_dup_key_ne2 """
-        SELECT * FROM timestamptz_delete_dup_key_no_scale ORDER BY 1, 2;
+        SELECT * FROM timestamptz_delete_dup_key_no_scale ORDER BY 1, 2, 3;
     """
 
     // test delete with >
@@ -150,14 +150,14 @@ suite("test_timestamptz_delete_dup_key") {
         DELETE FROM timestamptz_delete_dup_key_no_scale WHERE ts_tz > '9999-12-31 23:59:59 +00:00';
     """
     qt_delete_dup_key_gt0 """
-        SELECT * FROM timestamptz_delete_dup_key_no_scale ORDER BY 1, 2;
+        SELECT * FROM timestamptz_delete_dup_key_no_scale ORDER BY 1, 2, 3;
     """
 
     sql """
         DELETE FROM timestamptz_delete_dup_key_no_scale WHERE ts_tz > '2023-08-08 20:20:20 +00:00';
     """
     qt_delete_dup_key_gt1 """
-        SELECT * FROM timestamptz_delete_dup_key_no_scale ORDER BY 1, 2;
+        SELECT * FROM timestamptz_delete_dup_key_no_scale ORDER BY 1, 2, 3;
     """
 
     // all values greater than '0000-01-01 00:00:00 +00:00' are deleted
@@ -165,7 +165,7 @@ suite("test_timestamptz_delete_dup_key") {
         DELETE FROM timestamptz_delete_dup_key_no_scale WHERE ts_tz > '0000-01-01 00:00:00 +00:00';
     """
     qt_delete_dup_key_gt2 """
-        SELECT * FROM timestamptz_delete_dup_key_no_scale ORDER BY 1, 2;
+        SELECT * FROM timestamptz_delete_dup_key_no_scale ORDER BY 1, 2, 3;
     """
 
     // test delete with >=
@@ -178,21 +178,21 @@ suite("test_timestamptz_delete_dup_key") {
         DELETE FROM timestamptz_delete_dup_key_no_scale WHERE ts_tz >= '9999-12-31 23:59:59 +00:00';
     """
     qt_delete_dup_key_ge0 """
-        SELECT * FROM timestamptz_delete_dup_key_no_scale ORDER BY 1, 2;
+        SELECT * FROM timestamptz_delete_dup_key_no_scale ORDER BY 1, 2, 3;
     """
 
     sql """
         DELETE FROM timestamptz_delete_dup_key_no_scale WHERE ts_tz >= '2023-06-06 15:30:30 +00:00';
     """
     qt_delete_dup_key_ge1 """
-        SELECT * FROM timestamptz_delete_dup_key_no_scale ORDER BY 1, 2;
+        SELECT * FROM timestamptz_delete_dup_key_no_scale ORDER BY 1, 2, 3;
     """
 
     sql """
         DELETE FROM timestamptz_delete_dup_key_no_scale WHERE ts_tz >= '0000-01-01 00:00:00 +00:00';
     """
     qt_delete_dup_key_ge2 """
-        SELECT * FROM timestamptz_delete_dup_key_no_scale ORDER BY 1, 2;
+        SELECT * FROM timestamptz_delete_dup_key_no_scale ORDER BY 1, 2, 3;
     """
 
     // test delete with <
@@ -204,21 +204,21 @@ suite("test_timestamptz_delete_dup_key") {
         DELETE FROM timestamptz_delete_dup_key_no_scale WHERE ts_tz < '0000-01-01 00:00:00 +00:00';
     """
     qt_delete_dup_key_lt0 """
-        SELECT * FROM timestamptz_delete_dup_key_no_scale ORDER BY 1, 2;
+        SELECT * FROM timestamptz_delete_dup_key_no_scale ORDER BY 1, 2, 3;
     """
 
     sql """
         DELETE FROM timestamptz_delete_dup_key_no_scale WHERE ts_tz < '2023-02-02 12:00:00 +00:00';
     """
     qt_delete_dup_key_lt1 """
-        SELECT * FROM timestamptz_delete_dup_key_no_scale ORDER BY 1, 2;
+        SELECT * FROM timestamptz_delete_dup_key_no_scale ORDER BY 1, 2, 3;
     """
 
     sql """
         DELETE FROM timestamptz_delete_dup_key_no_scale WHERE ts_tz < '9999-12-31 23:59:59 +00:00';
     """
     qt_delete_dup_key_lt2 """
-        SELECT * FROM timestamptz_delete_dup_key_no_scale ORDER BY 1, 2;
+        SELECT * FROM timestamptz_delete_dup_key_no_scale ORDER BY 1, 2, 3;
     """
 
     // test delete with <=
@@ -230,21 +230,21 @@ suite("test_timestamptz_delete_dup_key") {
         DELETE FROM timestamptz_delete_dup_key_no_scale WHERE ts_tz <= '0000-01-01 00:00:00 +00:00';
     """
     qt_delete_dup_key_le0 """
-        SELECT * FROM timestamptz_delete_dup_key_no_scale ORDER BY 1, 2;
+        SELECT * FROM timestamptz_delete_dup_key_no_scale ORDER BY 1, 2, 3;
     """
 
     sql """
         DELETE FROM timestamptz_delete_dup_key_no_scale WHERE ts_tz <= '2023-08-08 20:20:20 +00:00';
     """
     qt_delete_dup_key_le1 """
-        SELECT * FROM timestamptz_delete_dup_key_no_scale ORDER BY 1, 2;
+        SELECT * FROM timestamptz_delete_dup_key_no_scale ORDER BY 1, 2, 3;
     """
 
     sql """
         DELETE FROM timestamptz_delete_dup_key_no_scale WHERE ts_tz <= '9999-12-31 23:59:59 +00:00';
     """
     qt_delete_dup_key_le2 """
-        SELECT * FROM timestamptz_delete_dup_key_no_scale ORDER BY 1, 2;
+        SELECT * FROM timestamptz_delete_dup_key_no_scale ORDER BY 1, 2, 3;
     """
 
     // test delete with in
@@ -256,7 +256,7 @@ suite("test_timestamptz_delete_dup_key") {
         DELETE FROM timestamptz_delete_dup_key_no_scale WHERE ts_tz IN ('0000-01-01 00:00:00 +00:00', '2023-01-01 12:00:00 +00:00', '9999-12-31 23:59:59 +00:00');
     """
     qt_delete_dup_key_in0 """
-        SELECT * FROM timestamptz_delete_dup_key_no_scale ORDER BY 1, 2;
+        SELECT * FROM timestamptz_delete_dup_key_no_scale ORDER BY 1, 2, 3;
     """
 
     // test delete with not in
@@ -268,7 +268,7 @@ suite("test_timestamptz_delete_dup_key") {
         DELETE FROM timestamptz_delete_dup_key_no_scale WHERE ts_tz not IN ('0000-01-01 00:00:00 +00:00', '2023-01-01 12:00:00 +00:00', '9999-12-31 23:59:59 +00:00');
     """
     qt_delete_dup_key_not_in0 """
-        SELECT * FROM timestamptz_delete_dup_key_no_scale ORDER BY 1, 2;
+        SELECT * FROM timestamptz_delete_dup_key_no_scale ORDER BY 1, 2, 3;
     """
 
     // test delete with is null
@@ -280,7 +280,7 @@ suite("test_timestamptz_delete_dup_key") {
         DELETE FROM timestamptz_delete_dup_key_no_scale WHERE ts_tz is null;
     """
     qt_delete_dup_key_is_null """
-        SELECT * FROM timestamptz_delete_dup_key_no_scale ORDER BY 1, 2;
+        SELECT * FROM timestamptz_delete_dup_key_no_scale ORDER BY 1, 2, 3;
     """
 
     // test delete with is not null
@@ -292,7 +292,7 @@ suite("test_timestamptz_delete_dup_key") {
         DELETE FROM timestamptz_delete_dup_key_no_scale WHERE ts_tz is not null;
     """
     qt_delete_dup_key_is_not_null """
-        SELECT * FROM timestamptz_delete_dup_key_no_scale ORDER BY 1, 2;
+        SELECT * FROM timestamptz_delete_dup_key_no_scale ORDER BY 1, 2, 3;
     """
 
     // test with scale
@@ -312,30 +312,30 @@ suite("test_timestamptz_delete_dup_key") {
     """
 
     def dup_key_with_scale_insert_data = {
-    sql """INSERT INTO timestamptz_delete_dup_key_with_scale VALUES
-    (null, null, -1),
-    ('0000-01-01 00:00:00 +00:00', '0000-01-01 00:00:00 +00:00', 0),
-    ('0000-01-01 00:00:00.000000 +00:00', '0000-01-01 00:00:00.000000 +00:00', 0),
-    ('0000-01-01 00:00:00.000001 +00:00', '0000-01-01 00:00:00.000001 +00:00', 0),
-    ('0000-01-01 00:00:00.123456 +00:00', '0000-01-01 00:00:00.123456 +00:00', 0),
-    ('0000-01-01 00:00:00.999999 +00:00', '0000-01-01 00:00:00.999999 +00:00', 10),
-    ('2023-08-08 20:20:20 +00:00', '2023-08-08 20:20:20 +00:00', 8),
-    ('2023-08-08 20:20:20.000000 +00:00', '2023-08-08 20:20:20.000000 +00:00', 8),
-    ('2023-08-08 20:20:20.000001 +00:00', '2023-08-08 20:20:20.000001 +00:00', 8),
-    ('2023-08-08 20:20:20.123456 +00:00', '2023-08-08 20:20:20.123456 +00:00', 8),
-    ('2023-08-08 20:20:20.999999 +00:00', '2023-08-08 20:20:20.999999 +00:00', 8),
-    ('9999-12-31 23:59:59 +00:00', '9999-12-31 23:59:59 +00:00', 9998),
-    ('9999-12-31 23:59:59.000000 +00:00', '9999-12-31 23:59:59.000000 +00:00', 9998),
-    ('9999-12-31 23:59:59.000001 +00:00', '9999-12-31 23:59:59.000001 +00:00', 9998),
-    ('9999-12-31 23:59:59.123456 +00:00', '9999-12-31 23:59:59.123456 +00:00', 9998),
-    ('9999-12-31 23:59:59.999999 +00:00', '9999-12-31 23:59:59.999999 +00:00', 9999);
-    """
+        sql """INSERT INTO timestamptz_delete_dup_key_with_scale VALUES
+        (null, null, -1),
+        ('0000-01-01 00:00:00 +00:00', '0000-01-01 00:00:00 +00:00', 0),
+        ('0000-01-01 00:00:00.000000 +00:00', '0000-01-01 00:00:00.000000 +00:00', 0),
+        ('0000-01-01 00:00:00.000001 +00:00', '0000-01-01 00:00:00.000001 +00:00', 0),
+        ('0000-01-01 00:00:00.123456 +00:00', '0000-01-01 00:00:00.123456 +00:00', 0),
+        ('0000-01-01 00:00:00.999999 +00:00', '0000-01-01 00:00:00.999999 +00:00', 10),
+        ('2023-08-08 20:20:20 +00:00', '2023-08-08 20:20:20 +00:00', 8),
+        ('2023-08-08 20:20:20.000000 +00:00', '2023-08-08 20:20:20.000000 +00:00', 8),
+        ('2023-08-08 20:20:20.000001 +00:00', '2023-08-08 20:20:20.000001 +00:00', 8),
+        ('2023-08-08 20:20:20.123456 +00:00', '2023-08-08 20:20:20.123456 +00:00', 8),
+        ('2023-08-08 20:20:20.999999 +00:00', '2023-08-08 20:20:20.999999 +00:00', 8),
+        ('9999-12-31 23:59:59 +00:00', '9999-12-31 23:59:59 +00:00', 9998),
+        ('9999-12-31 23:59:59.000000 +00:00', '9999-12-31 23:59:59.000000 +00:00', 9998),
+        ('9999-12-31 23:59:59.000001 +00:00', '9999-12-31 23:59:59.000001 +00:00', 9998),
+        ('9999-12-31 23:59:59.123456 +00:00', '9999-12-31 23:59:59.123456 +00:00', 9998),
+        ('9999-12-31 23:59:59.999999 +00:00', '9999-12-31 23:59:59.999999 +00:00', 9999);
+        """
     }
 
     dup_key_with_scale_insert_data()
 
     qt_all0 """
-        SELECT * FROM timestamptz_delete_dup_key_with_scale ORDER BY 1, 2;
+        SELECT * FROM timestamptz_delete_dup_key_with_scale ORDER BY 1, 2, 3;
     """
 
     // test delete with =
@@ -344,65 +344,89 @@ suite("test_timestamptz_delete_dup_key") {
         DELETE FROM timestamptz_delete_dup_key_with_scale WHERE ts_tz = '0000-01-01 00:00:00 +00:00';
     """
     qt_delete_dup_key_with_scale_eq0 """
-        SELECT * FROM timestamptz_delete_dup_key_with_scale ORDER BY 1, 2;
+        SELECT * FROM timestamptz_delete_dup_key_with_scale ORDER BY 1, 2, 3;
     """
 
+    sql """
+    truncate table timestamptz_delete_dup_key_with_scale;
+    """
     dup_key_with_scale_insert_data()
     sql """
         DELETE FROM timestamptz_delete_dup_key_with_scale WHERE ts_tz = '0000-01-01 00:00:00.000000 +00:00';
     """
     qt_delete_dup_key_with_scale_eq1 """
-        SELECT * FROM timestamptz_delete_dup_key_with_scale ORDER BY 1, 2;
+        SELECT * FROM timestamptz_delete_dup_key_with_scale ORDER BY 1, 2, 3;
     """
 
+    sql """
+    truncate table timestamptz_delete_dup_key_with_scale;
+    """
     dup_key_with_scale_insert_data()
     sql """
         DELETE FROM timestamptz_delete_dup_key_with_scale WHERE ts_tz = '0000-01-01 00:00:00.000001 +00:00';
     """
     qt_delete_dup_key_with_scale_eq2 """
-        SELECT * FROM timestamptz_delete_dup_key_with_scale ORDER BY 1, 2;
+        SELECT * FROM timestamptz_delete_dup_key_with_scale ORDER BY 1, 2, 3;
     """
 
+    sql """
+    truncate table timestamptz_delete_dup_key_with_scale;
+    """
     dup_key_with_scale_insert_data()
     sql """
         DELETE FROM timestamptz_delete_dup_key_with_scale WHERE ts_tz = '0000-01-01 00:00:00.123456 +00:00';
     """
     qt_delete_dup_key_with_scale_eq3 """
-        SELECT * FROM timestamptz_delete_dup_key_with_scale ORDER BY 1, 2;
+        SELECT * FROM timestamptz_delete_dup_key_with_scale ORDER BY 1, 2, 3;
     """
 
+    sql """
+    truncate table timestamptz_delete_dup_key_with_scale;
+    """
     dup_key_with_scale_insert_data()
     sql """
         DELETE FROM timestamptz_delete_dup_key_with_scale WHERE ts_tz = '0000-01-01 00:00:00.999999 +00:00';
     """
     qt_delete_dup_key_with_scale_eq4 """
-        SELECT * FROM timestamptz_delete_dup_key_with_scale ORDER BY 1, 2;
+        SELECT * FROM timestamptz_delete_dup_key_with_scale ORDER BY 1, 2, 3;
     """
 
+    sql """
+    truncate table timestamptz_delete_dup_key_with_scale;
+    """
     dup_key_with_scale_insert_data()
     sql """
         DELETE FROM timestamptz_delete_dup_key_with_scale WHERE ts_tz = '2023-08-08 20:20:20.000000 +00:00';
     """
     qt_delete_dup_key_with_scale_eq5 """
-        SELECT * FROM timestamptz_delete_dup_key_with_scale ORDER BY 1, 2;
+        SELECT * FROM timestamptz_delete_dup_key_with_scale ORDER BY 1, 2, 3;
     """
 
+    sql """
+    truncate table timestamptz_delete_dup_key_with_scale;
+    """
     dup_key_with_scale_insert_data()
     sql """
         DELETE FROM timestamptz_delete_dup_key_with_scale WHERE ts_tz = '9999-12-31 23:59:59.000000 +00:00';
     """
     qt_delete_dup_key_with_scale_eq6 """
-        SELECT * FROM timestamptz_delete_dup_key_with_scale ORDER BY 1, 2;
+        SELECT * FROM timestamptz_delete_dup_key_with_scale ORDER BY 1, 2, 3;
     """
 
+    sql """
+    truncate table timestamptz_delete_dup_key_with_scale;
+    """
     dup_key_with_scale_insert_data()
     sql """
         DELETE FROM timestamptz_delete_dup_key_with_scale WHERE ts_tz = '9999-12-31 23:59:59.999999 +00:00';
     """
     qt_delete_dup_key_with_scale_eq7 """
-        SELECT * FROM timestamptz_delete_dup_key_with_scale ORDER BY 1, 2;
+        SELECT * FROM timestamptz_delete_dup_key_with_scale ORDER BY 1, 2, 3;
     """
 
+    sql """
+    truncate table timestamptz_delete_dup_key_with_scale;
+    """
     dup_key_with_scale_insert_data()
     // test delete with !=
     // delete min value
@@ -410,63 +434,84 @@ suite("test_timestamptz_delete_dup_key") {
         DELETE FROM timestamptz_delete_dup_key_with_scale WHERE ts_tz != '0000-01-01 00:00:00 +00:00';
     """
     qt_delete_dup_key_with_scale_neq0 """
-        SELECT * FROM timestamptz_delete_dup_key_with_scale ORDER BY 1, 2;
+        SELECT * FROM timestamptz_delete_dup_key_with_scale ORDER BY 1, 2, 3;
     """
 
+    sql """
+    truncate table timestamptz_delete_dup_key_with_scale;
+    """
     dup_key_with_scale_insert_data()
     sql """
         DELETE FROM timestamptz_delete_dup_key_with_scale WHERE ts_tz != '0000-01-01 00:00:00.000000 +00:00';
     """
     qt_delete_dup_key_with_scale_neq1 """
-        SELECT * FROM timestamptz_delete_dup_key_with_scale ORDER BY 1, 2;
+        SELECT * FROM timestamptz_delete_dup_key_with_scale ORDER BY 1, 2, 3;
     """
 
+    sql """
+    truncate table timestamptz_delete_dup_key_with_scale;
+    """
     dup_key_with_scale_insert_data()
     sql """
         DELETE FROM timestamptz_delete_dup_key_with_scale WHERE ts_tz != '0000-01-01 00:00:00.000001 +00:00';
     """
     qt_delete_dup_key_with_scale_neq2 """
-        SELECT * FROM timestamptz_delete_dup_key_with_scale ORDER BY 1, 2;
+        SELECT * FROM timestamptz_delete_dup_key_with_scale ORDER BY 1, 2, 3;
     """
 
+    sql """
+    truncate table timestamptz_delete_dup_key_with_scale;
+    """
     dup_key_with_scale_insert_data()
     sql """
         DELETE FROM timestamptz_delete_dup_key_with_scale WHERE ts_tz != '0000-01-01 00:00:00.123456 +00:00';
     """
     qt_delete_dup_key_with_scale_neq3 """
-        SELECT * FROM timestamptz_delete_dup_key_with_scale ORDER BY 1, 2;
+        SELECT * FROM timestamptz_delete_dup_key_with_scale ORDER BY 1, 2, 3;
     """
 
+    sql """
+    truncate table timestamptz_delete_dup_key_with_scale;
+    """
     dup_key_with_scale_insert_data()
     sql """
         DELETE FROM timestamptz_delete_dup_key_with_scale WHERE ts_tz != '0000-01-01 00:00:00.999999 +00:00';
     """
     qt_delete_dup_key_with_scale_neq4 """
-        SELECT * FROM timestamptz_delete_dup_key_with_scale ORDER BY 1, 2;
+        SELECT * FROM timestamptz_delete_dup_key_with_scale ORDER BY 1, 2, 3;
     """
 
+    sql """
+    truncate table timestamptz_delete_dup_key_with_scale;
+    """
     dup_key_with_scale_insert_data()
     sql """
         DELETE FROM timestamptz_delete_dup_key_with_scale WHERE ts_tz != '2023-08-08 20:20:20.000000 +00:00';
     """
     qt_delete_dup_key_with_scale_neq5 """
-        SELECT * FROM timestamptz_delete_dup_key_with_scale ORDER BY 1, 2;
+        SELECT * FROM timestamptz_delete_dup_key_with_scale ORDER BY 1, 2, 3;
     """
 
+    sql """
+    truncate table timestamptz_delete_dup_key_with_scale;
+    """
     dup_key_with_scale_insert_data()
     sql """
         DELETE FROM timestamptz_delete_dup_key_with_scale WHERE ts_tz != '9999-12-31 23:59:59.000000 +00:00';
     """
     qt_delete_dup_key_with_scale_neq6 """
-        SELECT * FROM timestamptz_delete_dup_key_with_scale ORDER BY 1, 2;
+        SELECT * FROM timestamptz_delete_dup_key_with_scale ORDER BY 1, 2, 3;
     """
 
+    sql """
+    truncate table timestamptz_delete_dup_key_with_scale;
+    """
     dup_key_with_scale_insert_data()
     sql """
         DELETE FROM timestamptz_delete_dup_key_with_scale WHERE ts_tz != '9999-12-31 23:59:59.999999 +00:00';
     """
     qt_delete_dup_key_with_scale_neq7 """
-        SELECT * FROM timestamptz_delete_dup_key_with_scale ORDER BY 1, 2;
+        SELECT * FROM timestamptz_delete_dup_key_with_scale ORDER BY 1, 2, 3;
     """
 
     // test delete with >
@@ -480,14 +525,14 @@ suite("test_timestamptz_delete_dup_key") {
         DELETE FROM timestamptz_delete_dup_key_with_scale WHERE ts_tz > '9999-12-31 23:59:59.999999 +00:00';
     """
     qt_delete_dup_key_with_scale_gt0 """
-        SELECT * FROM timestamptz_delete_dup_key_with_scale ORDER BY 1, 2;
+        SELECT * FROM timestamptz_delete_dup_key_with_scale ORDER BY 1, 2, 3;
     """
 
     sql """
         DELETE FROM timestamptz_delete_dup_key_with_scale WHERE ts_tz > '2023-08-08 20:20:20.999999 +00:00';
     """
     qt_delete_dup_key_with_scale_gt1 """
-        SELECT * FROM timestamptz_delete_dup_key_with_scale ORDER BY 1, 2;
+        SELECT * FROM timestamptz_delete_dup_key_with_scale ORDER BY 1, 2, 3;
     """
 
     // all values greater than '0000-01-01 00:00:00 +00:00' are deleted
@@ -495,7 +540,7 @@ suite("test_timestamptz_delete_dup_key") {
         DELETE FROM timestamptz_delete_dup_key_with_scale WHERE ts_tz > '0000-01-01 00:00:00.000000 +00:00';
     """
     qt_delete_dup_key_with_scale_gt2 """
-        SELECT * FROM timestamptz_delete_dup_key_with_scale ORDER BY 1, 2;
+        SELECT * FROM timestamptz_delete_dup_key_with_scale ORDER BY 1, 2, 3;
     """
 
     // test delete with >=
@@ -508,21 +553,21 @@ suite("test_timestamptz_delete_dup_key") {
         DELETE FROM timestamptz_delete_dup_key_with_scale WHERE ts_tz >= '9999-12-31 23:59:59.999999 +00:00';
     """
     qt_delete_dup_key_with_scale_ge0 """
-        SELECT * FROM timestamptz_delete_dup_key_with_scale ORDER BY 1, 2;
+        SELECT * FROM timestamptz_delete_dup_key_with_scale ORDER BY 1, 2, 3;
     """
 
     sql """
         DELETE FROM timestamptz_delete_dup_key_with_scale WHERE ts_tz >= '2023-08-08 20:20:20.999999 +00:00';
     """
     qt_delete_dup_key_with_scale_ge1 """
-        SELECT * FROM timestamptz_delete_dup_key_with_scale ORDER BY 1, 2;
+        SELECT * FROM timestamptz_delete_dup_key_with_scale ORDER BY 1, 2, 3;
     """
 
     sql """
         DELETE FROM timestamptz_delete_dup_key_with_scale WHERE ts_tz >= '0000-01-01 00:00:00 +00:00';
     """
     qt_delete_dup_key_with_scale_ge2 """
-        SELECT * FROM timestamptz_delete_dup_key_with_scale ORDER BY 1, 2;
+        SELECT * FROM timestamptz_delete_dup_key_with_scale ORDER BY 1, 2, 3;
     """
 
     // test delete with <
@@ -534,21 +579,21 @@ suite("test_timestamptz_delete_dup_key") {
         DELETE FROM timestamptz_delete_dup_key_with_scale WHERE ts_tz < '0000-01-01 00:00:00.000001 +00:00';
     """
     qt_delete_dup_key_with_scale_lt0 """
-        SELECT * FROM timestamptz_delete_dup_key_with_scale ORDER BY 1, 2;
+        SELECT * FROM timestamptz_delete_dup_key_with_scale ORDER BY 1, 2, 3;
     """
 
     sql """
         DELETE FROM timestamptz_delete_dup_key_with_scale WHERE ts_tz < '2023-08-08 20:20:20.999999 +00:00';
     """
     qt_delete_dup_key_with_scale_lt1 """
-        SELECT * FROM timestamptz_delete_dup_key_with_scale ORDER BY 1, 2;
+        SELECT * FROM timestamptz_delete_dup_key_with_scale ORDER BY 1, 2, 3;
     """
 
     sql """
         DELETE FROM timestamptz_delete_dup_key_with_scale WHERE ts_tz < '9999-12-31 23:59:59.999999 +00:00';
     """
     qt_delete_dup_key_with_scale_lt2 """
-        SELECT * FROM timestamptz_delete_dup_key_with_scale ORDER BY 1, 2;
+        SELECT * FROM timestamptz_delete_dup_key_with_scale ORDER BY 1, 2, 3;
     """
 
     // test delete with <=
@@ -560,21 +605,21 @@ suite("test_timestamptz_delete_dup_key") {
         DELETE FROM timestamptz_delete_dup_key_with_scale WHERE ts_tz <= '0000-01-01 00:00:00 +00:00';
     """
     qt_delete_dup_key_with_scale_le0 """
-        SELECT * FROM timestamptz_delete_dup_key_with_scale ORDER BY 1, 2;
+        SELECT * FROM timestamptz_delete_dup_key_with_scale ORDER BY 1, 2, 3;
     """
 
     sql """
         DELETE FROM timestamptz_delete_dup_key_with_scale WHERE ts_tz <= '2023-08-08 20:20:20.999999 +00:00';
     """
     qt_delete_dup_key_with_scale_le1 """
-        SELECT * FROM timestamptz_delete_dup_key_with_scale ORDER BY 1, 2;
+        SELECT * FROM timestamptz_delete_dup_key_with_scale ORDER BY 1, 2, 3;
     """
 
     sql """
         DELETE FROM timestamptz_delete_dup_key_with_scale WHERE ts_tz <= '9999-12-31 23:59:59.999999 +00:00';
     """
     qt_delete_dup_key_with_scale_le2 """
-        SELECT * FROM timestamptz_delete_dup_key_with_scale ORDER BY 1, 2;
+        SELECT * FROM timestamptz_delete_dup_key_with_scale ORDER BY 1, 2, 3;
     """
 
     // test delete with in
@@ -586,7 +631,7 @@ suite("test_timestamptz_delete_dup_key") {
         DELETE FROM timestamptz_delete_dup_key_with_scale WHERE ts_tz IN ('0000-01-01 00:00:00 +00:00', '2023-01-01 12:00:00 +00:00', '2023-08-08 20:20:20.123456 +00:00', '9999-12-31 23:59:59.999999 +00:00');
     """
     qt_delete_dup_key_with_scale_in0 """
-        SELECT * FROM timestamptz_delete_dup_key_with_scale ORDER BY 1, 2;
+        SELECT * FROM timestamptz_delete_dup_key_with_scale ORDER BY 1, 2, 3;
     """
 
     // test delete with not in
@@ -598,7 +643,7 @@ suite("test_timestamptz_delete_dup_key") {
         DELETE FROM timestamptz_delete_dup_key_with_scale WHERE ts_tz NOT IN ('0000-01-01 00:00:00 +00:00', '2023-01-01 12:00:00 +00:00', '2023-08-08 20:20:20.123456 +00:00', '9999-12-31 23:59:59.999999 +00:00');
     """
     qt_delete_dup_key_with_scale_not_in0 """
-        SELECT * FROM timestamptz_delete_dup_key_with_scale ORDER BY 1, 2;
+        SELECT * FROM timestamptz_delete_dup_key_with_scale ORDER BY 1, 2, 3;
     """
 
     // test delete with is null
@@ -610,7 +655,7 @@ suite("test_timestamptz_delete_dup_key") {
         DELETE FROM timestamptz_delete_dup_key_with_scale WHERE ts_tz is null;
     """
     qt_delete_dup_key_with_scale_is_null """
-        SELECT * FROM timestamptz_delete_dup_key_with_scale ORDER BY 1, 2;
+        SELECT * FROM timestamptz_delete_dup_key_with_scale ORDER BY 1, 2, 3;
     """
 
     // test delete with is not null
@@ -622,7 +667,7 @@ suite("test_timestamptz_delete_dup_key") {
         DELETE FROM timestamptz_delete_dup_key_with_scale WHERE ts_tz is not null;
     """
     qt_delete_dup_key_with_scale_is_not_null """
-        SELECT * FROM timestamptz_delete_dup_key_with_scale ORDER BY 1, 2;
+        SELECT * FROM timestamptz_delete_dup_key_with_scale ORDER BY 1, 2, 3;
     """
 
 }

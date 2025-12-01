@@ -16,7 +16,8 @@
 // under the License.
 
 suite("test_timestamptz_delete_agg_key") {
-    sql "set time_zone = '+00:00'; "
+    def timezone_str = "+00:00"
+    sql "set time_zone = '${timezone_str}'; "
 
     sql """
         DROP TABLE IF EXISTS `timestamptz_delete_agg_key_no_scale`;
