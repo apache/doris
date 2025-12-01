@@ -31,10 +31,11 @@
 #include "olap/field.h"
 #include "olap/row_cursor.h"
 #include "olap/rowset/rowset_id_generator.h"
-#include "olap/rowset/segment_v2/index_file_reader.h"
-#include "olap/rowset/segment_v2/index_file_writer.h"
 #include "olap/rowset/segment_v2/inverted_index_cache.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
+#include "olap/rowset/segment_v2/inverted_index_file_reader.h"
+#include "olap/rowset/segment_v2/inverted_index_file_writer.h"
+#include "olap/rowset/segment_v2/inverted_index_reader.h"
 #include "olap/rowset/segment_v2/inverted_index_writer.h"
 #include "olap/rowset/segment_v2/segment.h"
 #include "olap/rowset/segment_v2/segment_writer.h"
@@ -204,7 +205,7 @@ public:
         st = fs->create_file(index_path, &idx_file_writer);
         EXPECT_TRUE(st.ok()) << st.to_string();
 
-        auto index_file_writer = std::make_unique<IndexFileWriter>(
+        auto index_file_writer = std::make_unique<InvertedIndexFileWriter>(
                 fs, index_path_prefix, rowset_id.to_string(), segment_id,
                 InvertedIndexStorageFormatPB::V2, std::move(idx_file_writer));
 
@@ -314,12 +315,12 @@ TEST_F(SegmentCorruptionTest, TestFsSetInCorruptionRetryPath) {
     OlapReaderStatistics stats;
     StorageReadOptions read_options;
     read_options.stats = &stats;
-    std::unique_ptr<IndexIterator> iter;
+    std::unique_ptr<InvertedIndexIterator> iter;
     // This call triggers _open_index_file_reader() -> uses _fs
     // If _fs is nullptr (bug not fixed), this will crash
-    st = segment->new_index_iterator(schema->column(1), idx_meta, read_options, &iter);
-    st = segment->_index_file_reader->init(config::inverted_index_read_buffer_size,
-                                           &read_options.io_ctx);
+    st = segment->new_inverted_index_iterator(schema->column(1), idx_meta, read_options, &iter);
+    st = segment->_inverted_index_file_reader->init(config::inverted_index_read_buffer_size,
+                                                    &read_options.io_ctx);
     ASSERT_TRUE(st.ok()) << st.to_string();
     // The call may fail due to missing index data in this simple test,
     // but the key point is it should NOT crash due to nullptr _fs
@@ -352,8 +353,8 @@ TEST_F(SegmentCorruptionTest, TestFsSetInNormalPath) {
     OlapReaderStatistics stats;
     StorageReadOptions read_options;
     read_options.stats = &stats;
-    std::unique_ptr<IndexIterator> iter;
-    st = segment->new_index_iterator(schema->column(1), idx_meta, read_options, &iter);
+    std::unique_ptr<InvertedIndexIterator> iter;
+    st = segment->new_inverted_index_iterator(schema->column(1), idx_meta, read_options, &iter);
     // If we reach here without crash, _fs was correctly set
 }
 
