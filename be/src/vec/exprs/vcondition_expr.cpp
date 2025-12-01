@@ -476,7 +476,6 @@ Status VectorizedIfExpr::execute_column(VExprContext* context, const Block* bloc
     temp_block.insert({nullptr, _data_type, IF_NAME});
     RETURN_IF_ERROR(_execute_impl_internal(temp_block, {0, 1, 2}, 3, temp_block.rows()));
     result_column = temp_block.get_by_position(3).column;
-    RETURN_IF_ERROR(block->check_type_and_column());
     DCHECK_EQ(result_column->size(), count);
     return Status::OK();
 }
@@ -530,7 +529,6 @@ Status VectorizedIfNullExpr::execute_column(VExprContext* context, const Block* 
     temp_block.insert({nullptr, _data_type, IF_NULL_NAME});
     RETURN_IF_ERROR(_execute_impl_internal(temp_block, {0, 1, 2}, 3, temp_block.rows()));
     result_column = temp_block.get_by_position(3).column;
-    RETURN_IF_ERROR(block->check_type_and_column());
     DCHECK_EQ(result_column->size(), count);
     return Status::OK();
 }
@@ -611,7 +609,7 @@ Status filled_result_column(const DataTypePtr& data_type, MutableColumnPtr& resu
 Status VectorizedCoalesceExpr::execute_column(VExprContext* context, const Block* block,
                                               size_t count, ColumnPtr& return_column) const {
     DataTypePtr result_type = _data_type;
-    const auto input_rows_count = block->rows();
+    const auto input_rows_count = count;
 
     size_t remaining_rows = input_rows_count;
     std::vector<uint32_t> record_idx(
@@ -733,7 +731,7 @@ Status VectorizedCoalesceExpr::execute_column(VExprContext* context, const Block
         return_column = std::move(result_column);
     }
 
-    DCHECK_EQ(result_column->size(), count);
+    DCHECK_EQ(return_column->size(), count);
     return Status::OK();
 }
 
