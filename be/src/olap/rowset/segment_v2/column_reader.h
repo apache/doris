@@ -193,10 +193,10 @@ public:
     // get row ranges with zone map
     // - cond_column is user's query predicate
     // - delete_condition is a delete predicate of one version
-    Status get_row_ranges_by_zone_map(const AndBlockColumnPredicate* col_predicates,
-                                      const std::vector<const ColumnPredicate*>* delete_predicates,
-                                      RowRanges* row_ranges,
-                                      const ColumnIteratorOptions& iter_opts);
+    Status get_row_ranges_by_zone_map(
+            const AndBlockColumnPredicate* col_predicates,
+            const std::vector<std::shared_ptr<const ColumnPredicate>>* delete_predicates,
+            RowRanges* row_ranges, const ColumnIteratorOptions& iter_opts);
 
     // get row ranges with bloom filter index
     Status get_row_ranges_by_bloom_filter(const AndBlockColumnPredicate* col_predicates,
@@ -207,7 +207,7 @@ public:
 
     bool is_empty() const { return _num_rows == 0; }
 
-    Status prune_predicates_by_zone_map(std::vector<ColumnPredicate*>& predicates,
+    Status prune_predicates_by_zone_map(std::vector<std::shared_ptr<ColumnPredicate>>& predicates,
                                         const int column_id, bool* pruned) const;
 
     CompressionTypePB get_compression() const { return _meta_compression; }
@@ -258,10 +258,10 @@ private:
     Status _parse_zone_map_skip_null(const ZoneMapPB& zone_map, WrapperField* min_value_container,
                                      WrapperField* max_value_container) const;
 
-    Status _get_filtered_pages(const AndBlockColumnPredicate* col_predicates,
-                               const std::vector<const ColumnPredicate*>* delete_predicates,
-                               std::vector<uint32_t>* page_indexes,
-                               const ColumnIteratorOptions& iter_opts);
+    Status _get_filtered_pages(
+            const AndBlockColumnPredicate* col_predicates,
+            const std::vector<std::shared_ptr<const ColumnPredicate>>* delete_predicates,
+            std::vector<uint32_t>* page_indexes, const ColumnIteratorOptions& iter_opts);
 
     Status _calculate_row_ranges(const std::vector<uint32_t>& page_indexes, RowRanges* row_ranges,
                                  const ColumnIteratorOptions& iter_opts);
@@ -345,7 +345,8 @@ public:
 
     virtual Status get_row_ranges_by_zone_map(
             const AndBlockColumnPredicate* col_predicates,
-            const std::vector<const ColumnPredicate*>* delete_predicates, RowRanges* row_ranges) {
+            const std::vector<std::shared_ptr<const ColumnPredicate>>* delete_predicates,
+            RowRanges* row_ranges) {
         return Status::OK();
     }
 
@@ -436,9 +437,10 @@ public:
     // get row ranges by zone map
     // - cond_column is user's query predicate
     // - delete_condition is delete predicate of one version
-    Status get_row_ranges_by_zone_map(const AndBlockColumnPredicate* col_predicates,
-                                      const std::vector<const ColumnPredicate*>* delete_predicates,
-                                      RowRanges* row_ranges) override;
+    Status get_row_ranges_by_zone_map(
+            const AndBlockColumnPredicate* col_predicates,
+            const std::vector<std::shared_ptr<const ColumnPredicate>>* delete_predicates,
+            RowRanges* row_ranges) override;
 
     Status get_row_ranges_by_bloom_filter(const AndBlockColumnPredicate* col_predicates,
                                           RowRanges* row_ranges) override;

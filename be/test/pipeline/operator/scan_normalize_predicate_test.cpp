@@ -53,8 +53,7 @@ TEST_F(ScanNormalizePredicate, test1) {
     vectorized::VExprSPtr new_root;
     auto conjunct_expr_root =
             MockSlotRef::create_mock_context(0, std::make_shared<DataTypeInt64>());
-    auto st = local_state->_normalize_predicate(conjunct_expr_root->root(),
-                                                conjunct_expr_root.get(), new_root);
+    auto st = local_state->_normalize_predicate(conjunct_expr_root.get(), new_root);
     EXPECT_TRUE(st) << st.msg();
     std::cout << new_root->debug_string() << std::endl;
 }
@@ -82,8 +81,7 @@ TEST_F(ScanNormalizePredicate, test_eval_const_conjuncts1) {
 
     vectorized::VExprSPtr new_root;
     auto conjunct_expr_root = ctx;
-    auto st = local_state->_normalize_predicate(conjunct_expr_root->root(),
-                                                conjunct_expr_root.get(), new_root);
+    auto st = local_state->_normalize_predicate(conjunct_expr_root.get(), new_root);
 
     EXPECT_EQ(new_root, nullptr);
     EXPECT_TRUE(local_state->_scan_dependency->ready());
@@ -112,8 +110,7 @@ TEST_F(ScanNormalizePredicate, test_eval_const_conjuncts2) {
 
     vectorized::VExprSPtr new_root;
     auto conjunct_expr_root = ctx;
-    auto st = local_state->_normalize_predicate(conjunct_expr_root->root(),
-                                                conjunct_expr_root.get(), new_root);
+    auto st = local_state->_normalize_predicate(conjunct_expr_root.get(), new_root);
     EXPECT_EQ(new_root, nullptr);
     EXPECT_TRUE(local_state->_scan_dependency->ready());
     EXPECT_TRUE(local_state->_eos);
@@ -137,7 +134,7 @@ TEST_F(ScanNormalizePredicate, test_eval_const_conjuncts3) {
     vectorized::VExprSPtr new_root;
     auto conjunct_expr_root = ctx;
     // There is a DCHECK in the code to ensure size must be equal to 1, wait for this part of the code to be removed later
-    // auto st = local_state->_normalize_predicate(conjunct_expr_root->root(),
+    // auto st = local_state->_normalize_predicate(
     //                                             conjunct_expr_root.get(), new_root);
     // EXPECT_FALSE(st.ok());
     // std::cout << st.msg() << std::endl;
@@ -160,8 +157,7 @@ TEST_F(ScanNormalizePredicate, test_eval_const_conjuncts4) {
 
     vectorized::VExprSPtr new_root;
     auto conjunct_expr_root = ctx;
-    auto st = local_state->_normalize_predicate(conjunct_expr_root->root(),
-                                                conjunct_expr_root.get(), new_root);
+    auto st = local_state->_normalize_predicate(conjunct_expr_root.get(), new_root);
     EXPECT_TRUE(st.ok());
     std::cout << st.msg() << std::endl;
 }
@@ -200,8 +196,7 @@ TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot1) {
 
         vectorized::VExprSPtr new_root;
         auto conjunct_expr_root = ctx;
-        auto st = local_state->_normalize_predicate(conjunct_expr_root->root(),
-                                                    conjunct_expr_root.get(), new_root);
+        auto st = local_state->_normalize_predicate(conjunct_expr_root.get(), new_root);
         EXPECT_TRUE(st.ok());
         std::cout << st.msg() << std::endl;
     }
@@ -257,8 +252,7 @@ TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot2) {
 
         vectorized::VExprSPtr new_root;
         auto conjunct_expr_root = ctx;
-        auto st = local_state->_normalize_predicate(conjunct_expr_root->root(),
-                                                    conjunct_expr_root.get(), new_root);
+        auto st = local_state->_normalize_predicate(conjunct_expr_root.get(), new_root);
         EXPECT_TRUE(st.ok());
         std::cout << st.msg() << std::endl;
     }
@@ -281,8 +275,7 @@ TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot2) {
 
         vectorized::VExprSPtr new_root;
         auto conjunct_expr_root = ctx;
-        auto st = local_state->_normalize_predicate(conjunct_expr_root->root(),
-                                                    conjunct_expr_root.get(), new_root);
+        auto st = local_state->_normalize_predicate(conjunct_expr_root.get(), new_root);
         EXPECT_TRUE(st.ok());
         std::cout << st.msg() << std::endl;
     }
@@ -341,8 +334,7 @@ TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot3) {
 
         vectorized::VExprSPtr new_root;
         auto conjunct_expr_root = ctx;
-        EXPECT_TRUE(local_state->_normalize_predicate(conjunct_expr_root->root(),
-                                                      conjunct_expr_root.get(), new_root));
+        EXPECT_TRUE(local_state->_normalize_predicate(conjunct_expr_root.get(), new_root));
     }
     EXPECT_TRUE(local_state->_scan_dependency->ready());
     EXPECT_TRUE(local_state->_eos);
@@ -378,8 +370,7 @@ TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot4) {
 
         vectorized::VExprSPtr new_root;
         auto conjunct_expr_root = ctx;
-        EXPECT_TRUE(local_state->_normalize_predicate(conjunct_expr_root->root(),
-                                                      conjunct_expr_root.get(), new_root));
+        EXPECT_TRUE(local_state->_normalize_predicate(conjunct_expr_root.get(), new_root));
     }
 
     EXPECT_TRUE(local_state->_slot_id_to_value_range.contains(SlotId));
@@ -434,8 +425,7 @@ TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot5) {
 
         vectorized::VExprSPtr new_root;
         auto conjunct_expr_root = ctx;
-        EXPECT_TRUE(local_state->_normalize_predicate(conjunct_expr_root->root(),
-                                                      conjunct_expr_root.get(), new_root));
+        EXPECT_TRUE(local_state->_normalize_predicate(conjunct_expr_root.get(), new_root));
     }
 
     EXPECT_TRUE(local_state->_slot_id_to_value_range.contains(SlotId));
@@ -496,8 +486,7 @@ TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot6) {
 
         vectorized::VExprSPtr new_root;
         auto conjunct_expr_root = ctx;
-        EXPECT_TRUE(local_state->_normalize_predicate(conjunct_expr_root->root(),
-                                                      conjunct_expr_root.get(), new_root));
+        EXPECT_TRUE(local_state->_normalize_predicate(conjunct_expr_root.get(), new_root));
     }
 
     EXPECT_TRUE(local_state->_slot_id_to_value_range.contains(SlotId));
@@ -558,8 +547,7 @@ TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot7) {
 
         vectorized::VExprSPtr new_root;
         auto conjunct_expr_root = ctx;
-        EXPECT_TRUE(local_state->_normalize_predicate(conjunct_expr_root->root(),
-                                                      conjunct_expr_root.get(), new_root));
+        EXPECT_TRUE(local_state->_normalize_predicate(conjunct_expr_root.get(), new_root));
     }
 
     EXPECT_TRUE(local_state->_scan_dependency->ready());
@@ -602,8 +590,7 @@ TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot8) {
 
         vectorized::VExprSPtr new_root;
         auto conjunct_expr_root = ctx;
-        EXPECT_TRUE(local_state->_normalize_predicate(conjunct_expr_root->root(),
-                                                      conjunct_expr_root.get(), new_root));
+        EXPECT_TRUE(local_state->_normalize_predicate(conjunct_expr_root.get(), new_root));
     }
 
     auto& output_range = local_state->_slot_id_to_value_range[SlotId].second;
@@ -653,27 +640,8 @@ TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot10) {
 
         vectorized::VExprSPtr new_root;
         auto conjunct_expr_root = ctx;
-        EXPECT_TRUE(local_state->_normalize_predicate(conjunct_expr_root->root(),
-                                                      conjunct_expr_root.get(), new_root));
+        EXPECT_TRUE(local_state->_normalize_predicate(conjunct_expr_root.get(), new_root));
     }
-
-    auto& output_range = local_state->_not_in_value_ranges.front();
-    std::visit(
-            [](auto&& arg) {
-                using T = std::decay_t<decltype(arg)>;
-                if constexpr (std::is_same_v<T, ColumnValueRange<TYPE_BIGINT>>) {
-                    EXPECT_EQ(arg._fixed_values.size(), 3);
-                    auto it = arg._fixed_values.begin();
-                    EXPECT_EQ(*it, 1);
-                    ++it;
-                    EXPECT_EQ(*it, 10);
-                    ++it;
-                    EXPECT_EQ(*it, 100);
-                } else {
-                    FAIL() << "unexpected type";
-                }
-            },
-            output_range);
 }
 
 TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot11) {
@@ -711,23 +679,8 @@ TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot11) {
 
         vectorized::VExprSPtr new_root;
         auto conjunct_expr_root = ctx;
-        EXPECT_TRUE(local_state->_normalize_predicate(conjunct_expr_root->root(),
-                                                      conjunct_expr_root.get(), new_root));
+        EXPECT_TRUE(local_state->_normalize_predicate(conjunct_expr_root.get(), new_root));
     }
-
-    auto& output_range = local_state->_not_in_value_ranges.front();
-    std::visit(
-            [](auto&& arg) {
-                using T = std::decay_t<decltype(arg)>;
-                if constexpr (std::is_same_v<T, ColumnValueRange<TYPE_BIGINT>>) {
-                    EXPECT_EQ(arg._fixed_values.size(), 1);
-                    auto it = arg._fixed_values.begin();
-                    EXPECT_EQ(*it, 100);
-                } else {
-                    FAIL() << "unexpected type";
-                }
-            },
-            output_range);
 }
 
 TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot12) {
@@ -768,8 +721,7 @@ TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot12) {
 
         vectorized::VExprSPtr new_root;
         auto conjunct_expr_root = ctx;
-        EXPECT_TRUE(local_state->_normalize_predicate(conjunct_expr_root->root(),
-                                                      conjunct_expr_root.get(), new_root));
+        EXPECT_TRUE(local_state->_normalize_predicate(conjunct_expr_root.get(), new_root));
     }
 
     auto& output_range = local_state->_slot_id_to_value_range[SlotId].second;
@@ -823,8 +775,7 @@ TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot13) {
 
         vectorized::VExprSPtr new_root;
         auto conjunct_expr_root = ctx;
-        EXPECT_TRUE(local_state->_normalize_predicate(conjunct_expr_root->root(),
-                                                      conjunct_expr_root.get(), new_root));
+        EXPECT_TRUE(local_state->_normalize_predicate(conjunct_expr_root.get(), new_root));
     }
 
     auto& output_range = local_state->_slot_id_to_value_range[SlotId].second;
@@ -878,8 +829,7 @@ TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot14) {
 
         vectorized::VExprSPtr new_root;
         auto conjunct_expr_root = ctx;
-        EXPECT_TRUE(local_state->_normalize_predicate(conjunct_expr_root->root(),
-                                                      conjunct_expr_root.get(), new_root));
+        EXPECT_TRUE(local_state->_normalize_predicate(conjunct_expr_root.get(), new_root));
     }
 
     auto& output_range = local_state->_slot_id_to_value_range[SlotId].second;
@@ -937,8 +887,7 @@ TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot15) {
 
         vectorized::VExprSPtr new_root;
         auto conjunct_expr_root = ctx;
-        EXPECT_TRUE(local_state->_normalize_predicate(conjunct_expr_root->root(),
-                                                      conjunct_expr_root.get(), new_root));
+        EXPECT_TRUE(local_state->_normalize_predicate(conjunct_expr_root.get(), new_root));
     }
 
     auto& output_range = local_state->_slot_id_to_value_range[SlotId].second;
@@ -1000,8 +949,7 @@ TEST_F(ScanNormalizePredicate, test_double_predicate) {
 
         vectorized::VExprSPtr new_root;
         auto conjunct_expr_root = ctx;
-        auto st = local_state->_normalize_predicate(conjunct_expr_root->root(),
-                                                    conjunct_expr_root.get(), new_root);
+        auto st = local_state->_normalize_predicate(conjunct_expr_root.get(), new_root);
         EXPECT_TRUE(st.ok());
         EXPECT_EQ(new_root, nullptr);
 
@@ -1039,8 +987,7 @@ TEST_F(ScanNormalizePredicate, test_double_predicate) {
 
         vectorized::VExprSPtr new_root;
         auto conjunct_expr_root = ctx;
-        auto st = local_state->_normalize_predicate(conjunct_expr_root->root(),
-                                                    conjunct_expr_root.get(), new_root);
+        auto st = local_state->_normalize_predicate(conjunct_expr_root.get(), new_root);
         EXPECT_TRUE(st.ok());
         EXPECT_EQ(new_root, nullptr);
         EXPECT_TRUE(local_state->_slot_id_to_value_range.contains(SlotId));
@@ -1079,24 +1026,9 @@ TEST_F(ScanNormalizePredicate, test_double_predicate) {
 
         vectorized::VExprSPtr new_root;
         auto conjunct_expr_root = ctx;
-        EXPECT_TRUE(local_state->_normalize_predicate(conjunct_expr_root->root(),
-                                                      conjunct_expr_root.get(), new_root));
+        EXPECT_TRUE(local_state->_normalize_predicate(conjunct_expr_root.get(), new_root));
         EXPECT_EQ(new_root, nullptr);
         EXPECT_TRUE(local_state->_slot_id_to_value_range.contains(SlotId));
-
-        auto& output_range = local_state->_not_in_value_ranges.front();
-        std::visit(
-                [&](auto&& arg) {
-                    using T = std::decay_t<decltype(arg)>;
-                    if constexpr (std::is_same_v<T, ColumnValueRange<TYPE_DOUBLE>>) {
-                        EXPECT_EQ(arg._fixed_values.size(), 1);
-                        auto it = arg._fixed_values.begin();
-                        EXPECT_TRUE(Compare::equal(*it, const_v));
-                    } else {
-                        FAIL() << "unexpected type";
-                    }
-                },
-                output_range);
     }
     // test not in
     {
@@ -1117,23 +1049,10 @@ TEST_F(ScanNormalizePredicate, test_double_predicate) {
 
         vectorized::VExprSPtr new_root;
         auto conjunct_expr_root = ctx;
-        auto st = local_state->_normalize_predicate(conjunct_expr_root->root(),
-                                                    conjunct_expr_root.get(), new_root);
+        auto st = local_state->_normalize_predicate(conjunct_expr_root.get(), new_root);
         EXPECT_TRUE(st.ok());
         EXPECT_EQ(new_root, nullptr);
         EXPECT_TRUE(local_state->_slot_id_to_value_range.contains(SlotId));
-
-        auto& output_range = local_state->_not_in_value_ranges.front();
-        std::visit(
-                [&](auto&& arg) {
-                    using T = std::decay_t<decltype(arg)>;
-                    if constexpr (std::is_same_v<T, ColumnValueRange<TYPE_DOUBLE>>) {
-                        EXPECT_EQ(arg._fixed_values.size(), test_values.size());
-                    } else {
-                        FAIL() << "unexpected type";
-                    }
-                },
-                output_range);
     }
     // test is null
     {
@@ -1155,8 +1074,7 @@ TEST_F(ScanNormalizePredicate, test_double_predicate) {
 
         vectorized::VExprSPtr new_root;
         auto conjunct_expr_root = ctx;
-        EXPECT_TRUE(local_state->_normalize_predicate(conjunct_expr_root->root(),
-                                                      conjunct_expr_root.get(), new_root));
+        EXPECT_TRUE(local_state->_normalize_predicate(conjunct_expr_root.get(), new_root));
         auto& output_range = local_state->_slot_id_to_value_range[SlotId].second;
         std::visit(
                 [](auto&& arg) {
@@ -1191,8 +1109,7 @@ TEST_F(ScanNormalizePredicate, test_double_predicate) {
 
         vectorized::VExprSPtr new_root;
         auto conjunct_expr_root = ctx;
-        EXPECT_TRUE(local_state->_normalize_predicate(conjunct_expr_root->root(),
-                                                      conjunct_expr_root.get(), new_root));
+        EXPECT_TRUE(local_state->_normalize_predicate(conjunct_expr_root.get(), new_root));
         auto& output_range = local_state->_slot_id_to_value_range[SlotId].second;
         std::visit(
                 [](auto&& arg) {
@@ -1230,8 +1147,7 @@ TEST_F(ScanNormalizePredicate, test_double_predicate) {
 
         vectorized::VExprSPtr new_root;
         auto conjunct_expr_root = ctx;
-        auto st = local_state->_normalize_predicate(conjunct_expr_root->root(),
-                                                    conjunct_expr_root.get(), new_root);
+        auto st = local_state->_normalize_predicate(conjunct_expr_root.get(), new_root);
         EXPECT_TRUE(st.ok());
         EXPECT_EQ(new_root, nullptr);
 
@@ -1287,8 +1203,7 @@ TEST_F(ScanNormalizePredicate, test_double_predicate) {
 
         vectorized::VExprSPtr new_root;
         auto conjunct_expr_root = ctx;
-        auto st = local_state->_normalize_predicate(conjunct_expr_root->root(),
-                                                    conjunct_expr_root.get(), new_root);
+        auto st = local_state->_normalize_predicate(conjunct_expr_root.get(), new_root);
         EXPECT_TRUE(st.ok());
         EXPECT_EQ(new_root, nullptr);
 
@@ -1341,8 +1256,7 @@ TEST_F(ScanNormalizePredicate, test_double_predicate) {
 
         vectorized::VExprSPtr new_root;
         auto conjunct_expr_root = ctx;
-        auto st = local_state->_normalize_predicate(conjunct_expr_root->root(),
-                                                    conjunct_expr_root.get(), new_root);
+        auto st = local_state->_normalize_predicate(conjunct_expr_root.get(), new_root);
         EXPECT_TRUE(st.ok());
         EXPECT_EQ(new_root, nullptr);
 
@@ -1398,8 +1312,7 @@ TEST_F(ScanNormalizePredicate, test_double_predicate) {
 
         vectorized::VExprSPtr new_root;
         auto conjunct_expr_root = ctx;
-        auto st = local_state->_normalize_predicate(conjunct_expr_root->root(),
-                                                    conjunct_expr_root.get(), new_root);
+        auto st = local_state->_normalize_predicate(conjunct_expr_root.get(), new_root);
         EXPECT_TRUE(st.ok());
         EXPECT_EQ(new_root, nullptr);
 

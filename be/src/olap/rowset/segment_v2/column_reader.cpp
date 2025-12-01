@@ -381,8 +381,8 @@ Status ColumnReader::read_page(const ColumnIteratorOptions& iter_opts, const Pag
 
 Status ColumnReader::get_row_ranges_by_zone_map(
         const AndBlockColumnPredicate* col_predicates,
-        const std::vector<const ColumnPredicate*>* delete_predicates, RowRanges* row_ranges,
-        const ColumnIteratorOptions& iter_opts) {
+        const std::vector<std::shared_ptr<const ColumnPredicate>>* delete_predicates,
+        RowRanges* row_ranges, const ColumnIteratorOptions& iter_opts) {
     std::vector<uint32_t> page_indexes;
     RETURN_IF_ERROR(
             _get_filtered_pages(col_predicates, delete_predicates, &page_indexes, iter_opts));
@@ -448,8 +448,9 @@ Status ColumnReader::match_condition(const AndBlockColumnPredicate* col_predicat
     return Status::OK();
 }
 
-Status ColumnReader::prune_predicates_by_zone_map(std::vector<ColumnPredicate*>& predicates,
-                                                  const int column_id, bool* pruned) const {
+Status ColumnReader::prune_predicates_by_zone_map(
+        std::vector<std::shared_ptr<ColumnPredicate>>& predicates, const int column_id,
+        bool* pruned) const {
     *pruned = false;
     if (_zone_map_index == nullptr) {
         return Status::OK();
@@ -558,7 +559,7 @@ bool ColumnReader::_zone_map_match_condition(const ZoneMapPB& zone_map,
 
 Status ColumnReader::_get_filtered_pages(
         const AndBlockColumnPredicate* col_predicates,
-        const std::vector<const ColumnPredicate*>* delete_predicates,
+        const std::vector<std::shared_ptr<const ColumnPredicate>>* delete_predicates,
         std::vector<uint32_t>* page_indexes, const ColumnIteratorOptions& iter_opts) {
     RETURN_IF_ERROR(_load_zone_map_index(_use_index_page_cache, _opts.kept_in_memory, iter_opts));
 
@@ -1945,7 +1946,8 @@ Status FileColumnIterator::_read_dict_data() {
 
 Status FileColumnIterator::get_row_ranges_by_zone_map(
         const AndBlockColumnPredicate* col_predicates,
-        const std::vector<const ColumnPredicate*>* delete_predicates, RowRanges* row_ranges) {
+        const std::vector<std::shared_ptr<const ColumnPredicate>>* delete_predicates,
+        RowRanges* row_ranges) {
     if (_reader->has_zone_map()) {
         RETURN_IF_ERROR(_reader->get_row_ranges_by_zone_map(col_predicates, delete_predicates,
                                                             row_ranges, _opts));

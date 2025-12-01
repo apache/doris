@@ -424,7 +424,7 @@ Status SegmentIterator::_init_impl(const StorageReadOptions& opts) {
 
 void SegmentIterator::_initialize_predicate_results() {
     // Initialize from _col_predicates
-    for (auto* pred : _col_predicates) {
+    for (auto pred : _col_predicates) {
         int cid = pred->column_id();
         _column_predicate_index_exec_status[cid][pred] = false;
     }
@@ -950,7 +950,7 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
                                                          _opts)) {
                     AndBlockColumnPredicate and_predicate;
                     and_predicate.add_column_predicate(
-                            SingleColumnBlockPredicate::create_unique(runtime_predicate.get()));
+                            SingleColumnBlockPredicate::create_unique(runtime_predicate));
 
                     RowRanges column_rp_row_ranges = RowRanges::create_single(num_rows());
                     RETURN_IF_ERROR(_column_iterators[runtime_predicate->column_id()]
@@ -1010,7 +1010,7 @@ Status SegmentIterator::_extract_common_expr_columns(const vectorized::VExprSPtr
     return Status::OK();
 }
 
-bool SegmentIterator::_check_apply_by_inverted_index(ColumnPredicate* pred) {
+bool SegmentIterator::_check_apply_by_inverted_index(std::shared_ptr<ColumnPredicate> pred) {
     if (_opts.runtime_state && !_opts.runtime_state->query_options().enable_inverted_index_query) {
         return false;
     }
@@ -1038,8 +1038,8 @@ bool SegmentIterator::_check_apply_by_inverted_index(ColumnPredicate* pred) {
     }
 
     // Function filter no apply inverted index
-    if (dynamic_cast<LikeColumnPredicate<TYPE_CHAR>*>(pred) != nullptr ||
-        dynamic_cast<LikeColumnPredicate<TYPE_STRING>*>(pred) != nullptr) {
+    if (dynamic_cast<LikeColumnPredicate<TYPE_CHAR>*>(pred.get()) != nullptr ||
+        dynamic_cast<LikeColumnPredicate<TYPE_STRING>*>(pred.get()) != nullptr) {
         return false;
     }
 
@@ -1151,8 +1151,8 @@ inline bool SegmentIterator::_inverted_index_not_support_pred_type(const Predica
 }
 
 Status SegmentIterator::_apply_inverted_index_on_column_predicate(
-        ColumnPredicate* pred, std::vector<ColumnPredicate*>& remaining_predicates,
-        bool* continue_apply) {
+        std::shared_ptr<ColumnPredicate> pred,
+        std::vector<std::shared_ptr<ColumnPredicate>>& remaining_predicates, bool* continue_apply) {
     if (!_check_apply_by_inverted_index(pred)) {
         remaining_predicates.emplace_back(pred);
     } else {
@@ -1240,8 +1240,8 @@ bool SegmentIterator::_need_read_data(ColumnId cid) {
 }
 
 Status SegmentIterator::_apply_inverted_index() {
-    std::vector<ColumnPredicate*> remaining_predicates;
-    std::set<const ColumnPredicate*> no_need_to_pass_column_predicate_set;
+    std::vector<std::shared_ptr<ColumnPredicate>> remaining_predicates;
+    std::set<std::shared_ptr<ColumnPredicate>> no_need_to_pass_column_predicate_set;
 
     for (auto pred : _col_predicates) {
         if (no_need_to_pass_column_predicate_set.count(pred) > 0) {
@@ -1671,9 +1671,9 @@ Status SegmentIterator::_vec_init_lazy_materialization() {
     std::set<ColumnId> del_cond_id_set;
     _opts.delete_condition_predicates->get_all_column_ids(del_cond_id_set);
 
-    std::set<const ColumnPredicate*> delete_predicate_set {};
+    std::set<std::shared_ptr<const ColumnPredicate>> delete_predicate_set {};
     _opts.delete_condition_predicates->get_all_column_predicate(delete_predicate_set);
-    for (const auto* const predicate : delete_predicate_set) {
+    for (auto predicate : delete_predicate_set) {
         if (PredicateTypeTraits::is_range(predicate->type())) {
             _delete_range_column_ids.push_back(predicate->column_id());
         } else if (PredicateTypeTraits::is_bloom_filter(predicate->type())) {
@@ -1693,7 +1693,7 @@ Status SegmentIterator::_vec_init_lazy_materialization() {
             auto& runtime_predicate =
                     _opts.runtime_state->get_query_ctx()->get_runtime_predicate(id);
             _col_predicates.push_back(
-                    runtime_predicate.get_predicate(_opts.topn_filter_target_node_id).get());
+                    runtime_predicate.get_predicate(_opts.topn_filter_target_node_id));
             VLOG_DEBUG << fmt::format(
                     "After appending topn filter to col_predicates, "
                     "col_predicates size: {}, col_predicate: {}",
@@ -1706,7 +1706,7 @@ Status SegmentIterator::_vec_init_lazy_materialization() {
         std::set<ColumnId> short_cir_pred_col_id_set; // using set for distinct cid
         std::set<ColumnId> vec_pred_col_id_set;
 
-        for (auto* predicate : _col_predicates) {
+        for (auto predicate : _col_predicates) {
             auto cid = predicate->column_id();
             _is_pred_column[cid] = true;
             pred_column_ids.insert(cid);
@@ -1858,7 +1858,7 @@ Status SegmentIterator::_vec_init_lazy_materialization() {
     return Status::OK();
 }
 
-bool SegmentIterator::_can_evaluated_by_vectorized(ColumnPredicate* predicate) {
+bool SegmentIterator::_can_evaluated_by_vectorized(std::shared_ptr<ColumnPredicate> predicate) {
     auto cid = predicate->column_id();
     FieldType field_type = _schema->column(cid)->type();
     if (field_type == FieldType::OLAP_FIELD_TYPE_VARIANT) {
@@ -2279,7 +2279,7 @@ uint16_t SegmentIterator::_evaluate_short_circuit_predicate(uint16_t* vec_sel_ro
     }
 
     uint16_t original_size = selected_size;
-    for (auto* predicate : _short_cir_eval_predicate) {
+    for (auto predicate : _short_cir_eval_predicate) {
         auto column_id = predicate->column_id();
         auto& short_cir_column = _current_return_columns[column_id];
         selected_size = predicate->evaluate(*short_cir_column, vec_sel_rowid_idx, selected_size);
@@ -2818,7 +2818,7 @@ void SegmentIterator::_convert_dict_code_for_predicate_if_necessary() {
 }
 
 void SegmentIterator::_convert_dict_code_for_predicate_if_necessary_impl(
-        ColumnPredicate* predicate) {
+        std::shared_ptr<ColumnPredicate> predicate) {
     auto& column = _current_return_columns[predicate->column_id()];
     auto* col_ptr = column.get();
 
