@@ -417,6 +417,7 @@ public:
         Defer defer([&]() {
             update_filter_info(current_evaluated_rows - current_passed_rows,
                                current_evaluated_rows);
+            try_reset_judge_selectivity();
         });
 
         if (column.is_nullable()) {
