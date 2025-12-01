@@ -75,4 +75,12 @@ public class StepPartition extends PartitionDefinition {
             throw new AnalysisException(e.getMessage(), e.getCause());
         }
     }
+
+    public List<Expression> getFromExpression() {
+        return fromExpression;
+    }
+
+    public List<Expression> getToExpression() {
+        return toExpression;
+    }
 }

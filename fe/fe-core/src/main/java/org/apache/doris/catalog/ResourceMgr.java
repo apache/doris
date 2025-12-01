@@ -49,6 +49,7 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentMap;
 import java.util.stream.Collectors;
 
 /**
@@ -65,7 +66,7 @@ public class ResourceMgr implements Writable {
 
     // { resourceName -> Resource}
     @SerializedName(value = "nameToResource")
-    private final Map<String, Resource> nameToResource = Maps.newConcurrentMap();
+    private final ConcurrentMap<String, Resource> nameToResource = Maps.newConcurrentMap();
     private final ResourceProcNode procNode = new ResourceProcNode();
 
     public ResourceMgr() {

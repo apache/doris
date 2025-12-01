@@ -377,4 +377,39 @@ suite("extend_infer_equal_predicate") {
     qt_pull_up_from_intersect """select a from(select a from (select t1.a from extend_infer_t3 t1 where t1.a<10 intersect select t2.a from extend_infer_t4 t2 where t2.a<10  ) tt
             limit 10) t  where a<10 order by 1 ;"""
     qt_pull_up_from_agg """select a from (select a from extend_infer_t3 t1 where a<10 group by a limit 10) t where a<10 order by 1"""
+
+    def explain_and_result = { tag, sql ->
+        "qt_${tag}_shape"          "explain shape plan ${sql}"
+        "order_qt_${tag}_result"   "${sql}"
+    }
+
+    // test left join right table predicate pull up
+    explain_and_result 'qt_leftjoin_right_pull_up_shape', '''
+        select * from extend_infer_t3 t1 left join extend_infer_t4 t2 on t1.a=t2.a left join extend_infer_t5 t3 on t2.a= t3.a where t1.a=1;
+    '''
+    // test multi left join right table predicate pull up
+    explain_and_result "qt_multi_leftjoin_right_pull_up_shape", """
+        select * from extend_infer_t3 t1 left join extend_infer_t4 t2 on t1.a=t2.a left join extend_infer_t5 t3 on t2.a= t3.a left join extend_infer_t5 t4 on t4.a=t3.a left join extend_infer_t5 t5 on t2.a=t5.a where t1.a=1;
+    """
+    explain_and_result "qt_leftjoin_right_pull_up_in_shape", """
+        select * from extend_infer_t3 t1 left join extend_infer_t4 t2 on t1.a=t2.a left join extend_infer_t5 t3 on t2.a= t3.a where t1.a in (1,2);
+    """
+    // is null may be can be inferred but we do not infer it now
+    explain_and_result "qt_leftjoin_right_pull_up_is_null_shape", """
+        select * from extend_infer_t3 t1 left join extend_infer_t4 t2 on t1.a=t2.a left join extend_infer_t5 t3 on t2.a= t3.a where t1.a is null;
+    """
+    // is not null may be need not be innfered
+    explain_and_result "qt_leftjoin_right_pull_up_is_not_null_shape", """
+        select * from extend_infer_t3 t1 left join extend_infer_t4 t2 on t1.a=t2.a left join extend_infer_t5 t3 on t2.a= t3.a where t1.a is not null;
+    """
+
+    explain_and_result 'qt_left_join_inner', '''
+        select * from extend_infer_t3 t1 left join extend_infer_t4 t2 on t1.a=t2.a inner join extend_infer_t5 t3 on t2.a= t3.a where t1.a=1;
+    '''
+    explain_and_result 'qt_left_join_semi', '''
+        select * from extend_infer_t3 t1 left join extend_infer_t4 t2 on t1.a=t2.a left semi join extend_infer_t5 t3 on t2.a= t3.a where t1.a=1;
+    '''
+    explain_and_result 'qt_left_join_anti', '''
+        select * from extend_infer_t3 t1 left join extend_infer_t4 t2 on t1.a=t2.a left anti join extend_infer_t5 t3 on t2.a= t3.a where t1.a=1;
+    '''
 }

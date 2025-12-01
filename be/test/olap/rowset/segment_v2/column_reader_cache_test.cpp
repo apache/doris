@@ -24,12 +24,11 @@
 #include <thread>
 #include <vector>
 
-#include "agent/be_exec_version_manager.h"
 #include "common/config.h"
-#include "gen_cpp/olap_file.pb.h"
 #include "gen_cpp/segment_v2.pb.h"
 #include "io/fs/file_reader.h"
 #include "mock/mock_segment.h"
+#include "olap/rowset/segment_v2/column_meta_accessor.h"
 #include "olap/rowset/segment_v2/column_reader.h"
 #include "olap/rowset/segment_v2/segment.h"
 #include "olap/rowset/segment_v2/variant/variant_column_reader.h"
@@ -65,11 +64,22 @@ protected:
         // Create mock segment
         _mock_segment = std::make_unique<StrictMock<MockSegment>>();
 
-        // Create cache
-        _cache = std::make_unique<ColumnReaderCache>(_mock_segment.get());
-
-        // Set up basic mock expectations
+        // Set up basic mock expectations before constructing the cache, because
+        // ColumnReaderCache's ctor reads _mock_segment->num_rows().
         setup_basic_mocks();
+
+        // Create cache bound to mock segment context.
+        // ColumnMetaAccessor will be initialized later in setup_segment_footer()
+        // once the test-specific footer has been constructed.
+        io::FileReaderSPtr file_reader; // nullptr is fine for inline-only tests
+        auto footer_cb = [this](std::shared_ptr<SegmentFooterPB>& footer_pb_shared,
+                                OlapReaderStatistics* stats) -> Status {
+            // Delegate to MockSegment::_get_segment_footer
+            return _mock_segment->_get_segment_footer(footer_pb_shared, stats);
+        };
+        _cache = std::make_unique<ColumnReaderCache>(&_accessor, _mock_segment->tablet_schema(),
+                                                     file_reader, _mock_segment->num_rows(),
+                                                     footer_cb);
     }
 
     void TearDown() override {
@@ -108,9 +118,13 @@ protected:
             *footer->add_columns() = col;
         }
         _mock_segment->set_footer(footer);
+        // Initialize ColumnMetaAccessor with the current footer; external meta is not
+        // used in these tests so we can pass a null file reader.
+        CHECK(_accessor.init(*footer, nullptr).ok());
     }
 
     std::unique_ptr<StrictMock<MockSegment>> _mock_segment;
+    ColumnMetaAccessor _accessor;
     std::unique_ptr<ColumnReaderCache> _cache;
     OlapReaderStatistics _stats;
 };
@@ -353,17 +367,17 @@ TEST_F(ColumnReaderCacheTest, DifferentColumnTypes) {
             FieldType::OLAP_FIELD_TYPE_DOUBLE, FieldType::OLAP_FIELD_TYPE_BOOL};
 
     for (size_t i = 0; i < types.size(); ++i) {
-        setup_column_uid_mapping(i + 1, 0);
+        setup_column_uid_mapping(static_cast<int32_t>(i + 1), 0);
 
         ColumnMetaPB col_meta;
         col_meta.set_type(static_cast<int32_t>(types[i]));
-        col_meta.set_unique_id(i + 1);
+        col_meta.set_unique_id(static_cast<int32_t>(i + 1));
         col_meta.set_encoding(EncodingTypePB::DEFAULT_ENCODING);
         col_meta.mutable_indexes()->Add()->set_type(ORDINAL_INDEX);
         setup_segment_footer({col_meta});
 
         std::shared_ptr<ColumnReader> reader;
-        Status status = _cache->get_column_reader(i + 1, &reader, &_stats);
+        Status status = _cache->get_column_reader(static_cast<int32_t>(i + 1), &reader, &_stats);
         EXPECT_TRUE(status.ok());
         EXPECT_NE(reader, nullptr);
     }
@@ -395,20 +409,22 @@ TEST_F(ColumnReaderCacheTest, NodeHintParameter) {
     vectorized::PathInData path("hint_field");
     std::shared_ptr<ColumnReader> reader;
     Status status = _cache->get_path_column_reader(1, path, &reader, &_stats, &node_hint);
-    EXPECT_TRUE(status.ok());
-    EXPECT_NE(reader, nullptr);
+    EXPECT_TRUE(status.is<ErrorCode::NOT_FOUND>());
+    EXPECT_EQ(reader, nullptr);
 
     // Test cache hit
     status = _cache->get_path_column_reader(1, path, &reader, &_stats, &node_hint);
-    EXPECT_TRUE(status.ok());
-    EXPECT_NE(reader, nullptr);
+    EXPECT_TRUE(status.is<ErrorCode::NOT_FOUND>());
+    EXPECT_EQ(reader, nullptr);
 }
 
 // Test cache performance under load
 TEST_F(ColumnReaderCacheTest, PerformanceUnderLoad) {
     const int num_columns = 100;
 
-    // Set up many columns
+    // Set up many columns in a single footer so that ColumnMetaAccessor and
+    // ColumnReaderCache both see a consistent multi-column layout.
+    std::vector<ColumnMetaPB> all_columns;
     for (int i = 1; i <= num_columns; ++i) {
         setup_column_uid_mapping(i, 0);
 
@@ -417,8 +433,9 @@ TEST_F(ColumnReaderCacheTest, PerformanceUnderLoad) {
         col_meta.set_unique_id(i);
         col_meta.set_encoding(EncodingTypePB::DEFAULT_ENCODING);
         col_meta.mutable_indexes()->Add()->set_type(ORDINAL_INDEX);
-        setup_segment_footer({col_meta});
+        all_columns.push_back(col_meta);
     }
+    setup_segment_footer(all_columns);
 
     auto start_time = std::chrono::high_resolution_clock::now();
 

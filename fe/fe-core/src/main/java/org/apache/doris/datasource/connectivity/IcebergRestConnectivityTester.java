@@ -21,7 +21,7 @@ import org.apache.doris.datasource.property.metastore.AbstractIcebergProperties;
 import org.apache.doris.datasource.property.metastore.IcebergRestProperties;
 
 import org.apache.iceberg.CatalogProperties;
-import org.apache.iceberg.rest.RESTSessionCatalog;
+import org.apache.iceberg.rest.RESTCatalog;
 
 import java.util.Map;
 
@@ -43,15 +43,19 @@ public class IcebergRestConnectivityTester extends AbstractIcebergConnectivityTe
     @Override
     public String getErrorHint() {
         return "Please check Iceberg REST Catalog URI, authentication credentials (OAuth2 or SigV4), "
-                + "warehouse location, and endpoint connectivity";
+                + "warehouse (location, catalog name, or S3 Tables ARN), and endpoint connectivity";
     }
 
     @Override
     public void testConnection() throws Exception {
         Map<String, String> restProps = ((IcebergRestProperties) properties).getIcebergRestCatalogProperties();
 
-        try (RESTSessionCatalog catalog = new RESTSessionCatalog()) {
+        try (RESTCatalog catalog = new RESTCatalog()) {
             catalog.initialize("connectivity-test", restProps);
+
+            // Validate connection by listing namespaces.
+            // This verifies authentication and warehouse configuration.
+            catalog.listNamespaces();
 
             Map<String, String> mergedProps = catalog.properties();
             String location = mergedProps.get(CatalogProperties.WAREHOUSE_LOCATION);

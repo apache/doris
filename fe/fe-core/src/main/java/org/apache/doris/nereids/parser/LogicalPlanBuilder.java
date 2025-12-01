@@ -80,6 +80,7 @@ import org.apache.doris.nereids.DorisParser.AddColumnsClauseContext;
 import org.apache.doris.nereids.DorisParser.AddConstraintContext;
 import org.apache.doris.nereids.DorisParser.AddIndexClauseContext;
 import org.apache.doris.nereids.DorisParser.AddPartitionClauseContext;
+import org.apache.doris.nereids.DorisParser.AddPartitionFieldClauseContext;
 import org.apache.doris.nereids.DorisParser.AddRollupClauseContext;
 import org.apache.doris.nereids.DorisParser.AdminCancelRebalanceDiskContext;
 import org.apache.doris.nereids.DorisParser.AdminCheckTabletsContext;
@@ -195,6 +196,7 @@ import org.apache.doris.nereids.DorisParser.DropIndexTokenFilterContext;
 import org.apache.doris.nereids.DorisParser.DropIndexTokenizerContext;
 import org.apache.doris.nereids.DorisParser.DropMVContext;
 import org.apache.doris.nereids.DorisParser.DropPartitionClauseContext;
+import org.apache.doris.nereids.DorisParser.DropPartitionFieldClauseContext;
 import org.apache.doris.nereids.DorisParser.DropProcedureContext;
 import org.apache.doris.nereids.DorisParser.DropRepositoryContext;
 import org.apache.doris.nereids.DorisParser.DropRoleContext;
@@ -275,6 +277,10 @@ import org.apache.doris.nereids.DorisParser.OptScanParamsContext;
 import org.apache.doris.nereids.DorisParser.OutFileClauseContext;
 import org.apache.doris.nereids.DorisParser.ParenthesizedExpressionContext;
 import org.apache.doris.nereids.DorisParser.PartitionSpecContext;
+import org.apache.doris.nereids.DorisParser.PartitionTransformContext;
+import org.apache.doris.nereids.DorisParser.PartitionTransformIdentityContext;
+import org.apache.doris.nereids.DorisParser.PartitionTransformWithArgsContext;
+import org.apache.doris.nereids.DorisParser.PartitionTransformWithColumnContext;
 import org.apache.doris.nereids.DorisParser.PartitionValueDefContext;
 import org.apache.doris.nereids.DorisParser.PartitionValueListContext;
 import org.apache.doris.nereids.DorisParser.PartitionsDefContext;
@@ -315,6 +321,7 @@ import org.apache.doris.nereids.DorisParser.RenameRollupClauseContext;
 import org.apache.doris.nereids.DorisParser.ReorderColumnsClauseContext;
 import org.apache.doris.nereids.DorisParser.ReplaceContext;
 import org.apache.doris.nereids.DorisParser.ReplacePartitionClauseContext;
+import org.apache.doris.nereids.DorisParser.ReplacePartitionFieldClauseContext;
 import org.apache.doris.nereids.DorisParser.ReplaceTableClauseContext;
 import org.apache.doris.nereids.DorisParser.ResumeMTMVContext;
 import org.apache.doris.nereids.DorisParser.RollupDefContext;
@@ -515,6 +522,7 @@ import org.apache.doris.nereids.trees.expressions.BitXor;
 import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.DefaultValueSlot;
+import org.apache.doris.nereids.trees.expressions.DereferenceExpression;
 import org.apache.doris.nereids.trees.expressions.Divide;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Exists;
@@ -885,6 +893,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.AddColumnOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AddColumnsOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AddFollowerOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AddObserverOp;
+import org.apache.doris.nereids.trees.plans.commands.info.AddPartitionFieldOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AddPartitionOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AddRollupOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterLoadErrorUrlOp;
@@ -931,6 +940,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.DropFollowerOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropIndexOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.DropObserverOp;
+import org.apache.doris.nereids.trees.plans.commands.info.DropPartitionFieldOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropPartitionFromIndexOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropPartitionOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropRollupOp;
@@ -966,6 +976,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.RenamePartitionOp;
 import org.apache.doris.nereids.trees.plans.commands.info.RenameRollupOp;
 import org.apache.doris.nereids.trees.plans.commands.info.RenameTableOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ReorderColumnsOp;
+import org.apache.doris.nereids.trees.plans.commands.info.ReplacePartitionFieldOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ReplacePartitionOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ReplaceTableOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ResumeMTMVInfo;
@@ -3405,8 +3416,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 UnboundSlot slot = new UnboundSlot(nameParts, Optional.empty());
                 return slot;
             } else {
-                // todo: base is an expression, may be not a table name.
-                throw new ParseException("Unsupported dereference expression: " + ctx.getText(), ctx);
+                return new DereferenceExpression(e, new StringLiteral(ctx.identifier().getText()));
             }
         });
     }
@@ -5705,6 +5715,100 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 ? Maps.newHashMap(visitPropertyClause(ctx.properties))
                 : Maps.newHashMap();
         return new ReorderColumnsOp(columnsByPos, rollupName, properties);
+    }
+
+    // Helper class to reduce parameter passing
+    private static class PartitionFieldInfo {
+        final String fieldName;
+        final String transformName;
+        final Integer transformArg;
+        final String columnName;
+
+        PartitionFieldInfo(String fieldName, String transformName, Integer transformArg, String columnName) {
+            this.fieldName = fieldName;
+            this.transformName = transformName;
+            this.transformArg = transformArg;
+            this.columnName = columnName;
+        }
+    }
+
+    private PartitionFieldInfo extractOldPartitionFieldInfo(ReplacePartitionFieldClauseContext ctx) {
+        PartitionTransformContext oldTransformCtx = ctx.oldPartitionTransform;
+        if (oldTransformCtx == null) {
+            // old specified as identifier
+            return new PartitionFieldInfo(ctx.oldPartitionFieldName.getText(), null, null, null);
+        }
+
+        PartitionFieldInfo info = extractTransformInfo(oldTransformCtx);
+        return new PartitionFieldInfo(null, info.transformName, info.transformArg, info.columnName);
+    }
+
+    private PartitionFieldInfo extractNewPartitionFieldInfo(ReplacePartitionFieldClauseContext ctx) {
+        PartitionFieldInfo info = extractTransformInfo(ctx.newPartitionTransform);
+        String partitionFieldName = ctx.newPartitionFieldName != null
+                ? ctx.newPartitionFieldName.getText()
+                : null;
+        return new PartitionFieldInfo(partitionFieldName,
+            info.transformName, info.transformArg, info.columnName);
+    }
+
+    private PartitionFieldInfo extractTransformInfo(PartitionTransformContext ctx) {
+        if (ctx instanceof PartitionTransformWithArgsContext) {
+            PartitionTransformWithArgsContext argsCtx = (PartitionTransformWithArgsContext) ctx;
+            return new PartitionFieldInfo(null,
+                    argsCtx.identifier(0).getText(),
+                    Integer.parseInt(argsCtx.INTEGER_VALUE().getText()),
+                    argsCtx.identifier(1).getText());
+        }
+
+        if (ctx instanceof PartitionTransformWithColumnContext) {
+            PartitionTransformWithColumnContext colCtx = (PartitionTransformWithColumnContext) ctx;
+            return new PartitionFieldInfo(null,
+                    colCtx.identifier(0).getText(),
+                    null,
+                    colCtx.identifier(1).getText());
+        }
+
+        if (ctx instanceof PartitionTransformIdentityContext) {
+            PartitionTransformIdentityContext idCtx = (PartitionTransformIdentityContext) ctx;
+            return new PartitionFieldInfo(null, null, null, idCtx.identifier().getText());
+        }
+
+        return new PartitionFieldInfo(null, null, null, null);
+    }
+
+    @Override
+    public AlterTableOp visitAddPartitionFieldClause(AddPartitionFieldClauseContext ctx) {
+        PartitionFieldInfo info = extractTransformInfo(ctx.partitionTransform());
+        String partitionFieldName = ctx.partitionFieldName != null
+                ? ctx.partitionFieldName.getText()
+                : null;
+        return new AddPartitionFieldOp(info.transformName, info.transformArg,
+                info.columnName, partitionFieldName);
+    }
+
+    @Override
+    public AlterTableOp visitDropPartitionFieldClause(DropPartitionFieldClauseContext ctx) {
+        PartitionTransformContext transform = ctx.partitionTransform();
+        if (transform == null) {
+            // Identifier case
+            return new DropPartitionFieldOp(ctx.partitionFieldName.getText());
+        }
+        PartitionFieldInfo info = extractTransformInfo(transform);
+        return new DropPartitionFieldOp(null, info.transformName, info.transformArg, info.columnName);
+    }
+
+    @Override
+    public AlterTableOp visitReplacePartitionFieldClause(ReplacePartitionFieldClauseContext ctx) {
+        // Extract old partition field info (key name or partition expression)
+        PartitionFieldInfo oldInfo = extractOldPartitionFieldInfo(ctx);
+
+        // Extract new partition transform info
+        PartitionFieldInfo newInfo = extractNewPartitionFieldInfo(ctx);
+
+        return new ReplacePartitionFieldOp(oldInfo.fieldName, oldInfo.transformName,
+                oldInfo.transformArg, oldInfo.columnName,
+                newInfo.transformName, newInfo.transformArg, newInfo.columnName, newInfo.fieldName);
     }
 
     @Override

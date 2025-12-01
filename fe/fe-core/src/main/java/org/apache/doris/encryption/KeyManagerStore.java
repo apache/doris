@@ -43,19 +43,19 @@ public class KeyManagerStore implements Writable {
 
     private ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
 
-    private void readLock() {
+    public void readLock() {
         lock.readLock().lock();
     }
 
-    private void readUnlock() {
+    public void readUnlock() {
         lock.readLock().unlock();
     }
 
-    private void writeLock() {
+    public void writeLock() {
         lock.writeLock().lock();
     }
 
-    private void writeUnlock() {
+    public void writeUnlock() {
         lock.writeLock().unlock();
     }
 

@@ -114,14 +114,16 @@ PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((t1.a = t2.a)) otherCondition=()
 ----filter(OR[(t1.a < 2),(t1.a > 10)])
 ------PhysicalOlapScan[extend_infer_t3(t1)]
-----PhysicalOlapScan[extend_infer_t4(t2)]
+----filter(OR[(t2.a < 2),(t2.a > 10)])
+------PhysicalOlapScan[extend_infer_t4(t2)]
 
 -- !test_or2 --
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((t1.a = t2.a)) otherCondition=()
 ----filter(OR[(t1.a < 2),(t1.a > 10)])
 ------PhysicalOlapScan[extend_infer_t3(t1)]
-----PhysicalOlapScan[extend_infer_t4(t2)]
+----filter(OR[(t2.a < 2),(t2.a > 10)])
+------PhysicalOlapScan[extend_infer_t4(t2)]
 
 -- !test_sign_predicate --
 PhysicalResultSink
@@ -771,4 +773,117 @@ PhysicalResultSink
 
 -- !pull_up_from_agg --
 0
+
+-- !qt_leftjoin_right_pull_up_shape_shape --
+PhysicalResultSink
+--hashJoin[LEFT_OUTER_JOIN] hashCondition=((t2.a = t3.a)) otherCondition=()
+----hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.a = t2.a)) otherCondition=()
+------filter((t1.a = 1))
+--------PhysicalOlapScan[extend_infer_t3(t1)]
+------filter((t2.a = 1))
+--------PhysicalOlapScan[extend_infer_t4(t2)]
+----filter((t3.a = 1))
+------PhysicalOlapScan[extend_infer_t5(t3)]
+
+-- !qt_leftjoin_right_pull_up_shape_result --
+
+-- !qt_multi_leftjoin_right_pull_up_shape_shape --
+PhysicalResultSink
+--hashJoin[LEFT_OUTER_JOIN] hashCondition=((t2.a = t5.a)) otherCondition=()
+----hashJoin[LEFT_OUTER_JOIN] hashCondition=((t4.a = t3.a)) otherCondition=()
+------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t2.a = t3.a)) otherCondition=()
+--------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.a = t2.a)) otherCondition=()
+----------filter((t1.a = 1))
+------------PhysicalOlapScan[extend_infer_t3(t1)]
+----------filter((t2.a = 1))
+------------PhysicalOlapScan[extend_infer_t4(t2)]
+--------filter((t3.a = 1))
+----------PhysicalOlapScan[extend_infer_t5(t3)]
+------filter((t4.a = 1))
+--------PhysicalOlapScan[extend_infer_t5(t4)]
+----filter((t5.a = 1))
+------PhysicalOlapScan[extend_infer_t5(t5)]
+
+-- !qt_multi_leftjoin_right_pull_up_shape_result --
+
+-- !qt_leftjoin_right_pull_up_in_shape_shape --
+PhysicalResultSink
+--hashJoin[LEFT_OUTER_JOIN] hashCondition=((t2.a = t3.a)) otherCondition=()
+----hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.a = t2.a)) otherCondition=()
+------filter(a IN (1, 2))
+--------PhysicalOlapScan[extend_infer_t3(t1)]
+------filter(a IN (1, 2))
+--------PhysicalOlapScan[extend_infer_t4(t2)]
+----filter(a IN (1, 2))
+------PhysicalOlapScan[extend_infer_t5(t3)]
+
+-- !qt_leftjoin_right_pull_up_in_shape_result --
+
+-- !qt_leftjoin_right_pull_up_is_null_shape_shape --
+PhysicalResultSink
+--hashJoin[LEFT_OUTER_JOIN] hashCondition=((t2.a = t3.a)) otherCondition=()
+----hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.a = t2.a)) otherCondition=()
+------filter(a IS NULL)
+--------PhysicalOlapScan[extend_infer_t3(t1)]
+------PhysicalOlapScan[extend_infer_t4(t2)]
+----PhysicalOlapScan[extend_infer_t5(t3)]
+
+-- !qt_leftjoin_right_pull_up_is_null_shape_result --
+\N	\N	9	3	\N	\N	\N	\N	\N	\N	\N	\N
+\N	d2	3	55	\N	\N	\N	\N	\N	\N	\N	\N
+
+-- !qt_leftjoin_right_pull_up_is_not_null_shape_shape --
+PhysicalResultSink
+--hashJoin[LEFT_OUTER_JOIN] hashCondition=((t2.a = t3.a)) otherCondition=()
+----hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.a = t2.a)) otherCondition=()
+------filter(( not a IS NULL))
+--------PhysicalOlapScan[extend_infer_t3(t1)]
+------PhysicalOlapScan[extend_infer_t4(t2)]
+----PhysicalOlapScan[extend_infer_t5(t3)]
+
+-- !qt_leftjoin_right_pull_up_is_not_null_shape_result --
+0	d2	3	5	0	d2	2	2	\N	\N	\N	\N
+100	d2	3	5	100	d2	3	\N	\N	\N	\N	\N
+12	\N	9	3	\N	\N	\N	\N	\N	\N	\N	\N
+33	d2	2	5	33	d2	23	5	\N	\N	\N	\N
+78	\N	9	3	78	d2	23	5	\N	\N	\N	\N
+
+-- !qt_left_join_inner_shape --
+PhysicalResultSink
+--NestedLoopJoin[INNER_JOIN]
+----NestedLoopJoin[INNER_JOIN]
+------filter((t1.a = 1))
+--------PhysicalOlapScan[extend_infer_t3(t1)]
+------filter((t2.a = 1))
+--------PhysicalOlapScan[extend_infer_t4(t2)]
+----filter((t3.a = 1))
+------PhysicalOlapScan[extend_infer_t5(t3)]
+
+-- !qt_left_join_inner_result --
+
+-- !qt_left_join_semi_shape --
+PhysicalResultSink
+--NestedLoopJoin[LEFT_SEMI_JOIN]
+----NestedLoopJoin[INNER_JOIN]
+------filter((t1.a = 1))
+--------PhysicalOlapScan[extend_infer_t3(t1)]
+------filter((t2.a = 1))
+--------PhysicalOlapScan[extend_infer_t4(t2)]
+----filter((t3.a = 1))
+------PhysicalOlapScan[extend_infer_t5(t3)]
+
+-- !qt_left_join_semi_result --
+
+-- !qt_left_join_anti_shape --
+PhysicalResultSink
+--hashJoin[LEFT_ANTI_JOIN] hashCondition=((t2.a = t3.a)) otherCondition=()
+----hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.a = t2.a)) otherCondition=()
+------filter((t1.a = 1))
+--------PhysicalOlapScan[extend_infer_t3(t1)]
+------filter((t2.a = 1))
+--------PhysicalOlapScan[extend_infer_t4(t2)]
+----filter((t3.a = 1))
+------PhysicalOlapScan[extend_infer_t5(t3)]
+
+-- !qt_left_join_anti_result --
 

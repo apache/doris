@@ -50,6 +50,9 @@ enum TPartitionType {
 
   // used for hive unparititoned table
   HIVE_TABLE_SINK_UNPARTITIONED = 8
+
+  // used for random local shuffle union, one source instance random send data to target instances in the same backend
+  RANDOM_LOCAL_SHUFFLE = 9
 }
 
 enum TDistributionType {

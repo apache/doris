@@ -183,7 +183,17 @@ public class RefreshManager {
             db.get().unregisterTable(log.getTableName());
             db.get().resetMetaCacheNames();
         } else {
-            refreshTableInternal(db.get(), table.get(), log.getLastUpdateTime());
+            List<String> partitionNames = log.getPartitionNames();
+            if (partitionNames != null && !partitionNames.isEmpty()) {
+                // Partition-level cache invalidation
+                Env.getCurrentEnv().getExtMetaCacheMgr()
+                        .invalidatePartitionsCache(table.get(), partitionNames);
+                LOG.info("replay refresh partitions for table {}, partitions count: {}",
+                        table.get().getName(), partitionNames.size());
+            } else {
+                // Full table cache invalidation
+                refreshTableInternal(db.get(), table.get(), log.getLastUpdateTime());
+            }
         }
     }
 

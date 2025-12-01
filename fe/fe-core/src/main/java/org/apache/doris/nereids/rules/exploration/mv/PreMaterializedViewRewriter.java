@@ -69,7 +69,6 @@ public class PreMaterializedViewRewriter {
         NEED_PRE_REWRITE_RULE_TYPES.set(RuleType.PROCESS_SCALAR_AGG_MUST_USE_MULTI_DISTINCT.ordinal());
         NEED_PRE_REWRITE_RULE_TYPES.set(RuleType.ELIMINATE_GROUP_BY_KEY_BY_UNIFORM.ordinal());
         NEED_PRE_REWRITE_RULE_TYPES.set(RuleType.SALT_JOIN.ordinal());
-        NEED_PRE_REWRITE_RULE_TYPES.set(RuleType.AGG_SCALAR_SUBQUERY_TO_WINDOW_FUNCTION.ordinal());
     }
 
     /**

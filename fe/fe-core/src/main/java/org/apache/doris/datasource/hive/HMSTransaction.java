@@ -47,6 +47,7 @@ import org.apache.doris.transaction.Transaction;
 import com.google.common.base.Joiner;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
 import com.google.common.base.Verify;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterables;
@@ -268,30 +269,48 @@ public class HMSTransaction implements Transaction {
                         insertExistsPartitions.add(Pair.of(pu, hivePartitionStatistics));
                         break;
                     case NEW:
-                    case OVERWRITE:
-                        StorageDescriptor sd = table.getSd();
-                        // For object storage (FILE_S3), use writePath to keep original scheme (oss://, cos://)
-                        // For HDFS, use targetPath which is the final path after rename
-                        String pathForHMS = this.fileType == TFileType.FILE_S3
-                                ? writePath
-                                : pu.getLocation().getTargetPath();
-                        HivePartition hivePartition = new HivePartition(
-                                nameMapping,
-                                false,
-                                sd.getInputFormat(),
-                                pathForHMS,
-                                HiveUtil.toPartitionValues(pu.getName()),
-                                Maps.newHashMap(),
-                                sd.getOutputFormat(),
-                                sd.getSerdeInfo().getSerializationLib(),
-                                sd.getCols()
-                        );
-                        if (updateMode == TUpdateMode.OVERWRITE) {
-                            dropPartition(nameMapping, hivePartition.getPartitionValues(), true);
+                        // Check if partition really exists in HMS (may be cache miss in Doris)
+                        String partitionName = pu.getName();
+                        if (Strings.isNullOrEmpty(partitionName)) {
+                            // This should not happen for partitioned tables
+                            LOG.warn("Partition name is null/empty for NEW mode in partitioned table, skipping");
+                            break;
                         }
-                        addPartition(
-                                nameMapping, hivePartition, writePath,
-                                pu.getName(), pu.getFileNames(), hivePartitionStatistics, pu);
+                        List<String> partitionValues = HiveUtil.toPartitionValues(partitionName);
+                        boolean existsInHMS = false;
+                        try {
+                            Partition hmsPartition = hiveOps.getClient().getPartition(
+                                    nameMapping.getRemoteDbName(),
+                                    nameMapping.getRemoteTblName(),
+                                    partitionValues);
+                            existsInHMS = (hmsPartition != null);
+                        } catch (Exception e) {
+                            // Partition not found in HMS, treat as truly new
+                            if (LOG.isDebugEnabled()) {
+                                LOG.debug("Partition {} not found in HMS, will create it", pu.getName());
+                            }
+                        }
+
+                        if (existsInHMS) {
+                            // Partition exists in HMS but not in Doris cache
+                            // Treat as APPEND instead of NEW to avoid creation error
+                            LOG.info("Partition {} already exists in HMS (Doris cache miss), treating as APPEND",
+                                    pu.getName());
+                            insertExistsPartitions.add(Pair.of(pu, hivePartitionStatistics));
+                        } else {
+                            // Truly new partition, create it
+                            createAndAddPartition(nameMapping, table, partitionValues, writePath,
+                                    pu, hivePartitionStatistics, false);
+                        }
+                        break;
+                    case OVERWRITE:
+                        String overwritePartitionName = pu.getName();
+                        if (Strings.isNullOrEmpty(overwritePartitionName)) {
+                            LOG.warn("Partition name is null/empty for OVERWRITE mode in partitioned table, skipping");
+                            break;
+                        }
+                        createAndAddPartition(nameMapping, table, HiveUtil.toPartitionValues(overwritePartitionName),
+                                writePath, pu, hivePartitionStatistics, true);
                         break;
                     default:
                         throw new RuntimeException("Not support mode:[" + updateMode + "] in partitioned table");
@@ -375,6 +394,10 @@ public class HMSTransaction implements Transaction {
 
     public long getUpdateCnt() {
         return hivePartitionUpdates.stream().mapToLong(THivePartitionUpdate::getRowCount).sum();
+    }
+
+    public List<THivePartitionUpdate> getHivePartitionUpdates() {
+        return hivePartitionUpdates;
     }
 
     private void convertToInsertExistingPartitionAction(
@@ -1027,6 +1050,37 @@ public class HMSTransaction implements Transaction {
             throw new RuntimeException(
                     "Cannot make schema changes to a table with modified partitions in the same transaction");
         }
+    }
+
+    private void createAndAddPartition(
+            NameMapping nameMapping,
+            Table table,
+            List<String> partitionValues,
+            String writePath,
+            THivePartitionUpdate pu,
+            HivePartitionStatistics hivePartitionStatistics,
+            boolean dropFirst) {
+        StorageDescriptor sd = table.getSd();
+        String pathForHMS = this.fileType == TFileType.FILE_S3
+                ? writePath
+                : pu.getLocation().getTargetPath();
+        HivePartition hivePartition = new HivePartition(
+                nameMapping,
+                false,
+                sd.getInputFormat(),
+                pathForHMS,
+                partitionValues,
+                Maps.newHashMap(),
+                sd.getOutputFormat(),
+                sd.getSerdeInfo().getSerializationLib(),
+                sd.getCols()
+        );
+        if (dropFirst) {
+            dropPartition(nameMapping, hivePartition.getPartitionValues(), true);
+        }
+        addPartition(
+                nameMapping, hivePartition, writePath,
+                pu.getName(), pu.getFileNames(), hivePartitionStatistics, pu);
     }
 
     public synchronized void addPartition(

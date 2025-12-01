@@ -62,44 +62,44 @@ suite("column_stats") {
 
     explain {
         sql "select * from region"
-        notContains("planed with unknown column statistics")
+        notContains("planned with unknown column statistics")
     }
 
     explain {
         sql "select * from region where r_regionkey=1"
-        contains("planed with unknown column statistics")
+        contains("planned with unknown column statistics")
     }
 
     explain {
         sql "select r_regionkey from region group by r_regionkey"
-        contains("planed with unknown column statistics")
+        contains("planned with unknown column statistics")
     }
 
     explain {
         sql "select r_regionkey from region join nation on r_regionkey=n_regionkey"
-        contains("planed with unknown column statistics")
+        contains("planned with unknown column statistics")
     }
 
     sql "alter table region modify column r_regionkey set stats ('ndv'='5', 'num_nulls'='0', 'min_value'='0', 'max_value'='4', 'row_count'='5');"
     
     explain {
         sql "select * from region where r_regionkey=1"
-        notContains("planed with unknown column statistics")
+        notContains("planned with unknown column statistics")
     }
 
     explain {
         sql "select r_regionkey from region group by r_regionkey"
-        notContains("planed with unknown column statistics")
+        notContains("planned with unknown column statistics")
     }
 
     explain {
         sql "select r_regionkey from region join nation on r_regionkey=n_regionkey"
-        notContains("planed with unknown column statistics")
+        notContains("planned with unknown column statistics")
     }
 
     explain {
         sql "select r_name from region join nation on r_regionkey=n_regionkey"
-        notContains("planed with unknown column statistics")
+        notContains("planned with unknown column statistics")
     }
 
     explain {
@@ -107,6 +107,6 @@ suite("column_stats") {
             select r_name 
             from (select r_name, r_regionkey + 1 x from region) T join nation on T.x=n_regionkey
             """
-        notContains("planed with unknown column statistics")
+        notContains("planned with unknown column statistics")
     }
 }

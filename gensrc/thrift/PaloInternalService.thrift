@@ -95,7 +95,7 @@ struct TQueryOptions {
   4: optional i32 batch_size = 0
   5: optional i32 num_nodes = NUM_NODES_ALL
   6: optional i64 max_scan_range_length = 0 // Deprecated
-  7: optional i32 num_scanner_threads = 0
+  7: optional i32 max_scanners_concurrency = 0
   8: optional i32 max_io_buffers = 0 // Deprecated
   9: optional bool allow_unsupported_formats = 0 // Deprecated
   10: optional i64 default_order_by_limit = -1
@@ -372,8 +372,8 @@ struct TQueryOptions {
 
   147: optional i32 profile_level = 1;
 
-  148: optional i32 min_scanner_concurrency = 1;
-  149: optional i32 min_scan_scheduler_concurrency = 0;
+  148: optional i32 min_scanners_concurrency = 1;
+  149: optional i32 min_scan_scheduler_concurrency = 0; //deprecated
   150: optional bool enable_runtime_filter_partition_prune = true;
 
   // The minimum memory that an operator required to run.
@@ -415,6 +415,10 @@ struct TQueryOptions {
   // Target file size in bytes for Iceberg write operations
   // Default 0 means use config::iceberg_sink_max_file_size
   178: optional i64 iceberg_write_target_file_size_bytes = 0;
+  179: optional bool enable_parquet_filter_by_bloom_filter = true;
+  180: optional i32 max_file_scanners_concurrency = 0;
+  181: optional i32 min_file_scanners_concurrency = 0;
+
 
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.

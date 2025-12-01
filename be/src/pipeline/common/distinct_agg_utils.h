@@ -105,9 +105,10 @@ using DistinctMethodVariants = std::variant<
         vectorized::MethodSingleNullableColumn<vectorized::MethodStringNoCache<
                 vectorized::DataWithNullKey<DistinctDataWithShortStringKey>>>,
         vectorized::MethodKeysFixed<DistinctData<vectorized::UInt64>>,
+        vectorized::MethodKeysFixed<DistinctData<vectorized::UInt72>>,
         vectorized::MethodKeysFixed<DistinctData<vectorized::UInt128>>,
-        vectorized::MethodKeysFixed<DistinctData<vectorized::UInt256>>,
-        vectorized::MethodKeysFixed<DistinctData<vectorized::UInt136>>>;
+        vectorized::MethodKeysFixed<DistinctData<vectorized::UInt136>>,
+        vectorized::MethodKeysFixed<DistinctData<vectorized::UInt256>>>;
 
 struct DistinctDataVariants
         : public DataVariants<DistinctMethodVariants, vectorized::MethodSingleNullableColumn,
@@ -154,6 +155,10 @@ struct DistinctDataVariants
             break;
         case HashKeyType::fixed64:
             method_variant.emplace<vectorized::MethodKeysFixed<DistinctData<vectorized::UInt64>>>(
+                    get_key_sizes(data_types));
+            break;
+        case HashKeyType::fixed72:
+            method_variant.emplace<vectorized::MethodKeysFixed<DistinctData<vectorized::UInt72>>>(
                     get_key_sizes(data_types));
             break;
         case HashKeyType::fixed128:

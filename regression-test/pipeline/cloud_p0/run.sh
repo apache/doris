@@ -50,7 +50,7 @@ need_collect_log=false
 # monitoring the log files in "${DORIS_HOME}"/regression-test/log/ for keyword 'Reach limit of connections'
 _monitor_regression_log &
 
-# shellcheck disable=SC2317
+# shellcheck disable=SC2329
 run() {
     set -e
     shopt -s inherit_errexit
@@ -71,6 +71,7 @@ run() {
         "${teamcity_build_checkoutDir}"/regression-test/conf/
     # start kafka docker to run case test_rountine_load
     sed -i "s/^CONTAINER_UID=\"doris--\"/CONTAINER_UID=\"doris-external--\"/" "${teamcity_build_checkoutDir}"/docker/thirdparties/custom_settings.env
+    sed -i "s/oss-cn-hongkong.aliyuncs.com/oss-cn-hongkong-internal.aliyuncs.com/" "${teamcity_build_checkoutDir}"/docker/thirdparties/custom_settings.env
     if bash "${teamcity_build_checkoutDir}"/docker/thirdparties/run-thirdparties-docker.sh --stop; then echo; fi
     if bash "${teamcity_build_checkoutDir}"/docker/thirdparties/run-thirdparties-docker.sh -c kafka; then echo; else echo "ERROR: start kafka docker failed"; fi
     JAVA_HOME="$(find /usr/lib/jvm -maxdepth 1 -type d -name 'java-8-*' | sed -n '1p')"

@@ -626,6 +626,21 @@ build_lz4() {
     make -j "${PARALLEL}" install PREFIX="${TP_INSTALL_DIR}" BUILD_SHARED=no INCLUDEDIR="${TP_INCLUDE_DIR}/lz4"
 }
 
+# crc32c
+build_crc32c() {
+    check_if_source_exist "${CRC32C_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${CRC32C_SOURCE}"
+    
+    mkdir -p "${BUILD_DIR}"
+    cd "${BUILD_DIR}"
+
+    "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+        -DCRC32C_BUILD_TESTS=0 -DCRC32C_BUILD_BENCHMARKS=0 -DCRC32C_USE_GLOG=OFF \
+        -DBUILD_TESTING=OFF -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" ..
+
+    "${BUILD_SYSTEM}" -j "${PARALLEL}" all install
+}
+
 # zstd
 build_zstd() {
     check_if_source_exist "${ZSTD_SOURCE}"
@@ -1959,6 +1974,7 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         openssl
         libevent
         zlib
+        crc32c
         lz4
         bzip
         lzo2

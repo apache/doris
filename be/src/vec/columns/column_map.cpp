@@ -518,7 +518,7 @@ Status ColumnMap::deduplicate_keys(bool recursive) {
             values_column_ = (assert_cast<ColumnNullable&>(*values_column)).get_nested_column_ptr();
         }
 
-        if (ColumnMap* values_map = check_and_get_column<ColumnMap>(values_column_.get())) {
+        if (auto* values_map = check_and_get_column<ColumnMap>(values_column_.get())) {
             RETURN_IF_ERROR(values_map->deduplicate_keys(recursive));
         }
     }

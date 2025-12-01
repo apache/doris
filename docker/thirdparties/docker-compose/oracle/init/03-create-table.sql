@@ -258,3 +258,8 @@ create table doris_test.extreme_test_multi_block (
   t7 interval day(3) to second(6)
 );
 
+CREATE TABLE doris_test.varbinary_test(
+"id" NUMBER(5,0),
+"NAME" VARCHAR2(20),
+"BLOB_COL" BLOB
+);

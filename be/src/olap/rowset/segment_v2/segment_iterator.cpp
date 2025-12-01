@@ -1464,6 +1464,8 @@ Status SegmentIterator::_init_index_iterators() {
             // We use this column to locate the metadata for the inverted index, which requires a unique_id and path.
             const auto& column = _opts.tablet_schema->column(cid);
             std::vector<const TabletIndex*> inverted_indexs;
+            // Keep shared_ptr alive to prevent use-after-free when accessing raw pointers
+            TabletIndexes inverted_indexs_holder;
             // If the column is an extracted column, we need to find the sub-column in the parent column reader.
             std::shared_ptr<ColumnReader> column_reader;
             if (column.is_extracted_column()) {
@@ -1472,12 +1474,18 @@ Status SegmentIterator::_init_index_iterators() {
                     column_reader == nullptr) {
                     continue;
                 }
-                inverted_indexs = assert_cast<VariantColumnReader*>(column_reader.get())
-                                          ->find_subcolumn_tablet_indexes(column.suffix_path());
+                inverted_indexs_holder =
+                        assert_cast<VariantColumnReader*>(column_reader.get())
+                                ->find_subcolumn_tablet_indexes(column,
+                                                                _storage_name_and_type[cid].second);
+                // Extract raw pointers from shared_ptr for iteration
+                for (const auto& index_ptr : inverted_indexs_holder) {
+                    inverted_indexs.push_back(index_ptr.get());
+                }
             }
             // If the column is not an extracted column, we can directly get the inverted index metadata from the tablet schema.
             else {
-                inverted_indexs = {_segment->_tablet_schema->inverted_indexs(column)};
+                inverted_indexs = _segment->_tablet_schema->inverted_indexs(column);
             }
             for (const auto& inverted_index : inverted_indexs) {
                 RETURN_IF_ERROR(_segment->new_index_iterator(column, inverted_index, _opts,
@@ -2259,7 +2267,7 @@ uint16_t SegmentIterator::_evaluate_vectorization_predicate(uint16_t* sel_rowid_
     }
     if (all_pred_always_true) {
         for (const auto& pred : _pre_eval_block_predicate) {
-            pred->always_true();
+            DCHECK(pred->always_true());
         }
     }
 

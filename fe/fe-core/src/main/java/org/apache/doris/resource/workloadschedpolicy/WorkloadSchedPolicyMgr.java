@@ -60,6 +60,7 @@ import java.util.Map;
 import java.util.PriorityQueue;
 import java.util.Queue;
 import java.util.Set;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class WorkloadSchedPolicyMgr extends MasterDaemon implements Writable, GsonPostProcessable {
@@ -67,7 +68,7 @@ public class WorkloadSchedPolicyMgr extends MasterDaemon implements Writable, Gs
     private static final Logger LOG = LogManager.getLogger(WorkloadSchedPolicyMgr.class);
 
     @SerializedName(value = "idToPolicy")
-    private Map<Long, WorkloadSchedPolicy> idToPolicy = Maps.newConcurrentMap();
+    private ConcurrentMap<Long, WorkloadSchedPolicy> idToPolicy = Maps.newConcurrentMap();
     private Map<String, WorkloadSchedPolicy> nameToPolicy = Maps.newHashMap();
 
     private PolicyProcNode policyProcNode = new PolicyProcNode();

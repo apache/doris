@@ -109,6 +109,19 @@ void build_segment(SegmentWriterOptions opts, TabletSchemaSPtr build_schema, siz
     EXPECT_EQ(nrows, (*res)->num_rows());
 }
 
+// Convenience overload that also returns the on-disk path of the built segment.
+void build_segment(SegmentWriterOptions opts, TabletSchemaSPtr build_schema, size_t segment_id,
+                   TabletSchemaSPtr query_schema, size_t nrows, Generator generator,
+                   std::shared_ptr<Segment>* res, std::string segment_dir, std::string* out_path) {
+    std::string filename = fmt::format("{}_{}.dat", rowset_id.to_string(), segment_id);
+    std::string path = fmt::format("{}/{}", segment_dir, filename);
+    if (out_path != nullptr) {
+        *out_path = path;
+    }
+    build_segment(std::move(opts), std::move(build_schema), segment_id, std::move(query_schema),
+                  nrows, std::move(generator), res, std::move(segment_dir));
+}
+
 TabletSchemaSPtr create_schema(const std::vector<TabletColumnPtr>& columns,
                                KeysType keys_type = UNIQUE_KEYS) {
     TabletSchemaSPtr res = std::make_shared<TabletSchema>();

@@ -21,6 +21,7 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.Limit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
@@ -52,7 +53,7 @@ public class PushDownLimitDistinctThroughJoin implements RewriteRuleFactory {
                             LogicalJoin<Plan, Plan> join = agg.child();
 
                             Plan newJoin = pushLimitThroughJoin(limit, join);
-                            if (newJoin == null || join.children().equals(newJoin.children())) {
+                            if (newJoin == null) {
                                 return null;
                             }
                             return limit.withChildren(agg.withChildren(newJoin));
@@ -68,7 +69,7 @@ public class PushDownLimitDistinctThroughJoin implements RewriteRuleFactory {
                             LogicalJoin<Plan, Plan> join = project.child();
 
                             Plan newJoin = pushLimitThroughJoin(limit, join);
-                            if (newJoin == null || join.children().equals(newJoin.children())) {
+                            if (newJoin == null) {
                                 return null;
                             }
                             return limit.withChildren(agg.withChildren(project.withChildren(newJoin)));
@@ -82,25 +83,26 @@ public class PushDownLimitDistinctThroughJoin implements RewriteRuleFactory {
                 .flatMap(e -> e.getInputSlots().stream()).collect(Collectors.toList());
         switch (join.getJoinType()) {
             case LEFT_OUTER_JOIN:
-                if (join.left().getOutputSet().containsAll(groupBySlots)
+                if (!(join.left() instanceof Limit)
+                        && join.left().getOutputSet().containsAll(groupBySlots)
                         && join.left().getOutputSet().equals(agg.getOutputSet())) {
                     return join.withChildren(limit.withLimitChild(limit.getLimit() + limit.getOffset(), 0,
                             agg.withChildren(join.left())), join.right());
                 }
                 return null;
             case RIGHT_OUTER_JOIN:
-                if (join.right().getOutputSet().containsAll(groupBySlots)
+                if (!(join.right() instanceof Limit) && join.right().getOutputSet().containsAll(groupBySlots)
                         && join.right().getOutputSet().equals(agg.getOutputSet())) {
                     return join.withChildren(join.left(), limit.withLimitChild(limit.getLimit() + limit.getOffset(), 0,
                             agg.withChildren(join.right())));
                 }
                 return null;
             case CROSS_JOIN:
-                if (join.left().getOutputSet().containsAll(groupBySlots)
+                if (!(join.left() instanceof Limit) && join.left().getOutputSet().containsAll(groupBySlots)
                         && join.left().getOutputSet().equals(agg.getOutputSet())) {
                     return join.withChildren(limit.withLimitChild(limit.getLimit() + limit.getOffset(), 0,
                             agg.withChildren(join.left())), join.right());
-                } else if (join.right().getOutputSet().containsAll(groupBySlots)
+                } else if (!(join.right() instanceof Limit) && join.right().getOutputSet().containsAll(groupBySlots)
                         && join.right().getOutputSet().equals(agg.getOutputSet())) {
                     return join.withChildren(join.left(), limit.withLimitChild(limit.getLimit() + limit.getOffset(), 0,
                             agg.withChildren(join.right())));

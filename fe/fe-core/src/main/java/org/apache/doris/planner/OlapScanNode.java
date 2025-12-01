@@ -30,7 +30,6 @@ import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.DistributionInfo;
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.MaterializedIndex;
@@ -470,7 +469,7 @@ public class OlapScanNode extends ScanNode {
         boolean isInvalidComputeGroup = ComputeGroup.INVALID_COMPUTE_GROUP.equals(computeGroup);
         boolean isNotCloudComputeGroup = computeGroup != null && !Config.isCloudMode();
 
-        ImmutableMap<Long, Backend> allBackends = Env.getCurrentSystemInfo().getAllBackendsByAllCluster();
+        ImmutableMap<Long, Backend> allBackends = olapTable.getAllBackendsByAllCluster();
         long partitionVisibleVersion = visibleVersion;
         String partitionVisibleVersionStr = fastToString(visibleVersion);
         for (Tablet tablet : tablets) {
@@ -860,7 +859,7 @@ public class OlapScanNode extends ScanNode {
         Preconditions.checkState(scanBackendIds.isEmpty());
         Preconditions.checkState(scanTabletIds.isEmpty());
         Map<Long, Set<Long>> backendAlivePathHashs = Maps.newHashMap();
-        for (Backend backend : Env.getCurrentSystemInfo().getAllClusterBackendsNoException().values()) {
+        for (Backend backend : olapTable.getAllBackendsByAllCluster().values()) {
             Set<Long> hashSet = Sets.newLinkedHashSet();
             for (DiskInfo diskInfo : backend.getDisks().values()) {
                 if (diskInfo.isAlive()) {
@@ -1376,5 +1375,13 @@ public class OlapScanNode extends ScanNode {
 
     public void setGlobalRowIdColumn(Column globalRowIdColumn) {
         this.globalRowIdColumn = globalRowIdColumn;
+    }
+
+    @Override
+    public long getCatalogId() {
+        if (olapTable != null) {
+            return olapTable.getCatalogId();
+        }
+        return super.getCatalogId();
     }
 }

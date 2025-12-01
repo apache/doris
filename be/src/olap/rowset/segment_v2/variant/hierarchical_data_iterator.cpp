@@ -18,6 +18,7 @@
 #include "olap/rowset/segment_v2/variant/hierarchical_data_iterator.h"
 
 #include <memory>
+#include <optional>
 
 #include "common/status.h"
 #include "io/io_common.h"
@@ -305,7 +306,11 @@ Status HierarchicalDataIterator::_init_container(vectorized::MutableColumnPtr& c
 // Return sub-path by specified prefix.
 // For example, for prefix a.b:
 // a.b.c.d -> c.d, a.b.c -> c
-static std::string_view get_sub_path(const std::string_view& path, const std::string_view& prefix) {
+static std::optional<std::string_view> get_sub_path(const std::string_view& path,
+                                                    const std::string_view& prefix) {
+    if (path.size() <= prefix.size() || path[prefix.size()] != '.') {
+        return std::nullopt;
+    }
     return path.substr(prefix.size() + 1);
 }
 
@@ -377,7 +382,11 @@ Status HierarchicalDataIterator::_process_sparse_column(
                     }
                     // Don't include path that is equal to the prefix.
                     if (path.size() != path_prefix.size()) {
-                        auto sub_path = get_sub_path(path, path_prefix);
+                        auto sub_path_optional = get_sub_path(path, path_prefix);
+                        if (!sub_path_optional.has_value()) {
+                            continue;
+                        }
+                        std::string_view sub_path = *sub_path_optional;
                         // Case 1: subcolumn already created, append this row's value into it.
                         if (auto it = subcolumns_from_sparse_column.find(sub_path);
                             it != subcolumns_from_sparse_column.end()) {

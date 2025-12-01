@@ -177,7 +177,8 @@ static void fill_block_with_test_data(vectorized::Block* block, int size) {
 static int64_t inc_id = 1000;
 static RowsetWriterContext rowset_writer_context(const std::unique_ptr<DataDir>& data_dir,
                                                  const TabletSchemaSPtr& schema,
-                                                 const std::string& tablet_path) {
+                                                 const std::string& tablet_path,
+                                                 const TabletSharedPtr& tablet) {
     RowsetWriterContext context;
     RowsetId rowset_id;
     rowset_id.init(inc_id);
@@ -187,6 +188,8 @@ static RowsetWriterContext rowset_writer_context(const std::unique_ptr<DataDir>&
     context.rowset_state = VISIBLE;
     context.tablet_schema = schema;
     context.tablet_path = tablet_path;
+    context.tablet_id = tablet->tablet_id();
+    context.tablet = tablet;
     context.version = Version(inc_id, inc_id);
     context.max_rows_per_segment = 200;
     inc_id++;
@@ -221,6 +224,12 @@ TEST_F(SchemaUtilRowsetTest, check_path_stats_agg_key) {
 
     // 2. create tablet
     TabletMetaSharedPtr tablet_meta(new TabletMeta(tablet_schema));
+    // set seed
+    std::srand(42);
+    bool external_segment_meta_used_default = rand() % 2 == 0;
+    std::cout << "external_segment_meta_used_default: " << external_segment_meta_used_default
+              << std::endl;
+    tablet_schema->set_external_segment_meta_used_default(external_segment_meta_used_default);
     std::string absolute_dir = _curreent_dir + std::string("/ut_dir/schema_util_rows");
     EXPECT_TRUE(io::global_local_filesystem()->delete_directory(absolute_dir).ok());
     EXPECT_TRUE(io::global_local_filesystem()->create_directory(absolute_dir).ok());
@@ -237,7 +246,8 @@ TEST_F(SchemaUtilRowsetTest, check_path_stats_agg_key) {
     for (int i = 0; i < 5; i++) {
         const auto& res = RowsetFactory::create_rowset_writer(
                 *_engine_ref,
-                rowset_writer_context(_data_dir, tablet_schema, _tablet->tablet_path()), false);
+                rowset_writer_context(_data_dir, tablet_schema, _tablet->tablet_path(), _tablet),
+                false);
         EXPECT_TRUE(res.has_value()) << res.error();
         const auto& rowset_writer = res.value();
         auto rowset = create_rowset(rowset_writer, tablet_schema);
@@ -264,6 +274,12 @@ TEST_F(SchemaUtilRowsetTest, check_path_stats_agg_delete) {
 
     // 2. create tablet
     TabletMetaSharedPtr tablet_meta(new TabletMeta(tablet_schema));
+    // set seed
+    std::srand(42);
+    bool external_segment_meta_used_default = rand() % 2 == 0;
+    std::cout << "external_segment_meta_used_default: " << external_segment_meta_used_default
+              << std::endl;
+    tablet_schema->set_external_segment_meta_used_default(external_segment_meta_used_default);
     std::string absolute_dir = _curreent_dir + std::string("/ut_dir/schema_util_rows1");
     EXPECT_TRUE(io::global_local_filesystem()->delete_directory(absolute_dir).ok());
     EXPECT_TRUE(io::global_local_filesystem()->create_directory(absolute_dir).ok());
@@ -280,7 +296,8 @@ TEST_F(SchemaUtilRowsetTest, check_path_stats_agg_delete) {
     for (int i = 0; i < 5; i++) {
         const auto& res = RowsetFactory::create_rowset_writer(
                 *_engine_ref,
-                rowset_writer_context(_data_dir, tablet_schema, _tablet->tablet_path()), false);
+                rowset_writer_context(_data_dir, tablet_schema, _tablet->tablet_path(), _tablet),
+                false);
         EXPECT_TRUE(res.has_value()) << res.error();
         const auto& rowset_writer = res.value();
         auto rowset = create_rowset(rowset_writer, tablet_schema);
@@ -292,6 +309,73 @@ TEST_F(SchemaUtilRowsetTest, check_path_stats_agg_delete) {
     Status st = schema_util::VariantCompactionUtil::check_path_stats(rowsets, rowsets[0], _tablet);
     std::cout << st.to_string() << std::endl;
     EXPECT_FALSE(st.ok());
+}
+
+// Mixed-format compatibility: one tablet contains both old (inline meta) and new
+// (external column meta + variant ext meta) segments, and path stats / scanning
+// logic should work across all rowsets.
+TEST_F(SchemaUtilRowsetTest, mixed_external_segment_meta_old_new) {
+    // 1. create tablet schema (same layout as check_path_stats_agg_key)
+    TabletSchemaPB schema_pb;
+    schema_pb.set_keys_type(AGG_KEYS);
+    construct_column(schema_pb.add_column(), 0, "INT", "key", true);
+    construct_column(schema_pb.add_column(), 1, "VARIANT", "v1");
+    construct_column(schema_pb.add_column(), 2, "STRING", "v2");
+    construct_column(schema_pb.add_column(), 3, "VARIANT", "v3");
+    construct_column(schema_pb.add_column(), 4, "INT", "v4");
+    TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
+    tablet_schema->init_from_pb(schema_pb);
+
+    // 2. create tablet and data dir
+    TabletMetaSharedPtr tablet_meta(new TabletMeta(tablet_schema));
+    // First write a few rowsets with external_segment_meta_used_default = false (old format)
+    tablet_schema->set_external_segment_meta_used_default(false);
+    std::string absolute_dir = _curreent_dir + std::string("/ut_dir/schema_util_rows_mixed");
+    EXPECT_TRUE(io::global_local_filesystem()->delete_directory(absolute_dir).ok());
+    EXPECT_TRUE(io::global_local_filesystem()->create_directory(absolute_dir).ok());
+    std::unique_ptr<DataDir> data_dir = std::make_unique<DataDir>(*_engine_ref, absolute_dir);
+    static_cast<void>(data_dir->update_capacity());
+    EXPECT_TRUE(data_dir->init(true).ok());
+
+    TabletSharedPtr tablet = std::make_shared<Tablet>(*_engine_ref, tablet_meta, data_dir.get());
+    EXPECT_TRUE(tablet->init().ok());
+    EXPECT_TRUE(io::global_local_filesystem()->create_directory(tablet->tablet_path()).ok());
+
+    // 3. create multiple rowsets: first batch uses old footer format, second batch uses new format
+    std::vector<RowsetSharedPtr> rowsets;
+
+    auto create_and_add_rowset = [&](int /*idx*/) {
+        const auto& res = RowsetFactory::create_rowset_writer(
+                *_engine_ref,
+                rowset_writer_context(data_dir, tablet_schema, tablet->tablet_path(), tablet),
+                false);
+        EXPECT_TRUE(res.has_value()) << res.error();
+        const auto& rowset_writer = res.value();
+        auto rowset = create_rowset(rowset_writer, tablet_schema);
+        EXPECT_TRUE(tablet->add_rowset(rowset).ok());
+        rowsets.push_back(rowset);
+    };
+
+    // 3.1 write a few old-format rowsets (inline meta only)
+    for (int i = 0; i < 3; ++i) {
+        create_and_add_rowset(i);
+    }
+
+    // 3.2 flip tablet default to enable external column meta for subsequent segments
+    tablet_schema->set_external_segment_meta_used_default(true);
+
+    // 3.3 write a few new-format rowsets (external meta enabled)
+    for (int i = 0; i < 3; ++i) {
+        create_and_add_rowset(i + 3);
+    }
+
+    EXPECT_EQ(rowsets.size(), 6);
+
+    // 4. check that VariantCompactionUtil::check_path_stats works across mixed segments
+    // This will internally create Segment / ColumnReader instances and should be
+    // insensitive to whether a particular segment uses inline or external meta.
+    EXPECT_TRUE(
+            schema_util::VariantCompactionUtil::check_path_stats(rowsets, rowsets[0], tablet).ok());
 }
 
 TEST_F(SchemaUtilRowsetTest, collect_path_stats_and_get_extended_compaction_schema) {
@@ -308,6 +392,10 @@ TEST_F(SchemaUtilRowsetTest, collect_path_stats_and_get_extended_compaction_sche
 
     // 2. create tablet
     TabletMetaSharedPtr tablet_meta(new TabletMeta(tablet_schema));
+    bool external_segment_meta_used_default = rand() % 2 == 0;
+    std::cout << "external_segment_meta_used_default: " << external_segment_meta_used_default
+              << std::endl;
+    tablet_schema->set_external_segment_meta_used_default(external_segment_meta_used_default);
     tablet_meta->_tablet_id = 12345;
     _tablet = std::make_shared<Tablet>(*_engine_ref, tablet_meta, _data_dir.get());
     EXPECT_TRUE(_tablet->init().ok());
@@ -318,7 +406,8 @@ TEST_F(SchemaUtilRowsetTest, collect_path_stats_and_get_extended_compaction_sche
     for (int i = 0; i < 5; i++) {
         const auto& res = RowsetFactory::create_rowset_writer(
                 *_engine_ref,
-                rowset_writer_context(_data_dir, tablet_schema, _tablet->tablet_path()), false);
+                rowset_writer_context(_data_dir, tablet_schema, _tablet->tablet_path(), _tablet),
+                false);
         EXPECT_TRUE(res.has_value()) << res.error();
         const auto& rowset_writer = res.value();
         auto rowset = create_rowset(rowset_writer, tablet_schema);
@@ -373,6 +462,9 @@ TEST_F(SchemaUtilRowsetTest, collect_path_stats_and_get_extended_compaction_sche
         rowset_writer_context.rowset_state = VISIBLE;
         rowset_writer_context.tablet_schema = tablet_schema;
         rowset_writer_context.tablet_path = _tablet->tablet_path();
+        rowset_writer_context.data_dir = _data_dir.get();
+        rowset_writer_context.tablet_id = _tablet->tablet_id();
+        rowset_writer_context.tablet = _tablet;
         rowset_writer_context.version = version;
         rowset_writer_context.segments_overlap = overlap;
         rowset_writer_context.max_rows_per_segment = max_rows_per_segment;
@@ -503,6 +595,10 @@ TabletSchemaSPtr create_compaction_schema_common(StorageEngine* _engine_ref,
 
     // 2. create tablet
     TabletMetaSharedPtr tablet_meta(new TabletMeta(tablet_schema));
+    bool external_segment_meta_used_default = rand() % 2 == 0;
+    std::cout << "external_segment_meta_used_default: " << external_segment_meta_used_default
+              << std::endl;
+    tablet_schema->set_external_segment_meta_used_default(external_segment_meta_used_default);
     EXPECT_TRUE(io::global_local_filesystem()->delete_directory(_absolute_dir).ok());
     EXPECT_TRUE(io::global_local_filesystem()->create_directory(_absolute_dir).ok());
     std::unique_ptr<DataDir> _data_dir = std::make_unique<DataDir>(*_engine_ref, _absolute_dir);
@@ -519,7 +615,8 @@ TabletSchemaSPtr create_compaction_schema_common(StorageEngine* _engine_ref,
     for (int i = 0; i < 1; i++) {
         const auto& res = RowsetFactory::create_rowset_writer(
                 *_engine_ref,
-                rowset_writer_context(_data_dir, tablet_schema, _tablet->tablet_path()), false);
+                rowset_writer_context(_data_dir, tablet_schema, _tablet->tablet_path(), _tablet),
+                false);
         EXPECT_TRUE(res.has_value()) << res.error();
         const auto& rowset_writer = res.value();
         auto rowset = create_rowset(rowset_writer, tablet_schema);
@@ -632,6 +729,10 @@ TEST_F(SchemaUtilRowsetTest, typed_path_to_sparse_column) {
 
     // 2. create tablet
     TabletMetaSharedPtr tablet_meta(new TabletMeta(tablet_schema));
+    bool external_segment_meta_used_default = rand() % 2 == 0;
+    std::cout << "external_segment_meta_used_default: " << external_segment_meta_used_default
+              << std::endl;
+    tablet_schema->set_external_segment_meta_used_default(external_segment_meta_used_default);
     _tablet = std::make_shared<Tablet>(*_engine_ref, tablet_meta, _data_dir.get());
     EXPECT_TRUE(_tablet->init().ok());
     EXPECT_TRUE(io::global_local_filesystem()->create_directory(_tablet->tablet_path()).ok());
@@ -641,7 +742,8 @@ TEST_F(SchemaUtilRowsetTest, typed_path_to_sparse_column) {
     for (int i = 0; i < 5; i++) {
         const auto& res = RowsetFactory::create_rowset_writer(
                 *_engine_ref,
-                rowset_writer_context(_data_dir, tablet_schema, _tablet->tablet_path()), false);
+                rowset_writer_context(_data_dir, tablet_schema, _tablet->tablet_path(), _tablet),
+                false);
         EXPECT_TRUE(res.has_value()) << res.error();
         const auto& rowset_writer = res.value();
         auto rowset = create_rowset(rowset_writer, tablet_schema);
@@ -698,6 +800,9 @@ TEST_F(SchemaUtilRowsetTest, typed_path_to_sparse_column) {
         rowset_writer_context.rowset_state = VISIBLE;
         rowset_writer_context.tablet_schema = tablet_schema;
         rowset_writer_context.tablet_path = _absolute_dir + "/../";
+        rowset_writer_context.data_dir = _data_dir.get();
+        rowset_writer_context.tablet_id = _tablet->tablet_id();
+        rowset_writer_context.tablet = _tablet;
         rowset_writer_context.version = version;
         rowset_writer_context.segments_overlap = overlap;
         rowset_writer_context.max_rows_per_segment = max_rows_per_segment;

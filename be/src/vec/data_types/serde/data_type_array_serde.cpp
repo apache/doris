@@ -596,4 +596,44 @@ void DataTypeArraySerDe::to_string(const IColumn& column, size_t row_num,
     bw.write("]", 1);
 }
 
+bool DataTypeArraySerDe::write_column_to_presto_text(const IColumn& column, BufferWritable& bw,
+                                                     int64_t row_idx) const {
+    const auto& data_column = assert_cast<const ColumnArray&>(column);
+    const auto& offsets = data_column.get_offsets();
+
+    size_t offset = offsets[row_idx - 1];
+    size_t next_offset = offsets[row_idx];
+
+    const IColumn& nested_column = data_column.get_data();
+    bw.write("[", 1);
+    for (size_t i = offset; i < next_offset; ++i) {
+        if (i != offset) {
+            bw.write(", ", 2);
+        }
+        nested_serde->write_column_to_presto_text(nested_column, bw, i);
+    }
+    bw.write("]", 1);
+    return true;
+}
+
+bool DataTypeArraySerDe::write_column_to_hive_text(const IColumn& column, BufferWritable& bw,
+                                                   int64_t row_idx) const {
+    const auto& data_column = assert_cast<const ColumnArray&>(column);
+    const auto& offsets = data_column.get_offsets();
+
+    size_t offset = offsets[row_idx - 1];
+    size_t next_offset = offsets[row_idx];
+
+    const IColumn& nested_column = data_column.get_data();
+    bw.write("[", 1);
+    for (size_t i = offset; i < next_offset; ++i) {
+        if (i != offset) {
+            bw.write(",", 1);
+        }
+        nested_serde->write_column_to_hive_text(nested_column, bw, i);
+    }
+    bw.write("]", 1);
+    return true;
+}
+
 } // namespace doris::vectorized

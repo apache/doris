@@ -456,7 +456,7 @@ public class SlotTypeReplacer extends DefaultPlanRewriter<Void> {
         }
         Pair<Boolean, List<Slot>> replaced = replaceExpressions(olapScan.getOutput(), false, true);
         if (replaced.first) {
-            return olapScan.withPrunedTypeSlots(replaced.second);
+            return olapScan.withCachedOutput(replaced.second);
         }
         return olapScan;
     }
@@ -718,7 +718,7 @@ public class SlotTypeReplacer extends DefaultPlanRewriter<Void> {
             boolean shouldPrune = false;
             for (Slot slot : output) {
                 int slotId = slot.getExprId().asInt();
-                if (replacedDataTypes.containsKey(slotId)) {
+                if (slot.getDataType() instanceof NestedColumnPrunable && replacedDataTypes.containsKey(slotId)) {
                     shouldReplaceSlots.add(slotId);
                     shouldPrune = true;
                 }

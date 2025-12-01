@@ -32,6 +32,7 @@
 #include "olap/delete_handler.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/beta_rowset.h"
+#include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_factory.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
 #include "olap/storage_engine.h"
@@ -217,6 +218,13 @@ Status CloudSchemaChangeJob::process_alter_tablet(const TAlterTabletReqV2& reque
 
     SchemaChangeParams sc_params;
 
+    // cache schema change output to file cache
+    std::vector<RowsetSharedPtr> rowsets;
+    rowsets.resize(rs_splits.size());
+    std::transform(rs_splits.begin(), rs_splits.end(), rowsets.begin(),
+                   [](RowSetSplits& split) { return split.rs_reader->rowset(); });
+    sc_params.output_to_file_cache = _should_cache_sc_output(rowsets);
+
     RETURN_IF_ERROR(DescriptorTbl::create(&sc_params.pool, request.desc_tbl, &sc_params.desc_tbl));
     sc_params.ref_rowset_readers.reserve(rs_splits.size());
     for (RowSetSplits& split : rs_splits) {
@@ -309,6 +317,8 @@ Status CloudSchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParam
         context.tablet_schema = _new_tablet->tablet_schema();
         context.newest_write_timestamp = rs_reader->newest_write_timestamp();
         context.storage_resource = _cloud_storage_engine.get_storage_resource(sc_params.vault_id);
+        context.write_file_cache = sc_params.output_to_file_cache;
+        context.tablet = _new_tablet;
         if (!context.storage_resource) {
             return Status::InternalError("vault id not found, maybe not sync, vault id {}",
                                          sc_params.vault_id);
@@ -467,7 +477,7 @@ Status CloudSchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParam
         // during double write phase by `CloudMetaMgr::sync_tablet_rowsets` in another thread
         std::unique_lock lock {_new_tablet->get_sync_meta_lock()};
         std::unique_lock wlock(_new_tablet->get_header_lock());
-        _new_tablet->add_rowsets(std::move(_output_rowsets), true, wlock);
+        _new_tablet->add_rowsets(std::move(_output_rowsets), true, wlock, false);
         _new_tablet->set_cumulative_layer_point(_output_cumulative_point);
         _new_tablet->reset_approximate_stats(stats.num_rowsets(), stats.num_segments(),
                                              stats.num_rows(), stats.data_size());
@@ -503,7 +513,7 @@ Status CloudSchemaChangeJob::_process_delete_bitmap(int64_t alter_version,
             std::make_shared<CloudTablet>(_cloud_storage_engine, tmp_meta);
     {
         std::unique_lock wlock(tmp_tablet->get_header_lock());
-        tmp_tablet->add_rowsets(_output_rowsets, true, wlock);
+        tmp_tablet->add_rowsets(_output_rowsets, true, wlock, false);
         // Set alter version to let the tmp_tablet can fill hole rowset greater than alter_version
         tmp_tablet->set_alter_version(alter_version);
     }
@@ -521,7 +531,7 @@ Status CloudSchemaChangeJob::_process_delete_bitmap(int64_t alter_version,
                         DBUG_BLOCK);
         {
             std::unique_lock wlock(tmp_tablet->get_header_lock());
-            tmp_tablet->add_rowsets(_output_rowsets, true, wlock);
+            tmp_tablet->add_rowsets(_output_rowsets, true, wlock, false);
         }
         for (auto rowset : ret.rowsets) {
             RETURN_IF_ERROR(CloudTablet::update_delete_bitmap_without_lock(tmp_tablet, rowset));
@@ -544,7 +554,7 @@ Status CloudSchemaChangeJob::_process_delete_bitmap(int64_t alter_version,
                 {max_version + 1, new_max_version}, CaptureRowsetOps {}));
         {
             std::unique_lock wlock(tmp_tablet->get_header_lock());
-            tmp_tablet->add_rowsets(_output_rowsets, true, wlock);
+            tmp_tablet->add_rowsets(_output_rowsets, true, wlock, false);
         }
         for (auto rowset : ret.rowsets) {
             RETURN_IF_ERROR(CloudTablet::update_delete_bitmap_without_lock(tmp_tablet, rowset));
@@ -593,6 +603,36 @@ void CloudSchemaChangeJob::clean_up_on_failure() {
         }
         output_rs->clear_cache();
     }
+}
+
+bool CloudSchemaChangeJob::_should_cache_sc_output(
+        const std::vector<RowsetSharedPtr>& input_rowsets) {
+    int64_t total_size = 0;
+    int64_t cached_index_size = 0;
+    int64_t cached_data_size = 0;
+
+    for (const auto& rs : input_rowsets) {
+        const RowsetMetaSharedPtr& rs_meta = rs->rowset_meta();
+        total_size += rs_meta->total_disk_size();
+        cached_index_size += rs->approximate_cache_index_size();
+        cached_data_size += rs->approximate_cached_data_size();
+    }
+
+    double input_hit_rate = static_cast<double>(cached_index_size + cached_data_size) / total_size;
+
+    LOG(INFO) << "CloudSchemaChangeJob check cache sc output strategy. "
+              << "job_id=" << _job_id << ", input_rowsets_count=" << input_rowsets.size()
+              << ", total_size=" << total_size << ", cached_index_size=" << cached_index_size
+              << ", cached_data_size=" << cached_data_size << ", input_hit_rate=" << input_hit_rate
+              << ", min_hit_ratio_threshold="
+              << config::file_cache_keep_schema_change_output_min_hit_ratio << ", should_cache="
+              << (input_hit_rate > config::file_cache_keep_schema_change_output_min_hit_ratio);
+
+    if (input_hit_rate > config::file_cache_keep_schema_change_output_min_hit_ratio) {
+        return true;
+    }
+
+    return false;
 }
 
 } // namespace doris

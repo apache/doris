@@ -143,6 +143,178 @@ suite("iceberg_and_hive_on_glue", "p2,external,hive,new_catalog_property") {
         assert dropResult.size() == 0
     }
 
+    /*--------test insert overwrite for hive---------*/
+    def testInsertOverwrite = { String catalogProperties, String prefix, String dbLocation ->
+        def catalog_name = "${prefix}_catalog"
+        sql """
+            DROP CATALOG IF EXISTS ${catalog_name};
+        """
+        sql """
+            CREATE CATALOG IF NOT EXISTS ${catalog_name} PROPERTIES (
+                ${catalogProperties}
+            );
+        """
+        sql """
+            switch ${catalog_name};
+        """
+
+        def db_name = prefix + "_db" + System.currentTimeMillis()
+        sql """
+            DROP DATABASE IF EXISTS ${db_name} FORCE;
+        """
+        sql """
+            CREATE DATABASE IF NOT EXISTS ${db_name}
+            PROPERTIES ('location'='${dbLocation}');
+        """
+
+        def dbResult = sql """
+            show databases  like "${db_name}";
+        """
+        assert dbResult.size() == 1
+
+        sql """
+            use ${db_name};
+        """
+
+        def table_name = prefix + "_overwrite_table"
+
+        // Create non-partitioned table for insert overwrite test
+        sql """
+            CREATE TABLE ${table_name} (
+                id INT COMMENT 'id',
+                name VARCHAR(20) COMMENT 'name',
+                age INT COMMENT 'age'
+            ) ENGINE=hive
+            PROPERTIES (
+                'file_format'='parquet'
+            );
+        """
+
+        // Test 1: Initial insert
+        sql """
+            insert into ${table_name} values (1, 'alice', 20), (2, 'bob', 25);
+        """
+        def result1 = sql """
+            SELECT COUNT(*) FROM ${table_name};
+        """
+        assert result1[0][0] == 2
+
+        // Test 2: Insert overwrite - should replace all data
+        sql """
+            insert overwrite table ${table_name} values (3, 'charlie', 30);
+        """
+        def result2 = sql """
+            SELECT * FROM ${table_name};
+        """
+        assert result2.size() == 1
+        assert result2[0][0] == 3
+
+        // Test 3: Another insert overwrite with multiple rows
+        sql """
+            insert overwrite table ${table_name} values (4, 'david', 35), (5, 'eve', 28), (6, 'frank', 40);
+        """
+        def result3 = sql """
+            SELECT COUNT(*) FROM ${table_name};
+        """
+        assert result3[0][0] == 3
+
+        sql """
+            DROP TABLE ${table_name};
+        """
+        sql """
+            DROP DATABASE ${db_name} FORCE;
+        """
+
+        def dropResult = sql """
+            show databases  like "${db_name}";
+        """
+        assert dropResult.size() == 0
+    }
+
+    /*--------test insert overwrite for iceberg---------*/
+    def testInsertOverwriteIceberg = { String catalogProperties, String prefix ->
+        def catalog_name = "${prefix}_catalog"
+        sql """
+            DROP CATALOG IF EXISTS ${catalog_name};
+        """
+        sql """
+            CREATE CATALOG IF NOT EXISTS ${catalog_name} PROPERTIES (
+                ${catalogProperties}
+            );
+        """
+        sql """
+            switch ${catalog_name};
+        """
+
+        def db_name = prefix + "_db"
+        sql """
+            DROP DATABASE IF EXISTS ${db_name} FORCE;
+        """
+        sql """
+            CREATE DATABASE IF NOT EXISTS ${db_name};
+        """
+
+        def dbResult = sql """
+            show databases  like "${db_name}";
+        """
+        assert dbResult.size() == 1
+
+        sql """
+            use ${db_name};
+        """
+
+        def table_name = prefix + "_overwrite_table"
+
+        // Create table for insert overwrite test
+        sql """
+            CREATE TABLE ${table_name} (
+                id INT NOT NULL COMMENT 'id',
+                name VARCHAR(20) COMMENT 'name',
+                age INT COMMENT 'age'
+            );
+        """
+
+        // Test 1: Initial insert
+        sql """
+            insert into ${table_name} values (1, 'alice', 20), (2, 'bob', 25);
+        """
+        def result1 = sql """
+            SELECT COUNT(*) FROM ${table_name};
+        """
+        assert result1[0][0] == 2
+
+        // Test 2: Insert overwrite - should replace all data
+        sql """
+            insert overwrite table ${table_name} values (3, 'charlie', 30);
+        """
+        def result2 = sql """
+            SELECT * FROM ${table_name};
+        """
+        assert result2.size() == 1
+        assert result2[0][0] == 3
+
+        // Test 3: Another insert overwrite with multiple rows
+        sql """
+            insert overwrite table ${table_name} values (4, 'david', 35), (5, 'eve', 28), (6, 'frank', 40);
+        """
+        def result3 = sql """
+            SELECT COUNT(*) FROM ${table_name};
+        """
+        assert result3[0][0] == 3
+
+        sql """
+            DROP TABLE ${table_name};
+        """
+        sql """
+            DROP DATABASE ${db_name} FORCE;
+        """
+
+        def dropResult = sql """
+            show databases  like "${db_name}";
+        """
+        assert dropResult.size() == 0
+    }
+
     /*--------only execute query---------*/
     def testQuery = { String catalog_properties, String prefix, String db_name, String table_name, int data_count ->
 
@@ -223,4 +395,11 @@ suite("iceberg_and_hive_on_glue", "p2,external,hive,new_catalog_property") {
     testQueryAndInsertIcerberg(warehouse_location + iceberg_glue_catalog_base_properties + glue_properties_1, "iceberg_glue_on_s3")
     testQueryAndInsertIcerberg(warehouse_location + iceberg_glue_catalog_base_properties + glue_properties_2, "iceberg_glue_on_s3")
     testQueryAndInsertIcerberg(warehouse_location + iceberg_glue_catalog_base_properties + glue_properties_3, "iceberg_glue_on_s3")
+
+    // Iceberg - Insert overwrite tests
+    testInsertOverwriteIceberg(warehouse_location + iceberg_glue_catalog_base_properties + glue_properties_3, "iceberg_glue_overwrite_on_s3")
+
+    // Hive on Glue - Insert overwrite tests
+    def db_location = "${s3_warehouse}hive-glue-s3-warehouse/hive-overwrite/" + System.currentTimeMillis()
+    testInsertOverwrite(hms_glue_catalog_base_properties + glue_properties_3, "hive_glue_overwrite_on_s3", db_location)
 }

@@ -123,8 +123,12 @@ public:
                    const TupleDescriptor* output_tuple_desc,
                    const RowDescriptor* output_row_descriptor,
                    const std::list<std::shared_ptr<vectorized::ScannerDelegate>>& scanners,
-                   int64_t limit_, std::shared_ptr<pipeline::Dependency> dependency,
-                   int num_parallel_instances);
+                   int64_t limit_, std::shared_ptr<pipeline::Dependency> dependency
+#ifdef BE_TEST
+                   ,
+                   int num_parallel_instances
+#endif
+    );
 
     ~ScannerContext() override;
     Status init();
@@ -204,7 +208,6 @@ protected:
     /// 3. `_free_blocks_memory_usage` < `_max_bytes_in_queue`, remains enough memory to scale up
     /// 4. At most scale up `MAX_SCALE_UP_RATIO` times to `_max_thread_num`
     void _set_scanner_done();
-    Status _try_to_scale_up();
 
     RuntimeState* _state = nullptr;
     pipeline::ScanLocalStateBase* _local_state = nullptr;
@@ -228,7 +231,6 @@ protected:
     int64_t limit;
 
     int64_t _max_bytes_in_queue = 0;
-    ScannerScheduler* _scanner_scheduler = nullptr;
     // Using stack so that we can resubmit scanner in a LIFO order, maybe more cache friendly
     std::stack<std::shared_ptr<ScanTask>> _pending_scanners;
     // Scanner that is submitted to the scheduler.
@@ -244,16 +246,20 @@ protected:
     RuntimeProfile::Counter* _scale_up_scanners_counter = nullptr;
     std::shared_ptr<ResourceContext> _resource_ctx;
     std::shared_ptr<pipeline::Dependency> _dependency = nullptr;
-    const int _parallism_of_scan_operator;
     std::shared_ptr<doris::vectorized::TaskHandle> _task_handle;
 
     std::atomic<int64_t> _block_memory_usage = 0;
 
     // adaptive scan concurrency related
 
-    int32_t _min_scan_concurrency_of_scan_scheduler = 0;
-    int32_t _min_scan_concurrency = 1;
+    ScannerScheduler* _scanner_scheduler = nullptr;
+    MOCK_REMOVE(const) int32_t _min_scan_concurrency_of_scan_scheduler = 0;
+    // The overall target of our system is to make full utilization of the resources.
+    // At the same time, we dont want too many tasks are queued by scheduler, that is not necessary.
+    // Each scan operator can submit _max_scan_concurrency scanner to scheduelr if scheduler has enough resource.
+    // So that for a single query, we can make sure it could make full utilization of the resource.
     int32_t _max_scan_concurrency = 0;
+    MOCK_REMOVE(const) int32_t _min_scan_concurrency = 1;
 
     std::shared_ptr<ScanTask> _pull_next_scan_task(std::shared_ptr<ScanTask> current_scan_task,
                                                    int32_t current_concurrency);

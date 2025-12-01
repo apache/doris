@@ -96,5 +96,19 @@ suite("regression_test_variant_hirachinal", "variant_type"){
     qt_sql """select * from t order by a;"""
     qt_sql """select * from t where v is null;"""
 
-
+    sql "DROP TABLE IF EXISTS ${table_name}"
+    sql """
+        CREATE TABLE ${table_name} (
+            `k` bigint NULL,
+            `v` variant<PROPERTIES ("variant_max_subcolumns_count" = "1")> NULL
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`k`)
+        DISTRIBUTED BY HASH(`k`) BUCKETS 1
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1"
+        );
+    """
+    sql """insert into ${table_name} values (1, '{"a": 1}'), (2, '{"a" : 1, "profile" : {"name" : "John", "age" : 30}, "profile_id" : 123}');"""
+    sql """insert into ${table_name} values (3, '{"a": 1}'), (4, '{"a" : 1, "profile" : {"name" : "John", "age" : 30}, "profile2" : 123}'); """
+    qt_sql """select v['profile'] from ${table_name} order by k;"""
 }

@@ -413,4 +413,32 @@ TEST_F(AggregateFunctionAIAggTest, mock_resource_send_request_test) {
     _agg_function->destroy(place);
 }
 
+TEST_F(AggregateFunctionAIAggTest, missing_ai_resources_metadata_test) {
+    auto empty_query_ctx = MockQueryContext::create();
+    _agg_function->set_query_context(empty_query_ctx.get());
+
+    std::vector<std::string> resources = {"resource_name"};
+    std::vector<std::string> texts = {"test input"};
+    std::vector<std::string> task = {"summarize"};
+    auto col_resource = ColumnHelper::create_column<DataTypeString>(resources);
+    auto col_text = ColumnHelper::create_column<DataTypeString>(texts);
+    auto col_task = ColumnHelper::create_column<DataTypeString>(task);
+
+    std::unique_ptr<char[]> memory(new char[_agg_function->size_of_data()]);
+    AggregateDataPtr place = memory.get();
+    _agg_function->create(place);
+
+    const IColumn* columns[3] = {col_resource.get(), col_text.get(), col_task.get()};
+
+    try {
+        _agg_function->add(place, columns, 0, _arena);
+        FAIL() << "Expected exception for missing AI resources";
+    } catch (const Exception& e) {
+        EXPECT_EQ(e.code(), ErrorCode::INTERNAL_ERROR);
+        EXPECT_NE(e.to_string().find("AI resources metadata missing"), std::string::npos);
+    }
+
+    _agg_function->destroy(place);
+}
+
 } // namespace doris::vectorized

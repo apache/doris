@@ -474,7 +474,7 @@ Status JniConnector::_fill_map_column(TableMetaAddress& address, MutableColumnPt
                                  map_offsets[origin_size + num_rows - 1] - start_offset));
     RETURN_IF_ERROR(_fill_column(address, value_column, value_type,
                                  map_offsets[origin_size + num_rows - 1] - start_offset));
-    return map.deduplicate_keys();
+    return Status::OK();
 }
 
 Status JniConnector::_fill_struct_column(TableMetaAddress& address, MutableColumnPtr& doris_column,

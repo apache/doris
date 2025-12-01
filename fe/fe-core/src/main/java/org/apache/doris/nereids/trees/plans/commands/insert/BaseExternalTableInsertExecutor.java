@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans.commands.insert;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.SummaryProfile;
@@ -112,12 +113,24 @@ public abstract class BaseExternalTableInsertExecutor extends AbstractInsertExec
             }
             summaryProfile.ifPresent(SummaryProfile::setTransactionEndTime);
             txnStatus = TransactionStatus.COMMITTED;
-            Env.getCurrentEnv().getRefreshManager().handleRefreshTable(
-                    catalogName,
-                    table.getDatabase().getFullName(),
-                    table.getName(),
-                    true);
+
+            // Handle post-commit operations (e.g., cache refresh)
+            doAfterCommit();
         }
+    }
+
+    /**
+     * Called after transaction commit.
+     * Subclasses can override this to customize post-commit behavior.
+     * Default: full table refresh.
+     */
+    protected void doAfterCommit() throws DdlException {
+        // Default: full table refresh
+        Env.getCurrentEnv().getRefreshManager().handleRefreshTable(
+                catalogName,
+                table.getDatabase().getFullName(),
+                table.getName(),
+                true);
     }
 
     @Override

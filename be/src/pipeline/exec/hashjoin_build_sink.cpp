@@ -450,9 +450,11 @@ Status HashJoinBuildSinkLocalState::_hash_table_init(RuntimeState* state,
         /// For 'null safe equal' join,
         /// the build key column maybe be converted to nullable from non-nullable.
         if (p._serialize_null_into_key[i]) {
-            data_type = vectorized::make_nullable(data_type);
+            data_types.emplace_back(vectorized::make_nullable(data_type));
+        } else {
+            // in this case, we use nullmap to represent null value
+            data_types.emplace_back(vectorized::remove_nullable(data_type));
         }
-        data_types.emplace_back(std::move(data_type));
     }
     if (_build_expr_ctxs.size() == 1) {
         p._should_keep_hash_key_column = true;

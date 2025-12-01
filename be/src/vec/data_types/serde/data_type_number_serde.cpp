@@ -932,6 +932,36 @@ void DataTypeNumberSerDe<T>::to_string(const IColumn& column, size_t row_num,
 }
 
 template <PrimitiveType T>
+bool DataTypeNumberSerDe<T>::write_column_to_presto_text(const IColumn& column, BufferWritable& bw,
+                                                         int64_t row_idx) const {
+    auto& data = assert_cast<const ColumnType&, TypeCheckOnRelease::DISABLE>(column).get_data();
+    value_to_string<T>(data[row_idx], bw, get_scale());
+    return true;
+}
+
+template <PrimitiveType T>
+bool DataTypeNumberSerDe<T>::write_column_to_hive_text(const IColumn& column, BufferWritable& bw,
+                                                       int64_t row_idx) const {
+    auto& data = assert_cast<const ColumnType&, TypeCheckOnRelease::DISABLE>(column).get_data();
+    if constexpr (is_date_type(T) || is_time_type(T) || is_ip(T)) {
+        if (_nesting_level > 1) {
+            bw.write('"');
+        }
+        value_to_string<T>(data[row_idx], bw, get_scale());
+        if (_nesting_level > 1) {
+            bw.write('"');
+        }
+    } else if constexpr (T == TYPE_BOOLEAN) {
+        // In Hive, boolean values are represented as 'true' and 'false' strings.
+        std::string bool_value = data[row_idx] ? "true" : "false";
+        bw.write(bool_value.data(), bool_value.size());
+    } else {
+        value_to_string<T>(data[row_idx], bw, get_scale());
+    }
+    return true;
+}
+
+template <PrimitiveType T>
 void DataTypeNumberSerDe<T>::to_string_batch(const IColumn& column, ColumnString& column_to) const {
     auto& data = assert_cast<const ColumnType&>(column).get_data();
     const size_t size = column.size();

@@ -21,11 +21,13 @@ suite("test_remote_doris_table_stats", "p0,external,doris,external_docker,extern
     String remote_doris_http_port = context.config.otherConfigs.get("extArrowFlightHttpPort")
     String remote_doris_user = context.config.otherConfigs.get("extArrowFlightSqlUser")
     String remote_doris_psw = context.config.otherConfigs.get("extArrowFlightSqlPassword")
+    String remote_doris_thrift_port = context.config.otherConfigs.get("extFeThriftPort")
 
     def showres = sql "show frontends";
     remote_doris_arrow_port = showres[0][6]
     remote_doris_http_port = showres[0][3]
-    log.info("show frontends log = ${showres}, arrow: ${remote_doris_arrow_port}, http: ${remote_doris_http_port}")
+    remote_doris_thrift_port = showres[0][5]
+    log.info("show frontends log = ${showres}, arrow: ${remote_doris_arrow_port}, http: ${remote_doris_http_port}, thrift: ${remote_doris_thrift_port}")
 
     def showres2 = sql "show backends";
     log.info("show backends log = ${showres2}")
@@ -71,10 +73,12 @@ suite("test_remote_doris_table_stats", "p0,external,doris,external_docker,extern
     sql """
     CREATE CATALOG `test_remote_doris_table_stats_catalog` PROPERTIES (
                 'type' = 'doris',
+                'fe_thrift_hosts' = '${remote_doris_host}:${remote_doris_thrift_port}',
                 'fe_http_hosts' = 'http://${remote_doris_host}:${remote_doris_http_port}',
                 'fe_arrow_hosts' = '${remote_doris_host}:${remote_doris_arrow_port}',
                 'user' = '${remote_doris_user}',
-                'password' = '${remote_doris_psw}'
+                'password' = '${remote_doris_psw}',
+                'use_arrow_flight' = 'true'
         );
     """
 

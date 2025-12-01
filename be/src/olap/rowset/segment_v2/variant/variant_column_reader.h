@@ -27,9 +27,12 @@
 #include <vector>
 
 #include "olap/rowset/segment_v2/column_reader.h"
+#include "olap/rowset/segment_v2/indexed_column_reader.h"
 #include "olap/rowset/segment_v2/page_handle.h"
+#include "olap/rowset/segment_v2/variant/variant_external_meta_reader.h"
 #include "olap/rowset/segment_v2/variant/variant_statistics.h"
 #include "olap/tablet_schema.h"
+#include "util/once.h"
 #include "vec/columns/column_variant.h"
 #include "vec/columns/subcolumn_tree.h"
 #include "vec/json/path_in_data.h"
@@ -38,6 +41,7 @@ namespace doris {
 
 class TabletIndex;
 class StorageReadOptions;
+class TabletSchema;
 
 namespace segment_v2 {
 
@@ -200,7 +204,8 @@ class VariantColumnReader : public ColumnReader {
 public:
     VariantColumnReader() = default;
 
-    Status init(const ColumnReaderOptions& opts, const SegmentFooterPB& footer, uint32_t column_id,
+    Status init(const ColumnReaderOptions& opts, ColumnMetaAccessor* accessor,
+                const std::shared_ptr<SegmentFooterPB>& footer, int32_t column_uid,
                 uint64_t num_rows, io::FileReaderSPtr file_reader);
 
     Status new_iterator(ColumnIteratorUPtr* iterator, const TabletColumn* col,
@@ -221,7 +226,9 @@ public:
 
     int64_t get_metadata_size() const override;
 
-    std::vector<const TabletIndex*> find_subcolumn_tablet_indexes(const std::string&);
+    // Return shared_ptr to ensure the lifetime of TabletIndex objects
+    TabletIndexes find_subcolumn_tablet_indexes(const TabletColumn& target_column,
+                                                const vectorized::DataTypePtr& data_type);
 
     bool exist_in_sparse_column(const vectorized::PathInData& path) const;
 
@@ -231,14 +238,53 @@ public:
         return _subcolumns_meta_info.get();
     }
 
+    // Get the types of all subcolumns in the variant column.
     void get_subcolumns_types(
             std::unordered_map<vectorized::PathInData, vectorized::DataTypes,
                                vectorized::PathInData::Hash>* subcolumns_types) const;
 
+    // Get the typed paths in the variant column.
     void get_typed_paths(std::unordered_set<std::string>* typed_paths) const;
 
+    // Get the nested paths in the variant column.
     void get_nested_paths(std::unordered_set<vectorized::PathInData, vectorized::PathInData::Hash>*
                                   nested_paths) const;
+
+    // Infer the storage data type for a variant subcolumn identified by `relative_path`.
+    // This encapsulates the same decision logic as Segment::get_data_type_of for variant paths,
+    // including handling of sparse columns, prefix paths, and flat-leaf compaction mode.
+    vectorized::DataTypePtr infer_data_type_for_path(const TabletColumn& column,
+                                                     const vectorized::PathInData& relative_path,
+                                                     bool read_flat_leaves,
+                                                     ColumnReaderCache* cache,
+                                                     int32_t col_uid) const;
+
+    // Create a ColumnReader for a sub-column identified by `relative_path`.
+    // This method will first try inline footer.columns via footer_ordinal and then
+    // fall back to external meta if available. Callers do not need to care about
+    // the underlying layout (inline vs external).
+    Status create_path_reader(const vectorized::PathInData& relative_path,
+                              const ColumnReaderOptions& opts, ColumnMetaAccessor* accessor,
+                              const SegmentFooterPB& footer, const io::FileReaderSPtr& file_reader,
+                              uint64_t num_rows, std::shared_ptr<ColumnReader>* out);
+
+    // Try create a ColumnReader from externalized meta (path -> ColumnMetaPB bytes) if present.
+    // Only used internally by create_path_reader. External callers should not rely
+    // on external meta details directly.
+    Status create_reader_from_external_meta(const std::string& path,
+                                            const ColumnReaderOptions& opts,
+                                            const io::FileReaderSPtr& file_reader,
+                                            uint64_t num_rows, std::shared_ptr<ColumnReader>* out);
+
+    // Ensure external meta is loaded only once across concurrent callers.
+    Status load_external_meta_once();
+
+    // Determine whether `path` is a strict prefix of any existing subcolumn path.
+    // Consider three sources:
+    // 1) Extracted subcolumns in `_subcolumns_meta_info`
+    // 2) Sparse column statistics in `_statistics->sparse_column_non_null_size`
+    // 3) Externalized metas via `_ext_meta_reader`
+    bool has_prefix_path(const vectorized::PathInData& relative_path) const;
 
 private:
     // init for compaction read
@@ -274,11 +320,19 @@ private:
     UnifiedSparseColumnReader _sparse_reader;
     std::shared_ptr<ColumnReader> _root_column_reader;
     std::unique_ptr<VariantStatistics> _statistics;
-    // key: subcolumn path, value: subcolumn indexes
-    std::unordered_map<std::string, TabletIndexes> _variant_subcolumns_indexes;
+    std::shared_ptr<TabletSchema> _tablet_schema;
     // variant_sparse_column_statistics_size
     size_t _variant_sparse_column_statistics_size =
             BeConsts::DEFAULT_VARIANT_MAX_SPARSE_COLUMN_STATS_SIZE;
+
+    // Externalized meta reader (optional)
+    std::unique_ptr<VariantExternalMetaReader> _ext_meta_reader;
+
+    io::FileReaderSPtr _segment_file_reader;
+    uint64_t _num_rows {0};
+    uint32_t _root_unique_id {0};
+
+    // call-once guard moved into VariantExternalMetaReader
 };
 
 class VariantRootColumnIterator : public ColumnIterator {

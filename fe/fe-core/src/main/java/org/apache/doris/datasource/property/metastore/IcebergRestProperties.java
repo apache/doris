@@ -154,6 +154,16 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
             description = "The secret access key for the iceberg rest catalog service.")
     private String icebergRestSecretAccessKey = "";
 
+    @ConnectorProperty(names = {"iceberg.rest.connection-timeout-ms"},
+            required = false,
+            description = "Connection timeout in milliseconds for the REST catalog HTTP client. Default: 10000 (10s).")
+    private String icebergRestConnectionTimeoutMs = "10000";
+
+    @ConnectorProperty(names = {"iceberg.rest.socket-timeout-ms"},
+            required = false,
+            description = "Socket timeout in milliseconds for the REST catalog HTTP client. Default: 60000 (60s).")
+    private String icebergRestSocketTimeoutMs = "60000";
+
     protected IcebergRestProperties(Map<String, String> props) {
         super(props);
     }
@@ -259,6 +269,13 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
 
         if (isIcebergRestVendedCredentialsEnabled()) {
             icebergRestCatalogProperties.put(VENDED_CREDENTIALS_HEADER, VENDED_CREDENTIALS_VALUE);
+        }
+
+        if (Strings.isNotBlank(icebergRestConnectionTimeoutMs)) {
+            icebergRestCatalogProperties.put("rest.client.connection-timeout-ms", icebergRestConnectionTimeoutMs);
+        }
+        if (Strings.isNotBlank(icebergRestSocketTimeoutMs)) {
+            icebergRestCatalogProperties.put("rest.client.socket-timeout-ms", icebergRestSocketTimeoutMs);
         }
     }
 

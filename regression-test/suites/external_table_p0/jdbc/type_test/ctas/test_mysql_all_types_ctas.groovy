@@ -35,16 +35,17 @@ suite("test_mysql_all_types_ctas", "p0,external,mysql,external_docker,external_d
             "password"="123456",
             "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}/doris_test?useSSL=false",
             "driver_url" = "${driver_url}",
-            "driver_class" = "com.mysql.cj.jdbc.Driver"
+            "driver_class" = "com.mysql.cj.jdbc.Driver",
+            "enable.mapping.varbinary" = "true"
         );"""
 
         sql """use internal.test_mysql_all_types_ctas;"""
 
-        sql """create table all_types_nullable properties("replication_num" = "1") as select * EXCEPT(`binary`,`varbinary`) from mysql_all_type_ctas_test.doris_test.all_types_nullable;"""
+        sql """create table all_types_nullable properties("replication_num" = "1") as select * EXCEPT(`blob`,`binary`,`varbinary`) from mysql_all_type_ctas_test.doris_test.all_types_nullable;"""
 
         qt_select_all_types_nullable """select * from internal.test_mysql_all_types_ctas.all_types_nullable order by 1;"""
 
-        sql """create table all_types_non_nullable properties("replication_num" = "1") as select  * EXCEPT(`binary`,`varbinary`) from mysql_all_type_ctas_test.doris_test.all_types_non_nullable;"""
+        sql """create table all_types_non_nullable properties("replication_num" = "1") as select  * EXCEPT(`blob`,`binary`,`varbinary`) from mysql_all_type_ctas_test.doris_test.all_types_non_nullable;"""
 
         if (!isCloudMode()) {
             qt_select_all_types_non_nullable """select * from internal.test_mysql_all_types_ctas.all_types_non_nullable order by 1;"""

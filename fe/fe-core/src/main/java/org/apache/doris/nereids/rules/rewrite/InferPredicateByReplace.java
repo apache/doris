@@ -29,6 +29,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.Like;
 import org.apache.doris.nereids.trees.expressions.Not;
+import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
@@ -122,6 +123,14 @@ public class InferPredicateByReplace {
             }
             for (Expression expr : getAllSubExpressions(like.child(0))) {
                 context.computeIfAbsent(expr, k -> new LinkedHashSet<>()).add(like);
+            }
+            return null;
+        }
+
+        @Override
+        public Void visitOr(Or or, Map<Expression, Set<Expression>> context) {
+            for (Expression expr : getAllSubExpressions(or)) {
+                context.computeIfAbsent(expr, k -> new LinkedHashSet<>()).add(or);
             }
             return null;
         }

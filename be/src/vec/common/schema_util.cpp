@@ -699,8 +699,10 @@ Status VariantCompactionUtil::aggregate_path_to_stats(
             }
 
             CHECK(column_reader->get_meta_type() == FieldType::OLAP_FIELD_TYPE_VARIANT);
-            const auto* variant_column_reader =
-                    assert_cast<const segment_v2::VariantColumnReader*>(column_reader.get());
+            auto* variant_column_reader =
+                    assert_cast<segment_v2::VariantColumnReader*>(column_reader.get());
+            // load external meta before getting stats
+            RETURN_IF_ERROR(variant_column_reader->load_external_meta_once());
             const auto* source_stats = variant_column_reader->get_stats();
             CHECK(source_stats);
 
@@ -738,8 +740,10 @@ Status VariantCompactionUtil::aggregate_variant_extended_info(
             }
 
             CHECK(column_reader->get_meta_type() == FieldType::OLAP_FIELD_TYPE_VARIANT);
-            const auto* variant_column_reader =
-                    assert_cast<const segment_v2::VariantColumnReader*>(column_reader.get());
+            auto* variant_column_reader =
+                    assert_cast<segment_v2::VariantColumnReader*>(column_reader.get());
+            // load external meta before getting stats
+            RETURN_IF_ERROR(variant_column_reader->load_external_meta_once());
             const auto* source_stats = variant_column_reader->get_stats();
             CHECK(source_stats);
 
@@ -1417,9 +1421,16 @@ TabletSchemaSPtr VariantCompactionUtil::calculate_variant_extended_schema(
                 }
 
                 CHECK(column_reader->get_meta_type() == FieldType::OLAP_FIELD_TYPE_VARIANT);
-                const auto* subcolumn_meta_info =
-                        assert_cast<VariantColumnReader*>(column_reader.get())
-                                ->get_subcolumns_meta_info();
+                auto* variant_column_reader =
+                        assert_cast<segment_v2::VariantColumnReader*>(column_reader.get());
+                // load external meta before getting subcolumn meta info
+                st = variant_column_reader->load_external_meta_once();
+                if (!st.ok()) {
+                    LOG(WARNING) << "Failed to load external meta for column: " << column->name()
+                                 << " error: " << st.to_string();
+                    continue;
+                }
+                const auto* subcolumn_meta_info = variant_column_reader->get_subcolumns_meta_info();
                 for (const auto& entry : *subcolumn_meta_info) {
                     if (entry->path.empty()) {
                         continue;

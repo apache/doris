@@ -1109,6 +1109,11 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
         RecycleRowsetPB recycle_rowset;
         recycle_rowset.set_creation_time(now);
         recycle_rowset.mutable_rowset_meta()->CopyFrom(rs);
+        if (config::enable_recycle_rowset_strip_key_bounds) {
+            // Strip key bounds to shrink operation log for ts compaction recycle entries
+            recycle_rowset.mutable_rowset_meta()->clear_segments_key_bounds();
+            recycle_rowset.mutable_rowset_meta()->clear_segments_key_bounds_truncated();
+        }
         recycle_rowset.set_type(RecycleRowsetPB::COMPACT);
 
         if (is_versioned_write) {
@@ -1657,6 +1662,11 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
         RecycleRowsetPB recycle_rowset;
         recycle_rowset.set_creation_time(now);
         recycle_rowset.mutable_rowset_meta()->CopyFrom(rs);
+        if (config::enable_recycle_rowset_strip_key_bounds) {
+            // Strip key bounds to shrink schema change recycle operation log entries
+            recycle_rowset.mutable_rowset_meta()->clear_segments_key_bounds();
+            recycle_rowset.mutable_rowset_meta()->clear_segments_key_bounds_truncated();
+        }
         recycle_rowset.set_type(RecycleRowsetPB::DROP);
         if (is_versioned_write) {
             schema_change_log.add_recycle_rowsets()->Swap(&recycle_rowset);

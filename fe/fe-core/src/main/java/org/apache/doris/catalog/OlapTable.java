@@ -95,6 +95,7 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
@@ -182,10 +183,10 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     private PartitionInfo partitionInfo;
     @SerializedName(value = "itp", alternate = {"idToPartition"})
     @Getter
-    private ConcurrentHashMap<Long, Partition> idToPartition = new ConcurrentHashMap<>();
+    protected ConcurrentHashMap<Long, Partition> idToPartition = new ConcurrentHashMap<>();
     // handled in postgsonprocess
     @Getter
-    private Map<String, Partition> nameToPartition = Maps.newTreeMap();
+    protected Map<String, Partition> nameToPartition = Maps.newTreeMap();
 
     @SerializedName(value = "di", alternate = {"distributionInfo"})
     private DistributionInfo defaultDistributionInfo;
@@ -3697,5 +3698,49 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
                                         : invertedIndexesWithFieldPattern.stream()
                                         .filter(Index::isAnalyzedInvertedIndex).findFirst().orElse(null);
         }
+    }
+
+    /**
+     * caller should acquire the read lock and should not modify any field of the return obj
+     */
+    public OlapTable copyTableMeta() {
+        OlapTable table = new OlapTable();
+        // metaobj
+        table.signature = signature;
+        table.lastCheckTime =  lastCheckTime;
+        // abstract table
+        table.id = id;
+        table.name = name;
+        table.qualifiedDbName = qualifiedDbName;
+        table.type = type;
+        table.createTime = createTime;
+        table.fullSchema = fullSchema;
+        table.comment = comment;
+        table.tableAttributes = tableAttributes;
+        // olap table
+        // NOTE: currently do not need temp partitions, colocateGroup, autoIncrementGenerator
+        table.idToPartition = new ConcurrentHashMap<>();
+        table.tempPartitions = new TempPartitions();
+
+        table.state = state;
+        table.indexIdToMeta = ImmutableMap.copyOf(indexIdToMeta);
+        table.indexNameToId = ImmutableMap.copyOf(indexNameToId);
+        table.keysType = keysType;
+        table.partitionInfo = partitionInfo;
+        table.defaultDistributionInfo = defaultDistributionInfo;
+        table.bfColumns = bfColumns;
+        table.bfFpp = bfFpp;
+        table.indexes = indexes;
+        table.baseIndexId = baseIndexId;
+        table.tableProperty = tableProperty;
+        return table;
+    }
+
+    public long getCatalogId() {
+        return Env.getCurrentInternalCatalog().getId();
+    }
+
+    public ImmutableMap<Long, Backend> getAllBackendsByAllCluster() throws AnalysisException {
+        return Env.getCurrentSystemInfo().getAllBackendsByAllCluster();
     }
 }

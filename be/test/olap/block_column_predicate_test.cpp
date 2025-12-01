@@ -25,10 +25,12 @@
 #include <cmath>
 #include <limits>
 #include <memory>
+#include <string>
 #include <type_traits>
 #include <utility>
 #include <vector>
 
+#include "common/status.h"
 #include "exprs/hybrid_set.h"
 #include "gtest/gtest_pred_impl.h"
 #include "olap/column_predicate.h"
@@ -40,6 +42,7 @@
 #include "vec/columns/column.h"
 #include "vec/columns/predicate_column.h"
 #include "vec/core/field.h"
+#include "vec/exec/format/parquet/parquet_block_split_bloom_filter.h"
 #include "vec/exec/format/parquet/vparquet_reader.h"
 
 namespace doris {
@@ -1894,6 +1897,300 @@ TEST_F(BlockColumnPredicateTest, PARQUET_IN_PREDICATE) {
                 EXPECT_TRUE(single_column_block_pred.evaluate_and(&stat));
             }
         }
+    }
+}
+
+TEST_F(BlockColumnPredicateTest, PARQUET_COMPARISON_PREDICATE_BLOOM_FILTER) {
+    const int value = 42;
+    const int col_idx = 0;
+    std::unique_ptr<ColumnPredicate> pred(
+            new ComparisonPredicateBase<TYPE_INT, PredicateType::EQ>(col_idx, value));
+    SingleColumnBlockPredicate single_column_block_pred(pred.get());
+
+    auto parquet_field = std::make_unique<vectorized::FieldSchema>();
+    parquet_field->name = "col1";
+    parquet_field->data_type =
+            vectorized::DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_INT, true);
+    parquet_field->field_id = -1;
+    parquet_field->parquet_schema.type = tparquet::Type::type::INT32;
+
+    auto encode_value = [](int v) {
+        return std::string(reinterpret_cast<const char*>(&v), sizeof(v));
+    };
+
+    {
+        vectorized::ParquetPredicate::ColumnStat stat;
+        cctz::time_zone tmp_ctz;
+        stat.ctz = &tmp_ctz;
+
+        std::function<bool(vectorized::ParquetPredicate::ColumnStat*, int)> get_stat_func =
+                [&](vectorized::ParquetPredicate::ColumnStat* current_stat, int cid) {
+                    EXPECT_EQ(col_idx, cid);
+                    current_stat->col_schema = parquet_field.get();
+                    current_stat->is_all_null = false;
+                    current_stat->has_null = false;
+                    current_stat->encoded_min_value = encode_value(value);
+                    current_stat->encoded_max_value = encode_value(value);
+                    return true;
+                };
+        stat.get_stat_func = &get_stat_func;
+
+        int loader_calls = 0;
+        std::function<bool(vectorized::ParquetPredicate::ColumnStat*, int)> get_bloom_filter_func =
+                [&](vectorized::ParquetPredicate::ColumnStat* current_stat, int cid) {
+                    EXPECT_EQ(col_idx, cid);
+                    loader_calls++;
+                    if (!current_stat->bloom_filter) {
+                        current_stat->bloom_filter =
+                                std::make_unique<vectorized::ParquetBlockSplitBloomFilter>();
+                        auto* bloom = static_cast<vectorized::ParquetBlockSplitBloomFilter*>(
+                                current_stat->bloom_filter.get());
+                        Status st = bloom->init(256, segment_v2::HashStrategyPB::XX_HASH_64);
+                        EXPECT_TRUE(st.ok());
+                        bloom->add_bytes(reinterpret_cast<const char*>(&value), sizeof(value));
+                    }
+                    return true;
+                };
+        stat.get_bloom_filter_func = &get_bloom_filter_func;
+
+        EXPECT_TRUE(single_column_block_pred.evaluate_and(&stat));
+        EXPECT_EQ(1, loader_calls);
+    }
+
+    {
+        vectorized::ParquetPredicate::ColumnStat stat;
+        cctz::time_zone tmp_ctz;
+        stat.ctz = &tmp_ctz;
+
+        std::function<bool(vectorized::ParquetPredicate::ColumnStat*, int)> get_stat_func =
+                [&](vectorized::ParquetPredicate::ColumnStat* current_stat, int cid) {
+                    EXPECT_EQ(col_idx, cid);
+                    current_stat->col_schema = parquet_field.get();
+                    current_stat->is_all_null = false;
+                    current_stat->has_null = false;
+                    current_stat->encoded_min_value = encode_value(value);
+                    current_stat->encoded_max_value = encode_value(value);
+                    return true;
+                };
+        stat.get_stat_func = &get_stat_func;
+
+        int loader_calls = 0;
+        std::function<bool(vectorized::ParquetPredicate::ColumnStat*, int)> get_bloom_filter_func =
+                [&](vectorized::ParquetPredicate::ColumnStat* current_stat, int cid) {
+                    EXPECT_EQ(col_idx, cid);
+                    loader_calls++;
+                    if (!current_stat->bloom_filter) {
+                        current_stat->bloom_filter =
+                                std::make_unique<vectorized::ParquetBlockSplitBloomFilter>();
+                        auto* bloom = static_cast<vectorized::ParquetBlockSplitBloomFilter*>(
+                                current_stat->bloom_filter.get());
+                        Status st = bloom->init(256, segment_v2::HashStrategyPB::XX_HASH_64);
+                        EXPECT_TRUE(st.ok());
+                        int other_value = value + 10;
+                        bloom->add_bytes(reinterpret_cast<const char*>(&other_value),
+                                         sizeof(other_value));
+                    }
+                    return true;
+                };
+        stat.get_bloom_filter_func = &get_bloom_filter_func;
+
+        EXPECT_FALSE(single_column_block_pred.evaluate_and(&stat));
+        EXPECT_EQ(1, loader_calls);
+    }
+
+    {
+        vectorized::ParquetPredicate::ColumnStat stat;
+        cctz::time_zone tmp_ctz;
+        stat.ctz = &tmp_ctz;
+
+        std::function<bool(vectorized::ParquetPredicate::ColumnStat*, int)> get_stat_func =
+                [&](vectorized::ParquetPredicate::ColumnStat* current_stat, int cid) {
+                    EXPECT_EQ(col_idx, cid);
+                    current_stat->col_schema = parquet_field.get();
+                    current_stat->is_all_null = false;
+                    current_stat->has_null = false;
+                    current_stat->encoded_min_value = encode_value(value);
+                    current_stat->encoded_max_value = encode_value(value);
+                    return true;
+                };
+        stat.get_stat_func = &get_stat_func;
+
+        bool loader_invoked = false;
+        std::function<bool(vectorized::ParquetPredicate::ColumnStat*, int)> get_bloom_filter_func =
+                [&](vectorized::ParquetPredicate::ColumnStat* current_stat, int cid) {
+                    EXPECT_EQ(col_idx, cid);
+                    loader_invoked = true;
+                    return false;
+                };
+        stat.get_bloom_filter_func = &get_bloom_filter_func;
+
+        EXPECT_TRUE(single_column_block_pred.evaluate_and(&stat));
+        EXPECT_TRUE(loader_invoked);
+    }
+
+    {
+        vectorized::ParquetPredicate::ColumnStat stat;
+        cctz::time_zone tmp_ctz;
+        stat.ctz = &tmp_ctz;
+
+        std::function<bool(vectorized::ParquetPredicate::ColumnStat*, int)> get_stat_func =
+                [&](vectorized::ParquetPredicate::ColumnStat* current_stat, int cid) {
+                    EXPECT_EQ(col_idx, cid);
+                    current_stat->col_schema = parquet_field.get();
+                    current_stat->is_all_null = false;
+                    current_stat->has_null = false;
+                    int min_value = value + 5;
+                    int max_value = value + 10;
+                    current_stat->encoded_min_value = encode_value(min_value);
+                    current_stat->encoded_max_value = encode_value(max_value);
+                    return true;
+                };
+        stat.get_stat_func = &get_stat_func;
+
+        int loader_calls = 0;
+        std::function<bool(vectorized::ParquetPredicate::ColumnStat*, int)> get_bloom_filter_func =
+                [&](vectorized::ParquetPredicate::ColumnStat*, int) {
+                    loader_calls++;
+                    return true;
+                };
+        stat.get_bloom_filter_func = &get_bloom_filter_func;
+
+        EXPECT_FALSE(single_column_block_pred.evaluate_and(&stat));
+        EXPECT_EQ(0, loader_calls);
+    }
+}
+
+TEST_F(BlockColumnPredicateTest, PARQUET_IN_PREDICATE_BLOOM_FILTER) {
+    const int col_idx = 0;
+    auto hybrid_set = std::make_shared<HybridSet<PrimitiveType::TYPE_INT>>(false);
+    const int included_value = 7;
+    hybrid_set->insert(&included_value);
+    std::unique_ptr<ColumnPredicate> pred(
+            new InListPredicateBase<TYPE_INT, PredicateType::IN_LIST,
+                                    HybridSet<PrimitiveType::TYPE_INT>>(col_idx, hybrid_set));
+    SingleColumnBlockPredicate single_column_block_pred(pred.get());
+
+    auto parquet_field = std::make_unique<vectorized::FieldSchema>();
+    parquet_field->name = "col1";
+    parquet_field->data_type =
+            vectorized::DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_INT, true);
+    parquet_field->field_id = -1;
+    parquet_field->parquet_schema.type = tparquet::Type::type::INT32;
+
+    auto encode_value = [](int v) {
+        return std::string(reinterpret_cast<const char*>(&v), sizeof(v));
+    };
+
+    {
+        vectorized::ParquetPredicate::ColumnStat stat;
+        cctz::time_zone tmp_ctz;
+        stat.ctz = &tmp_ctz;
+
+        std::function<bool(vectorized::ParquetPredicate::ColumnStat*, int)> get_stat_func =
+                [&](vectorized::ParquetPredicate::ColumnStat* current_stat, int cid) {
+                    EXPECT_EQ(col_idx, cid);
+                    current_stat->col_schema = parquet_field.get();
+                    current_stat->is_all_null = false;
+                    current_stat->has_null = false;
+                    current_stat->encoded_min_value = encode_value(included_value);
+                    current_stat->encoded_max_value = encode_value(included_value);
+                    return true;
+                };
+        stat.get_stat_func = &get_stat_func;
+
+        int loader_calls = 0;
+        std::function<bool(vectorized::ParquetPredicate::ColumnStat*, int)> get_bloom_filter_func =
+                [&](vectorized::ParquetPredicate::ColumnStat* current_stat, int cid) {
+                    EXPECT_EQ(col_idx, cid);
+                    loader_calls++;
+                    if (!current_stat->bloom_filter) {
+                        current_stat->bloom_filter =
+                                std::make_unique<vectorized::ParquetBlockSplitBloomFilter>();
+                        auto* bloom = static_cast<vectorized::ParquetBlockSplitBloomFilter*>(
+                                current_stat->bloom_filter.get());
+                        Status st = bloom->init(256, segment_v2::HashStrategyPB::XX_HASH_64);
+                        EXPECT_TRUE(st.ok());
+                        bloom->add_bytes(reinterpret_cast<const char*>(&included_value),
+                                         sizeof(included_value));
+                    }
+                    return true;
+                };
+        stat.get_bloom_filter_func = &get_bloom_filter_func;
+
+        EXPECT_TRUE(single_column_block_pred.evaluate_and(&stat));
+        EXPECT_EQ(1, loader_calls);
+    }
+
+    {
+        vectorized::ParquetPredicate::ColumnStat stat;
+        cctz::time_zone tmp_ctz;
+        stat.ctz = &tmp_ctz;
+
+        std::function<bool(vectorized::ParquetPredicate::ColumnStat*, int)> get_stat_func =
+                [&](vectorized::ParquetPredicate::ColumnStat* current_stat, int cid) {
+                    EXPECT_EQ(col_idx, cid);
+                    current_stat->col_schema = parquet_field.get();
+                    current_stat->is_all_null = false;
+                    current_stat->has_null = false;
+                    current_stat->encoded_min_value = encode_value(included_value);
+                    current_stat->encoded_max_value = encode_value(included_value);
+                    return true;
+                };
+        stat.get_stat_func = &get_stat_func;
+
+        int loader_calls = 0;
+        std::function<bool(vectorized::ParquetPredicate::ColumnStat*, int)> get_bloom_filter_func =
+                [&](vectorized::ParquetPredicate::ColumnStat* current_stat, int cid) {
+                    EXPECT_EQ(col_idx, cid);
+                    loader_calls++;
+                    if (!current_stat->bloom_filter) {
+                        current_stat->bloom_filter =
+                                std::make_unique<vectorized::ParquetBlockSplitBloomFilter>();
+                        auto* bloom = static_cast<vectorized::ParquetBlockSplitBloomFilter*>(
+                                current_stat->bloom_filter.get());
+                        Status st = bloom->init(256, segment_v2::HashStrategyPB::XX_HASH_64);
+                        EXPECT_TRUE(st.ok());
+                        int excluded_value = included_value + 1;
+                        bloom->add_bytes(reinterpret_cast<const char*>(&excluded_value),
+                                         sizeof(excluded_value));
+                    }
+                    return true;
+                };
+        stat.get_bloom_filter_func = &get_bloom_filter_func;
+
+        EXPECT_FALSE(single_column_block_pred.evaluate_and(&stat));
+        EXPECT_EQ(1, loader_calls);
+    }
+
+    {
+        vectorized::ParquetPredicate::ColumnStat stat;
+        cctz::time_zone tmp_ctz;
+        stat.ctz = &tmp_ctz;
+
+        std::function<bool(vectorized::ParquetPredicate::ColumnStat*, int)> get_stat_func =
+                [&](vectorized::ParquetPredicate::ColumnStat* current_stat, int cid) {
+                    EXPECT_EQ(col_idx, cid);
+                    current_stat->col_schema = parquet_field.get();
+                    current_stat->is_all_null = false;
+                    current_stat->has_null = false;
+                    int min_value = included_value + 5;
+                    int max_value = included_value + 10;
+                    current_stat->encoded_min_value = encode_value(min_value);
+                    current_stat->encoded_max_value = encode_value(max_value);
+                    return true;
+                };
+        stat.get_stat_func = &get_stat_func;
+
+        int loader_calls = 0;
+        std::function<bool(vectorized::ParquetPredicate::ColumnStat*, int)> get_bloom_filter_func =
+                [&](vectorized::ParquetPredicate::ColumnStat*, int) {
+                    loader_calls++;
+                    return true;
+                };
+        stat.get_bloom_filter_func = &get_bloom_filter_func;
+
+        EXPECT_FALSE(single_column_block_pred.evaluate_and(&stat));
+        EXPECT_EQ(0, loader_calls);
     }
 }
 

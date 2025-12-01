@@ -1564,7 +1564,8 @@ Status TabletManager::_create_tablet_meta_unlocked(const TCreateTabletReq& reque
             (*tablet_meta)->set_preferred_rowset_type(_engine.default_rowset_type());
         } else if (request.storage_format == TStorageFormat::V1) {
             (*tablet_meta)->set_preferred_rowset_type(ALPHA_ROWSET);
-        } else if (request.storage_format == TStorageFormat::V2) {
+        } else if (request.storage_format == TStorageFormat::V2 ||
+                   request.storage_format == TStorageFormat::V3) {
             (*tablet_meta)->set_preferred_rowset_type(BETA_ROWSET);
         } else {
             return Status::Error<CE_CMD_PARAMS_ERROR>("invalid TStorageFormat: {}",

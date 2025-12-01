@@ -31,6 +31,7 @@ import org.apache.doris.planner.PlanFragmentId;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.planner.SchemaScanNode;
+import org.apache.doris.planner.UnionNode;
 import org.apache.doris.thrift.TExplainLevel;
 
 import com.google.common.collect.ArrayListMultimap;
@@ -215,7 +216,10 @@ public class UnassignedJobBuilder {
     private UnassignedJob buildShuffleJob(
             StatementContext statementContext, PlanFragment planFragment,
             ListMultimap<ExchangeNode, UnassignedJob> inputJobs) {
-        if (planFragment.isPartitioned()) {
+        if (planFragment.getPlanRoot().collectInCurrentFragment(UnionNode.class::isInstance)
+                .stream().map(UnionNode.class::cast).anyMatch(UnionNode::isLocalShuffleUnion)) {
+            return new UnassignedLocalShuffleUnionJob(statementContext, planFragment, inputJobs);
+        } else if (planFragment.isPartitioned()) {
             return new UnassignedShuffleJob(statementContext, planFragment, inputJobs);
         } else {
             return new UnassignedGatherJob(statementContext, planFragment, inputJobs);

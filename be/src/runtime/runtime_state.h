@@ -142,18 +142,26 @@ public:
         return _query_options.__isset.execution_timeout ? _query_options.execution_timeout
                                                         : _query_options.query_timeout;
     }
-    int num_scanner_threads() const {
-        return _query_options.__isset.num_scanner_threads ? _query_options.num_scanner_threads : 0;
-    }
-    int min_scan_concurrency_of_scan_scheduler() const {
-        return _query_options.__isset.min_scan_scheduler_concurrency
-                       ? _query_options.min_scan_scheduler_concurrency
+    int max_scanners_concurrency() const {
+        return _query_options.__isset.max_scanners_concurrency
+                       ? _query_options.max_scanners_concurrency
                        : 0;
     }
+    int max_file_scanners_concurrency() const {
+        return _query_options.__isset.max_file_scanners_concurrency
+                       ? _query_options.max_file_scanners_concurrency
+                       : max_scanners_concurrency();
+    }
 
-    int min_scan_concurrency_of_scanner() const {
-        return _query_options.__isset.min_scanner_concurrency
-                       ? _query_options.min_scanner_concurrency
+    int min_scanners_concurrency() const {
+        return _query_options.__isset.min_scanners_concurrency
+                       ? _query_options.min_scanners_concurrency
+                       : 1;
+    }
+
+    int min_file_scanners_concurrency() const {
+        return _query_options.__isset.min_file_scanners_concurrency
+                       ? _query_options.min_file_scanners_concurrency
                        : 1;
     }
 

@@ -29,7 +29,6 @@ import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.nereids.trees.plans.commands.AlterSqlBlockRuleCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateSqlBlockRuleCommand;
-import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 
@@ -46,6 +45,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -53,13 +53,13 @@ import java.util.stream.Collectors;
 /**
  * Manage SqlBlockRule.
  **/
-public class SqlBlockRuleMgr implements Writable, GsonPostProcessable {
+public class SqlBlockRuleMgr implements Writable {
     private static final Logger LOG = LogManager.getLogger(SqlBlockRuleMgr.class);
 
     private ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
 
     @SerializedName(value = "nameToSqlBlockRuleMap")
-    private Map<String, SqlBlockRule> nameToSqlBlockRuleMap = Maps.newConcurrentMap();
+    private ConcurrentMap<String, SqlBlockRule> nameToSqlBlockRuleMap = Maps.newConcurrentMap();
 
     private void writeLock() {
         lock.writeLock().lock();
@@ -326,14 +326,5 @@ public class SqlBlockRuleMgr implements Writable, GsonPostProcessable {
     public static SqlBlockRuleMgr read(DataInput in) throws IOException {
         String json = Text.readString(in);
         return GsonUtils.GSON.fromJson(json, SqlBlockRuleMgr.class);
-    }
-
-    @Override
-    public void gsonPostProcess() throws IOException {
-        Map<String, SqlBlockRule> nameToSqlBlockRuleMapNew = Maps.newConcurrentMap();
-        if (this.nameToSqlBlockRuleMap != null) {
-            nameToSqlBlockRuleMapNew.putAll(this.nameToSqlBlockRuleMap);
-        }
-        this.nameToSqlBlockRuleMap = nameToSqlBlockRuleMapNew;
     }
 }

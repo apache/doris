@@ -35,6 +35,7 @@ suite("azure_blob_all_test", "p2,external,new_catalog_property") {
     
     def testIcebergTest = { String storage_props,String iceberg_fs_catalog_name, String protocol,String hdfsLocationType ->
         
+        iceberg_fs_catalog_name = iceberg_fs_catalog_name + "_" + ThreadLocalRandom.current().nextInt(100) 
         sql """
          drop catalog if exists ${iceberg_fs_catalog_name};
         """
@@ -52,7 +53,7 @@ suite("azure_blob_all_test", "p2,external,new_catalog_property") {
             """
 
         sql """
-        drop database if exists ${iceberg_fs_catalog_name}_db_test;
+        drop database if exists ${iceberg_fs_catalog_name}_db_test force;
         """
         sql """
         create database ${iceberg_fs_catalog_name}_db_test;
@@ -76,7 +77,7 @@ suite("azure_blob_all_test", "p2,external,new_catalog_property") {
         drop table if exists ${iceberg_fs_catalog_name}_table_test;
     """
         sql """
-        drop database if exists ${iceberg_fs_catalog_name}_db_test;
+        drop database if exists ${iceberg_fs_catalog_name}_db_test force;
     """
         sql """
         drop catalog if exists ${iceberg_fs_catalog_name};

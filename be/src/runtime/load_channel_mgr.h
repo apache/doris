@@ -24,6 +24,7 @@
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <string>
 #include <unordered_map>
 #include <utility>
 
@@ -81,20 +82,28 @@ private:
 
     Status _start_bg_worker();
 
-    class LastSuccessChannelCache : public LRUCachePolicy {
+    class LoadStateChannelCache : public LRUCachePolicy {
     public:
-        LastSuccessChannelCache(size_t capacity)
-                : LRUCachePolicy(CachePolicy::CacheType::LAST_SUCCESS_CHANNEL_CACHE, capacity,
-                                 LRUCacheType::SIZE, -1, DEFAULT_LRU_CACHE_NUM_SHARDS,
+        class CacheValue : public LRUCacheValueBase {
+        public:
+            std::string _cancel_reason;
+        };
+
+        LoadStateChannelCache(size_t capacity)
+                : LRUCachePolicy(CachePolicy::CacheType::LOAD_STATE_CHANNEL_CACHE, capacity,
+                                 LRUCacheType::NUMBER, -1, DEFAULT_LRU_CACHE_NUM_SHARDS,
                                  DEFAULT_LRU_CACHE_ELEMENT_COUNT_CAPACITY, false) {}
     };
+
+    using CacheValue = LoadStateChannelCache::CacheValue;
 
 protected:
     // lock protect the load channel map
     std::mutex _lock;
     // load id -> load channel
     std::unordered_map<UniqueId, std::shared_ptr<LoadChannel>> _load_channels;
-    std::unique_ptr<LastSuccessChannelCache> _last_success_channels;
+    // load id window, remember the recently initiated load id, regardless of whether they succeed or fail
+    std::unique_ptr<LoadStateChannelCache> _load_state_channels;
 
     MemTableMemoryLimiter* _memtable_memory_limiter = nullptr;
 

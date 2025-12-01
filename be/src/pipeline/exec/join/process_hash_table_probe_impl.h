@@ -803,6 +803,7 @@ struct ExtractType<T(U)> {
     INSTANTIATION(JoinOpType, (PrimaryTypeHashTableContext<vectorized::UInt128>));       \
     INSTANTIATION(JoinOpType, (PrimaryTypeHashTableContext<vectorized::UInt256>));       \
     INSTANTIATION(JoinOpType, (FixedKeyHashTableContext<vectorized::UInt64>));           \
+    INSTANTIATION(JoinOpType, (FixedKeyHashTableContext<vectorized::UInt72>));           \
     INSTANTIATION(JoinOpType, (FixedKeyHashTableContext<vectorized::UInt128>));          \
     INSTANTIATION(JoinOpType, (FixedKeyHashTableContext<vectorized::UInt136>));          \
     INSTANTIATION(JoinOpType, (FixedKeyHashTableContext<vectorized::UInt256>));          \
