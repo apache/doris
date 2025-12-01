@@ -351,51 +351,7 @@ Status DataTypeArraySerDe::write_column_to_mysql_binary(const IColumn& column,
                                                         MysqlRowBinaryBuffer& result,
                                                         int64_t row_idx_of_mysql, bool col_const,
                                                         const FormatOptions& options) const {
-    const auto& column_array = assert_cast<const ColumnArray&>(column);
-    const auto& offsets = column_array.get_offsets();
-    const auto& data = column_array.get_data();
-    bool is_nested_string = data.is_column_string();
-    const auto row_idx_of_col_arr = index_check_const(row_idx_of_mysql, col_const);
-    result.open_dynamic_mode();
-
-    if (0 != result.push_string("[", 1)) {
-        return Status::InternalError("pack mysql buffer failed.");
-    }
-
-    const auto begin_arr_element = offsets[row_idx_of_col_arr - 1];
-    const auto end_arr_element = offsets[row_idx_of_col_arr];
-    for (auto j = begin_arr_element; j < end_arr_element; ++j) {
-        if (j != begin_arr_element) {
-            if (0 != result.push_string(options.mysql_collection_delim.c_str(),
-                                        options.mysql_collection_delim.size())) {
-                return Status::InternalError("pack mysql buffer failed.");
-            }
-        }
-        if (data.is_null_at(j)) {
-            if (0 != result.push_string(options.null_format, options.null_len)) {
-                return Status::InternalError("pack mysql buffer failed.");
-            }
-        } else {
-            if (is_nested_string && options.wrapper_len > 0) {
-                if (0 != result.push_string(options.nested_string_wrapper, options.wrapper_len)) {
-                    return Status::InternalError("pack mysql buffer failed.");
-                }
-                RETURN_IF_ERROR(nested_serde->write_column_to_mysql_binary(data, result, j, false,
-                                                                           options));
-                if (0 != result.push_string(options.nested_string_wrapper, options.wrapper_len)) {
-                    return Status::InternalError("pack mysql buffer failed.");
-                }
-            } else {
-                RETURN_IF_ERROR(nested_serde->write_column_to_mysql_binary(data, result, j, false,
-                                                                           options));
-            }
-        }
-    }
-    if (0 != result.push_string("]", 1)) {
-        return Status::InternalError("pack mysql buffer failed.");
-    }
-    result.close_dynamic_mode();
-    return Status::OK();
+    return Status::NotSupported("Array type does not support write to mysql binary format");
 }
 
 Status DataTypeArraySerDe::write_column_to_orc(const std::string& timezone, const IColumn& column,
