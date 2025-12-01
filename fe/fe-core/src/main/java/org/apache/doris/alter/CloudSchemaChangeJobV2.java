@@ -258,7 +258,7 @@ public class CloudSchemaChangeJobV2 extends SchemaChangeJobV2 {
                                             tbl.getPartitionInfo().getTabletType(partitionId),
                                             shadowSchemaHash, originKeysType, shadowShortKeyColumnCount, bfColumns,
                                             bfFpp, tabletIndexes, shadowSchema, tbl.getDataSortInfo(),
-                                            tbl.getCompressionType(),
+                                            tbl.getCompressionType(), tbl.getStorageFormat(),
                                             tbl.getStoragePolicy(), tbl.isInMemory(), true,
                                             tbl.getName(), tbl.getTTLSeconds(),
                                             tbl.getEnableUniqueKeyMergeOnWrite(), tbl.storeRowColumn(),
