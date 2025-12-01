@@ -42,6 +42,7 @@ import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializationContext;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.InlineTable;
+import org.apache.doris.nereids.trees.plans.commands.NeedAuditEncryption;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
@@ -87,7 +88,6 @@ public class AuditLogHelper {
     public static void logAuditLog(ConnectContext ctx, String origStmt, StatementBase parsedStmt,
             org.apache.doris.proto.Data.PQueryStatistics statistics, boolean printFuzzyVariables) {
         try {
-            origStmt = handleStmt(origStmt, parsedStmt);
             logAuditLogImpl(ctx, origStmt, parsedStmt, statistics, printFuzzyVariables);
         } catch (Throwable t) {
             LOG.warn("Failed to write audit log.", t);
@@ -373,12 +373,21 @@ public class AuditLogHelper {
                             statistics == null ? 0 : statistics.getScanBytesFromRemoteStorage());
         }
 
-        // We put origin query stmt at the end of audit log, for parsing the log more convenient.
-        if (!ctx.getState().isQuery() && (parsedStmt != null && parsedStmt.needAuditEncryption())) {
-            auditEventBuilder.setStmt(parsedStmt.toSql());
+        boolean isAnalysisErr = ctx.getState().getStateType() == MysqlStateType.ERR
+                && ctx.getState().getErrType() == QueryState.ErrType.ANALYSIS_ERR;
+        String encryptSql = isAnalysisErr ? ctx.getState().getErrorMessage() : origStmt;
+
+        if (parsedStmt instanceof LogicalPlanAdapter) {
+            LogicalPlan logicalPlan = ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();
+            if ((logicalPlan instanceof NeedAuditEncryption)) {
+                encryptSql = ((NeedAuditEncryption) logicalPlan).geneEncryptionSQL(origStmt);
+            }
         } else {
-            auditEventBuilder.setStmt(origStmt);
+            if (!ctx.getState().isQuery() && (parsedStmt != null && parsedStmt.needAuditEncryption())) {
+                encryptSql = parsedStmt.toSql();
+            }
         }
+        auditEventBuilder.setStmt(handleStmt(encryptSql, parsedStmt));
 
         if (!Env.getCurrentEnv().isMaster()) {
             if (ctx.executor != null && ctx.executor.isForwardToMaster()) {
