@@ -86,6 +86,7 @@ import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.QeProcessorImpl.QueryInfo;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
+import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.FrontendService;
@@ -1591,8 +1592,8 @@ public class MetadataGenerator {
         return result;
     }
 
-    private static void partitionsForInternalCatalog(UserIdentity currentUserIdentity,
-            CatalogIf catalog, DatabaseIf database, List<TableIf> tables, List<TRow> dataBatch, String timeZone) {
+    private static void partitionsForInternalCatalog(UserIdentity currentUserIdentity, CatalogIf catalog,
+            DatabaseIf database, List<TableIf> tables, List<TRow> dataBatch, String timeZone, Long threadId) {
         for (TableIf table : tables) {
             if (!(table instanceof OlapTable)) {
                 continue;
@@ -1679,8 +1680,11 @@ public class MetadataGenerator {
                     trow.addToColumnValue(new TCell().setIntVal(partition.getDistributionInfo()
                             .getBucketNum())); // BUCKET_NUM
                     trow.addToColumnValue(new TCell().setLongVal(partition.getCommittedVersion())); // COMMITTED_VERSION
-                    if (ConnectContext.get() != null &&
-                            ConnectContext.get().getSessionVariable().getPartitionsTableUseCachedVisibleVersion()) {
+                    ConnectContext ctx =
+                            ExecuteEnv.getInstance().getScheduler().getContext(threadId.intValue());
+                    boolean useCachedVisibleVersion = ctx != null
+                            && ctx.getSessionVariable().getPartitionsTableUseCachedVisibleVersion();
+                    if (useCachedVisibleVersion) {
                         trow.addToColumnValue(
                                 new TCell().setLongVal(partition.getCachedVisibleVersion())); // VISIBLE_VERSION
                     } else {
@@ -1758,6 +1762,7 @@ public class MetadataGenerator {
         TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
         Long dbId = params.getDbId();
         String clg = params.getCatalog();
+        Long threadId = params.getThreadId();
         List<TRow> dataBatch = Lists.newArrayList();
         CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(clg);
         if (catalog == null) {
@@ -1780,7 +1785,7 @@ public class MetadataGenerator {
         List<TableIf> tables = database.getTables();
         if (catalog instanceof InternalCatalog) {
             // only olap tables
-            partitionsForInternalCatalog(currentUserIdentity, catalog, database, tables, dataBatch, timezone);
+            partitionsForInternalCatalog(currentUserIdentity, catalog, database, tables, dataBatch, timezone, threadId);
         } else if (catalog instanceof ExternalCatalog) {
             partitionsForExternalCatalog(currentUserIdentity, catalog, database, tables, dataBatch, timezone);
         }

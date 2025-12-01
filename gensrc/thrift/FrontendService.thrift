@@ -858,6 +858,7 @@ struct TSchemaTableRequestParams {
     5: optional i64 dbId         // used for table specific queries
     6: optional string time_zone // used for DATETIME field
     7: optional string frontend_conjuncts
+    8: optional i64 thread_id // mysql connection id for fetching ConnectContext if needed
 }
 
 struct TFetchSchemaTableDataRequest {

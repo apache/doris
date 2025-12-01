@@ -735,7 +735,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_EXTENDED_REGEX = "enable_extended_regex";
 
-    public static final String PARTITIONS_TABLE_USE_CACHED_VISIBLE_VERSION = "partitions_table_use_cached_visible_version";
+    public static final String PARTITIONS_TABLE_USE_CACHED_VISIBLE_VERSION =
+            "partitions_table_use_cached_visible_version";
 
     // NOTE: if you want to add some debug variables, please disable sql cache in `CacheAnalyzer.commonCacheCondition`,
     //       and set affectQueryResult=true
@@ -3133,8 +3134,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = PARTITIONS_TABLE_USE_CACHED_VISIBLE_VERSION, needForward = false,
             affectQueryResult = true,
             description = {"partitions系统表的visible_version列是否使用cached",
-                    "Whether cache is used for the visible_version column in the partitions system table"
-            })
+                    "Whether cache is used for the visible_version column in the partitions system table"})
     public boolean partitionsTableUseCachedVisibleVersion = false;
 
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
