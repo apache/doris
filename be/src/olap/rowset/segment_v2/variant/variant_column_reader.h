@@ -250,14 +250,12 @@ public:
     void get_nested_paths(std::unordered_set<vectorized::PathInData, vectorized::PathInData::Hash>*
                                   nested_paths) const;
 
-    // Infer the storage data type for a variant subcolumn identified by `relative_path`.
-    // This encapsulates the same decision logic as Segment::get_data_type_of for variant paths,
-    // including handling of sparse columns, prefix paths, and flat-leaf compaction mode.
-    vectorized::DataTypePtr infer_data_type_for_path(const TabletColumn& column,
-                                                     const vectorized::PathInData& relative_path,
-                                                     bool read_flat_leaves,
-                                                     ColumnReaderCache* cache,
-                                                     int32_t col_uid) const;
+    // Infer the storage data type for a variant subcolumn using full StorageReadOptions
+    // (reader type, tablet schema, etc). This shares the same decision logic as
+    // `_build_read_plan`, but does not create any iterator.
+    Status infer_data_type_for_path(vectorized::DataTypePtr* type, const TabletColumn& column,
+                                    const StorageReadOptions& opts,
+                                    ColumnReaderCache* column_reader_cache);
 
     // Create a ColumnReader for a sub-column identified by `relative_path`.
     // This method will first try inline footer.columns via footer_ordinal and then
@@ -287,14 +285,61 @@ public:
     bool has_prefix_path(const vectorized::PathInData& relative_path) const;
 
 private:
+    // Describe how a variant sub-path should be read. This is a logical plan only and
+    // does not create any concrete ColumnIterator.
+    enum class ReadKind {
+        ROOT_FLAT,      // root variant using `VariantRootColumnIterator`
+        HIERARCHICAL,   // hierarchical merge (root + subcolumns + sparse)
+        LEAF,           // direct leaf reader
+        SPARSE_EXTRACT, // extract single path from sparse column
+        SPARSE_MERGE,   // merge subcolumns into sparse column
+        DEFAULT_NESTED, // fill nested subcolumn using sibling nested column
+        DEFAULT_FILL    // default iterator when path not exist
+    };
+
+    struct ReadPlan {
+        ReadKind kind {ReadKind::DEFAULT_FILL};
+        vectorized::DataTypePtr type;
+
+        // path & meta context
+        vectorized::PathInData relative_path;
+        const SubcolumnColumnMetaInfo::Node* node = nullptr;
+        const SubcolumnColumnMetaInfo::Node* root = nullptr;
+
+        // readers for LEAF / sparse cases
+        std::shared_ptr<ColumnReader> leaf_column_reader;
+        std::shared_ptr<ColumnReader> sparse_column_reader;
+
+        // sparse extras
+        std::string sparse_cache_key;
+        std::optional<uint32_t> bucket_index;
+    };
+
+    // Build read plan for flat-leaf (compaction/checksum) mode. Only decides the
+    // resulting type and how to read, without creating iterators.
+    Status _build_read_plan_flat_leaves(ReadPlan* plan, const TabletColumn& col,
+                                        const StorageReadOptions* opts,
+                                        ColumnReaderCache* column_reader_cache,
+                                        PathToSparseColumnCache* sparse_column_cache_ptr);
+
+    // Build read plan for the general hierarchical reading mode.
+    Status _build_read_plan(ReadPlan* plan, const TabletColumn& target_col,
+                            const StorageReadOptions* opt, ColumnReaderCache* column_reader_cache,
+                            PathToSparseColumnCache* sparse_column_cache_ptr);
+
+    // Materialize a concrete ColumnIterator according to the previously built plan.
+    Status _create_iterator_from_plan(ColumnIteratorUPtr* iterator, const ReadPlan& plan,
+                                      const TabletColumn& target_col, const StorageReadOptions* opt,
+                                      ColumnReaderCache* column_reader_cache,
+                                      PathToSparseColumnCache* sparse_column_cache_ptr);
     // init for compaction read
     Status _new_default_iter_with_same_nested(ColumnIteratorUPtr* iterator, const TabletColumn& col,
                                               const StorageReadOptions* opt,
                                               ColumnReaderCache* column_reader_cache);
     Status _new_iterator_with_flat_leaves(
-            ColumnIteratorUPtr* iterator, const TabletColumn& col, const StorageReadOptions* opts,
-            bool exceeded_sparse_column_limit, bool existed_in_sparse_column,
-            ColumnReaderCache* column_reader_cache,
+            ColumnIteratorUPtr* iterator, vectorized::DataTypePtr* type, const TabletColumn& col,
+            const StorageReadOptions* opts, bool exceeded_sparse_column_limit,
+            bool existed_in_sparse_column, ColumnReaderCache* column_reader_cache,
             PathToSparseColumnCache* sparse_column_cache_ptr = nullptr);
 
     Status _create_hierarchical_reader(ColumnIteratorUPtr* reader, int32_t col_uid,
