@@ -64,6 +64,11 @@ public class Min extends NullableAggregateFunction
     }
 
     @Override
+    public void checkLegalityAfterRewrite() {
+        checkLegalityBeforeTypeCoercion();
+    }
+
+    @Override
     public FunctionSignature customSignature() {
         DataType dataType = getArgument(0).getDataType();
         if (dataType instanceof DecimalV2Type) {

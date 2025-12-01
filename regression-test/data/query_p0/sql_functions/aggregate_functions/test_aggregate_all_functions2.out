@@ -372,9 +372,15 @@ true
 -- !select_histogram_k13_all_null --
 {"num_buckets":0,"buckets":[]}
 
--- !max_array --
-[11, 22, 33, 44]
+-- !maxmin_array_1 --
+\N	\N
 
--- !min_array --
-[]
+-- !maxmin_array_2 --
+[11, 22, 33, 44]	[1, null, null, 4]
+
+-- !maxmin_array_3 --
+[11, 22, 33, 44]	[]
+
+-- !maxmin_array_4 --
+[[3, 4], [3, 4]]	[[1, 2], [3, 4]]
 
