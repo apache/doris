@@ -3674,13 +3674,14 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         //    So we skip caching for them.
         boolean needUseCache = false;
         if (request.isSetQueryId()) {
-            NereidsCoordinator coordinator = (NereidsCoordinator) QeProcessorImpl.INSTANCE
-                    .getCoordinator(request.getQueryId());
+            Coordinator coordinator = QeProcessorImpl.INSTANCE.getCoordinator(request.getQueryId());
             // For single-instance imports (like stream load from FE), we don't need cache either
             // Only multi-instance imports need to ensure consistent tablet replica information
             // Coordinator may be null for stream load or other BE-initiated loads
-            if (coordinator != null) {
-                int instanceNum = coordinator.getCoordinatorContext().instanceNum.get();
+            // Only NereidsCoordinator supports multi-instance loads, so we need to check the type
+            if (coordinator != null && coordinator instanceof NereidsCoordinator) {
+                NereidsCoordinator nereidsCoordinator = (NereidsCoordinator) coordinator;
+                int instanceNum = nereidsCoordinator.getCoordinatorContext().instanceNum.get();
                 if (instanceNum > 1) {
                     needUseCache = true;
                 }
