@@ -252,7 +252,7 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
         if (read_options.col_id_to_predicates.contains(column_id) &&
             can_apply_predicate_safely(column_id,
                                        read_options.col_id_to_predicates.at(column_id).get(),
-                                       *schema, read_options.io_ctx.reader_type) &&
+                                       *schema, read_options) &&
             !reader->match_condition(entry.second.get())) {
             // any condition not satisfied, return.
             *iter = std::make_unique<EmptySegmentIterator>(*schema);
@@ -280,7 +280,7 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
             RETURN_IF_ERROR(st);
             if (reader &&
                 can_apply_predicate_safely(runtime_predicate->column_id(), runtime_predicate.get(),
-                                           *schema, read_options.io_ctx.reader_type) &&
+                                           *schema, read_options) &&
                 !reader->match_condition(&and_predicate)) {
                 // any condition not satisfied, return.
                 *iter = std::make_unique<EmptySegmentIterator>(*schema);
@@ -579,7 +579,7 @@ Status Segment::healthy_status() {
 
 // Return the storage datatype of related column to field.
 vectorized::DataTypePtr Segment::get_data_type_of(const TabletColumn& column,
-                                                  bool read_flat_leaves) {
+                                                  const StorageReadOptions& read_options) {
     const vectorized::PathInDataPtr path = column.path_info_ptr();
 
     // none variant column
@@ -603,10 +603,14 @@ vectorized::DataTypePtr Segment::get_data_type_of(const TabletColumn& column,
     // If status is not ok, it will throw exception(data corruption)
     THROW_IF_ERROR(get_column_reader(unique_id, &v_reader, &stats));
     DCHECK(v_reader != nullptr);
-    const auto* variant_reader = static_cast<const VariantColumnReader*>(v_reader.get());
-    // Delegate type inference for variant paths to VariantColumnReader.
-    return variant_reader->infer_data_type_for_path(column, relative_path, read_flat_leaves,
-                                                    _column_reader_cache.get(), unique_id);
+    auto* variant_reader = static_cast<VariantColumnReader*>(v_reader.get());
+    // Delegate type inference for variant paths to VariantColumnReader. The decision logic
+    // is shared with VariantColumnReader::new_iterator via an internal read plan so that
+    // iterator construction and storage type inference stay consistent.
+    vectorized::DataTypePtr type;
+    THROW_IF_ERROR(variant_reader->infer_data_type_for_path(&type, column, read_options,
+                                                            _column_reader_cache.get()));
+    return type;
 }
 
 Status Segment::_create_column_meta_once(OlapReaderStatistics* stats) {
@@ -929,7 +933,7 @@ Status Segment::seek_and_read_by_rowid(const TabletSchema& schema, SlotDescripto
         // if segment cache miss, column reader will be created to make sure the variant column result not coredump
         RETURN_IF_ERROR(_create_column_meta_once(&stats));
 
-        auto storage_type = get_data_type_of(column, false);
+        auto storage_type = get_data_type_of(column, storage_read_opt);
         vectorized::MutableColumnPtr file_storage_column = storage_type->create_column();
         DCHECK(storage_type != nullptr);
 

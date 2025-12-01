@@ -233,20 +233,38 @@ Status VariantColumnReader::_new_default_iter_with_same_nested(
     return Status::OK();
 }
 
-Status VariantColumnReader::_new_iterator_with_flat_leaves(ColumnIteratorUPtr* iterator,
-                                                           const TabletColumn& target_col,
-                                                           const StorageReadOptions* opts,
-                                                           bool exceeded_sparse_column_limit,
-                                                           bool existed_in_sparse_column,
-                                                           ColumnReaderCache* column_reader_cache) {
+// Helper to build a logical VARIANT type for the given column (nullable or not).
+static vectorized::DataTypePtr create_variant_type(const TabletColumn& column) {
+    // Keep using DataTypeObject here (rather than newer DataTypeVariant) since
+    // the latter may not exist on older branches. This matches the existing
+    // behaviour of VariantColumnReader::infer_data_type_for_path.
+    if (column.is_nullable()) {
+        return vectorized::make_nullable(std::make_shared<vectorized::DataTypeObject>(
+                column.variant_max_subcolumns_count()));
+    }
+    return std::make_shared<vectorized::DataTypeObject>(column.variant_max_subcolumns_count());
+}
+
+Status VariantColumnReader::_build_read_plan_flat_leaves(ReadPlan* plan,
+                                                         const TabletColumn& target_col,
+                                                         const StorageReadOptions* opts,
+                                                         ColumnReaderCache* column_reader_cache) {
     // make sure external meta is loaded otherwise can't find any meta data for extracted columns
     RETURN_IF_ERROR(load_external_meta_once());
 
     DCHECK(opts != nullptr);
     auto relative_path = target_col.path_info_ptr()->copy_pop_front();
-    // compaction need to read flat leaves nodes data to prevent from amplification
-    const auto* node =
+    plan->relative_path = relative_path;
+    plan->node =
             target_col.has_path_info() ? _subcolumns_meta_info->find_leaf(relative_path) : nullptr;
+    plan->root = _subcolumns_meta_info->get_root();
+
+    bool existed_in_sparse_column =
+            !_statistics->sparse_column_non_null_size.empty() &&
+            _statistics->sparse_column_non_null_size.contains(relative_path.get_path());
+    bool exceeded_sparse_column_limit = is_exceeded_sparse_column_limit();
+
+    const auto* node = plan->node;
     if (!node) {
         if (relative_path.get_path() == SPARSE_COLUMN_PATH) {
             if (_sparse_column_reader == nullptr) {
@@ -255,50 +273,46 @@ Status VariantColumnReader::_new_iterator_with_flat_leaves(ColumnIteratorUPtr* i
                         target_col.path_info_ptr()->get_path());
             }
             // read sparse column and filter extracted columns in subcolumn_path_map
-            std::unique_ptr<ColumnIterator> inner_iter;
-            RETURN_IF_ERROR(_sparse_column_reader->new_iterator(&inner_iter, nullptr));
-            // get subcolumns in sparse path set which will be merged into sparse column
-            RETURN_IF_ERROR(_create_sparse_merge_reader(
-                    iterator, opts, target_col, std::move(inner_iter), column_reader_cache));
+            plan->kind = ReadKind::SPARSE_MERGE;
+            plan->type = vectorized::DataTypeFactory::instance().create_data_type(target_col);
             return Status::OK();
         }
 
         if (target_col.is_nested_subcolumn()) {
             // using the sibling of the nested column to fill the target nested column
-            RETURN_IF_ERROR(_new_default_iter_with_same_nested(iterator, target_col, opts,
-                                                               column_reader_cache));
+            plan->kind = ReadKind::DEFAULT_NESTED;
+            plan->type = vectorized::DataTypeFactory::instance().create_data_type(target_col);
             return Status::OK();
         }
 
-        // If the path is typed, it means the path is not a sparse column, so we can't read the sparse column
-        // even if the sparse column size is reached limit
+        // If the path is typed, it means the path is not a sparse column, so we can't read the
+        // sparse column even if the sparse column size is reached limit.
         if (existed_in_sparse_column || exceeded_sparse_column_limit) {
-            // Sparse column exists or reached sparse size limit, read sparse column
-            ColumnIteratorUPtr inner_iter;
-            RETURN_IF_ERROR(_sparse_column_reader->new_iterator(&inner_iter, nullptr));
-            DCHECK(opts);
-            *iterator = std::make_unique<SparseColumnExtractIterator>(
-                    relative_path.get_path(), std::move(inner_iter),
-                    // need to modify sparse_column_cache, so use const_cast here
-                    const_cast<StorageReadOptions*>(opts), target_col);
+            // Sparse column exists or reached sparse size limit, read sparse column.
+            plan->kind = ReadKind::SPARSE_EXTRACT;
+            plan->type = create_variant_type(target_col);
             return Status::OK();
         }
 
         VLOG_DEBUG << "new_default_iter: " << target_col.path_info_ptr()->get_path();
-        RETURN_IF_ERROR(Segment::new_default_iterator(target_col, iterator));
+        plan->kind = ReadKind::DEFAULT_FILL;
+        plan->type = vectorized::DataTypeFactory::instance().create_data_type(target_col);
         return Status::OK();
     }
+
     if (relative_path.empty()) {
         // root path, use VariantRootColumnIterator
-        *iterator = std::make_unique<VariantRootColumnIterator>(
-                std::make_unique<FileColumnIterator>(_root_column_reader));
+        plan->kind = ReadKind::ROOT_FLAT;
+        plan->type = vectorized::DataTypeFactory::instance().create_data_type(target_col);
         return Status::OK();
     }
-    VLOG_DEBUG << "new iterator: " << target_col.path_info_ptr()->get_path();
     std::shared_ptr<ColumnReader> column_reader;
     RETURN_IF_ERROR(column_reader_cache->get_path_column_reader(
             target_col.parent_unique_id(), node->path, &column_reader, opts->stats, node));
-    RETURN_IF_ERROR(column_reader->new_iterator(iterator, nullptr));
+    VLOG_DEBUG << "new iterator: " << target_col.path_info_ptr()->get_path();
+    plan->kind = ReadKind::LEAF;
+    plan->type = node->data.file_column_type;
+    plan->leaf_column_reader = std::move(column_reader);
     return Status::OK();
 }
 
@@ -350,14 +364,21 @@ Status VariantColumnReader::new_iterator(ColumnIteratorUPtr* iterator,
                                          const TabletColumn* target_col,
                                          const StorageReadOptions* opt,
                                          ColumnReaderCache* column_reader_cache) {
-    int32_t col_uid =
-            target_col->unique_id() >= 0 ? target_col->unique_id() : target_col->parent_unique_id();
+    ReadPlan plan;
+    RETURN_IF_ERROR(_build_read_plan(&plan, *target_col, opt, column_reader_cache));
+    return _create_iterator_from_plan(iterator, plan, *target_col, opt, column_reader_cache);
+}
+
+Status VariantColumnReader::_build_read_plan(ReadPlan* plan, const TabletColumn& target_col,
+                                             const StorageReadOptions* opt,
+                                             ColumnReaderCache* column_reader_cache) {
     // root column use unique id, leaf column use parent_unique_id
-    auto relative_path = target_col->path_info_ptr()->copy_pop_front();
+    int32_t col_uid =
+            target_col.unique_id() >= 0 ? target_col.unique_id() : target_col.parent_unique_id();
+    auto relative_path = target_col.path_info_ptr()->copy_pop_front();
     const auto* root = _subcolumns_meta_info->get_root();
-    const auto* node = target_col->has_path_info()
-                               ? _subcolumns_meta_info->find_exact(relative_path)
-                               : nullptr;
+    const auto* node =
+            target_col.has_path_info() ? _subcolumns_meta_info->find_exact(relative_path) : nullptr;
 
     // try rebuild path with hierarchical
     // example path(['a.b']) -> path(['a', 'b'])
@@ -376,8 +397,9 @@ Status VariantColumnReader::new_iterator(ColumnIteratorUPtr* iterator,
     bool exceeded_sparse_column_limit = is_exceeded_sparse_column_limit();
 
     // If the variant column has extracted columns and is a compaction reader, then read flat leaves
-    // Otherwise read hierarchical data, since the variant subcolumns are flattened in schema_util::get_compaction_schema
-    // For checksum reader, we need to read flat leaves to get the correct data if has extracted columns
+    // Otherwise read hierarchical data, since the variant subcolumns are flattened in
+    // schema_util::get_compaction_schema. For checksum reader, we need to read flat leaves to
+    // get the correct data if has extracted columns.
     auto need_read_flat_leaves = [](const StorageReadOptions* opts) {
         return opts != nullptr && opts->tablet_schema != nullptr &&
                std::ranges::any_of(
@@ -387,20 +409,27 @@ Status VariantColumnReader::new_iterator(ColumnIteratorUPtr* iterator,
                 opts->io_ctx.reader_type == ReaderType::READER_CHECKSUM);
     };
 
+    plan->relative_path = relative_path;
+    plan->node = node;
+    plan->root = root;
+
     if (need_read_flat_leaves(opt)) {
         // original path, compaction with wide schema
-        return _new_iterator_with_flat_leaves(iterator, *target_col, opt,
-                                              exceeded_sparse_column_limit,
-                                              existed_in_sparse_column, column_reader_cache);
+        return _build_read_plan_flat_leaves(plan, target_col, opt, column_reader_cache);
     }
 
     // Check if path is prefix, example sparse columns path: a.b.c, a.b.e, access prefix: a.b.
     // Or access root path
     if (has_prefix_path(relative_path)) {
         // Example {"b" : {"c":456,"e":7.111}}
-        // b.c is sparse column, b.e is subcolumn, so b is both the prefix of sparse column and subcolumn
-        return _create_hierarchical_reader(iterator, col_uid, relative_path, node, root,
-                                           column_reader_cache, opt->stats);
+        // b.c is sparse column, b.e is subcolumn, so b is both the prefix of sparse column and
+        // subcolumn
+        plan->kind = ReadKind::HIERARCHICAL;
+        // For hierarchical reads we always expose the logical VARIANT type instead of trying to
+        // construct a complex ARRAY/MAP/STRUCT from a synthetic TabletColumn descriptor (which may
+        // not have complete subtype information, e.g. in tests).
+        plan->type = create_variant_type(target_col);
+        return Status::OK();
     }
 
     // if path exists in sparse column, read sparse column with extract reader
@@ -409,12 +438,8 @@ Status VariantColumnReader::new_iterator(ColumnIteratorUPtr* iterator,
         // {"b" : {"c":456}}   b.c in subcolumn
         // {"b" : 123}         b in sparse column
         // Then we should use hierarchical reader to read b
-        ColumnIteratorUPtr inner_iter;
-        RETURN_IF_ERROR(_sparse_column_reader->new_iterator(&inner_iter, nullptr));
-        DCHECK(opt);
-        // Sparse column exists or reached sparse size limit, read sparse column
-        *iterator = std::make_unique<SparseColumnExtractIterator>(
-                relative_path.get_path(), std::move(inner_iter), nullptr, *target_col);
+        plan->kind = ReadKind::SPARSE_EXTRACT;
+        plan->type = create_variant_type(target_col);
         return Status::OK();
     }
 
@@ -427,7 +452,10 @@ Status VariantColumnReader::new_iterator(ColumnIteratorUPtr* iterator,
         std::shared_ptr<ColumnReader> leaf_column_reader;
         RETURN_IF_ERROR(column_reader_cache->get_path_column_reader(
                 col_uid, leaf_node->path, &leaf_column_reader, opt->stats, leaf_node));
-        RETURN_IF_ERROR(leaf_column_reader->new_iterator(iterator, nullptr));
+        plan->kind = ReadKind::LEAF;
+        plan->type = leaf_column_reader->get_vec_data_type();
+        plan->relative_path = relative_path;
+        plan->leaf_column_reader = std::move(leaf_column_reader);
     } else {
         if (_ext_meta_reader && _ext_meta_reader->available()) {
             // Get path reader from external meta
@@ -437,7 +465,10 @@ Status VariantColumnReader::new_iterator(ColumnIteratorUPtr* iterator,
             DCHECK(!has_prefix_path(relative_path));
             if (st.ok()) {
                 // Try external meta fallback: build a leaf reader on demand from externalized meta
-                RETURN_IF_ERROR(leaf_column_reader->new_iterator(iterator, nullptr));
+                plan->kind = ReadKind::LEAF;
+                plan->type = leaf_column_reader->get_vec_data_type();
+                plan->relative_path = relative_path;
+                plan->leaf_column_reader = std::move(leaf_column_reader);
                 return Status::OK();
             }
             if (!st.is<ErrorCode::NOT_FOUND>()) {
@@ -447,13 +478,85 @@ Status VariantColumnReader::new_iterator(ColumnIteratorUPtr* iterator,
         }
         if (exceeded_sparse_column_limit) {
             // maybe exist prefix path in sparse column
-            return _create_hierarchical_reader(iterator, col_uid, relative_path, node, root,
-                                               column_reader_cache, opt->stats);
+            plan->kind = ReadKind::HIERARCHICAL;
+            plan->type = create_variant_type(target_col);
+            plan->relative_path = relative_path;
+            plan->node = node;
+            plan->root = root;
+            return Status::OK();
         }
-        // Sparse column not exists and not reached stats limit, then the target path is not exist, get a default iterator
-        RETURN_IF_ERROR(Segment::new_default_iterator(*target_col, iterator));
+        // Sparse column not exists and not reached stats limit, then the target path is not
+        // exist, get a default iterator
+        plan->kind = ReadKind::DEFAULT_FILL;
+        plan->type = vectorized::DataTypeFactory::instance().create_data_type(target_col);
+        plan->relative_path = relative_path;
     }
     return Status::OK();
+}
+
+Status VariantColumnReader::_create_iterator_from_plan(ColumnIteratorUPtr* iterator,
+                                                       const ReadPlan& plan,
+                                                       const TabletColumn& target_col,
+                                                       const StorageReadOptions* opt,
+                                                       ColumnReaderCache* column_reader_cache) {
+    switch (plan.kind) {
+    case ReadKind::ROOT_FLAT: {
+        *iterator = std::make_unique<VariantRootColumnIterator>(
+                std::make_unique<FileColumnIterator>(_root_column_reader));
+        return Status::OK();
+    }
+    case ReadKind::HIERARCHICAL: {
+        int32_t col_uid = target_col.unique_id() >= 0 ? target_col.unique_id()
+                                                      : target_col.parent_unique_id();
+        RETURN_IF_ERROR(_create_hierarchical_reader(iterator, col_uid, plan.relative_path,
+                                                    plan.node, plan.root, column_reader_cache,
+                                                    opt ? opt->stats : nullptr));
+        return Status::OK();
+    }
+    case ReadKind::LEAF: {
+        DCHECK(plan.leaf_column_reader != nullptr);
+        RETURN_IF_ERROR(plan.leaf_column_reader->new_iterator(iterator, nullptr));
+        return Status::OK();
+    }
+    case ReadKind::SPARSE_EXTRACT: {
+        DCHECK(_sparse_column_reader != nullptr);
+        ColumnIteratorUPtr inner_iter;
+        RETURN_IF_ERROR(_sparse_column_reader->new_iterator(&inner_iter, nullptr));
+        *iterator = std::make_unique<SparseColumnExtractIterator>(
+                plan.relative_path.get_path(), std::move(inner_iter),
+                // need to modify sparse_column_cache, so use const_cast here
+                opt ? const_cast<StorageReadOptions*>(opt) : nullptr, target_col);
+        return Status::OK();
+    }
+    case ReadKind::SPARSE_MERGE: {
+        DCHECK(_sparse_column_reader != nullptr);
+        std::unique_ptr<ColumnIterator> inner_iter;
+        RETURN_IF_ERROR(_sparse_column_reader->new_iterator(&inner_iter, nullptr));
+        RETURN_IF_ERROR(_create_sparse_merge_reader(iterator, opt, target_col,
+                                                    std::move(inner_iter), column_reader_cache));
+        return Status::OK();
+    }
+    case ReadKind::DEFAULT_NESTED: {
+        RETURN_IF_ERROR(
+                _new_default_iter_with_same_nested(iterator, target_col, opt, column_reader_cache));
+        return Status::OK();
+    }
+    case ReadKind::DEFAULT_FILL: {
+        RETURN_IF_ERROR(Segment::new_default_iterator(target_col, iterator));
+        return Status::OK();
+    }
+    }
+    return Status::InternalError("Unknown ReadKind for VariantColumnReader");
+}
+
+Status VariantColumnReader::_new_iterator_with_flat_leaves(
+        ColumnIteratorUPtr* iterator, vectorized::DataTypePtr* type, const TabletColumn& target_col,
+        const StorageReadOptions* opts, bool /*exceeded_sparse_column_limit*/,
+        bool /*existed_in_sparse_column*/, ColumnReaderCache* column_reader_cache) {
+    ReadPlan plan;
+    RETURN_IF_ERROR(_build_read_plan_flat_leaves(&plan, target_col, opts, column_reader_cache));
+    *type = plan.type;
+    return _create_iterator_from_plan(iterator, plan, target_col, opts, column_reader_cache);
 }
 
 Status VariantColumnReader::init(const ColumnReaderOptions& opts, ColumnMetaAccessor* accessor,
@@ -601,7 +704,7 @@ Status VariantColumnReader::init(const ColumnReaderOptions& opts, ColumnMetaAcce
     RETURN_IF_ERROR(_ext_meta_reader->init_from_footer(footer, file_reader, _root_unique_id));
     return Status::OK();
 }
-    
+
 Status VariantColumnReader::create_reader_from_external_meta(const std::string& path,
                                                              const ColumnReaderOptions& opts,
                                                              const io::FileReaderSPtr& file_reader,
@@ -664,7 +767,8 @@ TabletIndexes VariantColumnReader::find_subcolumn_tablet_indexes(
     // if parent column has index, add index to _variant_subcolumns_indexes
     else if (!parent_index.empty() &&
              data_type->get_storage_field_type() != FieldType::OLAP_FIELD_TYPE_VARIANT &&
-             data_type->get_storage_field_type() != FieldType::OLAP_FIELD_TYPE_MAP /*SPARSE COLUMN*/) {
+             data_type->get_storage_field_type() !=
+                     FieldType::OLAP_FIELD_TYPE_MAP /*SPARSE COLUMN*/) {
         // type in column maynot be real type, so use data_type to get the real type
         TabletColumn target_column = vectorized::schema_util::get_column_by_type(
                 data_type, column.name(),
@@ -705,68 +809,15 @@ void VariantColumnReader::get_nested_paths(
     }
 }
 
-vectorized::DataTypePtr VariantColumnReader::infer_data_type_for_path(
-        const TabletColumn& column, const vectorized::PathInData& relative_path,
-        bool read_flat_leaves, ColumnReaderCache* cache, int32_t col_uid) const {
-    // english only in comments
-    // Locate the subcolumn node by path.
-    const auto* node = get_subcolumn_meta_by_path(relative_path);
-
-    // If path explicitly refers to sparse column internal path, fall back to schema type.
-    if (relative_path.get_path().find(SPARSE_COLUMN_PATH) != std::string::npos) {
-        return vectorized::DataTypeFactory::instance().create_data_type(column);
-    }
-
-    // Use variant type when the path is a prefix of any existing subcolumn path.
-    if (has_prefix_path(relative_path)) {
-        return vectorized::DataTypeFactory::instance().create_data_type(column);
-    }
-
-    // Try to reuse an existing leaf ColumnReader to infer its vectorized data type.
-    if (cache != nullptr) {
-        std::shared_ptr<ColumnReader> leaf_reader;
-        if (cache->get_path_column_reader(col_uid, relative_path, &leaf_reader, nullptr).ok() &&
-            leaf_reader != nullptr) {
-            return leaf_reader->get_vec_data_type();
-        }
-    }
-
-    // Node not found for the given path within the variant subcolumns.
-    if (node == nullptr) {
-        // Nested subcolumn is not present in sparse column: keep schema type.
-        if (column.is_nested_subcolumn()) {
-            return vectorized::DataTypeFactory::instance().create_data_type(column);
-        }
-
-        // When the path is in the sparse column or exceeded the limit, return variant type.
-        if (exist_in_sparse_column(relative_path) || is_exceeded_sparse_column_limit()) {
-            return column.is_nullable() ? vectorized::make_nullable(
-                                                  std::make_shared<vectorized::DataTypeObject>(
-                                                          column.variant_max_subcolumns_count()))
-                                        : std::make_shared<vectorized::DataTypeObject>(
-                                                  column.variant_max_subcolumns_count());
-        }
-        // Path is not present in this segment: use default schema type.
-        return vectorized::DataTypeFactory::instance().create_data_type(column);
-    }
-
-    // For nested subcolumns, always use the physical file_column_type recorded in meta.
-    if (column.is_nested_subcolumn()) {
-        return node->data.file_column_type;
-    }
-
-    const bool exist_in_sparse = exist_in_sparse_column(relative_path);
-
-    // Condition to return the specific underlying type of the node:
-    // 1. We are reading flat leaves (ignoring hierarchy).
-    // 2. OR the path does not exist in sparse column and sparse column limit is not exceeded
-    //    (meaning it is a pure materialized leaf).
-    if (read_flat_leaves || (!exist_in_sparse && !is_exceeded_sparse_column_limit())) {
-        return node->data.file_column_type;
-    }
-
-    // For non-compaction reads where we still treat this as logical VARIANT.
-    return vectorized::DataTypeFactory::instance().create_data_type(column);
+Status VariantColumnReader::infer_data_type_for_path(vectorized::DataTypePtr* type,
+                                                     const TabletColumn& column,
+                                                     const StorageReadOptions& opts,
+                                                     ColumnReaderCache* column_reader_cache) {
+    DCHECK(column.has_path_info());
+    ReadPlan plan;
+    RETURN_IF_ERROR(_build_read_plan(&plan, column, &opts, column_reader_cache));
+    *type = plan.type;
+    return Status::OK();
 }
 
 Status VariantRootColumnIterator::_process_root_column(

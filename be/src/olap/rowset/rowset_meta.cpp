@@ -296,7 +296,8 @@ void RowsetMeta::merge_rowset_meta(const RowsetMeta& other) {
     set_total_disk_size(data_disk_size() + index_disk_size());
     set_segments_key_bounds_truncated(is_segments_key_bounds_truncated() ||
                                       other.is_segments_key_bounds_truncated());
-    if (_rowset_meta_pb.num_segment_rows_size() > 0 && other._rowset_meta_pb.num_segment_rows_size() > 0) {
+    if (_rowset_meta_pb.num_segment_rows_size() > 0 &&
+        other._rowset_meta_pb.num_segment_rows_size() > 0) {
         for (auto row_count : other._rowset_meta_pb.num_segment_rows()) {
             _rowset_meta_pb.add_num_segment_rows(row_count);
         }
