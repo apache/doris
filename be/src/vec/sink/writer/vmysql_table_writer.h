@@ -25,6 +25,7 @@
 #include <vector>
 
 #include "common/status.h"
+#include "vec/data_types/serde/data_type_serde.h"
 #include "vec/sink/writer/async_result_writer.h"
 
 namespace doris {
@@ -58,7 +59,8 @@ public:
     Status close(Status) override;
 
 private:
-    Status _insert_row(vectorized::Block& block, size_t row);
+    Status _insert_row(vectorized::Block& block, size_t row,
+                       const vectorized::DataTypeSerDe::FormatOptions& format_options);
     MysqlConnInfo _conn_info;
     fmt::memory_buffer _insert_stmt_buffer;
     MYSQL* _mysql_conn = nullptr;

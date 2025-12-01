@@ -45,8 +45,8 @@ void DataTypeQuantileStateSerDe::read_one_cell_from_jsonb(IColumn& column,
 }
 
 bool DataTypeQuantileStateSerDe::write_column_to_mysql_text(const IColumn& column,
-                                                            BufferWritable& bw,
-                                                            int64_t row_idx) const {
+                                                            BufferWritable& bw, int64_t row_idx,
+                                                            const FormatOptions& options) const {
     const auto& data_column = reinterpret_cast<const ColumnQuantileState&>(column);
 
     if (_return_object_as_string) {

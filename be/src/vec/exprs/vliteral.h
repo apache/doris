@@ -23,6 +23,7 @@
 #include "common/object_pool.h"
 #include "common/status.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/serde/data_type_serde.h"
 #include "vec/exprs/vexpr.h"
 
 namespace doris {
@@ -45,6 +46,7 @@ public:
 
 #ifdef BE_TEST
     VLiteral() = default;
+    MOCK_FUNCTION std::string value() const;
 #endif
 
     Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override;
@@ -54,7 +56,7 @@ public:
     const std::string& expr_name() const override { return _expr_name; }
     std::string debug_string() const override;
 
-    MOCK_FUNCTION std::string value() const;
+    MOCK_FUNCTION std::string value(const DataTypeSerDe::FormatOptions& options) const;
 
     const ColumnPtr& get_column_ptr() const { return _column_ptr; }
     const DataTypePtr& get_data_type() const { return _data_type; }

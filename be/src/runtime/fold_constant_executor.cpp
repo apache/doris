@@ -86,6 +86,10 @@ Status FoldConstantExecutor::fold_constant_vexpr(const TFoldConstantParams& para
     SCOPED_ATTACH_TASK(_mem_tracker);
     signal::SignalTaskIdKeeper keeper(_query_id);
 
+    vectorized::DataTypeSerDe::FormatOptions format_options =
+            vectorized::DataTypeSerDe::get_default_format_options();
+    format_options.timezone = &_runtime_state->timezone_obj();
+
     for (const auto& m : expr_map) {
         PExprResultMap pexpr_result_map;
         for (const auto& n : m.second) {
@@ -138,7 +142,7 @@ Status FoldConstantExecutor::fold_constant_vexpr(const TFoldConstantParams& para
                     }
                     RETURN_IF_ERROR(_get_result((void*)string_ref.data, string_ref.size,
                                                 ctx->root()->data_type(), column_ptr, column_type,
-                                                result));
+                                                result, format_options));
                 }
                 expr_result.set_content(std::move(result));
                 expr_result.mutable_type()->set_type(t_type);
@@ -194,7 +198,8 @@ Status FoldConstantExecutor::_get_result(void* src, size_t size,
                                          const vectorized::DataTypePtr& type,
                                          const vectorized::ColumnPtr column_ptr,
                                          const vectorized::DataTypePtr column_type,
-                                         std::string& result) {
+                                         std::string& result,
+                                         const vectorized::DataTypeSerDe::FormatOptions& options) {
     switch (type->get_primitive_type()) {
     case TYPE_BOOLEAN: {
         bool val = *reinterpret_cast<const bool*>(src);
@@ -288,7 +293,7 @@ Status FoldConstantExecutor::_get_result(void* src, size_t size,
     case TYPE_QUANTILE_STATE:
     case TYPE_IPV4:
     case TYPE_IPV6: {
-        result = column_type->to_string(*column_ptr, 0);
+        result = column_type->to_string(*column_ptr, 0, options);
         break;
     }
     default:

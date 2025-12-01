@@ -29,6 +29,7 @@
 #include "util/to_string.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/core/types.h"
+#include "vec/data_types/serde/data_type_serde.h"
 #include "vec/functions/cast/cast_to_basic_number_common.h"
 #include "vec/functions/cast/cast_to_boolean.h"
 #include "vec/functions/cast/cast_to_string.h"
@@ -906,7 +907,7 @@ const uint8_t* DataTypeNumberSerDe<T>::deserialize_binary_to_field(const uint8_t
 }
 template <PrimitiveType T>
 void value_to_string(const typename PrimitiveTypeTraits<T>::ColumnItemType value,
-                     BufferWritable& bw, int scale) {
+                     BufferWritable& bw, int scale, const DataTypeSerDe::FormatOptions& options) {
     if constexpr (T == TYPE_BOOLEAN || T == TYPE_TINYINT || T == TYPE_SMALLINT || T == TYPE_INT ||
                   T == TYPE_BIGINT || T == TYPE_LARGEINT || T == TYPE_FLOAT || T == TYPE_DOUBLE) {
         CastToString::push_number(value, bw);
@@ -923,7 +924,7 @@ void value_to_string(const typename PrimitiveTypeTraits<T>::ColumnItemType value
         CastToString::push_datetimev2(dt, scale, bw);
     } else if constexpr (T == TYPE_TIMESTAMPTZ) {
         TimestampTzValue tz_value = binary_cast<UInt64, TimestampTzValue>(value);
-        CastToString::push_timestamptz(tz_value, scale, bw);
+        CastToString::push_timestamptz(tz_value, scale, bw, options);
     } else if constexpr (T == TYPE_TIME || T == TYPE_TIMEV2) {
         CastToString::push_time(value, scale, bw);
     } else if constexpr (T == TYPE_IPV4 || T == TYPE_IPV6) {
@@ -935,39 +936,41 @@ void value_to_string(const typename PrimitiveTypeTraits<T>::ColumnItemType value
 }
 
 template <PrimitiveType T>
-void DataTypeNumberSerDe<T>::to_string(const IColumn& column, size_t row_num,
-                                       BufferWritable& bw) const {
+void DataTypeNumberSerDe<T>::to_string(const IColumn& column, size_t row_num, BufferWritable& bw,
+                                       const FormatOptions& options) const {
     auto& data = assert_cast<const ColumnType&, TypeCheckOnRelease::DISABLE>(column).get_data();
-    if constexpr (is_date_type(T) || is_time_type(T) || is_ip(T)) {
+    if constexpr (is_timestamptz_type(T) || is_date_type(T) || is_time_type(T) || is_ip(T)) {
         if (_nesting_level > 1) {
             bw.write('"');
         }
-        value_to_string<T>(data[row_num], bw, get_scale());
+        value_to_string<T>(data[row_num], bw, get_scale(), options);
         if (_nesting_level > 1) {
             bw.write('"');
         }
     } else {
-        value_to_string<T>(data[row_num], bw, get_scale());
+        value_to_string<T>(data[row_num], bw, get_scale(), options);
     }
 }
 
 template <PrimitiveType T>
 bool DataTypeNumberSerDe<T>::write_column_to_presto_text(const IColumn& column, BufferWritable& bw,
-                                                         int64_t row_idx) const {
+                                                         int64_t row_idx,
+                                                         const FormatOptions& options) const {
     auto& data = assert_cast<const ColumnType&, TypeCheckOnRelease::DISABLE>(column).get_data();
-    value_to_string<T>(data[row_idx], bw, get_scale());
+    value_to_string<T>(data[row_idx], bw, get_scale(), options);
     return true;
 }
 
 template <PrimitiveType T>
 bool DataTypeNumberSerDe<T>::write_column_to_hive_text(const IColumn& column, BufferWritable& bw,
-                                                       int64_t row_idx) const {
+                                                       int64_t row_idx,
+                                                       const FormatOptions& options) const {
     auto& data = assert_cast<const ColumnType&, TypeCheckOnRelease::DISABLE>(column).get_data();
     if constexpr (is_date_type(T) || is_time_type(T) || is_ip(T)) {
         if (_nesting_level > 1) {
             bw.write('"');
         }
-        value_to_string<T>(data[row_idx], bw, get_scale());
+        value_to_string<T>(data[row_idx], bw, get_scale(), options);
         if (_nesting_level > 1) {
             bw.write('"');
         }
@@ -976,13 +979,14 @@ bool DataTypeNumberSerDe<T>::write_column_to_hive_text(const IColumn& column, Bu
         std::string bool_value = data[row_idx] ? "true" : "false";
         bw.write(bool_value.data(), bool_value.size());
     } else {
-        value_to_string<T>(data[row_idx], bw, get_scale());
+        value_to_string<T>(data[row_idx], bw, get_scale(), options);
     }
     return true;
 }
 
 template <PrimitiveType T>
-void DataTypeNumberSerDe<T>::to_string_batch(const IColumn& column, ColumnString& column_to) const {
+void DataTypeNumberSerDe<T>::to_string_batch(const IColumn& column, ColumnString& column_to,
+                                             const FormatOptions& options) const {
     auto& data = assert_cast<const ColumnType&>(column).get_data();
     const size_t size = column.size();
     const auto maybe_reserve_size = CastToString::string_length<T>;
@@ -991,7 +995,7 @@ void DataTypeNumberSerDe<T>::to_string_batch(const IColumn& column, ColumnString
     BufferWriter bw(column_to);
     const auto scale = get_scale();
     for (size_t i = 0; i < size; ++i) {
-        value_to_string<T>(data[i], bw, scale);
+        value_to_string<T>(data[i], bw, scale, options);
         bw.commit();
     }
 }

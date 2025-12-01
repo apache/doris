@@ -288,9 +288,14 @@ public:
                                                     col_from->get_data()[i]);
                 if (!success) {
                     if constexpr (CastMode == CastModeType::StrictMode) {
+                        auto format_options = DataTypeSerDe::get_default_format_options();
+                        auto time_zone = cctz::utc_time_zone();
+                        format_options.timezone = (context && context->state())
+                                                          ? &context->state()->timezone_obj()
+                                                          : &time_zone;
                         return Status::InvalidArgument(
                                 "DatetimeV2 overflow when casting {} from {} to {}",
-                                type->to_string(*col_from, i), type->get_name(),
+                                type->to_string(*col_from, i, format_options), type->get_name(),
                                 to_type->get_name());
                     } else {
                         col_nullmap->get_data()[i] = true;

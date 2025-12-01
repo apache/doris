@@ -436,7 +436,8 @@ Status DataTypeStringSerDeBase<ColumnType>::deserialize_column_from_jsonb_vector
 
 template <typename ColumnType>
 void DataTypeStringSerDeBase<ColumnType>::to_string(const IColumn& column, size_t row_num,
-                                                    BufferWritable& bw) const {
+                                                    BufferWritable& bw,
+                                                    const FormatOptions& options) const {
     if (_nesting_level > 1) {
         bw.write('"');
     }
@@ -450,9 +451,9 @@ void DataTypeStringSerDeBase<ColumnType>::to_string(const IColumn& column, size_
 }
 
 template <typename ColumnType>
-bool DataTypeStringSerDeBase<ColumnType>::write_column_to_presto_text(const IColumn& column,
-                                                                      BufferWritable& bw,
-                                                                      int64_t row_idx) const {
+bool DataTypeStringSerDeBase<ColumnType>::write_column_to_presto_text(
+        const IColumn& column, BufferWritable& bw, int64_t row_idx,
+        const FormatOptions& options) const {
     const auto& value =
             assert_cast<const ColumnType&, TypeCheckOnRelease::DISABLE>(column).get_data_at(
                     row_idx);

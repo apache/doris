@@ -110,9 +110,10 @@ TEST_F(DataTypeVarbinaryTest, ToStringAndToStringBufferWritable) {
     }
 
     auto out_col = ColumnString::create();
+    auto format_options = DataTypeSerDe::FormatOptions();
     for (size_t i = 0; i < vals.size(); ++i) {
         BufferWritable bw(*out_col);
-        dt.get_serde()->to_string(*col, i, bw);
+        dt.get_serde()->to_string(*col, i, bw, format_options);
         bw.commit();
     }
     ASSERT_EQ(out_col->size(), vals.size());

@@ -97,10 +97,10 @@ public:
                                const NullMap* null_map, orc::ColumnVectorBatch* orc_col_batch,
                                int64_t start, int64_t end, vectorized::Arena& arena) const override;
 
-    bool write_column_to_presto_text(const IColumn& column, BufferWritable& bw,
-                                     int64_t row_idx) const override;
-    bool write_column_to_hive_text(const IColumn& column, BufferWritable& bw,
-                                   int64_t row_idx) const override;
+    bool write_column_to_presto_text(const IColumn& column, BufferWritable& bw, int64_t row_idx,
+                                     const FormatOptions& options) const override;
+    bool write_column_to_hive_text(const IColumn& column, BufferWritable& bw, int64_t row_idx,
+                                   const FormatOptions& options) const override;
 
     void set_return_object_as_string(bool value) override {
         DataTypeSerDe::set_return_object_as_string(value);
@@ -115,7 +115,8 @@ public:
         return {key_serde, value_serde};
     }
 
-    void to_string(const IColumn& column, size_t row_num, BufferWritable& bw) const override;
+    void to_string(const IColumn& column, size_t row_num, BufferWritable& bw,
+                   const FormatOptions& options) const override;
 
 private:
     template <bool is_binary_format>

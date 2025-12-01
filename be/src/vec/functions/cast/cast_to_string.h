@@ -21,6 +21,7 @@
 #include "util/mysql_global.h"
 #include "util/to_string.h"
 #include "vec/core/types.h"
+#include "vec/data_types/serde/data_type_serde.h"
 #include "vec/runtime/time_value.h"
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
@@ -68,7 +69,8 @@ struct CastToString {
     static inline void push_datetimev2(const DateV2Value<DateTimeV2ValueType>& from, UInt32 scale,
                                        BufferWritable& bw);
     static inline void push_timestamptz(const TimestampTzValue& from, UInt32 scale,
-                                        BufferWritable& bw);
+                                        BufferWritable& bw,
+                                        const DataTypeSerDe::FormatOptions& options);
 
     template <class SRC>
     static inline std::string from_ip(const SRC& from);
@@ -471,9 +473,10 @@ inline void CastToString::push_datetimev2(const DateV2Value<DateTimeV2ValueType>
 }
 
 inline void CastToString::push_timestamptz(const TimestampTzValue& from, UInt32 scale,
-                                           BufferWritable& bw) {
+                                           BufferWritable& bw,
+                                           const DataTypeSerDe::FormatOptions& options) {
     // todo: use state->timezone
-    auto str = from.to_string(cctz::utc_time_zone(), scale);
+    auto str = from.to_string(*options.timezone, scale);
     bw.write(str.data(), str.size());
 }
 
@@ -529,7 +532,9 @@ public:
 
         auto col_to = ColumnString::create();
 
-        type.get_serde()->to_string_batch(col_from, *col_to);
+        DataTypeSerDe::FormatOptions options;
+        options.timezone = &context->state()->timezone_obj();
+        type.get_serde()->to_string_batch(col_from, *col_to, options);
 
         block.replace_by_position(result, std::move(col_to));
         return Status::OK();

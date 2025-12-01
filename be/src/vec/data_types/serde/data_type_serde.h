@@ -251,6 +251,21 @@ public:
         }
     };
 
+    static FormatOptions get_default_format_options() {
+        FormatOptions options;
+        // eg:
+        //  array: ["abc", "def", "", null]
+        //  map: {"k1":null, "k2":"v3"}
+        options.nested_string_wrapper = "\"";
+        options.wrapper_len = 1;
+        options.map_key_delim = ':';
+        options.null_format = "null";
+        options.null_len = 4;
+        options.mysql_collection_delim = ", ";
+        options.is_bool_value_num = true;
+        return options;
+    }
+
     // only used for orc file format.
     // Buffer used by date/datetime/datev2/datetimev2/largeint type
     // date/datetime/datev2/datetimev2/largeint type will be converted to string bytes to store in Buffer
@@ -273,9 +288,11 @@ public:
 
     Status default_from_string(StringRef& str, IColumn& column) const;
 
-    virtual void to_string_batch(const IColumn& column, ColumnString& column_to) const;
+    virtual void to_string_batch(const IColumn& column, ColumnString& column_to,
+                                 const FormatOptions& options) const;
 
-    virtual void to_string(const IColumn& column, size_t row_num, BufferWritable& bw) const;
+    virtual void to_string(const IColumn& column, size_t row_num, BufferWritable& bw,
+                           const FormatOptions& options) const;
 
     // All types can override this function
     // When this function is called, column should be of the corresponding type
@@ -434,13 +451,13 @@ public:
     // return true if output as string
     // return false if output null
     virtual bool write_column_to_mysql_text(const IColumn& column, BufferWritable& bw,
-                                            int64_t row_idx) const;
+                                            int64_t row_idx, const FormatOptions& options) const;
 
     virtual bool write_column_to_presto_text(const IColumn& column, BufferWritable& bw,
-                                             int64_t row_idx) const;
+                                             int64_t row_idx, const FormatOptions& options) const;
 
     virtual bool write_column_to_hive_text(const IColumn& column, BufferWritable& bw,
-                                           int64_t row_idx) const;
+                                           int64_t row_idx, const FormatOptions& options) const;
 
     virtual Status write_column_to_mysql_binary(const IColumn& column,
                                                 MysqlRowBinaryBuffer& row_buffer, int64_t row_idx,
