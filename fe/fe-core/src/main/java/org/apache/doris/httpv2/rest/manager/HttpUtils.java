@@ -126,6 +126,10 @@ public class HttpUtils {
         request.setConfig(config);
     }
 
+    public static CloseableHttpClient getHttpClient() {
+        return HttpClientBuilder.create().build();
+    }
+
     private static String executeRequest(HttpRequestBase request) throws IOException {
         SSLContext sslContext = null;
         if (Config.enable_tls) {
