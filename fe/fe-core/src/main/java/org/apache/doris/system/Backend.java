@@ -33,6 +33,7 @@ import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.SimpleScheduler;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.HeartbeatResponse.HbStatus;
+import org.apache.doris.thrift.TBackend;
 import org.apache.doris.thrift.TDisk;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TStorageMedium;
@@ -1123,6 +1124,17 @@ public class Backend implements Writable {
                 tagMap.put(newTagName, tagMap.remove(oldTagName));
             }
         }
+    }
+
+    public static Backend fromThrift(TBackend backend) {
+        Backend result = new Backend();
+        result.id = backend.getId();
+        result.host = backend.getHost();
+        result.httpPort = backend.getHttpPort();
+        result.brpcPort = backend.getBrpcPort();
+        result.bePort = backend.getBePort();
+        result.setAlive(backend.isIsAlive());
+        return result;
     }
 
 }

@@ -27,7 +27,7 @@ import (
 	"time"
 
 	"github.com/apache/doris/sdk/go-doris-sdk/pkg/load/config"
-	"github.com/apache/doris/sdk/go-doris-sdk/pkg/load/log"
+	log "github.com/apache/doris/sdk/go-doris-sdk/pkg/load/logger"
 	"github.com/google/uuid"
 )
 

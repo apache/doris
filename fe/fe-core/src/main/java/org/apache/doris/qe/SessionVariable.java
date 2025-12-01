@@ -29,7 +29,6 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.nereids.StatementContext;
-import org.apache.doris.nereids.analyzer.UnboundResultSink;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.metrics.Event;
 import org.apache.doris.nereids.metrics.EventSwitchParser;
@@ -37,9 +36,6 @@ import org.apache.doris.nereids.parser.Dialect;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.exploration.mv.PreMaterializedViewRewriter.PreRewriteStrategy;
 import org.apache.doris.nereids.rules.expression.ExpressionRuleType;
-import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
-import org.apache.doris.nereids.trees.plans.logical.LogicalFileSink;
-import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.planner.GroupCommitBlockSink;
 import org.apache.doris.qe.VariableMgr.VarAttr;
 import org.apache.doris.thrift.TGroupCommitMode;
@@ -893,6 +889,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String HNSW_EF_SEARCH = "hnsw_ef_search";
     public static final String HNSW_CHECK_RELATIVE_DISTANCE = "hnsw_check_relative_distance";
     public static final String HNSW_BOUNDED_QUEUE = "hnsw_bounded_queue";
+    public static final String IVF_NPROBE = "ivf_nprobe";
 
     public static final String DEFAULT_VARIANT_MAX_SUBCOLUMNS_COUNT = "default_variant_max_subcolumns_count";
 
@@ -3113,6 +3110,11 @@ public class SessionVariable implements Serializable, Writable {
                     "Whether to use a bounded priority queue to optimize HNSW search performance"})
     public boolean hnswBoundedQueue = true;
 
+    @VariableMgr.VarAttr(name = IVF_NPROBE, needForward = true,
+            description = {"IVF 索引的 nprobe 参数，控制搜索时访问的聚类数量",
+                    "IVF index nprobe parameter, controls the number of clusters to search"})
+    public int ivfNprobe = 1;
+
     @VariableMgr.VarAttr(
             name = DEFAULT_VARIANT_MAX_SUBCOLUMNS_COUNT,
             needForward = true,
@@ -3148,13 +3150,13 @@ public class SessionVariable implements Serializable, Writable {
     public int defaultVariantSparseHashShardCount = 0;
 
     @VariableMgr.VarAttr(
-            name = "random_use_v3_storage_format",
+            name = "use_v3_storage_format",
             fuzzy = true,
             description = {
                     "In fuzzy tests, randomly use V3 storage_format (ext_meta) for some tables.",
                     "Only takes effect when user does not explicitly specify storage_format."}
     )
-    public boolean randomUseV3StorageFormat = false;
+    public boolean useV3StorageFormat = false;
 
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
@@ -3180,7 +3182,7 @@ public class SessionVariable implements Serializable, Writable {
         this.exchangeMultiBlocksByteSize = minBytes + (int) (random.nextDouble() * (maxBytes - minBytes));
         this.defaultVariantMaxSubcolumnsCount = random.nextInt(10);
         this.defaultVariantSparseHashShardCount = random.nextInt(5) + 1;
-        this.randomUseV3StorageFormat = random.nextBoolean();
+        this.useV3StorageFormat = random.nextBoolean();
         int randomInt = random.nextInt(4);
         if (randomInt % 2 == 0) {
             this.rewriteOrToInPredicateThreshold = 100000;
@@ -4431,13 +4433,6 @@ public class SessionVariable implements Serializable, Writable {
             if (!(parsedStatement instanceof LogicalPlanAdapter)) {
                 return false;
             }
-            LogicalPlan logicalPlan = ((LogicalPlanAdapter) parsedStatement).getLogicalPlan();
-            // TODO: support other sink
-            if (!(logicalPlan instanceof UnboundResultSink
-                    || logicalPlan instanceof LogicalFileSink
-                    || logicalPlan instanceof InsertIntoTableCommand)) {
-                return false;
-            }
         }
         return sessionVariable.enableNereidsDistributePlanner;
     }
@@ -4929,6 +4924,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setHnswEfSearch(hnswEFSearch);
         tResult.setHnswCheckRelativeDistance(hnswCheckRelativeDistance);
         tResult.setHnswBoundedQueue(hnswBoundedQueue);
+        tResult.setIvfNprobe(ivfNprobe);
         tResult.setMergeReadSliceSize(mergeReadSliceSizeBytes);
         tResult.setEnableExtendedRegex(enableExtendedRegex);
 

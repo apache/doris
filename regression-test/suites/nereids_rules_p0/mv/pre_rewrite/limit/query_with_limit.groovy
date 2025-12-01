@@ -137,6 +137,25 @@ suite("query_with_limit") {
     sql """alter table orders modify column O_COMMENT set stats ('row_count'='8');"""
     sql """alter table partsupp modify column ps_comment set stats ('row_count'='2');"""
 
+    explain {
+      sql """
+        select
+            o_orderdate,
+            o_shippriority,
+            o_comment,
+            l_orderkey,
+            l_partkey
+            from
+            orders left
+            join lineitem on l_orderkey = o_orderkey
+            left join partsupp on ps_partkey = l_partkey and l_suppkey = ps_suppkey
+            order by l_orderkey
+            limit 2
+            offset 1; 
+      """
+      notContains "group expression count exceeds memo_max_group_expression_size(10000)"
+    }
+
     // test limit without offset
     def mv1_0 =
             """

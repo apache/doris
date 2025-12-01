@@ -83,7 +83,8 @@ public class LogicalOlapScanToPhysicalOlapScan extends OneImplementationRuleFact
         // rounded robin algorithm. Therefore, the hashDistributedSpec can be broken except they are in
         // the same stable colocateGroup(CG)
         boolean isBelongStableCG = colocateTableIndex.isColocateTable(olapTable.getId())
-                && !colocateTableIndex.isGroupUnstable(colocateTableIndex.getGroup(olapTable.getId()));
+                && !colocateTableIndex.isGroupUnstable(colocateTableIndex.getGroup(olapTable.getId()))
+                && olapTable.getCatalogId() == Env.getCurrentInternalCatalog().getId();
         boolean isSelectUnpartition = olapTable.getPartitionInfo().getType() == PartitionType.UNPARTITIONED
                 || olapScan.getSelectedPartitionIds().size() == 1;
         // TODO: find a better way to handle both tablet num == 1 and colocate table together in future

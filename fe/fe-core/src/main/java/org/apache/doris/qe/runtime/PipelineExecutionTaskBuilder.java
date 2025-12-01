@@ -65,13 +65,13 @@ public class PipelineExecutionTaskBuilder {
         return pipelineExecutionTask;
     }
 
-    private Map<Long, MultiFragmentsPipelineTask> buildMultiFragmentTasks(
+    private Map<BackendWorker, MultiFragmentsPipelineTask> buildMultiFragmentTasks(
             CoordinatorContext coordinatorContext, BackendServiceProxy backendServiceProxy,
             Map<DistributedPlanWorker, TPipelineFragmentParamsList> workerToFragmentsParam) {
 
         Map<DistributedPlanWorker, ByteString> workerToSerializeFragments = serializeFragments(workerToFragmentsParam);
 
-        Map<Long, MultiFragmentsPipelineTask> fragmentTasks = Maps.newLinkedHashMap();
+        Map<BackendWorker, MultiFragmentsPipelineTask> fragmentTasks = Maps.newLinkedHashMap();
         for (Entry<DistributedPlanWorker, TPipelineFragmentParamsList> kv :
                 workerToFragmentsParam.entrySet()) {
             BackendWorker worker = (BackendWorker) kv.getKey();
@@ -80,7 +80,7 @@ public class PipelineExecutionTaskBuilder {
 
             Backend backend = worker.getBackend();
             fragmentTasks.put(
-                    worker.id(),
+                    worker,
                     new MultiFragmentsPipelineTask(
                             coordinatorContext,
                             backend,
