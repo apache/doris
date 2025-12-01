@@ -705,14 +705,7 @@ public class BindSink implements AnalysisRuleFactory {
                                 + " (transform: %s).", partitionColName, field.transform().toString()));
             }
 
-            // 3. Check if partition value is a constant expression
-            if (!partitionValue.isConstant()) {
-                throw new AnalysisException(
-                        String.format("Partition value for column '%s' must be a constant expression, but got: %s",
-                                partitionColName, partitionValue));
-            }
-
-            // 4. Validate partition value type
+            // 3. Validate partition value type must be a literal
             if (!(partitionValue instanceof Literal)) {
                 throw new AnalysisException(
                         String.format("Partition value for column '%s' must be a literal, but got: %s",
