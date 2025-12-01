@@ -180,10 +180,13 @@ suite("test_mtmv") {
         contains "sum_mv chose"
     }
     sql """set enable_decimal256=false;"""
-    // 验证变量是否正确设置
+
+    def var_result = sql "show variables"
+    logger.info("show variales result: " + var_result )
     def var_check = sql """show variables where variable_name = 'enable_decimal256';"""
     assertTrue(var_check.toString().contains('false'), 
         "enable_decimal256 should be false, but actual: ${var_check}")
+
     explain {
         sql "select * from (select avg(f1*f2) c1 from test_decimal_mul_overflow_for_mv) t1 where c1>10;"
         contains "sum_mv fail"
