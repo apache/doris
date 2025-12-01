@@ -1682,7 +1682,7 @@ public class MetadataGenerator {
                     if (ConnectContext.get() != null &&
                             ConnectContext.get().getSessionVariable().getPartitionsTableUseCachedVisibleVersion()) {
                         trow.addToColumnValue(
-                                new TCell().setLongVal(partition.getCachedVisibleVersion())); // VISIBLE_VERSIONs
+                                new TCell().setLongVal(partition.getCachedVisibleVersion())); // VISIBLE_VERSION
                     } else {
                         trow.addToColumnValue(new TCell().setLongVal(partition.getVisibleVersion())); // VISIBLE_VERSION
                     }
