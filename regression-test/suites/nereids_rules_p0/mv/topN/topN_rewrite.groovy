@@ -658,7 +658,8 @@ suite("topN_rewrite") {
             limit 2 offset 5;
             """
     order_qt_query5_1_before "${query5_1}"
-    async_mv_rewrite_success(db, mv5_1, query5_1, "mv5_1")
+    // mv data can not cover query limit offset, should fail
+    async_mv_rewrite_fail(db, mv5_1, query5_1, "mv5_1")
     order_qt_query5_1_after "${query5_1}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv5_1"""
 
@@ -689,7 +690,8 @@ suite("topN_rewrite") {
             limit 4 offset 2;
             """
     order_qt_query5_2_before "${query5_2}"
-    async_mv_rewrite_success(db, mv5_2, query5_2, "mv5_2")
+    // mv data can not cover query limit offset, should fail
+    async_mv_rewrite_fail(db, mv5_2, query5_2, "mv5_2")
     order_qt_query5_2_after "${query5_2}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv5_2"""
 
@@ -748,7 +750,8 @@ suite("topN_rewrite") {
             limit 2 offset 5;
             """
     order_qt_query6_1_before "${query6_1}"
-    async_mv_rewrite_success(db, mv6_1, query6_1, "mv6_1")
+    // mv data can not cover query limit offset, should fail
+    async_mv_rewrite_fail(db, mv6_1, query6_1, "mv6_1")
     order_qt_query6_1_after "${query6_1}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv6_1"""
 
