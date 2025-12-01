@@ -803,12 +803,8 @@ Status VExpr::check_constant(const Block& block, ColumnNumbers arguments) const 
     return Status::OK();
 }
 
-Status VExpr::get_result_from_const(vectorized::Block* block, const std::string& expr_name,
-                                    int* result_column_id) const {
-    *result_column_id = block->columns();
-    auto column = ColumnConst::create(_constant_col->column_ptr, block->rows());
-    block->insert({std::move(column), _data_type, expr_name});
-    return Status::OK();
+ColumnPtr VExpr::get_result_from_const(const Block* block) const {
+    return ColumnConst::create(_constant_col->column_ptr, block->rows());
 }
 
 Status VExpr::_evaluate_inverted_index(VExprContext* context, const FunctionBasePtr& function,
@@ -827,7 +823,7 @@ Status VExpr::_evaluate_inverted_index(VExprContext* context, const FunctionBase
     column_ids.reserve(estimated_size);
     children_exprs.reserve(estimated_size);
 
-    auto index_context = context->get_inverted_index_context();
+    auto index_context = context->get_index_context();
 
     // if child is cast expr, we need to ensure target data type is the same with storage data type.
     // or they are all string type
@@ -840,8 +836,8 @@ Status VExpr::_evaluate_inverted_index(VExprContext* context, const FunctionBase
                 auto* column_slot_ref = assert_cast<VSlotRef*>(cast_expr->get_child(0).get());
                 auto column_id = column_slot_ref->column_id();
                 const auto* storage_name_type =
-                        context->get_inverted_index_context()
-                                ->get_storage_name_and_type_by_column_id(column_id);
+                        context->get_index_context()->get_storage_name_and_type_by_column_id(
+                                column_id);
                 auto storage_type = remove_nullable(storage_name_type->second);
                 auto target_type = remove_nullable(cast_expr->get_target_type());
                 auto origin_primitive_type = storage_type->get_primitive_type();
@@ -883,16 +879,14 @@ Status VExpr::_evaluate_inverted_index(VExprContext* context, const FunctionBase
         if (child->is_slot_ref()) {
             auto* column_slot_ref = assert_cast<VSlotRef*>(child.get());
             auto column_id = column_slot_ref->column_id();
-            auto* iter =
-                    context->get_inverted_index_context()->get_inverted_index_iterator_by_column_id(
-                            column_id);
+            auto* iter = context->get_index_context()->get_inverted_index_iterator_by_column_id(
+                    column_id);
             //column does not have inverted index
             if (iter == nullptr) {
                 continue;
             }
             const auto* storage_name_type =
-                    context->get_inverted_index_context()->get_storage_name_and_type_by_column_id(
-                            column_id);
+                    context->get_index_context()->get_storage_name_and_type_by_column_id(column_id);
             if (storage_name_type == nullptr) {
                 auto err_msg = fmt::format(
                         "storage_name_type cannot be found for column {} while in {} "
@@ -928,9 +922,9 @@ Status VExpr::_evaluate_inverted_index(VExprContext* context, const FunctionBase
         return res;
     }
     if (!result_bitmap.is_empty()) {
-        index_context->set_inverted_index_result_for_expr(this, result_bitmap);
+        index_context->set_index_result_for_expr(this, result_bitmap);
         for (int column_id : column_ids) {
-            index_context->set_true_for_inverted_index_status(this, column_id);
+            index_context->set_true_for_index_status(this, column_id);
         }
     }
     return Status::OK();
@@ -954,22 +948,14 @@ size_t VExpr::estimate_memory(const size_t rows) {
     return estimate_size;
 }
 
-bool VExpr::fast_execute(doris::vectorized::VExprContext* context, doris::vectorized::Block* block,
-                         int* result_column_id) const {
-    if (context->get_inverted_index_context() &&
-        context->get_inverted_index_context()->get_inverted_index_result_column().contains(this)) {
-        uint32_t num_columns_without_result = block->columns();
+bool VExpr::fast_execute(VExprContext* context, ColumnPtr& result_column) const {
+    if (context->get_index_context() &&
+        context->get_index_context()->get_index_result_column().contains(this)) {
         // prepare a column to save result
-        auto result_column =
-                context->get_inverted_index_context()->get_inverted_index_result_column()[this];
+        result_column = context->get_index_context()->get_index_result_column()[this];
         if (_data_type->is_nullable()) {
-            block->insert(
-                    {ColumnNullable::create(result_column, ColumnUInt8::create(block->rows(), 0)),
-                     _data_type, expr_name()});
-        } else {
-            block->insert({result_column, _data_type, expr_name()});
+            result_column = make_nullable(result_column);
         }
-        *result_column_id = num_columns_without_result;
         return true;
     }
     return false;

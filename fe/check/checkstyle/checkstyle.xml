@@ -172,6 +172,12 @@ under the License.
             <property name="illegalPattern" value="true"/>
             <property name="message" value="Use commons-lang3 instead of commons-lang."/>
         </module>
+        <!-- Disallow the use of commons-collections -->
+        <module name="Regexp">
+            <property name="format" value="org\.apache\.commons\.collections\."/>
+            <property name="illegalPattern" value="true"/>
+            <property name="message" value="Use commons-collections4 instead of commons-collections."/>
+        </module>
 
         <!-- Javadoc Comments -->
         <module name="AtclauseOrder">

@@ -55,8 +55,10 @@ import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.commands.ForwardWithSync;
 import org.apache.doris.nereids.trees.plans.commands.NeedAuditEncryption;
+import org.apache.doris.nereids.trees.plans.commands.insert.AbstractInsertExecutor.InsertExecutorListener;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.UnboundLogicalSink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalBlackholeSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDictionarySink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHiveTableSink;
@@ -79,7 +81,7 @@ import org.apache.doris.system.Backend;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Throwables;
 import com.google.common.collect.Lists;
-import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.collections4.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -117,18 +119,20 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
     private final Optional<LogicalPlan> cte;
     private final boolean needNormalizePlan;
 
+    private InsertExecutorListener insertExecutorListener;
+
     public InsertIntoTableCommand(LogicalPlan logicalQuery, Optional<String> labelName,
             Optional<InsertCommandContext> insertCtx, Optional<LogicalPlan> cte) {
-        this(logicalQuery, labelName, insertCtx, cte, true, Optional.empty());
+        this(PlanType.INSERT_INTO_TABLE_COMMAND, logicalQuery, labelName, insertCtx, cte, true, Optional.empty());
     }
 
     /**
      * constructor
      */
-    public InsertIntoTableCommand(LogicalPlan logicalQuery, Optional<String> labelName,
+    public InsertIntoTableCommand(PlanType planType, LogicalPlan logicalQuery, Optional<String> labelName,
                                   Optional<InsertCommandContext> insertCtx, Optional<LogicalPlan> cte,
                                   boolean needNormalizePlan, Optional<String> branchName) {
-        super(PlanType.INSERT_INTO_TABLE_COMMAND);
+        super(planType);
         this.originLogicalQuery = Objects.requireNonNull(logicalQuery, "logicalQuery should not be null");
         this.labelName = Objects.requireNonNull(labelName, "labelName should not be null");
         this.logicalQuery = Optional.empty();
@@ -141,6 +145,13 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
         } else {
             this.jobId = -1;
         }
+    }
+
+    public InsertIntoTableCommand(LogicalPlan logicalQuery, Optional<String> labelName,
+            Optional<InsertCommandContext> insertCtx, Optional<LogicalPlan> cte,
+            boolean needNormalizePlan, Optional<String> branchName) {
+        this(PlanType.INSERT_INTO_TABLE_COMMAND, logicalQuery, labelName, insertCtx, cte,
+                needNormalizePlan, branchName);
     }
 
     /**
@@ -190,6 +201,10 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
         this.jobId = jobId;
     }
 
+    public void setInsertExecutorListener(InsertExecutorListener insertExecutorListener) {
+        this.insertExecutorListener = insertExecutorListener;
+    }
+
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         runInternal(ctx, executor);
@@ -229,7 +244,7 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
         while (++retryTimes < Math.max(ctx.getSessionVariable().dmlPlanRetryTimes, 3)) {
             TableIf targetTableIf = getTargetTableIf(ctx, qualifiedTargetTableName);
             // check auth
-            if (!Env.getCurrentEnv().getAccessManager()
+            if (needAuthCheck(targetTableIf) && !Env.getCurrentEnv().getAccessManager()
                     .checkTblPriv(ConnectContext.get(), targetTableIf.getDatabase().getCatalog().getName(),
                             targetTableIf.getDatabase().getFullName(), targetTableIf.getName(),
                             PrivPredicate.LOAD)) {
@@ -297,6 +312,16 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
         }
         LOG.warn("insert plan failed {} times. query id is {}.", retryTimes, DebugUtil.printId(ctx.queryId()));
         throw new AnalysisException("Insert plan failed. Could not get target table lock.");
+    }
+
+    /**
+     * Hook method to determine if auth check is needed.
+     * Subclasses can override this to skip auth check, e.g., WarmupSelectCommand.
+     * @param targetTableIf the target table
+     * @return true if auth check is needed, false otherwise
+     */
+    protected boolean needAuthCheck(TableIf targetTableIf) {
+        return true;
     }
 
     private BuildInsertExecutorResult initPlanOnce(ConnectContext ctx,
@@ -462,6 +487,12 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
                 return ExecutorFactory.from(planner, dataSink, physicalSink,
                         () -> new DictionaryInsertExecutor(
                                 ctx, dictionary, label, planner, insertCtx, emptyInsert, jobId));
+            } else if (physicalSink instanceof PhysicalBlackholeSink) {
+                boolean emptyInsert = childIsEmptyRelation(physicalSink);
+                // insertCtx is not useful for blackhole. so keep it empty is ok.
+                return ExecutorFactory.from(planner, dataSink, physicalSink,
+                        () -> new BlackholeInsertExecutor(ctx, targetTableIf, label, planner, insertCtx, emptyInsert,
+                                jobId));
             } else {
                 // TODO: support other table types
                 throw new AnalysisException(
@@ -539,6 +570,9 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
         // if the insert stmt data source is empty, directly return, no need to be executed.
         if (insertExecutor.isEmptyInsert()) {
             return;
+        }
+        if (insertExecutorListener != null) {
+            insertExecutor.registerListener(insertExecutorListener);
         }
         insertExecutor.executeSingleInsert(executor);
     }

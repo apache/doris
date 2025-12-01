@@ -271,7 +271,8 @@ protected:
                 DCHECK(_pblock);
                 SCOPED_RAW_TIMER(&_deserialize_time);
                 _block = Block::create_unique();
-                RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_block->deserialize(*_pblock));
+                RETURN_IF_ERROR_OR_CATCH_EXCEPTION(
+                        _block->deserialize(*_pblock, &_decompress_bytes, &_decompress_time));
             }
             block.swap(_block);
             _block.reset();
@@ -280,6 +281,8 @@ protected:
 
         size_t block_byte_size() const { return _block_byte_size; }
         int64_t deserialize_time() const { return _deserialize_time; }
+        int64_t decompress_time() const { return _decompress_time; }
+        size_t decompress_bytes() const { return _decompress_bytes; }
         BlockItem() = default;
         BlockItem(BlockUPtr&& block, size_t block_byte_size)
                 : _block(std::move(block)), _block_byte_size(block_byte_size) {}
@@ -292,6 +295,8 @@ protected:
         std::unique_ptr<PBlock> _pblock;
         size_t _block_byte_size = 0;
         int64_t _deserialize_time = 0;
+        int64_t _decompress_time = 0;
+        size_t _decompress_bytes = 0;
     };
 
     std::list<BlockItem> _block_queue;

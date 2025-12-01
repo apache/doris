@@ -55,9 +55,11 @@ public class QueryPartitionCollector extends DefaultPlanVisitor<Void, CascadesCo
             return null;
         }
         StatementContext statementContext = context.getStatementContext();
+        // Collect relationId to tableId mapping
         Map<Integer, Integer> relationIdToTableId = statementContext.getRelationIdToCommonTableIdMap();
         relationIdToTableId.put(catalogRelation.getRelationId().asInt(),
                 statementContext.getTableId(catalogRelation.getTable()).asInt());
+        // Collect table used partition mapping
         Multimap<List<String>, Pair<RelationId, Set<String>>> tableUsedPartitionNameMap = statementContext
                 .getTableUsedPartitionNameMap();
         Set<String> tablePartitions = new HashSet<>();

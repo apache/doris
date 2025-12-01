@@ -278,7 +278,7 @@ public:
 
         size_t meta_size;
         static_cast<void>(parse_thrift_footer(p_reader->_file_reader, &doris_file_metadata,
-                                              &meta_size, nullptr));
+                                              &meta_size, nullptr, false));
         doris_metadata = doris_file_metadata->to_thrift();
 
         p_reader->_ctz = &ctz;
@@ -324,7 +324,6 @@ public:
                 tslot_desc.nullIndicatorBit = -1;
                 tslot_desc.colName = table_column_names[i];
                 tslot_desc.slotIdx = 0;
-                tslot_desc.isMaterialized = true;
                 t_desc_table.slotDescriptors.push_back(tslot_desc);
             }
         }

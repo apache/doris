@@ -172,9 +172,9 @@ public class NereidsLoadScanProvider {
                 copiedColumnExprs.add(importColumnDesc);
             } else if (tbl.getColumn(mappingColumnName) != null) {
                 copiedColumnExprs.add(importColumnDesc);
-                // Only track columns with constant expressions (e.g., "k1 = 'constant'")
+                // Only track columns with constant expressions (e.g., k1 = 'constant', k1 = 'uuid()', ...)
                 // Non-constant expressions (e.g., "k1 = k1 + 1") still need to read from file
-                if (importColumnDesc.getExpr().isConstant()) {
+                if (importColumnDesc.getExpr().getInputSlots().isEmpty()) {
                     constantMappingColumns.add(mappingColumnName);
                 }
             }

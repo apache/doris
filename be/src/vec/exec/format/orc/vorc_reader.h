@@ -195,7 +195,7 @@ public:
             std::unordered_map<std::string, orc::StringDictionary*>& column_name_to_dict_map,
             bool* is_stripe_filtered);
 
-    static DataTypePtr convert_to_doris_type(const orc::Type* orc_type);
+    DataTypePtr convert_to_doris_type(const orc::Type* orc_type);
     static std::string get_field_name_lower_case(const orc::Type* orc_type, int pos);
 
     void set_row_id_column_iterator(

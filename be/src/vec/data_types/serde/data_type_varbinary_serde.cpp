@@ -65,6 +65,71 @@ Status DataTypeVarbinarySerDe::_write_column_to_mysql(const IColumn& column,
     return Status::OK();
 }
 
+Status DataTypeVarbinarySerDe::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
+                                                     arrow::ArrayBuilder* array_builder,
+                                                     int64_t start, int64_t end,
+                                                     const cctz::time_zone& ctz) const {
+    auto lambda_function = [&](auto& builder) -> Status {
+        const auto& varbinary_column_data = assert_cast<const ColumnVarbinary&>(column).get_data();
+        for (size_t i = start; i < end; ++i) {
+            if (null_map && (*null_map)[i]) {
+                RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), column.get_name(),
+                                                 builder.type()->name()));
+                continue;
+            }
+            auto string_view = varbinary_column_data[i];
+            RETURN_IF_ERROR(checkArrowStatus(builder.Append(string_view.data(), string_view.size()),
+                                             column.get_name(), builder.type()->name()));
+        }
+        return Status::OK();
+    };
+    if (array_builder->type()->id() == arrow::Type::BINARY) {
+        auto& builder = assert_cast<arrow::BinaryBuilder&>(*array_builder);
+        return lambda_function(builder);
+    } else if (array_builder->type()->id() == arrow::Type::STRING) {
+        auto& builder = assert_cast<arrow::StringBuilder&>(*array_builder);
+        return lambda_function(builder);
+    } else {
+        return Status::InvalidArgument("Unsupported arrow type for varbinary column: {}",
+                                       array_builder->type()->name());
+    }
+    return Status::OK();
+}
+
+Status DataTypeVarbinarySerDe::write_column_to_orc(const std::string& timezone,
+                                                   const IColumn& column, const NullMap* null_map,
+                                                   orc::ColumnVectorBatch* orc_col_batch,
+                                                   int64_t start, int64_t end,
+                                                   vectorized::Arena& arena) const {
+    auto* cur_batch = dynamic_cast<orc::StringVectorBatch*>(orc_col_batch);
+    const auto& varbinary_column_data = assert_cast<const ColumnVarbinary&>(column).get_data();
+
+    for (auto row_id = start; row_id < end; row_id++) {
+        cur_batch->data[row_id] = const_cast<char*>(varbinary_column_data[row_id].data());
+        cur_batch->length[row_id] = varbinary_column_data[row_id].size();
+    }
+
+    cur_batch->numElements = end - start;
+    return Status::OK();
+}
+
+Status DataTypeVarbinarySerDe::serialize_one_cell_to_json(const IColumn& column, int64_t row_num,
+                                                          BufferWritable& bw,
+                                                          FormatOptions& options) const {
+    auto result = check_column_const_set_readability(column, row_num);
+    ColumnPtr ptr = result.first;
+    row_num = result.second;
+    const auto& value = assert_cast<const ColumnVarbinary&>(*ptr).get_data_at(row_num);
+    bw.write(value.data, value.size);
+    return Status::OK();
+}
+
+Status DataTypeVarbinarySerDe::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
+                                                              const FormatOptions& options) const {
+    assert_cast<ColumnVarbinary&>(column).insert_data(slice.data, slice.size);
+    return Status::OK();
+}
+
 void DataTypeVarbinarySerDe::to_string(const IColumn& column, size_t row_num,
                                        BufferWritable& bw) const {
     const auto value = assert_cast<const ColumnVarbinary&>(column).get_data_at(row_num);

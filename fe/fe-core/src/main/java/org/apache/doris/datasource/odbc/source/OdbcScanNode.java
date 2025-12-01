@@ -32,7 +32,6 @@ import org.apache.doris.datasource.jdbc.source.JdbcScanNode;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.StatisticalType;
-import org.apache.doris.statistics.StatsRecursiveDerive;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TOdbcScanNode;
 import org.apache.doris.thrift.TOdbcTableType;
@@ -82,8 +81,7 @@ public class OdbcScanNode extends ExternalScanNode {
     public void init() throws UserException {
         super.init();
         numNodes = numNodes <= 0 ? 1 : numNodes;
-        StatsRecursiveDerive.getStatsRecursiveDerive().statsRecursiveDerive(this);
-        cardinality = (long) statsDeriveResult.getRowCount();
+        cardinality = -1;
     }
 
     @Override
@@ -168,9 +166,6 @@ public class OdbcScanNode extends ExternalScanNode {
     private void createOdbcColumns() {
         columns.clear();
         for (SlotDescriptor slot : desc.getSlots()) {
-            if (!slot.isMaterialized()) {
-                continue;
-            }
             Column col = slot.getColumn();
             columns.add(JdbcTable.databaseProperName(odbcType, col.getName()));
         }

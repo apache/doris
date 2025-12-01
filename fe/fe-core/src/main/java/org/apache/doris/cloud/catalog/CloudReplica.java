@@ -54,7 +54,8 @@ public class CloudReplica extends Replica {
     // In the future, a replica may be mapped to multiple BEs in a cluster,
     // so this value is be list
     @SerializedName(value = "bes")
-    private Map<String, List<Long>> primaryClusterToBackends = new ConcurrentHashMap<String, List<Long>>();
+    private ConcurrentHashMap<String, List<Long>> primaryClusterToBackends
+            = new ConcurrentHashMap<String, List<Long>>();
     @SerializedName(value = "dbId")
     private long dbId = -1;
     @SerializedName(value = "tableId")

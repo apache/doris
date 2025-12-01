@@ -67,11 +67,13 @@ import org.apache.doris.nereids.trees.expressions.literal.Result;
 import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.TimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.format.DateTimeChecker;
 import org.apache.doris.nereids.trees.expressions.literal.format.FloatChecker;
 import org.apache.doris.nereids.trees.expressions.literal.format.IntegerChecker;
+import org.apache.doris.nereids.trees.expressions.literal.format.TimeChecker;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BooleanType;
@@ -623,11 +625,10 @@ public class TypeCoercionUtils {
                 ret = new VarcharLiteral(value, ((VarcharType) dataType).getLen());
             } else if (dataType instanceof StringType) {
                 ret = new StringLiteral(value);
-            } else if (dataType.isDateTimeV2Type() && DateTimeChecker.isValidDateTime(value)) {
+            } else if ((dataType.isDateTimeV2Type() || dataType.isDateTimeType())
+                    && DateTimeChecker.isValidDateTime(value)) {
                 ret = DateTimeLiteral.parseDateTimeLiteral(value, true).orElse(null);
-            } else if (dataType.isDateTimeType() && DateTimeChecker.isValidDateTime(value)) {
-                ret = DateTimeLiteral.parseDateTimeLiteral(value, false).orElse(null);
-            } else if (dataType.isDateV2Type() && DateTimeChecker.isValidDateTime(value)) {
+            } else if ((dataType.isDateV2Type() || dataType.isDateType()) && DateTimeChecker.isValidDateTime(value)) {
                 Result<DateLiteral, AnalysisException> parseResult = DateV2Literal.parseDateLiteral(value, true);
                 if (parseResult.isOk()) {
                     ret = parseResult.get();
@@ -638,8 +639,11 @@ public class TypeCoercionUtils {
                         ret = parseResult2.get();
                     }
                 }
-            } else if (dataType.isDateType() && DateTimeChecker.isValidDateTime(value)) {
-                ret = DateLiteral.parseDateLiteral(value, false).orElse(null);
+            } else if (dataType instanceof TimeV2Type && TimeChecker.isValidTime(value)) {
+                Result<TimeV2Literal, AnalysisException> parseResult = TimeV2Literal.parseTimeLiteral(value);
+                if (parseResult.isOk()) {
+                    ret = new TimeV2Literal(value);
+                }
             }
         } catch (Exception e) {
             if (LOG.isDebugEnabled()) {

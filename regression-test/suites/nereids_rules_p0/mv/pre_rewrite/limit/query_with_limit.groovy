@@ -167,8 +167,7 @@ suite("query_with_limit") {
             where o_orderkey > 1
             limit 2;
             """
-    async_mv_rewrite_success(db, mv1_0, query1_0, "mv1_0", [TRY_IN_RBO, FORCE_IN_RBO])
-    async_mv_rewrite_fail(db, mv1_0, query1_0, "mv1_0", [NOT_IN_RBO])
+    async_mv_rewrite_success(db, mv1_0, query1_0, "mv1_0")
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_0"""
 
     // test normal limit with offset
@@ -201,8 +200,7 @@ suite("query_with_limit") {
             where o_orderkey > 1
             limit 2 offset 3;
             """
-    async_mv_rewrite_success(db, mv1_1, query1_1, "mv1_1", [TRY_IN_RBO, FORCE_IN_RBO])
-    async_mv_rewrite_fail(db, mv1_1, query1_1, "mv1_1", [NOT_IN_RBO])
+    async_mv_rewrite_success(db, mv1_1, query1_1, "mv1_1")
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_1"""
 
     // test mv with limit in from subquery, should fail
@@ -328,8 +326,11 @@ suite("query_with_limit") {
             o_orderkey,
             l_partkey,
             l_suppkey
+            order by l_orderkey
             limit 2 offset 3;
             """
+    // because query explain memo is too big without order by, so add order by
+    // if query explain memo is too big fixed, then remove order by l_orderkey
     async_mv_rewrite_success(db, mv1_5, query1_5, "mv1_5", [TRY_IN_RBO, FORCE_IN_RBO])
     async_mv_rewrite_fail(db, mv1_5, query1_5, "mv1_5", [NOT_IN_RBO])
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_5"""
@@ -576,7 +577,7 @@ suite("query_with_limit") {
             l_orderkey,
             l_partkey
             from
-            ( select * from 
+            ( select * from
             orders left
             join lineitem on l_orderkey = o_orderkey
             order by l_orderkey
@@ -613,7 +614,7 @@ suite("query_with_limit") {
             l_orderkey,
             l_partkey
             from
-            ( select * from 
+            ( select * from
             orders left
             join lineitem on l_orderkey = o_orderkey
             order by l_orderkey
@@ -629,7 +630,7 @@ suite("query_with_limit") {
             l_orderkey,
             l_partkey
             from
-            ( select * from 
+            ( select * from
             orders left
             join lineitem on l_orderkey = o_orderkey
             order by l_orderkey
@@ -702,7 +703,7 @@ suite("query_with_limit") {
             o_orderkey,
             l_partkey,
             l_suppkey
-            order by 
+            order by
             l_orderkey,
             o_orderkey,
             l_partkey,
@@ -749,7 +750,7 @@ suite("query_with_limit") {
             o_orderkey,
             l_partkey,
             l_suppkey
-            order by 
+            order by
             l_orderkey,
             o_orderkey,
             l_partkey,
@@ -882,42 +883,42 @@ suite("query_with_limit") {
     // test window rewrite, should fail, not supported
     def mv3_0 =
             """
-            select 
-              * 
-            from 
+            select
+              *
+            from
               (
-                select 
+                select
                   row_number() over (
-                    partition by l_orderkey 
-                    order by 
+                    partition by l_orderkey
+                    order by
                       l_partkey
-                  ) as row_number_win, 
-                  l_orderkey, 
-                  l_partkey 
-                from 
+                  ) as row_number_win,
+                  l_orderkey,
+                  l_partkey
+                from
                   lineitem
-              ) t 
-            where 
+              ) t
+            where
               row_number_win <=1;
             """
     def query3_0 =
             """
-            select 
-              * 
-            from 
+            select
+              *
+            from
               (
-                select 
+                select
                   row_number() over (
-                    partition by l_orderkey 
-                    order by 
+                    partition by l_orderkey
+                    order by
                       l_partkey
-                  ) as row_number_win, 
-                  l_orderkey, 
-                  l_partkey 
-                from 
+                  ) as row_number_win,
+                  l_orderkey,
+                  l_partkey
+                from
                   lineitem
-              ) t 
-            where 
+              ) t
+            where
               row_number_win <=1;
             """
     order_qt_query3_0_before "${query3_0}"
@@ -929,70 +930,70 @@ suite("query_with_limit") {
     // test window with limit offset
     def mv3_1 =
             """
-                select 
+                select
                   row_number() over (
-                    partition by l_orderkey 
-                    order by 
+                    partition by l_orderkey
+                    order by
                       l_partkey
-                  ) as row_number_win, 
-                  l_orderkey, 
+                  ) as row_number_win,
+                  l_orderkey,
                   l_partkey,
                    o_shippriority
-                from 
+                from
                   lineitem
                 left join
                   orders on l_orderkey = o_orderkey;
             """
     def query3_1 =
             """
-                select 
+                select
                   row_number() over (
-                    partition by l_orderkey 
-                    order by 
+                    partition by l_orderkey
+                    order by
                       l_partkey
-                  ) as row_number_win, 
-                  l_orderkey, 
+                  ) as row_number_win,
+                  l_orderkey,
                   l_partkey,
                    o_shippriority
-                from 
+                from
                   lineitem
                 left join
                   orders on l_orderkey = o_orderkey
                 limit 2 offset 1;
             """
-    async_mv_rewrite_success(db, mv3_1, query3_1, "mv3_1")
+    async_mv_rewrite_success(db, mv3_1, query3_1, "mv3_1", [TRY_IN_RBO, FORCE_IN_RBO])
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv3_1"""
 
 
     // test window with topN
     def mv3_2 =
             """
-                select 
+                select
                   row_number() over (
-                    partition by l_orderkey 
-                    order by 
+                    partition by l_orderkey
+                    order by
                       l_partkey
-                  ) as row_number_win, 
-                  l_orderkey, 
+                  ) as row_number_win,
+                  l_orderkey,
                   l_partkey,
                    o_shippriority
-                from 
+                from
                   lineitem
                 left join
                   orders on l_orderkey = o_orderkey;
             """
     def query3_2 =
             """
-                select 
+                select
                   row_number() over (
-                    partition by l_orderkey 
-                    order by 
+                    partition by l_orderkey
+                    order by
                       l_partkey
-                  ) as row_number_win, 
-                  l_orderkey, 
+                  ) as row_number_win,
+                  l_orderkey,
                   l_partkey,
                    o_shippriority
-                from 
+                from
                   lineitem
                 left join
                   orders on l_orderkey = o_orderkey
@@ -1005,9 +1006,9 @@ suite("query_with_limit") {
     // query is union all + limit offset
     def mv4_0 =
             """
-                select 
+                select
                   l_orderkey
-                from 
+                from
                   lineitem
                   left join
                   orders on l_orderkey = o_orderkey
@@ -1016,30 +1017,29 @@ suite("query_with_limit") {
             """
             select *
             from (
-                select 
+                select
                   l_orderkey
-                from 
+                from
                   lineitem
                   left join
                   orders on l_orderkey = o_orderkey
                 union all
-                select 
+                select
                   o_orderkey
                   from
                   orders
-                ) t  
+                ) t
                   limit 2 offset 5;
             """
-    async_mv_rewrite_success(db, mv4_0, query4_0, "mv4_0", [TRY_IN_RBO, FORCE_IN_RBO])
-    async_mv_rewrite_fail(db, mv4_0, query4_0, "mv4_0", [NOT_IN_RBO])
+    async_mv_rewrite_success(db, mv4_0, query4_0, "mv4_0")
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv4_0"""
 
     // query is union all + limit without offset
     def mv4_0_0 =
             """
-                select 
+                select
                   l_orderkey
-                from 
+                from
                   lineitem
                   left join
                   orders on l_orderkey = o_orderkey
@@ -1048,54 +1048,53 @@ suite("query_with_limit") {
             """
             select *
             from (
-                select 
+                select
                   l_orderkey
-                from 
+                from
                   lineitem
                   left join
                   orders on l_orderkey = o_orderkey
                 union all
-                select 
+                select
                   o_orderkey
                   from
                   orders
-                ) t  
+                ) t
                   limit 2 offset 5;
             """
-    async_mv_rewrite_success(db, mv4_0_0, query4_0_0, "mv4_0_0", [TRY_IN_RBO, FORCE_IN_RBO])
-    async_mv_rewrite_fail(db, mv4_0_0, query4_0_0, "mv4_0_0", [NOT_IN_RBO])
+    async_mv_rewrite_success(db, mv4_0_0, query4_0_0, "mv4_0_0")
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv4_0_0"""
 
 
     // query is union all + group by + limit offset
     def mv4_1 =
             """
-                select 
+                select
                   l_orderkey
-                from 
+                from
                   lineitem
                   left join
                   orders on l_orderkey = o_orderkey
-                  group by l_orderkey 
+                  group by l_orderkey
             """
     def query4_1 =
             """
             select *
             from (
-                select 
+                select
                   l_orderkey
-                from 
+                from
                   lineitem
                   left join
                   orders on l_orderkey = o_orderkey
-                group by l_orderkey  
+                group by l_orderkey
                 union all
-                select 
+                select
                   o_orderkey
                   from
                   orders
-                ) t 
-                group by l_orderkey 
+                ) t
+                group by l_orderkey
                   limit 2 offset 0;
             """
     async_mv_rewrite_success(db, mv4_1, query4_1, "mv4_1", [TRY_IN_RBO, FORCE_IN_RBO])
@@ -1106,32 +1105,32 @@ suite("query_with_limit") {
     // query is union all + group by + limit without offset
     def mv4_1_0 =
             """
-                select 
+                select
                   l_orderkey
-                from 
+                from
                   lineitem
                   left join
                   orders on l_orderkey = o_orderkey
-                  group by l_orderkey 
+                  group by l_orderkey
             """
     def query4_1_0 =
             """
             select *
             from (
-                select 
+                select
                   l_orderkey
-                from 
+                from
                   lineitem
                   left join
                   orders on l_orderkey = o_orderkey
-                group by l_orderkey  
+                group by l_orderkey
                 union all
-                select 
+                select
                   o_orderkey
                   from
                   orders
-                ) t 
-                group by l_orderkey 
+                ) t
+                group by l_orderkey
                   limit 2;
             """
     async_mv_rewrite_success(db, mv4_1_0, query4_1_0, "mv4_1_0", [TRY_IN_RBO, FORCE_IN_RBO])
@@ -1142,9 +1141,9 @@ suite("query_with_limit") {
     // query is union all + topN
     def mv4_2 =
             """
-                select 
+                select
                   l_orderkey
-                from 
+                from
                   lineitem
                   left join
                   orders on l_orderkey = o_orderkey
@@ -1154,19 +1153,19 @@ suite("query_with_limit") {
             """
             select *
             from (
-                select 
+                select
                   l_orderkey
-                from 
+                from
                   lineitem
                   left join
                   orders on l_orderkey = o_orderkey
                 union all
-                select 
+                select
                   o_orderkey
                   from
                   orders
-                ) t 
-                order by l_orderkey 
+                ) t
+                order by l_orderkey
                   limit 2 offset 5;
             """
     async_mv_rewrite_success(db, mv4_2, query4_2, "mv4_2", [TRY_IN_RBO, FORCE_IN_RBO])
@@ -1178,9 +1177,9 @@ suite("query_with_limit") {
     // query is union all + topN, without offset
     def mv4_2_0 =
             """
-                select 
+                select
                   l_orderkey
-                from 
+                from
                   lineitem
                   left join
                   orders on l_orderkey = o_orderkey
@@ -1190,19 +1189,19 @@ suite("query_with_limit") {
             """
             select *
             from (
-                select 
+                select
                   l_orderkey
-                from 
+                from
                   lineitem
                   left join
                   orders on l_orderkey = o_orderkey
                 union all
-                select 
+                select
                   o_orderkey
                   from
                   orders
-                ) t 
-                order by l_orderkey 
+                ) t
+                order by l_orderkey
                   limit 2;
             """
     async_mv_rewrite_success(db, mv4_2_0, query4_2_0, "mv4_2_0", [TRY_IN_RBO, FORCE_IN_RBO])
@@ -1214,33 +1213,33 @@ suite("query_with_limit") {
     // query is union all + group by + topN
     def mv4_3 =
             """
-                select 
+                select
                   l_orderkey
-                from 
+                from
                   lineitem
                   left join
                   orders on l_orderkey = o_orderkey
-                  group by l_orderkey 
+                  group by l_orderkey
                   order by l_orderkey
             """
     def query4_3 =
             """
             select *
             from (
-                select 
+                select
                   l_orderkey
-                from 
+                from
                   lineitem
                   left join
                   orders on l_orderkey = o_orderkey
-                group by l_orderkey  
+                group by l_orderkey
                 union all
-                select 
+                select
                   o_orderkey
                   from
                   orders
-                ) t  
-                  group by l_orderkey 
+                ) t
+                  group by l_orderkey
                   order by l_orderkey
                   limit 2 offset 5;
             """
@@ -1253,33 +1252,33 @@ suite("query_with_limit") {
     // query is union all + group by + topN without offset
     def mv4_3_0 =
             """
-                select 
+                select
                   l_orderkey
-                from 
+                from
                   lineitem
                   left join
                   orders on l_orderkey = o_orderkey
-                  group by l_orderkey 
+                  group by l_orderkey
                   order by l_orderkey
             """
     def query4_3_0 =
             """
             select *
             from (
-                select 
+                select
                   l_orderkey
-                from 
+                from
                   lineitem
                   left join
                   orders on l_orderkey = o_orderkey
-                group by l_orderkey  
+                group by l_orderkey
                 union all
-                select 
+                select
                   o_orderkey
                   from
                   orders
-                ) t  
-                  group by l_orderkey 
+                ) t
+                  group by l_orderkey
                   order by l_orderkey
                   limit 2 offset 5;
             """

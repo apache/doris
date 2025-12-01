@@ -88,7 +88,7 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.collections4.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -699,12 +699,6 @@ public class OlapScanNode extends ScanNode {
             bucketSeq2Bytes.merge(bucketSeq, oneReplicaBytes, Long::sum);
             scanRangeLocations.add(locations);
         }
-
-        if (tablets.isEmpty()) {
-            desc.setCardinality(0);
-        } else {
-            desc.setCardinality(cardinality);
-        }
     }
 
     private String fastToString(long version) {
@@ -758,7 +752,6 @@ public class OlapScanNode extends ScanNode {
     protected void createScanRangeLocations() throws UserException {
         scanRangeLocations = Lists.newArrayList();
         if (selectedPartitionIds.isEmpty()) {
-            desc.setCardinality(0);
             return;
         }
         Preconditions.checkState(selectedIndexId != -1);
@@ -1215,7 +1208,11 @@ public class OlapScanNode extends ScanNode {
         if (annSortLimit != -1) {
             msg.olap_scan_node.setAnnSortLimit(annSortLimit);
         }
-        msg.olap_scan_node.setKeyType(olapTable.getKeysType().toThrift());
+        if (selectedIndexId != -1) {
+            msg.olap_scan_node.setKeyType(olapTable.getIndexMetaByIndexId(selectedIndexId).getKeysType().toThrift());
+        } else {
+            msg.olap_scan_node.setKeyType(olapTable.getKeysType().toThrift());
+        }
         String tableName = olapTable.getName();
         if (selectedIndexId != -1) {
             tableName = tableName + "(" + getSelectedIndexName() + ")";

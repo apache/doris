@@ -427,8 +427,8 @@ Status OlapScanner::_init_tablet_reader_params(
     DBUG_EXECUTE_IF("NewOlapScanner::_init_tablet_reader_params.block", DBUG_BLOCK);
 
     if (!_state->skip_storage_engine_merge()) {
-        TOlapScanNode& olap_scan_node =
-                ((pipeline::OlapScanLocalState*)_local_state)->olap_scan_node();
+        auto* olap_scan_local_state = (pipeline::OlapScanLocalState*)_local_state;
+        TOlapScanNode& olap_scan_node = olap_scan_local_state->olap_scan_node();
         // order by table keys optimization for topn
         // will only read head/tail of data file since it's already sorted by keys
         if (olap_scan_node.__isset.sort_info && !olap_scan_node.sort_info.is_asc_order.empty()) {
@@ -440,16 +440,20 @@ Status OlapScanner::_init_tablet_reader_params(
             _tablet_reader_params.read_orderby_key_num_prefix_columns =
                     olap_scan_node.sort_info.is_asc_order.size();
             _tablet_reader_params.read_orderby_key_limit = _limit;
-            _tablet_reader_params.filter_block_conjuncts = _conjuncts;
+
+            if (_tablet_reader_params.read_orderby_key_limit > 0 &&
+                olap_scan_local_state->_storage_no_merge()) {
+                _tablet_reader_params.filter_block_conjuncts = _conjuncts;
+                _conjuncts.clear();
+            }
         }
 
         // set push down topn filter
         _tablet_reader_params.topn_filter_source_node_ids =
-                ((pipeline::OlapScanLocalState*)_local_state)
-                        ->get_topn_filter_source_node_ids(_state, true);
+                olap_scan_local_state->get_topn_filter_source_node_ids(_state, true);
         if (!_tablet_reader_params.topn_filter_source_node_ids.empty()) {
             _tablet_reader_params.topn_filter_target_node_id =
-                    ((pipeline::OlapScanLocalState*)_local_state)->parent()->node_id();
+                    olap_scan_local_state->parent()->node_id();
         }
     }
 
@@ -484,10 +488,7 @@ Status OlapScanner::_init_variant_columns() {
         return Status::OK();
     }
     // Parent column has path info to distinction from each other
-    for (auto slot : _output_tuple_desc->slots()) {
-        if (!slot->is_materialized()) {
-            continue;
-        }
+    for (auto* slot : _output_tuple_desc->slots()) {
         if (slot->type()->get_primitive_type() == PrimitiveType::TYPE_VARIANT) {
             // Such columns are not exist in frontend schema info, so we need to
             // add them into tablet_schema for later column indexing.
@@ -507,10 +508,6 @@ Status OlapScanner::_init_variant_columns() {
 
 Status OlapScanner::_init_return_columns() {
     for (auto* slot : _output_tuple_desc->slots()) {
-        if (!slot->is_materialized()) {
-            continue;
-        }
-
         // variant column using path to index a column
         int32_t index = 0;
         auto& tablet_schema = _tablet_reader_params.tablet_schema;
@@ -773,6 +770,8 @@ void OlapScanner::_collect_profile_before_close() {
     if (config::is_cloud_mode() && config::enable_file_cache) {
         io::FileCacheProfileReporter cache_profile(local_state->_segment_profile.get());
         cache_profile.update(&stats.file_cache_stats);
+        _state->get_query_ctx()->resource_ctx()->io_context()->update_bytes_write_into_cache(
+                stats.file_cache_stats.bytes_write_into_cache);
     }
     COUNTER_UPDATE(local_state->_output_index_result_column_timer,
                    stats.output_index_result_column_timer);

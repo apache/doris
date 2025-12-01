@@ -26,9 +26,7 @@ import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.CharType;
-import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
-import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.DoubleType;
@@ -70,12 +68,8 @@ public class TopNWeighted extends NullableAggregateFunction
             FunctionSignature.ret(ArrayType.of(BooleanType.INSTANCE))
                     .args(BooleanType.INSTANCE, BigIntType.INSTANCE, IntegerType.INSTANCE),
             FunctionSignature.ret(ArrayType.of(FloatType.INSTANCE))
-                    .args(FloatType.INSTANCE, BigIntType.INSTANCE, IntegerType.INSTANCE),
-            FunctionSignature.ret(ArrayType.of(DateType.INSTANCE))
-                    .args(DateType.INSTANCE, BigIntType.INSTANCE, IntegerType.INSTANCE),
-            FunctionSignature.ret(ArrayType.of(DateTimeType.INSTANCE))
-                    .args(DateTimeType.INSTANCE, BigIntType.INSTANCE, IntegerType.INSTANCE),
-            FunctionSignature.ret(ArrayType.of(DateV2Type.INSTANCE))
+                                    .args(FloatType.INSTANCE, BigIntType.INSTANCE, IntegerType.INSTANCE),
+                            FunctionSignature.ret(ArrayType.of(DateV2Type.INSTANCE))
                     .args(DateV2Type.INSTANCE, BigIntType.INSTANCE, IntegerType.INSTANCE),
             FunctionSignature.ret(ArrayType.of(DateTimeV2Type.WILDCARD))
                     .args(DateTimeV2Type.WILDCARD, BigIntType.INSTANCE, IntegerType.INSTANCE),
@@ -107,12 +101,9 @@ public class TopNWeighted extends NullableAggregateFunction
             FunctionSignature.ret(ArrayType.of(BooleanType.INSTANCE))
                     .args(BooleanType.INSTANCE, BigIntType.INSTANCE, IntegerType.INSTANCE, IntegerType.INSTANCE),
             FunctionSignature.ret(ArrayType.of(FloatType.INSTANCE))
-                    .args(FloatType.INSTANCE, BigIntType.INSTANCE, IntegerType.INSTANCE, IntegerType.INSTANCE),
-            FunctionSignature.ret(ArrayType.of(DateType.INSTANCE))
-                    .args(DateType.INSTANCE, BigIntType.INSTANCE, IntegerType.INSTANCE, IntegerType.INSTANCE),
-            FunctionSignature.ret(ArrayType.of(DateTimeType.INSTANCE))
-                    .args(DateTimeType.INSTANCE, BigIntType.INSTANCE, IntegerType.INSTANCE, IntegerType.INSTANCE),
-            FunctionSignature.ret(ArrayType.of(DateV2Type.INSTANCE))
+                                    .args(FloatType.INSTANCE, BigIntType.INSTANCE, IntegerType.INSTANCE,
+                                                    IntegerType.INSTANCE),
+                            FunctionSignature.ret(ArrayType.of(DateV2Type.INSTANCE))
                     .args(DateV2Type.INSTANCE, BigIntType.INSTANCE, IntegerType.INSTANCE, IntegerType.INSTANCE),
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT)
                     .args(DateTimeV2Type.WILDCARD,

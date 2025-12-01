@@ -15,32 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_non_overlap_seg_heavy_sc") {
+suite("test_non_overlap_seg_heavy_sc", "nonConcurrent") {
     def tblName = "test_non_overlap_seg_heavy_sc"
     sql """
-        DROP TABLE IF EXISTS ${tblName}_src
-        """
-    sql """
-        CREATE TABLE IF NOT EXISTS ${tblName}_src
-        (
-            k INT NOT NULL,
-            v1 INT NOT NULL,
-            v2 INT NOT NULL
-        )
-        DUPLICATE KEY(k)
-        DISTRIBUTED BY HASH(k) BUCKETS 5
-        PROPERTIES(
-            "replication_num" = "1",
-            "light_schema_change" = "true",
-            "disable_auto_compaction" = "true"
-        ); 
+        DROP TABLE IF EXISTS ${tblName}
         """
 
     sql """
-        DROP TABLE IF EXISTS ${tblName}_dst
-        """
-    sql """
-        CREATE TABLE IF NOT EXISTS ${tblName}_dst
+        CREATE TABLE IF NOT EXISTS ${tblName}
         (
             k INT NOT NULL,
             v1 INT NOT NULL,
@@ -50,25 +32,29 @@ suite("test_non_overlap_seg_heavy_sc") {
         DISTRIBUTED BY HASH(k) BUCKETS 1
         PROPERTIES(
             "replication_num" = "1",
-            "light_schema_change" = "true",
-            "disable_auto_compaction" = "true"
+            "light_schema_change" = "true"
         ); 
         """
 
-    sql """ INSERT INTO ${tblName}_src VALUES (1, 1, 1),(2, 2, 2),(3, 3, 3),(4, 4, 4),(5, 5, 5) """
+    GetDebugPoint().clearDebugPointsForAllBEs();
+    GetDebugPoint().clearDebugPointsForAllBEs();
+    GetDebugPoint().enableDebugPointForAllBEs("MemTable.need_flush");
+    try {
+        sql """ INSERT INTO ${tblName} select number, number, number from numbers("number" = "3240960") """
 
-    sql """ INSERT INTO ${tblName}_dst SELECT * FROM ${tblName}_src """
+        sql """ DELETE FROM ${tblName} WHERE v2 = 24 """
 
-    sql """ DELETE FROM ${tblName}_dst WHERE v1 = 1 """
+        sql """ ALTER TABLE ${tblName} DROP COLUMN v2"""
 
-    sql """ ALTER TABLE ${tblName}_dst DROP COLUMN v1"""
+        sql """ ALTER TABLE ${tblName} MODIFY COLUMN v1 STRING NOT NULL """
 
-    sql """ ALTER TABLE ${tblName}_dst MODIFY COLUMN v2 STRING NOT NULL """
+        waitForSchemaChangeDone {
+            sql """ SHOW ALTER TABLE COLUMN WHERE TableName='${tblName}' ORDER BY createtime DESC LIMIT 1 """
+            time 600
+        }
 
-    waitForSchemaChangeDone {
-        sql """ SHOW ALTER TABLE COLUMN WHERE TableName='${tblName}_dst' ORDER BY createtime DESC LIMIT 1 """
-        time 600
+        qt_sql """ SELECT count(*) FROM ${tblName} """
+    } finally {
+        GetDebugPoint().clearDebugPointsForAllBEs();
     }
-
-    qt_sql """ SELECT * FROM ${tblName}_dst ORDER BY k """
 }

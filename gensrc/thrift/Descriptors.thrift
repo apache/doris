@@ -65,12 +65,12 @@ struct TSlotDescriptor {
   7: required i32 nullIndicatorBit
   8: required string colName;
   9: required i32 slotIdx
-  10: required bool isMaterialized
+  10: required bool isMaterialized // deprecated
   11: optional i32 col_unique_id = -1
   12: optional bool is_key = false
   // If set to false, then such slots will be ignored during
-  // materialize them.Used to optmize to read less data and less memory usage
-  13: optional bool need_materialize = true
+  // materialize them.Used to optimize to read less data and less memory usage
+  13: optional bool need_materialize = true // deprecated
   14: optional bool is_auto_increment = false;
   // subcolumn path info list for semi structure column(variant)
   15: optional list<string> column_paths
@@ -159,6 +159,7 @@ enum TSchemaTableType {
     SCH_SQL_BLOCK_RULE_STATUS = 59;
     SCH_CLUSTER_SNAPSHOTS = 60;
     SCH_CLUSTER_SNAPSHOT_PROPERTIES = 61;
+    SCH_BLACKHOLE = 62;
 }
 
 enum THdfsCompression {
@@ -412,6 +413,12 @@ struct TLakeSoulTable {
 struct TDictionaryTable {
 }
 
+struct TRemoteDorisTable {
+  1: optional string db_name
+  2: optional string table_name
+  3: optional map<string, string> properties
+}
+
 // "Union" of all table types.
 struct TTableDescriptor {
   1: required Types.TTableId id
@@ -438,6 +445,7 @@ struct TTableDescriptor {
   22: optional TTrinoConnectorTable trinoConnectorTable
   23: optional TLakeSoulTable lakesoulTable
   24: optional TDictionaryTable dictionaryTable
+  25: optional TRemoteDorisTable remoteDorisTable
 }
 
 struct TDescriptorTable {

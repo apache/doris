@@ -20,7 +20,8 @@ suite("lag_lead_signature") {
     sql "SET enable_fallback_to_original_planner=false"
     sql """drop table if exists lag_lead_signature_t"""
     sql """ CREATE TABLE lag_lead_signature_t (
-            `k` VARCHAR(200) NULL
+            `k` VARCHAR(200) NULL,
+            `id` BIGINT NULL
             ) ENGINE=OLAP
             DUPLICATE KEY(`k`)
             DISTRIBUTED BY HASH(`k`) BUCKETS 3
@@ -28,8 +29,34 @@ suite("lag_lead_signature") {
             "replication_allocation" = "tag.location.default: 1"
             );"""
     
-    sql "insert into lag_lead_signature_t values ('44'), ('28');"
+    sql "insert into lag_lead_signature_t values ('44','10'), ('28','11');"
 
     sql "select lag(k, 1, 0) over(), lead(k, 1, 0) over() from lag_lead_signature_t;"
 
+    qt_sql1 "select lag(k, 1 + 1, 0) over(order by id) from lag_lead_signature_t order by 1;"
+    qt_sql2 "select lag(k, abs(1), 0) over(order by id) from lag_lead_signature_t order by 1;"
+    qt_sql3 "select lag(k, abs(1) + 1, 0) over(order by id) from lag_lead_signature_t order by 1;"
+    qt_sql4 "select lead(k, 1 + 1, 0) over(order by id) from lag_lead_signature_t order by 1;"
+    qt_sql5 "select lead(k, abs(1), 0) over(order by id) from lag_lead_signature_t order by 1;"
+    qt_sql6 "select lead(k, abs(1) + 1, 0) over(order by id) from lag_lead_signature_t order by 1;"
+
+    test {
+        sql "select lag(k, -100, 0) over() from lag_lead_signature_t;"
+        exception "be a constant positive integer"
+    }
+
+    test {
+        sql "select lead(k, -100, 0) over() from lag_lead_signature_t;"
+        exception "be a constant positive integer"
+    }
+
+    test {
+        sql "select lead(k, id, 0) over() from lag_lead_signature_t;"
+        exception "must be a constant value"
+    }
+
+    test {
+        sql "select lag(k, id, 0) over() from lag_lead_signature_t;"
+        exception "must be a constant value"
+    }
 }

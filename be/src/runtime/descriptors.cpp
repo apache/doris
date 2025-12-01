@@ -60,7 +60,6 @@ SlotDescriptor::SlotDescriptor(const TSlotDescriptor& tdesc)
           _col_unique_id(tdesc.col_unique_id),
           _slot_idx(tdesc.slotIdx),
           _field_idx(-1),
-          _is_materialized(tdesc.isMaterialized && tdesc.need_materialize),
           _is_key(tdesc.is_key),
           _column_paths(tdesc.column_paths),
           _is_auto_increment(tdesc.__isset.is_auto_increment ? tdesc.is_auto_increment : false),
@@ -95,7 +94,6 @@ SlotDescriptor::SlotDescriptor(const PSlotDescriptor& pdesc)
           _col_unique_id(pdesc.col_unique_id()),
           _slot_idx(pdesc.slot_idx()),
           _field_idx(-1),
-          _is_materialized(pdesc.is_materialized()),
           _is_key(pdesc.is_key()),
           _column_paths(pdesc.column_paths().begin(), pdesc.column_paths().end()),
           _is_auto_increment(pdesc.is_auto_increment()) {}
@@ -109,7 +107,6 @@ SlotDescriptor::SlotDescriptor()
           _col_unique_id(0),
           _slot_idx(0),
           _field_idx(-1),
-          _is_materialized(true),
           _is_key(false),
           _is_auto_increment(false) {}
 #endif
@@ -124,7 +121,6 @@ void SlotDescriptor::to_protobuf(PSlotDescriptor* pslot) const {
     pslot->set_null_indicator_bit(_type->is_nullable() ? 0 : -1);
     pslot->set_col_name(_col_name);
     pslot->set_slot_idx(_slot_idx);
-    pslot->set_is_materialized(_is_materialized);
     pslot->set_col_unique_id(_col_unique_id);
     pslot->set_is_key(_is_key);
     pslot->set_is_auto_increment(_is_auto_increment);
@@ -341,6 +337,17 @@ std::string JdbcTableDescriptor::debug_string() const {
     return fmt::to_string(buf);
 }
 
+RemoteDorisTableDescriptor::RemoteDorisTableDescriptor(const TTableDescriptor& tdesc)
+        : TableDescriptor(tdesc) {}
+
+RemoteDorisTableDescriptor::~RemoteDorisTableDescriptor() = default;
+
+std::string RemoteDorisTableDescriptor::debug_string() const {
+    std::stringstream out;
+    out << "RemoteDorisTable(" << TableDescriptor::debug_string() << ")";
+    return out.str();
+}
+
 TupleDescriptor::TupleDescriptor(const TTupleDescriptor& tdesc, bool own_slots)
         : _id(tdesc.id),
           _num_materialized_slots(0),
@@ -355,15 +362,12 @@ TupleDescriptor::TupleDescriptor(const PTupleDescriptor& pdesc, bool own_slots)
 
 void TupleDescriptor::add_slot(SlotDescriptor* slot) {
     _slots.push_back(slot);
+    ++_num_materialized_slots;
 
-    if (slot->is_materialized()) {
-        ++_num_materialized_slots;
-
-        if (is_complex_type(slot->type()->get_primitive_type()) ||
-            is_var_len_object(slot->type()->get_primitive_type()) ||
-            is_string_type(slot->type()->get_primitive_type())) {
-            _has_varlen_slots = true;
-        }
+    if (is_complex_type(slot->type()->get_primitive_type()) ||
+        is_var_len_object(slot->type()->get_primitive_type()) ||
+        is_string_type(slot->type()->get_primitive_type())) {
+        _has_varlen_slots = true;
     }
 }
 
@@ -554,13 +558,10 @@ std::string RowDescriptor::debug_string() const {
     return ss.str();
 }
 
-int RowDescriptor::get_column_id(int slot_id, bool force_materialize_slot) const {
+int RowDescriptor::get_column_id(int slot_id) const {
     int column_id_counter = 0;
     for (auto* const tuple_desc : _tuple_desc_map) {
         for (auto* const slot : tuple_desc->slots()) {
-            if (!force_materialize_slot && !slot->is_materialized()) {
-                continue;
-            }
             if (slot->id() == slot_id) {
                 return column_id_counter;
             }
@@ -613,6 +614,9 @@ Status DescriptorTbl::create(ObjectPool* pool, const TDescriptorTable& thrift_tb
             break;
         case TTableType::DICTIONARY_TABLE:
             desc = pool->add(new DictionaryTableDescriptor(tdesc));
+            break;
+        case TTableType::REMOTE_DORIS_TABLE:
+            desc = pool->add(new RemoteDorisTableDescriptor(tdesc));
             break;
         default:
             DCHECK(false) << "invalid table type: " << tdesc.tableType;

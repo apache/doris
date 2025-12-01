@@ -1157,18 +1157,6 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable, ExprStat
         return getMockedExprs(type.getSubTypes(), type.getSubTypeNullables());
     }
 
-    public void materializeSrcExpr() {
-        if (this instanceof SlotRef) {
-            SlotRef thisRef = (SlotRef) this;
-            SlotDescriptor slotDesc = thisRef.getDesc();
-            slotDesc.setIsMaterialized(true);
-            slotDesc.getSourceExprs().forEach(Expr::materializeSrcExpr);
-        }
-        for (Expr child : children) {
-            child.materializeSrcExpr();
-        }
-    }
-
     // This is only for transactional insert operation,
     // to check it the given value in insert stmt is LiteralExpr.
     // And if we write "1" to a boolean column, there will be a cast(1 as boolean) expr,

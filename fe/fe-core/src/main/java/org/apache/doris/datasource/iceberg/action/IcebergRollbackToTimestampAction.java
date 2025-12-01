@@ -48,9 +48,8 @@ public class IcebergRollbackToTimestampAction extends BaseIcebergAction {
 
     public IcebergRollbackToTimestampAction(Map<String, String> properties,
             Optional<PartitionNamesInfo> partitionNamesInfo,
-            Optional<Expression> whereCondition,
-            IcebergExternalTable icebergTable) {
-        super("rollback_to_timestamp", properties, partitionNamesInfo, whereCondition, icebergTable);
+            Optional<Expression> whereCondition) {
+        super("rollback_to_timestamp", properties, partitionNamesInfo, whereCondition);
     }
 
     @Override

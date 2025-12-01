@@ -422,7 +422,7 @@ public abstract class DataType {
             case JSONB: return JsonType.INSTANCE;
             case IPV4: return IPv4Type.INSTANCE;
             case IPV6: return IPv6Type.INSTANCE;
-            case VARBINARY: return VarBinaryType.INSTANCE;
+            case VARBINARY: return VarBinaryType.createVarBinaryType(type.getLength());
             case AGG_STATE: {
                 org.apache.doris.catalog.AggStateType catalogType = ((org.apache.doris.catalog.AggStateType) type);
                 List<DataType> types = catalogType.getSubTypes().stream().map(DataType::fromCatalogType)
@@ -598,10 +598,6 @@ public abstract class DataType {
 
     public boolean isDateLikeType() {
         return isDateType() || isDateTimeType() || isDateV2Type() || isDateTimeV2Type();
-    }
-
-    public boolean isDateV2LikeType() {
-        return isDateV2Type() || isDateTimeV2Type();
     }
 
     public boolean isTimeType() {
