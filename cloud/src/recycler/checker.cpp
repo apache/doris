@@ -651,6 +651,12 @@ int InstanceChecker::do_check() {
         for (int i = 0; i < rs_meta.num_segments(); ++i) {
             auto path = segment_path(rs_meta.tablet_id(), rs_meta.rowset_id_v2(), i);
 
+            // Skip check if segment is merged into a larger file
+            const auto& index_map = rs_meta.merge_file_segment_index();
+            if (index_map.find(path) != index_map.end()) {
+                continue;
+            }
+
             if (tablet_files_cache.files.contains(path)) {
                 continue;
             }
@@ -705,6 +711,7 @@ int InstanceChecker::do_check() {
             }
         }
         if (!index_ids.empty()) {
+            const auto& index_map = rs_meta.merge_file_segment_index();
             for (int i = 0; i < rs_meta.num_segments(); ++i) {
                 std::vector<std::string> index_path_v;
                 if (rs_meta.tablet_schema().inverted_index_storage_format() ==
@@ -724,6 +731,10 @@ int InstanceChecker::do_check() {
                 }
 
                 if (std::ranges::all_of(index_path_v, [&](const auto& idx_file_path) {
+                        // Skip check if inverted index file is merged into a larger file
+                        if (index_map.find(idx_file_path) != index_map.end()) {
+                            return true;
+                        }
                         if (!tablet_files_cache.files.contains(idx_file_path)) {
                             LOG(INFO) << "loss index file: " << idx_file_path;
                             return false;
