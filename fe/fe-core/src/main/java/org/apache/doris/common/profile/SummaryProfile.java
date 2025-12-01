@@ -31,6 +31,8 @@ import org.apache.doris.resource.workloadgroup.WorkloadGroup;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TUnit;
+import org.apache.doris.thrift.TWorkloadAction;
+import org.apache.doris.thrift.TWorkloadGroupInfo;
 import org.apache.doris.transaction.TransactionType;
 
 import com.google.common.base.Preconditions;
@@ -280,49 +282,50 @@ public class SummaryProfile {
     @SerializedName(value = "nereidsLockTableFinishTime")
     private long nereidsLockTableFinishTime = -1;
 
-    @SerializedName(value = "CpuShare")
+    @SerializedName(value = "cpuShare")
     private long cpuShare = 0;
 
-    @SerializedName(value = "MemoryLimit")
+    @SerializedName(value = "memoryLimit")
     private long memoryLimit = 0;
 
-    @SerializedName(value = "EnableMemoryOvercommit")
+    @SerializedName(value = "enableMemoryOvercommit")
     private long enableMemoryOvercommit = 0;
-    @SerializedName(value = "MaxQueueSize")
+
+    @SerializedName(value = "maxQueueSize")
     private long maxQueueSize = 0;
 
-    @SerializedName(value = "QueueTimeout")
+    @SerializedName(value = "queueTimeout")
     private long queueTimeout = 0;
 
-    @SerializedName(value = "MaxConcurrency")
+    @SerializedName(value = "maxConcurrency")
     private long maxConcurrency = 0;
 
 
-    @SerializedName(value = "CpuHardLimit")
+    @SerializedName(value = "cpuHardLimit")
     private long cpuHardLimit = 0;
 
-    @SerializedName(value = "ScanThreadNum")
+    @SerializedName(value = "scanThreadNum")
     private long scanThreadNum = 0;
 
-    @SerializedName(value = "MaxRemoteScanThreadNum")
+    @SerializedName(value = "maxRemoteScanThreadNum")
     private long maxRemoteScanThreadNum = 0;
 
-    @SerializedName(value = "MinRemoteScanThreadNum")
+    @SerializedName(value = "minRemoteScanThreadNum")
     private long minRemoteScanThreadNum = 0;
 
-    @SerializedName(value = "MemoryLowWatermark")
+    @SerializedName(value = "memoryLowWatermark")
     private long memoryLowWatermark = 0;
 
-    @SerializedName(value = "MemoryHighWatermark")
+    @SerializedName(value = "memoryHighWatermark")
     private long memoryHighWatermark = 0;
 
-    @SerializedName(value = "ReadBytesPerSecond")
+    @SerializedName(value = "readBytesPerSecond")
     private long readBytesPerSecond = 0;
 
-    @SerializedName(value = "Tag")
+    @SerializedName(value = "tag")
     private long tag = 0;
 
-    @SerializedName(value = "RemoteReadBytesPerSecond")
+    @SerializedName(value = "remoteReadBytesPerSecond")
     private long remoteReadBytesPerSecond = 0;
 
     @SerializedName(value = "nereidsCollectTablePartitionFinishTime")
@@ -549,6 +552,7 @@ public class SummaryProfile {
         executionSummaryProfile.addInfoString(NEREIDS_BE_FOLD_CONST_TIME, getPrettyNereidsBeFoldConstTime());
         executionSummaryProfile.addInfoString(INIT_SCAN_NODE_TIME,
             getPrettyTime(initScanNodeFinishTime, initScanNodeStartTime, TUnit.TIME_MS));
+        executionSummaryProfile.addInfoString(MEMORY_LIMIT, getPrettyGetMetaVersionTime());
         executionSummaryProfile.addInfoString(FINALIZE_SCAN_NODE_TIME,
             getPrettyTime(finalizeScanNodeFinishTime, finalizeScanNodeStartTime, TUnit.TIME_MS));
         executionSummaryProfile.addInfoString(GET_SPLITS_TIME,
@@ -654,6 +658,10 @@ public class SummaryProfile {
 
     public void setNereidsLockTableFinishTime(long lockTableFinishTime) {
         this.nereidsLockTableFinishTime = lockTableFinishTime;
+    }
+
+    public void setCpuShare(long cpuShare) {
+        this.cpuShare = cpuShare;
     }
 
     public void setNereidsCollectTablePartitionFinishTime(long collectTablePartitionFinishTime) {
@@ -1105,6 +1113,10 @@ public class SummaryProfile {
     private String getPrettyGetMetaVersionTime() {
         long getMetaVersionTime = getPartitionVersionTime + getTableVersionTime;
         return getPrettyTime(getMetaVersionTime, 0, TUnit.TIME_MS);
+    }
+
+    private String getPrettyMemoryLimit() {
+        return RuntimeProfile.printCounter(memoryLimit, TUnit.UNIT);
     }
 
     private String getPrettyGetPartitionVersionTime() {

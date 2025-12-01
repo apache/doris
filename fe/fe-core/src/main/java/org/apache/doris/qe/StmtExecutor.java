@@ -351,7 +351,7 @@ public class StmtExecutor {
                 WorkloadGroup wg = list.get(0);
                 builder.cpuShare(String.valueOf(wg.getMaxCpuPercent()));
                 builder.memoryHighWatermark(String.valueOf(wg.getMaxMemoryPercent()));
-                builder.memoryLimit(String.valueOf(wg.getMinMemoryPercent()));
+                builder.memoryLimit(String.valueOf(wg.getMaxMemoryPercent()));
                 builder.memoryLowWatermark(String.valueOf(wg.getMinMemoryPercent()));
                 builder.maxRemoteScanThreadNum(String.valueOf(wg.getProperties().getOrDefault(WorkloadGroup.MAX_REMOTE_SCAN_THREAD_NUM, "-1")));
                 builder.minRemoteScanThreadNum(String.valueOf(wg.getProperties().getOrDefault(WorkloadGroup.MIN_REMOTE_SCAN_THREAD_NUM, "-1")));
