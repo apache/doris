@@ -28,11 +28,16 @@ import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeExtractAndTransform;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TimestampTzLiteral;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -133,12 +138,24 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
     }
 
     private static Literal getDateTimeLiteral(String value, Type type) throws AnalysisException {
-        if (type.isDatetime()) {
-            return new DateTimeLiteral(value);
-        } else if (type.isDatetimeV2()) {
-            return new DateTimeV2Literal(value);
-        } else if (type.isTimeStampTz()) {
-            return new TimestampTzLiteral(value);
+        try {
+            if (type.isDatetime()) {
+                return new DateTimeLiteral(value);
+            } else if (type.isDatetimeV2()) {
+                return new DateTimeV2Literal(value);
+            } else if (type.isTimeStampTz()) {
+                DateTimeV2Literal literal = new DateTimeV2Literal(value);
+                DateTimeV2Literal dtV2Lit = (DateTimeV2Literal) (DateTimeExtractAndTransform.convertTz(
+                        literal,
+                        new StringLiteral(ConnectContext.get().getSessionVariable().timeZone),
+                        new StringLiteral("UTC")));
+                return new TimestampTzLiteral((TimeStampTzType) DataType.fromCatalogType(type),
+                        dtV2Lit.getYear(), dtV2Lit.getMonth(), dtV2Lit.getDay(),
+                        dtV2Lit.getHour(), dtV2Lit.getMinute(), dtV2Lit.getSecond(), dtV2Lit.getMicroSecond());
+
+            }
+        } catch (Exception e) {
+            LOG.warn("convert {} to type {} failed, because: {}", value, type, e.getMessage(), e);
         }
         throw new AnalysisException("date convert to datetime failed, "
                 + "value is [" + value + "], type is [" + type + "].");

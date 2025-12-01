@@ -226,7 +226,6 @@ public class DateTimeLiteral extends DateLiteral {
     }
 
     protected void init(String s) throws AnalysisException {
-        // TODO: check and do fast parse like fastParseDate
         TemporalAccessor temporal = parseDateTime(s).get();
 
         year = DateUtils.getOrDefault(temporal, ChronoField.YEAR);
@@ -244,7 +243,10 @@ public class DateTimeLiteral extends DateLiteral {
                     .toInstant();
 
             int offset = 0;
-            if (!(this.dataType instanceof TimeStampTzType)) {
+            if (this.dataType instanceof TimeStampTzType) {
+                offset = ZoneId.of("UTC").getRules().getOffset(thatTime).getTotalSeconds()
+                        - zoneId.getRules().getOffset(thatTime).getTotalSeconds();
+            } else {
                 offset = DateUtils.getTimeZone().getRules().getOffset(thatTime).getTotalSeconds()
                         - zoneId.getRules().getOffset(thatTime).getTotalSeconds();
             }
@@ -263,15 +265,27 @@ public class DateTimeLiteral extends DateLiteral {
         // Microseconds have 7 digits.
         long sevenDigit = microSecond % 10;
         microSecond = microSecond / 10;
-        if (sevenDigit >= 5 && this instanceof DateTimeV2Literal) {
-            DateTimeV2Literal result = (DateTimeV2Literal) ((DateTimeV2Literal) this).plusMicroSeconds(1);
-            this.second = result.second;
-            this.minute = result.minute;
-            this.hour = result.hour;
-            this.day = result.day;
-            this.month = result.month;
-            this.year = result.year;
-            this.microSecond = result.microSecond;
+        if (sevenDigit >= 5 && (this instanceof DateTimeV2Literal || this instanceof TimestampTzLiteral)) {
+            DateTimeLiteral result;
+            if (this instanceof DateTimeV2Literal) {
+                result = (DateTimeV2Literal) ((DateTimeV2Literal) this).plusMicroSeconds(1);
+                this.second = result.second;
+                this.minute = result.minute;
+                this.hour = result.hour;
+                this.day = result.day;
+                this.month = result.month;
+                this.year = result.year;
+                this.microSecond = result.microSecond;
+            } else if (this instanceof TimestampTzLiteral) {
+                result = (TimestampTzLiteral) ((TimestampTzLiteral) this).plusMicroSeconds(1);
+                this.second = result.second;
+                this.minute = result.minute;
+                this.hour = result.hour;
+                this.day = result.day;
+                this.month = result.month;
+                this.year = result.year;
+                this.microSecond = result.microSecond;
+            }
         }
 
         if (checkRange(year, month, day) || checkDate(year, month, day)) {
