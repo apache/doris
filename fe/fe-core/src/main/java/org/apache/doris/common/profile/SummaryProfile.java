@@ -84,21 +84,21 @@ public class SummaryProfile {
     // Execution Summary
     public static final String EXECUTION_SUMMARY_PROFILE_NAME = "Execution Summary";
     public static final String INIT_SCAN_NODE_TIME = "Init Scan Node Time";
-    public static final String CPU_SHARE = "CPU_SHARE";
-    public static final String MEMORY_LIMIT = "MEMORY_LIMIT";
-    public static final String ENABLE_MEMORY_OVERCOMMIT = "ENABLE_MEMORY_OVERCOMMIT";
-    public static final String MAX_CONCURRENCY = "MAX_CONCURRENCY";
-    public static final String MAX_QUEUE_SIZE = "MAX_QUEUE_SIZE";
-    public static final String QUEUE_TIMEOUT = "QUEUE_TIMEOUT";
-    public static final String CPU_HARD_LIMIT = "CPU_HARD_LIMIT";
-    public static final String SCAN_THREAD_NUM = "SCAN_THREAD_NUM";
-    public static final String MAX_REMOTE_SCAN_THREAD_NUM = "MAX_REMOTE_SCAN_THREAD_NUM";
-    public static final String MIN_REMOTE_SCAN_THREAD_NUM = "MIN_REMOTE_SCAN_THREAD_NUM";
-    public static final String MEMORY_LOW_WATERMARK = "MEMORY_LOW_WATERMARK";
-    public static final String MEMORY_HIGH_WATERMARK = "MEMORY_HIGH_WATERMARK";
-    public static final String READ_BYTES_PER_SECOND = "READ_BYTES_PER_SECOND";
-    public static final String TAG = "TAG";
-    public static final String REMOTE_READ_BYTES_PER_SECOND = "REMOTE_READ_BYTES_PER_SECOND";
+    public static final String CPU_SHARE = "Cpu Share";
+    public static final String MEMORY_LIMIT = "Memory Limit";
+    public static final String ENABLE_MEMORY_OVERCOMMIT = "Enable Memory Overcommit";
+    public static final String MAX_CONCURRENCY = "Max Concurrency";
+    public static final String MAX_QUEUE_SIZE = "Max Queue Size";
+    public static final String QUEUE_TIMEOUT = "Queue Timeout";
+    public static final String CPU_HARD_LIMIT = "Cpu Hard Limit";
+    public static final String SCAN_THREAD_NUM = "Scan Thread Num";
+    public static final String MAX_REMOTE_SCAN_THREAD_NUM = "Max Remote Scan Thread Num";
+    public static final String MIN_REMOTE_SCAN_THREAD_NUM = "Min Remote Scan Thread Num";
+    public static final String MEMORY_LOW_WATERMARK = "Memory Low Watermark";
+    public static final String MEMORY_HIGH_WATERMARK = "Memory High Watermark";
+    public static final String READ_BYTES_PER_SECOND = "Read Bytes Per Second";
+    public static final String TAG = "Tag";
+    public static final String REMOTE_READ_BYTES_PER_SECOND = "Remote Read Bytes Per Second";
     public static final String FINALIZE_SCAN_NODE_TIME = "Finalize Scan Node Time";
     public static final String GET_SPLITS_TIME = "Get Splits Time";
     public static final String GET_PARTITIONS_TIME = "Get Partitions Time";
@@ -262,6 +262,7 @@ public class SummaryProfile {
         .put(SCAN_THREAD_NUM, 0)
         .put(MAX_REMOTE_SCAN_THREAD_NUM, 0)
         .put(MIN_REMOTE_SCAN_THREAD_NUM, 0)
+        .put(TAG, 0)
         .put(MEMORY_LOW_WATERMARK, 0)
         .put(MEMORY_HIGH_WATERMARK, 0)
         .put(READ_BYTES_PER_SECOND, 0)
@@ -279,49 +280,49 @@ public class SummaryProfile {
     @SerializedName(value = "nereidsLockTableFinishTime")
     private long nereidsLockTableFinishTime = -1;
 
-    @SerializedName(value = "CPU_SHARE")
+    @SerializedName(value = "CpuShare")
     private long cpuShare = 0;
 
-    @SerializedName(value = "MEMORY_LIMIT")
+    @SerializedName(value = "MemoryLimit")
     private long memoryLimit = 0;
 
-    @SerializedName(value = "ENABLE_MEMORY_OVERCOMMIT")
+    @SerializedName(value = "EnableMemoryOvercommit")
     private long enableMemoryOvercommit = 0;
-    @SerializedName(value = "MAX_QUEUE_SIZE")
+    @SerializedName(value = "MaxQueueSize")
     private long maxQueueSize = 0;
 
-    @SerializedName(value = "QUEUE_TIMEOUT")
+    @SerializedName(value = "QueueTimeout")
     private long queueTimeout = 0;
 
-    @SerializedName(value = "MAX_CONCURRENCY")
+    @SerializedName(value = "MaxConcurrency")
     private long maxConcurrency = 0;
 
 
-    @SerializedName(value = "CPU_HARD_LIMIT")
+    @SerializedName(value = "CpuHardLimit")
     private long cpuHardLimit = 0;
 
-    @SerializedName(value = "SCAN_THREAD_NUM")
+    @SerializedName(value = "ScanThreadNum")
     private long scanThreadNum = 0;
 
-    @SerializedName(value = "MAX_REMOTE_SCAN_THREAD_NUM")
+    @SerializedName(value = "MaxRemoteScanThreadNum")
     private long maxRemoteScanThreadNum = 0;
 
-    @SerializedName(value = "MIN_REMOTE_SCAN_THREAD_NUM")
+    @SerializedName(value = "MinRemoteScanThreadNum")
     private long minRemoteScanThreadNum = 0;
 
-    @SerializedName(value = "MEMORY_LOW_WATERMARK")
+    @SerializedName(value = "MemoryLowWatermark")
     private long memoryLowWatermark = 0;
 
-    @SerializedName(value = "MEMORY_HIGH_WATERMARK")
+    @SerializedName(value = "MemoryHighWatermark")
     private long memoryHighWatermark = 0;
 
-    @SerializedName(value = "READ_BYTES_PER_SECOND")
+    @SerializedName(value = "ReadBytesPerSecond")
     private long readBytesPerSecond = 0;
 
-    @SerializedName(value = "TAG")
+    @SerializedName(value = "Tag")
     private long tag = 0;
 
-    @SerializedName(value = "REMOTE_READ_BYTES_PER_SECOND")
+    @SerializedName(value = "RemoteReadBytesPerSecond")
     private long remoteReadBytesPerSecond = 0;
 
     @SerializedName(value = "nereidsCollectTablePartitionFinishTime")
