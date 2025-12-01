@@ -963,15 +963,6 @@ public class ScalarType extends Type {
             return false;
         }
         ScalarType other = (ScalarType) o;
-        if ((this.isDatetimeV2() && other.isDatetimeV2())) {
-            return this.decimalScale() == other.decimalScale();
-        }
-        if (this.isTimeV2() && other.isTimeV2()) {
-            return this.decimalScale() == other.decimalScale();
-        }
-        if (type.isDecimalV3Type() && other.isDecimalV3()) {
-            return precision == other.precision && scale == other.scale;
-        }
         if (type != other.type) {
             return false;
         }
@@ -981,8 +972,11 @@ public class ScalarType extends Type {
         if (type == PrimitiveType.VARCHAR) {
             return len == other.len;
         }
-        if (type.isDecimalV2Type() || type == PrimitiveType.DATETIMEV2 || type == PrimitiveType.TIMEV2) {
+        if (type.isDecimalV3Type() || type.isDecimalV2Type()) {
             return precision == other.precision && scale == other.scale;
+        }
+        if (type == PrimitiveType.DATETIMEV2 || type == PrimitiveType.TIMESTAMPTZ || type == PrimitiveType.TIMEV2) {
+            return scale == other.scale;
         }
         return true;
     }
@@ -994,7 +988,7 @@ public class ScalarType extends Type {
         if (type == PrimitiveType.CHAR || type == PrimitiveType.VARCHAR || type == PrimitiveType.HLL) {
             thrift.setLen(len);
         }
-        if (type == PrimitiveType.DECIMALV2 || type.isDecimalV3Type()
+        if (type == PrimitiveType.DECIMALV2 || type.isDecimalV3Type() || type == PrimitiveType.TIMESTAMPTZ
                 || type == PrimitiveType.DATETIMEV2 || type == PrimitiveType.TIMEV2) {
             thrift.setPrecision(precision);
             thrift.setScale(scale);

@@ -324,6 +324,7 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
             case DATEV2:
             case DATETIME:
             case DATETIMEV2:
+            case TIMESTAMPTZ:
                 DateLiteral dateLiteral = (DateLiteral) literal;
                 LocalDateTime successorDateTime = LocalDateTime.of(
                         (int) dateLiteral.getYear(),

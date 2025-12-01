@@ -428,7 +428,8 @@ public enum PrimitiveType {
             case DATEV2:
                 return MysqlColType.MYSQL_TYPE_DATE;
             case DATETIME:
-            case DATETIMEV2: {
+            case DATETIMEV2:
+            case TIMESTAMPTZ: {
                 if (isTimeType) {
                     return MysqlColType.MYSQL_TYPE_TIME;
                 } else {
@@ -461,6 +462,7 @@ public enum PrimitiveType {
                 return DATEV2_INDEX_LEN;
             case DATETIME:
             case DATETIMEV2:
+            case TIMESTAMPTZ:
                 return DATETIME_INDEX_LEN;
             case VARCHAR:
                 return VARCHAR_INDEX_LEN;

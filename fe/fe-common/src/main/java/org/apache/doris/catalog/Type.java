@@ -1076,6 +1076,7 @@ public abstract class Type {
             case DECIMAL128:
             case DECIMAL256:
             case DATETIMEV2:
+            case TIMESTAMPTZ:
             case TIMEV2:
                 return t.decimalPrecision();
             default:
@@ -1106,6 +1107,7 @@ public abstract class Type {
             case DOUBLE:
                 return 15;
             case DATETIMEV2:
+            case TIMESTAMPTZ:
             case TIMEV2:
             case DECIMALV2:
             case DECIMAL32:
