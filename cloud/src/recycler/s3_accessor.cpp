@@ -502,9 +502,10 @@ int S3Accessor::put_file(const std::string& path, const std::string& content) {
 }
 
 int S3Accessor::list_prefix(const std::string& path_prefix, std::unique_ptr<ListIterator>* res) {
+    size_t prefix_length = conf_.prefix.empty() ? 0 : conf_.prefix.length() + 1;
     *res = std::make_unique<S3ListIterator>(
-            obj_client_->list_objects({conf_.bucket, get_key(path_prefix)}),
-            conf_.prefix.length() + 1 /* {prefix}/ */);
+            obj_client_->list_objects({.bucket = conf_.bucket, .key = get_key(path_prefix)}),
+            prefix_length);
     return 0;
 }
 
