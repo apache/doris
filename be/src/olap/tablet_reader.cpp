@@ -527,7 +527,8 @@ Status TabletReader::_init_conditions_param(const ReaderParams& read_params) {
         for (const auto& param : params) {
             ColumnPredicate* predicate = _parse_to_predicate({param.column_name, param.filter});
             predicate->attach_profile_counter(param.runtime_filter_id, param.filtered_rows_counter,
-                                              param.input_rows_counter, param.always_true_rows_counter);
+                                              param.input_rows_counter,
+                                              param.always_true_rows_counter);
             predicates.emplace_back(predicate);
         }
     };

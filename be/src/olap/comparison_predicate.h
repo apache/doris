@@ -396,8 +396,8 @@ public:
     }
 
     template <bool is_and>
-    void __attribute__((flatten)) _evaluate_vec_internal(const vectorized::IColumn& column,
-                                                         uint16_t size, bool* flags) const {
+    void __attribute__((flatten))
+    _evaluate_vec_internal(const vectorized::IColumn& column, uint16_t size, bool* flags) const {
         uint16_t current_evaluated_rows = 0;
         uint16_t current_passed_rows = 0;
         if (_can_ignore()) {
@@ -625,10 +625,9 @@ private:
     }
 
     template <bool is_nullable, bool is_and, typename TArray, typename TValue>
-    void __attribute__((flatten)) _base_loop_vec(uint16_t size, bool* __restrict bflags,
-                                                 const uint8_t* __restrict null_map,
-                                                 const TArray* __restrict data_array,
-                                                 const TValue& value) const {
+    void __attribute__((flatten))
+    _base_loop_vec(uint16_t size, bool* __restrict bflags, const uint8_t* __restrict null_map,
+                   const TArray* __restrict data_array, const TValue& value) const {
         //uint8_t helps compiler to generate vectorized code
         auto* flags = reinterpret_cast<uint8_t*>(bflags);
         if constexpr (is_and) {
