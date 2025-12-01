@@ -68,7 +68,6 @@ public class ExecutionProfile {
     private Map<Integer, RuntimeProfile> fragmentProfiles;
     // Profile for load channels. Only for load job.
     private RuntimeProfile loadChannelProfile;
-
     // use to merge profile from multi be
     private Map<Integer, Map<TNetworkAddress, List<RuntimeProfile>>> multiBeProfile = null;
     private ReentrantReadWriteLock multiBeProfileLock = new ReentrantReadWriteLock();

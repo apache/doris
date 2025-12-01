@@ -17,13 +17,17 @@
 
 package org.apache.doris.common.profile;
 
+import com.sun.jna.platform.unix.solaris.LibKstat;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.SafeStringBuilder;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.resource.workloadgroup.WorkloadGroup;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TUnit;
@@ -62,7 +66,6 @@ public class SummaryProfile {
     public static final String END_TIME = "End Time";
     public static final String TOTAL_TIME = "Total";
     public static final String TASK_STATE = "Task State";
-    public static final String CPU_SHARE = "Cpu Share";
     public static final String USER = "User";
     public static final String DEFAULT_CATALOG = "Default Catalog";
     public static final String DEFAULT_DB = "Default Db";
@@ -81,6 +84,7 @@ public class SummaryProfile {
     // Execution Summary
     public static final String EXECUTION_SUMMARY_PROFILE_NAME = "Execution Summary";
     public static final String INIT_SCAN_NODE_TIME = "Init Scan Node Time";
+    public static final String CPU_SHARE = "Cpu Share";
     public static final String FINALIZE_SCAN_NODE_TIME = "Finalize Scan Node Time";
     public static final String GET_SPLITS_TIME = "Get Splits Time";
     public static final String GET_PARTITIONS_TIME = "Get Partitions Time";
@@ -137,7 +141,7 @@ public class SummaryProfile {
     // a column, so that should not
     // add many columns here. Add to ExecutionSummary list.
     public static final ImmutableList<String> SUMMARY_CAPTIONS = ImmutableList.of(PROFILE_ID, TASK_TYPE,
-        START_TIME, END_TIME, TOTAL_TIME, TASK_STATE, CPU_SHARE, USER, DEFAULT_CATALOG, DEFAULT_DB, SQL_STATEMENT);
+        START_TIME, END_TIME, TOTAL_TIME, TASK_STATE, USER, DEFAULT_CATALOG, DEFAULT_DB, SQL_STATEMENT);
     public static final ImmutableList<String> SUMMARY_KEYS = new ImmutableList.Builder<String>()
         .addAll(SUMMARY_CAPTIONS)
         .add(DISTRIBUTED_PLAN)
@@ -191,7 +195,8 @@ public class SummaryProfile {
         TRANSACTION_COMMIT_TIME,
         SYSTEM_MESSAGE,
         EXECUTED_BY_FRONTEND,
-        SPLITS_ASSIGNMENT_WEIGHT
+        SPLITS_ASSIGNMENT_WEIGHT,
+        CPU_SHARE
     );
 
     // Ident of each item. Default is 0, which doesn't need to present in this Map.
@@ -233,6 +238,7 @@ public class SummaryProfile {
         .put(HMS_ADD_PARTITION_CNT, 2)
         .put(HMS_UPDATE_PARTITION_TIME, 1)
         .put(HMS_UPDATE_PARTITION_CNT, 2)
+        .put(CPU_SHARE, 1)
         .build();
 
     @SerializedName(value = "summaryProfile")
@@ -355,6 +361,8 @@ public class SummaryProfile {
     private long externalTvfInitTime = 0;
     @SerializedName(value = "nereidsPartitiionPruneTime")
     private long nereidsPartitiionPruneTime = 0;
+    @SerializedName(value = "cpuShare")
+    private long cpuShare = 0;
     // BE -> (RPC latency from FE to BE, Execution latency on bthread, Duration of doing work, RPC latency from BE
     // to FE)
     private Map<TNetworkAddress, List<Long>> rpcPhase1Latency;
@@ -537,6 +545,8 @@ public class SummaryProfile {
                 getPrettyTime(hmsUpdatePartitionTime, 0, TUnit.TIME_MS));
             executionSummaryProfile.addInfoString(HMS_UPDATE_PARTITION_CNT,
                 getPrettyCount(hmsUpdatePartitionCnt));
+            executionSummaryProfile.addInfoString(CPU_SHARE,
+                getPrettyCount(cpuShare));
         }
     }
 
@@ -746,10 +756,6 @@ public class SummaryProfile {
             return this;
         }
 
-        public SummaryBuilder cpuShare(String val) {
-            map.put(CPU_SHARE, val);
-            return this;
-        }
 
         public SummaryBuilder user(String val) {
             map.put(USER, val);
@@ -806,6 +812,10 @@ public class SummaryProfile {
             return this;
         }
 
+        public SummaryBuilder cpuShare(String val) {
+            map.put(CPU_SHARE, val);
+            return this;
+        }
         public Map<String, String> build() {
             return map;
         }
@@ -985,6 +995,7 @@ public class SummaryProfile {
         return RuntimeProfile.printCounter(getTableVersionCount, TUnit.UNIT);
     }
 
+
     public long getGetPartitionVersionTime() {
         return getPartitionVersionTime;
     }
@@ -1150,6 +1161,7 @@ public class SummaryProfile {
     public long getNereidsPartitiionPruneTimeMs() {
         return nereidsPartitiionPruneTime;
     }
+
 
     public void write(DataOutput output) throws IOException {
         Text.writeString(output, GsonUtils.GSON.toJson(this));
