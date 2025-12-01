@@ -19,9 +19,9 @@ suite("test_storage_format_v2_1") {
     def tableName = "test_storage_format_v2_1_table"
     
     // Test 1: Create table with storage_format = V2.1
-    sql "DROP TABLE IF EXISTS ${tableName}"
+    sql "DROP TABLE IF EXISTS test_storage_format_v2_1_table"
     sql """
-        CREATE TABLE ${tableName} (
+        CREATE TABLE test_storage_format_v2_1_table (
             k bigint,
             v variant
         )
@@ -47,7 +47,7 @@ suite("test_storage_format_v2_1") {
     // Verify table properties
     def result = sql "SHOW CREATE TABLE ${tableName}"
     logger.info("Show create table result: ${result}")
-    assertTrue(result[0][1].contains("V3"), 
+    assertTrue(result[0][1].contains("\"storage_format\" = \"V3\""), 
                "Table should be created with storage_format V3")
     
     // Cleanup
