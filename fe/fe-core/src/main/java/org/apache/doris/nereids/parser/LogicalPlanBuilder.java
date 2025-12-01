@@ -1445,10 +1445,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             } else if (ctx.partition != null) {
                 partitions = ImmutableList.of(ctx.partition.getText());
             } else if (ctx.partitionKeyValue() != null && !ctx.partitionKeyValue().isEmpty()) {
-                // Static partition: PARTITION (col1='val1', col2='val2')
-                // For backward compatibility with callers expecting Pair<Boolean, List<String>>,
-                // return empty list here. Use parseInsertPartitionSpec() for full support.
-                partitions = ImmutableList.of();
+                // Static partition: PARTITION (col='val', ...)
+                throw new ParseException(
+                        "Static partition syntax PARTITION (col='val', ...) is only supported in INSERT statements",
+                        ctx);
             } else {
                 partitions = visitIdentifierList(ctx.partitions);
             }

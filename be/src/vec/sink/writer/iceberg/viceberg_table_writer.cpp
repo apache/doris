@@ -18,9 +18,11 @@
 #include "viceberg_table_writer.h"
 
 #include "runtime/runtime_state.h"
+#include "vec/columns/column_const.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/materialize_block.h"
+#include "vec/data_types/serde/data_type_serde.h"
 #include "vec/exec/format/table/iceberg/partition_spec_parser.h"
 #include "vec/exec/format/table/iceberg/schema_parser.h"
 #include "vec/exprs/vexpr.h"
@@ -281,7 +283,12 @@ Status VIcebergTableWriter::write(RuntimeState* state, vectorized::Block& block)
             if (_has_static_partition && _partition_column_is_static[i]) {
                 auto result_type =
                         iceberg_partition_columns.partition_column_transform().get_result_type();
-                auto col = result_type->create_column_const_with_default_value(output_block.rows());
+                auto data_col = result_type->create_column();
+                StringRef str_ref(_partition_column_static_values[i].data(),
+                                  _partition_column_static_values[i].size());
+                DataTypeSerDe::FormatOptions options;
+                RETURN_IF_ERROR(result_type->get_serde()->from_string(str_ref, *data_col, options));
+                auto col = ColumnConst::create(std::move(data_col), output_block.rows());
                 transformed_block.insert(
                         {std::move(col), result_type, iceberg_partition_columns.field().name()});
             } else {

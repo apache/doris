@@ -546,67 +546,67 @@ suite("test_iceberg_static_partition_overwrite", "p0,external,iceberg,external_d
     order_qt_q14 """ SELECT * FROM ${tb1} ORDER BY id """
     sql """ DROP TABLE IF EXISTS ${tb_bool_src} """
 
-    // // Test Case 15: Static partition with DATETIME type
-    // sql """ DROP TABLE IF EXISTS ${tb1} """
-    // sql """
-    //     CREATE TABLE ${tb1} (
-    //         id BIGINT,
-    //         name STRING,
-    //         ts DATETIME
-    //     ) ENGINE=iceberg
-    //     PARTITION BY LIST (ts) ()
-    // """
-    // sql """
-    //     INSERT INTO ${tb1} VALUES
-    //     (1, 'Alice', '2025-01-25 10:00:00'),
-    //     (2, 'Bob', '2025-01-25 11:00:00'),
-    //     (3, 'Charlie', '2025-01-26 10:00:00')
-    // """
-    // sql """
-    //     INSERT OVERWRITE TABLE ${tb1} 
-    //     PARTITION (ts='2025-01-25 10:00:00')
-    //     SELECT 10, 'Eve'
-    // """
-    // order_qt_q15 """ SELECT * FROM ${tb1} ORDER BY id """
+    // Test Case 15: Static partition with DATETIME type
+    sql """ DROP TABLE IF EXISTS ${tb1} """
+    sql """
+        CREATE TABLE ${tb1} (
+            id BIGINT,
+            name STRING,
+            ts DATETIME
+        ) ENGINE=iceberg
+        PARTITION BY LIST (ts) ()
+    """
+    sql """
+        INSERT INTO ${tb1} VALUES
+        (1, 'Alice', '2025-01-25 10:00:00'),
+        (2, 'Bob', '2025-01-25 11:00:00'),
+        (3, 'Charlie', '2025-01-26 10:00:00')
+    """
+    sql """
+        INSERT OVERWRITE TABLE ${tb1} 
+        PARTITION (ts='2025-01-25 10:00:00')
+        SELECT 10, 'Eve'
+    """
+    order_qt_q15 """ SELECT * FROM ${tb1} ORDER BY id """
 
-    // // Test Case 16: Hybrid mode with DATETIME type (static) + STRING (dynamic)
-    // sql """ DROP TABLE IF EXISTS ${tb1} """
-    // sql """
-    //     CREATE TABLE ${tb1} (
-    //         id BIGINT,
-    //         name STRING,
-    //         ts DATETIME,
-    //         region STRING
-    //     ) ENGINE=iceberg
-    //     PARTITION BY LIST (ts, region) ()
-    // """
-    // String tb_ts_src = db1 + "_ts_src"
-    // sql """ DROP TABLE IF EXISTS ${tb_ts_src} """
-    // sql """
-    //     CREATE TABLE ${tb_ts_src} (
-    //         id BIGINT,
-    //         name STRING,
-    //         region STRING
-    //     ) ENGINE=iceberg
-    // """
-    // sql """
-    //     INSERT INTO ${tb_ts_src} VALUES
-    //     (10, 'Eve', 'bj'),
-    //     (11, 'Frank', 'sh')
-    // """
-    // sql """
-    //     INSERT INTO ${tb1} VALUES
-    //     (1, 'Alice', '2025-01-25 10:00:00', 'bj'),
-    //     (2, 'Bob', '2025-01-25 10:00:00', 'sh'),
-    //     (3, 'Charlie', '2025-01-26 10:00:00', 'bj')
-    // """
-    // sql """
-    //     INSERT OVERWRITE TABLE ${tb1} 
-    //     PARTITION (ts='2025-01-25 10:00:00')
-    //     SELECT id, name, region FROM ${tb_ts_src}
-    // """
-    // order_qt_q16 """ SELECT * FROM ${tb1} ORDER BY id """
-    // sql """ DROP TABLE IF EXISTS ${tb_ts_src} """
+    // Test Case 16: Hybrid mode with DATETIME type (static) + STRING (dynamic)
+    sql """ DROP TABLE IF EXISTS ${tb1} """
+    sql """
+        CREATE TABLE ${tb1} (
+            id BIGINT,
+            name STRING,
+            ts DATETIME,
+            region STRING
+        ) ENGINE=iceberg
+        PARTITION BY LIST (ts, region) ()
+    """
+    String tb_ts_src = db1 + "_ts_src"
+    sql """ DROP TABLE IF EXISTS ${tb_ts_src} """
+    sql """
+        CREATE TABLE ${tb_ts_src} (
+            id BIGINT,
+            name STRING,
+            region STRING
+        ) ENGINE=iceberg
+    """
+    sql """
+        INSERT INTO ${tb_ts_src} VALUES
+        (10, 'Eve', 'bj'),
+        (11, 'Frank', 'sh')
+    """
+    sql """
+        INSERT INTO ${tb1} VALUES
+        (1, 'Alice', '2025-01-25 10:00:00', 'bj'),
+        (2, 'Bob', '2025-01-25 10:00:00', 'sh'),
+        (3, 'Charlie', '2025-01-26 10:00:00', 'bj')
+    """
+    sql """
+        INSERT OVERWRITE TABLE ${tb1} 
+        PARTITION (ts='2025-01-25 10:00:00')
+        SELECT id, name, region FROM ${tb_ts_src}
+    """
+    order_qt_q16 """ SELECT * FROM ${tb1} ORDER BY id """
+    sql """ DROP TABLE IF EXISTS ${tb_ts_src} """
 
     // Test Case 17: Static partition with DECIMAL type
     sql """ DROP TABLE IF EXISTS ${tb1} """
