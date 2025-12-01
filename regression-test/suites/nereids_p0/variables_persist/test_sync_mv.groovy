@@ -99,7 +99,7 @@ suite("test_sync_mv") {
     sql "set enable_decimal256=false;"
     sql "drop materialized view if exists mv_var_sync_1 on test_decimal_mul_overflow_for_sync_mv;"
 
-    create_sync_mv("""create materialized view mv_var_sync_1
+    createMV("""create materialized view mv_var_sync_1
             as select f1 as c1, f2 as c2, f1*f2 multi_col from test_decimal_mul_overflow_for_sync_mv;""")
     sql "set enable_decimal256=true;"
     sql "insert into test_decimal_mul_overflow_for_sync_mv values(999999999999999.12345,999999999999999.123456);"
