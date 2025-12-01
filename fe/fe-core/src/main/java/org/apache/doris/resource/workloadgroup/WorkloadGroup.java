@@ -873,4 +873,5 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
         }
         queryQueue = new QueryQueue(id, maxConcurrency, maxQueueSize, queueTimeout);
     }
+
 }

@@ -84,7 +84,21 @@ public class SummaryProfile {
     // Execution Summary
     public static final String EXECUTION_SUMMARY_PROFILE_NAME = "Execution Summary";
     public static final String INIT_SCAN_NODE_TIME = "Init Scan Node Time";
-    public static final String CPU_SHARE = "Cpu Share";
+    public static final String CPU_SHARE = "CPU_SHARE";
+    public static final String MEMORY_LIMIT = "MEMORY_LIMIT";
+    public static final String ENABLE_MEMORY_OVERCOMMIT = "ENABLE_MEMORY_OVERCOMMIT";
+    public static final String MAX_CONCURRENCY = "MAX_CONCURRENCY";
+    public static final String MAX_QUEUE_SIZE = "MAX_QUEUE_SIZE";
+    public static final String QUEUE_TIMEOUT = "QUEUE_TIMEOUT";
+    public static final String CPU_HARD_LIMIT = "CPU_HARD_LIMIT";
+    public static final String SCAN_THREAD_NUM = "SCAN_THREAD_NUM";
+    public static final String MAX_REMOTE_SCAN_THREAD_NUM = "MAX_REMOTE_SCAN_THREAD_NUM";
+    public static final String MIN_REMOTE_SCAN_THREAD_NUM = "MIN_REMOTE_SCAN_THREAD_NUM";
+    public static final String MEMORY_LOW_WATERMARK = "MEMORY_LOW_WATERMARK";
+    public static final String MEMORY_HIGH_WATERMARK = "MEMORY_HIGH_WATERMARK";
+    public static final String READ_BYTES_PER_SECOND = "READ_BYTES_PER_SECOND";
+    public static final String TAG = "TAG";
+    public static final String REMOTE_READ_BYTES_PER_SECOND = "REMOTE_READ_BYTES_PER_SECOND";
     public static final String FINALIZE_SCAN_NODE_TIME = "Finalize Scan Node Time";
     public static final String GET_SPLITS_TIME = "Get Splits Time";
     public static final String GET_PARTITIONS_TIME = "Get Partitions Time";
@@ -239,6 +253,19 @@ public class SummaryProfile {
         .put(HMS_UPDATE_PARTITION_TIME, 1)
         .put(HMS_UPDATE_PARTITION_CNT, 2)
         .put(CPU_SHARE, 0)
+        .put(MEMORY_LIMIT, 0)
+        .put(ENABLE_MEMORY_OVERCOMMIT, 0)
+        .put(MAX_CONCURRENCY, 0)
+        .put(MAX_QUEUE_SIZE, 0)
+        .put(QUEUE_TIMEOUT, 0)
+        .put(CPU_HARD_LIMIT, 0)
+        .put(SCAN_THREAD_NUM, 0)
+        .put(MAX_REMOTE_SCAN_THREAD_NUM, 0)
+        .put(MIN_REMOTE_SCAN_THREAD_NUM, 0)
+        .put(MEMORY_LOW_WATERMARK, 0)
+        .put(MEMORY_HIGH_WATERMARK, 0)
+        .put(READ_BYTES_PER_SECOND, 0)
+        .put(REMOTE_READ_BYTES_PER_SECOND, 0)
         .build();
 
     @SerializedName(value = "summaryProfile")
@@ -252,8 +279,50 @@ public class SummaryProfile {
     @SerializedName(value = "nereidsLockTableFinishTime")
     private long nereidsLockTableFinishTime = -1;
 
-    @SerializedName(value = "cpuShare")
+    @SerializedName(value = "CPU_SHARE")
     private long cpuShare = 0;
+
+    @SerializedName(value = "MEMORY_LIMIT")
+    private long memoryLimit = 0;
+
+    @SerializedName(value = "ENABLE_MEMORY_OVERCOMMIT")
+    private long enableMemoryOvercommit = 0;
+    @SerializedName(value = "MAX_QUEUE_SIZE")
+    private long maxQueueSize = 0;
+
+    @SerializedName(value = "QUEUE_TIMEOUT")
+    private long queueTimeout = 0;
+
+    @SerializedName(value = "MAX_CONCURRENCY")
+    private long maxConcurrency = 0;
+
+
+    @SerializedName(value = "CPU_HARD_LIMIT")
+    private long cpuHardLimit = 0;
+
+    @SerializedName(value = "SCAN_THREAD_NUM")
+    private long scanThreadNum = 0;
+
+    @SerializedName(value = "MAX_REMOTE_SCAN_THREAD_NUM")
+    private long maxRemoteScanThreadNum = 0;
+
+    @SerializedName(value = "MIN_REMOTE_SCAN_THREAD_NUM")
+    private long minRemoteScanThreadNum = 0;
+
+    @SerializedName(value = "MEMORY_LOW_WATERMARK")
+    private long memoryLowWatermark = 0;
+
+    @SerializedName(value = "MEMORY_HIGH_WATERMARK")
+    private long memoryHighWatermark = 0;
+
+    @SerializedName(value = "READ_BYTES_PER_SECOND")
+    private long readBytesPerSecond = 0;
+
+    @SerializedName(value = "TAG")
+    private long tag = 0;
+
+    @SerializedName(value = "REMOTE_READ_BYTES_PER_SECOND")
+    private long remoteReadBytesPerSecond = 0;
 
     @SerializedName(value = "nereidsCollectTablePartitionFinishTime")
     private long nereidsCollectTablePartitionFinishTime = -1;
@@ -548,6 +617,29 @@ public class SummaryProfile {
                 getPrettyCount(hmsUpdatePartitionCnt));
             executionSummaryProfile.addInfoString(CPU_SHARE,
                 getPrettyCount(cpuShare));
+            executionSummaryProfile.addInfoString(MEMORY_LIMIT,
+                getPrettyCount(memoryLimit));
+            executionSummaryProfile.addInfoString(ENABLE_MEMORY_OVERCOMMIT,
+                getPrettyCount(enableMemoryOvercommit));
+            executionSummaryProfile.addInfoString(MEMORY_LOW_WATERMARK,
+                getPrettyCount(memoryLowWatermark));
+            executionSummaryProfile.addInfoString(MEMORY_HIGH_WATERMARK,
+                getPrettyCount(memoryHighWatermark));
+            executionSummaryProfile.addInfoString(READ_BYTES_PER_SECOND,
+                getPrettyCount(readBytesPerSecond));
+            executionSummaryProfile.addInfoString(TAG, getPrettyCount(tag));
+            executionSummaryProfile.addInfoString(REMOTE_READ_BYTES_PER_SECOND,
+                getPrettyCount(remoteReadBytesPerSecond));
+            executionSummaryProfile.addInfoString(READ_BYTES_PER_SECOND,
+                getPrettyCount(readBytesPerSecond));
+            executionSummaryProfile.addInfoString(REMOTE_READ_BYTES_PER_SECOND,
+                getPrettyCount(readBytesPerSecond));
+            executionSummaryProfile.addInfoString(MEMORY_HIGH_WATERMARK,
+                getPrettyCount(memoryHighWatermark));
+            executionSummaryProfile.addInfoString(MEMORY_LOW_WATERMARK,
+                getPrettyCount(memoryLowWatermark));
+            executionSummaryProfile.addInfoString(MAX_REMOTE_SCAN_THREAD_NUM,
+                getPrettyCount(maxRemoteScanThreadNum));
         }
     }
 
@@ -817,6 +909,54 @@ public class SummaryProfile {
             map.put(CPU_SHARE, val);
             return this;
         }
+
+        public SummaryBuilder memoryLimit(String val) {
+            map.put(MEMORY_LIMIT, val);
+            return this;
+        }
+
+        public SummaryBuilder enableMemoryOvercommit(String val) {
+            map.put(ENABLE_MEMORY_OVERCOMMIT, val);
+            return this;
+        }
+
+        public SummaryBuilder memoryLowWatermark(String val) {
+            map.put(MEMORY_LOW_WATERMARK, val);
+            return this;
+        }
+
+        public SummaryBuilder memoryHighWatermark(String val) {
+            map.put(MEMORY_HIGH_WATERMARK, val);
+            return this;
+        }
+
+        public SummaryBuilder readBytesPerSecond(String val) {
+            map.put(READ_BYTES_PER_SECOND, val);
+            return this;
+        }
+
+        public SummaryBuilder tag(String val) {
+            map.put(TAG, val);
+            return this;
+        }
+
+        public SummaryBuilder remoteReadBytesPerSecond(String val) {
+            map.put(REMOTE_READ_BYTES_PER_SECOND, val);
+            return this;
+        }
+
+        public SummaryBuilder maxRemoteScanThreadNum(String val) {
+            map.put(MAX_REMOTE_SCAN_THREAD_NUM, val);
+            return this;
+        }
+
+        public SummaryBuilder minRemoteScanThreadNum(String val) {
+            map.put(MIN_REMOTE_SCAN_THREAD_NUM, val);
+            return this;
+        }
+
+
+
         public Map<String, String> build() {
             return map;
         }
