@@ -569,6 +569,15 @@ MutableColumns Block::clone_empty_columns() const {
     return columns;
 }
 
+ColumnRawPtrs Block::get_columns_raw_ptr() const {
+    size_t num_columns = data.size();
+    ColumnRawPtrs columns(num_columns);
+    for (size_t i = 0; i < num_columns; ++i) {
+        columns[i] = data[i].column.get();
+    }
+    return columns;
+}
+
 Columns Block::get_columns() const {
     size_t num_columns = data.size();
     Columns columns(num_columns);

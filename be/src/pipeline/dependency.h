@@ -294,8 +294,6 @@ public:
 
     Status reset_hash_table();
 
-    bool do_limit_filter(vectorized::Block* block, size_t num_rows);
-
     bool do_limit_filter(const vectorized::ColumnRawPtrs& key_columns_raw_ptr, size_t num_rows);
     void build_limit_heap(size_t hash_table_size);
 

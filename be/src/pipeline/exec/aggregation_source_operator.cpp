@@ -455,7 +455,8 @@ Status AggSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* blo
 
 void AggLocalState::do_agg_limit(vectorized::Block* block, bool* eos) {
     if (_shared_state->reach_limit) {
-        if (_shared_state->do_sort_limit && _shared_state->do_limit_filter(block, block->rows())) {
+        if (_shared_state->do_sort_limit &&
+            _shared_state->do_limit_filter(block->get_columns_raw_ptr(), block->rows())) {
             vectorized::Block::filter_block_internal(block, _shared_state->need_computes);
             if (auto rows = block->rows()) {
                 _num_rows_returned += rows;

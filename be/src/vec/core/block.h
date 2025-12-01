@@ -208,6 +208,7 @@ public:
 
     Columns get_columns() const;
     Columns get_columns_and_convert();
+    ColumnRawPtrs get_columns_raw_ptr() const;
 
     Block clone_without_columns(const std::vector<int>* column_offset = nullptr) const;
 
