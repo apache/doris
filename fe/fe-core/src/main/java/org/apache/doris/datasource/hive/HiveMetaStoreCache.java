@@ -286,7 +286,8 @@ public class HiveMetaStoreCache {
                 partitionNameToIdMap, idToUniqueIdsMap, singleUidToColumnRangeMap, partitionValuesMap);
     }
 
-    private ListPartitionItem toListPartitionItem(String partitionName, List<Type> types) {
+    @VisibleForTesting
+    public ListPartitionItem toListPartitionItem(String partitionName, List<Type> types) {
         // Partition name will be in format: nation=cn/city=beijing
         // parse it to get values "cn" and "beijing"
         List<String> partitionValues = HiveUtil.toPartitionValues(partitionName);
