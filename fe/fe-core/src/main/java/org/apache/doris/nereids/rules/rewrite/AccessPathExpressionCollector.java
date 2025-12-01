@@ -532,7 +532,7 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
     // backend will throw exception because it can not only access the values without the cast keys,
     // so we should check whether the map type is changed, if not changed, we can prune the type.
     private static boolean mapTypeIsChanged(DataType originType, DataType castType, boolean inMap) {
-        if (originType.isMapType() && !originType.equals(castType)) {
+        if (originType.isMapType()) {
             MapType originMapType = (MapType) originType;
             MapType castMapType = (MapType) castType;
             if (mapTypeIsChanged(originMapType.getKeyType(), castMapType.getKeyType(), true)
