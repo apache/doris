@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <variant>
+
 #include "olap/rowset/segment_v2/inverted_index/query_v2/doc_set.h"
 #include "olap/rowset/segment_v2/inverted_index_common.h"
 
@@ -36,101 +38,118 @@ public:
 };
 using PostingsPtr = std::shared_ptr<Postings>;
 
-template <typename TCLuceneIter>
-class SegmentPostingsBase : public Postings {
+class SegmentPostings final : public Postings {
 public:
-    SegmentPostingsBase() = default;
-    SegmentPostingsBase(TCLuceneIter iter) : _iter(std::move(iter)) {
-        if (_iter->next()) {
-            int32_t d = _iter->doc();
-            _doc = d >= INT_MAX ? TERMINATED : d;
-        } else {
-            _doc = TERMINATED;
+    using IterVariant = std::variant<std::monostate, TermDocsPtr, TermPositionsPtr>;
+
+    SegmentPostings() = default;
+
+    explicit SegmentPostings(TermDocsPtr iter, bool enable_scoring = false)
+            : _iter(std::move(iter)), _enable_scoring(enable_scoring) {
+        if (auto* p = std::get_if<TermDocsPtr>(&_iter)) {
+            _raw_iter = p->get();
         }
+        _init_doc();
+    }
+
+    explicit SegmentPostings(TermPositionsPtr iter, bool enable_scoring = false)
+            : _iter(std::move(iter)), _enable_scoring(enable_scoring), _has_positions(true) {
+        if (auto* p = std::get_if<TermPositionsPtr>(&_iter)) {
+            _raw_iter = p->get();
+        }
+        _init_doc();
     }
 
     uint32_t advance() override {
-        if (_iter->next()) {
-            return _doc = _iter->doc();
+        if (!_raw_iter) {
+            return _doc = TERMINATED;
+        }
+        if (_raw_iter->next()) {
+            return _doc = _raw_iter->doc();
         }
         return _doc = TERMINATED;
     }
 
     uint32_t seek(uint32_t target) override {
+        if (!_raw_iter) {
+            return TERMINATED;
+        }
         if (target <= _doc) {
             return _doc;
         }
-        if (_iter->skipTo(target)) {
-            return _doc = _iter->doc();
+        if (_raw_iter->skipTo(target)) {
+            return _doc = _raw_iter->doc();
         }
         return _doc = TERMINATED;
     }
 
     uint32_t doc() const override { return _doc; }
-    uint32_t size_hint() const override { return _iter->docFreq(); }
-    uint32_t freq() const override { return _iter->freq(); }
-    uint32_t norm() const override { return _iter->norm(); }
 
-    void append_positions_with_offset(uint32_t offset, std::vector<uint32_t>& output) override {
-        throw Exception(doris::ErrorCode::NOT_IMPLEMENTED_ERROR,
-                        "This posting type does not support position information");
+    uint32_t size_hint() const override { return _raw_iter ? _raw_iter->docFreq() : 0; }
+
+    uint32_t freq() const override {
+        if (!_enable_scoring) {
+            return 1;
+        }
+        return _raw_iter ? _raw_iter->freq() : 1;
     }
 
-protected:
-    TCLuceneIter _iter;
-
-private:
-    uint32_t _doc = TERMINATED;
-};
-template <typename TCLuceneIter>
-using SegmentPostingsBasePtr = std::shared_ptr<SegmentPostingsBase<TCLuceneIter>>;
-
-template <typename TCLuceneIter>
-class SegmentPostings final : public SegmentPostingsBase<TCLuceneIter> {
-public:
-    SegmentPostings(TCLuceneIter iter) : SegmentPostingsBase<TCLuceneIter>(std::move(iter)) {}
-};
-using TermPostingsPtr = std::shared_ptr<SegmentPostings<TermDocsPtr>>;
-using PositionPostingsPtr = std::shared_ptr<SegmentPostings<TermPositionsPtr>>;
-
-template <>
-class SegmentPostings<TermPositionsPtr> final : public SegmentPostingsBase<TermPositionsPtr> {
-public:
-    SegmentPostings(TermPositionsPtr iter)
-            : SegmentPostingsBase<TermPositionsPtr>(std::move(iter)) {}
+    uint32_t norm() const override {
+        if (!_enable_scoring) {
+            return 1;
+        }
+        return _raw_iter ? _raw_iter->norm() : 1;
+    }
 
     void append_positions_with_offset(uint32_t offset, std::vector<uint32_t>& output) override {
-        auto freq = this->freq();
+        if (!_has_positions) {
+            throw Exception(doris::ErrorCode::NOT_IMPLEMENTED_ERROR,
+                            "This posting type does not support position information");
+        }
+        auto* pos_iter = std::get_if<TermPositionsPtr>(&_iter);
+        if (!pos_iter || !*pos_iter) {
+            return;
+        }
+        auto f = freq();
         size_t prev_len = output.size();
-        output.resize(prev_len + freq);
-        for (int32_t i = 0; i < freq; ++i) {
-            auto pos = this->_iter->nextPosition();
-            output[prev_len + i] = offset + static_cast<uint32_t>(pos);
+        output.resize(prev_len + f);
+        for (uint32_t i = 0; i < f; ++i) {
+            output[prev_len + i] = offset + static_cast<uint32_t>((*pos_iter)->nextPosition());
         }
     }
+
+    bool is_empty() const { return !_raw_iter; }
+    bool has_positions() const { return _has_positions; }
+    bool scoring_enabled() const { return _enable_scoring; }
+
+private:
+    void _init_doc() {
+        if (_raw_iter && _raw_iter->next()) {
+            int32_t d = _raw_iter->doc();
+            _doc = d >= INT_MAX ? TERMINATED : static_cast<uint32_t>(d);
+        }
+    }
+
+    IterVariant _iter;
+    lucene::index::TermDocs* _raw_iter = nullptr;
+    uint32_t _doc = TERMINATED;
+    bool _enable_scoring = false;
+    bool _has_positions = false;
 };
 
-template <typename TCLuceneIter>
-class NoScoreSegmentPosting final : public SegmentPostingsBase<TCLuceneIter> {
-public:
-    NoScoreSegmentPosting(TCLuceneIter iter) : SegmentPostingsBase<TCLuceneIter>(std::move(iter)) {}
+using SegmentPostingsPtr = std::shared_ptr<SegmentPostings>;
 
-    uint32_t freq() const override { return 1; }
-    uint32_t norm() const override { return 1; }
-};
+inline SegmentPostingsPtr make_segment_postings() {
+    return std::make_shared<SegmentPostings>();
+}
 
-template <typename TCLuceneIter>
-class EmptySegmentPosting final : public SegmentPostingsBase<TCLuceneIter> {
-public:
-    EmptySegmentPosting() = default;
+inline SegmentPostingsPtr make_segment_postings(TermDocsPtr iter, bool enable_scoring = false) {
+    return std::make_shared<SegmentPostings>(std::move(iter), enable_scoring);
+}
 
-    uint32_t advance() override { return TERMINATED; }
-    uint32_t seek(uint32_t) override { return TERMINATED; }
-    uint32_t doc() const override { return TERMINATED; }
-    uint32_t size_hint() const override { return 0; }
-
-    uint32_t freq() const override { return 1; }
-    uint32_t norm() const override { return 1; }
-};
+inline SegmentPostingsPtr make_segment_postings(TermPositionsPtr iter,
+                                                bool enable_scoring = false) {
+    return std::make_shared<SegmentPostings>(std::move(iter), enable_scoring);
+}
 
 } // namespace doris::segment_v2::inverted_index::query_v2

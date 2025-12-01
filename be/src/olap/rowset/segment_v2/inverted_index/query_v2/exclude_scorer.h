@@ -17,8 +17,34 @@
 
 #pragma once
 
+#include "olap/rowset/segment_v2/inverted_index/query_v2/scorer.h"
+
 namespace doris::segment_v2::inverted_index::query_v2 {
 
-enum class Occur { MUST = 0, SHOULD = 1, MUST_NOT = 2 };
+template <typename TDocSetExclude>
+inline bool is_within(TDocSetExclude& docset, uint32_t doc) {
+    return docset->doc() <= doc && docset->seek(doc) == doc;
+}
+
+template <typename TDocSet, typename TDocSetExclude>
+class Exclude final : public Scorer {
+public:
+    Exclude(TDocSet underlying_docset, TDocSetExclude excluding_docset);
+    ~Exclude() override = default;
+
+    uint32_t advance() override;
+    uint32_t seek(uint32_t target) override;
+    uint32_t doc() const override;
+    uint32_t size_hint() const override;
+    float score() override;
+
+private:
+    TDocSet _underlying_docset;
+    TDocSetExclude _excluding_docset;
+};
+
+using ExcludeScorerPtr = std::shared_ptr<Exclude<ScorerPtr, ScorerPtr>>;
+
+ScorerPtr make_exclude(ScorerPtr underlying, ScorerPtr excluding);
 
 } // namespace doris::segment_v2::inverted_index::query_v2

@@ -18,37 +18,63 @@
 #pragma once
 
 #include "olap/rowset/segment_v2/inverted_index/query_v2/boolean_query/occur.h"
+#include "olap/rowset/segment_v2/inverted_index/query_v2/scorer.h"
+#include "olap/rowset/segment_v2/inverted_index/query_v2/term_query/term_scorer.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/weight.h"
 
 namespace doris::segment_v2::inverted_index::query_v2 {
 
-template <typename ScoreCombinerPtrT>
-class OcccurBooleanWeight : public Weight {
-public:
-    OcccurBooleanWeight(std::vector<WeightPtr> sub_weights, ScoreCombinerPtrT score_combiner)
-            : _sub_weights(std::move(sub_weights)), _score_combiner(std::move(score_combiner)) {}
-    ~OcccurBooleanWeight() override = default;
+using SpecializedScorer = std::variant<std::vector<TS_Base>, ScorerPtr>;
 
-    ScorerPtr scorer(const QueryExecutionContext& context) override {
-        // std::vector<ScorerPtr> sub_scorers = per_scorers(reader);
-        // if (_type == OperatorType::OP_AND) {
-        //     return intersection_scorer_build(sub_scorers);
-        // } else if (_type == OperatorType::OP_OR) {
-        //     return buffered_union_scorer_build<ScoreCombinerPtrT>(sub_scorers, _score_combiner);
-        // }
-        return nullptr;
-    }
+struct Ignored {};
+struct Optional {
+    SpecializedScorer scorer;
+};
+struct Required {
+    SpecializedScorer scorer;
+};
+using CombinationMethod = std::variant<Ignored, Optional, Required>;
+
+template <typename ScoreCombinerPtrT>
+class OccurBooleanWeight : public Weight {
+public:
+    OccurBooleanWeight(std::vector<std::pair<Occur, WeightPtr>> sub_weights,
+                       size_t minimum_number_should_match, bool enable_scoring,
+                       ScoreCombinerPtrT score_combiner);
+    ~OccurBooleanWeight() override = default;
+
+    ScorerPtr scorer() override;
 
 private:
-    std::vector<ScorerPtr> per_scorers(lucene::index::IndexReader* reader) {
-        std::vector<ScorerPtr> sub_scorers;
-        // for (const auto& sub_weight : _sub_weights) {
-        //     sub_scorers.emplace_back(sub_weight->scorer(reader));
-        // }
-        return sub_scorers;
-    }
+    std::unordered_map<Occur, std::vector<ScorerPtr>> per_occur_scorers();
 
-    std::vector<WeightPtr> _sub_weights;
+    template <typename CombinerT>
+    SpecializedScorer complex_scorer(CombinerT combiner);
+
+    template <typename CombinerT>
+    std::optional<CombinationMethod> build_should_opt(std::vector<ScorerPtr>& must_scorers,
+                                                      std::vector<ScorerPtr> should_scorers,
+                                                      CombinerT combiner);
+
+    ScorerPtr build_exclude_opt(std::vector<ScorerPtr> must_not_scorers);
+
+    template <typename CombinerT>
+    SpecializedScorer build_positive_opt(CombinationMethod& should_opt,
+                                         std::vector<ScorerPtr> must_scorers, CombinerT combiner);
+
+    template <typename CombinerT>
+    SpecializedScorer scorer_union(std::vector<ScorerPtr> scorers, CombinerT combiner);
+
+    template <typename CombinerT>
+    SpecializedScorer scorer_disjunction(std::vector<ScorerPtr> scorers, CombinerT combiner,
+                                         size_t minimum_match_required);
+
+    template <typename CombinerT>
+    ScorerPtr into_box_scorer(SpecializedScorer&& specialized, CombinerT combiner);
+
+    std::vector<std::pair<Occur, WeightPtr>> _sub_weights;
+    size_t _minimum_number_should_match = 1;
+    bool _enable_scoring = false;
     ScoreCombinerPtrT _score_combiner;
 };
 

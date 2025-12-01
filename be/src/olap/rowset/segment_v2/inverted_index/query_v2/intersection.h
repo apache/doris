@@ -56,4 +56,22 @@ private:
     std::vector<TOtherDocSet> _others;
 };
 
+template <typename TDocSet>
+auto make_intersection(std::vector<TDocSet> docsets) {
+    return Intersection<TDocSet, TDocSet>::create(docsets);
+}
+
+template <typename TDocSet>
+auto make_intersection(TDocSet left, TDocSet right) {
+    std::vector<TDocSet> empty;
+    return std::make_shared<Intersection<TDocSet, TDocSet>>(std::move(left), std::move(right),
+                                                            std::move(empty));
+}
+
+template <typename TDocSet, typename TOtherDocSet = TDocSet>
+auto make_intersection(TDocSet left, TDocSet right, std::vector<TOtherDocSet> others) {
+    return std::make_shared<Intersection<TDocSet, TOtherDocSet>>(std::move(left), std::move(right),
+                                                                 std::move(others));
+}
+
 } // namespace doris::segment_v2::inverted_index::query_v2

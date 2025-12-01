@@ -31,11 +31,11 @@ public:
     OccurBooleanQueryBuilder() = default;
     ~OccurBooleanQueryBuilder() = default;
 
-    void add(const QueryPtr& query, Occur occur) { _sub_queries.emplace_back(query, occur); }
+    void add(const QueryPtr& query, Occur occur) { _sub_queries.emplace_back(occur, query); }
     QueryPtr build() { return std::make_shared<OccurBooleanQuery>(std::move(_sub_queries)); }
 
 private:
-    std::vector<BooleanClause> _sub_queries;
+    std::vector<std::pair<Occur, QueryPtr>> _sub_queries;
 };
 using OccurBooleanQueryBuilderPtr = std::shared_ptr<OccurBooleanQueryBuilder>;
 

@@ -29,25 +29,25 @@ using OccurBooleanQueryPtr = std::shared_ptr<OccurBooleanQuery>;
 
 class OccurBooleanQuery : public Query {
 public:
-    OccurBooleanQuery(std::vector<BooleanClause> clauses) : _sub_queries(std::move(clauses)) {}
+    OccurBooleanQuery(std::vector<std::pair<Occur, QueryPtr>> clauses)
+            : _sub_queries(std::move(clauses)) {}
     ~OccurBooleanQuery() override = default;
 
     WeightPtr weight(bool enable_scoring) override {
-        std::vector<WeightPtr> sub_weights;
-        for (const auto& clause : _sub_queries) {
-            sub_weights.emplace_back(clause.query->weight(enable_scoring));
+        std::vector<std::pair<Occur, WeightPtr>> sub_weights;
+        sub_weights.reserve(_sub_queries.size());
+        for (const auto& [occur, query] : _sub_queries) {
+            sub_weights.emplace_back(occur, query->weight(enable_scoring));
         }
-        if (enable_scoring) {
-            return std::make_shared<OcccurBooleanWeight<SumCombinerPtr>>(
-                    std::move(sub_weights), std::make_shared<SumCombiner>());
-        } else {
-            return std::make_shared<OcccurBooleanWeight<DoNothingCombinerPtr>>(
-                    std::move(sub_weights), std::make_shared<DoNothingCombiner>());
-        }
+        return std::make_shared<OcccurBooleanWeight<SumCombinerPtr>>(
+                    std::move(sub_weights), minimum_number_should_match, enable_scoring, std::make_shared<SumCombiner>());
     }
 
+    const std::vector<std::pair<Occur, QueryPtr>>& clauses() const { return _sub_queries; }
+
 private:
-    std::vector<BooleanClause> _sub_queries;
+    std::vector<std::pair<Occur, QueryPtr>> _sub_queries;
+    size_t minimum_number_should_match = 1;
 };
 
 } // namespace doris::segment_v2::inverted_index::query_v2
