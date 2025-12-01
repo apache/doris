@@ -370,7 +370,7 @@ protected:
         return (is_constant() && (_constant_col != nullptr));
     }
 
-    ColumnPtr get_result_from_const(const Block* block) const;
+    ColumnPtr get_result_from_const(size_t count) const;
 
     Status check_constant(const Block& block, ColumnNumbers arguments) const;
 

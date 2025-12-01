@@ -110,7 +110,7 @@ Status VCastExpr::execute_column(VExprContext* context, const Block* block, size
     DCHECK(_open_finished || _getting_const_col)
             << _open_finished << _getting_const_col << _expr_name;
     if (is_const_and_have_executed()) { // const have executed in open function
-        result_column = get_result_from_const(block);
+        result_column = get_result_from_const(count);
         return Status::OK();
     }
     // for each child call execute
@@ -151,7 +151,7 @@ Status TryCastExpr::execute_column(VExprContext* context, const Block* block, si
     DCHECK(_open_finished || _getting_const_col)
             << _open_finished << _getting_const_col << _expr_name;
     if (is_const_and_have_executed()) { // const have executed in open function
-        result_column = get_result_from_const(block);
+        result_column = get_result_from_const(count);
         return Status::OK();
     }
 

@@ -187,7 +187,7 @@ Status VectorizedFnCall::evaluate_inverted_index(VExprContext* context, uint32_t
 Status VectorizedFnCall::_do_execute(VExprContext* context, const Block* block, size_t count,
                                      ColumnPtr& result_column, ColumnPtr* arg_column) const {
     if (is_const_and_have_executed()) { // const have executed in open function
-        result_column = get_result_from_const(block);
+        result_column = get_result_from_const(count);
         return Status::OK();
     }
     if (fast_execute(context, result_column)) {

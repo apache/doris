@@ -79,7 +79,7 @@ void VCaseExpr::close(VExprContext* context, FunctionContext::FunctionStateScope
 Status VCaseExpr::execute_column(VExprContext* context, const Block* block, size_t count,
                                  ColumnPtr& result_column) const {
     if (is_const_and_have_executed()) { // const have execute in open function
-        result_column = get_result_from_const(block);
+        result_column = get_result_from_const(count);
         return Status::OK();
     }
     DCHECK(_open_finished || _getting_const_col);
