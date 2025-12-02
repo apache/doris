@@ -1053,16 +1053,24 @@ class Config {
     }
 
     void createDefaultDb() {
-        String dbName = null
-        if ((otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false ){
-            String keyStorePath = otherConfigs.get("keyStorePath")
-            String keyStorePassword = otherConfigs.get("keyStorePassword")
-            String trustStorePath =  otherConfigs.get("trustStorePath")
-            String trustStorePassword = otherConfigs.get("trustStorePassword")
-            jdbcUrl = buildUrlWithDb(jdbcUrl, dbName, keyStorePath, keyStorePassword, trustStorePath, trustStorePassword)
-        } else {
-            jdbcUrl = buildUrlWithDb(jdbcUrl, dbName)
+        boolean enableTLS = (otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false
+
+        def buildUrl = { String db ->
+            enableTLS ?
+                    buildUrlWithDb(
+                            jdbcUrl, db,
+                            otherConfigs.get("keyStorePath").toString(),
+                            otherConfigs.get("keyStorePassword").toString(),
+                            otherConfigs.get("trustStorePath").toString(),
+                            otherConfigs.get("trustStorePassword").toString()
+                    )
+                    : buildUrlWithDb(jdbcUrl, db)
         }
+
+        // init URL without dbName
+        String dbName = null
+        jdbcUrl = buildUrl(dbName)
+
         try {
             tryCreateDbIfNotExist(defaultDb)
             dbName = defaultDb
@@ -1072,10 +1080,13 @@ class Config {
             // Infact, only mainly auth_xxx cases use defaultDb, and they just use jdbcUrl in connect function.
             // And they can avoid using defaultDb too. But modify all these cases take a lot work.
             // We better delete all the usage of defaultDb in suites later, and all suites should use their own db, not the defaultDb.
-            log.warn("create default db failed ${defaultDb}".toString())
+            log.warn("create default db failed ${defaultDb}")
         }
-        
-        log.info("Reset jdbcUrl to ${jdbcUrl}".toString())
+
+        //  final URL with dbName
+        jdbcUrl = buildUrl(dbName)
+
+        log.info("Reset jdbcUrl to ${jdbcUrl}")
     }
 
     void tryCreateDbIfNotExist(String dbName) {
