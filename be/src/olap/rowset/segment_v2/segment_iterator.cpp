@@ -2196,7 +2196,7 @@ uint16_t SegmentIterator::_evaluate_vectorization_predicate(uint16_t* sel_rowid_
     }
     if (all_pred_always_true) {
         for (const auto& pred : _pre_eval_block_predicate) {
-            pred->always_true();
+            DCHECK(pred->always_true());
         }
     }
 
