@@ -21,9 +21,11 @@ import org.apache.doris.common.security.authentication.HadoopAuthenticator;
 import org.apache.doris.common.security.authentication.HadoopSimpleAuthenticator;
 import org.apache.doris.common.security.authentication.SimpleAuthenticationConfig;
 
+import com.google.common.collect.ImmutableSet;
 import lombok.Getter;
 
 import java.util.Map;
+import java.util.Set;
 
 public abstract class HdfsCompatibleProperties extends StorageProperties {
 
@@ -47,6 +49,11 @@ public abstract class HdfsCompatibleProperties extends StorageProperties {
     @Override
     public void initializeHadoopStorageConfig() {
         //nothing to do
+    }
+
+    @Override
+    protected Set<String> schemas() {
+        return ImmutableSet.of("hdfs");
     }
 
 }

@@ -21,7 +21,6 @@ import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.property.ConnectorProperty;
 import org.apache.doris.datasource.property.ParamRules;
 import org.apache.doris.datasource.property.storage.AbstractS3CompatibleProperties;
-import org.apache.doris.datasource.property.storage.HdfsCompatibleProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 
 import com.google.common.collect.Maps;
@@ -86,6 +85,7 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
 
     @ConnectorProperty(names = {"iceberg.rest.oauth2.credential"},
             required = false,
+            sensitive = true,
             description = "The oauth2 credential for the iceberg rest catalog service.")
     private String icebergRestOauth2Credential;
 
@@ -150,6 +150,7 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
 
     @ConnectorProperty(names = {"iceberg.rest.secret-access-key"},
             required = false,
+            sensitive = true,
             description = "The secret access key for the iceberg rest catalog service.")
     private String icebergRestSecretAccessKey = "";
 
@@ -339,14 +340,12 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
             Map<String, String> fileIOProperties, Configuration conf) {
 
         for (StorageProperties storageProperties : storagePropertiesList) {
-            if (storageProperties instanceof HdfsCompatibleProperties) {
-                storageProperties.getBackendConfigProperties().forEach(conf::set);
-            } else if (storageProperties instanceof AbstractS3CompatibleProperties) {
+            if (storageProperties instanceof AbstractS3CompatibleProperties) {
                 // For all S3-compatible storage types, put properties in fileIOProperties map
                 toS3FileIOProperties((AbstractS3CompatibleProperties) storageProperties, fileIOProperties);
             } else {
                 // For other storage types, just use fileIOProperties map
-                fileIOProperties.putAll(storageProperties.getBackendConfigProperties());
+                conf.addResource(storageProperties.getHadoopStorageConfig());
             }
         }
 

@@ -20,6 +20,7 @@ package org.apache.doris.datasource.property.storage;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.storage.exception.StoragePropertiesException;
 
+import org.apache.hadoop.conf.Configuration;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -84,7 +85,7 @@ public class AzurePropertiesTest {
         origProps.put("s3.endpoint", "https://mystorageaccount.net");
         // Expect an exception due to missing provider
         origProps.put("provider", "azure");
-        Assertions.assertThrows(IllegalArgumentException.class, () ->
+        Assertions.assertDoesNotThrow(() ->
                 StorageProperties.createPrimary(origProps), "Endpoint 'https://mystorageaccount.net' is not valid. It should end with '.blob.core.windows.net'.");
     }
 
@@ -110,7 +111,7 @@ public class AzurePropertiesTest {
         Assertions.assertEquals("s3://mycontainer/blob.txt",
                 azureProperties.validateAndNormalizeUri("https://mystorageaccount.blob.core.windows.net/mycontainer/blob.txt"));
         Assertions.assertThrowsExactly(StoragePropertiesException.class, () ->
-                azureProperties.validateAndGetUri(origProps),
+                        azureProperties.validateAndGetUri(origProps),
                 "props must contain uri");
         origProps.put("uri", "https://mystorageaccount.blob.core.windows.net/mycontainer/blob.txt");
         Assertions.assertEquals("https://mystorageaccount.blob.core.windows.net/mycontainer/blob.txt",
@@ -169,5 +170,47 @@ public class AzurePropertiesTest {
         // Expect an exception when the path is empty
         Assertions.assertThrows(StoragePropertiesException.class, () ->
                 azureProperties.validateAndNormalizeUri(""), "Path cannot be empty.");
+    }
+
+    @Test
+    public void testOneLake() throws UserException {
+        origProps.put("azure.auth_type", "OAuth2");
+        origProps.put("azure.endpoint", "https://onelake.dfs.fabric.microsoft.com");
+        Assertions.assertThrows(StoragePropertiesException.class, () ->
+                StorageProperties.createPrimary(origProps), "For OAuth2 authentication, please provide oauth2_client_id, "
+                + "oauth2_tenant_id, oauth2_client_secret, and oauth2_server_uri.");
+        origProps.put("azure.oauth2_client_id", "5c64f06f-5289-5289-5289-5aa0820ee310");
+        Assertions.assertThrows(StoragePropertiesException.class, () ->
+                StorageProperties.createPrimary(origProps), "For OAuth2 authentication, please provide oauth2_client_id, "
+                + "oauth2_tenant_id, oauth2_client_secret, and oauth2_server_uri.");
+        origProps.put("azure.oauth2_tenant_id", "72f988bf-5289-5289-5289-2d7cd011db47");
+        Assertions.assertThrows(StoragePropertiesException.class, () ->
+                StorageProperties.createPrimary(origProps), "For OAuth2 authentication, please provide oauth2_client_id, "
+                + "oauth2_tenant_id, oauth2_client_secret, and oauth2_server_uri.");
+        origProps.put("azure.oauth2_client_secret", "myAzureClientSecret");
+        Assertions.assertThrows(StoragePropertiesException.class, () ->
+                StorageProperties.createPrimary(origProps), "For OAuth2 authentication, please provide oauth2_client_id, "
+                + "oauth2_tenant_id, oauth2_client_secret, and oauth2_server_uri.");
+        origProps.put("azure.oauth2_server_uri", "https://login.microsoftonline.com/72f988bf-5289-5289-5289-2d7cd011db47/oauth2/token");
+        Assertions.assertThrows(StoragePropertiesException.class, () ->
+                StorageProperties.createPrimary(origProps), "For OAuth2 authentication, please provide oauth2_client_id, "
+                + "oauth2_tenant_id, oauth2_client_secret, and oauth2_server_uri.");
+        origProps.put("azure.oauth2_account_host", "onelake.dfs.fabric.microsoft.com");
+        Assertions.assertThrows(StoragePropertiesException.class, () ->
+                StorageProperties.createPrimary(origProps), "For OAuth2 authentication, please provide oauth2_client_id, "
+                + "oauth2_tenant_id, oauth2_client_secret, and oauth2_server_uri.");
+        origProps.put("fs.azure.support", "true");
+        Assertions.assertThrows(UnsupportedOperationException.class, () ->
+                StorageProperties.createPrimary(origProps), "Azure OAuth2 is not supported in the current backend.");
+        origProps.put("type", "iceberg");
+        origProps.put("iceberg.catalog.type", "rest");
+        AzureProperties azureProperties = (AzureProperties) StorageProperties.createPrimary(origProps);
+        Configuration hadoopStorageConfig = azureProperties.getHadoopStorageConfig();
+        Assertions.assertEquals("OAuth", hadoopStorageConfig.get("fs.azure.account.auth.type.onelake.dfs.fabric.microsoft.com"));
+        Assertions.assertEquals("org.apache.hadoop.fs.azurebfs.oauth2.ClientCredsTokenProvider", hadoopStorageConfig.get("fs.azure.account.oauth.provider.type.onelake.dfs.fabric.microsoft.com"));
+        Assertions.assertEquals("5c64f06f-5289-5289-5289-5aa0820ee310", hadoopStorageConfig.get("fs.azure.account.oauth2.client.id.onelake.dfs.fabric.microsoft.com"));
+        Assertions.assertEquals("myAzureClientSecret", hadoopStorageConfig.get("fs.azure.account.oauth2.client.secret.onelake.dfs.fabric.microsoft.com"));
+        Assertions.assertEquals("https://login.microsoftonline.com/72f988bf-5289-5289-5289-2d7cd011db47/oauth2/token", hadoopStorageConfig.get("fs.azure.account.oauth2.client.endpoint.onelake.dfs.fabric.microsoft.com"));
+
     }
 }

@@ -21,7 +21,6 @@ import org.apache.doris.common.UserException;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
-import org.apache.commons.lang3.BooleanUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.logging.log4j.LogManager;
@@ -30,6 +29,7 @@ import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.AwsSessionCredentials;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
+import software.amazon.awssdk.core.SdkSystemSetting;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -226,8 +226,6 @@ public abstract class AbstractS3CompatibleProperties extends StorageProperties i
 
     protected abstract Set<Pattern> endpointPatterns();
 
-    protected abstract Set<String> schemas();
-
     // This method should be overridden by subclasses to provide a default endpoint based on the region.
     // Because for aws s3, only region is needed, the endpoint can be constructed from the region.
     // But for other s3 compatible storage, the endpoint may need to be specified explicitly.
@@ -249,16 +247,11 @@ public abstract class AbstractS3CompatibleProperties extends StorageProperties i
     @Override
     public void initializeHadoopStorageConfig() {
         hadoopStorageConfig = new Configuration();
-        origProps.forEach((key, value) -> {
-            if (key.startsWith("fs.")) {
-                hadoopStorageConfig.set(key, value);
-            }
-        });
         // Compatibility note: Due to historical reasons, even when the underlying
         // storage is OSS, OBS, etc., users may still configure the schema as "s3://".
         // To ensure backward compatibility, we append S3-related properties by default.
         appendS3HdfsProperties(hadoopStorageConfig);
-        ensureDisableCache(hadoopStorageConfig, origProps);
+        setDefaultRequestChecksum();
     }
 
     private void appendS3HdfsProperties(Configuration hadoopStorageConfig) {
@@ -285,34 +278,30 @@ public abstract class AbstractS3CompatibleProperties extends StorageProperties i
     }
 
     /**
-     * By default, Hadoop caches FileSystem instances per scheme and authority (e.g. s3a://bucket/), meaning that all
-     * subsequent calls using the same URI will reuse the same FileSystem object.
-     * In multi-tenant or dynamic credential environments — where different users may access the same bucket using
-     * different access keys or tokens — this cache reuse can lead to cross-credential contamination.
+     * Sets the AWS request checksum calculation property to "WHEN_REQUIRED"
+     * only if it has not been explicitly set by the user.
+     *
      * <p>
-     * Specifically, if the cache is not disabled, a FileSystem instance initialized with one set of credentials may
-     * be reused by another session targeting the same bucket but with a different AK/SK. This results in:
+     * Background:
+     * AWS SDK for Java v2 uses the system property
+     * {@link SdkSystemSetting#AWS_REQUEST_CHECKSUM_CALCULATION} to determine
+     * whether request payloads should have a checksum calculated.
      * <p>
-     * Incorrect authentication (using stale credentials)
+     * According to the official AWS discussion:
+     * https://github.com/aws/aws-sdk-java-v2/discussions/5802
+     * - Default SDK behavior may calculate checksums automatically if the property is not set.
+     * - Automatic calculation can affect performance or cause unexpected behavior for large requests.
      * <p>
-     * Unexpected permission errors or access denial
-     * <p>
-     * Potential data leakage between users
-     * <p>
-     * To avoid such risks, the configuration property
-     * fs.<schema>.impl.disable.cache
-     * must be set to true for all object storage backends (e.g., S3A, OSS, COS, OBS), ensuring that each new access
-     * creates an isolated FileSystem instance with its own credentials and configuration context.
+     * This method ensures:
+     * 1. The property is set to "WHEN_REQUIRED" only if the user has not already set it.
+     * 2. User-specified settings are never overridden.
+     * 3. Aligns with AWS SDK recommended best practices.
+     * </p>
      */
-    private void ensureDisableCache(Configuration conf, Map<String, String> origProps) {
-        for (String schema : schemas()) {
-            String key = "fs." + schema + ".impl.disable.cache";
-            String userValue = origProps.get(key);
-            if (StringUtils.isNotBlank(userValue)) {
-                conf.setBoolean(key, BooleanUtils.toBoolean(userValue));
-            } else {
-                conf.setBoolean(key, true);
-            }
+    public static void setDefaultRequestChecksum() {
+        String key = SdkSystemSetting.AWS_REQUEST_CHECKSUM_CALCULATION.property();
+        if (System.getProperty(key) == null) {
+            System.setProperty(key, "WHEN_REQUIRED");
         }
     }
 
