@@ -165,10 +165,12 @@ public class JdbcPostgreSQLClient extends JdbcClient {
             case "macaddr":
             case "varbit":
             case "uuid":
-            case "bytea":
             case "json":
             case "jsonb":
                 return ScalarType.createStringType();
+            case "bytea": // https://www.postgresql.org/docs/12/datatype-binary.html#DATATYPE-BINARY-TABLE
+                return enableMappingVarbinary ? ScalarType.createVarbinaryType(fieldSchema.requiredColumnSize())
+                        : ScalarType.createStringType();
             default: {
                 if (fieldSchema.getDataType() == Types.ARRAY && pgType.startsWith("_")) {
                     return convertArrayType(fieldSchema);

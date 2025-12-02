@@ -271,8 +271,8 @@ Status ParquetReader::_open_file() {
             const auto& file_meta_cache_key =
                     FileMetaCache::get_key(_tracing_file_reader, _file_description);
             if (!_meta_cache->lookup(file_meta_cache_key, &_meta_cache_handle)) {
-                RETURN_IF_ERROR(parse_thrift_footer(_file_reader, &_file_metadata_ptr, &meta_size,
-                                                    _io_ctx, enable_mapping_varbinary));
+                RETURN_IF_ERROR(parse_thrift_footer(_tracing_file_reader, &_file_metadata_ptr,
+                                                    &meta_size, _io_ctx, enable_mapping_varbinary));
                 // _file_metadata_ptr.release() : move control of _file_metadata to _meta_cache_handle
                 _meta_cache->insert(file_meta_cache_key, _file_metadata_ptr.release(),
                                     &_meta_cache_handle);
@@ -375,6 +375,7 @@ Status ParquetReader::init_reader(
         if (required_file_columns.contains(name)) {
             _read_file_columns.emplace_back(name);
             _read_table_columns.emplace_back(required_file_columns[name]);
+            _read_table_columns_set.insert(required_file_columns[name]);
         }
     }
     // build column predicates for column lazy read
@@ -383,7 +384,13 @@ Status ParquetReader::init_reader(
 }
 
 bool ParquetReader::_exists_in_file(const VSlotRef* slot_ref) const {
-    return _table_info_node_ptr->children_column_exists(slot_ref->expr_name());
+    // `_read_table_columns_set` is used to ensure that only columns actually read are subject to min-max filtering.
+    // This primarily handles cases where partition columns also exist in a file. The reason it's not modified
+    // in `_table_info_node_ptr` is that Iceberg、Hudi has inconsistent requirements for this node;
+    // Iceberg partition evolution need read partition columns from a file.
+    // hudi set `hoodie.datasource.write.drop.partition.columns=false` not need read partition columns from a file.
+    return _table_info_node_ptr->children_column_exists(slot_ref->expr_name()) &&
+           _read_table_columns_set.contains(slot_ref->expr_name());
 }
 
 bool ParquetReader::_type_matches(const VSlotRef* slot_ref) const {
@@ -967,6 +974,12 @@ Status ParquetReader::_process_page_index_filter(
             // complex type, not support page index yet.
             return false;
         }
+        if (!_col_offsets.contains(parquet_col_id)) {
+            // If the file contains partition columns and the query applies filters on those
+            // partition columns, then reading the page index is unnecessary.
+            return false;
+        }
+
         auto& column_chunk = row_group.columns[parquet_col_id];
         if (column_chunk.column_index_length == 0 || column_chunk.offset_index_length == 0) {
             // column no page index.

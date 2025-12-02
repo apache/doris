@@ -29,7 +29,6 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.nereids.StatementContext;
-import org.apache.doris.nereids.analyzer.UnboundResultSink;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.metrics.Event;
 import org.apache.doris.nereids.metrics.EventSwitchParser;
@@ -37,9 +36,6 @@ import org.apache.doris.nereids.parser.Dialect;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.exploration.mv.PreMaterializedViewRewriter.PreRewriteStrategy;
 import org.apache.doris.nereids.rules.expression.ExpressionRuleType;
-import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
-import org.apache.doris.nereids.trees.plans.logical.LogicalFileSink;
-import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.planner.GroupCommitBlockSink;
 import org.apache.doris.qe.VariableMgr.VarAttr;
 import org.apache.doris.thrift.TGroupCommitMode;
@@ -93,8 +89,10 @@ public class SessionVariable implements Serializable, Writable {
     public static final String EXEC_MEM_LIMIT = "exec_mem_limit";
     public static final String LOCAL_EXCHANGE_FREE_BLOCKS_LIMIT = "local_exchange_free_blocks_limit";
     public static final String SCAN_QUEUE_MEM_LIMIT = "scan_queue_mem_limit";
-    public static final String NUM_SCANNER_THREADS = "num_scanner_threads";
-    public static final String MIN_SCANNER_CONCURRENCY = "min_scanner_concurrnency";
+    public static final String MAX_SCANNERS_CONCURRENCY = "max_scanners_concurrency";
+    public static final String MAX_FILE_SCANNERS_CONCURRENCY = "max_file_scanners_concurrency";
+    public static final String MIN_SCANNERS_CONCURRENCY = "min_scanners_concurrency";
+    public static final String MIN_FILE_SCANNERS_CONCURRENCY = "min_file_scanners_concurrency";
     public static final String MIN_SCAN_SCHEDULER_CONCURRENCY = "min_scan_scheduler_concurrency";
     public static final String QUERY_TIMEOUT = "query_timeout";
     public static final String ANALYZE_TIMEOUT = "analyze_timeout";
@@ -891,6 +889,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String HNSW_EF_SEARCH = "hnsw_ef_search";
     public static final String HNSW_CHECK_RELATIVE_DISTANCE = "hnsw_check_relative_distance";
     public static final String HNSW_BOUNDED_QUEUE = "hnsw_bounded_queue";
+    public static final String IVF_NPROBE = "ivf_nprobe";
 
     public static final String DEFAULT_VARIANT_MAX_SUBCOLUMNS_COUNT = "default_variant_max_subcolumns_count";
 
@@ -977,25 +976,31 @@ public class SessionVariable implements Serializable, Writable {
     // 100MB
     public long maxScanQueueMemByte = 2147483648L / 20;
 
-    @VariableMgr.VarAttr(name = NUM_SCANNER_THREADS, needForward = true, description = {
-            "ScanNode 扫描数据的最大并发，默认为 0，采用 BE 的 doris_scanner_thread_pool_thread_num",
-            "The max threads to read data of ScanNode, "
-                    + "default 0, use doris_scanner_thread_pool_thread_num in be.conf"
-    })
-    public int numScannerThreads = 0;
+    @VariableMgr.VarAttr(name = MAX_SCANNERS_CONCURRENCY, needForward = true, description = {
+            "ScanNode 扫描数据的最大并发，默认为 4", "The max threads to read data of ScanNode, default 4"})
+    public int maxScannersConcurrency = 4;
+
+    @VariableMgr.VarAttr(name = MAX_FILE_SCANNERS_CONCURRENCY, needForward = true, description = {
+            "FileScanNode 扫描数据的最大并发，默认为 16", "The max threads to read data of FileScanNode, default 16"})
+    public int maxFileScannersConcurrency = 16;
 
     @VariableMgr.VarAttr(name = LOCAL_EXCHANGE_FREE_BLOCKS_LIMIT)
     public int localExchangeFreeBlocksLimit = 4;
 
-    @VariableMgr.VarAttr(name = MIN_SCANNER_CONCURRENCY, needForward = true, description = {
+    @VariableMgr.VarAttr(name = MIN_SCANNERS_CONCURRENCY, needForward = true, description = {
         "Scanner 的最小并发度，默认为 1", "The min concurrency of Scanner, default 1"
     })
-    public int minScannerConcurrency = 1;
+    public int minScannersConcurrency = 1;
+
+    @VariableMgr.VarAttr(name = MIN_FILE_SCANNERS_CONCURRENCY, needForward = true, description = {
+        "外表Scanner 的最小并发度，默认为 1", "The min concurrency of Remote Scanner, default 1"
+    })
+    public int minFileScannersConcurrency = 1;
 
     @VariableMgr.VarAttr(name = MIN_SCAN_SCHEDULER_CONCURRENCY, needForward = true, description = {
         "ScanScheduler 的最小并发度，默认值 0 表示使用 Scan 线程池线程数量的两倍", "The min concurrency of ScanScheduler, "
             + "default 0 means use twice the number of Scan thread pool threads"
-    })
+    }, varType = VariableAnnotation.DEPRECATED)
     public int minScanSchedulerConcurrency = 0;
 
     // By default, the number of Limit items after OrderBy is changed from 65535 items
@@ -3105,6 +3110,11 @@ public class SessionVariable implements Serializable, Writable {
                     "Whether to use a bounded priority queue to optimize HNSW search performance"})
     public boolean hnswBoundedQueue = true;
 
+    @VariableMgr.VarAttr(name = IVF_NPROBE, needForward = true,
+            description = {"IVF 索引的 nprobe 参数，控制搜索时访问的聚类数量",
+                    "IVF index nprobe parameter, controls the number of clusters to search"})
+    public int ivfNprobe = 1;
+
     @VariableMgr.VarAttr(
             name = DEFAULT_VARIANT_MAX_SUBCOLUMNS_COUNT,
             needForward = true,
@@ -3140,13 +3150,13 @@ public class SessionVariable implements Serializable, Writable {
     public int defaultVariantSparseHashShardCount = 0;
 
     @VariableMgr.VarAttr(
-            name = "random_use_v3_storage_format",
+            name = "use_v3_storage_format",
             fuzzy = true,
             description = {
                     "In fuzzy tests, randomly use V3 storage_format (ext_meta) for some tables.",
                     "Only takes effect when user does not explicitly specify storage_format."}
     )
-    public boolean randomUseV3StorageFormat = false;
+    public boolean useV3StorageFormat = false;
 
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
@@ -3172,7 +3182,7 @@ public class SessionVariable implements Serializable, Writable {
         this.exchangeMultiBlocksByteSize = minBytes + (int) (random.nextDouble() * (maxBytes - minBytes));
         this.defaultVariantMaxSubcolumnsCount = random.nextInt(10);
         this.defaultVariantSparseHashShardCount = random.nextInt(5) + 1;
-        this.randomUseV3StorageFormat = random.nextBoolean();
+        this.useV3StorageFormat = random.nextBoolean();
         int randomInt = random.nextInt(4);
         if (randomInt % 2 == 0) {
             this.rewriteOrToInPredicateThreshold = 100000;
@@ -3444,8 +3454,8 @@ public class SessionVariable implements Serializable, Writable {
         return maxScanQueueMemByte;
     }
 
-    public int getNumScannerThreads() {
-        return numScannerThreads;
+    public int getMaxScannersConcurrency() {
+        return maxScannersConcurrency;
     }
 
     public int getQueryTimeoutS() {
@@ -3650,8 +3660,8 @@ public class SessionVariable implements Serializable, Writable {
         this.maxScanQueueMemByte = scanQueueMemByte;
     }
 
-    public void setNumScannerThreads(int numScannerThreads) {
-        this.numScannerThreads = numScannerThreads;
+    public void setMaxScannersConcurrency(int maxScannersConcurrency) {
+        this.maxScannersConcurrency = maxScannersConcurrency;
     }
 
     public boolean isSqlQuoteShowCreate() {
@@ -4423,13 +4433,6 @@ public class SessionVariable implements Serializable, Writable {
             if (!(parsedStatement instanceof LogicalPlanAdapter)) {
                 return false;
             }
-            LogicalPlan logicalPlan = ((LogicalPlanAdapter) parsedStatement).getLogicalPlan();
-            // TODO: support other sink
-            if (!(logicalPlan instanceof UnboundResultSink
-                    || logicalPlan instanceof LogicalFileSink
-                    || logicalPlan instanceof InsertIntoTableCommand)) {
-                return false;
-            }
         }
         return sessionVariable.enableNereidsDistributePlanner;
     }
@@ -4748,9 +4751,12 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setMemLimit(maxExecMemByte);
         tResult.setLocalExchangeFreeBlocksLimit(localExchangeFreeBlocksLimit);
         tResult.setScanQueueMemLimit(maxScanQueueMemByte);
-        tResult.setNumScannerThreads(numScannerThreads);
+        tResult.setMaxScannersConcurrency(maxScannersConcurrency);
+        tResult.setMaxFileScannersConcurrency(maxFileScannersConcurrency);
         tResult.setMaxColumnReaderNum(maxColumnReaderNum);
         tResult.setParallelPrepareThreshold(parallelPrepareThreshold);
+        tResult.setMinScannersConcurrency(minScannersConcurrency);
+        tResult.setMinFileScannersConcurrency(minFileScannersConcurrency);
 
         tResult.setQueryTimeout(queryTimeoutS);
         tResult.setEnableProfile(enableProfile);
@@ -4918,6 +4924,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setHnswEfSearch(hnswEFSearch);
         tResult.setHnswCheckRelativeDistance(hnswCheckRelativeDistance);
         tResult.setHnswBoundedQueue(hnswBoundedQueue);
+        tResult.setIvfNprobe(ivfNprobe);
         tResult.setMergeReadSliceSize(mergeReadSliceSizeBytes);
         tResult.setEnableExtendedRegex(enableExtendedRegex);
 

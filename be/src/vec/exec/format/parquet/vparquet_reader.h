@@ -292,7 +292,8 @@ private:
     //sequence in file, need to read
     std::vector<std::string> _read_table_columns;
     std::vector<std::string> _read_file_columns;
-
+    // The set of file columns to be read; only columns within this set will be filtered using the min-max predicate.
+    std::set<std::string> _read_table_columns_set;
     // Deleted rows will be marked by Iceberg/Paimon. So we should filter deleted rows when reading it.
     const std::vector<int64_t>* _delete_rows = nullptr;
     int64_t _delete_rows_index = 0;

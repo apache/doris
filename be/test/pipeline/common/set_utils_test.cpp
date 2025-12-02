@@ -93,6 +93,10 @@ TEST_F(SetUtilsTest, TestSetDataVariantsInitFixedKeys) {
             ASSERT_TRUE(std::holds_alternative<SetFixedKeyHashTableContext<vectorized::UInt64>>(
                     variants.method_variant));
             break;
+        case HashKeyType::fixed72:
+            ASSERT_TRUE(std::holds_alternative<SetFixedKeyHashTableContext<vectorized::UInt72>>(
+                    variants.method_variant));
+            break;
         case HashKeyType::fixed128:
             ASSERT_TRUE(std::holds_alternative<SetFixedKeyHashTableContext<vectorized::UInt128>>(
                     variants.method_variant));
@@ -121,7 +125,7 @@ TEST_F(SetUtilsTest, TestSetDataVariantsInitFixedKeys) {
 
     test_block({std::make_shared<vectorized::DataTypeInt64>(),
                 std::make_shared<vectorized::DataTypeUInt8>()},
-               HashKeyType::fixed128);
+               HashKeyType::fixed72);
 
     test_block({std::make_shared<vectorized::DataTypeInt64>(),
                 std::make_shared<vectorized::DataTypeInt64>()},

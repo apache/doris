@@ -169,16 +169,34 @@ Status OlapScanner::prepare() {
     // value (e.g. select a from t where a .. and b ... limit 1),
     // it will be very slow when reading data in segment iterator
     _tablet_reader->set_batch_size(_state->batch_size());
-
     TabletSchemaSPtr cached_schema;
     std::string schema_key;
     {
         TOlapScanNode& olap_scan_node = local_state->olap_scan_node();
-        if (olap_scan_node.__isset.schema_version && olap_scan_node.__isset.columns_desc &&
-            !olap_scan_node.columns_desc.empty() &&
-            olap_scan_node.columns_desc[0].col_unique_id >= 0 && // Why check first column?
-            tablet->tablet_schema()->num_variant_columns() == 0 &&
-            tablet->tablet_schema()->num_virtual_columns() == 0) {
+
+        const auto check_can_use_cache = [&]() {
+            if (!(olap_scan_node.__isset.schema_version && olap_scan_node.__isset.columns_desc &&
+                  !olap_scan_node.columns_desc.empty() &&
+                  olap_scan_node.columns_desc[0].col_unique_id >= 0 && // Why check first column?
+                  tablet->tablet_schema()->num_variant_columns() == 0 &&
+                  tablet->tablet_schema()->num_virtual_columns() == 0)) {
+                return false;
+            }
+
+            const bool has_pruned_column =
+                    std::ranges::any_of(_output_tuple_desc->slots(), [](const auto& slot) {
+                        if ((slot->type()->get_primitive_type() == PrimitiveType::TYPE_STRUCT ||
+                             slot->type()->get_primitive_type() == PrimitiveType::TYPE_MAP ||
+                             slot->type()->get_primitive_type() == PrimitiveType::TYPE_ARRAY) &&
+                            !slot->all_access_paths().empty()) {
+                            return true;
+                        }
+                        return false;
+                    });
+            return !has_pruned_column;
+        }();
+
+        if (check_can_use_cache) {
             schema_key =
                     SchemaCache::get_schema_key(tablet->tablet_id(), olap_scan_node.columns_desc,
                                                 olap_scan_node.schema_version);

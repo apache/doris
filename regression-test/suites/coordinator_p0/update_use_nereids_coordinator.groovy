@@ -14,15 +14,26 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-// This file is copied from
-// https://github.com/ClickHouse/ClickHouse/blob/master/src/Functions/Ifnull.cpp
-// and modified by Doris
 
-#include "function_ifnull.h"
+suite('update_use_nereids_coordinator') {
+    multi_sql """
+        set enable_nereids_distribute_planner=true;
+        set enable_sql_cache=false;
+        drop table if exists update_tbl;
+        create table if not exists update_tbl(
+            id int,
+            value int
+        )
+        unique key(id)
+        distributed by hash(id)
+        properties('replication_num'='1');
+        insert into update_tbl values(1, 1);
+        """
 
-namespace doris::vectorized {
-void register_function_ifnull(SimpleFunctionFactory& factory) {
-    factory.register_function<FunctionIfNull>();
-    factory.register_alias(FunctionIfNull::name, "nvl");
+    sql "update update_tbl set value=2 where id =1"
+
+    test {
+        sql "select * from update_tbl"
+        result([[1, 2]])
+    }
 }
-} // namespace doris::vectorized

@@ -28,7 +28,7 @@ import (
 	"github.com/apache/doris/sdk/go-doris-sdk/pkg/load/client"
 	"github.com/apache/doris/sdk/go-doris-sdk/pkg/load/config"
 	loader "github.com/apache/doris/sdk/go-doris-sdk/pkg/load/loader"
-	"github.com/apache/doris/sdk/go-doris-sdk/pkg/load/log"
+	log "github.com/apache/doris/sdk/go-doris-sdk/pkg/load/logger"
 )
 
 // ================================

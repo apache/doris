@@ -240,8 +240,17 @@ message PrimaryKeyIndexMetaPB {
     optional bytes max_key = 4;
 }
 
+// SegmentFooterPB versioning (must stay in sync with be/src/olap/rowset/segment_v2/segment.h).
+enum SegmentFooterVersionPB {
+    // 1 = V2 baseline
+    SEGMENT_FOOTER_VERSION_V2_BASELINE = 1;
+    // 2 = V3 (externalized ColumnMetaPB region + CMO present)
+    SEGMENT_FOOTER_VERSION_V3_EXT_COL_META = 2;
+}
+
 message SegmentFooterPB {
-    optional uint32 version = 1 [default = 1]; // file version
+    // file version; see SegmentFooterVersionPB for the semantic meaning of values.
+    optional uint32 version = 1 [default = 1];
     repeated ColumnMetaPB columns = 2; // tablet schema
     optional uint32 num_rows = 3; // number of values
     optional uint64 index_footprint = 4; // total index footprint of all columns
