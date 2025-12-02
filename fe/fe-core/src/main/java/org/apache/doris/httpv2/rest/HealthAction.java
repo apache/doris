@@ -17,8 +17,10 @@
 
 package org.apache.doris.httpv2.rest;
 
+import org.apache.doris.DorisFE;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 
 import jakarta.servlet.http.HttpServletRequest;
@@ -39,6 +41,10 @@ public class HealthAction extends RestBaseController {
     public Object execute(HttpServletRequest request, HttpServletResponse response) {
         if (Config.enable_all_http_auth) {
             executeCheckPassword(request, response);
+        }
+
+        if (!FeConstants.runningUnitTest && !DorisFE.isServerReady()) {
+            return ResponseEntityBuilder.serviceUnavailable("Server is not ready");
         }
 
         Map<String, Object> result = new HashMap<>();
