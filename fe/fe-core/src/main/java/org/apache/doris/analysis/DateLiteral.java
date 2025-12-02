@@ -337,7 +337,7 @@ public class DateLiteral extends LiteralExpr {
         this.month = dateTime.getMonthValue();
         this.day = dateTime.getDayOfMonth();
         this.type = type;
-        if (type.isDatetime() || type.isDatetimeV2()) {
+        if (type.isDatetime() || type.isDatetimeV2() || type.isTimeStampTz()) {
             this.hour = dateTime.getHour();
             this.minute = dateTime.getMinute();
             this.second = dateTime.getSecond();
@@ -761,7 +761,6 @@ public class DateLiteral extends LiteralExpr {
     public void roundFloor(int newScale) {
         microsecond = Double.valueOf(microsecond / (int) (Math.pow(10, 6 - newScale))
             * (Math.pow(10, 6 - newScale))).longValue();
-        type = ScalarType.createDatetimeV2Type(newScale);
     }
 
     public String convertToString(PrimitiveType type) {
@@ -831,7 +830,7 @@ public class DateLiteral extends LiteralExpr {
                 throw new AnalysisException("DateLiteral has invalid day value: " + day);
             }
         }
-        if (type.isDatetimeV2() || type.isDatetime()) {
+        if (type.isDatetimeV2() || type.isDatetime() || type.isTimeStampTz()) {
             if (hour < 0 || hour > 24) {
                 throw new AnalysisException("DateLiteral has invalid hour value: " + hour);
             }
@@ -841,7 +840,7 @@ public class DateLiteral extends LiteralExpr {
             if (second < 0 || second > 60) {
                 throw new AnalysisException("DateLiteral has invalid second value: " + second);
             }
-            if (type.isDatetimeV2() && (microsecond < 0 || microsecond > 999999)) {
+            if ((type.isDatetimeV2() || type.isTimeStampTz()) && (microsecond < 0 || microsecond > 999999)) {
                 throw new AnalysisException("DateLiteral has invalid microsecond value: " + microsecond);
             }
         }
