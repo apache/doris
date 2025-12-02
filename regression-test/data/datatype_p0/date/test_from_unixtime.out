@@ -25,7 +25,7 @@
 -- !hour_from_unixtime1 --
 0
 11
-16
+\N
 
 -- !hour_from_unixtime2 --
 0
@@ -37,12 +37,18 @@
 0
 
 -- !hour_from_unixtime5 --
-23
+\N
+
+-- !hour_from_unixtime6 --
+\N
+
+-- !hour_from_unixtime7 --
+16
 
 -- !minute_from_unixtime1 --
 1
 33
-0
+\N
 
 -- !minute_from_unixtime2 --
 0
@@ -56,10 +62,13 @@
 -- !minute_from_unixtime5 --
 \N
 
+-- !minute_from_unixtime6 --
+\N
+
 -- !second_from_unixtime1 --
 40
 20
-0
+\N
 
 -- !second_from_unixtime2 --
 0
@@ -73,10 +82,13 @@
 -- !second_from_unixtime5 --
 \N
 
+-- !second_from_unixtime6 --
+\N
+
 -- !microsecond_from_unixtime1 --
 123000
 1000
-123457
+\N
 
 -- !microsecond_from_unixtime2 --
 0
@@ -90,3 +102,5 @@
 -- !microsecond_from_unixtime5 --
 \N
 
+-- !microsecond_from_unixtime6 --
+\N
