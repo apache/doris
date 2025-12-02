@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.util;
 
+import org.apache.doris.nereids.trees.expressions.literal.TimeV2Literal;
+
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeFormatterBuilder;
 import java.time.format.ResolverStyle;
@@ -106,4 +108,132 @@ public class DateTimeFormatterUtils {
             .append(TIME_FORMATTER)
             .append(ZONE_FORMATTER)
             .toFormatter().withResolverStyle(ResolverStyle.STRICT);
+
+    /**
+     * Format TimeV2 literal according to MySQL time_format spec.
+     */
+    public static String formatTimeLiteral(TimeV2Literal time, String pattern) {
+        double value = (double) time.getValue();
+        int hour = Math.abs(time.getHour());
+        int minute = Math.abs(time.getMinute());
+        int second = Math.abs(time.getSecond());
+        int microsecond = Math.abs(time.getMicroSecond());
+
+        StringBuilder builder = new StringBuilder(pattern.length() + 8);
+        if (value < 0) {
+            builder.append('-');
+        }
+
+        for (int i = 0; i < pattern.length(); i++) {
+            char c = pattern.charAt(i);
+            if (c != '%' || i == pattern.length() - 1) {
+                builder.append(c);
+                continue;
+            }
+            char spec = pattern.charAt(++i);
+            switch (spec) {
+                case 'H':
+                    if (hour < 100) {
+                        appendTwoDigits(builder, hour);
+                    } else {
+                        appendWithPad(builder, hour, 2, '0');
+                    }
+                    break;
+                case 'h':
+                case 'I': {
+                    int hour12 = (hour % 24 + 11) % 12 + 1;
+                    appendTwoDigits(builder, hour12);
+                    break;
+                }
+                case 'i':
+                    appendTwoDigits(builder, minute);
+                    break;
+                case 'k':
+                    appendWithPad(builder, hour, 1, '0');
+                    break;
+                case 'l': {
+                    int hour12 = (hour % 24 + 11) % 12 + 1;
+                    appendWithPad(builder, hour12, 1, '0');
+                    break;
+                }
+                case 's':
+                case 'S':
+                    appendTwoDigits(builder, second);
+                    break;
+                case 'f':
+                    appendWithPad(builder, microsecond, 6, '0');
+                    break;
+                case 'p':
+                    builder.append((hour % 24 >= 12) ? "PM" : "AM");
+                    break;
+                case 'r': {
+                    int hour12 = (hour % 24 + 11) % 12 + 1;
+                    appendTwoDigits(builder, hour12);
+                    builder.append(':');
+                    appendTwoDigits(builder, minute);
+                    builder.append(':');
+                    appendTwoDigits(builder, second);
+                    builder.append(' ');
+                    builder.append((hour % 24 >= 12) ? "PM" : "AM");
+                    break;
+                }
+                case 'T':
+                    if (hour < 100) {
+                        appendTwoDigits(builder, hour);
+                    } else {
+                        appendWithPad(builder, hour, 2, '0');
+                    }
+                    builder.append(':');
+                    appendTwoDigits(builder, minute);
+                    builder.append(':');
+                    appendTwoDigits(builder, second);
+                    break;
+                case 'Y':
+                    // Year, 4 digits
+                    builder.append("0000");
+                    break;
+                case 'y':
+                case 'm':
+                case 'd':
+                    // Year (2 digits), Month, Day - insert 2 zeros
+                    builder.append("00");
+                    break;
+                case 'c':
+                case 'e':
+                    // Month (0..12) or Day without leading zero - insert 1 zero
+                    builder.append('0');
+                    break;
+                case 'M':
+                case 'W':
+                case 'j':
+                case 'D':
+                case 'U':
+                case 'u':
+                case 'V':
+                case 'v':
+                case 'x':
+                case 'X':
+                case 'w':
+                    // These specifiers are not supported for TIME type
+                    return null;
+                default:
+                    builder.append(spec);
+                    break;
+            }
+        }
+        return builder.toString();
+    }
+
+    private static void appendTwoDigits(StringBuilder builder, int value) {
+        builder.append((char) ('0' + (value / 10) % 10));
+        builder.append((char) ('0' + (value % 10)));
+    }
+
+    private static void appendWithPad(StringBuilder builder, int value, int targetLength, char padChar) {
+        String str = Integer.toString(Math.abs(value));
+        for (int i = str.length(); i < targetLength; i++) {
+            builder.append(padChar);
+        }
+        builder.append(str);
+    }
 }
