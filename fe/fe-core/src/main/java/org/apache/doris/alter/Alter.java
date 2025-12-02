@@ -20,6 +20,7 @@ package org.apache.doris.alter;
 import org.apache.doris.analysis.AddColumnClause;
 import org.apache.doris.analysis.AddColumnsClause;
 import org.apache.doris.analysis.AddPartitionClause;
+import org.apache.doris.analysis.AddPartitionFieldClause;
 import org.apache.doris.analysis.AddPartitionLikeClause;
 import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.analysis.AlterMultiPartitionClause;
@@ -29,6 +30,7 @@ import org.apache.doris.analysis.CreateOrReplaceTagClause;
 import org.apache.doris.analysis.DropBranchClause;
 import org.apache.doris.analysis.DropColumnClause;
 import org.apache.doris.analysis.DropPartitionClause;
+import org.apache.doris.analysis.DropPartitionFieldClause;
 import org.apache.doris.analysis.DropPartitionFromIndexClause;
 import org.apache.doris.analysis.DropTagClause;
 import org.apache.doris.analysis.ModifyColumnClause;
@@ -41,6 +43,7 @@ import org.apache.doris.analysis.ModifyTablePropertiesClause;
 import org.apache.doris.analysis.PartitionRenameClause;
 import org.apache.doris.analysis.ReorderColumnsClause;
 import org.apache.doris.analysis.ReplacePartitionClause;
+import org.apache.doris.analysis.ReplacePartitionFieldClause;
 import org.apache.doris.analysis.ReplaceTableClause;
 import org.apache.doris.analysis.RollupRenameClause;
 import org.apache.doris.analysis.TableRenameClause;
@@ -75,6 +78,8 @@ import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.PropertyAnalyzer.RewriteProperty;
 import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
+import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.nereids.trees.plans.commands.AlterSystemCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
@@ -180,6 +185,19 @@ public class Alter {
         // check conflict alter ops first
         AlterOperations currentAlterOps = new AlterOperations();
         currentAlterOps.checkConflict(alterClauses);
+
+        // Check for unsupported operations on internal tables
+        for (AlterClause clause : alterClauses) {
+            if (clause instanceof AddPartitionFieldClause) {
+                throw new UserException("ADD PARTITION KEY is only supported for Iceberg tables");
+            }
+            if (clause instanceof DropPartitionFieldClause) {
+                throw new UserException("DROP PARTITION KEY is only supported for Iceberg tables");
+            }
+            if (clause instanceof ReplacePartitionFieldClause) {
+                throw new UserException("REPLACE PARTITION KEY is only supported for Iceberg tables");
+            }
+        }
 
         for (AlterClause clause : alterClauses) {
             Map<String, String> properties = null;
@@ -415,6 +433,30 @@ public class Alter {
             } else if (alterClause instanceof ReorderColumnsClause) {
                 ReorderColumnsClause reorderColumns = (ReorderColumnsClause) alterClause;
                 table.getCatalog().reorderColumns(table, reorderColumns.getColumnsByPos());
+            } else if (alterClause instanceof AddPartitionFieldClause) {
+                AddPartitionFieldClause addPartitionField = (AddPartitionFieldClause) alterClause;
+                if (table instanceof IcebergExternalTable) {
+                    ((IcebergExternalCatalog) table.getCatalog()).addPartitionField(
+                            (IcebergExternalTable) table, addPartitionField);
+                } else {
+                    throw new UserException("ADD PARTITION KEY is only supported for Iceberg tables");
+                }
+            } else if (alterClause instanceof DropPartitionFieldClause) {
+                DropPartitionFieldClause dropPartitionField = (DropPartitionFieldClause) alterClause;
+                if (table instanceof IcebergExternalTable) {
+                    ((IcebergExternalCatalog) table.getCatalog()).dropPartitionField(
+                            (IcebergExternalTable) table, dropPartitionField);
+                } else {
+                    throw new UserException("DROP PARTITION KEY is only supported for Iceberg tables");
+                }
+            } else if (alterClause instanceof ReplacePartitionFieldClause) {
+                ReplacePartitionFieldClause replacePartitionField = (ReplacePartitionFieldClause) alterClause;
+                if (table instanceof IcebergExternalTable) {
+                    ((IcebergExternalCatalog) table.getCatalog()).replacePartitionField(
+                            (IcebergExternalTable) table, replacePartitionField);
+                } else {
+                    throw new UserException("REPLACE PARTITION KEY is only supported for Iceberg tables");
+                }
             } else {
                 throw new UserException("Invalid alter operations for external table: " + alterClauses);
             }
