@@ -49,6 +49,7 @@ namespace doris::segment_v2 {
 
 const SubcolumnColumnMetaInfo::Node* VariantColumnReader::get_subcolumn_meta_by_path(
         const vectorized::PathInData& relative_path) const {
+    std::shared_lock<std::shared_mutex> lock(_subcolumns_meta_mutex);
     const auto* node = _subcolumns_meta_info->find_leaf(relative_path);
     if (node) {
         return node;
@@ -62,6 +63,7 @@ const SubcolumnColumnMetaInfo::Node* VariantColumnReader::get_subcolumn_meta_by_
 
 bool VariantColumnReader::exist_in_sparse_column(
         const vectorized::PathInData& relative_path) const {
+    std::shared_lock<std::shared_mutex> lock(_subcolumns_meta_mutex);
     // Check if path exist in sparse column
     bool existed_in_sparse_column =
             !_statistics->sparse_column_non_null_size.empty() &&
@@ -77,6 +79,7 @@ bool VariantColumnReader::exist_in_sparse_column(
 }
 
 bool VariantColumnReader::is_exceeded_sparse_column_limit() const {
+    std::shared_lock<std::shared_mutex> lock(_subcolumns_meta_mutex);
     bool exceeded_sparse_column_limit = !_statistics->sparse_column_non_null_size.empty() &&
                                         _statistics->sparse_column_non_null_size.size() >=
                                                 _variant_sparse_column_statistics_size;
@@ -94,6 +97,7 @@ bool VariantColumnReader::is_exceeded_sparse_column_limit() const {
 }
 
 int64_t VariantColumnReader::get_metadata_size() const {
+    std::shared_lock<std::shared_mutex> lock(_subcolumns_meta_mutex);
     int64_t size = ColumnReader::get_metadata_size();
     if (_statistics) {
         for (const auto& [path, _] : _statistics->subcolumns_non_null_size) {
@@ -120,6 +124,11 @@ Status VariantColumnReader::_create_hierarchical_reader(ColumnIteratorUPtr* read
     // make sure external meta is loaded otherwise can't find any meta data for extracted columns
     // TODO(lhy): this will load all external meta if not loaded, and memory will be consumed.
     RETURN_IF_ERROR(load_external_meta_once());
+
+    // After external meta is loaded, protect reads from `_statistics` and
+    // `_subcolumns_meta_info` against concurrent writers.
+    // english only in comments
+    std::shared_lock<std::shared_mutex> lock(_subcolumns_meta_mutex);
 
     // Node contains column with children columns or has correspoding sparse columns
     // Create reader with hirachical data.
@@ -160,6 +169,7 @@ Status VariantColumnReader::_create_sparse_merge_reader(ColumnIteratorUPtr* iter
                                                         const TabletColumn& target_col,
                                                         ColumnIteratorUPtr inner_iter,
                                                         ColumnReaderCache* column_reader_cache) {
+    std::shared_lock<std::shared_mutex> lock(_subcolumns_meta_mutex);
     // Get subcolumns path set from tablet schema
     const auto& path_set_info = opts->tablet_schema->path_set_info(target_col.parent_unique_id());
 
@@ -197,6 +207,7 @@ Status VariantColumnReader::_create_sparse_merge_reader(ColumnIteratorUPtr* iter
 Status VariantColumnReader::_new_default_iter_with_same_nested(
         ColumnIteratorUPtr* iterator, const TabletColumn& tablet_column,
         const StorageReadOptions* opt, ColumnReaderCache* column_reader_cache) {
+    std::shared_lock<std::shared_mutex> lock(_subcolumns_meta_mutex);
     auto relative_path = tablet_column.path_info_ptr()->copy_pop_front();
     // We find node that represents the same Nested type as path.
     const auto* parent = _subcolumns_meta_info->find_best_match(relative_path);
@@ -251,6 +262,8 @@ Status VariantColumnReader::_build_read_plan_flat_leaves(ReadPlan* plan,
                                                          ColumnReaderCache* column_reader_cache) {
     // make sure external meta is loaded otherwise can't find any meta data for extracted columns
     RETURN_IF_ERROR(load_external_meta_once());
+
+    std::shared_lock<std::shared_mutex> lock(_subcolumns_meta_mutex);
 
     DCHECK(opts != nullptr);
     auto relative_path = target_col.path_info_ptr()->copy_pop_front();
@@ -317,6 +330,7 @@ Status VariantColumnReader::_build_read_plan_flat_leaves(ReadPlan* plan,
 }
 
 bool VariantColumnReader::has_prefix_path(const vectorized::PathInData& relative_path) const {
+    std::shared_lock<std::shared_mutex> lock(_subcolumns_meta_mutex);
     if (relative_path.empty()) {
         return true;
     }
@@ -372,6 +386,7 @@ Status VariantColumnReader::new_iterator(ColumnIteratorUPtr* iterator,
 Status VariantColumnReader::_build_read_plan(ReadPlan* plan, const TabletColumn& target_col,
                                              const StorageReadOptions* opt,
                                              ColumnReaderCache* column_reader_cache) {
+    std::shared_lock<std::shared_mutex> lock(_subcolumns_meta_mutex);
     // root column use unique id, leaf column use parent_unique_id
     int32_t col_uid =
             target_col.unique_id() >= 0 ? target_col.unique_id() : target_col.parent_unique_id();
@@ -750,6 +765,10 @@ Status VariantColumnReader::load_external_meta_once() {
     if (!_ext_meta_reader || !_ext_meta_reader->available()) {
         return Status::OK();
     }
+    // Ensure only one writer can populate `_subcolumns_meta_info` / `_statistics`
+    // while readers of these structures hold shared locks.
+    // english only in comments
+    std::unique_lock<std::shared_mutex> lock(_subcolumns_meta_mutex);
     return _ext_meta_reader->load_all_once(_subcolumns_meta_info.get(), _statistics.get());
 }
 
@@ -785,6 +804,7 @@ TabletIndexes VariantColumnReader::find_subcolumn_tablet_indexes(
 void VariantColumnReader::get_subcolumns_types(
         std::unordered_map<vectorized::PathInData, vectorized::DataTypes,
                            vectorized::PathInData::Hash>* subcolumns_types) const {
+    std::shared_lock<std::shared_mutex> lock(_subcolumns_meta_mutex);
     for (const auto& subcolumn_reader : *_subcolumns_meta_info) {
         auto& path_types = (*subcolumns_types)[subcolumn_reader->path];
         path_types.push_back(subcolumn_reader->data.file_column_type);
@@ -792,6 +812,7 @@ void VariantColumnReader::get_subcolumns_types(
 }
 
 void VariantColumnReader::get_typed_paths(std::unordered_set<std::string>* typed_paths) const {
+    std::shared_lock<std::shared_mutex> lock(_subcolumns_meta_mutex);
     for (const auto& entry : *_subcolumns_meta_info) {
         if (entry->path.get_is_typed()) {
             typed_paths->insert(entry->path.get_path());
@@ -802,6 +823,7 @@ void VariantColumnReader::get_typed_paths(std::unordered_set<std::string>* typed
 void VariantColumnReader::get_nested_paths(
         std::unordered_set<vectorized::PathInData, vectorized::PathInData::Hash>* nested_paths)
         const {
+    std::shared_lock<std::shared_mutex> lock(_subcolumns_meta_mutex);
     for (const auto& entry : *_subcolumns_meta_info) {
         if (entry->path.has_nested_part()) {
             nested_paths->insert(entry->path);
