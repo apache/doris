@@ -2640,9 +2640,6 @@ TEST_F(VariantColumnWriterReaderTest, test_read_with_checksum) {
     }
 }
 
-<<<<<<< HEAD
-} // namespace doris
-=======
 // Concurrently trigger external meta loading and subcolumn meta access to guard against
 // data races between `load_external_meta_once` writer and readers like
 // `get_subcolumn_meta_by_path` / `get_metadata_size`. This roughly simulates the
@@ -2652,7 +2649,7 @@ TEST_F(VariantColumnWriterReaderTest, test_concurrent_load_external_meta_and_get
     // 1. create tablet_schema
     TabletSchemaPB schema_pb;
     schema_pb.set_keys_type(KeysType::DUP_KEYS);
-    SchemaUtils::construct_column(schema_pb.add_column(), 1, "VARIANT", "V1");
+    construct_column(schema_pb.add_column(), 1, "VARIANT", "V1");
     _tablet_schema = std::make_shared<TabletSchema>();
     _tablet_schema->init_from_pb(schema_pb);
 
@@ -2761,4 +2758,3 @@ TEST_F(VariantColumnWriterReaderTest, test_concurrent_load_external_meta_and_get
 }
 
 } // namespace doris
->>>>>>> 4f94f1bd6fd (fix concurrent issue in VariantColumnReader)
