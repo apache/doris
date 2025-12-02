@@ -176,7 +176,7 @@ std::string StreamLoadRecorderManager::_parse_and_format_record(const std::strin
         struct tm tm_buf;
         localtime_r(&ts_sec, &tm_buf);
         char buf[64];
-        snprintf(buf, sizeof(buf), "%04d-%02d-%02d %02d:%02d:%02d.%03ld", tm_buf.tm_year + 1900,
+        snprintf(buf, sizeof(buf), "%04d-%02d-%02d %02d:%02d:%02d.%03lld", tm_buf.tm_year + 1900,
                  tm_buf.tm_mon + 1, tm_buf.tm_mday, tm_buf.tm_hour, tm_buf.tm_min, tm_buf.tm_sec,
                  ms_part);
         return {buf};
