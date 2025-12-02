@@ -80,6 +80,10 @@ bool VariantColumnReader::exist_in_sparse_column(
 
 bool VariantColumnReader::is_exceeded_sparse_column_limit() const {
     std::shared_lock<std::shared_mutex> lock(_subcolumns_meta_mutex);
+    return _is_exceeded_sparse_column_limit_unlocked();
+}
+
+bool VariantColumnReader::_is_exceeded_sparse_column_limit_unlocked() const {
     bool exceeded_sparse_column_limit = !_statistics->sparse_column_non_null_size.empty() &&
                                         _statistics->sparse_column_non_null_size.size() >=
                                                 _variant_sparse_column_statistics_size;
@@ -275,7 +279,7 @@ Status VariantColumnReader::_build_read_plan_flat_leaves(ReadPlan* plan,
     bool existed_in_sparse_column =
             !_statistics->sparse_column_non_null_size.empty() &&
             _statistics->sparse_column_non_null_size.contains(relative_path.get_path());
-    bool exceeded_sparse_column_limit = is_exceeded_sparse_column_limit();
+    bool exceeded_sparse_column_limit = _is_exceeded_sparse_column_limit_unlocked();
 
     const auto* node = plan->node;
     if (!node) {
@@ -331,6 +335,11 @@ Status VariantColumnReader::_build_read_plan_flat_leaves(ReadPlan* plan,
 
 bool VariantColumnReader::has_prefix_path(const vectorized::PathInData& relative_path) const {
     std::shared_lock<std::shared_mutex> lock(_subcolumns_meta_mutex);
+    return _has_prefix_path_unlocked(relative_path);
+}
+
+bool VariantColumnReader::_has_prefix_path_unlocked(
+        const vectorized::PathInData& relative_path) const {
     if (relative_path.empty()) {
         return true;
     }
@@ -386,11 +395,32 @@ Status VariantColumnReader::new_iterator(ColumnIteratorUPtr* iterator,
 Status VariantColumnReader::_build_read_plan(ReadPlan* plan, const TabletColumn& target_col,
                                              const StorageReadOptions* opt,
                                              ColumnReaderCache* column_reader_cache) {
-    std::shared_lock<std::shared_mutex> lock(_subcolumns_meta_mutex);
     // root column use unique id, leaf column use parent_unique_id
     int32_t col_uid =
             target_col.unique_id() >= 0 ? target_col.unique_id() : target_col.parent_unique_id();
     auto relative_path = target_col.path_info_ptr()->copy_pop_front();
+
+    // If the variant column has extracted columns and is a compaction reader, then read flat leaves
+    // Otherwise read hierarchical data, since the variant subcolumns are flattened in
+    // schema_util::get_compaction_schema. For checksum reader, we need to read flat leaves to
+    // get the correct data if has extracted columns.
+    auto need_read_flat_leaves = [](const StorageReadOptions* opts) {
+        return opts != nullptr && opts->tablet_schema != nullptr &&
+               std::ranges::any_of(
+                       opts->tablet_schema->columns(),
+                       [](const auto& column) { return column->is_extracted_column(); }) &&
+               (is_compaction_reader_type(opts->io_ctx.reader_type) ||
+                opts->io_ctx.reader_type == ReaderType::READER_CHECKSUM);
+    };
+
+    // Flat-leaf compaction/checksum mode: delegate to dedicated planner which handles locking
+    // and external meta loading internally.
+    // english only in comments
+    if (need_read_flat_leaves(opt)) {
+        return _build_read_plan_flat_leaves(plan, target_col, opt, column_reader_cache);
+    }
+
+    std::shared_lock<std::shared_mutex> lock(_subcolumns_meta_mutex);
     const auto* root = _subcolumns_meta_info->get_root();
     const auto* node =
             target_col.has_path_info() ? _subcolumns_meta_info->find_exact(relative_path) : nullptr;
@@ -409,33 +439,15 @@ Status VariantColumnReader::_build_read_plan(ReadPlan* plan, const TabletColumn&
 
     // Otherwise the prefix is not exist and the sparse column size is reached limit
     // which means the path maybe exist in sparse_column
-    bool exceeded_sparse_column_limit = is_exceeded_sparse_column_limit();
-
-    // If the variant column has extracted columns and is a compaction reader, then read flat leaves
-    // Otherwise read hierarchical data, since the variant subcolumns are flattened in
-    // schema_util::get_compaction_schema. For checksum reader, we need to read flat leaves to
-    // get the correct data if has extracted columns.
-    auto need_read_flat_leaves = [](const StorageReadOptions* opts) {
-        return opts != nullptr && opts->tablet_schema != nullptr &&
-               std::ranges::any_of(
-                       opts->tablet_schema->columns(),
-                       [](const auto& column) { return column->is_extracted_column(); }) &&
-               (is_compaction_reader_type(opts->io_ctx.reader_type) ||
-                opts->io_ctx.reader_type == ReaderType::READER_CHECKSUM);
-    };
+    bool exceeded_sparse_column_limit = _is_exceeded_sparse_column_limit_unlocked();
 
     plan->relative_path = relative_path;
     plan->node = node;
     plan->root = root;
 
-    if (need_read_flat_leaves(opt)) {
-        // original path, compaction with wide schema
-        return _build_read_plan_flat_leaves(plan, target_col, opt, column_reader_cache);
-    }
-
     // Check if path is prefix, example sparse columns path: a.b.c, a.b.e, access prefix: a.b.
     // Or access root path
-    if (has_prefix_path(relative_path)) {
+    if (_has_prefix_path_unlocked(relative_path)) {
         // Example {"b" : {"c":456,"e":7.111}}
         // b.c is sparse column, b.e is subcolumn, so b is both the prefix of sparse column and
         // subcolumn
@@ -477,7 +489,7 @@ Status VariantColumnReader::_build_read_plan(ReadPlan* plan, const TabletColumn&
             std::shared_ptr<ColumnReader> leaf_column_reader;
             Status st = column_reader_cache->get_path_column_reader(
                     col_uid, relative_path, &leaf_column_reader, opt->stats, nullptr);
-            DCHECK(!has_prefix_path(relative_path));
+            DCHECK(!_has_prefix_path_unlocked(relative_path));
             if (st.ok()) {
                 // Try external meta fallback: build a leaf reader on demand from externalized meta
                 plan->kind = ReadKind::LEAF;
