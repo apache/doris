@@ -837,32 +837,213 @@ explain SELECT * FROM timestamptz_storage_dup_key_no_scale where ts_tz = '2023-0
     qt_scale_all """
         SELECT * FROM timestamptz_storage_dup_key_scale ORDER BY 1, 2, 3;
     """
-    qt_scale_eq """
+
+    // test =
+    ret = sql """
+        explain SELECT * FROM timestamptz_storage_dup_key_scale where ts_tz = '0000-01-01 00:00:00 +00:00' ORDER BY 1, 2, 3;
+    """
+    assertFalse(ret.toString().contains("CAST")) && assertFalse(ret.toString().contains("cast"))
+    qt_scale_eq0 """
+        SELECT * FROM timestamptz_storage_dup_key_scale where ts_tz = '0000-01-01 00:00:00.000000 +00:00' ORDER BY 1, 2, 3;
+    """
+
+    ret = sql """
+        explain SELECT * FROM timestamptz_storage_dup_key_scale where ts_tz = '0000-01-01 00:00:00.000001 +00:00' ORDER BY 1, 2, 3;
+    """
+    assertFalse(ret.toString().contains("CAST")) && assertFalse(ret.toString().contains("cast"))
+    qt_scale_eq1 """
         SELECT * FROM timestamptz_storage_dup_key_scale where ts_tz = '0000-01-01 00:00:00.000001 +00:00' ORDER BY 1, 2, 3;
     """
-    qt_scale_neq """
+
+    ret = sql """
+        explain SELECT * FROM timestamptz_storage_dup_key_scale where ts_tz = '2023-08-08 20:20:20.123456 +00:00' ORDER BY 1, 2, 3;
+    """
+    assertFalse(ret.toString().contains("CAST")) && assertFalse(ret.toString().contains("cast"))
+    qt_scale_eq2 """
+        SELECT * FROM timestamptz_storage_dup_key_scale where ts_tz = '2023-08-08 20:20:20.123456 +00:00' ORDER BY 1, 2, 3;
+    """
+
+    ret = sql """
+        explain SELECT * FROM timestamptz_storage_dup_key_scale where ts_tz = '9999-12-31 23:59:59.999999 +08:00' ORDER BY 1, 2, 3;
+    """
+    assertFalse(ret.toString().contains("CAST")) && assertFalse(ret.toString().contains("cast"))
+    qt_scale_eq3 """
+        SELECT * FROM timestamptz_storage_dup_key_scale where ts_tz = '9999-12-31 23:59:59.999999 +08:00' ORDER BY 1, 2, 3;
+    """
+
+    // test !=
+    ret = sql """
+        explain SELECT * FROM timestamptz_storage_dup_key_scale where ts_tz != '0000-01-01 00:00:00 +00:00' ORDER BY 1, 2, 3;
+    """
+    assertFalse(ret.toString().contains("CAST")) && assertFalse(ret.toString().contains("cast"))
+    qt_scale_neq0 """
+        SELECT * FROM timestamptz_storage_dup_key_scale where ts_tz != '0000-01-01 00:00:00.000000 +00:00' ORDER BY 1, 2, 3;
+    """
+
+    ret = sql """
+        explain SELECT * FROM timestamptz_storage_dup_key_scale where ts_tz != '0000-01-01 00:00:00.000001 +00:00' ORDER BY 1, 2, 3;
+    """
+    assertFalse(ret.toString().contains("CAST")) && assertFalse(ret.toString().contains("cast"))
+    qt_scale_neq1 """
         SELECT * FROM timestamptz_storage_dup_key_scale where ts_tz != '0000-01-01 00:00:00.000001 +00:00' ORDER BY 1, 2, 3;
     """
-    qt_scale_gt """
+
+    ret = sql """
+        explain SELECT * FROM timestamptz_storage_dup_key_scale where ts_tz != '2023-08-08 20:20:20.123456 +00:00' ORDER BY 1, 2, 3;
+    """
+    assertFalse(ret.toString().contains("CAST")) && assertFalse(ret.toString().contains("cast"))
+    qt_scale_neq2 """
+        SELECT * FROM timestamptz_storage_dup_key_scale where ts_tz != '2023-08-08 20:20:20.123456 +00:00' ORDER BY 1, 2, 3;
+    """
+
+    ret = sql """
+        explain SELECT * FROM timestamptz_storage_dup_key_scale where ts_tz != '9999-12-31 23:59:59.999999 +08:00' ORDER BY 1, 2, 3;
+    """
+    assertFalse(ret.toString().contains("CAST")) && assertFalse(ret.toString().contains("cast"))
+    qt_scale_neq3 """
+        SELECT * FROM timestamptz_storage_dup_key_scale where ts_tz != '9999-12-31 23:59:59.999999 +08:00' ORDER BY 1, 2, 3;
+    """
+    
+    // test >
+    ret = sql """
+        explain SELECT * FROM timestamptz_storage_dup_key_scale where ts_tz > '0000-01-01 00:00:00 +00:00' ORDER BY 1, 2, 3;
+    """
+    assertFalse(ret.toString().contains("CAST")) && assertFalse(ret.toString().contains("cast"))
+    qt_scale_gt0 """
+        SELECT * FROM timestamptz_storage_dup_key_scale where ts_tz > '0000-01-01 00:00:00.000000 +00:00' ORDER BY 1, 2, 3;
+    """
+
+    ret = sql """
+        explain SELECT * FROM timestamptz_storage_dup_key_scale where ts_tz > '0000-01-01 00:00:00.000001 +00:00' ORDER BY 1, 2, 3;
+    """
+    assertFalse(ret.toString().contains("CAST")) && assertFalse(ret.toString().contains("cast"))
+    qt_scale_gt1 """
         SELECT * FROM timestamptz_storage_dup_key_scale where ts_tz > '0000-01-01 00:00:00.000001 +00:00' ORDER BY 1, 2, 3;
     """
-    qt_scale_ge """
+
+    ret = sql """
+        explain SELECT * FROM timestamptz_storage_dup_key_scale where ts_tz > '2023-08-08 20:20:20.123456 +00:00' ORDER BY 1, 2, 3;
+    """
+    assertFalse(ret.toString().contains("CAST")) && assertFalse(ret.toString().contains("cast"))
+    qt_scale_gt2 """
+        SELECT * FROM timestamptz_storage_dup_key_scale where ts_tz > '2023-08-08 20:20:20.123456 +00:00' ORDER BY 1, 2, 3;
+    """
+
+    ret = sql """
+        explain SELECT * FROM timestamptz_storage_dup_key_scale where ts_tz > '9999-12-31 23:59:59.999999 +08:00' ORDER BY 1, 2, 3;
+    """
+    assertFalse(ret.toString().contains("CAST")) && assertFalse(ret.toString().contains("cast"))
+    qt_scale_gt3 """
+        SELECT * FROM timestamptz_storage_dup_key_scale where ts_tz > '9999-12-31 23:59:59.999999 +08:00' ORDER BY 1, 2, 3;
+    """
+
+    // test >=
+    ret = sql """
+        explain SELECT * FROM timestamptz_storage_dup_key_scale where ts_tz >= '0000-01-01 00:00:00 +00:00' ORDER BY 1, 2, 3;
+    """
+    assertFalse(ret.toString().contains("CAST")) && assertFalse(ret.toString().contains("cast"))
+    qt_scale_ge0 """
+        SELECT * FROM timestamptz_storage_dup_key_scale where ts_tz >= '0000-01-01 00:00:00.000000 +00:00' ORDER BY 1, 2, 3;
+    """
+
+    ret = sql """
+        explain SELECT * FROM timestamptz_storage_dup_key_scale where ts_tz >= '0000-01-01 00:00:00.000001 +00:00' ORDER BY 1, 2, 3;
+    """
+    assertFalse(ret.toString().contains("CAST")) && assertFalse(ret.toString().contains("cast"))
+    qt_scale_ge1 """
         SELECT * FROM timestamptz_storage_dup_key_scale where ts_tz >= '0000-01-01 00:00:00.000001 +00:00' ORDER BY 1, 2, 3;
     """
-    qt_scale_lt """
-        SELECT * FROM timestamptz_storage_dup_key_scale where ts_tz < '9999-12-30 23:59:59.999999 +00:00' ORDER BY 1, 2, 3;
+
+    ret = sql """
+        explain SELECT * FROM timestamptz_storage_dup_key_scale where ts_tz >= '2023-08-08 20:20:20.123456 +00:00' ORDER BY 1, 2, 3;
     """
+    assertFalse(ret.toString().contains("CAST")) && assertFalse(ret.toString().contains("cast"))
+    qt_scale_ge2 """
+        SELECT * FROM timestamptz_storage_dup_key_scale where ts_tz >= '2023-08-08 20:20:20.123456 +00:00' ORDER BY 1, 2, 3;
+    """
+
+    ret = sql """
+        explain SELECT * FROM timestamptz_storage_dup_key_scale where ts_tz >= '9999-12-31 23:59:59.999999 +08:00' ORDER BY 1, 2, 3;
+    """
+    assertFalse(ret.toString().contains("CAST")) && assertFalse(ret.toString().contains("cast"))
+    qt_scale_ge3 """
+        SELECT * FROM timestamptz_storage_dup_key_scale where ts_tz >= '9999-12-31 23:59:59.999999 +08:00' ORDER BY 1, 2, 3;
+    """
+
+    // test <
+    ret = sql """
+        explain SELECT * FROM timestamptz_storage_dup_key_scale where ts_tz < '0000-01-01 00:00:00 +00:00' ORDER BY 1, 2, 3;
+    """
+    assertFalse(ret.toString().contains("CAST")) && assertFalse(ret.toString().contains("cast"))
+    qt_scale_lt0 """
+        SELECT * FROM timestamptz_storage_dup_key_scale where ts_tz < '0000-01-01 00:00:00.000000 +00:00' ORDER BY 1, 2, 3;
+    """
+
+    ret = sql """
+        explain SELECT * FROM timestamptz_storage_dup_key_scale where ts_tz < '0000-01-01 00:00:00.000001 +00:00' ORDER BY 1, 2, 3;
+    """
+    assertFalse(ret.toString().contains("CAST")) && assertFalse(ret.toString().contains("cast"))
+    qt_scale_lt1 """
+        SELECT * FROM timestamptz_storage_dup_key_scale where ts_tz < '0000-01-01 00:00:00.000001 +00:00' ORDER BY 1, 2, 3;
+    """
+
+    ret = sql """
+        explain SELECT * FROM timestamptz_storage_dup_key_scale where ts_tz < '2023-08-08 20:20:20.123456 +00:00' ORDER BY 1, 2, 3;
+    """
+    assertFalse(ret.toString().contains("CAST")) && assertFalse(ret.toString().contains("cast"))
+    qt_scale_lt2 """
+        SELECT * FROM timestamptz_storage_dup_key_scale where ts_tz < '2023-08-08 20:20:20.123456 +00:00' ORDER BY 1, 2, 3;
+    """
+
+    ret = sql """
+        explain SELECT * FROM timestamptz_storage_dup_key_scale where ts_tz < '9999-12-31 23:59:59.999999 +08:00' ORDER BY 1, 2, 3;
+    """
+    assertFalse(ret.toString().contains("CAST")) && assertFalse(ret.toString().contains("cast"))
+    qt_scale_lt3 """
+        SELECT * FROM timestamptz_storage_dup_key_scale where ts_tz < '9999-12-31 23:59:59.999999 +08:00' ORDER BY 1, 2, 3;
+    """
+
+    // test <=
     //    SELECT * FROM timestamptz_storage_dup_key_scale where ts_tz < '9999-12-31 23:59:59.999999 +00:00' ORDER BY 1, 2, 3;
-    qt_scale_le """
-        SELECT * FROM timestamptz_storage_dup_key_scale where ts_tz <= '2023-12-12 12:12:12.123461 +09:00' ORDER BY 1, 2, 3;
+    ret = sql """
+        explain SELECT * FROM timestamptz_storage_dup_key_scale where ts_tz <= '0000-01-01 00:00:00 +00:00' ORDER BY 1, 2, 3;
     """
+    assertFalse(ret.toString().contains("CAST")) && assertFalse(ret.toString().contains("cast"))
+    qt_scale_le0 """
+        SELECT * FROM timestamptz_storage_dup_key_scale where ts_tz <= '0000-01-01 00:00:00.000000 +00:00' ORDER BY 1, 2, 3;
+    """
+
+    ret = sql """
+        explain SELECT * FROM timestamptz_storage_dup_key_scale where ts_tz <= '0000-01-01 00:00:00.000001 +00:00' ORDER BY 1, 2, 3;
+    """
+    assertFalse(ret.toString().contains("CAST")) && assertFalse(ret.toString().contains("cast"))
+    qt_scale_le1 """
+        SELECT * FROM timestamptz_storage_dup_key_scale where ts_tz <= '0000-01-01 00:00:00.000001 +00:00' ORDER BY 1, 2, 3;
+    """
+
+    ret = sql """
+        explain SELECT * FROM timestamptz_storage_dup_key_scale where ts_tz <= '2023-08-08 20:20:20.123456 +00:00' ORDER BY 1, 2, 3;
+    """
+    assertFalse(ret.toString().contains("CAST")) && assertFalse(ret.toString().contains("cast"))
+    qt_scale_le2 """
+        SELECT * FROM timestamptz_storage_dup_key_scale where ts_tz <= '2023-08-08 20:20:20.123456 +00:00' ORDER BY 1, 2, 3;
+    """
+
+    ret = sql """
+        explain SELECT * FROM timestamptz_storage_dup_key_scale where ts_tz <= '9999-12-31 23:59:59.999999 +08:00' ORDER BY 1, 2, 3;
+    """
+    assertFalse(ret.toString().contains("CAST")) && assertFalse(ret.toString().contains("cast"))
+    qt_scale_le3 """
+        SELECT * FROM timestamptz_storage_dup_key_scale where ts_tz <= '9999-12-31 23:59:59.999999 +08:00' ORDER BY 1, 2, 3;
+    """
+
+    // test in
     qt_scale_in """
-        SELECT * FROM timestamptz_storage_dup_key_scale where ts_tz in('0000-01-01 00:00:00.000001 +00:00', '9999-12-31 23:59:59.999999 +08:00', '2023-12-12 12:12:12.123461 +09:00') ORDER BY 1, 2, 3;
+        SELECT * FROM timestamptz_storage_dup_key_scale where ts_tz in('0000-01-01 00:00:00.000000 +00:00', '0000-01-01 00:00:00.000001 +00:00', '9999-12-31 23:59:59.999999 +08:00', '2023-12-12 12:12:12.123461 +09:00', '2023-08-08 20:20:20.999999 +00:00') ORDER BY 1, 2, 3;
     """
     qt_scale_not_in """
-        SELECT * FROM timestamptz_storage_dup_key_scale where ts_tz not in('0000-01-01 00:00:00.000001 +00:00', '9999-12-30 23:59:59.999999 +00:00', '2023-12-12 12:12:12.123461 +09:00') ORDER BY 1, 2, 3;
+        SELECT * FROM timestamptz_storage_dup_key_scale where ts_tz not in('0000-01-01 00:00:00.000000 +00:00', '0000-01-01 00:00:00.000001 +00:00', '9999-12-31 23:59:59.999999 +08:00', '2023-12-12 12:12:12.123461 +09:00', '2023-08-08 20:20:20.999999 +00:00') ORDER BY 1, 2, 3;
     """
-    //    SELECT * FROM timestamptz_storage_dup_key_scale where ts_tz not in('0000-01-01 00:00:00.000001 +00:00', '9999-12-31 23:59:59.999999 +00:00', '2023-12-12 12:12:12.123461 +09:00') ORDER BY 1, 2, 3;
     qt_scale_is_null """
         SELECT * FROM timestamptz_storage_dup_key_scale where ts_tz IS NULL ORDER BY 1, 2, 3;
     """
