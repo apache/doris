@@ -26,6 +26,7 @@ suite("test_array_contains_with_inverted_index") {
         sql """ set enable_profile = true;"""
 
     sql "DROP TABLE IF EXISTS ${indexTblName}"
+    sql """ set default_variant_enable_doc_mode = false """
     // create 1 replica table
     def storageFormat = new Random().nextBoolean() ? "V1" : "V2"
     if (storageFormat == "V1" && isCloudMode()) {

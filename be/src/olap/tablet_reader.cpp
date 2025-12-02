@@ -54,7 +54,7 @@
 #include "runtime/runtime_predicate.h"
 #include "runtime/runtime_state.h"
 #include "vec/common/arena.h"
-#include "vec/common/schema_util.h"
+#include "vec/common/variant_util.h"
 #include "vec/core/block.h"
 
 namespace doris {
@@ -237,7 +237,7 @@ TabletColumn TabletReader::materialize_column(const TabletColumn& orig) {
     }
     TabletColumn column_with_cast_type = orig;
     auto cast_type = _reader_context.target_cast_type_for_variants.at(orig.name());
-    return vectorized::schema_util::get_column_by_type(
+    return vectorized::variant_util::get_column_by_type(
             cast_type, orig.name(),
             {
                     .unique_id = orig.unique_id(),

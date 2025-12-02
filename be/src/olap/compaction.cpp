@@ -82,7 +82,7 @@
 #include "util/pretty_printer.h"
 #include "util/time.h"
 #include "util/trace.h"
-#include "vec/common/schema_util.h"
+#include "vec/common/variant_util.h"
 
 using std::vector;
 
@@ -371,7 +371,7 @@ Status CompactionMixin::do_compact_ordered_rowsets() {
     _output_rowset = _output_rs_writer->manual_build(rowset_meta);
 
     // 2. check variant column path stats
-    RETURN_IF_ERROR(vectorized::schema_util::VariantCompactionUtil::check_path_stats(
+    RETURN_IF_ERROR(vectorized::variant_util::VariantCompactionUtil::check_path_stats(
             _input_rowsets, _output_rowset, _tablet));
     return Status::OK();
 }
@@ -422,7 +422,7 @@ Status CompactionMixin::build_basic_info(bool is_ordered_compaction) {
     // for ordered compaction, we don't need to extend the schema for variant columns
     if (_enable_vertical_compact_variant_subcolumns && !is_ordered_compaction) {
         RETURN_IF_ERROR(
-                vectorized::schema_util::VariantCompactionUtil::get_extended_compaction_schema(
+                vectorized::variant_util::VariantCompactionUtil::get_extended_compaction_schema(
                         _input_rowsets, _cur_tablet_schema));
     }
     return Status::OK();
@@ -1424,7 +1424,7 @@ Status Compaction::check_correctness() {
                 _output_rowset->num_rows());
     }
     // 2. check variant column path stats
-    RETURN_IF_ERROR(vectorized::schema_util::VariantCompactionUtil::check_path_stats(
+    RETURN_IF_ERROR(vectorized::variant_util::VariantCompactionUtil::check_path_stats(
             _input_rowsets, _output_rowset, _tablet));
     return Status::OK();
 }
@@ -1488,7 +1488,7 @@ Status CloudCompactionMixin::build_basic_info() {
     // so get_extended_compaction_schema will extended the schema for variant columns
     if (_enable_vertical_compact_variant_subcolumns) {
         RETURN_IF_ERROR(
-                vectorized::schema_util::VariantCompactionUtil::get_extended_compaction_schema(
+                vectorized::variant_util::VariantCompactionUtil::get_extended_compaction_schema(
                         _input_rowsets, _cur_tablet_schema));
     }
     return Status::OK();

@@ -114,7 +114,7 @@ void SparseColumnMergeIterator::_merge_to(vectorized::MutableColumnPtr& dst) {
     auto& dst_sparse_column_offsets = column_map.get_offsets();
 
     const auto& src_column_map =
-            assert_cast<const vectorized::ColumnMap&>(*_sparse_column_cache->sparse_column);
+            assert_cast<const vectorized::ColumnMap&>(*_sparse_column_cache->binary_column);
     const auto& src_sparse_column_paths =
             assert_cast<const vectorized::ColumnString&>(*src_column_map.get_keys_ptr());
     const auto& src_sparse_column_values =
@@ -123,7 +123,7 @@ void SparseColumnMergeIterator::_merge_to(vectorized::MutableColumnPtr& dst) {
     DCHECK_EQ(src_sparse_column_paths.size(), src_sparse_column_values.size());
     // Src object column contains some paths in serialized sparse column in specified range.
     // Iterate over this range and insert all required paths into serialized sparse column or subcolumns.
-    for (size_t row = 0; row != _sparse_column_cache->sparse_column->size(); ++row) {
+    for (size_t row = 0; row != _sparse_column_cache->binary_column->size(); ++row) {
         // Use separate index to iterate over sorted sorted_src_subcolumn_for_sparse_column.
         size_t sorted_src_subcolumn_for_sparse_column_idx = 0;
         size_t sorted_src_subcolumn_for_sparse_column_size =
