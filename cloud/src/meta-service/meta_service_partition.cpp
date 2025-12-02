@@ -265,7 +265,7 @@ void MetaServiceImpl::commit_index(::google::protobuf::RpcController* controller
             IndexIndexPB index_index_pb;
             index_index_pb.set_db_id(db_id);
             index_index_pb.set_table_id(table_id);
-            LOG(INFO) << index_index_pb.DebugString();
+            LOG_INFO(index_index_pb.DebugString());
             std::string index_index_value;
             if (!index_index_pb.SerializeToString(&index_index_value)) {
                 code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
@@ -428,9 +428,9 @@ void MetaServiceImpl::drop_index(::google::protobuf::RpcController* controller,
         }
         operation_log.mutable_drop_index()->Swap(&drop_index_log);
         versioned::blob_put(txn.get(), operation_log_key, operation_log);
-        LOG(INFO) << "put drop index operation log"
-                  << " instance_id=" << instance_id << " table_id=" << request->table_id()
-                  << " index_ids=" << drop_index_log.index_ids_size();
+        LOG_INFO("put drop index operation log")
+                << " instance_id=" << instance_id << " table_id=" << request->table_id()
+                << " index_ids=" << drop_index_log.index_ids_size();
     }
 
     err = txn->commit();
@@ -906,9 +906,9 @@ void MetaServiceImpl::drop_partition(::google::protobuf::RpcController* controll
         }
         operation_log.mutable_drop_partition()->Swap(&drop_partition_log);
         versioned::blob_put(txn.get(), operation_log_key, operation_log);
-        LOG(INFO) << "put drop partition operation log"
-                  << " instance_id=" << instance_id << " table_id=" << request->table_id()
-                  << " partition_ids=" << drop_partition_log.partition_ids_size();
+        LOG_INFO("put drop partition operation log")
+                << " instance_id=" << instance_id << " table_id=" << request->table_id()
+                << " partition_ids=" << drop_partition_log.partition_ids_size();
     }
 
     err = txn->commit();

@@ -98,7 +98,6 @@ void MetaServiceImpl::begin_txn(::google::protobuf::RpcController* controller,
     int64_t txn_id {-1}, db_id {-1};
     AnnotateTag tag_txn_id("txn_id", txn_id), tag_db_id("db_id", db_id);
     RPC_PREPROCESS(begin_txn, get, put);
-    brpc::Controller c;
     if (!request->has_txn_info()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "invalid argument, missing txn info";
@@ -1984,7 +1983,7 @@ void repair_tablet_index(
                     return;
                 }
                 txn->put(sub_tablet_idx_keys[j], idx_val);
-               LOG_INFO("repaire tablet index txn_id={} tablet_idx_pb:{} key={}", txn_id,
+                LOG_INFO("repaire tablet index txn_id={} tablet_idx_pb:{} key={}", txn_id,
                          tablet_idx_pb.ShortDebugString(), hex(sub_tablet_idx_keys[j]));
                 if (is_versioned_write) {
                     std::string versioned_tablet_idx_key =

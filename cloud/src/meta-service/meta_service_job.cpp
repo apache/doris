@@ -507,7 +507,7 @@ void MetaServiceImpl::start_tablet_job(::google::protobuf::RpcController* contro
                                                               : cast_as<ErrCategory::READ>(err);
                 msg = fmt::format("failed to get tablet index, tablet_id={}, err={}", tablet_id,
                                   err);
-                LOG(WARNING) << msg;
+                LOG_WARNING(msg);
                 return;
             }
         }
@@ -804,8 +804,8 @@ std::pair<MetaServiceCode, std::string> scan_compaction_input_rowsets(
         std::string& rs_end, int& num_rowsets, auto&& callback) {
     std::unique_ptr<RangeGetIterator> it;
     DORIS_CLOUD_DEFER {
-        INSTANCE_LOG(INFO) << "get rowset meta, num_rowsets=" << num_rowsets << " range=["
-                           << hex(rs_start) << "," << hex(rs_end) << "]";
+        LOG_INFO("get rowset meta, ") << "num_rowsets=" << num_rowsets << " range=["
+                                      << hex(rs_start) << "," << hex(rs_end) << "]";
     };
 
     auto rs_start1 = rs_start;
@@ -972,7 +972,7 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
             code = cast_as<ErrCategory::READ>(err);
             msg = fmt::format("failed to get tablet compact stats, tablet_id={}, err={}", tablet_id,
                               err);
-            LOG(WARNING) << msg;
+            LOG_WARNING(msg);
             return;
         }
         TabletStatsPB load_stats;
@@ -982,7 +982,7 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
             code = cast_as<ErrCategory::READ>(err);
             msg = fmt::format("failed to get tablet load stats, tablet_id={}, err={}", tablet_id,
                               err);
-            LOG(WARNING) << msg;
+            LOG_WARNING(msg);
             return;
         }
         detach_tablet_stats(load_stats, detached_stats);
@@ -1038,22 +1038,21 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
 
     merge_tablet_stats(*stats, detached_stats); // this is to check
     if (stats->data_size() < 0 || stats->num_rowsets() < 1) [[unlikely]] {
-        INSTANCE_LOG(ERROR) << "buggy data size, tablet_id=" << tablet_id
-                            << " stats.num_rows=" << stats->num_rows()
-                            << " stats.data_size=" << stats->data_size()
-                            << " stats.num_rowsets=" << stats->num_rowsets()
-                            << " stats.num_segments=" << stats->num_segments()
-                            << " stats.index_size=" << stats->index_size()
-                            << " stats.segment_size=" << stats->segment_size()
-                            << " detached_stats.num_rows=" << detached_stats.num_rows
-                            << " detached_stats.data_size=" << detached_stats.data_size
-                            << " detached_stats.num_rowset=" << detached_stats.num_rowsets
-                            << " detached_stats.num_segments=" << detached_stats.num_segs
-                            << " detached_stats.index_size=" << detached_stats.index_size
-                            << " detached_stats.segment_size=" << detached_stats.segment_size
-                            << " compaction.size_output_rowsets="
-                            << compaction.size_output_rowsets()
-                            << " compaction.size_input_rowsets=" << compaction.size_input_rowsets();
+        LOG_ERROR("buggy data size, ")
+                << "tablet_id=" << tablet_id << " stats.num_rows=" << stats->num_rows()
+                << " stats.data_size=" << stats->data_size()
+                << " stats.num_rowsets=" << stats->num_rowsets()
+                << " stats.num_segments=" << stats->num_segments()
+                << " stats.index_size=" << stats->index_size()
+                << " stats.segment_size=" << stats->segment_size()
+                << " detached_stats.num_rows=" << detached_stats.num_rows
+                << " detached_stats.data_size=" << detached_stats.data_size
+                << " detached_stats.num_rowset=" << detached_stats.num_rowsets
+                << " detached_stats.num_segments=" << detached_stats.num_segs
+                << " detached_stats.index_size=" << detached_stats.index_size
+                << " detached_stats.segment_size=" << detached_stats.segment_size
+                << " compaction.size_output_rowsets=" << compaction.size_output_rowsets()
+                << " compaction.size_input_rowsets=" << compaction.size_input_rowsets();
         DCHECK(false) << "buggy data size, tablet_id=" << tablet_id;
     }
 
@@ -1130,15 +1129,15 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
             txn->put(recycle_key, recycle_val);
         }
 
-        INSTANCE_LOG(INFO) << "put recycle rowset, tablet_id=" << tablet_id
-                           << " key=" << hex(recycle_key);
+        LOG_INFO("put recycle rowset, ")
+                << "tablet_id=" << tablet_id << " key=" << hex(recycle_key);
     };
     if (!is_versioned_read) {
         std::tie(code, msg) =
                 scan_compaction_input_rowsets(txn.get(), instance_id, tablet_id, rs_start, rs_end,
                                               num_rowsets, handle_compaction_input_rowset_meta);
         if (code != MetaServiceCode::OK) {
-            LOG(WARNING) << msg;
+            LOG_WARNING(msg);
             return;
         }
     } else {
@@ -1149,7 +1148,7 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
             code = cast_as<ErrCategory::READ>(err);
             msg = fmt::format("failed to get rowset metas, tablet_id={}, start={}, end={}, err={}",
                               tablet_id, start, end, err);
-            LOG(WARNING) << msg;
+            LOG_WARNING(msg);
             return;
         }
         num_rowsets = rowset_metas.size();
@@ -1262,11 +1261,11 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
                               hex(meta_rowset_compact_key));
             return;
         }
-        LOG(INFO) << "put meta_rowset_compact_key, tablet_id=" << tablet_id
-                  << " end_version=" << version << " key=" << hex(meta_rowset_compact_key);
+        LOG_INFO("put meta_rowset_compact_key, ")
+                << "tablet_id=" << tablet_id << " end_version=" << version
+                << " key=" << hex(meta_rowset_compact_key);
     }
-    INSTANCE_LOG(INFO) << "put rowset meta, tablet_id=" << tablet_id
-                       << " rowset_key=" << hex(rowset_key);
+    LOG_INFO("put rowset meta, ") << "tablet_id=" << tablet_id << " rowset_key=" << hex(rowset_key);
 
     //==========================================================================
     //                      Remove compaction job
@@ -1588,8 +1587,8 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
         std::string versioned_new_tablet_key =
                 versioned::meta_tablet_key({instance_id, new_tablet_id});
         versioned_put(txn.get(), versioned_new_tablet_key, new_tablet_val);
-        LOG(INFO) << "put versioned new tablet meta, new_tablet_id=" << new_tablet_id
-                  << " key=" << hex(versioned_new_tablet_key);
+        LOG_INFO("put versioned new tablet meta, ")
+                << "new_tablet_id=" << new_tablet_id << " key=" << hex(versioned_new_tablet_key);
     }
 
     // process mow table, check lock
@@ -1680,8 +1679,9 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
             auto recycle_val = recycle_rowset.SerializeAsString();
             txn->put(recycle_key, recycle_val);
         }
-        INSTANCE_LOG(INFO) << "put recycle rowset, new_tablet_id=" << new_tablet_id << " version=["
-                           << start_version << "-" << end_version << "] key=" << hex(recycle_key);
+        LOG_INFO("put recycle rowset, ")
+                << "new_tablet_id=" << new_tablet_id << " version=[" << start_version << "-"
+                << end_version << "] key=" << hex(recycle_key);
     };
 
     if (!is_versioned_read) {
@@ -1689,7 +1689,7 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
                 scan_schema_change_input_rowsets(txn.get(), instance_id, new_tablet_id, rs_start,
                                                  rs_end, handle_schema_change_input_rowset_meta);
         if (code != MetaServiceCode::OK) {
-            LOG(WARNING) << msg;
+            LOG_WARNING(msg);
             return;
         }
     } else {
@@ -1701,7 +1701,7 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
             msg = fmt::format(
                     "failed to get rowset metas, new_tablet_id={}, start={}, end={}, err={}",
                     new_tablet_id, 2, schema_change.alter_version(), err);
-            LOG(WARNING) << msg;
+            LOG_WARNING(msg);
             return;
         }
         for (auto&& rowset_meta : rowset_metas) {
@@ -1723,7 +1723,7 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
             code = cast_as<ErrCategory::READ>(err);
             msg = fmt::format("failed to get tablet compact stats, tablet_id={}, err={}",
                               new_tablet_id, err);
-            LOG(WARNING) << msg;
+            LOG_WARNING(msg);
             return;
         }
 
@@ -1734,7 +1734,7 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
             code = cast_as<ErrCategory::READ>(err);
             msg = fmt::format("failed to get tablet load stats, tablet_id={}, err={}",
                               new_tablet_id, err);
-            LOG(WARNING) << msg;
+            LOG_WARNING(msg);
             return;
         }
         detach_tablet_stats(load_stats, detached_stats);
@@ -1959,7 +1959,7 @@ void MetaServiceImpl::finish_tablet_job(::google::protobuf::RpcController* contr
                                    : cast_as<ErrCategory::READ>(err);
                     msg = fmt::format("failed to get tablet index, tablet_id={}, err={}", tablet_id,
                                       err);
-                    LOG(WARNING) << msg;
+                    LOG_WARNING(msg);
                     return;
                 }
             }
