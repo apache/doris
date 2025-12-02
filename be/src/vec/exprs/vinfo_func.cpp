@@ -57,9 +57,7 @@ VInfoFunc::VInfoFunc(const TExprNode& node) : VExpr(node) {
 
 Status VInfoFunc::execute_column(VExprContext* context, const Block* block, size_t count,
                                  ColumnPtr& result_column) const {
-    // Info function should return least one row, e.g. select current_user().
-    size_t row_size = std::max(count, _column_ptr->size());
-    result_column = _column_ptr->clone_resized(row_size);
+    result_column = _column_ptr->clone_resized(count);
     DCHECK_EQ(result_column->size(), count);
     return Status::OK();
 }
