@@ -31,13 +31,17 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.junit.Assert;
-import org.junit.BeforeClass;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.parallel.Execution;
+import org.junit.jupiter.api.parallel.ExecutionMode;
 
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+@Execution(ExecutionMode.SAME_THREAD)
 public class SimpleSchedulerTest {
 
     private static Backend be1;
@@ -46,7 +50,7 @@ public class SimpleSchedulerTest {
     private static Backend be4;
     private static Backend be5;
 
-    @BeforeClass
+    @BeforeAll
     public static void setUp() {
         SimpleScheduler.init();
         Config.heartbeat_interval_second = 2;
@@ -55,6 +59,17 @@ public class SimpleSchedulerTest {
         be3 = new Backend(1002L, "192.168.100.2", 9050);
         be4 = new Backend(1003L, "192.168.100.3", 9050);
         be5 = new Backend(1004L, "192.168.100.4", 9050);
+
+        SystemInfoService currentSystemInfo = Env.getCurrentSystemInfo();
+        currentSystemInfo.addBackend(be1);
+        currentSystemInfo.addBackend(be2);
+        currentSystemInfo.addBackend(be3);
+        currentSystemInfo.addBackend(be4);
+        currentSystemInfo.addBackend(be5);
+    }
+
+    @BeforeEach
+    public void setAlive() {
         be1.setAlive(true);
         be2.setAlive(true);
         be3.setAlive(true);
@@ -193,31 +208,33 @@ public class SimpleSchedulerTest {
         scanRangeLocation5.setBackendId(be5.getId());
         locations.add(scanRangeLocation5);
 
-
-        boolean addBacklistSuccess = false;
-        // retry multiple times, because the UpdateBlacklistThread delete blacklist backend every second,
-        // so the SimpleScheduler.getHost() maybe not throw exception because the backend not exists in
-        // the blacklist
-        for (int retryTimes = 0; retryTimes < 20; retryTimes++) {
-            for (int i = 0; i <= Config.do_add_backend_black_list_threshold_count; i++) {
-                SimpleScheduler.addToBlacklist(be1.getId(), "test");
-                SimpleScheduler.addToBlacklist(be2.getId(), "test");
-                SimpleScheduler.addToBlacklist(be3.getId(), "test");
-                SimpleScheduler.addToBlacklist(be4.getId(), "test");
-                SimpleScheduler.addToBlacklist(be5.getId(), "test");
-            }
-
-            try {
-                SimpleScheduler.getHost(locations.get(0).backend_id, locations, backends, ref);
-                Assert.fail();
-            } catch (UserException e) {
-                System.out.println(e.getMessage());
-                addBacklistSuccess = true;
-                break;
-            }
+        for (int i = 0; i <= Config.do_add_backend_black_list_threshold_count; i++) {
+            be1.setAlive(false);
+            be2.setAlive(false);
+            be3.setAlive(false);
+            be4.setAlive(false);
+            be5.setAlive(false);
+            SimpleScheduler.addToBlacklist(be1.getId(), "test");
+            SimpleScheduler.addToBlacklist(be2.getId(), "test");
+            SimpleScheduler.addToBlacklist(be3.getId(), "test");
+            SimpleScheduler.addToBlacklist(be4.getId(), "test");
+            SimpleScheduler.addToBlacklist(be5.getId(), "test");
         }
-        Assert.assertTrue(addBacklistSuccess);
 
+        Thread.sleep(5000);
+
+        try {
+            SimpleScheduler.getHost(locations.get(0).backend_id, locations, backends, ref);
+            Assert.fail();
+        } catch (UserException e) {
+            System.out.println(e.getMessage());
+        }
+
+        be1.setAlive(true);
+        be2.setAlive(true);
+        be3.setAlive(true);
+        be4.setAlive(true);
+        be5.setAlive(true);
         Thread.sleep((Config.heartbeat_interval_second + 5) * 1000);
         Assert.assertNotNull(SimpleScheduler.getHost(locations.get(0).backend_id, locations, backends, ref));
     }
