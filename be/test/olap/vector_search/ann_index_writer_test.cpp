@@ -16,7 +16,6 @@
 // under the License.
 
 #include "olap/rowset/segment_v2/ann_index/ann_index_writer.h"
-#include "olap/field.h"
 
 #include <CLucene/store/RAMDirectory.h>
 #include <gen_cpp/olap_file.pb.h>
@@ -27,6 +26,7 @@
 #include <string>
 #include <vector>
 
+#include "olap/field.h"
 #include "olap/rowset/segment_v2/index_file_writer.h"
 #include "olap/rowset/segment_v2/inverted_index_fs_directory.h"
 #include "olap/tablet_schema.h"
