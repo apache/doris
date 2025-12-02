@@ -17,6 +17,10 @@
 
 
 suite("test_tvf_lz4_compress") {
+    def table1 = "test_tvf_lz4_compress_streamload"
+    def table2 = "test_tvf_lz4_compress_s3load"
+    def table3 = "test_tvf_lz4_compress_tvfload"
+
     def s3BucketName = getS3BucketName()
     def s3Endpoint = getS3Endpoint()
     def s3Region = getS3Region()
@@ -38,7 +42,7 @@ suite("test_tvf_lz4_compress") {
     */
     try {
         sql """
-            CREATE TABLE IF NOT EXISTS test_table1 (
+            CREATE TABLE IF NOT EXISTS ${table1} (
                 a INT,
                 b INT
             ) ENGINE=OLAP
@@ -51,7 +55,7 @@ suite("test_tvf_lz4_compress") {
 
         // stream load use 'lz4'
         streamLoad {
-            table "test_table1"
+            table "${table1}"
             set 'format', 'csv'
             set 'column_separator', ','
             set 'columns', 'a,b'
@@ -69,10 +73,10 @@ suite("test_tvf_lz4_compress") {
                 assertEquals(json.NumberLoadedRows, 10)
             }
         }
-        sql """ truncate table test_table1; """
+        sql """ truncate table ${table1}; """
         // stream load use 'lz4frame'
         streamLoad {
-            table "test_table1"
+            table "${table1}"
             set 'format', 'csv'
             set 'column_separator', ','
             set 'columns', 'a,b'
@@ -91,13 +95,13 @@ suite("test_tvf_lz4_compress") {
             }
         }
     } finally {
-        try_sql("DROP TABLE IF EXISTS test_table1")
+        try_sql("DROP TABLE IF EXISTS ${table1}")
     }
 
     // with S3 load test
     try {
         sql """
-            CREATE TABLE IF NOT EXISTS test_table2 (
+            CREATE TABLE IF NOT EXISTS ${table2} (
                 a INT,
                 b INT
             ) ENGINE=OLAP
@@ -113,7 +117,7 @@ suite("test_tvf_lz4_compress") {
         sql """
             LOAD LABEL ${label1} (
                 DATA INFILE("s3://${s3BucketName}/load/tvf_compress.csv.lz4")
-                INTO TABLE test_table2
+                INTO TABLE ${table2}
                 COLUMNS TERMINATED BY ","
                 FORMAT AS "csv"
                 (a, b)
@@ -129,8 +133,9 @@ suite("test_tvf_lz4_compress") {
 
         def max_try_milli_secs = 60000
         while (max_try_milli_secs > 0) {
-            def count = sql """ select * from test_table2; """
-            if (count.size() == 10) {
+            def load = sql """ show load where label = "${label1}" """
+            log.info("load info : ${load}")
+            if (load.size() > 0 && load[0][2] == "FINISHED") {
                 break
             }
             Thread.sleep(1000)
@@ -140,14 +145,14 @@ suite("test_tvf_lz4_compress") {
             }
         }
 
-        sql """ truncate table test_table2; """
+        sql """ truncate table ${table2}; """
 
         // S3 load use 'lz4frame'
         def label2 = "test_s3_load_lz4frame_" + System.currentTimeMillis()
         sql """
             LOAD LABEL ${label2} (
                 DATA INFILE("s3://${s3BucketName}/load/tvf_compress.csv.lz4")
-                INTO TABLE test_table2
+                INTO TABLE ${table2}
                 COLUMNS TERMINATED BY ","
                 FORMAT AS "csv"
                 (a, b)
@@ -161,9 +166,11 @@ suite("test_tvf_lz4_compress") {
             )
             """
 
+        max_try_milli_secs = 60000
         while (max_try_milli_secs > 0) {
-            def count = sql """ select * from test_table2; """
-            if (count.size() == 10) {
+            def load = sql """ show load where label = "${label2}" """
+            log.info("load info : ${load}")
+            if (load.size() > 0 && load[0][2] == "FINISHED") {
                 break
             }
             Thread.sleep(1000)
@@ -173,13 +180,13 @@ suite("test_tvf_lz4_compress") {
             }
         }
     } finally {
-        try_sql("DROP TABLE IF EXISTS test_table2")
+        try_sql("DROP TABLE IF EXISTS ${table2}")
     }
 
     // tvf s3 load test
     try {
         sql """
-            CREATE TABLE IF NOT EXISTS test_table3 (
+            CREATE TABLE IF NOT EXISTS ${table3} (
                 a INT,
                 b INT
             ) ENGINE=OLAP
@@ -192,7 +199,7 @@ suite("test_tvf_lz4_compress") {
 
         // TVF S3 load use 'lz4'
         sql """
-            INSERT INTO test_table3 
+            INSERT INTO ${table3} 
             SELECT CAST(split_part(c1, ',', 1) AS INT) AS a, CAST(split_part(c1, ',', 2) AS INT) AS b FROM S3 (
                 "uri" = "s3://${s3BucketName}/load/tvf_compress.csv.lz4",
                 "s3.access_key" = "${ak}",
@@ -204,14 +211,14 @@ suite("test_tvf_lz4_compress") {
             )
             """
 
-        qt_tvf_lz4 """ SELECT count(*) FROM test_table3; """
-        qt_tvf_lz4_data """ SELECT * FROM test_table3 ORDER BY a LIMIT 5; """
+        qt_tvf_lz4 """ SELECT count(*) FROM ${table3}; """
+        qt_tvf_lz4_data """ SELECT * FROM ${table3} ORDER BY a; """
 
-        sql """ truncate table test_table3; """
+        sql """ truncate table ${table3}; """
 
         // TVF S3 load use 'lz4frame'
         sql """
-            INSERT INTO test_table3 
+            INSERT INTO ${table3} 
             SELECT CAST(split_part(c1, ',', 1) AS INT) AS a, CAST(split_part(c1, ',', 2) AS INT) AS b FROM S3 (
                 "uri" = "s3://${s3BucketName}/load/tvf_compress.csv.lz4",
                 "s3.access_key" = "${ak}",
@@ -223,11 +230,11 @@ suite("test_tvf_lz4_compress") {
             )
             """
 
-        qt_tvf_lz4frame """ SELECT count(*) FROM test_table3; """
-        qt_tvf_lz4frame_data """ SELECT * FROM test_table3 ORDER BY a LIMIT 5; """
+        qt_tvf_lz4frame """ SELECT count(*) FROM ${table3}; """
+        qt_tvf_lz4frame_data """ SELECT * FROM ${table3} ORDER BY a; """
 
     } finally {
-        try_sql("DROP TABLE IF EXISTS test_table3")
+        try_sql("DROP TABLE IF EXISTS ${table3}")
     }
 
 }
