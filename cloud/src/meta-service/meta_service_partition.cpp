@@ -21,6 +21,7 @@
 #include <chrono>
 #include <memory>
 
+#include "common/defer.h"
 #include "common/logging.h"
 #include "common/stats.h"
 #include "meta-service/meta_service_helper.h"
@@ -602,6 +603,26 @@ void MetaServiceImpl::commit_partition(::google::protobuf::RpcController* contro
         return;
     }
 
+    constexpr size_t BATCH_COMMIT_SIZE = 1000;
+    for (size_t i = 0; i < request->partition_ids_size(); i += BATCH_COMMIT_SIZE) {
+        std::vector<int64_t> partition_ids;
+        size_t end = std::min(i + BATCH_COMMIT_SIZE, (size_t)request->partition_ids_size());
+        for (size_t j = i; j < end; j++) {
+            partition_ids.push_back(request->partition_ids(j));
+        }
+        commit_partition_internal(request, instance_id, partition_ids, code, msg, stats);
+        if (code != MetaServiceCode::OK) {
+            return;
+        }
+    }
+}
+
+void MetaServiceImpl::commit_partition_internal(const PartitionRequest* request,
+                                                const std::string& instance_id,
+                                                const std::vector<int64_t>& partition_ids,
+                                                MetaServiceCode& code, std::string& msg,
+                                                KVStats& stats) {
+    std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::CREATE>(err);
@@ -609,14 +630,27 @@ void MetaServiceImpl::commit_partition(::google::protobuf::RpcController* contro
         return;
     }
 
+    DORIS_CLOUD_DEFER {
+        if (txn) {
+            stats.get_bytes += txn->get_bytes();
+            stats.put_bytes += txn->put_bytes();
+            stats.del_bytes += txn->delete_bytes();
+            stats.get_counter += txn->num_get_keys();
+            stats.put_counter += txn->num_put_keys();
+            stats.del_counter += txn->num_del_keys();
+        }
+    };
+
     CommitPartitionLogPB commit_partition_log;
     commit_partition_log.set_db_id(request->db_id());
     commit_partition_log.set_table_id(request->table_id());
     commit_partition_log.mutable_index_ids()->CopyFrom(request->index_ids());
 
     bool is_versioned_read = is_version_read_enabled(instance_id);
+    bool is_versioned_write = is_version_write_enabled(instance_id);
     CloneChainReader reader(instance_id, resource_mgr_.get());
-    for (auto part_id : request->partition_ids()) {
+    size_t num_commit = 0;
+    for (auto part_id : partition_ids) {
         auto key = recycle_partition_key({instance_id, part_id});
         std::string val;
         err = txn->get(key, &val);
@@ -630,7 +664,8 @@ void MetaServiceImpl::commit_partition(::google::protobuf::RpcController* contro
                 }
                 // If partition has existed, this might be a duplicate request
                 if (err == TxnErrorCode::TXN_OK) {
-                    return; // Partition committed, OK
+                    // Partition committed, OK
+                    continue;
                 }
                 if (err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
                     code = cast_as<ErrCategory::READ>(err);
@@ -664,9 +699,10 @@ void MetaServiceImpl::commit_partition(::google::protobuf::RpcController* contro
         }
         LOG_INFO("remove recycle partition").tag("key", hex(key));
         txn->remove(key);
+        num_commit += 1;
 
         // Save the partition meta/index keys
-        if (request->has_db_id() && is_version_write_enabled(instance_id)) {
+        if (request->has_db_id() && is_versioned_write) {
             int64_t db_id = request->db_id();
             int64_t table_id = request->table_id();
             std::string part_meta_key = versioned::meta_partition_key({instance_id, part_id});
@@ -690,6 +726,11 @@ void MetaServiceImpl::commit_partition(::google::protobuf::RpcController* contro
 
             commit_partition_log.add_partition_ids(part_id);
         }
+    }
+
+    if (num_commit == 0) {
+        // All partitions have been committed, OK
+        return;
     }
 
     // update table versions
@@ -718,6 +759,7 @@ void MetaServiceImpl::commit_partition(::google::protobuf::RpcController* contro
         LOG_INFO("put commit partition operation log key")
                 .tag("instance_id", instance_id)
                 .tag("table_id", request->table_id())
+                .tag("num_partitions", operation_log.commit_partition().partition_ids_size())
                 .tag("operation_log_key", hex(operation_log_key));
     }
 

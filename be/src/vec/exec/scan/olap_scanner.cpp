@@ -83,6 +83,8 @@ OlapScanner::OlapScanner(pipeline::ScanLocalStateBase* parent, OlapScanner::Para
                                  .function_filters {},
                                  .delete_predicates {},
                                  .target_cast_type_for_variants {},
+                                 .all_access_paths {},
+                                 .predicate_access_paths {},
                                  .rs_splits {},
                                  .return_columns {},
                                  .output_columns {},
@@ -167,16 +169,34 @@ Status OlapScanner::prepare() {
     // value (e.g. select a from t where a .. and b ... limit 1),
     // it will be very slow when reading data in segment iterator
     _tablet_reader->set_batch_size(_state->batch_size());
-
     TabletSchemaSPtr cached_schema;
     std::string schema_key;
     {
         TOlapScanNode& olap_scan_node = local_state->olap_scan_node();
-        if (olap_scan_node.__isset.schema_version && olap_scan_node.__isset.columns_desc &&
-            !olap_scan_node.columns_desc.empty() &&
-            olap_scan_node.columns_desc[0].col_unique_id >= 0 && // Why check first column?
-            tablet->tablet_schema()->num_variant_columns() == 0 &&
-            tablet->tablet_schema()->num_virtual_columns() == 0) {
+
+        const auto check_can_use_cache = [&]() {
+            if (!(olap_scan_node.__isset.schema_version && olap_scan_node.__isset.columns_desc &&
+                  !olap_scan_node.columns_desc.empty() &&
+                  olap_scan_node.columns_desc[0].col_unique_id >= 0 && // Why check first column?
+                  tablet->tablet_schema()->num_variant_columns() == 0 &&
+                  tablet->tablet_schema()->num_virtual_columns() == 0)) {
+                return false;
+            }
+
+            const bool has_pruned_column =
+                    std::ranges::any_of(_output_tuple_desc->slots(), [](const auto& slot) {
+                        if ((slot->type()->get_primitive_type() == PrimitiveType::TYPE_STRUCT ||
+                             slot->type()->get_primitive_type() == PrimitiveType::TYPE_MAP ||
+                             slot->type()->get_primitive_type() == PrimitiveType::TYPE_ARRAY) &&
+                            !slot->all_access_paths().empty()) {
+                            return true;
+                        }
+                        return false;
+                    });
+            return !has_pruned_column;
+        }();
+
+        if (check_can_use_cache) {
             schema_key =
                     SchemaCache::get_schema_key(tablet->tablet_id(), olap_scan_node.columns_desc,
                                                 olap_scan_node.schema_version);
@@ -265,7 +285,7 @@ Status OlapScanner::prepare() {
 
     // Add newly created tablet schema to schema cache if it does not have virtual columns.
     if (cached_schema == nullptr && !schema_key.empty() &&
-        tablet_schema->num_virtual_columns() == 0) {
+        tablet_schema->num_virtual_columns() == 0 && !tablet_schema->has_pruned_columns()) {
         SchemaCache::instance()->insert_schema(schema_key, tablet_schema);
     }
 
@@ -489,10 +509,7 @@ Status OlapScanner::_init_variant_columns() {
         return Status::OK();
     }
     // Parent column has path info to distinction from each other
-    for (auto slot : _output_tuple_desc->slots()) {
-        if (!slot->is_materialized()) {
-            continue;
-        }
+    for (auto* slot : _output_tuple_desc->slots()) {
         if (slot->type()->get_primitive_type() == PrimitiveType::TYPE_VARIANT) {
             // Such columns are not exist in frontend schema info, so we need to
             // add them into tablet_schema for later column indexing.
@@ -512,10 +529,6 @@ Status OlapScanner::_init_variant_columns() {
 
 Status OlapScanner::_init_return_columns() {
     for (auto* slot : _output_tuple_desc->slots()) {
-        if (!slot->is_materialized()) {
-            continue;
-        }
-
         // variant column using path to index a column
         int32_t index = 0;
         auto& tablet_schema = _tablet_reader_params.tablet_schema;
@@ -545,6 +558,24 @@ Status OlapScanner::_init_return_columns() {
                     "Virtual column, slot id: {}, cid {}, column index: {}, type: {}", slot->id(),
                     virtual_column_cid, _vir_cid_to_idx_in_block[virtual_column_cid],
                     _vir_col_idx_to_type[idx_in_block]->get_name());
+        }
+
+        const auto& column = tablet_schema->column(index);
+        if (!slot->all_access_paths().empty()) {
+            _tablet_reader_params.all_access_paths.insert(
+                    {column.unique_id(), slot->all_access_paths()});
+        }
+
+        if (!slot->predicate_access_paths().empty()) {
+            _tablet_reader_params.predicate_access_paths.insert(
+                    {column.unique_id(), slot->predicate_access_paths()});
+        }
+
+        if ((slot->type()->get_primitive_type() == PrimitiveType::TYPE_STRUCT ||
+             slot->type()->get_primitive_type() == PrimitiveType::TYPE_MAP ||
+             slot->type()->get_primitive_type() == PrimitiveType::TYPE_ARRAY) &&
+            !slot->all_access_paths().empty()) {
+            tablet_schema->add_pruned_columns_data_type(column.unique_id(), slot->type());
         }
 
         _return_columns.push_back(index);

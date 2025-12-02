@@ -95,6 +95,7 @@ import org.apache.doris.nereids.trees.expressions.functions.combinator.StateComb
 import org.apache.doris.nereids.trees.expressions.functions.combinator.UnionCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayMap;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySort;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DictGet;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DictGetMany;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
@@ -568,6 +569,61 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
         LambdaFunctionCallExpr functionCallExpr =
                 new LambdaFunctionCallExpr(catalogFunction, new FunctionParams(false, arguments));
         functionCallExpr.setNullableFromNereids(arrayMap.nullable());
+        return functionCallExpr;
+    }
+
+    @Override
+    public Expr visitArraySort(ArraySort arraySort, PlanTranslatorContext context) {
+        if (!(arraySort.child(0) instanceof Lambda)) {
+            return visitScalarFunction(arraySort, context);
+        }
+        Lambda lambda = (Lambda) arraySort.child(0);
+        List<Expr> arguments = new ArrayList<>(arraySort.children().size());
+        arguments.add(null);
+
+        // Construct the first column
+        ArrayItemReference arrayItemReference = lambda.getLambdaArgument(0);
+        String argName = arrayItemReference.getName();
+        Expr expr = arrayItemReference.getArrayExpression().accept(this, context);
+        arguments.add(expr);
+        ColumnRefExpr column = new ColumnRefExpr();
+        column.setName(argName);
+        column.setColumnId(0);
+        column.setNullable(true);
+        column.setType(((ArrayType) expr.getType()).getItemType());
+        context.addExprIdColumnRefPair(arrayItemReference.getExprId(), column);
+
+        // the second column here will not be used; it's just a placeholder.
+        arrayItemReference = lambda.getLambdaArgument(1);
+        ColumnRefExpr column2 = new ColumnRefExpr(column);
+        column2.setColumnId(1);
+        context.addExprIdColumnRefPair(arrayItemReference.getExprId(), column2);
+
+        List<Type> argTypes = arraySort.getArguments().stream()
+                .map(Expression::getDataType)
+                .map(DataType::toCatalogDataType)
+                .collect(Collectors.toList());
+        // two slots are same, we only need one
+        lambda.getLambdaArguments().stream().skip(1)
+                .map(ArrayItemReference::getArrayExpression)
+                .map(Expression::getDataType)
+                .map(DataType::toCatalogDataType)
+                .forEach(argTypes::add);
+        NullableMode nullableMode = arraySort.nullable()
+                ? NullableMode.ALWAYS_NULLABLE
+                : NullableMode.ALWAYS_NOT_NULLABLE;
+        Type itemType = ((ArrayType) arguments.get(1).getType()).getItemType();
+        org.apache.doris.catalog.Function catalogFunction = new Function(
+                new FunctionName(arraySort.getName()), argTypes,
+                ArrayType.create(itemType, true),
+                true, true, nullableMode);
+
+        // create catalog FunctionCallExpr without analyze again
+        Expr lambdaBody = visitLambda(lambda, context);
+        arguments.set(0, lambdaBody);
+        LambdaFunctionCallExpr functionCallExpr = new LambdaFunctionCallExpr(catalogFunction,
+                new FunctionParams(false, arguments));
+        functionCallExpr.setNullableFromNereids(arraySort.nullable());
         return functionCallExpr;
     }
 

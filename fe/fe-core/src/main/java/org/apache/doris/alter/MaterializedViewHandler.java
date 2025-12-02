@@ -628,8 +628,8 @@ public class MaterializedViewHandler extends AlterHandler {
                     break;
                 }
             }
-            if (allKeysMatch) {
-                throw new DdlException("MV same with base table is useless.");
+            if (allKeysMatch && createMvCommand.getWhereClauseItem() == null) {
+                throw new DdlException("MV same with base table without where clause is useless.");
             }
         }
 
@@ -981,7 +981,7 @@ public class MaterializedViewHandler extends AlterHandler {
         } finally {
             olapTable.writeUnlock();
         }
-        Env.getCurrentInternalCatalog().eraseDroppedIndex(olapTable.getId(), deleteIndexList);
+        Env.getCurrentInternalCatalog().eraseDroppedIndex(db.getId(), olapTable.getId(), deleteIndexList);
     }
 
     public void processDropMaterializedView(DropMaterializedViewCommand dropMaterializedViewCommand, Database db,
@@ -1010,7 +1010,7 @@ public class MaterializedViewHandler extends AlterHandler {
         } finally {
             olapTable.writeUnlock();
         }
-        Env.getCurrentInternalCatalog().eraseDroppedIndex(olapTable.getId(), deleteIndexList);
+        Env.getCurrentInternalCatalog().eraseDroppedIndex(db.getId(), olapTable.getId(), deleteIndexList);
     }
 
     /**
@@ -1101,7 +1101,7 @@ public class MaterializedViewHandler extends AlterHandler {
 
         List<Long> deleteIndexList = new ArrayList<Long>();
         deleteIndexList.add(rollupIndexId);
-        Env.getCurrentInternalCatalog().eraseDroppedIndex(olapTable.getId(), deleteIndexList);
+        Env.getCurrentInternalCatalog().eraseDroppedIndex(db.getId(), olapTable.getId(), deleteIndexList);
         LOG.info("replay drop rollup {}", dropInfo.getIndexId());
     }
 

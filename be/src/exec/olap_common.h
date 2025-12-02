@@ -192,7 +192,7 @@ public:
 
     size_t get_fixed_value_size() const { return _fixed_values.size(); }
 
-    void to_olap_filter(std::vector<FilterOlapParam<TCondition>>& filters) {
+    void to_olap_filter(std::vector<FilterOlapParam<TCondition>>& filters) const {
         if (is_fixed_value_range()) {
             // 1. convert to in filter condition
             to_in_condition(filters, true);
@@ -210,7 +210,8 @@ public:
             if (null_pred.condition_values.size() != 0) {
                 filters.emplace_back(_column_name, null_pred, _runtime_filter_id,
                                      _predicate_filtered_rows_counter,
-                                     _predicate_input_rows_counter);
+                                     _predicate_input_rows_counter,
+                                     _predicate_always_true_rows_counter);
                 return;
             }
 
@@ -223,9 +224,9 @@ public:
             }
 
             if (low.condition_values.size() != 0) {
-                filters.emplace_back(_column_name, low, _runtime_filter_id,
-                                     _predicate_filtered_rows_counter,
-                                     _predicate_input_rows_counter);
+                filters.emplace_back(
+                        _column_name, low, _runtime_filter_id, _predicate_filtered_rows_counter,
+                        _predicate_input_rows_counter, _predicate_always_true_rows_counter);
             }
 
             TCondition high;
@@ -237,9 +238,9 @@ public:
             }
 
             if (high.condition_values.size() != 0) {
-                filters.emplace_back(_column_name, high, _runtime_filter_id,
-                                     _predicate_filtered_rows_counter,
-                                     _predicate_input_rows_counter);
+                filters.emplace_back(
+                        _column_name, high, _runtime_filter_id, _predicate_filtered_rows_counter,
+                        _predicate_input_rows_counter, _predicate_always_true_rows_counter);
             }
         } else {
             // 3. convert to is null and is not null filter condition
@@ -254,12 +255,14 @@ public:
             if (null_pred.condition_values.size() != 0) {
                 filters.emplace_back(_column_name, null_pred, _runtime_filter_id,
                                      _predicate_filtered_rows_counter,
-                                     _predicate_input_rows_counter);
+                                     _predicate_input_rows_counter,
+                                     _predicate_always_true_rows_counter);
             }
         }
     }
 
-    void to_in_condition(std::vector<FilterOlapParam<TCondition>>& filters, bool is_in = true) {
+    void to_in_condition(std::vector<FilterOlapParam<TCondition>>& filters,
+                         bool is_in = true) const {
         TCondition condition;
         condition.__set_column_name(_column_name);
         condition.__set_condition_op(is_in ? "*=" : "!*=");
@@ -271,7 +274,8 @@ public:
 
         if (condition.condition_values.size() != 0) {
             filters.emplace_back(_column_name, condition, _runtime_filter_id,
-                                 _predicate_filtered_rows_counter, _predicate_input_rows_counter);
+                                 _predicate_filtered_rows_counter, _predicate_input_rows_counter,
+                                 _predicate_always_true_rows_counter);
         }
     }
 
@@ -311,7 +315,8 @@ public:
     void attach_profile_counter(
             int runtime_filter_id,
             std::shared_ptr<RuntimeProfile::Counter> predicate_filtered_rows_counter,
-            std::shared_ptr<RuntimeProfile::Counter> predicate_input_rows_counter) {
+            std::shared_ptr<RuntimeProfile::Counter> predicate_input_rows_counter,
+            std::shared_ptr<RuntimeProfile::Counter> predicate_always_true_rows_counter) {
         DCHECK(predicate_filtered_rows_counter != nullptr);
         DCHECK(predicate_input_rows_counter != nullptr);
 
@@ -322,6 +327,9 @@ public:
         }
         if (predicate_input_rows_counter != nullptr) {
             _predicate_input_rows_counter = predicate_input_rows_counter;
+        }
+        if (predicate_always_true_rows_counter != nullptr) {
+            _predicate_always_true_rows_counter = predicate_always_true_rows_counter;
         }
     }
 
@@ -396,6 +404,8 @@ private:
     std::shared_ptr<RuntimeProfile::Counter> _predicate_filtered_rows_counter =
             std::make_shared<RuntimeProfile::Counter>(TUnit::UNIT, 0);
     std::shared_ptr<RuntimeProfile::Counter> _predicate_input_rows_counter =
+            std::make_shared<RuntimeProfile::Counter>(TUnit::UNIT, 0);
+    std::shared_ptr<RuntimeProfile::Counter> _predicate_always_true_rows_counter =
             std::make_shared<RuntimeProfile::Counter>(TUnit::UNIT, 0);
 };
 template <>

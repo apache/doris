@@ -237,6 +237,29 @@ suite("condition_cache") {
         JOIN ${joinTableName} t2 ON t1.id = t2.id
         WHERE t1.age > 25 AND t2.salary > 90000
     """
+    
+       // Run the same join query with condition cache enabled and expr in bloom filter 
+        order_qt_join_bf_cache1 """
+        SELECT
+            t1.id,
+            t1.name,
+            t1.age,
+            t2.department,
+            t2.position
+        FROM ${tableName} t1
+        JOIN ${joinTableName} t2 ON t1.id + 10 = t2.id
+    """
+   // Run the same join query with condition cache enabled and expr different in bloom filter
+        order_qt_join_bf_cache2 """
+        SELECT
+            t1.id,
+            t1.name,
+            t1.age,
+            t2.department,
+            t2.position
+        FROM ${tableName} t1
+        JOIN ${joinTableName} t2 ON t1.id + 1 = t2.id
+    """
 
     sql "set runtime_filter_type=12"
 

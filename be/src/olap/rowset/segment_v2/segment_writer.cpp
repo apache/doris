@@ -46,10 +46,12 @@
 #include "olap/rowset/rowset_writer_context.h" // RowsetWriterContext
 #include "olap/rowset/segment_creator.h"
 #include "olap/rowset/segment_v2/column_writer.h" // ColumnWriter
+#include "olap/rowset/segment_v2/external_col_meta_util.h"
 #include "olap/rowset/segment_v2/index_file_writer.h"
 #include "olap/rowset/segment_v2/index_writer.h"
 #include "olap/rowset/segment_v2/page_io.h"
 #include "olap/rowset/segment_v2/page_pointer.h"
+#include "olap/rowset/segment_v2/variant/variant_ext_meta_writer.h"
 #include "olap/rowset/segment_v2/variant_stats_calculator.h"
 #include "olap/segment_loader.h"
 #include "olap/short_key_index.h"
@@ -72,7 +74,6 @@
 #include "vec/jsonb/serialize.h"
 #include "vec/olap/olap_data_convertor.h"
 #include "vec/runtime/vdatetime_value.h"
-
 namespace doris {
 namespace segment_v2 {
 #include "common/compile_check_begin.h"
@@ -1143,6 +1144,15 @@ Status SegmentWriter::_write_primary_key_index() {
 
 Status SegmentWriter::_write_footer() {
     _footer.set_num_rows(_row_count);
+    // Decide whether to externalize ColumnMetaPB by tablet default, and stamp footer version
+    if (_tablet_schema->is_external_segment_column_meta_used()) {
+        _footer.set_version(SEGMENT_FOOTER_VERSION_V3_EXT_COL_META);
+        VLOG_DEBUG << "use external column meta";
+        // External ColumnMetaPB writing (optional)
+        RETURN_IF_ERROR(ExternalColMetaUtil::write_external_column_meta(
+                _file_writer, &_footer, _opts.compression_type,
+                [this](const std::vector<Slice>& slices) { return _write_raw_data(slices); }));
+    }
 
     // Footer := SegmentFooterPB, FooterPBSize(4), FooterPBChecksum(4), MagicNumber(4)
     std::string footer_buf;

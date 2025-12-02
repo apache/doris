@@ -127,6 +127,38 @@ void OrBlockColumnPredicate::evaluate_and(vectorized::MutableColumns& block, uin
     }
 }
 
+bool OrBlockColumnPredicate::evaluate_and(
+        vectorized::ParquetPredicate::CachedPageIndexStat* statistic, RowRanges* row_ranges) const {
+    if (num_of_column_predicate() >= 1) {
+        _block_column_predicate_vec[0]->evaluate_and(statistic, row_ranges);
+        for (int i = 1; i < num_of_column_predicate(); ++i) {
+            RowRanges tmp_row_ranges;
+            _block_column_predicate_vec[i]->evaluate_and(statistic, &tmp_row_ranges);
+            RowRanges::ranges_union(*row_ranges, tmp_row_ranges, row_ranges);
+        }
+    }
+    return row_ranges->count() != 0;
+}
+
+bool AndBlockColumnPredicate::evaluate_and(
+        vectorized::ParquetPredicate::CachedPageIndexStat* statistic, RowRanges* row_ranges) const {
+    if (num_of_column_predicate() >= 1) {
+        for (int i = 0; i < num_of_column_predicate(); ++i) {
+            RowRanges tmp_row_ranges;
+            if (!_block_column_predicate_vec[i]->evaluate_and(statistic, &tmp_row_ranges)) {
+                return false;
+            }
+
+            if (i == 0) {
+                *row_ranges = tmp_row_ranges;
+            } else {
+                RowRanges::ranges_intersection(*row_ranges, tmp_row_ranges, row_ranges);
+            }
+        }
+    }
+    return true;
+}
+
 uint16_t AndBlockColumnPredicate::evaluate(vectorized::MutableColumns& block, uint16_t* sel,
                                            uint16_t selected_size) const {
     for (auto& block_column_predicate : _block_column_predicate_vec) {

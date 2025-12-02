@@ -38,6 +38,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.ExternalView;
+import org.apache.doris.datasource.doris.RemoteDorisExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable.DLAType;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
@@ -424,7 +425,8 @@ public class BindRelation extends OneAnalysisRuleFactory {
                     if (hmsTable.getDlaType() == DLAType.HUDI) {
                         LogicalHudiScan hudiScan = new LogicalHudiScan(unboundRelation.getRelationId(), hmsTable,
                                 qualifierWithoutTableName, ImmutableList.of(), Optional.empty(),
-                                unboundRelation.getTableSample(), unboundRelation.getTableSnapshot());
+                                unboundRelation.getTableSample(), unboundRelation.getTableSnapshot(),
+                                Optional.empty());
                         hudiScan = hudiScan.withScanParams(
                                 hmsTable, Optional.ofNullable(unboundRelation.getScanParams()));
                         return hudiScan;
@@ -434,7 +436,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
                                 ImmutableList.of(),
                                 unboundRelation.getTableSample(),
                                 unboundRelation.getTableSnapshot(),
-                                Optional.ofNullable(unboundRelation.getScanParams()));
+                                Optional.ofNullable(unboundRelation.getScanParams()), Optional.empty());
                     }
                 case ICEBERG_EXTERNAL_TABLE:
                     IcebergExternalTable icebergExternalTable = (IcebergExternalTable) table;
@@ -464,17 +466,34 @@ public class BindRelation extends OneAnalysisRuleFactory {
                         qualifierWithoutTableName, ImmutableList.of(),
                         unboundRelation.getTableSample(),
                         unboundRelation.getTableSnapshot(),
-                        Optional.ofNullable(unboundRelation.getScanParams()));
+                        Optional.ofNullable(unboundRelation.getScanParams()), Optional.empty());
                 case PAIMON_EXTERNAL_TABLE:
                 case MAX_COMPUTE_EXTERNAL_TABLE:
                 case TRINO_CONNECTOR_EXTERNAL_TABLE:
                 case LAKESOUl_EXTERNAL_TABLE:
-                case DORIS_EXTERNAL_TABLE:
                     return new LogicalFileScan(unboundRelation.getRelationId(), (ExternalTable) table,
                             qualifierWithoutTableName, ImmutableList.of(),
                             unboundRelation.getTableSample(),
                             unboundRelation.getTableSnapshot(),
-                            Optional.ofNullable(unboundRelation.getScanParams()));
+                            Optional.ofNullable(unboundRelation.getScanParams()), Optional.empty());
+                case DORIS_EXTERNAL_TABLE:
+                    ConnectContext ctx = cascadesContext.getConnectContext();
+                    RemoteDorisExternalTable externalTable = (RemoteDorisExternalTable) table;
+                    if (!externalTable.useArrowFlight()) {
+                        if (!ctx.getSessionVariable().isEnableNereidsDistributePlanner()) {
+                            // use isEnableNereidsDistributePlanner instead of canUseNereidsDistributePlanner
+                            // because it cannot work in explain command
+                            throw new AnalysisException("query remote doris only support NereidsDistributePlanner"
+                                    + " when catalog use_arrow_flight is false");
+                        }
+                        OlapTable olapTable = externalTable.getOlapTable();
+                        return makeOlapScan(olapTable, unboundRelation, qualifierWithoutTableName, cascadesContext);
+                    }
+                    return new LogicalFileScan(unboundRelation.getRelationId(), (ExternalTable) table,
+                            qualifierWithoutTableName, ImmutableList.of(),
+                            unboundRelation.getTableSample(),
+                            unboundRelation.getTableSnapshot(),
+                            Optional.ofNullable(unboundRelation.getScanParams()), Optional.empty());
                 case SCHEMA:
                     LogicalSchemaScan schemaScan = new LogicalSchemaScan(unboundRelation.getRelationId(), table,
                             qualifierWithoutTableName);

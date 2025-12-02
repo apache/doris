@@ -219,10 +219,17 @@ Status DataTypeNumberSerDe<T>::read_column_from_arrow(IColumn& column,
         const auto* concrete_array = dynamic_cast<const arrow::StringArray*>(arrow_array);
         std::shared_ptr<arrow::Buffer> buffer = concrete_array->value_data();
 
+        const auto* offsets_data = concrete_array->value_offsets()->data();
+        const size_t offset_size = sizeof(int32_t);
         for (size_t offset_i = start; offset_i < end; ++offset_i) {
             if (!concrete_array->IsNull(offset_i)) {
-                const auto* raw_data = buffer->data() + concrete_array->value_offset(offset_i);
-                const auto raw_data_len = concrete_array->value_length(offset_i);
+                int32_t start_offset = 0;
+                int32_t end_offset = 0;
+                memcpy(&start_offset, offsets_data + offset_i * offset_size, offset_size);
+                memcpy(&end_offset, offsets_data + (offset_i + 1) * offset_size, offset_size);
+
+                const auto* raw_data = buffer->data() + start_offset;
+                const auto raw_data_len = end_offset - start_offset;
 
                 if (raw_data_len == 0) {
                     col_data.emplace_back(Int128()); // Int128() is NULL
@@ -911,7 +918,47 @@ template <PrimitiveType T>
 void DataTypeNumberSerDe<T>::to_string(const IColumn& column, size_t row_num,
                                        BufferWritable& bw) const {
     auto& data = assert_cast<const ColumnType&, TypeCheckOnRelease::DISABLE>(column).get_data();
-    value_to_string<T>(data[row_num], bw, get_scale());
+    if constexpr (is_date_type(T) || is_time_type(T) || is_ip(T)) {
+        if (_nesting_level > 1) {
+            bw.write('"');
+        }
+        value_to_string<T>(data[row_num], bw, get_scale());
+        if (_nesting_level > 1) {
+            bw.write('"');
+        }
+    } else {
+        value_to_string<T>(data[row_num], bw, get_scale());
+    }
+}
+
+template <PrimitiveType T>
+bool DataTypeNumberSerDe<T>::write_column_to_presto_text(const IColumn& column, BufferWritable& bw,
+                                                         int64_t row_idx) const {
+    auto& data = assert_cast<const ColumnType&, TypeCheckOnRelease::DISABLE>(column).get_data();
+    value_to_string<T>(data[row_idx], bw, get_scale());
+    return true;
+}
+
+template <PrimitiveType T>
+bool DataTypeNumberSerDe<T>::write_column_to_hive_text(const IColumn& column, BufferWritable& bw,
+                                                       int64_t row_idx) const {
+    auto& data = assert_cast<const ColumnType&, TypeCheckOnRelease::DISABLE>(column).get_data();
+    if constexpr (is_date_type(T) || is_time_type(T) || is_ip(T)) {
+        if (_nesting_level > 1) {
+            bw.write('"');
+        }
+        value_to_string<T>(data[row_idx], bw, get_scale());
+        if (_nesting_level > 1) {
+            bw.write('"');
+        }
+    } else if constexpr (T == TYPE_BOOLEAN) {
+        // In Hive, boolean values are represented as 'true' and 'false' strings.
+        std::string bool_value = data[row_idx] ? "true" : "false";
+        bw.write(bool_value.data(), bool_value.size());
+    } else {
+        value_to_string<T>(data[row_idx], bw, get_scale());
+    }
+    return true;
 }
 
 template <PrimitiveType T>

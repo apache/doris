@@ -2572,43 +2572,6 @@ TEST(function_string_test, function_unhex_test) {
     check_function_all_arg_comb<DataTypeString, true>(unhex_null_func_name, input_types, data_set);
 }
 
-TEST(function_string_test, function_coalesce_test) {
-    std::string func_name = "coalesce";
-    {
-        InputTypeSet input_types = {PrimitiveType::TYPE_INT, PrimitiveType::TYPE_INT,
-                                    PrimitiveType::TYPE_INT};
-        DataSet data_set = {{{Null(), Null(), (int32_t)1}, {(int32_t)1}},
-                            {{Null(), Null(), (int32_t)2}, {(int32_t)2}},
-                            {{Null(), Null(), (int32_t)3}, {(int32_t)3}},
-                            {{Null(), Null(), (int32_t)4}, {(int32_t)4}}};
-        static_cast<void>(
-                check_function_all_arg_comb<DataTypeInt32, true>(func_name, input_types, data_set));
-    }
-
-    {
-        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR,
-                                    PrimitiveType::TYPE_INT};
-        DataSet data_set = {
-                {{std::string("qwer"), Null(), (int32_t)1}, {std::string("qwer")}},
-                {{std::string("asdf"), Null(), (int32_t)2}, {std::string("asdf")}},
-                {{std::string("zxcv"), Null(), (int32_t)3}, {std::string("zxcv")}},
-                {{std::string("vbnm"), Null(), (int32_t)4}, {std::string("vbnm")}},
-        };
-        check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
-    }
-
-    {
-        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR,
-                                    PrimitiveType::TYPE_VARCHAR};
-        DataSet data_set = {
-                {{Null(), std::string("abc"), std::string("hij")}, {std::string("abc")}},
-                {{Null(), std::string("def"), std::string("klm")}, {std::string("def")}},
-                {{Null(), std::string(""), std::string("xyz")}, {std::string("")}},
-                {{Null(), Null(), std::string("uvw")}, {std::string("uvw")}}};
-        check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
-    }
-}
-
 TEST(function_string_test, function_replace) {
     std::string func_name = "replace";
     InputTypeSet input_types = {

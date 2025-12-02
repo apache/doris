@@ -58,11 +58,9 @@ public:
 
     Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
 
-    Status init_reader(
-            const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range);
+    Status init_reader();
 
 private:
-    const std::unordered_map<std::string, ColumnValueRangeType>* _colname_to_value_range;
     int64_t _remaining_table_level_row_count;
 };
 

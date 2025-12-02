@@ -1378,6 +1378,11 @@ public class SchemaChangeHandler extends AlterHandler {
 
         TStorageFormat storageFormat = PropertyAnalyzer.analyzeStorageFormat(propertyMap);
 
+        // if not explicitly specified in ALTER statement, use the current storage format of the table
+        if (!propertyMap.containsKey("storage_format")) {
+            storageFormat = olapTable.getStorageFormat();
+        }
+
         // property store_row_column && row_store_columns
         // eg. "store_row_column" = "true"
         // eg. "row_store_columns" = "k1, k2"
@@ -1620,14 +1625,7 @@ public class SchemaChangeHandler extends AlterHandler {
         schemaChangeJob.setBloomFilterInfo(hasBfChange, bfColumns, bfFpp);
         schemaChangeJob.setAlterIndexInfo(hasIndexChange, indexes);
         schemaChangeJob.setStoreRowColumnInfo(hasRowStoreChanged, storeRowColumn, rsColumns);
-
-        // If StorageFormat is set to TStorageFormat.V2
-        // which will create tablet with preferred_rowset_type set to BETA
-        // for both base table and rollup index
-        if (hasIndexChange) {
-            // only V2 support index, so if there is index changed, storage format must be V2
-            storageFormat = TStorageFormat.V2;
-        }
+        // set storage format of schema change job
         schemaChangeJob.setStorageFormat(storageFormat);
 
         // the following operations are done outside the 'for indices' loop
@@ -2116,7 +2114,7 @@ public class SchemaChangeHandler extends AlterHandler {
                     lightSchemaChange = false;
 
                     // ngram_bf index can do light_schema_change in both local and cloud mode
-                    // inverted index can only do light_schema_change in local mode
+                    // inverted index and ann index can only do light_schema_change in local mode
                     if (index.isLightAddIndexSupported(enableAddIndexForNewData)) {
                         alterIndexes.add(index);
                         isDropIndex = false;
@@ -2887,7 +2885,7 @@ public class SchemaChangeHandler extends AlterHandler {
     public void addIndexChangeJob(IndexChangeJob indexChangeJob) {
         indexChangeJobs.put(indexChangeJob.getJobId(), indexChangeJob);
         runnableIndexChangeJob.put(indexChangeJob.getJobId(), indexChangeJob);
-        LOG.info("add inverted index job {}", indexChangeJob.getJobId());
+        LOG.info("add inverted/ann index change job {}", indexChangeJob.getJobId());
     }
 
     private void clearFinishedOrCancelledSchemaChangeJobV2() {
@@ -2906,7 +2904,7 @@ public class SchemaChangeHandler extends AlterHandler {
             IndexChangeJob indexChangeJob = iterator.next().getValue();
             if (indexChangeJob.isExpire()) {
                 iterator.remove();
-                LOG.info("remove expired inverted index job {}. finish at {}",
+                LOG.info("remove expired inverted/ann index change job {}. finish at {}",
                         indexChangeJob.getJobId(), TimeUtils.longToTimeString(indexChangeJob.getFinishedTimeMs()));
             }
         }

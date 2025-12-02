@@ -49,8 +49,7 @@ public:
 
     ~TrinoConnectorJniReader() override = default;
 
-    Status init_reader(
-            const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range);
+    Status init_reader();
 
 private:
     Status _set_spi_plugins_dir();

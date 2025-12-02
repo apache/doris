@@ -111,7 +111,7 @@ uint16_t BitmapFilterColumnPredicate<T>::_evaluate_inner(const vectorized::IColu
     } else {
         new_size = evaluate<false>(column, nullptr, sel, size);
     }
-    update_filter_info(size - new_size, size);
+    update_filter_info(size - new_size, size, 0);
     return new_size;
 }
 } //namespace doris

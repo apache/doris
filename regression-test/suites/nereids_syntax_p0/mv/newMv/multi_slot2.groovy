@@ -18,6 +18,8 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("multi_slot2") {
+    String db = context.config.getDbNameByFile(context.file)
+    sql "use ${db}"
     // this mv rewrite would not be rewritten in RBO, so set NOT_IN_RBO explicitly
     sql "set pre_materialized_view_rewrite_strategy = NOT_IN_RBO"
     sql """ DROP TABLE IF EXISTS multi_slot2; """
@@ -46,9 +48,8 @@ suite ("multi_slot2") {
     }
     assertTrue(createFail);
 
-    createMV ("create materialized view k1a2p2ap3ps as select abs(k1)+k2+1 as a3,sum(abs(k2+2)+k3+3) as a4 from multi_slot2 group by abs(k1)+k2+1;")
+    create_sync_mv(db, "multi_slot2", "k1a2p2ap3ps", "select abs(k1)+k2+1 as a3,sum(abs(k2+2)+k3+3) as a4 from multi_slot2 group by abs(k1)+k2+1;")
 
-    sleep(3000)
     sql "insert into multi_slot2 select -4,-4,-4,'d';"
     sql "SET experimental_enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
