@@ -284,8 +284,8 @@ public:
         // so reference here is safe.
         // https://stackoverflow.com/questions/14688285/c-local-variable-destruction-order
         Defer defer([&]() {
-            update_filter_info(current_evaluated_rows - current_passed_rows,
-                               current_evaluated_rows);
+            update_filter_info(current_evaluated_rows - current_passed_rows, current_evaluated_rows,
+                               0);
             try_reset_judge_selectivity();
         });
 
