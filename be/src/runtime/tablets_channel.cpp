@@ -209,6 +209,9 @@ Status BaseTabletsChannel::incremental_open(const PTabletWriterOpenRequest& para
     if (index_slots == nullptr) {
         return Status::InternalError("unknown index id, key={}", _key.to_string());
     }
+
+    std::shared_ptr<TabletSchema> shared_schema = _get_shared_tablet_schema();
+
     // update tablets
     size_t incremental_tablet_num = 0;
     std::stringstream ss;
@@ -235,6 +238,7 @@ Status BaseTabletsChannel::incremental_open(const PTabletWriterOpenRequest& para
         wrequest.table_schema_param = _schema;
         wrequest.txn_expiration = params.txn_expiration(); // Required by CLOUD.
         wrequest.storage_vault_id = params.storage_vault_id();
+        wrequest.shared_tablet_schema = shared_schema;
 
         auto delta_writer = create_delta_writer(wrequest);
         {
@@ -498,6 +502,8 @@ Status BaseTabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& req
     }
 #endif
 
+    std::shared_ptr<TabletSchema> shared_schema = _get_shared_tablet_schema();
+
     int tablet_cnt = 0;
     // under _lock. no need _tablet_writers_lock again.
     for (const auto& tablet : request.tablets()) {
@@ -519,6 +525,7 @@ Status BaseTabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& req
                 .is_high_priority = _is_high_priority,
                 .write_file_cache = request.write_file_cache(),
                 .storage_vault_id = request.storage_vault_id(),
+                .shared_tablet_schema = shared_schema,
         };
 
         auto delta_writer = create_delta_writer(wrequest);
@@ -597,7 +604,9 @@ Status BaseTabletsChannel::_write_block_data(
         }
 
         Status st = write_func(tablet_writer_it->second.get());
-        if (!st.ok()) {
+        if (st.ok()) {
+            _cache_shared_tablet_schema(tablet_writer_it->second.get());
+        } else {
             auto err_msg =
                     fmt::format("tablet writer write failed, tablet_id={}, txn_id={}, err={}",
                                 tablet_id, _txn_id, st.to_string());
@@ -631,6 +640,29 @@ Status BaseTabletsChannel::_write_block_data(
         _next_seqs[request.sender_id()] = cur_seq + 1;
     }
     return Status::OK();
+}
+
+void BaseTabletsChannel::_cache_shared_tablet_schema(BaseDeltaWriter* writer) {
+    if (writer == nullptr) {
+        return;
+    }
+    auto schema = writer->shared_tablet_schema();
+    if (schema == nullptr) {
+        return;
+    }
+    std::lock_guard<std::mutex> lock(_tablet_schema_mutex);
+    if (_shared_tablet_schemas.find(_index_id) == _shared_tablet_schemas.end()) {
+        _shared_tablet_schemas[_index_id] = schema;
+    }
+}
+
+std::shared_ptr<TabletSchema> BaseTabletsChannel::_get_shared_tablet_schema() {
+    std::lock_guard<std::mutex> lock(_tablet_schema_mutex);
+    auto it = _shared_tablet_schemas.find(_index_id);
+    if (it != _shared_tablet_schemas.end()) {
+        return it->second;
+    }
+    return nullptr;
 }
 
 Status TabletsChannel::add_batch(const PTabletWriterAddBlockRequest& request,

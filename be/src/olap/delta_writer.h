@@ -83,6 +83,8 @@ public:
     // Wait all memtable in flush queue to be flushed
     Status wait_flush();
 
+    TabletSchemaSPtr shared_tablet_schema() const;
+
     int64_t partition_id() const { return _req.partition_id; }
 
     int64_t tablet_id() const { return _req.tablet_id; }

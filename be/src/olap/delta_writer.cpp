@@ -158,6 +158,13 @@ Status BaseDeltaWriter::wait_flush() {
     return _memtable_writer->wait_flush();
 }
 
+TabletSchemaSPtr BaseDeltaWriter::shared_tablet_schema() const {
+    if (_rowset_builder == nullptr) {
+        return nullptr;
+    }
+    return _rowset_builder->tablet_schema();
+}
+
 Status DeltaWriter::close() {
     _lock_watch.start();
     std::lock_guard<std::mutex> l(_lock);

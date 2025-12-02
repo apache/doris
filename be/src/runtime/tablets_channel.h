@@ -78,6 +78,7 @@ std::ostream& operator<<(std::ostream& os, const TabletsChannelKey& key);
 class BaseDeltaWriter;
 class MemTableWriter;
 class OlapTableSchemaParam;
+class TabletSchema;
 class LoadChannel;
 struct WriteRequest;
 
@@ -140,6 +141,9 @@ protected:
             std::unordered_map<int64_t /* tablet_id */, DorisVector<uint32_t> /* row index */>*
                     tablet_to_rowidxs);
     virtual void _init_profile(RuntimeProfile* profile);
+
+    void _cache_shared_tablet_schema(BaseDeltaWriter* writer);
+    std::shared_ptr<TabletSchema> _get_shared_tablet_schema();
 
     // id of this load channel
     TabletsChannelKey _key;
@@ -205,6 +209,11 @@ protected:
     // record rows received and filtered
     size_t _total_received_rows = 0;
     size_t _num_rows_filtered = 0;
+
+    // index_id -> shared tablet schema for memory optimization
+    // All delta writers for the same index in this load will share the same tablet schema
+    std::unordered_map<int64_t, std::shared_ptr<TabletSchema>> _shared_tablet_schemas;
+    std::mutex _tablet_schema_mutex;
 };
 
 class DeltaWriter;

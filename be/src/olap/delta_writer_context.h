@@ -21,6 +21,7 @@
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/types.pb.h>
 
+#include <memory>
 #include <vector>
 
 namespace doris {
@@ -28,6 +29,7 @@ namespace doris {
 class TupleDescriptor;
 class SlotDescriptor;
 class OlapTableSchemaParam;
+class TabletSchema;
 
 struct WriteRequest {
     int64_t tablet_id = 0;
@@ -44,6 +46,7 @@ struct WriteRequest {
     bool is_high_priority = false;
     bool write_file_cache = false;
     std::string storage_vault_id;
+    std::shared_ptr<TabletSchema> shared_tablet_schema = nullptr;
 };
 
 } // namespace doris

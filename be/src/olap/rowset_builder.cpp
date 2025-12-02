@@ -211,8 +211,14 @@ Status RowsetBuilder::init() {
         };
     })
     // build tablet schema in request level
-    RETURN_IF_ERROR(_build_current_tablet_schema(_req.index_id, _req.table_schema_param.get(),
-                                                 *_tablet->tablet_schema()));
+    // Reuse shared tablet schema if provided to save memory
+    if (_req.shared_tablet_schema != nullptr) {
+        _tablet_schema = _req.shared_tablet_schema;
+    } else {
+        RETURN_IF_ERROR(_build_current_tablet_schema(_req.index_id, _req.table_schema_param.get(),
+                                                     *_tablet->tablet_schema()));
+        _req.shared_tablet_schema = _tablet_schema;
+    }
     RowsetWriterContext context;
     context.txn_id = _req.txn_id;
     context.load_id = _req.load_id;
