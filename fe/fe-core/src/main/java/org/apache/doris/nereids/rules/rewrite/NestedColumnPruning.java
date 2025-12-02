@@ -244,11 +244,18 @@ public class NestedColumnPruning implements CustomRewriter {
 
     /** DataTypeAccessTree */
     public static class DataTypeAccessTree {
+        // type of this level
         private DataType type;
+        // is the root column?
         private boolean isRoot;
+        // if access 's.a.b' the node 's' and 'a' has accessPartialChild, and node 'b' has accessAll
         private boolean accessPartialChild;
         private boolean accessAll;
+        // for the future, only access the meta of the column,
+        // e.g. `is not null` can only access the column's offset, not need to read the data
         private TAccessPathType pathType;
+        // the children of the column, for example, column s is `struct<a:int, b:int>`,
+        // then node 's' has two children: 'a' and 'b', and the key is the column name
         private Map<String, DataTypeAccessTree> children = new LinkedHashMap<>();
 
         public DataTypeAccessTree(DataType type, TAccessPathType pathType) {
@@ -259,6 +266,30 @@ public class NestedColumnPruning implements CustomRewriter {
             this.isRoot = isRoot;
             this.type = type;
             this.pathType = pathType;
+        }
+
+        public DataType getType() {
+            return type;
+        }
+
+        public boolean isRoot() {
+            return isRoot;
+        }
+
+        public boolean isAccessPartialChild() {
+            return accessPartialChild;
+        }
+
+        public boolean isAccessAll() {
+            return accessAll;
+        }
+
+        public TAccessPathType getPathType() {
+            return pathType;
+        }
+
+        public Map<String, DataTypeAccessTree> getChildren() {
+            return children;
         }
 
         /** pruneCastType */
@@ -297,8 +328,16 @@ public class NestedColumnPruning implements CustomRewriter {
                 );
             } else if (type instanceof MapType) {
                 return MapType.of(
-                        children.get("KEYS").pruneCastType(origin.children.get("KEYS"), cast.children.get("KEYS")),
-                        children.get("VALUES").pruneCastType(origin.children.get("VALUES"), cast.children.get("VALUES"))
+                        children.get(AccessPathInfo.ACCESS_MAP_KEYS)
+                                .pruneCastType(
+                                        origin.children.get(AccessPathInfo.ACCESS_MAP_KEYS),
+                                        cast.children.get(AccessPathInfo.ACCESS_MAP_KEYS)
+                                ),
+                        children.get(AccessPathInfo.ACCESS_MAP_VALUES)
+                                .pruneCastType(
+                                        origin.children.get(AccessPathInfo.ACCESS_MAP_VALUES),
+                                        cast.children.get(AccessPathInfo.ACCESS_MAP_VALUES)
+                                )
                 );
             } else {
                 return cast.type;
@@ -327,7 +366,7 @@ public class NestedColumnPruning implements CustomRewriter {
                         cast.children.values().iterator().next(), path, index + 1);
             } else if (cast.type instanceof MapType) {
                 String fieldName = path.get(index);
-                return children.get("VALUES").replacePathByAnotherTree(
+                return children.get(AccessPathInfo.ACCESS_MAP_VALUES).replacePathByAnotherTree(
                         cast.children.get(fieldName), path, index + 1
                 );
             }
@@ -358,33 +397,33 @@ public class NestedColumnPruning implements CustomRewriter {
                 }
                 return;
             } else if (this.type.isArrayType()) {
-                DataTypeAccessTree child = children.get("*");
-                if (path.get(accessIndex).equals("*")) {
+                DataTypeAccessTree child = children.get(AccessPathInfo.ACCESS_ALL);
+                if (path.get(accessIndex).equals(AccessPathInfo.ACCESS_ALL)) {
                     // enter this array and skip next *
                     child.setAccessByPath(path, accessIndex + 1, pathType);
                 }
                 return;
             } else if (this.type.isMapType()) {
                 String fieldName = path.get(accessIndex);
-                if (fieldName.equals("*")) {
+                if (fieldName.equals(AccessPathInfo.ACCESS_ALL)) {
                     // access value by the key, so we should access key and access value, then prune the value's type.
                     // e.g. map_column['id'] should access the keys, and access the values
-                    DataTypeAccessTree keysChild = children.get("KEYS");
-                    DataTypeAccessTree valuesChild = children.get("VALUES");
+                    DataTypeAccessTree keysChild = children.get(AccessPathInfo.ACCESS_MAP_KEYS);
+                    DataTypeAccessTree valuesChild = children.get(AccessPathInfo.ACCESS_MAP_VALUES);
                     keysChild.accessAll = true;
                     valuesChild.setAccessByPath(path, accessIndex + 1, pathType);
                     return;
-                } else if (fieldName.equals("KEYS")) {
+                } else if (fieldName.equals(AccessPathInfo.ACCESS_MAP_KEYS)) {
                     // only access the keys and not need enter keys, because it must be primitive type.
                     // e.g. map_keys(map_column)
-                    DataTypeAccessTree keysChild = children.get("KEYS");
+                    DataTypeAccessTree keysChild = children.get(AccessPathInfo.ACCESS_MAP_KEYS);
                     keysChild.accessAll = true;
                     return;
-                } else if (fieldName.equals("VALUES")) {
+                } else if (fieldName.equals(AccessPathInfo.ACCESS_MAP_VALUES)) {
                     // only access the values without keys, and maybe prune the value's data type.
                     // e.g. map_values(map_columns)[0] will access the array of values first,
                     //      and then access the array, so the access path is ['VALUES', '*']
-                    DataTypeAccessTree valuesChild = children.get("VALUES");
+                    DataTypeAccessTree valuesChild = children.get(AccessPathInfo.ACCESS_MAP_VALUES);
                     valuesChild.setAccessByPath(path, accessIndex + 1, pathType);
                     return;
                 }
@@ -411,10 +450,10 @@ public class NestedColumnPruning implements CustomRewriter {
                     root.children.put(kv.getKey().toLowerCase(), of(kv.getValue().getDataType(), pathType));
                 }
             } else if (type instanceof ArrayType) {
-                root.children.put("*", of(((ArrayType) type).getItemType(), pathType));
+                root.children.put(AccessPathInfo.ACCESS_ALL, of(((ArrayType) type).getItemType(), pathType));
             } else if (type instanceof MapType) {
-                root.children.put("KEYS", of(((MapType) type).getKeyType(), pathType));
-                root.children.put("VALUES", of(((MapType) type).getValueType(), pathType));
+                root.children.put(AccessPathInfo.ACCESS_MAP_KEYS, of(((MapType) type).getKeyType(), pathType));
+                root.children.put(AccessPathInfo.ACCESS_MAP_VALUES, of(((MapType) type).getValueType(), pathType));
             }
             return root;
         }
@@ -440,17 +479,17 @@ public class NestedColumnPruning implements CustomRewriter {
                     }
                 }
             } else if (type instanceof ArrayType) {
-                Optional<DataType> childDataType = children.get("*").pruneDataType();
+                Optional<DataType> childDataType = children.get(AccessPathInfo.ACCESS_ALL).pruneDataType();
                 if (childDataType.isPresent()) {
-                    accessedChildren.add(Pair.of("*", childDataType.get()));
+                    accessedChildren.add(Pair.of(AccessPathInfo.ACCESS_ALL, childDataType.get()));
                 }
             } else if (type instanceof MapType) {
-                DataType prunedValueType = children.get("VALUES")
+                DataType prunedValueType = children.get(AccessPathInfo.ACCESS_MAP_VALUES)
                         .pruneDataType()
                         .orElse(((MapType) type).getValueType());
                 // can not prune keys but can prune values
-                accessedChildren.add(Pair.of("KEYS", ((MapType) type).getKeyType()));
-                accessedChildren.add(Pair.of("VALUES", prunedValueType));
+                accessedChildren.add(Pair.of(AccessPathInfo.ACCESS_MAP_KEYS, ((MapType) type).getKeyType()));
+                accessedChildren.add(Pair.of(AccessPathInfo.ACCESS_MAP_VALUES, prunedValueType));
             }
             if (accessedChildren.isEmpty()) {
                 return Optional.of(type);

@@ -23,18 +23,24 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.Triple;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.rules.rewrite.NestedColumnPruning.DataTypeAccessTree;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ArrayItemReference;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Coalesce;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StructElement;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.NestedColumnPrunable;
+import org.apache.doris.nereids.types.NullType;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.planner.OlapScanNode;
@@ -67,6 +73,7 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
 
         createTable("create table tbl(\n"
                 + "  id int,\n"
+                + "  value int,\n"
                 + "  s struct<\n"
                 + "    city: string,\n"
                 + "    data: array<map<\n"
@@ -78,6 +85,7 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
 
         createTable("create table tbl2(\n"
                 + "  id2 int,\n"
+                + "  value int,\n"
                 + "  s2 struct<\n"
                 + "    city2: string,\n"
                 + "    data2: array<map<\n"
@@ -371,13 +379,13 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
 
     @Test
     public void testUnion() throws Throwable {
-        assertColumn("select struct_element(s, 'city') from (select s from tbl union all select null)a",
+        assertColumn("select coalesce(struct_element(s, 'city'), 'abc') from (select s from tbl union all select null)a",
                 "struct<city:text>",
                 ImmutableList.of(path("s", "city")),
                 ImmutableList.of()
         );
 
-        assertColumn("select * from (select struct_element(s, 'city') from tbl union all select null)a",
+        assertColumn("select * from (select coalesce(struct_element(s, 'city'), 'abc') from tbl union all select null)a",
                 "struct<city:text>",
                 ImmutableList.of(path("s", "city")),
                 ImmutableList.of()
@@ -402,7 +410,7 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
     @Test
     public void testPushDownThroughJoin() {
         PlanChecker.from(connectContext)
-                .analyze("select struct_element(s, 'city') from (select * from tbl)a join (select 100 id, 'f1' name)b on a.id=b.id")
+                .analyze("select coalesce(struct_element(s, 'city'), 'abc') from (select * from tbl)a join (select 100 id, 'f1' name)b on a.id=b.id")
                 .rewrite()
                 .matches(
                     logicalResultSink(
@@ -421,7 +429,9 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
                                 logicalOneRowRelation()
                             )
                         ).when(p -> {
-                            Assertions.assertTrue(p.getProjects().size() == 1 && p.getProjects().get(0) instanceof SlotReference);
+                            Assertions.assertTrue(p.getProjects().size() == 1 && p.getProjects().get(0) instanceof Alias
+                                    && p.getProjects().get(0).child(0) instanceof Coalesce
+                                    && p.getProjects().get(0).child(0).child(0) instanceof Slot);
                             return true;
                         })
                     )
@@ -474,7 +484,9 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
                                 })
                             )
                         ).when(p -> {
-                            Assertions.assertTrue(p.getProjects().size() == 2 && p.getProjects().get(0) instanceof SlotReference);
+                            Assertions.assertTrue(p.getProjects().size() == 2
+                                    && (p.getProjects().get(0) instanceof SlotReference
+                                        || (p.getProjects().get(0) instanceof Alias && p.getProjects().get(0).child(0) instanceof SlotReference)));
                             return true;
                         })
                     )
@@ -504,7 +516,9 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
                                         )
                                     )
                                 ).when(p -> {
-                                    Assertions.assertTrue(p.getProjects().size() == 2 && p.getProjects().get(0) instanceof SlotReference);
+                                    Assertions.assertTrue(p.getProjects().size() == 2
+                                            && (p.getProjects().get(0) instanceof SlotReference
+                                                || p.getProjects().get(0) instanceof Alias && p.getProjects().get(0).child(0) instanceof SlotReference));
                                     return true;
                                 })
                             )
@@ -535,6 +549,238 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
                         })
                     )
                 );
+    }
+
+    @Test
+    public void testDataTypeAccessTree() {
+        List<Pair<SlotReference, DataTypeAccessTree>> trees = getDataTypeAccessTrees(
+                "select struct_element(s, 'city') from (select id, s from tbl union all select 1, null) tmp");
+
+        Assertions.assertEquals(1, trees.size());
+        DataTypeAccessTree tree = trees.get(0).second;
+        Assertions.assertEquals(NullType.INSTANCE, tree.getType());
+        Assertions.assertEquals(1, tree.getChildren().size());
+        Assertions.assertEquals("STRUCT<city:TEXT>", tree.getChildren().get("s").getType().toSql());
+
+        SlotReference slot = trees.get(0).first;
+        Type columnType = slot.getOriginalColumn().get().getType();
+        Assertions.assertEquals("struct<city:text,data:array<map<int,struct<a:int,b:double>>>>", columnType.toSql());
+
+        setAccessPathAndAssertType(slot, ImmutableList.of("s", "city"), "STRUCT<city:TEXT>");
+        setAccessPathAndAssertType(slot, ImmutableList.of("s", "data"), "STRUCT<data:ARRAY<MAP<INT,STRUCT<a:INT,b:DOUBLE>>>>");
+        setAccessPathAndAssertType(slot, ImmutableList.of("s", "data", "*"), "STRUCT<data:ARRAY<MAP<INT,STRUCT<a:INT,b:DOUBLE>>>>");
+        setAccessPathAndAssertType(slot, ImmutableList.of("s", "data", "*", "KEYS"), "STRUCT<data:ARRAY<MAP<INT,STRUCT<a:INT,b:DOUBLE>>>>");
+        setAccessPathAndAssertType(slot, ImmutableList.of("s", "data", "*", "VALUES"), "STRUCT<data:ARRAY<MAP<INT,STRUCT<a:INT,b:DOUBLE>>>>");
+        setAccessPathAndAssertType(slot, ImmutableList.of("s", "data", "*", "VALUES", "a"), "STRUCT<data:ARRAY<MAP<INT,STRUCT<a:INT>>>>");
+        setAccessPathAndAssertType(slot, ImmutableList.of("s", "data", "*", "VALUES", "b"), "STRUCT<data:ARRAY<MAP<INT,STRUCT<b:DOUBLE>>>>");
+        setAccessPathAndAssertType(slot, ImmutableList.of("s", "data", "*", "*"), "STRUCT<data:ARRAY<MAP<INT,STRUCT<a:INT,b:DOUBLE>>>>");
+        setAccessPathAndAssertType(slot, ImmutableList.of("s", "data", "*", "*", "a"), "STRUCT<data:ARRAY<MAP<INT,STRUCT<a:INT>>>>");
+        setAccessPathAndAssertType(slot, ImmutableList.of("s", "data", "*", "*", "b"), "STRUCT<data:ARRAY<MAP<INT,STRUCT<b:DOUBLE>>>>");
+
+        setAccessPathsAndAssertType(slot,
+                ImmutableList.of(
+                        ImmutableList.of("s", "data", "*", "*", "b"),
+                        ImmutableList.of("s", "city")
+                ),
+                "STRUCT<city:TEXT,data:ARRAY<MAP<INT,STRUCT<b:DOUBLE>>>>"
+        );
+    }
+
+    @Test
+    public void testWithVariant() throws Exception {
+        connectContext.getSessionVariable().enableDecimal256 = true;
+
+        createTable("CREATE TABLE test.`table_20_undef_partitions2_keys3_properties4_distributed_by56` (\n"
+                + "  `col_tinyint_undef_signed_index_inverted` tinyint NULL,\n"
+                + "  `col_smallint_undef_signed_not_null_index_inverted` smallint NOT NULL,\n"
+                + "  `pk` int NULL,\n"
+                + "  `col_int_undef_signed` int NULL,\n"
+                + "  `col_bigint_undef_signed` bigint NULL,\n"
+                + "  `col_decimal_10_0__undef_signed` decimal(10,0) NULL,\n"
+                + "  `col_largeint_undef_signed` largeint NULL,\n"
+                + "  `col_boolean_undef_signed` boolean NULL,\n"
+                + "  `col_boolean_undef_signed_not_null` boolean NOT NULL,\n"
+                + "  `col_tinyint_undef_signed` tinyint NULL,\n"
+                + "  `col_tinyint_undef_signed_not_null` tinyint NOT NULL,\n"
+                + "  `col_tinyint_undef_signed_not_null_index_inverted` tinyint NOT NULL,\n"
+                + "  `col_smallint_undef_signed` smallint NULL,\n"
+                + "  `col_smallint_undef_signed_index_inverted` smallint NULL,\n"
+                + "  `col_smallint_undef_signed_not_null` smallint NOT NULL,\n"
+                + "  `col_int_undef_signed_index_inverted` int NULL,\n"
+                + "  `col_int_undef_signed_not_null` int NOT NULL,\n"
+                + "  `col_int_undef_signed_not_null_index_inverted` int NOT NULL,\n"
+                + "  `col_bigint_undef_signed_index_inverted` bigint NULL,\n"
+                + "  `col_bigint_undef_signed_not_null` bigint NOT NULL,\n"
+                + "  `col_bigint_undef_signed_not_null_index_inverted` bigint NOT NULL,\n"
+                + "  `col_largeint_undef_signed_not_null` largeint NOT NULL,\n"
+                + "  `col_decimal_10_0__undef_signed_index_inverted` decimal(10,0) NULL,\n"
+                + "  `col_decimal_10_0__undef_signed_not_null` decimal(10,0) NOT NULL,\n"
+                + "  `col_decimal_10_0__undef_signed_not_null_index_inverted` decimal(10,0) NOT NULL,\n"
+                + "  `col_decimal_16_10__undef_signed` decimal(16,10) NULL,\n"
+                + "  `col_decimal_16_10__undef_signed_index_inverted` decimal(16,10) NULL,\n"
+                + "  `col_decimal_16_10__undef_signed_not_null` decimal(16,10) NOT NULL,\n"
+                + "  `col_decimal_16_10__undef_signed_not_null_index_inverted` decimal(16,10) NOT NULL,\n"
+                + "  `col_decimal_37__12__undef_signed` decimal(37,12) NULL,\n"
+                + "  `col_decimal_37__12__undef_signed_index_inverted` decimal(37,12) NULL,\n"
+                + "  `col_decimal_37__12__undef_signed_not_null` decimal(37,12) NOT NULL,\n"
+                + "  `col_decimal_37__12__undef_signed_not_null_index_inverted` decimal(37,12) NOT NULL,\n"
+                + "  `col_decimal_17_0__undef_signed` decimal(17,0) NULL,\n"
+                + "  `col_decimal_17_0__undef_signed_index_inverted` decimal(17,0) NULL,\n"
+                + "  `col_decimal_17_0__undef_signed_not_null` decimal(17,0) NOT NULL,\n"
+                + "  `col_decimal_17_0__undef_signed_not_null_index_inverted` decimal(17,0) NOT NULL,\n"
+                + "  `col_decimal_8_4__undef_signed` decimal(8,4) NULL,\n"
+                + "  `col_decimal_8_4__undef_signed_index_inverted` decimal(8,4) NULL,\n"
+                + "  `col_decimal_8_4__undef_signed_not_null` decimal(8,4) NOT NULL,\n"
+                + "  `col_decimal_8_4__undef_signed_not_null_index_inverted` decimal(8,4) NOT NULL,\n"
+                + "  `col_decimal_9_0__undef_signed` decimal(9,0) NULL,\n"
+                + "  `col_decimal_9_0__undef_signed_index_inverted` decimal(9,0) NULL,\n"
+                + "  `col_decimal_9_0__undef_signed_not_null` decimal(9,0) NOT NULL,\n"
+                + "  `col_decimal_9_0__undef_signed_not_null_index_inverted` decimal(9,0) NOT NULL,\n"
+                + "  `col_decimal_76__56__undef_signed` decimal(76,56) NULL,\n"
+                + "  `col_decimal_76__56__undef_signed_index_inverted` decimal(76,56) NULL,\n"
+                + "  `col_decimal_76__56__undef_signed_not_null` decimal(76,56) NOT NULL,\n"
+                + "  `col_decimal_76__56__undef_signed_not_null_index_inverted` decimal(76,56) NOT NULL,\n"
+                + "  `col_datetime_undef_signed` datetime NULL,\n"
+                + "  `col_datetime_undef_signed_index_inverted` datetime NULL,\n"
+                + "  `col_datetime_undef_signed_not_null` datetime NOT NULL,\n"
+                + "  `col_datetime_undef_signed_not_null_index_inverted` datetime NOT NULL,\n"
+                + "  `col_map_boolean__boolean__undef_signed` map<boolean,boolean> NULL,\n"
+                + "  `col_map_boolean__boolean__undef_signed_not_null` map<boolean,boolean> NOT NULL,\n"
+                + "  `col_map_tinyint__tinyint__undef_signed` map<tinyint,tinyint> NULL,\n"
+                + "  `col_map_tinyint__tinyint__undef_signed_not_null` map<tinyint,tinyint> NOT NULL,\n"
+                + "  `col_map_smallint__smallint__undef_signed` map<smallint,smallint> NULL,\n"
+                + "  `col_map_smallint__smallint__undef_signed_not_null` map<smallint,smallint> NOT NULL,\n"
+                + "  `col_map_int__int__undef_signed` map<int,int> NULL,\n"
+                + "  `col_map_int__int__undef_signed_not_null` map<int,int> NOT NULL,\n"
+                + "  `col_map_bigint__bigint__undef_signed` map<bigint,bigint> NULL,\n"
+                + "  `col_map_bigint__bigint__undef_signed_not_null` map<bigint,bigint> NOT NULL,\n"
+                + "  `col_map_largeint__largeint__undef_signed` map<largeint,largeint> NULL,\n"
+                + "  `col_map_largeint__largeint__undef_signed_not_null` map<largeint,largeint> NOT NULL,\n"
+                + "  `col_map_decimal_10_0___decimal_10_0___undef_signed` map<decimal(10,0),decimal(10,0)> NULL,\n"
+                + "  `col_map_decimal_10_0___decimal_10_0___undef_signed_not_null` map<decimal(10,0),decimal(10,0)> NOT NULL,\n"
+                + "  `col_map_decimal_16_10___decimal_16_10___undef_signed` map<decimal(16,10),decimal(16,10)> NULL,\n"
+                + "  `col_map_decimal_16_10___decimal_16_10___undef_signed_not_null` map<decimal(16,10),decimal(16,10)> NOT NULL,\n"
+                + "  `col_map_decimal_37__12___decimal_37__12___undef_signed` map<decimal(37,12),decimal(37,12)> NULL,\n"
+                + "  `col_map_decimal_37__12___decimal_37__12___undef_signed_not_null` map<decimal(37,12),decimal(37,12)> NOT NULL,\n"
+                + "  `col_map_decimal_8_4___decimal_8_4___undef_signed` map<decimal(8,4),decimal(8,4)> NULL,\n"
+                + "  `col_map_decimal_8_4___decimal_8_4___undef_signed_not_null` map<decimal(8,4),decimal(8,4)> NOT NULL,\n"
+                + "  `col_map_decimal_76__56___decimal_76__56___undef_signed` map<decimal(76,56),decimal(76,56)> NULL,\n"
+                + "  `col_map_decimal_76__56___decimal_76__56___undef_signed_not_null` map<decimal(76,56),decimal(76,56)> NOT NULL,\n"
+                + "  `col_map_char_255___boolean__undef_signed` map<character(255),boolean> NULL,\n"
+                + "  `col_map_char_255___boolean__undef_signed_not_null` map<character(255),boolean> NOT NULL,\n"
+                + "  `col_map_char_255___tinyint__undef_signed` map<character(255),tinyint> NULL,\n"
+                + "  `col_map_char_255___tinyint__undef_signed_not_null` map<character(255),tinyint> NOT NULL,\n"
+                + "  `col_map_varchar_255___int__undef_signed` map<varchar(255),int> NULL,\n"
+                + "  `col_map_varchar_255___int__undef_signed_not_null` map<varchar(255),int> NOT NULL,\n"
+                + "  `col_map_varchar_65533___largeint__undef_signed` map<varchar(65533),largeint> NULL,\n"
+                + "  `col_map_varchar_65533___largeint__undef_signed_not_null` map<varchar(65533),largeint> NOT NULL,\n"
+                + "  `col_map_string__decimal_10_0___undef_signed` map<text,decimal(10,0)> NULL,\n"
+                + "  `col_map_string__decimal_10_0___undef_signed_not_null` map<text,decimal(10,0)> NOT NULL,\n"
+                + "  `col_map_varchar_65533___decimal_76__50___undef_signed` map<varchar(65533),decimal(76,50)> NULL,\n"
+                + "  `col_map_varchar_65533___decimal_76__50___undef_signed_not_null` map<varchar(65533),decimal(76,50)> NOT NULL,\n"
+                + "  `col_map_date__boolean__undef_signed` map<date,boolean> NULL,\n"
+                + "  `col_map_date__boolean__undef_signed_not_null` map<date,boolean> NOT NULL,\n"
+                + "  `col_map_date__tinyint__undef_signed` map<date,tinyint> NULL,\n"
+                + "  `col_map_date__tinyint__undef_signed_not_null` map<date,tinyint> NOT NULL,\n"
+                + "  `col_map_date__smallint__undef_signed` map<date,smallint> NULL,\n"
+                + "  `col_map_date__smallint__undef_signed_not_null` map<date,smallint> NOT NULL,\n"
+                + "  `col_map_date__int__undef_signed` map<date,int> NULL,\n"
+                + "  `col_map_date__int__undef_signed_not_null` map<date,int> NOT NULL,\n"
+                + "  `col_map_datetime_6___bigint__undef_signed` map<datetime(6),bigint> NULL,\n"
+                + "  `col_map_datetime_6___bigint__undef_signed_not_null` map<datetime(6),bigint> NOT NULL,\n"
+                + "  `col_map_datetime_3___largeint__undef_signed` map<datetime(3),largeint> NULL,\n"
+                + "  `col_map_datetime_3___largeint__undef_signed_not_null` map<datetime(3),largeint> NOT NULL,\n"
+                + "  `col_map_datetime__decimal_76__50___undef_signed` map<datetime,decimal(76,50)> NULL,\n"
+                + "  `col_map_datetime__decimal_76__50___undef_signed_not_null` map<datetime,decimal(76,50)> NOT NULL,\n"
+                + "  `col_map_date__decimal_16_10___undef_signed` map<date,decimal(16,10)> NULL,\n"
+                + "  `col_map_date__decimal_16_10___undef_signed_not_null` map<date,decimal(16,10)> NOT NULL,\n"
+                + "  `col_map_date__decimal_37__12___undef_signed` map<date,decimal(37,12)> NULL,\n"
+                + "  `col_map_date__decimal_37__12___undef_signed_not_null` map<date,decimal(37,12)> NOT NULL,\n"
+                + "  `col_struct` struct<c_boolean:boolean,c_tinyint:tinyint,c_smallint:smallint,c_int:int,c_bigint:bigint,c_largeint:largeint,c_decimal_10_0:decimal(10,0),c_decimal_16_10:decimal(16,10),c_decimal_37_12:decimal(37,12),c_decimal_17_0:decimal(17,0),c_decimal_8_4:decimal(8,4),c_decimal_9_0:decimal(9,0),c_decimal_76_56:decimal(76,56)> NULL,\n"
+                + "  `col_struct2` struct<c_boolean:boolean,c_tinyint:tinyint,c_smallint:smallint,c_int:int,c_bigint:bigint,c_largeint:largeint,c_decimal_10_0:decimal(10,0),c_decimal_16_10:decimal(16,10),c_decimal_37_12:decimal(37,12),c_decimal_17_0:decimal(17,0),c_decimal_8_4:decimal(8,4),c_decimal_9_0:decimal(9,0),c_decimal_76_56:decimal(76,56)> NOT NULL,\n"
+                + "  `col_variant_undef_signed` variant NULL,\n"
+                + "  `col_variant_undef_signed_not_null` variant NOT NULL,\n"
+                + "  INDEX col_tinyint_undef_signed_index_inverted_idx (`col_tinyint_undef_signed_index_inverted`) USING INVERTED,\n"
+                + "  INDEX col_tinyint_undef_signed_not_null_index_inverted_idx (`col_tinyint_undef_signed_not_null_index_inverted`) USING INVERTED,\n"
+                + "  INDEX col_smallint_undef_signed_index_inverted_idx (`col_smallint_undef_signed_index_inverted`) USING INVERTED,\n"
+                + "  INDEX col_smallint_undef_signed_not_null_index_inverted_idx (`col_smallint_undef_signed_not_null_index_inverted`) USING INVERTED,\n"
+                + "  INDEX col_int_undef_signed_index_inverted_idx (`col_int_undef_signed_index_inverted`) USING INVERTED,\n"
+                + "  INDEX col_int_undef_signed_not_null_index_inverted_idx (`col_int_undef_signed_not_null_index_inverted`) USING INVERTED,\n"
+                + "  INDEX col_bigint_undef_signed_index_inverted_idx (`col_bigint_undef_signed_index_inverted`) USING INVERTED,\n"
+                + "  INDEX col_bigint_undef_signed_not_null_index_inverted_idx (`col_bigint_undef_signed_not_null_index_inverted`) USING INVERTED,\n"
+                + "  INDEX col_decimal_10_0__undef_signed_index_inverted_idx (`col_decimal_10_0__undef_signed_index_inverted`) USING INVERTED,\n"
+                + "  INDEX col_decimal_10_0__undef_signed_not_null_index_inverted_idx (`col_decimal_10_0__undef_signed_not_null_index_inverted`) USING INVERTED,\n"
+                + "  INDEX col_decimal_16_10__undef_signed_index_inverted_idx (`col_decimal_16_10__undef_signed_index_inverted`) USING INVERTED,\n"
+                + "  INDEX col_decimal_16_10__undef_signed_not_null_index_inverted_idx (`col_decimal_16_10__undef_signed_not_null_index_inverted`) USING INVERTED,\n"
+                + "  INDEX col_decimal_37__12__undef_signed_index_inverted_idx (`col_decimal_37__12__undef_signed_index_inverted`) USING INVERTED,\n"
+                + "  INDEX col_decimal_37__12__undef_signed_not_null_index_inverted_idx (`col_decimal_37__12__undef_signed_not_null_index_inverted`) USING INVERTED,\n"
+                + "  INDEX col_decimal_17_0__undef_signed_index_inverted_idx (`col_decimal_17_0__undef_signed_index_inverted`) USING INVERTED,\n"
+                + "  INDEX col_decimal_17_0__undef_signed_not_null_index_inverted_idx (`col_decimal_17_0__undef_signed_not_null_index_inverted`) USING INVERTED,\n"
+                + "  INDEX col_decimal_8_4__undef_signed_index_inverted_idx (`col_decimal_8_4__undef_signed_index_inverted`) USING INVERTED,\n"
+                + "  INDEX col_decimal_8_4__undef_signed_not_null_index_inverted_idx (`col_decimal_8_4__undef_signed_not_null_index_inverted`) USING INVERTED,\n"
+                + "  INDEX col_decimal_9_0__undef_signed_index_inverted_idx (`col_decimal_9_0__undef_signed_index_inverted`) USING INVERTED,\n"
+                + "  INDEX col_decimal_9_0__undef_signed_not_null_index_inverted_idx (`col_decimal_9_0__undef_signed_not_null_index_inverted`) USING INVERTED,\n"
+                + "  INDEX col_decimal_76__56__undef_signed_index_inverted_idx (`col_decimal_76__56__undef_signed_index_inverted`) USING INVERTED,\n"
+                + "  INDEX col_decimal_76__56__undef_signed_not_null_index_inverted_idx (`col_decimal_76__56__undef_signed_not_null_index_inverted`) USING INVERTED,\n"
+                + "  INDEX col_datetime_undef_signed_index_inverted_idx (`col_datetime_undef_signed_index_inverted`) USING INVERTED,\n"
+                + "  INDEX col_datetime_undef_signed_not_null_index_inverted_idx (`col_datetime_undef_signed_not_null_index_inverted`) USING INVERTED\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(`col_tinyint_undef_signed_index_inverted`, `col_smallint_undef_signed_not_null_index_inverted`, `pk`, `col_int_undef_signed`, `col_bigint_undef_signed`, `col_decimal_10_0__undef_signed`, `col_largeint_undef_signed`)\n"
+                + "PARTITION BY RANGE(`col_tinyint_undef_signed_index_inverted`, `col_smallint_undef_signed_not_null_index_inverted`)\n"
+                + "(PARTITION p0 VALUES [(\"-128\", \"-32768\"), (\"0\", \"0\")),\n"
+                + "PARTITION p1 VALUES [(\"0\", \"0\"), (\"10\", \"256\")),\n"
+                + "PARTITION p2 VALUES [(\"10\", \"256\"), (\"50\", \"10240\")),\n"
+                + "PARTITION p3 VALUES [(\"50\", \"10240\"), (\"100\", \"32767\")),\n"
+                + "PARTITION p4 VALUES [(\"100\", \"32767\"), (MAXVALUE, MAXVALUE)))\n"
+                + "DISTRIBUTED BY HASH(`pk`) BUCKETS 10\n"
+                + "PROPERTIES (\n"
+                + "\"replication_allocation\" = \"tag.location.default: 1\""
+                + ")");
+
+        PlanChecker.from(connectContext)
+                .analyze("SELECT col_variant_undef_signed_not_null,\n"
+                        + "          col_struct,\n"
+                        + "          col_variant_undef_signed_not_null[\"c_map_largeint\"]\n"
+                        + " FROM table_20_undef_partitions2_keys3_properties4_distributed_by56")
+                .rewrite()
+                .getCascadesContext()
+                .getRewritePlan();
+    }
+
+    private void setAccessPathAndAssertType(SlotReference slot, List<String> path, String expectedType) {
+        setAccessPathsAndAssertType(slot, ImmutableList.of(path), expectedType);
+    }
+
+    private void setAccessPathsAndAssertType(SlotReference slot, List<List<String>> paths, String expectedType) {
+        DataType columnType = DataType.fromCatalogType(slot.getOriginalColumn().get().getType());
+        SlotReference originColumnTypeSlot = new SlotReference(slot.getName(), columnType);
+        DataTypeAccessTree tree = DataTypeAccessTree.ofRoot(originColumnTypeSlot, TAccessPathType.DATA);
+        for (List<String> path : paths) {
+            tree.setAccessByPath(path, 0, TAccessPathType.DATA);
+        }
+        DataType dataType = tree.pruneDataType().get();
+        Assertions.assertEquals(expectedType, dataType.toSql());
+    }
+
+    private List<Pair<SlotReference, DataTypeAccessTree>> getDataTypeAccessTrees(String sql) {
+        Plan rewritePlan = PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .getCascadesContext()
+                .getRewritePlan();
+
+        List<Slot> output = ((LogicalOlapScan) rewritePlan.collect(LogicalOlapScan.class::isInstance)
+                .iterator()
+                .next())
+                .getOutput();
+        List<Pair<SlotReference, DataTypeAccessTree>> trees = new ArrayList<>();
+        for (Slot slot : output) {
+            if (slot.getDataType() instanceof NestedColumnPrunable) {
+                DataTypeAccessTree dataTypeAccessTree = DataTypeAccessTree.ofRoot(slot, TAccessPathType.DATA);
+                trees.add(Pair.of((SlotReference) slot, dataTypeAccessTree));
+            }
+        }
+        return trees;
     }
 
     private void assertColumn(String sql, String expectType,

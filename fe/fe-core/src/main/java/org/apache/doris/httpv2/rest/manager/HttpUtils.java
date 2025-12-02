@@ -125,6 +125,10 @@ public class HttpUtils {
         request.setConfig(config);
     }
 
+    public static CloseableHttpClient getHttpClient() {
+        return HttpClientBuilder.create().build();
+    }
+
     private static String executeRequest(HttpRequestBase request) throws IOException {
         CloseableHttpClient client = HttpClientBuilder.create().build();
         return client.execute(request, httpResponse -> EntityUtils.toString(httpResponse.getEntity()));

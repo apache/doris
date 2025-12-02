@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.analysis.AccessPathInfo;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.rules.rewrite.AccessPathExpressionCollector.CollectorContext;
 import org.apache.doris.nereids.rules.rewrite.NestedColumnPruning.DataTypeAccessTree;
@@ -37,6 +38,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayMap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayMatchAll;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayMatchAny;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayReverseSplit;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySort;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySortBy;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySplit;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
@@ -117,7 +119,7 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
         if (nameToLambdaArguments.isEmpty()) {
             return null;
         }
-        context.accessPathBuilder.addPrefix("*");
+        context.accessPathBuilder.addPrefix(AccessPathInfo.ACCESS_ALL);
         Expression argument = nameToLambdaArguments.peek().get(arrayItemSlot.getName());
         if (argument == null) {
             return null;
@@ -157,7 +159,7 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
         List<Expression> arguments = elementAt.getArguments();
         Expression first = arguments.get(0);
         if (first.getDataType().isArrayType() || first.getDataType().isMapType()) {
-            context.accessPathBuilder.addPrefix("*");
+            context.accessPathBuilder.addPrefix(AccessPathInfo.ACCESS_ALL);
             continueCollectAccessPath(first, context);
 
             for (int i = 1; i < arguments.size(); i++) {
@@ -200,39 +202,39 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
     @Override
     public Void visitMapKeys(MapKeys mapKeys, CollectorContext context) {
         context = new CollectorContext(context.statementContext, context.bottomFilter);
-        context.accessPathBuilder.addPrefix("KEYS");
+        context.accessPathBuilder.addPrefix(AccessPathInfo.ACCESS_MAP_KEYS);
         return continueCollectAccessPath(mapKeys.getArgument(0), context);
     }
 
     @Override
     public Void visitMapValues(MapValues mapValues, CollectorContext context) {
         LinkedList<String> suffixPath = context.accessPathBuilder.accessPath;
-        if (!suffixPath.isEmpty() && suffixPath.get(0).equals("*")) {
+        if (!suffixPath.isEmpty() && suffixPath.get(0).equals(AccessPathInfo.ACCESS_ALL)) {
             CollectorContext removeStarContext
                     = new CollectorContext(context.statementContext, context.bottomFilter);
             removeStarContext.accessPathBuilder.accessPath.addAll(suffixPath.subList(1, suffixPath.size()));
-            removeStarContext.accessPathBuilder.addPrefix("VALUES");
+            removeStarContext.accessPathBuilder.addPrefix(AccessPathInfo.ACCESS_MAP_VALUES);
             return continueCollectAccessPath(mapValues.getArgument(0), removeStarContext);
         }
-        context.accessPathBuilder.addPrefix("VALUES");
+        context.accessPathBuilder.addPrefix(AccessPathInfo.ACCESS_MAP_VALUES);
         return continueCollectAccessPath(mapValues.getArgument(0), context);
     }
 
     @Override
     public Void visitMapContainsKey(MapContainsKey mapContainsKey, CollectorContext context) {
-        context.accessPathBuilder.addPrefix("KEYS");
+        context.accessPathBuilder.addPrefix(AccessPathInfo.ACCESS_MAP_KEYS);
         return continueCollectAccessPath(mapContainsKey.getArgument(0), context);
     }
 
     @Override
     public Void visitMapContainsValue(MapContainsValue mapContainsValue, CollectorContext context) {
-        context.accessPathBuilder.addPrefix("VALUES");
+        context.accessPathBuilder.addPrefix(AccessPathInfo.ACCESS_MAP_VALUES);
         return continueCollectAccessPath(mapContainsValue.getArgument(0), context);
     }
 
     @Override
     public Void visitMapContainsEntry(MapContainsEntry mapContainsEntry, CollectorContext context) {
-        context.accessPathBuilder.addPrefix("*");
+        context.accessPathBuilder.addPrefix(AccessPathInfo.ACCESS_ALL);
         return continueCollectAccessPath(mapContainsEntry.getArgument(0), context);
     }
 
@@ -245,6 +247,17 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
             return collectArrayPathInLambda((Lambda) argument, context);
         }
         return visit(arrayMap, context);
+    }
+
+    @Override
+    public Void visitArraySort(ArraySort arraySort, CollectorContext context) {
+        // ARRAY_SORT(lambda, <arr>)
+
+        Expression argument = arraySort.getArgument(0);
+        if ((argument instanceof Lambda)) {
+            return collectArrayPathInLambda((Lambda) argument, context);
+        }
+        return visit(arraySort, context);
     }
 
     @Override
@@ -398,7 +411,7 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
         }
 
         List<String> path = context.accessPathBuilder.getPathList();
-        if (!path.isEmpty() && path.get(0).equals("*")) {
+        if (!path.isEmpty() && path.get(0).equals(AccessPathInfo.ACCESS_ALL)) {
             context.accessPathBuilder.removePrefix();
         }
 

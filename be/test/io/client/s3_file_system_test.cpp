@@ -137,7 +137,7 @@ protected:
                               .build(&_pool);
         ExecEnv::GetInstance()->_s3_file_upload_thread_pool = std::move(_pool);
 
-        auto test_path = config_->get_prefix() == "" ? "s3_fs_test_dir" : config_->get_prefix();
+        std::string test_path = "s3_fs_test_dir";
         global_test_prefix_ = get_unique_test_path(test_path);
         auto status = s3_fs_->delete_directory(global_test_prefix_);
         EXPECT_TRUE(status.ok()) << "Failed to delete test file: " << status.to_string();

@@ -45,6 +45,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MinuteCeil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MinuteFloor;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MinuteSecondAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MinutesAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MinutesDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MinutesSub;
@@ -305,6 +306,8 @@ public class DatetimeFunctionBinder {
                 return new DaySecondAdd(timestamp, amount);
             case DAY_HOUR:
                 return new DayHourAdd(timestamp, amount);
+            case MINUTE_SECOND:
+                return new MinuteSecondAdd(timestamp, amount);
             default:
                 throw new AnalysisException("Unsupported time stamp add time unit: " + unit
                         + ", supported time unit: YEAR/QUARTER/MONTH/WEEK/DAY/HOUR/MINUTE/SECOND");

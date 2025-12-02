@@ -313,20 +313,30 @@ public:
     }
 
     bool evaluate_and(vectorized::ParquetPredicate::ColumnStat* statistic) const override {
-        if (!(*statistic->get_stat_func)(statistic, column_id())) {
-            return true;
+        bool result = true;
+        if ((*statistic->get_stat_func)(statistic, column_id())) {
+            vectorized::Field min_field;
+            vectorized::Field max_field;
+            if (!vectorized::ParquetPredicate::parse_min_max_value(
+                         statistic->col_schema, statistic->encoded_min_value,
+                         statistic->encoded_max_value, *statistic->ctz, &min_field, &max_field)
+                         .ok()) [[unlikely]] {
+                result = true;
+            } else {
+                result = camp_field(min_field, max_field);
+            }
         }
 
-        vectorized::Field min_field;
-        vectorized::Field max_field;
-        if (!vectorized::ParquetPredicate::parse_min_max_value(
-                     statistic->col_schema, statistic->encoded_min_value,
-                     statistic->encoded_max_value, *statistic->ctz, &min_field, &max_field)
-                     .ok()) [[unlikely]] {
-            return true;
-        };
-
-        return camp_field(min_field, max_field);
+        if constexpr (PT == PredicateType::IN_LIST) {
+            if (result && statistic->get_bloom_filter_func != nullptr &&
+                (*statistic->get_bloom_filter_func)(statistic, column_id())) {
+                if (!statistic->bloom_filter) {
+                    return result;
+                }
+                return evaluate_and(statistic->bloom_filter.get());
+            }
+        }
+        return result;
     }
 
     bool evaluate_and(vectorized::ParquetPredicate::CachedPageIndexStat* statistic,
@@ -443,6 +453,58 @@ public:
 
     double get_ignore_threshold() const override {
         return get_in_list_ignore_thredhold(_values->size());
+    }
+
+    bool evaluate_and(const vectorized::ParquetBlockSplitBloomFilter* bf) const override {
+        if constexpr (PT == PredicateType::IN_LIST) {
+            HybridSetBase::IteratorBase* iter = _values->begin();
+            while (iter->has_next()) {
+                const T* value = (const T*)(iter->get_value());
+
+                auto test_bytes = [&]<typename V>(const V& val) {
+                    return bf->test_bytes(const_cast<char*>(reinterpret_cast<const char*>(&val)),
+                                          sizeof(V));
+                };
+
+                // Small integers (TINYINT, SMALLINT, INTEGER) -> hash as int32
+                if constexpr (Type == PrimitiveType::TYPE_TINYINT ||
+                              Type == PrimitiveType::TYPE_SMALLINT ||
+                              Type == PrimitiveType::TYPE_INT) {
+                    int32_t int32_value = static_cast<int32_t>(*value);
+                    if (test_bytes(int32_value)) {
+                        return true;
+                    }
+                } else if constexpr (Type == PrimitiveType::TYPE_BIGINT) {
+                    // BIGINT -> hash as int64
+                    if (test_bytes(*value)) {
+                        return true;
+                    }
+                } else if constexpr (Type == PrimitiveType::TYPE_DOUBLE) {
+                    // DOUBLE -> hash as double
+                    if (test_bytes(*value)) {
+                        return true;
+                    }
+                } else if constexpr (Type == PrimitiveType::TYPE_FLOAT) {
+                    // FLOAT -> hash as float
+                    if (test_bytes(*value)) {
+                        return true;
+                    }
+                } else if constexpr (std::is_same_v<T, StringRef>) {
+                    // VARCHAR/STRING -> hash bytes
+                    if (bf->test_bytes(value->data, value->size)) {
+                        return true;
+                    }
+                } else {
+                    // Unsupported types: return true (accept)
+                    return true;
+                }
+                iter->next();
+            }
+            return false;
+        } else {
+            LOG(FATAL) << "Bloom filter is not supported by predicate type.";
+            return true;
+        }
     }
 
 private:

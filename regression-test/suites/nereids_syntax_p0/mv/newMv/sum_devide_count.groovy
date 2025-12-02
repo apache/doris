@@ -16,6 +16,8 @@
 // under the License.
 
 suite ("sum_devide_count") {
+    String db = context.config.getDbNameByFile(context.file)
+    sql "use ${db}"
     // this mv rewrite would not be rewritten in RBO phase, so set TRY_IN_RBO explicitly to make case stable
     sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
     sql """ DROP TABLE IF EXISTS sum_devide_count; """
@@ -48,9 +50,7 @@ suite ("sum_devide_count") {
     sql "SET experimental_enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
 
-    createMV ("create materialized view kavg as select k1 as a1,k4 as a2,sum(k2),count(k2) from sum_devide_count group by k1,k4;")
-
-    sleep(3000)
+    create_sync_mv(db, "sum_devide_count", "kavg", "select k1 as a1,k4 as a2,sum(k2),count(k2) from sum_devide_count group by k1,k4;")
 
     sql "insert into sum_devide_count select -4,-4,-4,'d';"
     sql "insert into sum_devide_count select -4,-4,-4,'d';"
