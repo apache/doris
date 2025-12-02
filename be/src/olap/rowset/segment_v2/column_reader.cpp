@@ -20,6 +20,7 @@
 #include <assert.h>
 #include <gen_cpp/Descriptors_types.h>
 #include <gen_cpp/segment_v2.pb.h>
+#include <glog/logging.h>
 
 #include <algorithm>
 #include <memory>
@@ -888,6 +889,7 @@ Status ColumnReader::new_struct_iterator(ColumnIteratorUPtr* iterator,
         TabletColumn column = tablet_column->get_sub_column(i);
         ColumnIteratorUPtr it;
         RETURN_IF_ERROR(Segment::new_default_iterator(column, &it));
+        it->set_column_name(column.name());
         sub_column_iterators.emplace_back(std::move(it));
     }
 
