@@ -72,7 +72,9 @@ public:
                                       bool force_use_only_cached = false,
                                       bool cache_on_miss = true) override;
 
-    /* Parameters:
+    /*
+     * Get the tablet meta for a specific tablet
+     * Parameters:
      * - tablet_id: the id of tablet to get meta for
      * - tablet_meta: output TabletMeta shared pointer
      * - force_use_only_cached: whether only use cached tablet meta (return NotFound on miss)

@@ -157,6 +157,9 @@ void BlockFileCacheTtlMgr::run_backgroud_update_ttl_info_map() {
             }
 
             for (int64_t tablet_id : tablet_ids_to_process) {
+                if (_stop_background.load(std::memory_order_acquire)) {
+                    break;
+                }
                 uint64_t tablet_ctime = 0;
                 uint64_t ttl = 0;
 
