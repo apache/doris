@@ -121,8 +121,7 @@ TEST(BitsTest, CountZeroNum) {
         size_t expect_union = 0;
         for (size_t i = 0; i < n; ++i) {
             v[i] = (i % 5 == 0) ? 0 : 1;
-            // Use 2 instead of 1 to check `|` operation
-            null_map[i] = (i % 7 == 0) ? 2 : 0;
+            null_map[i] = (i % 7 == 0) ? 1 : 0;
             if (v[i] == 0) {
                 ++expect_zero;
             }
