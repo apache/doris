@@ -221,8 +221,6 @@ public class SimpleSchedulerTest {
             SimpleScheduler.addToBlacklist(be5.getId(), "test");
         }
 
-        Thread.sleep(5000);
-
         try {
             SimpleScheduler.getHost(locations.get(0).backend_id, locations, backends, ref);
             Assert.fail();
