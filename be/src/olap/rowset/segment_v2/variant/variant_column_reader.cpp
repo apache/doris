@@ -225,6 +225,10 @@ bool VariantColumnReader::exist_in_sparse_column(
 
 bool VariantColumnReader::is_exceeded_sparse_column_limit() const {
     std::shared_lock<std::shared_mutex> lock(_subcolumns_meta_mutex);
+    return _is_exceeded_sparse_column_limit_unlocked();
+}
+
+bool VariantColumnReader::_is_exceeded_sparse_column_limit_unlocked() const {
     bool exceeded_sparse_column_limit = !_statistics->sparse_column_non_null_size.empty() &&
                                         _statistics->sparse_column_non_null_size.size() >=
                                                 _variant_sparse_column_statistics_size;
@@ -531,6 +535,11 @@ Status VariantColumnReader::_build_read_plan_flat_leaves(
 
 bool VariantColumnReader::has_prefix_path(const vectorized::PathInData& relative_path) const {
     std::shared_lock<std::shared_mutex> lock(_subcolumns_meta_mutex);
+    return _has_prefix_path_unlocked(relative_path);
+}
+
+bool VariantColumnReader::_has_prefix_path_unlocked(
+        const vectorized::PathInData& relative_path) const {
     if (relative_path.empty()) {
         return true;
     }
@@ -602,7 +611,7 @@ Status VariantColumnReader::_build_read_plan(ReadPlan* plan, const TabletColumn&
 
     // Otherwise the prefix is not exist and the sparse column size is reached limit
     // which means the path maybe exist in sparse_column
-    bool exceeded_sparse_column_limit = is_exceeded_sparse_column_limit();
+    bool exceeded_sparse_column_limit = _is_exceeded_sparse_column_limit_unlocked();
 
     // If the variant column has extracted columns and is a compaction reader, then read flat leaves
     // Otherwise read hierarchical data, since the variant subcolumns are flattened in
@@ -626,7 +635,7 @@ Status VariantColumnReader::_build_read_plan(ReadPlan* plan, const TabletColumn&
 
     // Check if path is prefix, example sparse columns path: a.b.c, a.b.e, access prefix: a.b.
     // Or access root path
-    if (has_prefix_path(relative_path)) {
+    if (_has_prefix_path_unlocked(relative_path)) {
         // Example {"b" : {"c":456,"e":7.111}}
         // b.c is sparse column, b.e is subcolumn, so b is both the prefix of sparse column and
         // subcolumn
@@ -675,7 +684,7 @@ Status VariantColumnReader::_build_read_plan(ReadPlan* plan, const TabletColumn&
             std::shared_ptr<ColumnReader> leaf_column_reader;
             Status st = column_reader_cache->get_path_column_reader(
                     col_uid, relative_path, &leaf_column_reader, opt->stats, nullptr);
-            DCHECK(!has_prefix_path(relative_path));
+            DCHECK(!_has_prefix_path_unlocked(relative_path));
             if (st.ok()) {
                 // Try external meta fallback: build a leaf reader on demand from externalized meta
                 plan->kind = ReadKind::LEAF;

@@ -286,6 +286,11 @@ public:
     bool has_prefix_path(const vectorized::PathInData& relative_path) const;
 
 private:
+    // Internal unlocked helpers. Caller must hold `_subcolumns_meta_mutex` when using them.
+    // english only in comments
+    bool _is_exceeded_sparse_column_limit_unlocked() const;
+    bool _has_prefix_path_unlocked(const vectorized::PathInData& relative_path) const;
+
     // Describe how a variant sub-path should be read. This is a logical plan only and
     // does not create any concrete ColumnIterator.
     enum class ReadKind {
