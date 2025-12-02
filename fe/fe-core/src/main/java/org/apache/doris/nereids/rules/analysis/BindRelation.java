@@ -474,7 +474,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
                             qualifierWithoutTableName, ImmutableList.of(),
                             unboundRelation.getTableSample(),
                             unboundRelation.getTableSnapshot(),
-                            Optional.ofNullable(unboundRelation.getScanParams()), Optional.empty());
+                            Optional.ofNullable(unboundRelation.getScanParams()));
                 case DORIS_EXTERNAL_TABLE:
                     ConnectContext ctx = cascadesContext.getConnectContext();
                     RemoteDorisExternalTable externalTable = (RemoteDorisExternalTable) table;
