@@ -140,13 +140,20 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
 
     @Test
     public void testPruneCast() throws Exception {
+        // the map type is changed, so we can not prune type
+        assertColumn("select struct_element(cast(s as struct<k:text,l:array<map<int,struct<x:int,y:int>>>>), 'k') from tbl",
+                "struct<city:text,data:array<map<int,struct<a:int,b:double>>>>",
+                ImmutableList.of(path("s")),
+                ImmutableList.of()
+        );
+
         assertColumn("select struct_element(cast(s as struct<k:text,l:array<map<int,struct<x:int,y:double>>>>), 'k') from tbl",
                 "struct<city:text>",
                 ImmutableList.of(path("s", "city")),
                 ImmutableList.of()
         );
 
-        assertColumn("select struct_element(map_values(struct_element(cast(s as struct<k:text,l:array<map<int,struct<x:double,y:double>>>>), 'l')[0])[0], 'x') from tbl",
+        assertColumn("select struct_element(map_values(struct_element(cast(s as struct<k:text,l:array<map<int,struct<x:int,y:double>>>>), 'l')[0])[0], 'x') from tbl",
                 "struct<data:array<map<int,struct<a:int>>>>",
                 ImmutableList.of(path("s", "data", "*", "VALUES", "a")),
                 ImmutableList.of()
