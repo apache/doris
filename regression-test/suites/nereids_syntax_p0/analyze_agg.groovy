@@ -19,8 +19,14 @@ suite("analyze_agg") {
     sql """DROP TABLE IF EXISTS t1"""
     sql """DROP TABLE IF EXISTS t2"""
 
-    sql """SET enable_fallback_to_original_planner=false"""
-    sql """SET enable_nereids_planner=true"""
+    sql """
+        SET enable_fallback_to_original_planner=false;
+        SET enable_nereids_planner=true;
+        SET ignore_shape_nodes='PhysicalDistribute';
+        SET disable_nereids_rules='PRUNE_EMPTY_PARTITION';
+        SET runtime_filter_mode=OFF;
+        SET disable_join_reorder=true;
+        """
 
     sql """    
         create table t1
@@ -105,6 +111,15 @@ suite("analyze_agg") {
         sql "select id FROM t1 group by SUM(id) OVER();"
         exception "GROUP BY expression must not contain window functions: sum(id) OVER()"
     }
+
+    qt_having_with_window_1 '''explain shape plan
+        select sum(id) over ()
+        from t1
+        where id + random(1, 1) > 0
+        group by id, id + random(1, 1)
+        having sum(id + random(1, 1)) > 1
+        order by id + random(1, 1), sum(id + random(1, 1)), sum(id + random(1, 1)) over ()
+        '''
 
     sql "drop table if exists test_sum0_multi_distinct_with_group_by"
     sql "create table test_sum0_multi_distinct_with_group_by (a int, b int, c int) distributed by hash(a) properties('replication_num'='1');"
