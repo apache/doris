@@ -420,7 +420,7 @@ struct TQueryOptions {
   181: optional i32 min_file_scanners_concurrency = 0;
 
 
-  179: optional i32 ivf_nprobe = 1;
+  182: optional i32 ivf_nprobe = 1;
 
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.
