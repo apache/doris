@@ -372,6 +372,9 @@ public:
         size_t length = src_data->size();
         size_t num_values = length / _type_length;
         auto* to_float_column = assert_cast<ColumnFloat32*>(to_col.get());
+        size_t start_idx = to_float_column->size();
+        to_float_column->resize(start_idx + num_values);
+        auto& to_float_column_data = to_float_column->get_data();
         const uint8_t* ptr = src_data->get_data().data();
         for (int i = 0; i < num_values; ++i) {
             size_t offset = i * _type_length;
@@ -379,7 +382,7 @@ public:
             uint16_t raw;
             memcpy(&raw, data_ptr, sizeof(uint16_t));
             float value = half_to_float(raw);
-            to_float_column->insert_value(value);
+            to_float_column_data[start_idx + i] = value;
         }
 
         return Status::OK();
