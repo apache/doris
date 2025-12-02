@@ -101,53 +101,6 @@ suite("test_timestamptz_storage_dup_key") {
         }
     }
 
-/*
-        CREATE TABLE `dt_storage_dup_key_no_scale` (
-          `ts_tz` datetimev2,
-          `ts_tz_value` datetimev2,
-          `VALUE` INT
-        ) DUPLICATE KEY(`ts_tz`)
-        partition by RANGE(`ts_tz`) (
-            PARTITION p2023_01 VALUES LESS THAN ('2023-02-01 00:00:00 +00:00'),
-            PARTITION p2023_02 VALUES LESS THAN ('2023-03-01 00:00:00 +00:00'),
-            PARTITION p2023_03 VALUES LESS THAN ('2023-04-01 00:00:00 +00:00'),
-            PARTITION p2023_04 VALUES LESS THAN ('2023-05-01 00:00:00 +00:00'),
-            PARTITION p2023_05 VALUES LESS THAN ('2023-06-01 00:00:00 +00:00'),
-            PARTITION p2023_06 VALUES LESS THAN ('2023-07-01 00:00:00 +00:00'),
-            PARTITION p2023_07 VALUES LESS THAN ('2023-08-01 00:00:00 +00:00'),
-            PARTITION p2023_08 VALUES LESS THAN ('2023-09-01 00:00:00 +00:00'),
-            PARTITION p2023_09 VALUES LESS THAN ('2023-10-01 00:00:00 +00:00'),
-            PARTITION p2023_10 VALUES LESS THAN ('2023-11-01 00:00:00 +00:00'),
-            PARTITION p2023_11 VALUES LESS THAN ('2023-12-01 00:00:00 +00:00'),
-            PARTITION p2023_12 VALUES LESS THAN ('2024-01-01 00:00:00 +00:00')
-        )
-        DISTRIBUTED BY HASH(`ts_tz`) BUCKETS 16
-        PROPERTIES (
-        "replication_num" = "1"
-        );
-
-    INSERT INTO dt_storage_dup_key_no_scale VALUES
-    (null, null, -1),
-    (null, '0000-01-01 00:00:00 +00:00', -1),
-    (null, '1000-01-01 00:00:00 +00:00', -1),
-    ('0000-01-01 00:00:00 +00:00', '0000-01-01 00:00:00 +00:00', 0),
-    ('0000-01-01 00:00:00 +00:00', '9000-01-01 00:00:00 +00:00', 0),
-    ('2023-01-01 12:00:00 +03:00', '2023-01-01 12:00:00 +03:00', 1),
-    ('2023-02-02 12:00:00 +03:00', '2023-02-02 12:00:00 +03:00', 2),
-    ('2023-02-02 12:00:00 +03:00', '0000-01-01 00:00:00 +00:00', 2),
-    ('2023-02-02 12:00:00 +03:00', '9999-12-31 23:59:59 +08:00', 2),
-    ('2023-03-03 12:00:00 -05:00', '2023-03-03 12:00:00 -05:00', 3),
-    ('2023-09-09 09:09:09 +01:00', '2023-09-09 09:09:09 +01:00', 9),
-    ('2023-10-10 10:10:10 -03:00', '2023-10-10 10:10:10 -03:00', 10),
-    ('2023-11-11 11:11:11 +00:00', '2023-11-11 11:11:11 +00:00', 11),
-    ('2023-04-04 23:59:59 +00:00', '2023-04-04 23:59:59 +00:00', 4),
-    ('2023-05-05 00:00:00 +08:00', '2023-05-05 00:00:00 +08:00', 5),
-    ('2023-06-06 15:30:30 -02:00', '2023-06-06 15:30:30 -02:00', 6),
-    ('2023-07-07 07:07:07 +05:30', '2023-07-07 07:07:07 +05:30', 7),
-    ('2023-08-08 20:20:20 -04:00', '2023-08-08 20:20:20 -04:00', 8),
-    ('2023-12-12 12:12:12 +09:00', '2023-12-12 12:12:12 +09:00', 12);
-    */
-
     def partition_value0 = '0000-01-01 08:00:01+08:00'
     def partition_value1 = '2023-01-02 00:00:00+08:00'
     def partition_value2 = '2023-08-08 20:20:21+08:00'
@@ -178,6 +131,14 @@ suite("test_timestamptz_storage_dup_key") {
         "replication_num" = "1"
         );
     """
+    // no partition
+    test {
+        sql """
+        INSERT INTO timestamptz_storage_dup_key_no_scale_no_max_partition VALUES ('9999-12-31 23:59:59 +08:00', null, 9999);
+        """
+        exception "no partition for this tuple"
+    }
+
 
     def show_result = sql """
     show create table timestamptz_storage_dup_key_no_scale_no_max_partition;
@@ -185,7 +146,6 @@ suite("test_timestamptz_storage_dup_key") {
     println "show create table result: ${show_result}"
 
     def partitionPattern = /\[\('(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2})'\),\s*\('(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2})'\)\)/
-    // def partitionPattern    = /\[\('(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2})'\),\s*\(('(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2})'|(MAXVALUE))\)\)/
     def partitionRanges = []
     show_result[0][1].findAll(partitionPattern) { match, startTime, endTime ->
         partitionRanges << [start: startTime, end: endTime]
@@ -231,14 +191,6 @@ suite("test_timestamptz_storage_dup_key") {
         SELECT * FROM timestamptz_storage_dup_key_no_scale_no_max_partition ORDER BY 1, 2, 3;
     """
 
-    // no partition
-    test {
-        sql """
-        INSERT INTO timestamptz_storage_dup_key_no_scale_no_max_partition VALUES ('9999-12-31 23:59:59 +08:00', null, 9999);
-        """
-        exception "no partition for this tuple"
-    }
-
     sql """
         DROP TABLE IF EXISTS `timestamptz_storage_dup_key_no_scale`;
     """
@@ -265,7 +217,7 @@ suite("test_timestamptz_storage_dup_key") {
         [start: partition_value0, end: partition_value1],
         [start: partition_value1, end: partition_value2],
         [start: partition_value2, end: partition_value3],
-        [start: partition_value3, end: "9999-12-31 23:59:59+08:00"],
+        [start: partition_value3, end: "MAXVALUE"],
     ]
 
     sql """
@@ -293,15 +245,20 @@ suite("test_timestamptz_storage_dup_key") {
     """
     println "show create table result: ${show_result}"
 
+    def partitionPatternWithMaxValue = /\[\('(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2})'\),\s*\((?:'(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2})'|(MAXVALUE))\)\)/
     partitionRanges = []
-    show_result[0][1].findAll(partitionPattern) { match, startTime, endTime ->
-        partitionRanges << [start: startTime, end: endTime]
+    show_result[0][1].findAll(partitionPatternWithMaxValue) { match, startTime, endTime, maxValue ->
+        def end = endTime != null ? endTime : maxValue
+        partitionRanges << [start: startTime, end: end]
     }
     println "found partitions: ${partitionRanges}"
-    /*
-    assertEquals(4, partitionRanges.size())
+    assertEquals(5, partitionRanges.size())
     partitionRanges.eachWithIndex { range, index ->
         println "  partition ${index}: [${range.start}, ${range.end})"
+        if (expected_partitions[index].end == "MAXVALUE") {
+            assertEquals("MAXVALUE", range.end)
+            return
+        }
         def replaceYear0000 = { str ->
             return str.startsWith("0000-") ? str.replaceFirst("^0000-", "0001-") : str
         }
@@ -318,7 +275,6 @@ suite("test_timestamptz_storage_dup_key") {
         assertTrue(actual_start.isEqual(expected_start))
         assertTrue(actual_end.isEqual(expected_end))
     }
-    */
 
     /*
 explain SELECT * FROM timestamptz_storage_dup_key_no_scale where ts_tz = '2023-01-01 12:00:00 +03:00' ORDER BY 1, 2, 3;
@@ -784,7 +740,6 @@ explain SELECT * FROM timestamptz_storage_dup_key_no_scale where ts_tz = '2023-0
         assertTrue(actual_end.isEqual(expected_end))
     }
 
-
     // no partition
     test {
         sql """
@@ -837,6 +792,49 @@ explain SELECT * FROM timestamptz_storage_dup_key_no_scale where ts_tz = '2023-0
     qt_scale_all """
         SELECT * FROM timestamptz_storage_dup_key_scale ORDER BY 1, 2, 3;
     """
+
+    expected_partitions_with_scale = [
+        [start: "0000-01-01 00:00:00.000000+00:00", end: partition_value_with_scale0],
+        [start: partition_value_with_scale0, end: partition_value_with_scale1],
+        [start: partition_value_with_scale1, end: partition_value_with_scale2],
+        [start: partition_value_with_scale2, end: partition_value_with_scale3],
+        [start: partition_value_with_scale3, end: "MAXVALUE"]
+    ]
+    def partitionPatternWithScaleMaxValue = /\[\('(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{6}[+-]\d{2}:\d{2})'\),\s*\((?:'(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{6}[+-]\d{2}:\d{2})'|(MAXVALUE))\)\)/
+    partitionRanges = []
+
+    show_result = sql """
+    show create table timestamptz_storage_dup_key_scale;
+    """
+    println "show create table result: ${show_result}"
+    show_result[0][1].findAll(partitionPatternWithScaleMaxValue) { match, startTime, endTime, maxValue ->
+        def end = endTime != null ? endTime : maxValue
+        partitionRanges << [start: startTime, end: end]
+    }
+    println "found partitions: ${partitionRanges}"
+    assertEquals(5, partitionRanges.size())
+    partitionRanges.eachWithIndex { range, index ->
+        println "  partition ${index}: [${range.start}, ${range.end})"
+        if (expected_partitions_with_scale[index].end == "MAXVALUE") {
+            assertEquals("MAXVALUE", range.end)
+            return
+        }
+        def replaceYear0000 = { str ->
+            return str.startsWith("0000-") ? str.replaceFirst("^0000-", "0001-") : str
+        }
+        def expected_start_str = replaceYear0000(expected_partitions_with_scale[index].start)
+        def expected_end_str = replaceYear0000(expected_partitions_with_scale[index].end)
+        def actual_start_str = replaceYear0000(range.start)
+        def actual_end_str = replaceYear0000(range.end)
+
+        def expected_start = ZonedDateTime.parse(expected_start_str, formatter_with_scale)
+        def expected_end = ZonedDateTime.parse(expected_end_str, formatter_with_scale)
+        def actual_start = ZonedDateTime.parse(actual_start_str, formatter_with_scale)
+        def actual_end = ZonedDateTime.parse(actual_end_str, formatter_with_scale)
+
+        assertTrue(actual_start.isEqual(expected_start))
+        assertTrue(actual_end.isEqual(expected_end))
+    }
 
     // test =
     ret = sql """
@@ -1053,6 +1051,56 @@ explain SELECT * FROM timestamptz_storage_dup_key_no_scale where ts_tz = '2023-0
 
     // list partition
     sql """
+        DROP TABLE IF EXISTS `timestamptz_storage_dup_key_scale_list_partition_no_partition`;
+    """
+    sql """
+        CREATE TABLE `timestamptz_storage_dup_key_scale_list_partition_no_partition` (
+          `ts_tz` TIMESTAMPTZ(6),
+          `VALUE` INT
+        ) duplicate KEY(`ts_tz`)
+        partition by LIST(`ts_tz`) (
+            PARTITION p0 VALUES IN ('2023-12-12 12:12:12.123461+08:00')
+        )
+        DISTRIBUTED BY HASH(`ts_tz`) BUCKETS 16
+        PROPERTIES (
+        "replication_num" = "1"
+        );
+    """
+    // no partition for null value
+    test {
+        sql """
+        INSERT INTO timestamptz_storage_dup_key_scale_list_partition_no_partition VALUES (null, 9999);
+        """
+        exception "no partition for this tuple"
+    }
+    // no partition for value
+    test {
+        sql """
+        INSERT INTO timestamptz_storage_dup_key_scale_list_partition_no_partition VALUES ('0000-01-01 00:00:00 +00:00', 9999);
+        """
+        exception "no partition for this tuple"
+    }
+    test {
+        sql """
+        INSERT INTO timestamptz_storage_dup_key_scale_list_partition_no_partition VALUES ('0000-01-01 00:00:00.000000 +00:00', 9999);
+        """
+        exception "no partition for this tuple"
+    }
+    test {
+        sql """
+        INSERT INTO timestamptz_storage_dup_key_scale_list_partition_no_partition VALUES ('9999-12-31 23:59:59.999999+08:00', 9999);
+        """
+        exception "no partition for this tuple"
+    }
+    test {
+        sql """
+        INSERT INTO timestamptz_storage_dup_key_scale_list_partition_no_partition VALUES ('2025-08-08 20:20:21.900000+08:00', 9999);
+        """
+        exception "no partition for this tuple"
+    }
+
+/*
+    sql """
         DROP TABLE IF EXISTS `timestamptz_storage_dup_key_scale_list_partition`;
     """
     sql """
@@ -1061,50 +1109,82 @@ explain SELECT * FROM timestamptz_storage_dup_key_no_scale where ts_tz = '2023-0
           `VALUE` INT
         ) duplicate KEY(`ts_tz`)
         partition by LIST(`ts_tz`) (
-            PARTITION p2023_null VALUES IN (null),
-            PARTITION p2023_h1 VALUES IN (
-                '2023-01-01 12:00:00.123450+08:00',
-                '2023-02-02 12:00:00.123451+08:00',
-                '2023-03-03 12:00:00.123452+08:00',
-                '2023-04-04 23:59:59.123453+08:00',
-                '2023-05-05 00:00:00.123454+08:00',
-                '2023-06-06 15:30:30.123455+08:00'),
-            PARTITION p2023_h2 VALUES IN (
-                '2023-07-07 07:07:07.123456+08:00',
-                '2023-08-08 20:20:20.123457+08:00',
-                '2023-09-09 09:09:09.123458+08:00',
-                '2023-10-10 10:10:10.123459+08:00',
-                '2023-11-11 11:11:11.123460+08:00',
-                '2023-12-12 12:12:12.123461+08:00')
+            PARTITION pnull VALUES IN (null),
+            PARTITION p0 VALUES IN (
+                '0000-01-01 00:00:00.000000+00:00',
+                '0000-01-01 00:00:00.000001+00:00',
+                '0000-01-01 00:00:00.123456+00:00',
+                '0000-01-01 00:00:00.999999+00:00'),
+            PARTITION p1 VALUES IN ('2023-01-02 00:00:00.123456+08:00'),
+            PARTITION p2 VALUES IN ('2023-08-08 20:20:21.900000+08:00'),
+            PARTITION p3 VALUES IN ('9999-12-31 23:59:59.999999+08:00')
         )
         DISTRIBUTED BY HASH(`ts_tz`) BUCKETS 16
         PROPERTIES (
         "replication_num" = "1"
         );
     """
-    // '2023-12-12 12:12:12.999999')
 
     sql """INSERT INTO timestamptz_storage_dup_key_scale_list_partition VALUES
     (null, -1),
-    ('2023-01-01 12:00:00.123450 +00:00', 1),
-    ('2023-07-07 07:07:07.123456 +00:00', 7),
-    ('2023-08-08 20:20:20.123457 +00:00', 8),
-    ('2023-09-09 09:09:09.123458 +00:00', 9),
-    ('2023-10-10 10:10:10.123459 +00:00', 10),
-    ('2023-02-02 12:00:00.123451 +00:00', 2),
-    ('2023-03-03 12:00:00.123452 +00:00', 3),
-    ('2023-04-04 23:59:59.123453 +00:00', 4),
-    ('2023-05-05 00:00:00.123454 +00:00', 5),
-    ('2023-06-06 15:30:30.123455 +00:00', 6),
-    ('2023-11-11 11:11:11.123460 +00:00', 11),
-    ('2023-12-12 12:12:12.123461 +00:00', 12);
+    ('0000-01-01 00:00:00.000000 +00:00', 2),
+    ('0000-01-01 00:00:00.000001 +00:00', 3),
+    ('0000-01-01 00:00:00.123456 +00:00', 4),
+    ('0000-01-01 00:00:00.999999 +00:00', 5),
+    ('2023-01-02 00:00:00.123456+08:00', 6),
+    ('2023-08-08 20:20:21.900000+08:00', 7),
+    ('9999-12-31 23:59:59.999999+08:00', 8);
     """
-    // ('2023-12-12 12:12:12.999999 +00:00', 13);
     qt_scale_list_partition0 """
         SELECT * FROM timestamptz_storage_dup_key_scale_list_partition ORDER BY 1, 2, 3;
     """
+    */
 
     // list partition, multi columns
+    sql """
+        DROP TABLE IF EXISTS `tz_dup_key_scale_list_partition_multi_cols_no_partition`;
+    """
+    sql """
+        CREATE TABLE `tz_dup_key_scale_list_partition_multi_cols_no_partition` (
+          `ts_tz` TIMESTAMPTZ(6),
+          `name` VARCHAR(64),
+          `VALUE` INT
+        ) duplicate KEY(`ts_tz`, `name`)
+        partition by LIST(`ts_tz`, `name`) (
+            PARTITION p0 VALUES IN (('0000-01-01 00:00:00.123456+00:00', 'sunflower'))
+        )
+        DISTRIBUTED BY HASH(`ts_tz`) BUCKETS 16
+        PROPERTIES (
+        "replication_num" = "1"
+        );
+    """
+    // no partition for null value
+    test {
+        sql """
+        INSERT INTO tz_dup_key_scale_list_partition_multi_cols_no_partition VALUES (null, null, 9999);
+        """
+        exception "no partition for this tuple"
+    }
+    // no partition for value
+    test {
+        sql """
+        INSERT INTO tz_dup_key_scale_list_partition_multi_cols_no_partition VALUES ('0000-01-01 00:00:00.123456 +00:00', 'aaa', 9999);
+        """
+        exception "no partition for this tuple"
+    }
+    test {
+        sql """
+        INSERT INTO tz_dup_key_scale_list_partition_multi_cols_no_partition VALUES ('0000-01-01 00:00:00.123457 +00:00', 'sunflower', 9999);
+        """
+        exception "no partition for this tuple"
+    }
+    test {
+        sql """
+        INSERT INTO tz_dup_key_scale_list_partition_multi_cols_no_partition VALUES ('9999-12-31 23:59:59.999999+08:00', 'sunflower', 9999);
+        """
+        exception "no partition for this tuple"
+    }
+
     sql """
         DROP TABLE IF EXISTS `timestamptz_storage_dup_key_scale_list_partition_multi_cols`;
     """
@@ -1115,21 +1195,15 @@ explain SELECT * FROM timestamptz_storage_dup_key_no_scale where ts_tz = '2023-0
           `VALUE` INT
         ) duplicate KEY(`ts_tz`, `name`)
         partition by LIST(`ts_tz`, `name`) (
-            PARTITION p2023_null VALUES IN ((null, null)),
-            PARTITION p2023_h1 VALUES IN (
-                ('2023-01-01 12:00:00.123450+08:00', 'jack'),
-                ('2023-02-02 12:00:00.123451+08:00', 'rose'),
-                ('2023-03-03 12:00:00.123452+08:00', 'lily'),
-                ('2023-04-04 23:59:59.123453+08:00', 'tulip'),
-                ('2023-05-05 00:00:00.123454+08:00', 'daisy'),
-                ('2023-06-06 15:30:30.123455+08:00', 'sunflower')),
-            PARTITION p2023_h2 VALUES IN (
-                ('2023-07-07 07:07:07.123456+08:00', 'jack'),
-                ('2023-08-08 20:20:20.123457+08:00', 'rose'),
-                ('2023-09-09 09:09:09.123458+08:00', 'lily'),
-                ('2023-10-10 10:10:10.123459+08:00', 'tulip'),
-                ('2023-11-11 11:11:11.123460+08:00', 'daisy'),
-                ('2023-12-12 12:12:12.123461+08:00', 'sunflower'))
+            PARTITION pnull VALUES IN ((null, null)),
+            PARTITION p0 VALUES IN (
+                ('0000-01-01 00:00:00.000000+00:00', 'jack'),
+                ('0000-01-01 00:00:00.000001+00:00', 'jack'),
+                ('0000-01-01 00:00:00.123456+00:00', 'jack'),
+                ('0000-01-01 00:00:00.999999+00:00', 'jack')),
+            PARTITION p1 VALUES IN (('2023-01-02 00:00:00.123456+08:00', 'rose')),
+            PARTITION p2 VALUES IN (('2023-08-08 20:20:21.900000+08:00', 'lily')),
+            PARTITION p3 VALUES IN (('9999-12-31 23:59:59.999999+08:00', 'tulip'))
         )
         DISTRIBUTED BY HASH(`ts_tz`) BUCKETS 16
         PROPERTIES (
@@ -1139,18 +1213,13 @@ explain SELECT * FROM timestamptz_storage_dup_key_no_scale where ts_tz = '2023-0
 
     sql """INSERT INTO timestamptz_storage_dup_key_scale_list_partition_multi_cols VALUES
     (null, null, -1),
-    ('2023-01-01 12:00:00.123450 +00:00', 'jack', 1),
-    ('2023-07-07 07:07:07.123456 +00:00', 'jack', 7),
-    ('2023-08-08 20:20:20.123457 +00:00', 'rose', 8),
-    ('2023-09-09 09:09:09.123458 +00:00', 'lily', 9),
-    ('2023-10-10 10:10:10.123459 +00:00', 'tulip', 10),
-    ('2023-02-02 12:00:00.123451 +00:00', 'rose', 2),
-    ('2023-03-03 12:00:00.123452 +00:00', 'lily', 3),
-    ('2023-04-04 23:59:59.123453 +00:00', 'tulip', 4),
-    ('2023-05-05 00:00:00.123454 +00:00', 'daisy', 5),
-    ('2023-06-06 15:30:30.123455 +00:00', 'sunflower', 6),
-    ('2023-11-11 11:11:11.123460 +00:00', 'daisy', 11),
-    ('2023-12-12 12:12:12.123461 +00:00', 'sunflower', 12);
+    ('0000-01-01 00:00:00.000000 +00:00', 'jack', 1),
+    ('0000-01-01 00:00:00.000001 +00:00', 'jack', 2),
+    ('0000-01-01 00:00:00.123456 +00:00', 'jack', 3),
+    ('0000-01-01 00:00:00.999999 +00:00', 'jack', 4),
+    ('2023-01-02 00:00:00.123456+08:00', 'rose', 5),
+    ('2023-08-08 20:20:21.900000+08:00', 'lily', 6),
+    ('9999-12-31 23:59:59.999999+08:00', 'tulip', 7);
     """
     qt_scale_list_partition1 """
         SELECT * FROM timestamptz_storage_dup_key_scale_list_partition_multi_cols ORDER BY 1, 2, 3;
