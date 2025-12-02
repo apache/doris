@@ -392,7 +392,8 @@ under the License.
         <azure.sdk.batch.version>12.22.0</azure.sdk.batch.version>
         <semver4j.version>5.3.0</semver4j.version>
         <aliyun-sdk-oss.version>3.15.0</aliyun-sdk-oss.version>
-        <awssdk.version>2.37.2</awssdk.version>
+        <!--Fixes the regression described in https://github.com/aws/aws-sdk-java-v2/issues/5805 that forced us to downgrade aws-s3 to version 2.29.x.-->
+        <awssdk.version>2.29.52</awssdk.version>
         <s3tables.catalog.version>0.1.4</s3tables.catalog.version>
         <mockito.version>4.11.0</mockito.version>
     </properties>
