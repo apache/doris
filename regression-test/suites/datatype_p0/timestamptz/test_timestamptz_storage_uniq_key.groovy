@@ -193,6 +193,13 @@ suite("test_timestamptz_storage_uniq_key") {
         SELECT * FROM timestamptz_storage_uniq_key_no_scale_no_max_partition ORDER BY 1, 2, 3;
     """
 
+    expected_partitions = [
+        [start: "0000-01-01 00:00:00+00:00", end: partition_value0],
+        [start: partition_value0, end: partition_value1],
+        [start: partition_value1, end: partition_value2],
+        [start: partition_value2, end: partition_value3],
+        [start: partition_value3, end: "MAXVALUE"],
+    ]
     sql """
         DROP TABLE IF EXISTS `timestamptz_storage_uniq_key_no_scale`;
     """
@@ -215,13 +222,6 @@ suite("test_timestamptz_storage_uniq_key") {
         "function_column.sequence_col" = 'ts_tz_value'
         );
     """
-    expected_partitions = [
-        [start: "0000-01-01 00:00:00+00:00", end: partition_value0],
-        [start: partition_value0, end: partition_value1],
-        [start: partition_value1, end: partition_value2],
-        [start: partition_value2, end: partition_value3],
-        [start: partition_value3, end: "MAXVALUE"],
-    ]
 
     sql """INSERT INTO timestamptz_storage_uniq_key_no_scale VALUES
         (null, null, -1),
