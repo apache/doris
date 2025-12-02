@@ -756,7 +756,7 @@ BaseSnapshotLoader::BaseSnapshotLoader(ExecEnv* env, int64_t job_id, int64_t tas
 }
 
 Status BaseSnapshotLoader::init(TStorageBackendType::type type, const std::string& location) {
-    if (TStorageBackendType::type::S3 == type) {
+    if (TStorageBackendType::type::S3 == type || TStorageBackendType::type::AZURE == type) {
         S3Conf s3_conf;
         S3URI s3_uri(location);
         RETURN_IF_ERROR(s3_uri.parse());
