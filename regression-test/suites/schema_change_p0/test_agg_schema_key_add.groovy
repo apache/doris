@@ -493,7 +493,7 @@ suite("test_agg_schema_key_add", "p0") {
     expectException({
         sql initTable
         sql initTableData
-        sql """ alter  table ${tbName1} add  column   j    JSON   DEFAULT '{\"a\": 300}' AFTER username """
+        sql """ alter  table ${tbName1} add  column   j    JSON key  DEFAULT '{\"a\": 300}' AFTER username """
         insertSql = " insert into ${tbName1} values(923456689, 'Alice', '{\"k1\":\"v31\", \"k2\": 300}', 'Yaan',  25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
         waitForSchemaChangeDone({
             sql getTableStatusSql

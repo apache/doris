@@ -67,7 +67,7 @@ suite("test_agg_keys_schema_change_datev2") {
     sql """ insert into ${tbName} (`datek2`, `datev1`, `datev2`) values('2022-01-06 11:11:11', '2022-01-06', '2022-01-06 11:11:11');"""
     qt_sql """select * from ${tbName} ORDER BY `datek1`;"""
 
-    sql """ alter table ${tbName} add column `datev3` datev2 DEFAULT '2022-01-01' """
+    sql """ alter table ${tbName} add column `datev3` datev2 key DEFAULT '2022-01-01' """
     int max_try_secs = 300
     Awaitility.await().atMost(max_try_secs, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).await().until(() -> {
         String result = getJobState(tbName)
@@ -108,7 +108,7 @@ suite("test_agg_keys_schema_change_datev2") {
     sql """ insert into ${tbName} (`datek2`, `datev1`, `datev2`) values('2022-01-06 11:11:11', '2022-01-06', '2022-01-06 11:11:11');"""
     sql """sync"""
     qt_sql """select * from ${tbName} ORDER BY `datek1`;"""
-    sql """ alter  table ${tbName} add column `datev3` datetimev2 DEFAULT '2022-01-01 11:11:11' """
+    sql """ alter  table ${tbName} add column `datev3` datetimev2 key DEFAULT '2022-01-01 11:11:11' """
     Awaitility.await().atMost(max_try_secs, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).await().until(() -> {
         String result = getJobState(tbName)
         if (result == "FINISHED") {
@@ -147,7 +147,7 @@ suite("test_agg_keys_schema_change_datev2") {
     sql """ insert into ${tbName} (`datek2`, `datev1`, `datev2`) values('2022-01-06 11:11:11', '2022-01-06', '2022-01-06 11:11:11');"""
     sql """sync"""
     qt_sql """select * from ${tbName} ORDER BY `datek1`;"""
-    sql """ alter  table ${tbName} add column `datev3` datetimev2(3) DEFAULT '2022-01-01 11:11:11.111' """
+    sql """ alter  table ${tbName} add column `datev3` datetimev2(3) key DEFAULT '2022-01-01 11:11:11.111' """
 
     Awaitility.await().atMost(max_try_secs, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).await().until(() -> {
         String result = getJobState(tbName)

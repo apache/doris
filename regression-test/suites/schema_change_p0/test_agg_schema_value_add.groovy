@@ -224,7 +224,7 @@ suite("test_agg_schema_value_add", "p0") {
     //Test the AGGREGATE model by adding a value column with INT
     sql initTable
     sql initTableData
-    sql """ alter  table ${tbName1} add  column house_price INT  DEFAULT "999" AFTER username """
+    sql """ alter  table ${tbName1} add  column house_price INT key DEFAULT "999" AFTER username """
     insertSql = " insert into ${tbName1} values(923456689, 'Alice', 22536, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
     waitForSchemaChangeDone({
         sql getTableStatusSql
@@ -266,7 +266,7 @@ suite("test_agg_schema_value_add", "p0") {
     //Test the AGGREGATE model by adding a value column with BIGINT
     sql initTable
     sql initTableData
-    sql """ alter  table ${tbName1} add  column house_price1 BIGINT  DEFAULT "99999991" AFTER username """
+    sql """ alter  table ${tbName1} add  column house_price1 BIGINT key DEFAULT "99999991" AFTER username """
     insertSql = " insert into ${tbName1} values(923456689, 'Alice', 88889494646, 'Yaan',  25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
     waitForSchemaChangeDone({
         sql getTableStatusSql
@@ -354,7 +354,7 @@ suite("test_agg_schema_value_add", "p0") {
     expectException({
         sql initTable
         sql initTableData
-        sql """ alter  table ${tbName1} add  column phone FLOAT  DEFAULT "166.68" AFTER username """
+        sql """ alter  table ${tbName1} add  column phone FLOAT key DEFAULT "166.68" AFTER username """
         insertSql = " insert into ${tbName1} values(923456689, 'Alice', 189.98, 'Yaan',  25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00');"
         waitForSchemaChangeDone({
             sql getTableStatusSql
@@ -368,7 +368,7 @@ suite("test_agg_schema_value_add", "p0") {
     expectException({
         sql initTable
         sql initTableData
-        sql """ alter  table ${tbName1} add  column watch DOUBLE  DEFAULT "166.689" AFTER username """
+        sql """ alter  table ${tbName1} add  column watch DOUBLE key DEFAULT "166.689" AFTER username """
         insertSql = " insert into ${tbName1} values(923456689, 'Alice', 189.479, 'Yaan',  25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
         waitForSchemaChangeDone({
             sql getTableStatusSql
@@ -380,7 +380,7 @@ suite("test_agg_schema_value_add", "p0") {
     //Test the AGGREGATE model by adding a value column with DECIMAL
     sql initTable
     sql initTableData
-    sql """ alter  table ${tbName1} add  column watch DECIMAL(38,10)  DEFAULT "16899.6464689" AFTER username """
+    sql """ alter  table ${tbName1} add  column watch DECIMAL(38,10) key DEFAULT "16899.6464689" AFTER username """
     insertSql = " insert into ${tbName1} values(923456689, 'Alice', 16499.6464689, 'Yaan',  25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00');"
     waitForSchemaChangeDone({
         sql getTableStatusSql
@@ -557,7 +557,7 @@ suite("test_agg_schema_value_add", "p0") {
     expectException({
         sql initTable
         sql initTableData
-        sql """ alter  table ${tbName1} add  column comment STRING  DEFAULT "我是小说家" AFTER username """
+        sql """ alter  table ${tbName1} add  column comment STRING key DEFAULT "我是小说家" AFTER username """
         insertSql = " insert into ${tbName1} values(923456689, 'Alice', '我是侦探家', 'Yaan',  25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00');  "
         waitForSchemaChangeDone({
             sql getTableStatusSql
@@ -601,7 +601,7 @@ suite("test_agg_schema_value_add", "p0") {
     expectException({
         sql initTable
         sql initTableData
-        sql """ alter  table ${tbName1} add  column m   Map<STRING, INT>   AFTER username """
+        sql """ alter  table ${tbName1} add  column m   Map<STRING, INT> key  AFTER username """
         insertSql = " insert into ${tbName1} values(923456689, 'Alice', {'a': 100, 'b': 200}, 'Yaan',  25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00');  "
         waitForSchemaChangeDone({
             sql getTableStatusSql
@@ -615,7 +615,7 @@ suite("test_agg_schema_value_add", "p0") {
     expectException({
         sql initTable
         sql initTableData
-        sql """ alter  table ${tbName1} add  column   j  JSON   AFTER username """
+        sql """ alter  table ${tbName1} add  column   j  JSON key  AFTER username """
         insertSql = " insert into ${tbName1} values(923456689, 'Alice', '{\"k1\":\"v31\", \"k2\": 300}', 'Yaan',  25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
         waitForSchemaChangeDone({
             sql getTableStatusSql
@@ -629,7 +629,7 @@ suite("test_agg_schema_value_add", "p0") {
     expectException({
         sql initTable
         sql initTableData
-        sql """ alter  table ${tbName1} add  column   c_array  ARRAY<int(11)>   AFTER username """
+        sql """ alter  table ${tbName1} add  column   c_array  ARRAY<int(11)> key AFTER username """
         insertSql = " insert into ${tbName1} values(923456689, 'Alice', [6,7,8], 'Yaan',  25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
         waitForSchemaChangeDone({
             sql getTableStatusSql
@@ -643,7 +643,7 @@ suite("test_agg_schema_value_add", "p0") {
     expectException({
         sql initTable
         sql initTableData
-        sql """ alter  table ${tbName1} add  column  s_info  STRUCT<s_id:int(11), s_name:string, s_address:string>   AFTER username """
+        sql """ alter  table ${tbName1} add  column  s_info  STRUCT<s_id:int(11), s_name:string, s_address:string> key AFTER username """
         insertSql = " insert into ${tbName1} values(923456689, 'Alice', [6,7,8], 'Yaan',  25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
         waitForSchemaChangeDone({
             sql getTableStatusSql

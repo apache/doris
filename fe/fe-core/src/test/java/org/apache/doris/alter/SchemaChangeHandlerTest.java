@@ -355,8 +355,14 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
             tbl.readUnlock();
         }
 
+
+        // test negative agg add key column schema change without keyword
+        String negativeAddKeyColStmtStr = "alter table test.sc_agg add column new_k1 int default '1'";
+        expectException(negativeAddKeyColStmtStr,
+                "errCode = 2, detailMessage = Please specify `key` as keyword for adding key column on AGG_KEYS table: new_k1");
+
         // process agg add key column schema change
-        String addKeyColStmtStr = "alter table test.sc_agg add column new_k1 int default '1'";
+        String addKeyColStmtStr = "alter table test.sc_agg add column new_k1 int key default '1'";
         alterTable(addKeyColStmtStr, connectContext);
 
         // check alter job

@@ -20,7 +20,6 @@ package org.apache.doris.analysis;
 import org.apache.doris.alter.AlterOpType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
@@ -90,10 +89,6 @@ public class AddColumnClause extends AlterTableClause {
                     .getCatalogOrDdlException(tableNameInfo.getCtl())
                     .getDbOrDdlException(tableNameInfo.getDb())
                     .getTableOrDdlException(tableNameInfo.getTbl());
-            if (table instanceof OlapTable && ((OlapTable) table).getKeysType() == KeysType.AGG_KEYS
-                    && columnDef.getAggregateType() == null) {
-                columnDef.setIsKey(true);
-            }
             if (table instanceof OlapTable) {
                 columnDef.setKeysType(((OlapTable) table).getKeysType());
             }

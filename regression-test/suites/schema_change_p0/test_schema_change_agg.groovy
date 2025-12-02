@@ -149,7 +149,7 @@ suite("test_schema_change_agg", "p0") {
 
     // check add column without agg type
     test {
-        sql """ alter table ${tableName3} add column v16 int NOT NULL default "0" after k13 """
+        sql """ alter table ${tableName3} add column v16 int key NOT NULL default "0" after k13 """
         exception "can't add key column v16 after value column k13"
     }
 
