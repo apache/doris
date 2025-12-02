@@ -25,10 +25,12 @@ import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.analysis.AlterMultiPartitionClause;
 import org.apache.doris.analysis.DataSortInfo;
 import org.apache.doris.analysis.DistributionDesc;
+import org.apache.doris.analysis.DropMultiPartitionClause;
 import org.apache.doris.analysis.DropPartitionClause;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.KeysDesc;
 import org.apache.doris.analysis.MultiPartitionDesc;
+import org.apache.doris.analysis.MultiPartitionNames;
 import org.apache.doris.analysis.PartitionDesc;
 import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.analysis.SinglePartitionDesc;
@@ -1917,6 +1919,47 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
 
         dropPartitionWithoutCheck(db, olapTable, partitionName, isTempPartition, isForceDrop);
+    }
+
+    public void dropMultiPartition(Database db, OlapTable olapTable,
+                                   DropMultiPartitionClause dropMultiClause) throws DdlException {
+        Set<String> intersection;
+        try {
+            MultiPartitionNames multiPartitionNames = new MultiPartitionNames(dropMultiClause.getPartitionKeyDesc());
+            Set<String> singlePartitionNameSet = new HashSet<>(multiPartitionNames.getMultiPartitionNameList());
+            Set<String> allPartitionNameSet = olapTable.getPartitionNames();
+
+            // Compute intersection - Partitions that actually exist and need to be deleted
+            intersection = new HashSet<>(singlePartitionNameSet);
+            intersection.retainAll(allPartitionNameSet);
+
+            // Check if no partitions found to delete
+            if (intersection.isEmpty()) {
+                // Calculate missing partitions
+                Set<String> missingPartitions = new HashSet<>(singlePartitionNameSet);
+                missingPartitions.removeAll(allPartitionNameSet);
+
+                throw new DdlException(String.format(
+                    "No partitions found in the specified range to drop. "
+                    +
+                    "Missing partitions: [%s]. Current table partitions: [%s]",
+                    String.join(", ", missingPartitions),
+                    String.join(", ", allPartitionNameSet)
+                ));
+            }
+        } catch (AnalysisException e) {
+            throw new DdlException("Failed to analyze drop partition range clause: " + e.getMessage());
+        }
+
+        for (String singlePartitionName : intersection) {
+            DropPartitionClause dropPartitionClause = new DropPartitionClause(
+                    dropMultiClause.isSetIfExists(),
+                    singlePartitionName,
+                    dropMultiClause.isTempPartition(),
+                    dropMultiClause.isForceDrop()
+            );
+            dropPartition(db, olapTable, dropPartitionClause);
+        }
     }
 
     // drop partition without any check, the caller should hold the table write lock.
