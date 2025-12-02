@@ -26,6 +26,7 @@
 #include <cstdint>
 #include <ctime>
 #include <functional>
+#include <limits>
 #include <optional>
 #include <random>
 #include <sstream>
@@ -42,6 +43,7 @@
 #include "gen_cpp/cloud.pb.h"
 #include "olap/storage_engine.h"
 #include "runtime/exec_env.h"
+#include "util/coding.h"
 #include "util/uid_util.h"
 
 namespace doris::io {
@@ -59,6 +61,45 @@ bvar::Window<bvar::IntRecorder> g_merge_file_avg_small_file_num(
 bvar::Window<bvar::IntRecorder> g_merge_file_avg_file_size_bytes("merge_file_avg_file_size_bytes",
                                                                  &g_merge_file_file_size_recorder,
                                                                  /*window_size=*/10);
+bvar::IntRecorder g_merge_file_active_to_ready_ms_recorder;
+bvar::IntRecorder g_merge_file_ready_to_uploading_to_uploading_ms_recorder;
+bvar::IntRecorder g_merge_file_uploading_to_uploaded_ms_recorder;
+bvar::Window<bvar::IntRecorder> g_merge_file_active_to_ready_ms_window(
+        "merge_file_active_to_ready_to_uploading_ms", &g_merge_file_active_to_ready_ms_recorder,
+        /*window_size=*/10);
+bvar::Window<bvar::IntRecorder> g_merge_file_ready_to_uploading_to_uploading_ms_window(
+        "merge_file_ready_to_uploading_to_uploading_ms",
+        &g_merge_file_ready_to_uploading_to_uploading_ms_recorder, /*window_size=*/10);
+bvar::Window<bvar::IntRecorder> g_merge_file_uploading_to_uploaded_ms_window(
+        "merge_file_uploading_to_uploaded_ms", &g_merge_file_uploading_to_uploaded_ms_recorder,
+        /*window_size=*/10);
+
+Status append_merge_info_trailer(FileWriter* writer, const std::string& merge_file_path,
+                                 const cloud::MergedFileInfoPB& merge_file_info) {
+    if (writer == nullptr) {
+        return Status::InternalError("File writer is null for merge file: {}", merge_file_path);
+    }
+    if (writer->state() == FileWriter::State::CLOSED) {
+        return Status::InternalError("File writer already closed for merge file: {}",
+                                     merge_file_path);
+    }
+
+    std::string serialized_info;
+    if (!merge_file_info.SerializeToString(&serialized_info)) {
+        return Status::InternalError("Failed to serialize merge file info for {}", merge_file_path);
+    }
+
+    if (serialized_info.size() > std::numeric_limits<uint32_t>::max()) {
+        return Status::InternalError("MergedFileInfoPB too large for {}", merge_file_path);
+    }
+
+    std::string trailer;
+    trailer.reserve(serialized_info.size() + sizeof(uint32_t));
+    trailer.append(serialized_info);
+    put_fixed32_le(&trailer, static_cast<uint32_t>(serialized_info.size()));
+
+    return writer->append(Slice(trailer));
+}
 
 } // namespace
 
@@ -88,7 +129,7 @@ Status MergeFileManager::create_new_merge_file_state(
     auto hash_val = std::hash<std::string> {}(uuid);
     uint16_t path_bucket = hash_val % 4096 + 1;
     std::stringstream path_stream;
-    path_stream << "data/merge_file/" << path_bucket << "/" << uuid;
+    path_stream << "data/merge_file/" << path_bucket << "/" << uuid << ".bin";
 
     merge_file_state = std::make_unique<MergeFileState>();
     const std::string relative_path = path_stream.str();
@@ -372,6 +413,23 @@ Status MergeFileManager::mark_current_merge_file_for_upload_locked(const std::st
 
     // Mark as ready for upload
     current->state = MergeFileStateEnum::READY_TO_UPLOADING;
+    if (!current->ready_to_uploading_timestamp.has_value()) {
+        auto now = std::chrono::steady_clock::now();
+        current->ready_to_uploading_timestamp = now;
+        int64_t active_to_ready_ms = -1;
+        if (current->first_append_timestamp.has_value()) {
+            active_to_ready_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                         now - *current->first_append_timestamp)
+                                         .count();
+            g_merge_file_active_to_ready_ms_recorder << active_to_ready_ms;
+            if (auto* sampler = g_merge_file_active_to_ready_ms_recorder.get_sampler()) {
+                sampler->take_sample();
+            }
+        }
+        LOG(INFO) << "Merge file " << current->merge_file_path
+                  << " transition ACTIVE->READY_TO_UPLOADING; active_to_ready_ms="
+                  << active_to_ready_ms;
+    }
 
     // Move to uploading files list
     {
@@ -461,6 +519,28 @@ void MergeFileManager::background_manager() {
 void MergeFileManager::process_uploading_files() {
     std::vector<std::shared_ptr<MergeFileState>> files_ready;
     std::vector<std::shared_ptr<MergeFileState>> files_uploading;
+    auto record_ready_to_uploading_to_uploading =
+            [&](const std::shared_ptr<MergeFileState>& merge_file) {
+                if (!merge_file->uploading_timestamp.has_value()) {
+                    merge_file->uploading_timestamp = std::chrono::steady_clock::now();
+                    int64_t duration_ms = -1;
+                    if (merge_file->ready_to_uploading_timestamp.has_value()) {
+                        duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                              *merge_file->uploading_timestamp -
+                                              *merge_file->ready_to_uploading_timestamp)
+                                              .count();
+                        g_merge_file_ready_to_uploading_to_uploading_ms_recorder << duration_ms;
+                        if (auto* sampler = g_merge_file_ready_to_uploading_to_uploading_ms_recorder
+                                                    .get_sampler()) {
+                            sampler->take_sample();
+                        }
+                    }
+                    LOG(INFO) << "Merge file " << merge_file->merge_file_path
+                              << " transition READY_TO_UPLOADING->UPLOADING; "
+                                 "ready_to_uploading_to_uploading_ms="
+                              << duration_ms;
+                }
+            };
 
     {
         std::lock_guard<std::mutex> lock(_merge_files_mutex);
@@ -479,7 +559,38 @@ void MergeFileManager::process_uploading_files() {
     }
 
     auto handle_success = [&](const std::shared_ptr<MergeFileState>& merge_file) {
-        VLOG_DEBUG << "Merge file upload completed: " << merge_file->merge_file_path;
+        auto now = std::chrono::steady_clock::now();
+        int64_t active_to_ready_ms = -1;
+        int64_t ready_to_uploading_to_uploading_ms = -1;
+        int64_t uploading_to_uploaded_ms = -1;
+        if (merge_file->first_append_timestamp.has_value() &&
+            merge_file->ready_to_uploading_timestamp.has_value()) {
+            active_to_ready_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                         *merge_file->ready_to_uploading_timestamp -
+                                         *merge_file->first_append_timestamp)
+                                         .count();
+        }
+        if (merge_file->ready_to_uploading_timestamp.has_value() &&
+            merge_file->uploading_timestamp.has_value()) {
+            ready_to_uploading_to_uploading_ms =
+                    std::chrono::duration_cast<std::chrono::milliseconds>(
+                            *merge_file->uploading_timestamp -
+                            *merge_file->ready_to_uploading_timestamp)
+                            .count();
+        }
+        if (merge_file->uploading_timestamp.has_value()) {
+            uploading_to_uploaded_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                               now - *merge_file->uploading_timestamp)
+                                               .count();
+            g_merge_file_uploading_to_uploaded_ms_recorder << uploading_to_uploaded_ms;
+            if (auto* sampler = g_merge_file_uploading_to_uploaded_ms_recorder.get_sampler()) {
+                sampler->take_sample();
+            }
+        }
+        LOG(INFO) << "Merge file " << merge_file->merge_file_path
+                  << " upload completed; active_to_ready_ms=" << active_to_ready_ms
+                  << ", ready_to_uploading_to_uploading_ms=" << ready_to_uploading_to_uploading_ms
+                  << ", uploading_to_uploaded_ms=" << uploading_to_uploaded_ms;
         {
             std::lock_guard<std::mutex> upload_lock(merge_file->upload_mutex);
             merge_file->state = MergeFileStateEnum::UPLOADED;
@@ -516,7 +627,6 @@ void MergeFileManager::process_uploading_files() {
         cloud::MergedFileInfoPB merge_file_info;
         merge_file_info.set_ref_cnt(merge_file->index_map.size());
         merge_file_info.set_total_file_num(merge_file->index_map.size());
-        merge_file_info.set_left_file_num(merge_file->index_map.size());
         merge_file_info.set_total_file_bytes(merge_file->total_size);
         merge_file_info.set_left_file_bytes(merge_file->total_size);
         merge_file_info.set_created_at_sec(merge_file->create_time);
@@ -552,6 +662,13 @@ void MergeFileManager::process_uploading_files() {
         // Record stats once the merge file metadata is persisted.
         record_merge_file_metrics(*merge_file);
 
+        Status trailer_status = append_merge_info_trailer(
+                merge_file->writer.get(), merge_file->merge_file_path, merge_file_info);
+        if (!trailer_status.ok()) {
+            handle_failure(merge_file, trailer_status);
+            continue;
+        }
+
         // Now upload the file
         if (!merge_file->index_map.empty()) {
             std::ostringstream oss;
@@ -575,6 +692,7 @@ void MergeFileManager::process_uploading_files() {
                 upload_merge_file(merge_file->merge_file_path, merge_file->writer.get());
 
         if (upload_status.is<ErrorCode::ALREADY_CLOSED>()) {
+            record_ready_to_uploading_to_uploading(merge_file);
             handle_success(merge_file);
             continue;
         }
@@ -583,6 +701,7 @@ void MergeFileManager::process_uploading_files() {
             continue;
         }
 
+        record_ready_to_uploading_to_uploading(merge_file);
         merge_file->state = MergeFileStateEnum::UPLOADING;
     }
 
@@ -710,10 +829,22 @@ void MergeFileManager::reset_merge_file_bvars_for_test() const {
     reset_adder(g_merge_file_total_size_bytes);
     g_merge_file_small_file_num_recorder.reset();
     g_merge_file_file_size_recorder.reset();
+    g_merge_file_active_to_ready_ms_recorder.reset();
+    g_merge_file_ready_to_uploading_to_uploading_ms_recorder.reset();
+    g_merge_file_uploading_to_uploaded_ms_recorder.reset();
     if (auto* sampler = g_merge_file_small_file_num_recorder.get_sampler()) {
         sampler->take_sample();
     }
     if (auto* sampler = g_merge_file_file_size_recorder.get_sampler()) {
+        sampler->take_sample();
+    }
+    if (auto* sampler = g_merge_file_active_to_ready_ms_recorder.get_sampler()) {
+        sampler->take_sample();
+    }
+    if (auto* sampler = g_merge_file_ready_to_uploading_to_uploading_ms_recorder.get_sampler()) {
+        sampler->take_sample();
+    }
+    if (auto* sampler = g_merge_file_uploading_to_uploaded_ms_recorder.get_sampler()) {
         sampler->take_sample();
     }
 }

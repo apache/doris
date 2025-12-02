@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <chrono>
+#include <optional>
 #include <string>
 
 #include "common/status.h"
@@ -83,6 +85,8 @@ private:
     mutable MergeFileSegmentIndex
             _merge_file_index; // Merge file index information (mutable for lazy init in const getter)
     MergeFileAppendInfo _append_info;
+    std::optional<std::chrono::steady_clock::time_point> _first_append_timestamp;
+    bool _close_latency_recorded = false;
 };
 
 } // namespace doris::io

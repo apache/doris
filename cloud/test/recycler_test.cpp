@@ -1829,7 +1829,6 @@ TEST(RecyclerTest, recycle_tablet_merged_file_ref_count) {
     MergedFileInfoPB merged_info;
     merged_info.set_ref_cnt(merged_rowset.num_segments());
     merged_info.set_total_file_num(merged_rowset.num_segments());
-    merged_info.set_left_file_num(merged_rowset.num_segments());
     merged_info.set_total_file_bytes(kSmallFileSize * merged_rowset.num_segments());
     merged_info.set_left_file_bytes(kSmallFileSize * merged_rowset.num_segments());
     merged_info.set_state(MergedFileInfoPB::NORMAL);
@@ -5447,7 +5446,6 @@ TEST(RecyclerTest, delete_rowset_data_merged_file_single_rowset) {
     MergedFileInfoPB merged_info;
     merged_info.set_ref_cnt(rowset.num_segments());
     merged_info.set_total_file_num(rowset.num_segments());
-    merged_info.set_left_file_num(rowset.num_segments());
     merged_info.set_total_file_bytes(kSmallFileSize * rowset.num_segments());
     merged_info.set_left_file_bytes(kSmallFileSize * rowset.num_segments());
     merged_info.set_state(MergedFileInfoPB::NORMAL);
@@ -5521,7 +5519,6 @@ TEST(RecyclerTest, delete_rowset_data_merged_file_batch_rowsets) {
     MergedFileInfoPB merged_info;
     merged_info.set_ref_cnt(1);
     merged_info.set_total_file_num(1);
-    merged_info.set_left_file_num(1);
     merged_info.set_total_file_bytes(256);
     merged_info.set_left_file_bytes(256);
     merged_info.set_state(MergedFileInfoPB::NORMAL);
@@ -5640,7 +5637,6 @@ TEST(RecyclerTest, delete_rowset_data_merged_file_multiple_groups) {
         int small_count = merged_info.small_files_size();
         merged_info.set_ref_cnt(small_count);
         merged_info.set_total_file_num(small_count);
-        merged_info.set_left_file_num(small_count);
         merged_info.set_total_file_bytes(small_count * kSmallFileSize);
         merged_info.set_left_file_bytes(small_count * kSmallFileSize);
         merged_info.set_state(MergedFileInfoPB::NORMAL);
@@ -5704,7 +5700,6 @@ TEST(RecyclerTest, recycle_merged_files_correct_and_delete) {
     MergedFileInfoPB merged_info;
     merged_info.set_ref_cnt(1);
     merged_info.set_total_file_num(1);
-    merged_info.set_left_file_num(1);
     merged_info.set_total_file_bytes(64);
     merged_info.set_left_file_bytes(64);
     merged_info.set_corrected(false);
@@ -5730,7 +5725,6 @@ TEST(RecyclerTest, recycle_merged_files_correct_and_delete) {
     auto* expected_small_file = expected_info.mutable_small_files(0);
     expected_small_file->set_deleted(true);
     expected_small_file->set_corrected(true);
-    expected_info.set_left_file_num(0);
     expected_info.set_left_file_bytes(0);
     expected_info.set_ref_cnt(0);
     expected_info.set_corrected(true);
@@ -5830,7 +5824,6 @@ TEST(RecyclerTest, recycle_merged_files_correct_partial_missing_references) {
     MergedFileInfoPB merged_info;
     merged_info.set_ref_cnt(7);
     merged_info.set_total_file_num(kTotalFiles);
-    merged_info.set_left_file_num(7);
     merged_info.set_total_file_bytes(145);
     merged_info.set_left_file_bytes(112);
     merged_info.set_corrected(false);
@@ -5924,7 +5917,6 @@ TEST(RecyclerTest, recycle_merged_files_correct_partial_missing_references) {
     MergedFileInfoPB updated_info;
     ASSERT_TRUE(updated_info.ParseFromString(value));
     EXPECT_TRUE(updated_info.corrected());
-    EXPECT_EQ(kValidCountAfterCorrection, updated_info.left_file_num());
     EXPECT_EQ(kValidCountAfterCorrection, updated_info.ref_cnt());
     EXPECT_EQ(42, updated_info.left_file_bytes());
     EXPECT_EQ(MergedFileInfoPB::NORMAL, updated_info.state());
@@ -5994,7 +5986,6 @@ TEST(RecyclerTest, recycle_merged_files_skip_recent) {
     MergedFileInfoPB merged_info;
     merged_info.set_ref_cnt(1);
     merged_info.set_total_file_num(1);
-    merged_info.set_left_file_num(1);
     merged_info.set_total_file_bytes(64);
     merged_info.set_left_file_bytes(64);
     merged_info.set_corrected(false);
@@ -6112,7 +6103,6 @@ TEST(RecyclerTest, recycle_merged_files_respect_recycle_and_tmp_refs) {
     MergedFileInfoPB merged_info;
     merged_info.set_ref_cnt(3);
     merged_info.set_total_file_num(3);
-    merged_info.set_left_file_num(3);
     merged_info.set_total_file_bytes(60);
     merged_info.set_left_file_bytes(60);
     merged_info.set_corrected(false);
@@ -6169,7 +6159,6 @@ TEST(RecyclerTest, recycle_merged_files_respect_recycle_and_tmp_refs) {
     ASSERT_TRUE(updated_info.ParseFromString(persisted_val));
 
     EXPECT_FALSE(updated_info.corrected());
-    EXPECT_EQ(2, updated_info.left_file_num());
     EXPECT_EQ(30, updated_info.left_file_bytes());
     EXPECT_EQ(2, updated_info.ref_cnt());
     EXPECT_EQ(MergedFileInfoPB::NORMAL, updated_info.state());

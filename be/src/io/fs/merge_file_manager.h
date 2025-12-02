@@ -133,6 +133,8 @@ private:
         int64_t upload_time = 0;
         std::chrono::steady_clock::time_point create_timestamp;
         std::optional<std::chrono::steady_clock::time_point> first_append_timestamp;
+        std::optional<std::chrono::steady_clock::time_point> ready_to_uploading_timestamp;
+        std::optional<std::chrono::steady_clock::time_point> uploading_timestamp;
         std::atomic<MergeFileStateEnum> state {MergeFileStateEnum::INIT};
         std::condition_variable upload_cv;
         std::mutex upload_mutex;

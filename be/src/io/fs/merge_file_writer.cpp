@@ -17,6 +17,8 @@
 
 #include "io/fs/merge_file_writer.h"
 
+#include <bvar/recorder.h>
+#include <bvar/window.h>
 #include <glog/logging.h>
 
 #include "cloud/config.h"
@@ -26,6 +28,11 @@
 #include "util/slice.h"
 
 namespace doris::io {
+
+bvar::IntRecorder merge_file_writer_first_append_to_close_ms_recorder;
+bvar::Window<bvar::IntRecorder> merge_file_writer_first_append_to_close_ms_window(
+        "merge_file_writer_first_append_to_close_ms",
+        &merge_file_writer_first_append_to_close_ms_recorder, /*window_size=*/10);
 
 MergeFileWriter::MergeFileWriter(FileWriterPtr inner_writer, Path path,
                                  MergeFileAppendInfo append_info)
@@ -47,6 +54,10 @@ Status MergeFileWriter::appendv(const Slice* data, size_t data_cnt) {
     if (_state != State::OPENED) {
         return Status::InternalError("Cannot append to closed or closing writer for file: " +
                                      _file_path);
+    }
+
+    if (!_first_append_timestamp.has_value()) {
+        _first_append_timestamp = std::chrono::steady_clock::now();
     }
 
     // Calculate total size to append
@@ -84,6 +95,21 @@ Status MergeFileWriter::close(bool non_block) {
         return Status::OK();
     }
 
+    auto record_close_latency = [this]() {
+        if (_close_latency_recorded || !_first_append_timestamp.has_value()) {
+            return;
+        }
+        auto now = std::chrono::steady_clock::now();
+        auto latency_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                  now - *_first_append_timestamp)
+                                  .count();
+        merge_file_writer_first_append_to_close_ms_recorder << latency_ms;
+        if (auto* sampler = merge_file_writer_first_append_to_close_ms_recorder.get_sampler()) {
+            sampler->take_sample();
+        }
+        _close_latency_recorded = true;
+    };
+
     if (_state == State::ASYNC_CLOSING) {
         if (non_block) {
             return Status::InternalError("Don't submit async close multi times");
@@ -94,6 +120,9 @@ Status MergeFileWriter::close(bool non_block) {
             RETURN_IF_ERROR(_inner_writer->close(false));
         }
         _state = State::CLOSED;
+        if (!non_block) {
+            record_close_latency();
+        }
         return Status::OK();
     }
 
@@ -126,6 +155,19 @@ Status MergeFileWriter::_close_sync() {
         RETURN_IF_ERROR(_inner_writer->close(false));
     }
     _state = State::CLOSED;
+    if (!_close_latency_recorded) {
+        auto now = std::chrono::steady_clock::now();
+        if (_first_append_timestamp.has_value()) {
+            auto latency_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                      now - *_first_append_timestamp)
+                                      .count();
+            merge_file_writer_first_append_to_close_ms_recorder << latency_ms;
+            if (auto* sampler = merge_file_writer_first_append_to_close_ms_recorder.get_sampler()) {
+                sampler->take_sample();
+            }
+            _close_latency_recorded = true;
+        }
+    }
     return Status::OK();
 }
 

@@ -1158,10 +1158,6 @@ int InstanceRecycler::correct_merged_file_info(cloud::MergedFileInfoPB* merged_i
         log_small_file_status(*small_file, small_file_confirmed);
     }
 
-    if (merged_info->left_file_num() != left_num) {
-        merged_info->set_left_file_num(left_num);
-        local_changed = true;
-    }
     if (merged_info->left_file_bytes() != left_bytes) {
         merged_info->set_left_file_bytes(left_bytes);
         local_changed = true;
@@ -2632,7 +2628,8 @@ int InstanceRecycler::process_merged_file_segment_index(
                         .tag("tablet_id", rs_meta_pb.tablet_id())
                         .tag("key", hex(merged_key))
                         .tag("tablet id", rs_meta_pb.tablet_id());
-                ret = -1;
+                // Skip this merged file entry and continue with others
+                success = true;
                 break;
             }
             if (err != TxnErrorCode::TXN_OK) {
@@ -2689,26 +2686,25 @@ int InstanceRecycler::process_merged_file_segment_index(
                 break;
             }
 
-            int64_t left_file_num = 0;
+            int64_t left_file_count = 0;
             int64_t left_file_bytes = 0;
             for (const auto& small_file_entry : merge_info.small_files()) {
                 if (!small_file_entry.deleted()) {
-                    ++left_file_num;
+                    ++left_file_count;
                     left_file_bytes += small_file_entry.size();
                 }
             }
-            merge_info.set_left_file_num(left_file_num);
             merge_info.set_left_file_bytes(left_file_bytes);
-            merge_info.set_ref_cnt(left_file_num);
+            merge_info.set_ref_cnt(left_file_count);
             LOG_INFO("updated merged file reference info")
                     .tag("instance_id", instance_id_)
                     .tag("rowset_id", rs_meta_pb.rowset_id_v2())
                     .tag("tablet_id", rs_meta_pb.tablet_id())
                     .tag("merged_file_path", merged_file_path)
-                    .tag("left_file_num", left_file_num)
+                    .tag("ref_cnt", left_file_count)
                     .tag("left_file_bytes", left_file_bytes);
 
-            if (left_file_num == 0) {
+            if (left_file_count == 0) {
                 merge_info.set_state(cloud::MergedFileInfoPB::RECYCLING);
             }
 
@@ -2727,7 +2723,7 @@ int InstanceRecycler::process_merged_file_segment_index(
             err = txn->commit();
             if (err == TxnErrorCode::TXN_OK) {
                 success = true;
-                if (left_file_num == 0) {
+                if (left_file_count == 0) {
                     LOG_INFO("merged file ready to delete, deleting immediately")
                             .tag("instance_id", instance_id_)
                             .tag("merged_file_path", merged_file_path);

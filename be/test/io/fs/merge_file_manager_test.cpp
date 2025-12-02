@@ -19,6 +19,7 @@
 
 #include <gtest/gtest.h>
 
+#include <any>
 #include <chrono>
 #include <cstring>
 #include <ctime>
@@ -34,9 +35,11 @@
 #include "cloud/config.h"
 #include "common/config.h"
 #include "common/status.h"
+#include "cpp/sync_point.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/path.h"
+#include "util/coding.h"
 #include "util/slice.h"
 
 namespace doris::io {
@@ -575,6 +578,49 @@ TEST_F(MergeFileManagerTest, ProcessUploadingFilesSetsFailedWhenAsyncCloseFails)
     auto failed = manager->_uploaded_merge_files.begin()->second;
     EXPECT_EQ(failed->state.load(), MergeFileManager::MergeFileStateEnum::FAILED);
     EXPECT_NE(failed->last_error.find("async close fail"), std::string::npos);
+}
+
+TEST_F(MergeFileManagerTest, AppendMergedFileInfoToFileTail) {
+    std::string payload = "abc";
+    Slice slice(payload);
+    auto info = default_append_info();
+    ASSERT_TRUE(manager->append("trailer_path", slice, info).ok());
+    ASSERT_TRUE(manager->mark_current_merge_file_for_upload(_resource_id).ok());
+    ASSERT_EQ(manager->_uploading_merge_files.size(), 1);
+
+    auto* sp = SyncPoint::get_instance();
+    sp->enable_processing();
+    sp->set_call_back("MergeFileManager::update_meta_service", [](std::vector<std::any>&& args) {
+        auto pair = try_any_cast_ret<Status>(args);
+        pair->first = Status::OK();
+        pair->second = true;
+    });
+
+    manager->process_uploading_files();
+
+    sp->clear_call_back("MergeFileManager::update_meta_service");
+    sp->disable_processing();
+
+    ASSERT_EQ(manager->_uploading_merge_files.size(), 1);
+    auto uploading = manager->_uploading_merge_files.begin()->second;
+    auto* writer = dynamic_cast<MockFileWriter*>(uploading->writer.get());
+    ASSERT_NE(writer, nullptr);
+
+    const auto& data = writer->written_data();
+    ASSERT_GE(data.size(), payload.size() + sizeof(uint32_t));
+    uint32_t trailer_size = decode_fixed32_le(
+            reinterpret_cast<const uint8_t*>(data.data() + data.size() - sizeof(uint32_t)));
+    ASSERT_GE(data.size(), payload.size() + sizeof(uint32_t) + trailer_size);
+
+    std::string serialized_info =
+            data.substr(data.size() - sizeof(uint32_t) - trailer_size, trailer_size);
+    cloud::MergedFileInfoPB parsed_info;
+    ASSERT_TRUE(parsed_info.ParseFromString(serialized_info));
+    ASSERT_EQ(parsed_info.small_files_size(), 1);
+    EXPECT_EQ(parsed_info.small_files(0).path(), "trailer_path");
+    EXPECT_EQ(parsed_info.small_files(0).offset(), 0);
+    EXPECT_EQ(parsed_info.small_files(0).size(), payload.size());
+    EXPECT_EQ(parsed_info.resource_id(), info.resource_id);
 }
 
 TEST_F(MergeFileManagerTest, CleanupExpiredDataRemovesOldEntries) {

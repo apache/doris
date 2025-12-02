@@ -12265,7 +12265,6 @@ TEST(MetaServiceTest, UpdateMergeFileInfoTest) {
         auto* merge_info = req.mutable_merge_file_info();
         merge_info->set_ref_cnt(5);
         merge_info->set_total_file_num(10);
-        merge_info->set_left_file_num(8);
         merge_info->set_total_file_bytes(1024000);
         merge_info->set_left_file_bytes(819200);
         merge_info->set_created_at_sec(1666666666);
@@ -12301,7 +12300,6 @@ TEST(MetaServiceTest, UpdateMergeFileInfoTest) {
         auto* merge_info = req.mutable_merge_file_info();
         merge_info->set_ref_cnt(1);
         merge_info->set_total_file_num(1);
-        merge_info->set_left_file_num(1);
 
         UpdateMergeFileInfoResponse res;
         meta_service->update_merge_file_info(
@@ -12387,7 +12385,6 @@ TEST(MetaServiceTest, UpdateMergeFileInfoTest) {
         auto* merge_info = req.mutable_merge_file_info();
         merge_info->set_ref_cnt(3);
         merge_info->set_total_file_num(5);
-        merge_info->set_left_file_num(4);
         merge_info->set_total_file_bytes(2048000);
         merge_info->set_left_file_bytes(1638400);
         merge_info->set_created_at_sec(1666666777);
