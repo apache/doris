@@ -521,8 +521,10 @@ public class ColumnDefinition {
                 onUpdateDefaultValue.map(DefaultValue::getDefaultValueExprDef).orElse(null), clusterKeyId,
                 generatedColumnDesc.map(GeneratedColumnDesc::translateToInfo).orElse(null),
                 generatedColumnsThatReferToThis,
-                // 这里所有的列都加上了变量，以后改一下
-                ConnectContextUtil.getAffectQueryResultSessionVariables(ConnectContext.get()));
+                generatedColumnDesc.map(desc ->
+                        ConnectContextUtil.getAffectQueryResultSessionVariables(ConnectContext.get()))
+                        .orElse(null)
+                );
         column.setAggregationTypeImplicit(aggTypeImplicit);
         return column;
     }
@@ -538,8 +540,9 @@ public class ColumnDefinition {
                 onUpdateDefaultValue.map(DefaultValue::getDefaultValueExprDef).orElse(null), clusterKeyId,
                 generatedColumnDesc.map(GeneratedColumnDesc::translateToInfo).orElse(null),
                 generatedColumnsThatReferToThis,
-                // 这里所有的列都加上了变量，以后改一下
-                ConnectContextUtil.getAffectQueryResultSessionVariables(ConnectContext.get()));
+                generatedColumnDesc.map(desc ->
+                        ConnectContextUtil.getAffectQueryResultSessionVariables(ConnectContext.get()))
+                        .orElse(null));
         column.setAggregationTypeImplicit(aggTypeImplicit);
         return column;
     }

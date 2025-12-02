@@ -133,20 +133,24 @@ public class MTMVCache {
             Plan rewritePlan = cascadesContext.getRewritePlan();
 
             // Only add SessionVarGuardExpr if requested
-            if (addSessionVarGuard) {
-                SessionVarGuardRewriter exprRewriter = new SessionVarGuardRewriter(
-                        ConnectContextUtil.getAffectQueryResultSessionVariables(createCacheContext),
-                        cascadesContext);
-                rewritePlan = SessionVarGuardRewriter.rewritePlanTree(exprRewriter, rewritePlan);
-            }
-
+            Optional<SessionVarGuardRewriter> exprRewriter = addSessionVarGuard
+                    ? Optional.of(new SessionVarGuardRewriter(
+                    ConnectContextUtil.getAffectQueryResultSessionVariables(createCacheContext),
+                    cascadesContext))
+                    : Optional.empty();
+            Plan addGuardRewritePlan = exprRewriter
+                    .map(rewriter -> SessionVarGuardRewriter.rewritePlanTree(rewriter, rewritePlan))
+                    .orElse(rewritePlan);
             Pair<Plan, StructInfo> finalPlanStructInfoPair = constructPlanAndStructInfo(
-                    rewritePlan, cascadesContext);
+                    addGuardRewritePlan, cascadesContext);
             List<Pair<Plan, StructInfo>> tmpPlanUsedForRewrite = new ArrayList<>();
             for (Plan plan : cascadesContext.getStatementContext().getTmpPlanForMvRewrite()) {
-                tmpPlanUsedForRewrite.add(constructPlanAndStructInfo(plan, cascadesContext));
+                Plan addGuardplan = exprRewriter
+                        .map(rewriter -> SessionVarGuardRewriter.rewritePlanTree(rewriter, plan))
+                        .orElse(plan);
+                tmpPlanUsedForRewrite.add(constructPlanAndStructInfo(addGuardplan, cascadesContext));
             }
-            return new MTMVCache(finalPlanStructInfoPair, rewritePlan, needCost
+            return new MTMVCache(finalPlanStructInfoPair, addGuardRewritePlan, needCost
                     ? cascadesContext.getMemo().getRoot().getStatistics() : null, tmpPlanUsedForRewrite);
         } finally {
             createCacheContext.getStatementContext().setForceRecordTmpPlan(false);

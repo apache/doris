@@ -71,10 +71,10 @@ suite("test_mtmv") {
     qt_rewite_open256 "$query_sql order by 1,2,3;"
 
     sql "set enable_decimal256=false;"
-//    explain {
-//        sql query_sql
-//        contains "mv_var_1 not chose"
-//    }
+    explain {
+        sql query_sql
+        contains "mv_var_1 not chose"
+    }
     qt_rewite_open128 "$query_sql order by 1,2,3;"
     sql "drop materialized view  if exists mv_var_1;"
 
@@ -147,12 +147,12 @@ suite("test_mtmv") {
         contains "where_mv chose"
     }
     sql "set enable_decimal256=false;"
-//    explain {
-//        sql """
-//            select t1.f1*t1.f2, t1.f1, t1.f2 from test_decimal_mul_overflow_for_mv t1 where t1.f1>1;
-//        """
-//        contains "where_mv not chose"
-//    }
+    explain {
+        sql """
+            select t1.f1*t1.f2, t1.f1, t1.f2 from test_decimal_mul_overflow_for_mv t1 where t1.f1>1;
+        """
+        contains "where_mv not chose"
+    }
     sql "drop materialized view  if exists where_mv;"
 
     // ********************** test agg_func rewrite *****************************

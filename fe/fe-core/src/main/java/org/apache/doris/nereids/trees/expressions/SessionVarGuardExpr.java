@@ -26,6 +26,7 @@ import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.ibm.icu.impl.locale.XCldrStub.ImmutableMap;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -45,7 +46,7 @@ public class SessionVarGuardExpr extends Expression implements UnaryExpression {
     public SessionVarGuardExpr(Expression child, Map<String, String> sessionVars) {
         super(ImmutableList.of(child));
         Preconditions.checkNotNull(sessionVars, "sessionVars cannot be null in SessionVarGuardExpr");
-        this.sessionVars = sessionVars;
+        this.sessionVars = ImmutableMap.copyOf(sessionVars);
     }
 
     public Map<String, String> getSessionVars() {

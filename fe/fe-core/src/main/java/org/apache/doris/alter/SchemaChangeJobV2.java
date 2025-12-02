@@ -441,9 +441,11 @@ public class SchemaChangeJobV2 extends AlterJobV2 implements GsonPostProcessable
                 partition.createRollupIndex(shadowIndex);
             }
         }
-        // ?这里需要传入session variables吗？think
         for (long shadowIdxId : indexIdMap.keySet()) {
             MaterializedIndexMeta originalIndexMeta = tbl.getIndexMetaByIndexId(indexIdMap.get(shadowIdxId));
+            // it's ok to not use originalIndexMeta's sessionVariables,
+            // because the sync mv MaterializedIndexMeta cannot be schema changed
+            // (e.g. alter sync_mv modify sync_mv_column is not allowed)
             tbl.setIndexMeta(shadowIdxId, indexIdToName.get(shadowIdxId), indexSchemaMap.get(shadowIdxId),
                     indexSchemaVersionAndHashMap.get(shadowIdxId).schemaVersion,
                     indexSchemaVersionAndHashMap.get(shadowIdxId).schemaHash,

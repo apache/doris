@@ -19,6 +19,12 @@ package org.apache.doris.nereids.trees.expressions;
 
 /**
  * expressions that need session variables guard
+ * e.g. multiply/divide need session variables guard
+ * because datatype of multiply/divide depends on the sessionVariable enableDecimal256.
+ * An expression need implement NeedSessionVarGuard is the expression value depends on the value of session var.
+ * In this way, when creating persistent SQL objects like views, SessionVarGuard can be used during query execution
+ * to ensure that expression evaluation maintains the behavior consistent with the session variable values
+ * at the time of view creation.
  * */
 public interface NeedSessionVarGuard {
 }
