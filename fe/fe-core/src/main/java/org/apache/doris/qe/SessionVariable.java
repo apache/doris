@@ -735,8 +735,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_EXTENDED_REGEX = "enable_extended_regex";
 
-    public static final String PARTITIONS_TABLE_USE_CACHED_VISIBLE_VERSION =
-            "partitions_table_use_cached_visible_version";
+    public static final String CLOUD_PARTITIONS_TABLE_USE_CACHED_VISIBLE_VERSION =
+            "cloud_partitions_table_use_cached_visible_version";
 
     // NOTE: if you want to add some debug variables, please disable sql cache in `CacheAnalyzer.commonCacheCondition`,
     //       and set affectQueryResult=true
@@ -3146,11 +3146,12 @@ public class SessionVariable implements Serializable, Writable {
     )
     public int defaultVariantSparseHashShardCount = 0;
 
-    @VariableMgr.VarAttr(name = PARTITIONS_TABLE_USE_CACHED_VISIBLE_VERSION, needForward = false,
+    @VariableMgr.VarAttr(name = CLOUD_PARTITIONS_TABLE_USE_CACHED_VISIBLE_VERSION, needForward = false,
             affectQueryResult = true,
-            description = {"partitions系统表的visible_version列是否使用cached",
-                    "Whether cache is used for the visible_version column in the partitions system table"})
-    public boolean partitionsTableUseCachedVisibleVersion = false;
+            description = {"partitions系统表的visible_version列在cloud模式是否使用cached",
+                    "Whether cache is used for the visible_version column"
+                             + "in the partitions system table on cloud mode"})
+    public boolean cloudPartitionsTableUseCachedVisibleVersion = true;
 
     @VariableMgr.VarAttr(
             name = "use_v3_storage_format",
@@ -5763,8 +5764,8 @@ public class SessionVariable implements Serializable, Writable {
         return defaultVariantSparseHashShardCount;
     }
 
-    public boolean getPartitionsTableUseCachedVisibleVersion() {
-        return partitionsTableUseCachedVisibleVersion;
+    public boolean getCloudPartitionsTableUseCachedVisibleVersion() {
+        return cloudPartitionsTableUseCachedVisibleVersion;
     }
 
     public void readAffectQueryResultVariables(BiConsumer<String, Object> variablesReader) {

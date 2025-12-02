@@ -1683,7 +1683,7 @@ public class MetadataGenerator {
                     ConnectContext ctx =
                             ExecuteEnv.getInstance().getScheduler().getContext(threadId.intValue());
                     boolean useCachedVisibleVersion = ctx != null
-                            && ctx.getSessionVariable().getPartitionsTableUseCachedVisibleVersion();
+                            && ctx.getSessionVariable().getCloudPartitionsTableUseCachedVisibleVersion();
                     if (useCachedVisibleVersion) {
                         trow.addToColumnValue(
                                 new TCell().setLongVal(partition.getCachedVisibleVersion())); // VISIBLE_VERSION
