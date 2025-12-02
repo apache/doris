@@ -386,7 +386,7 @@ DEFINE_mBool(enable_segment_rows_consistency_check, "false");
 DEFINE_mBool(enable_segment_rows_check_core, "false");
 // ATTENTION: For test only. In test environment, there are no historical data,
 // so all rowset meta should have segment rows info.
-DEFINE_mBool(fail_when_segment_rows_not_in_rowset_meta,"false");
+DEFINE_mBool(fail_when_segment_rows_not_in_rowset_meta, "false");
 DEFINE_String(row_cache_mem_limit, "20%");
 
 // Cache for storage page size
@@ -1579,6 +1579,12 @@ DEFINE_mBool(enable_wal_tde, "false");
 
 DEFINE_mBool(enable_prefill_output_dbm_agg_cache_after_compaction, "true");
 DEFINE_mBool(enable_prefill_all_dbm_agg_cache_after_compaction, "true");
+
+// Concurrency stats dump configuration
+DEFINE_mBool(enable_concurrency_stats_dump, "false");
+DEFINE_mInt32(concurrency_stats_dump_interval_ms, "100");
+DEFINE_Validator(concurrency_stats_dump_interval_ms,
+                 [](const int32_t config) -> bool { return config >= 10; });
 
 // clang-format off
 #ifdef BE_TEST

@@ -65,6 +65,7 @@
 #include "util/binary_cast.hpp"
 #include "util/bitmap.h"
 #include "util/block_compression.h"
+#include "util/concurrency_stats.h"
 #include "util/rle_encoding.h" // for RleDecoder
 #include "util/slice.h"
 #include "vec/columns/column.h"
@@ -363,6 +364,7 @@ Status ColumnReader::new_inverted_index_iterator(
 Status ColumnReader::read_page(const ColumnIteratorOptions& iter_opts, const PagePointer& pp,
                                PageHandle* handle, Slice* page_body, PageFooterPB* footer,
                                BlockCompressionCodec* codec) const {
+    SCOPED_CONCURRENCY_COUNT(ConcurrencyStatsManager::instance().column_reader_read_page);
     iter_opts.sanity_check();
     PageReadOptions opts(iter_opts.io_ctx);
     opts.verify_checksum = _opts.verify_checksum;

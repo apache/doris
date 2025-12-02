@@ -1641,6 +1641,10 @@ DECLARE_mBool(enable_wal_tde);
 DECLARE_mBool(enable_prefill_output_dbm_agg_cache_after_compaction);
 DECLARE_mBool(enable_prefill_all_dbm_agg_cache_after_compaction);
 
+// Concurrency stats dump configuration
+DECLARE_mBool(enable_concurrency_stats_dump);
+DECLARE_mInt32(concurrency_stats_dump_interval_ms);
+
 #ifdef BE_TEST
 // test s3
 DECLARE_String(test_s3_resource);
