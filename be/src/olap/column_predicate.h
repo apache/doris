@@ -190,6 +190,7 @@ public:
         Defer defer([&] { try_reset_judge_selectivity(); });
 
         if (always_true()) {
+            update_filter_info(0, 0, size);
             return size;
         }
 
@@ -197,7 +198,7 @@ public:
         if (_can_ignore()) {
             do_judge_selectivity(size - new_size, size);
         }
-        update_filter_info(size - new_size, size);
+        update_filter_info(size - new_size, size, 0);
         return new_size;
     }
     virtual void evaluate_and(const vectorized::IColumn& column, const uint16_t* sel, uint16_t size,
@@ -280,7 +281,8 @@ public:
 
     void attach_profile_counter(
             int filter_id, std::shared_ptr<RuntimeProfile::Counter> predicate_filtered_rows_counter,
-            std::shared_ptr<RuntimeProfile::Counter> predicate_input_rows_counter) {
+            std::shared_ptr<RuntimeProfile::Counter> predicate_input_rows_counter,
+            std::shared_ptr<RuntimeProfile::Counter> predicate_always_true_rows_counter) {
         _runtime_filter_id = filter_id;
         DCHECK(predicate_filtered_rows_counter != nullptr);
         DCHECK(predicate_input_rows_counter != nullptr);
@@ -291,12 +293,22 @@ public:
         if (predicate_input_rows_counter != nullptr) {
             _predicate_input_rows_counter = predicate_input_rows_counter;
         }
+        if (predicate_always_true_rows_counter != nullptr) {
+            _predicate_always_true_rows_counter = predicate_always_true_rows_counter;
+        }
     }
 
     /// TODO: Currently we only record statistics for runtime filters, in the future we should record for all predicates
-    void update_filter_info(int64_t filter_rows, int64_t input_rows) const {
+    void update_filter_info(int64_t filter_rows, int64_t input_rows,
+                            int64_t always_true_rows) const {
+        if (_predicate_input_rows_counter == nullptr ||
+            _predicate_filtered_rows_counter == nullptr ||
+            _predicate_always_true_rows_counter == nullptr) {
+            throw Exception(INTERNAL_ERROR, "Predicate profile counters are not initialized");
+        }
         COUNTER_UPDATE(_predicate_input_rows_counter, input_rows);
         COUNTER_UPDATE(_predicate_filtered_rows_counter, filter_rows);
+        COUNTER_UPDATE(_predicate_always_true_rows_counter, always_true_rows);
     }
 
     static std::string pred_type_string(PredicateType type) {
@@ -388,8 +400,9 @@ protected:
 
     std::shared_ptr<RuntimeProfile::Counter> _predicate_filtered_rows_counter =
             std::make_shared<RuntimeProfile::Counter>(TUnit::UNIT, 0);
-
     std::shared_ptr<RuntimeProfile::Counter> _predicate_input_rows_counter =
+            std::make_shared<RuntimeProfile::Counter>(TUnit::UNIT, 0);
+    std::shared_ptr<RuntimeProfile::Counter> _predicate_always_true_rows_counter =
             std::make_shared<RuntimeProfile::Counter>(TUnit::UNIT, 0);
 };
 
