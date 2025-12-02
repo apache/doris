@@ -1400,6 +1400,32 @@ suite("doc_date_functions_test") {
     testFoldConst("SELECT YEARWEEK('2023-01-02', 5) AS yearweek_mode5")
     testFoldConst("SELECT YEARWEEK('2023-12-25', 1) AS date_type_mode1")
 
+    // TO_SECONDS function tests
+    qt_to_seconds_1 """select to_seconds('2007-10-07')"""
+    qt_to_seconds_2 """select to_seconds('2007-10-07 10:03:09')"""
+    qt_to_seconds_3 """select to_seconds('0000-01-01 00:00:00')"""
+    qt_to_seconds_4 """select to_seconds('9999-12-31 23:59:59')"""
+    qt_to_seconds_5 """select to_seconds('101-01-01 08:30:15.123456')"""
+    qt_to_seconds_6 """select to_seconds('2023-02-30 12:00:00')"""
+    qt_to_seconds_7 """select to_seconds(NULL)"""
+    qt_to_seconds_8 """select to_seconds('2023-10-07 12:34:56.654321')"""
+    qt_to_seconds_9 """select to_seconds('12:34:56')"""
+    qt_to_seconds_10 """select to_seconds('-12:34:56.123456')"""
+    qt_to_seconds_11 """select to_seconds(20250101)"""
+    qt_to_seconds_12 """select to_seconds(20250101123045)"""
+    testFoldConst("SELECT to_seconds('2007-10-07')")
+    testFoldConst("SELECT to_seconds('2007-10-07 10:03:09')")
+    testFoldConst("SELECT to_seconds('0000-01-01 00:00:00')")
+    testFoldConst("SELECT to_seconds('9999-12-31 23:59:59')")
+    testFoldConst("SELECT to_seconds('101-01-01 08:30:15.123456')")
+    testFoldConst("SELECT to_seconds('2023-02-30 12:00:00')")
+    testFoldConst("SELECT to_seconds(NULL)")
+    testFoldConst("SELECT to_seconds('2023-10-07 12:34:56.654321')")
+    testFoldConst("SELECT to_seconds('12:34:56')")
+    testFoldConst("SELECT to_seconds('-12:34:56.123456')")
+    testFoldConst("SELECT to_seconds(20250101)")
+    testFoldConst("SELECT to_seconds(20250101123045)")
+
     // Test constant folding for Group 1 functions (基础日期函数)
     
     // 1. CONVERT_TZ function constant folding tests

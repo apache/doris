@@ -77,6 +77,7 @@ import java.util.Locale;
 public class DateTimeExtractAndTransform {
 
     private static final HashMap<String, Integer> DAY_OF_WEEK = new HashMap<>();
+    private static final LocalDateTime YEAR_ZERO = LocalDateTime.of(0, 1, 1, 0, 0, 0);
 
     static {
         DAY_OF_WEEK.put("MO", 1);
@@ -573,13 +574,28 @@ public class DateTimeExtractAndTransform {
     @ExecFunction(name = "to_days")
     public static Expression toDays(DateV2Literal date) {
         return new IntegerLiteral(((int) Duration.between(
-                LocalDateTime.of(0, 1, 1, 0, 0, 0), date.toJavaDateType()).toDays()));
+                YEAR_ZERO, date.toJavaDateType()).toDays()));
     }
 
     @ExecFunction(name = "to_days")
     public static Expression toDays(DateTimeV2Literal date) {
         return new IntegerLiteral(((int) Duration.between(
-                LocalDateTime.of(0, 1, 1, 0, 0, 0), date.toJavaDateType()).toDays()));
+                YEAR_ZERO, date.toJavaDateType()).toDays()));
+    }
+
+    /**
+     * date transformation function: to_seconds
+     */
+    @ExecFunction(name = "to_seconds")
+    public static Expression toSeconds(DateV2Literal date) {
+        return new BigIntLiteral(Duration.between(
+                YEAR_ZERO, date.toJavaDateType()).getSeconds());
+    }
+
+    @ExecFunction(name = "to_seconds")
+    public static Expression toSeconds(DateTimeV2Literal date) {
+        return new BigIntLiteral(Duration.between(
+                YEAR_ZERO, date.toJavaDateType()).getSeconds());
     }
 
     /**
