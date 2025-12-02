@@ -83,4 +83,6 @@ private:
     std::optional<roaring::Roaring> _null_bitmap;
 };
 
+using TermScorerPtr = std::shared_ptr<TermScorer>;
+
 } // namespace doris::segment_v2::inverted_index::query_v2

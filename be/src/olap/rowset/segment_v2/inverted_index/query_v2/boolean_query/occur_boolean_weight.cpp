@@ -17,11 +17,11 @@
 
 #include "olap/rowset/segment_v2/inverted_index/query_v2/boolean_query/occur_boolean_weight.h"
 
+#include "olap/rowset/segment_v2/inverted_index/query_v2/disjunction_scorer.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/exclude_scorer.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/intersection_scorer.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/reqopt_scorer.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/union/buffered_union.h"
-#include "olap/rowset/segment_v2/inverted_index/query_v2/disjunction_scorer.h"
 
 namespace doris::segment_v2::inverted_index::query_v2 {
 
@@ -193,7 +193,7 @@ SpecializedScorer OccurBooleanWeight<ScoreCombinerPtrT>::scorer_union(
 
     bool is_all_term_scorers = true;
     for (const auto& scorer : scorers) {
-        auto* term_scorer = dynamic_cast<TermScorer<TermPostingsPtr>*>(scorer.get());
+        auto* term_scorer = dynamic_cast<TermScorer*>(scorer.get());
         if (term_scorer == nullptr) {
             is_all_term_scorers = false;
             break;
@@ -201,10 +201,10 @@ SpecializedScorer OccurBooleanWeight<ScoreCombinerPtrT>::scorer_union(
     }
 
     if (is_all_term_scorers) {
-        std::vector<TS_Base> term_scorers;
+        std::vector<TermScorerPtr> term_scorers;
         term_scorers.reserve(scorers.size());
         for (auto& scorer : scorers) {
-            term_scorers.push_back(std::dynamic_pointer_cast<TermScorer<TermPostingsPtr>>(scorer));
+            term_scorers.push_back(std::dynamic_pointer_cast<TermScorer>(scorer));
         }
         return term_scorers;
     }
@@ -234,7 +234,7 @@ ScorerPtr OccurBooleanWeight<ScoreCombinerPtrT>::into_box_scorer(SpecializedScor
     return std::visit(
             [&](auto&& arg) -> ScorerPtr {
                 using T = std::decay_t<decltype(arg)>;
-                if constexpr (std::is_same_v<T, std::vector<TS_Base>>) {
+                if constexpr (std::is_same_v<T, std::vector<TermScorerPtr>>) {
                     std::vector<ScorerPtr> scorers;
                     scorers.reserve(arg.size());
                     for (auto& ts : arg) {

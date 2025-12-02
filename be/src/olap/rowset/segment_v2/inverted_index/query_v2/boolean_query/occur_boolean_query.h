@@ -39,8 +39,9 @@ public:
         for (const auto& [occur, query] : _sub_queries) {
             sub_weights.emplace_back(occur, query->weight(enable_scoring));
         }
-        return std::make_shared<OcccurBooleanWeight<SumCombinerPtr>>(
-                    std::move(sub_weights), minimum_number_should_match, enable_scoring, std::make_shared<SumCombiner>());
+        return std::make_shared<OccurBooleanWeight<SumCombinerPtr>>(
+                std::move(sub_weights), minimum_number_should_match, enable_scoring,
+                std::make_shared<SumCombiner>());
     }
 
     const std::vector<std::pair<Occur, QueryPtr>>& clauses() const { return _sub_queries; }

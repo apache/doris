@@ -24,7 +24,7 @@
 
 namespace doris::segment_v2::inverted_index::query_v2 {
 
-using SpecializedScorer = std::variant<std::vector<TS_Base>, ScorerPtr>;
+using SpecializedScorer = std::variant<std::vector<TermScorerPtr>, ScorerPtr>;
 
 struct Ignored {};
 struct Optional {

@@ -155,7 +155,7 @@ Intersection<TDocSet, TOtherDocSet>::docset_mut_specialized(size_t ord) {
     Intersection<T, T>::docset_mut_specialized<T>(size_t ord);
 
 INSTANTIATE_INTERSECTION(std::shared_ptr<PostingsWithOffset<PostingsPtr>>)
-INSTANTIATE_INTERSECTION(std::shared_ptr<PostingsWithOffset<PositionPostingsPtr>>)
+INSTANTIATE_INTERSECTION(std::shared_ptr<PostingsWithOffset<SegmentPostingsPtr>>)
 INSTANTIATE_INTERSECTION(MockDocSetPtr)
 
 #undef INSTANTIATE_INTERSECTION

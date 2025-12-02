@@ -43,20 +43,20 @@ ScorerPtr make_buffered_union(const std::vector<ScorerPtr>& scorers,
     auto scores = std::vector<ScoreCombinerPtrU>(HORIZON);
     std::ranges::generate(scores, [&score_combiner]() { return score_combiner->clone(); });
 
-    auto try_create_term_union = [&]<typename ScorerPtrT>() -> ScorerPtr {
-        std::vector<ScorerPtrT> term_scorers;
-        term_scorers.reserve(non_empty_scorers.size());
-
-        for (const auto& scorer : non_empty_scorers) {
-            if (auto term_scorer =
-                        std::dynamic_pointer_cast<typename ScorerPtrT::element_type>(scorer)) {
-                term_scorers.push_back(term_scorer);
-            } else {
-                return nullptr;
-            }
+    std::vector<TermScorerPtr> term_scorers;
+    term_scorers.reserve(non_empty_scorers.size());
+    bool all_term_scorers = true;
+    for (const auto& scorer : non_empty_scorers) {
+        if (auto term_scorer = std::dynamic_pointer_cast<TermScorer>(scorer)) {
+            term_scorers.push_back(term_scorer);
+        } else {
+            all_term_scorers = false;
+            break;
         }
+    }
 
-        auto union_scorer = std::make_shared<BufferedUnion<ScorerPtrT, ScoreCombinerPtrU>>(
+    if (all_term_scorers && !term_scorers.empty()) {
+        auto union_scorer = std::make_shared<BufferedUnion<TermScorerPtr, ScoreCombinerPtrU>>(
                 std::move(term_scorers), bitsets, scores, HORIZON_NUM_TINYBITSETS, 0, 0);
 
         if (union_scorer->refill()) {
@@ -66,16 +66,6 @@ ScorerPtr make_buffered_union(const std::vector<ScorerPtr>& scorers,
         }
 
         return union_scorer;
-    };
-
-    if (auto result = try_create_term_union.template operator()<TS_Base>()) {
-        return result;
-    }
-    if (auto result = try_create_term_union.template operator()<TS_NoScore>()) {
-        return result;
-    }
-    if (auto result = try_create_term_union.template operator()<TS_Empty>()) {
-        return result;
     }
 
     auto union_scorer = std::make_shared<BufferedUnion<ScorerPtr, ScoreCombinerPtrU>>(

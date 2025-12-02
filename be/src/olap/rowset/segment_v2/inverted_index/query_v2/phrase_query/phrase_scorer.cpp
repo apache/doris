@@ -184,6 +184,6 @@ bool PhraseScorer<TPostings>::intersection_exists(const std::vector<uint32_t>& l
 }
 
 template class PhraseScorer<PostingsPtr>;
-template class PhraseScorer<PositionPostingsPtr>;
+template class PhraseScorer<SegmentPostingsPtr>;
 
 } // namespace doris::segment_v2::inverted_index::query_v2
