@@ -22,9 +22,7 @@
 #include <type_traits>
 #include <vector>
 
-#ifdef __ARM_FEATURE_SVE
-#include <arm_sve.h>
-#elif defined(__ARM_NEON)
+#if defined(__ARM_NEON)
 #include <arm_neon.h>
 #endif
 
@@ -132,16 +130,20 @@ template <typename T>
 inline T count_zero_num(const int8_t* __restrict data, T size) {
     T num = 0;
     const int8_t* end = data + size;
-#ifdef __ARM_FEATURE_SVE
-    const int8_t* ptr = data;
-    while (ptr < end) {
-        svbool_t pg = svwhilelt_b8(ptr - data, end - data);
-        svint8_t v = svld1_s8(pg, ptr);
-        svbool_t p0 = svcmpeq_n_s8(pg, v, 0);
-        num += static_cast<T>(svcntp_b8(svptrue_b8(), p0));
-        ptr += svcntb();
+#if defined(__ARM_NEON)
+    const int8_t* end64 = data + (size / 64 * 64);
+
+    for (; data < end64; data += 64) {
+        auto a0 = vshrq_n_u8(vceqzq_s8(vld1q_s8(data)), 7);
+        auto a1 = vshrq_n_u8(vceqzq_s8(vld1q_s8(data + 16)), 7);
+        auto a2 = vshrq_n_u8(vceqzq_s8(vld1q_s8(data + 32)), 7);
+        auto a3 = vshrq_n_u8(vceqzq_s8(vld1q_s8(data + 48)), 7);
+
+        auto s0 = vaddq_u8(a0, a1);
+        auto s1 = vaddq_u8(a2, a3);
+        auto s = vaddq_u8(s0, s1);
+        num += vaddvq_u8(s);
     }
-    return num;
 #elif defined(__SSE2__) && defined(__POPCNT__)
     const __m128i zero16 = _mm_setzero_si128();
     const int8_t* end64 = data + (size / 64 * 64);
@@ -172,25 +174,25 @@ template <typename T>
 inline T count_zero_num(const int8_t* __restrict data, const uint8_t* __restrict null_map, T size) {
     T num = 0;
     const int8_t* end = data + size;
-#ifdef __ARM_FEATURE_SVE
-    const int8_t* ptr = data;
-    const uint8_t* nmp = null_map;
-    while (ptr < end) {
-        svbool_t pg = svwhilelt_b8(ptr - data, end - data);
-        svint8_t v = svld1_s8(pg, ptr);
-        svuint8_t nmv = svld1_u8(pg, nmp);
+#if defined(__ARM_NEON)
+    const int8_t* end64 = data + (size / 64 * 64);
 
-        svbool_t p_zero = svcmpeq_n_s8(pg, v, 0);
-        svuint8_t one = svdup_n_u8(1);
-        svuint8_t zero = svdup_n_u8(0);
-        svuint8_t ones = svsel_u8(p_zero, one, zero);
+    for (; data < end64; data += 64, null_map += 64) {
+        auto a0 = vshrq_n_u8(vceqzq_s8(vld1q_s8(data)), 7);
+        auto a1 = vshrq_n_u8(vceqzq_s8(vld1q_s8(data + 16)), 7);
+        auto a2 = vshrq_n_u8(vceqzq_s8(vld1q_s8(data + 32)), 7);
+        auto a3 = vshrq_n_u8(vceqzq_s8(vld1q_s8(data + 48)), 7);
 
-        svuint8_t r = svorr_u8_z(pg, ones, nmv);
-        num += static_cast<T>(svaddv_u8(pg, r));
-        ptr += svcntb();
-        nmp += svcntb();
+        auto r0 = vorrq_u8(a0, vld1q_u8(null_map));
+        auto r1 = vorrq_u8(a1, vld1q_u8(null_map + 16));
+        auto r2 = vorrq_u8(a2, vld1q_u8(null_map + 32));
+        auto r3 = vorrq_u8(a3, vld1q_u8(null_map + 48));
+
+        auto s0 = vaddq_u8(r0, r1);
+        auto s1 = vaddq_u8(r2, r3);
+        auto s = vaddq_u8(s0, s1);
+        num += vaddvq_u8(s);
     }
-    return num;
 #elif defined(__SSE2__) && defined(__POPCNT__)
     const __m128i zero16 = _mm_setzero_si128();
     const int8_t* end64 = data + (size / 64 * 64);
