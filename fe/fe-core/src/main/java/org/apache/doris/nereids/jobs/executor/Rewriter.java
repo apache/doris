@@ -98,6 +98,7 @@ import org.apache.doris.nereids.rules.rewrite.InferPredicates;
 import org.apache.doris.nereids.rules.rewrite.InferSetOperatorDistinct;
 import org.apache.doris.nereids.rules.rewrite.InitJoinOrder;
 import org.apache.doris.nereids.rules.rewrite.InlineLogicalView;
+import org.apache.doris.nereids.rules.rewrite.JoinExtractOrFromCaseWhen;
 import org.apache.doris.nereids.rules.rewrite.LimitAggToTopNAgg;
 import org.apache.doris.nereids.rules.rewrite.LimitSortToTopN;
 import org.apache.doris.nereids.rules.rewrite.LogicalResultSinkToShortCircuitPointQuery;
@@ -109,6 +110,7 @@ import org.apache.doris.nereids.rules.rewrite.MergeProjectable;
 import org.apache.doris.nereids.rules.rewrite.MergeSetOperations;
 import org.apache.doris.nereids.rules.rewrite.MergeSetOperationsExcept;
 import org.apache.doris.nereids.rules.rewrite.MergeTopNs;
+import org.apache.doris.nereids.rules.rewrite.NestedColumnPruning;
 import org.apache.doris.nereids.rules.rewrite.NormalizeSort;
 import org.apache.doris.nereids.rules.rewrite.OperativeColumnDerive;
 import org.apache.doris.nereids.rules.rewrite.OrExpansion;
@@ -132,6 +134,7 @@ import org.apache.doris.nereids.rules.rewrite.PushDownDistinctThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.PushDownEncodeSlot;
 import org.apache.doris.nereids.rules.rewrite.PushDownFilterIntoSchemaScan;
 import org.apache.doris.nereids.rules.rewrite.PushDownFilterThroughProject;
+import org.apache.doris.nereids.rules.rewrite.PushDownJoinOnAssertNumRows;
 import org.apache.doris.nereids.rules.rewrite.PushDownLimit;
 import org.apache.doris.nereids.rules.rewrite.PushDownLimitDistinctThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.PushDownLimitDistinctThroughUnion;
@@ -151,6 +154,7 @@ import org.apache.doris.nereids.rules.rewrite.RecordPlanForMvPreRewrite;
 import org.apache.doris.nereids.rules.rewrite.ReduceAggregateChildOutputRows;
 import org.apache.doris.nereids.rules.rewrite.ReorderJoin;
 import org.apache.doris.nereids.rules.rewrite.RewriteCteChildren;
+import org.apache.doris.nereids.rules.rewrite.RewriteSearchToSlots;
 import org.apache.doris.nereids.rules.rewrite.SaltJoin;
 import org.apache.doris.nereids.rules.rewrite.SetPreAggStatus;
 import org.apache.doris.nereids.rules.rewrite.SimplifyEncodeDecode;
@@ -242,13 +246,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                              *   we expected.
                                              */
                                             new CorrelateApplyToUnCorrelateApply(),
-                                            new ApplyToJoin(),
-                                            // UnCorrelatedApplyAggregateFilter rule will create new aggregate outputs,
-                                            // The later rule CheckPrivileges which inherent from ColumnPruning
-                                            // only works
-                                            // if the aggregation node is normalized, so we need call
-                                            // NormalizeAggregate here
-                                            new NormalizeAggregate()
+                                            new ApplyToJoin()
                                     )
                             ),
                             // before `Subquery unnesting` topic, some correlate slots should have appeared at
@@ -326,7 +324,8 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                             new PushFilterInsideJoin(),
                                             new FindHashConditionForJoin(),
                                             new ConvertInnerOrCrossJoin(),
-                                            new EliminateNullAwareLeftAntiJoin()
+                                            new EliminateNullAwareLeftAntiJoin(),
+                                            new JoinExtractOrFromCaseWhen()
                                     ),
                                     // push down SEMI Join
                                     bottomUp(
@@ -392,6 +391,11 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                             new CollectFilterAboveConsumer(),
                                             new CollectCteConsumerOutput())
                             ),
+                            topic("eliminate join according unique or foreign key",
+                                    cascadesContext -> cascadesContext.rewritePlanContainsTypes(LogicalJoin.class),
+                                    bottomUp(new EliminateJoinByFK()),
+                                    topDown(new EliminateJoinByUnique())
+                            ),
                             topic("Table/Physical optimization",
                                     topDown(
                                             new PruneOlapScanPartition(),
@@ -401,13 +405,13 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                     )
                             ),
                             topic("necessary rules before record mv",
+                                    topDown(new LimitSortToTopN()),
                                     topDown(new SplitLimit()),
                                     custom(RuleType.SET_PREAGG_STATUS, SetPreAggStatus::new),
                                     custom(RuleType.OPERATIVE_COLUMN_DERIVE, OperativeColumnDerive::new),
                                     custom(RuleType.ADJUST_NULLABLE, () -> new AdjustNullable(false))
                             ),
                             topic("add projection for join",
-                                    // this is for hint project join rewrite rule
                                     custom(RuleType.ADD_PROJECT_FOR_JOIN, AddProjectForJoin::new),
                                     topDown(new MergeProjectable())
                             )
@@ -456,6 +460,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                 // so there may be two filters we need to merge them
                                 new MergeFilters()
                         ),
+                        // query rewrite support window, so add this rule here
                         custom(RuleType.AGG_SCALAR_SUBQUERY_TO_WINDOW_FUNCTION, AggScalarSubQueryToWindowFunction::new),
                         bottomUp(
                                 new EliminateUselessPlanUnderApply(),
@@ -550,7 +555,8 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                         new PushFilterInsideJoin(),
                                         new FindHashConditionForJoin(),
                                         new ConvertInnerOrCrossJoin(),
-                                        new EliminateNullAwareLeftAntiJoin()
+                                        new EliminateNullAwareLeftAntiJoin(),
+                                        new JoinExtractOrFromCaseWhen()
                                 ),
                                 // push down SEMI Join
                                 bottomUp(
@@ -735,6 +741,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                 ),
                 topic("set initial join order",
                         bottomUp(ImmutableList.of(new InitJoinOrder())),
+                        bottomUp(ImmutableList.of(new PushDownJoinOnAssertNumRows(), new MergeProjectable())),
                         topDown(new SkewJoin())),
                 topic("agg rewrite",
                     // these rules should be put after mv optimization to avoid mv matching fail
@@ -897,6 +904,12 @@ public class Rewriter extends AbstractBatchJobExecutor {
                 rewriteJobs.addAll(jobs(topic("split multi distinct",
                         custom(RuleType.DISTINCT_AGG_STRATEGY_SELECTOR, () -> DistinctAggStrategySelector.INSTANCE))));
 
+                // Rewrite search function before VariantSubPathPruning
+                // so that ElementAt expressions from search can be processed
+                rewriteJobs.addAll(jobs(
+                        bottomUp(new RewriteSearchToSlots())
+                ));
+
                 if (needSubPathPushDown) {
                     rewriteJobs.addAll(jobs(
                             topic("variant element_at push down",
@@ -904,6 +917,11 @@ public class Rewriter extends AbstractBatchJobExecutor {
                             )
                     ));
                 }
+                rewriteJobs.add(
+                        topic("nested column prune",
+                            custom(RuleType.NESTED_COLUMN_PRUNING, NestedColumnPruning::new)
+                        )
+                );
                 rewriteJobs.addAll(jobs(
                         topic("rewrite cte sub-tree after sub path push down",
                                 custom(RuleType.CLEAR_CONTEXT_STATUS, ClearContextStatus::new),

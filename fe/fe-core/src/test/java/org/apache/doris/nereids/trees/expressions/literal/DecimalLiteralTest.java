@@ -27,6 +27,7 @@ import org.apache.doris.nereids.types.FloatType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.nereids.types.SmallIntType;
+import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
@@ -122,5 +123,11 @@ public class DecimalLiteralTest {
         Assertions.assertEquals("234.57", ((DecimalV3Literal) expression).getValue().toString());
         DecimalV3Literal finalD = d1;
         Assertions.assertThrows(CastException.class, () -> finalD.uncheckedCastTo(DecimalV3Type.createDecimalV3Type(2, 1)));
+
+        // to string
+        d1 = new DecimalV3Literal(new BigDecimal("234.567"));
+        expression = d1.uncheckedCastTo(StringType.INSTANCE);
+        Assertions.assertInstanceOf(StringLiteral.class, expression);
+        Assertions.assertEquals("234.567", ((StringLiteral) expression).value);
     }
 }

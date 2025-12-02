@@ -38,6 +38,8 @@ public:
 
     void for_one_term(const IndexQueryContextPtr& context, const std::wstring& field_name,
                       const std::wstring& term) override;
+    void for_terms(const IndexQueryContextPtr& context, const std::wstring& field_name,
+                   const std::vector<std::wstring>& terms) override;
 
     float score(float freq, int64_t encoded_norm) override;
 

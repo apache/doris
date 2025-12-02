@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <arrow/api.h>
+#include <cctz/time_zone.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 #include <gtest/gtest.h>
@@ -219,6 +221,68 @@ TEST_F(DataTypeDateTimeV2SerDeTest, serdes) {
     test_func(*serde_time_v2_6, column_time_v2_6);
     test_func(*serde_time_v2_5, column_time_v2_5);
     test_func(*serde_time_v2_0, column_time_v2_0);
+}
+
+// Run with UBSan enabled to catch misalignment errors.
+TEST_F(DataTypeDateTimeV2SerDeTest, ArrowMemNotAlignedDate) {
+    // 1.Prepare the data.
+    std::vector<int32_t> dates = {0, 365, 1000, 5000, 10000};
+    const int64_t num_elements = dates.size();
+    const int64_t element_size = sizeof(int32_t);
+
+    // 2.Create an unaligned memory buffer.
+    std::vector<uint8_t> data_storage(num_elements * element_size + 10);
+    uint8_t* unaligned_data = data_storage.data() + 1;
+
+    // 3.Copy data to unaligned memory
+    for (size_t i = 0; i < dates.size(); ++i) {
+        memcpy(unaligned_data + i * element_size, &dates[i], element_size);
+    }
+
+    // 4. Create Arrow array with unaligned memory
+    auto unaligned_buffer = arrow::Buffer::Wrap(unaligned_data, num_elements * element_size);
+    auto arr = std::make_shared<arrow::Date32Array>(num_elements, unaligned_buffer);
+    const auto* raw_values_ptr = arr->raw_values();
+    uintptr_t address = reinterpret_cast<uintptr_t>(raw_values_ptr);
+    EXPECT_EQ(address % 4, 1);
+
+    // 5.Test read_column_from_arrow
+    cctz::time_zone tz;
+    auto st = serde_date_v2->read_column_from_arrow(*column_date_v2, arr.get(), 0, 1, tz);
+    EXPECT_TRUE(st.ok());
+}
+
+// Run with UBSan enabled to catch misalignment errors.
+TEST_F(DataTypeDateTimeV2SerDeTest, ArrowMemNotAlignedDateTime) {
+    // 1.Prepare the data.
+    std::vector<int64_t> timestamps = {0, 86400000000, 31536000000000, 100000000000, 500000000000};
+    const int64_t num_elements = timestamps.size();
+    const int64_t element_size = sizeof(int64_t);
+
+    // 2.Create an unaligned memory buffer.
+    std::vector<uint8_t> data_storage(num_elements * element_size + 10);
+    uint8_t* unaligned_data = data_storage.data() + 1;
+
+    // 3. Copy data to unaligned memory
+    for (size_t i = 0; i < timestamps.size(); ++i) {
+        memcpy(unaligned_data + i * element_size, &timestamps[i], element_size);
+    }
+
+    // 4. Create Arrow array with unaligned memory
+    auto unaligned_buffer = arrow::Buffer::Wrap(unaligned_data, num_elements * element_size);
+    auto timestamp_type = arrow::timestamp(arrow::TimeUnit::MICRO);
+    auto arr =
+            std::make_shared<arrow::TimestampArray>(timestamp_type, num_elements, unaligned_buffer);
+
+    const auto* raw_values_ptr = arr->raw_values();
+    uintptr_t address = reinterpret_cast<uintptr_t>(raw_values_ptr);
+    EXPECT_EQ(address % 4, 1);
+
+    // 5.Test read_column_from_arrow
+    cctz::time_zone tz;
+    auto st =
+            serde_datetime_v2_6->read_column_from_arrow(*column_datetime_v2_6, arr.get(), 0, 1, tz);
+    EXPECT_TRUE(st.ok());
 }
 
 } // namespace doris::vectorized

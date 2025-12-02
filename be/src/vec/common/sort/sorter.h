@@ -56,8 +56,7 @@ public:
             // create_empty_block should ignore invalid slots, unsorted_block
             // should be same structure with arrival block from child node
             // since block from child node may ignored these slots
-            : _unsorted_block(Block::create_unique(
-                      VectorizedUtils::create_empty_block(row_desc, true /*ignore invalid slot*/))),
+            : _unsorted_block(Block::create_unique(VectorizedUtils::create_empty_block(row_desc))),
               _offset(offset) {}
 
     ~MergeSorterState() = default;
@@ -154,7 +153,7 @@ public:
 
 protected:
     Status partial_sort(Block& src_block, Block& dest_block, bool reversed = false);
-
+    Status _prepare_sort_columns(Block& src_block, Block& dest_block, bool reversed = false);
     bool _enable_spill = false;
     SortDescription _sort_description;
     VSortExecExprs& _vsort_exec_exprs;

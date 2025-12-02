@@ -65,9 +65,16 @@ DEFINE_mInt32(mow_stream_load_commit_retry_times, "5");
 
 DEFINE_mBool(save_load_error_log_to_s3, "false");
 
+DEFINE_mBool(use_public_endpoint_for_error_log, "true");
+
 DEFINE_mInt32(sync_load_for_tablets_thread, "32");
 
 DEFINE_mBool(enable_new_tablet_do_compaction, "true");
+
+// Empty rowset compaction strategy configurations
+DEFINE_mBool(enable_empty_rowset_compaction, "true");
+DEFINE_mInt32(empty_rowset_compaction_min_count, "5");
+DEFINE_mDouble(empty_rowset_compaction_min_ratio, "0.3");
 
 DEFINE_mInt32(delete_bitmap_lock_expiration_seconds, "10");
 
@@ -128,5 +135,11 @@ DEFINE_mBool(enable_standby_passive_compaction, "true");
 
 DEFINE_mDouble(standby_compaction_version_ratio, "0.8");
 
+DEFINE_mBool(enable_cache_read_from_peer, "true");
+
+// Cache the expiration time of the peer address.
+// This can be configured to be less than the `rehash_tablet_after_be_dead_seconds` setting in the `fe` configuration.
+// If the value is -1, use the `rehash_tablet_after_be_dead_seconds` setting in the `fe` configuration as the expiration time.
+DEFINE_mInt64(cache_read_from_peer_expired_seconds, "-1");
 #include "common/compile_check_end.h"
 } // namespace doris::config

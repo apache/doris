@@ -61,8 +61,7 @@ public class Field extends ScalarFunction
                     .varArgs(DecimalV2Type.SYSTEM_DEFAULT, DecimalV2Type.SYSTEM_DEFAULT),
             FunctionSignature.ret(IntegerType.INSTANCE).varArgs(DecimalV3Type.WILDCARD, DecimalV3Type.WILDCARD),
             FunctionSignature.ret(IntegerType.INSTANCE).varArgs(DateV2Type.INSTANCE, DateV2Type.INSTANCE),
-            FunctionSignature.ret(IntegerType.INSTANCE)
-                    .varArgs(DateTimeV2Type.SYSTEM_DEFAULT, DateTimeV2Type.SYSTEM_DEFAULT),
+            FunctionSignature.ret(IntegerType.INSTANCE).varArgs(DateTimeV2Type.WILDCARD, DateTimeV2Type.WILDCARD),
             FunctionSignature.ret(IntegerType.INSTANCE).varArgs(VarcharType.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT),
             FunctionSignature.ret(IntegerType.INSTANCE).varArgs(StringType.INSTANCE, StringType.INSTANCE)
     );

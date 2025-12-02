@@ -230,6 +230,7 @@ private:
     RuntimeProfile::Counter* _close_writer_timer = nullptr;
     RuntimeProfile::Counter* _close_load_timer = nullptr;
     RuntimeProfile::Counter* _add_partition_request_timer = nullptr;
+    RuntimeProfile::Counter* _load_back_pressure_version_time_ms = nullptr;
 
     std::mutex _close_mutex;
     bool _is_closed = false;
@@ -256,6 +257,8 @@ private:
 
     // tablet_id -> <total replicas num, load required replicas num>
     std::unordered_map<int64_t, std::pair<int, int>> _tablet_replica_info;
+
+    std::atomic<int64_t> _load_back_pressure_version_block_ms {0};
 };
 
 } // namespace vectorized

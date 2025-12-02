@@ -196,7 +196,6 @@ Status parse_one_lru_entry(std::ifstream& in, std::string& filename, io::UInt128
     }
 
     // Get next entry from current group
-    std::cout << "After deserialization: " << current_parse_group.DebugString() << std::endl;
     auto entry = current_parse_group.entries(0);
     hash = io::UInt128Wrapper((static_cast<uint128_t>(entry.hash().high()) << 64) |
                               entry.hash().low());

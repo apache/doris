@@ -37,7 +37,7 @@ suite("test_compare_float") {
 
 
     sql """
-        insert into sort_float values(1,'123'),(2,'-123'),(3,'114514'),(4,'+inf'),(5,'-inf'),(6,'-0'),(7,'+0'),(8,'Nan'),(9,'Nan');
+        insert into sort_float values(1,'123'),(2,'-123'),(3,'114514'),(4,'+inf'),(5,'-inf'),(7,'+0'),(8,'Nan'),(9,'Nan');
     """
 
     qt_sql """

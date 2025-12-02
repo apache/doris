@@ -71,14 +71,13 @@ struct DecCompareInt {
 };
 
 ///
-template <PrimitiveType A, PrimitiveType B,
-          template <PrimitiveType, PrimitiveType> typename Operation, bool _check_overflow = true,
-          bool _actual = is_decimal(A) || is_decimal(B)>
+template <PrimitiveType A, PrimitiveType B, template <PrimitiveType> typename Operation,
+          bool _check_overflow = true, bool _actual = is_decimal(A) || is_decimal(B)>
 class DecimalComparison {
 public:
     static constexpr PrimitiveType CompareIntPType = DecCompareInt<A, B>::Type;
     using CompareInt = typename PrimitiveTypeTraits<CompareIntPType>::CppNativeType;
-    using Op = Operation<CompareIntPType, CompareIntPType>;
+    using Op = Operation<CompareIntPType>;
     using ColVecA = typename PrimitiveTypeTraits<A>::ColumnType;
     using ColVecB = typename PrimitiveTypeTraits<B>::ColumnType;
     using ArrayA = typename ColVecA::Container;

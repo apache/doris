@@ -56,7 +56,7 @@ int InstanceChecker::do_snapshots_check() {
     return success;
 }
 
-int InstanceChecker::do_mvcc_rowset_meta_key_check() {
+int InstanceChecker::do_mvcc_meta_key_check() {
     int ret = snapshot_manager_->check_mvcc_meta_key(this);
     int success = 0;
     if (ret != 0) {

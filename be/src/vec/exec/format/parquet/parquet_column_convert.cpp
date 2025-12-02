@@ -18,10 +18,13 @@
 #include "vec/exec/format/parquet/parquet_column_convert.h"
 
 #include <cctz/time_zone.h>
+#include <glog/logging.h>
 
 #include "common/cast_set.h"
 #include "runtime/define_primitive_type.h"
+#include "runtime/primitive_type.h"
 #include "vec/columns/column_nullable.h"
+#include "vec/data_types/data_type_nullable.h"
 
 namespace doris::vectorized::parquet {
 #include "common/compile_check_begin.h"
@@ -122,8 +125,7 @@ ColumnPtr PhysicalToLogicalConverter::get_physical_column(tparquet::Type::type s
         // In order to share null map between parquet converted src column and dst column to avoid copying. It is very tricky that will
         // call mutable function `doris_nullable_column->get_null_map_column_ptr()` which will set `_need_update_has_null = true`.
         // Because some operations such as agg will call `has_null()` to set `_need_update_has_null = false`.
-        auto* doris_nullable_column = const_cast<ColumnNullable*>(
-                assert_cast<const ColumnNullable*>(dst_logical_column.get()));
+        auto* doris_nullable_column = assert_cast<const ColumnNullable*>(dst_logical_column.get());
         return ColumnNullable::create(_cached_src_physical_column,
                                       doris_nullable_column->get_null_map_column_ptr());
     }
@@ -223,8 +225,8 @@ std::unique_ptr<PhysicalToLogicalConverter> PhysicalToLogicalConverter::get_conv
                     std::make_unique<UnsupportedConverter>(src_physical_type, src_logical_type);
         }
     } else if (is_parquet_native_type(src_logical_primitive)) {
-        if (is_string_type(src_logical_primitive) &&
-            src_physical_type == tparquet::Type::FIXED_LEN_BYTE_ARRAY) {
+        bool is_string_logical_type = is_string_type(src_logical_primitive);
+        if (is_string_logical_type && src_physical_type == tparquet::Type::FIXED_LEN_BYTE_ARRAY) {
             // for FixedSizeBinary
             physical_converter =
                     std::make_unique<FixedSizeBinaryConverter>(parquet_schema.type_length);
@@ -251,6 +253,15 @@ std::unique_ptr<PhysicalToLogicalConverter> PhysicalToLogicalConverter::get_conv
         } else {
             physical_converter =
                     std::make_unique<UnsupportedConverter>(src_physical_type, src_logical_type);
+        }
+    } else if (src_logical_primitive == TYPE_VARBINARY) {
+        if (src_physical_type == tparquet::Type::FIXED_LEN_BYTE_ARRAY) {
+            DCHECK(parquet_schema.logicalType.__isset.UUID) << parquet_schema.name;
+            physical_converter =
+                    std::make_unique<UUIDVarBinaryConverter>(parquet_schema.type_length);
+        } else {
+            DCHECK(src_physical_type == tparquet::Type::BYTE_ARRAY) << src_physical_type;
+            physical_converter = std::make_unique<ConsistentPhysicalConverter>();
         }
     } else {
         physical_converter =

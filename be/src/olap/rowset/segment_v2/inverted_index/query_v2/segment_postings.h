@@ -18,14 +18,29 @@
 #pragma once
 
 #include "olap/rowset/segment_v2/inverted_index/query_v2/doc_set.h"
+#include "olap/rowset/segment_v2/inverted_index_common.h"
 
 namespace doris::segment_v2::inverted_index::query_v2 {
 
-template <typename TermIterator>
-class SegmentPostingsBase : public DocSet {
+class Postings : public DocSet {
+public:
+    Postings() = default;
+    ~Postings() override = default;
+
+    virtual void positions_with_offset(uint32_t offset, std::vector<uint32_t>& output) {
+        output.clear();
+        append_positions_with_offset(offset, output);
+    }
+
+    virtual void append_positions_with_offset(uint32_t offset, std::vector<uint32_t>& output) = 0;
+};
+using PostingsPtr = std::shared_ptr<Postings>;
+
+template <typename TCLuceneIter>
+class SegmentPostingsBase : public Postings {
 public:
     SegmentPostingsBase() = default;
-    SegmentPostingsBase(TermIterator iter) : _iter(std::move(iter)) {
+    SegmentPostingsBase(TCLuceneIter iter) : _iter(std::move(iter)) {
         if (_iter->next()) {
             int32_t d = _iter->doc();
             _doc = d >= INT_MAX ? TERMINATED : d;
@@ -52,46 +67,60 @@ public:
     }
 
     uint32_t doc() const override { return _doc; }
-
     uint32_t size_hint() const override { return _iter->docFreq(); }
+    uint32_t freq() const override { return _iter->freq(); }
+    uint32_t norm() const override { return _iter->norm(); }
 
-    virtual int32_t freq() const {
-        throw doris::Exception(doris::ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "freq() method not implemented in base SegmentPostingsBase class");
-    }
-
-    virtual int32_t norm() const {
-        throw doris::Exception(doris::ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "norm() method not implemented in base SegmentPostingsBase class");
+    void append_positions_with_offset(uint32_t offset, std::vector<uint32_t>& output) override {
+        throw Exception(doris::ErrorCode::NOT_IMPLEMENTED_ERROR,
+                        "This posting type does not support position information");
     }
 
 protected:
-    TermIterator _iter;
+    TCLuceneIter _iter;
 
 private:
     uint32_t _doc = TERMINATED;
 };
+template <typename TCLuceneIter>
+using SegmentPostingsBasePtr = std::shared_ptr<SegmentPostingsBase<TCLuceneIter>>;
 
-template <typename TermIterator>
-class SegmentPostings final : public SegmentPostingsBase<TermIterator> {
+template <typename TCLuceneIter>
+class SegmentPostings final : public SegmentPostingsBase<TCLuceneIter> {
 public:
-    SegmentPostings(TermIterator iter) : SegmentPostingsBase<TermIterator>(std::move(iter)) {}
+    SegmentPostings(TCLuceneIter iter) : SegmentPostingsBase<TCLuceneIter>(std::move(iter)) {}
+};
+using TermPostingsPtr = std::shared_ptr<SegmentPostings<TermDocsPtr>>;
+using PositionPostingsPtr = std::shared_ptr<SegmentPostings<TermPositionsPtr>>;
 
-    int32_t freq() const override { return this->_iter->freq(); }
-    int32_t norm() const override { return this->_iter->norm(); }
+template <>
+class SegmentPostings<TermPositionsPtr> final : public SegmentPostingsBase<TermPositionsPtr> {
+public:
+    SegmentPostings(TermPositionsPtr iter)
+            : SegmentPostingsBase<TermPositionsPtr>(std::move(iter)) {}
+
+    void append_positions_with_offset(uint32_t offset, std::vector<uint32_t>& output) override {
+        auto freq = this->freq();
+        size_t prev_len = output.size();
+        output.resize(prev_len + freq);
+        for (int32_t i = 0; i < freq; ++i) {
+            auto pos = this->_iter->nextPosition();
+            output[prev_len + i] = offset + static_cast<uint32_t>(pos);
+        }
+    }
 };
 
-template <typename TermIterator>
-class NoScoreSegmentPosting final : public SegmentPostingsBase<TermIterator> {
+template <typename TCLuceneIter>
+class NoScoreSegmentPosting final : public SegmentPostingsBase<TCLuceneIter> {
 public:
-    NoScoreSegmentPosting(TermIterator iter) : SegmentPostingsBase<TermIterator>(std::move(iter)) {}
+    NoScoreSegmentPosting(TCLuceneIter iter) : SegmentPostingsBase<TCLuceneIter>(std::move(iter)) {}
 
-    int32_t freq() const override { return 1; }
-    int32_t norm() const override { return 1; }
+    uint32_t freq() const override { return 1; }
+    uint32_t norm() const override { return 1; }
 };
 
-template <typename TermIterator>
-class EmptySegmentPosting final : public SegmentPostingsBase<TermIterator> {
+template <typename TCLuceneIter>
+class EmptySegmentPosting final : public SegmentPostingsBase<TCLuceneIter> {
 public:
     EmptySegmentPosting() = default;
 
@@ -100,8 +129,8 @@ public:
     uint32_t doc() const override { return TERMINATED; }
     uint32_t size_hint() const override { return 0; }
 
-    int32_t freq() const override { return 1; }
-    int32_t norm() const override { return 1; }
+    uint32_t freq() const override { return 1; }
+    uint32_t norm() const override { return 1; }
 };
 
 } // namespace doris::segment_v2::inverted_index::query_v2

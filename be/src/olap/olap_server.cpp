@@ -1545,7 +1545,7 @@ void StorageEngine::_cold_data_compaction_producer_callback() {
         for (auto& t : tablets) {
             if (t->replica_id() == t->cooldown_conf_unlocked().cooldown_replica_id) {
                 auto score = t->calc_cold_data_compaction_score();
-                if (score < 4) {
+                if (score < config::cold_data_compaction_score_threshold) {
                     continue;
                 }
                 tablet_to_compact.emplace_back(t, score);

@@ -18,6 +18,7 @@
 #pragma once
 
 #include <glog/logging.h>
+#include <pdqsort.h>
 
 #include <cstddef>
 
@@ -34,8 +35,11 @@ class ColumnVarbinary final : public COWHelper<IColumn, ColumnVarbinary> {
 private:
     using Self = ColumnVarbinary;
     friend class COWHelper<IColumn, ColumnVarbinary>;
+    template <bool positive>
+    struct less;
 
 public:
+    using value_type = typename PrimitiveTypeTraits<TYPE_VARBINARY>::ColumnItemType;
     using Container = PaddedPODArray<doris::StringView>;
     ColumnVarbinary() = default;
     ColumnVarbinary(const size_t n) : _data(n) {}
@@ -70,6 +74,8 @@ public:
 
     StringRef get_data_at(size_t n) const override { return _data[n].to_string_ref(); }
 
+    char* alloc(size_t length) { return _arena.alloc(length); }
+
     void insert(const Field& x) override {
         auto value = vectorized::get<const doris::StringView&>(x);
         insert_data(value.data(), value.size());
@@ -100,6 +106,21 @@ public:
     }
 
     void insert_default() override { _data.push_back(doris::StringView()); }
+
+    int compare_at(size_t n, size_t m, const IColumn& rhs_,
+                   int /*nan_direction_hint*/) const override {
+        const auto& rhs = assert_cast<const ColumnVarbinary&>(rhs_);
+        return this->_data[n].compare(rhs.get_data()[m]);
+    }
+
+    void get_permutation(bool reverse, size_t limit, int /*nan_direction_hint*/,
+                         IColumn::Permutation& res) const override;
+
+    size_t get_max_row_byte_size() const override;
+
+    void deserialize(StringRef* keys, const size_t num_rows) override;
+
+    void serialize(StringRef* keys, const size_t num_rows) const override;
 
     void pop_back(size_t n) override { resize(size() - n); }
 
@@ -158,6 +179,11 @@ public:
     size_t serialize_size_at(size_t row) const override {
         return _data[row].size() + sizeof(uint32_t);
     }
+
+    void insert_many_strings(const StringRef* strings, size_t num) override;
+
+    void insert_many_strings_overflow(const StringRef* strings, size_t num,
+                                      size_t max_length) override;
 
 private:
     Container _data;

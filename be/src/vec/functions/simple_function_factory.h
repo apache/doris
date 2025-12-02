@@ -70,14 +70,14 @@ void register_function_collection_in(SimpleFunctionFactory& factory);
 void register_function_if(SimpleFunctionFactory& factory);
 void register_function_nullif(SimpleFunctionFactory& factory);
 void register_function_date_time_computation(SimpleFunctionFactory& factory);
-void register_function_date_time_computation_v2(SimpleFunctionFactory& factory);
 void register_function_timestamp(SimpleFunctionFactory& factory);
 void register_function_utility(SimpleFunctionFactory& factory);
 void register_function_json(SimpleFunctionFactory& factory);
 void register_function_jsonb(SimpleFunctionFactory& factory);
 void register_function_to_json(SimpleFunctionFactory& factory);
+void register_function_json_transform(SimpleFunctionFactory& factory);
+void register_function_json_hash(SimpleFunctionFactory& factory);
 void register_function_hash(SimpleFunctionFactory& factory);
-void register_function_ifnull(SimpleFunctionFactory& factory);
 void register_function_like(SimpleFunctionFactory& factory);
 void register_function_regexp(SimpleFunctionFactory& factory);
 void register_function_random(SimpleFunctionFactory& factory);
@@ -85,7 +85,6 @@ void register_function_uniform(SimpleFunctionFactory& factory);
 void register_function_uuid(SimpleFunctionFactory& factory);
 void register_function_uuid_numeric(SimpleFunctionFactory& factory);
 void register_function_uuid_transforms(SimpleFunctionFactory& factory);
-void register_function_coalesce(SimpleFunctionFactory& factory);
 void register_function_grouping(SimpleFunctionFactory& factory);
 void register_function_datetime_floor_ceil(SimpleFunctionFactory& factory);
 void register_function_convert_tz(SimpleFunctionFactory& factory);
@@ -110,6 +109,7 @@ void register_function_url(SimpleFunctionFactory& factory);
 void register_function_ip(SimpleFunctionFactory& factory);
 void register_function_format(SimpleFunctionFactory& factory);
 void register_function_multi_match(SimpleFunctionFactory& factory);
+void register_function_search(SimpleFunctionFactory& factory);
 void register_function_split_by_regexp(SimpleFunctionFactory& factory);
 void register_function_assert_true(SimpleFunctionFactory& factory);
 void register_function_compress(SimpleFunctionFactory& factory);
@@ -288,7 +288,6 @@ public:
             register_function_if(instance);
             register_function_nullif(instance);
             register_function_date_time_computation(instance);
-            register_function_date_time_computation_v2(instance);
             register_function_timestamp(instance);
             register_function_utility(instance);
             register_function_date_time_to_string(instance);
@@ -297,7 +296,6 @@ public:
             register_function_jsonb(instance);
             register_function_to_json(instance);
             register_function_hash(instance);
-            register_function_ifnull(instance);
             register_function_comparison_eq_for_null(instance);
             register_function_like(instance);
             register_function_regexp(instance);
@@ -306,7 +304,6 @@ public:
             register_function_uuid(instance);
             register_function_uuid_numeric(instance);
             register_function_uuid_transforms(instance);
-            register_function_coalesce(instance);
             register_function_grouping(instance);
             register_function_datetime_floor_ceil(instance);
             register_function_convert_tz(instance);
@@ -330,6 +327,7 @@ public:
             register_function_ignore(instance);
             register_function_variant_element(instance);
             register_function_multi_match(instance);
+            register_function_search(instance);
             register_function_split_by_regexp(instance);
             register_function_assert_true(instance);
             register_function_bit_test(instance);
@@ -341,6 +339,8 @@ public:
             register_function_score(instance);
             register_function_binary(instance);
             register_function_soundex(instance);
+            register_function_json_transform(instance);
+            register_function_json_hash(instance);
 #if defined(BE_TEST) && !defined(BE_BENCHMARK)
             register_function_throw_exception(instance);
 #endif

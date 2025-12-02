@@ -18,214 +18,303 @@
 #include "olap/rowset/segment_v2/inverted_index/query_v2/intersection_scorer.h"
 
 #include <algorithm>
-#include <cassert>
-#include <utility>
-
-#include "olap/rowset/segment_v2/inverted_index/query_v2/term_query/term_scorer.h"
+#include <limits>
 
 namespace doris::segment_v2::inverted_index::query_v2 {
 
-uint32_t go_to_first_doc(const std::vector<ScorerPtr>& docsets) {
-    assert(!docsets.empty());
+ScorerPtr intersection_scorer_build(std::vector<ScorerPtr> scorers, bool enable_scoring,
+                                    const NullBitmapResolver* resolver) {
+    return std::make_shared<AndScorer>(std::move(scorers), enable_scoring, resolver);
+}
 
-    uint32_t candidate = docsets[0]->doc();
-    for (size_t i = 1; i < docsets.size(); ++i) {
-        candidate = std::max(candidate, docsets[i]->doc());
+AndScorer::AndScorer(std::vector<ScorerPtr> scorers, bool enable_scoring,
+                     const NullBitmapResolver* resolver)
+        : _scorers(std::move(scorers)), _enable_scoring(enable_scoring), _resolver(resolver) {
+    if (_scorers.empty()) {
+        _doc = TERMINATED;
+        return;
     }
 
-    while (true) {
-        bool need_continue = false;
-
-        for (const auto& docset : docsets) {
-            uint32_t seek_doc = docset->seek(candidate);
-            if (seek_doc > candidate) {
-                candidate = docset->doc();
-                need_continue = true;
-                break;
-            }
+    uint32_t initial_candidate = 0;
+    for (const auto& scorer : _scorers) {
+        if (!scorer || scorer->doc() == TERMINATED) {
+            _doc = TERMINATED;
+            return;
         }
+        initial_candidate = std::max(initial_candidate, scorer->doc());
+    }
 
-        if (!need_continue) {
-            return candidate;
-        }
+    if (!_advance_to(initial_candidate)) {
+        _doc = TERMINATED;
     }
 }
 
-ScorerPtr intersection_scorer_build(std::vector<ScorerPtr>& scorers) {
-    if (scorers.empty()) {
-        return std::make_shared<EmptyScorer>();
-    } else if (scorers.size() == 1) {
-        return scorers[0];
+uint32_t AndScorer::advance() {
+    if (_doc == TERMINATED) {
+        return TERMINATED;
     }
-    std::ranges::sort(scorers, [](const ScorerPtr& a, const ScorerPtr& b) {
-        return a->size_hint() < b->size_hint();
-    });
-    uint32_t doc = go_to_first_doc(scorers);
-    if (doc == TERMINATED) {
-        return std::make_shared<EmptyScorer>();
+    if (_scorers.empty() || _scorers.front()->advance() == TERMINATED) {
+        _doc = TERMINATED;
+        return TERMINATED;
     }
-    auto left = scorers[0];
-    auto right = scorers[1];
-    std::vector<ScorerPtr> others(scorers.begin() + 2, scorers.end());
-
-    auto try_create_term_intersection = [&]<typename TPtr>() -> ScorerPtr {
-        if (auto l = std::dynamic_pointer_cast<typename TPtr::element_type>(left)) {
-            if (auto r = std::dynamic_pointer_cast<typename TPtr::element_type>(right)) {
-                return std::make_shared<IntersectionScorer<TPtr>>(l, r, others);
-            }
-        }
-        return nullptr;
-    };
-
-    if (auto result = try_create_term_intersection.template operator()<TS_Base>()) {
-        return result;
+    uint32_t target = _scorers.front()->doc();
+    if (!_advance_to(target)) {
+        _doc = TERMINATED;
+        return TERMINATED;
     }
-    if (auto result = try_create_term_intersection.template operator()<TS_NoScore>()) {
-        return result;
-    }
-    if (auto result = try_create_term_intersection.template operator()<TS_Empty>()) {
-        return result;
-    }
-
-    return std::make_shared<IntersectionScorer<ScorerPtr>>(std::move(left), std::move(right),
-                                                           std::move(others));
+    return _doc;
 }
 
-AndNotScorer::AndNotScorer(ScorerPtr include, std::vector<ScorerPtr> excludes)
-        : _include(std::move(include)), _excludes(std::move(excludes)) {
-    if (_include != nullptr) {
-        _align(_include->doc());
+uint32_t AndScorer::seek(uint32_t target) {
+    if (_doc == TERMINATED || target <= _doc) {
+        return _doc;
+    }
+    if (_scorers.empty()) {
+        _doc = TERMINATED;
+        return TERMINATED;
+    }
+    if (_scorers.front()->seek(target) == TERMINATED) {
+        _doc = TERMINATED;
+        return TERMINATED;
+    }
+    uint32_t real_target = _scorers.front()->doc();
+    if (!_advance_to(real_target)) {
+        _doc = TERMINATED;
+        return TERMINATED;
+    }
+    return _doc;
+}
+
+uint32_t AndScorer::size_hint() const {
+    uint32_t hint = std::numeric_limits<uint32_t>::max();
+    for (const auto& scorer : _scorers) {
+        hint = std::min(hint, scorer ? scorer->size_hint() : 0U);
+    }
+    return hint == std::numeric_limits<uint32_t>::max() ? 0 : hint;
+}
+
+bool AndScorer::has_null_bitmap(const NullBitmapResolver* resolver) {
+    if (resolver != nullptr) {
+        _resolver = resolver;
+    }
+    if (!_null_sources_checked) {
+        _null_sources_checked = true;
+        if (_resolver != nullptr) {
+            for (const auto& scorer : _scorers) {
+                if (scorer && scorer->has_null_bitmap(_resolver)) {
+                    _has_null_sources = true;
+                    break;
+                }
+            }
+        }
+    }
+    return _has_null_sources;
+}
+
+const roaring::Roaring* AndScorer::get_null_bitmap(const NullBitmapResolver* resolver) {
+    _ensure_null_bitmap(resolver);
+    return _null_bitmap.isEmpty() ? nullptr : &_null_bitmap;
+}
+
+bool AndScorer::_advance_to(uint32_t target) {
+    uint32_t candidate = target;
+
+    while (candidate != TERMINATED) {
+        bool all_match = true;
+        bool has_null = false;
+        bool has_false = false;
+        uint32_t next_candidate = std::numeric_limits<uint32_t>::max();
+
+        for (auto& scorer : _scorers) {
+            uint32_t doc = scorer->doc();
+            if (doc < candidate) {
+                doc = scorer->seek(candidate);
+            }
+            if (doc == TERMINATED) {
+                _doc = TERMINATED;
+                return false;
+            }
+            if (doc > candidate) {
+                next_candidate = std::min(next_candidate, doc);
+                const roaring::Roaring* null_bitmap = nullptr;
+                if (_resolver != nullptr) {
+                    if (scorer->has_null_bitmap(_resolver)) {
+                        null_bitmap = scorer->get_null_bitmap(_resolver);
+                    }
+                }
+                if (null_bitmap != nullptr && null_bitmap->contains(candidate)) {
+                    has_null = true;
+                } else {
+                    has_false = true;
+                }
+                all_match = false;
+            }
+        }
+
+        if (all_match) {
+            _doc = candidate;
+            _current_score = 0.0F;
+            if (_enable_scoring) {
+                for (const auto& scorer : _scorers) {
+                    _current_score += scorer->score();
+                }
+            }
+            _true_bitmap.add(_doc);
+            if (_possible_null.contains(_doc)) {
+                _possible_null.remove(_doc);
+            }
+            return true;
+        }
+
+        if (!has_false && has_null) {
+            _possible_null.add(candidate);
+        } else if (has_false) {
+            _false_bitmap.add(candidate);
+        }
+
+        if (next_candidate == std::numeric_limits<uint32_t>::max()) {
+            break;
+        }
+        candidate = next_candidate;
+    }
+
+    _doc = TERMINATED;
+    return false;
+}
+
+void AndScorer::_ensure_null_bitmap(const NullBitmapResolver* resolver) {
+    if (resolver != nullptr) {
+        _resolver = resolver;
+    }
+    if (!_null_sources_checked) {
+        _null_sources_checked = true;
+        if (_resolver != nullptr) {
+            for (const auto& scorer : _scorers) {
+                if (scorer && scorer->has_null_bitmap(_resolver)) {
+                    _has_null_sources = true;
+                    break;
+                }
+            }
+        }
+    }
+    if (!_has_null_sources || _null_ready) {
+        return;
+    }
+    _null_bitmap = _possible_null;
+    _null_bitmap -= _false_bitmap;
+    _null_bitmap -= _true_bitmap;
+    _null_ready = true;
+}
+
+AndNotScorer::AndNotScorer(ScorerPtr include, std::vector<ScorerPtr> excludes,
+                           const NullBitmapResolver* resolver)
+        : _include(std::move(include)), _resolver(resolver) {
+    if (_include && _resolver != nullptr && _include->has_null_bitmap(_resolver)) {
+        const auto* null_bitmap = _include->get_null_bitmap(_resolver);
+        if (null_bitmap != nullptr) {
+            _null_bitmap |= *null_bitmap;
+        }
+    }
+
+    for (auto& scorer : excludes) {
+        if (!scorer) {
+            continue;
+        }
+        while (scorer->doc() != TERMINATED) {
+            _exclude_true.add(scorer->doc());
+            scorer->advance();
+        }
+        if (_resolver != nullptr && scorer->has_null_bitmap(_resolver)) {
+            const auto* null_bitmap = scorer->get_null_bitmap(_resolver);
+            if (null_bitmap != nullptr) {
+                _exclude_null |= *null_bitmap;
+            }
+        }
+    }
+
+    if (_include == nullptr || _include->doc() == TERMINATED) {
+        _doc = TERMINATED;
+        return;
+    }
+
+    if (!_advance_to(_include->doc())) {
+        _doc = TERMINATED;
     }
 }
 
 uint32_t AndNotScorer::advance() {
-    if (_include == nullptr) {
+    if (_doc == TERMINATED || !_include) {
         return TERMINATED;
     }
-    return _align(_include->advance());
-}
-
-uint32_t AndNotScorer::seek(uint32_t target) {
-    if (_include == nullptr) {
+    if (_include->advance() == TERMINATED) {
+        _doc = TERMINATED;
         return TERMINATED;
     }
-    return _align(_include->seek(target));
-}
-
-uint32_t AndNotScorer::doc() const {
-    if (_include == nullptr) {
-        return TERMINATED;
+    if (_advance_to(_include->doc())) {
+        return _doc;
     }
-    return _include->doc();
-}
-
-uint32_t AndNotScorer::size_hint() const {
-    if (_include == nullptr) {
-        return 0;
-    }
-    return _include->size_hint();
-}
-
-float AndNotScorer::score() {
-    if (_include == nullptr) {
-        return 0.0F;
-    }
-    return _include->score();
-}
-
-uint32_t AndNotScorer::_align(uint32_t candidate) {
-    if (_include == nullptr) {
-        return TERMINATED;
-    }
-
-    while (candidate != TERMINATED) {
-        bool excluded = false;
-        for (auto& scorer : _excludes) {
-            if (scorer == nullptr) {
-                continue;
-            }
-            uint32_t exclude_doc = scorer->doc();
-            if (exclude_doc < candidate) {
-                exclude_doc = scorer->seek(candidate);
-            }
-            if (exclude_doc == candidate) {
-                candidate = _include->advance();
-                excluded = true;
-                break;
-            }
-        }
-
-        if (!excluded) {
-            return candidate;
-        }
-    }
-
+    _doc = TERMINATED;
     return TERMINATED;
 }
 
-template <typename PivotScorerPtr>
-IntersectionScorer<PivotScorerPtr>::IntersectionScorer(PivotScorerPtr left, PivotScorerPtr right,
-                                                       std::vector<ScorerPtr> others)
-        : _left(std::move(left)), _right(std::move(right)), _others(std::move(others)) {}
+uint32_t AndNotScorer::seek(uint32_t target) {
+    if (_doc == TERMINATED || !_include || target <= _doc) {
+        return _doc;
+    }
+    if (_include->seek(target) == TERMINATED) {
+        _doc = TERMINATED;
+        return TERMINATED;
+    }
+    if (_advance_to(_include->doc())) {
+        return _doc;
+    }
+    _doc = TERMINATED;
+    return TERMINATED;
+}
 
-template <typename PivotScorerPtr>
-uint32_t IntersectionScorer<PivotScorerPtr>::advance() {
-    uint32_t candidate = _left->advance();
+uint32_t AndNotScorer::size_hint() const {
+    return _include ? _include->size_hint() : 0U;
+}
 
-    while (true) {
-        while (true) {
-            uint32_t right_doc = _right->seek(candidate);
-            candidate = _left->seek(right_doc);
-            if (candidate == right_doc) {
-                break;
-            }
+bool AndNotScorer::_advance_to(uint32_t target) {
+    if (!_include) {
+        return false;
+    }
+
+    uint32_t current = target;
+    while (current != TERMINATED) {
+        uint32_t doc = _include->doc();
+        if (doc < current) {
+            doc = _include->seek(current);
+        }
+        if (doc == TERMINATED) {
+            return false;
         }
 
-        bool need_continue = false;
-        for (const auto& docset : _others) {
-            uint32_t seek_doc = docset->seek(candidate);
-            if (seek_doc > candidate) {
-                candidate = _left->seek(seek_doc);
-                need_continue = true;
-                break;
-            }
+        bool in_exclude_true = _exclude_true.contains(doc);
+        bool in_exclude_null = _exclude_null.contains(doc);
+
+        if (in_exclude_true) {
+            current = doc + 1;
+            continue;
         }
 
-        if (!need_continue) {
-            return candidate;
+        if (in_exclude_null) {
+            _null_bitmap.add(doc);
+            current = doc + 1;
+            continue;
         }
+
+        if (_null_bitmap.contains(doc)) {
+            _null_bitmap.remove(doc);
+        }
+        _doc = doc;
+        _current_score = _include->score();
+        _true_bitmap.add(_doc);
+        return true;
     }
-}
 
-template <typename PivotScorerPtr>
-uint32_t IntersectionScorer<PivotScorerPtr>::seek(uint32_t target) {
-    _left->seek(target);
-    std::vector<ScorerPtr> docsets;
-    docsets.push_back(_left);
-    docsets.push_back(_right);
-    for (auto& docset : _others) {
-        docsets.push_back(docset);
-    }
-    return go_to_first_doc(docsets);
-}
-
-template <typename PivotScorerPtr>
-uint32_t IntersectionScorer<PivotScorerPtr>::doc() const {
-    return _left->doc();
-}
-
-template <typename PivotScorerPtr>
-uint32_t IntersectionScorer<PivotScorerPtr>::size_hint() const {
-    return _left->size_hint();
-}
-
-template <typename PivotScorerPtr>
-float IntersectionScorer<PivotScorerPtr>::score() {
-    float total = _left->score() + _right->score();
-    for (auto& scorer : _others) {
-        total += scorer->score();
-    }
-    return total;
+    return false;
 }
 
 } // namespace doris::segment_v2::inverted_index::query_v2

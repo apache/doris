@@ -111,7 +111,7 @@ private:
     OlapScanKeys _scan_keys;
     std::vector<FilterOlapParam<TCondition>> _olap_filters;
     // If column id in this set, indicate that we need to read data after index filtering
-    std::set<int32_t> _maybe_read_column_ids;
+    std::set<int32_t> _output_column_ids;
 
     std::unique_ptr<RuntimeProfile> _segment_profile;
     std::unique_ptr<RuntimeProfile> _index_filter_profile;
@@ -242,6 +242,10 @@ private:
     // total number of segment related to this scan node
     RuntimeProfile::Counter* _total_segment_counter = nullptr;
 
+    // condition cache filter stats
+    RuntimeProfile::Counter* _condition_cache_hit_segment_counter = nullptr;
+    RuntimeProfile::Counter* _condition_cache_filtered_rows_counter = nullptr;
+
     // timer about tablet reader
     RuntimeProfile::Counter* _tablet_reader_init_timer = nullptr;
     RuntimeProfile::Counter* _tablet_reader_capture_rs_readers_timer = nullptr;
@@ -286,7 +290,7 @@ private:
     RuntimeProfile::Counter* _variant_subtree_sparse_iter_count = nullptr;
 
     std::vector<TabletWithVersion> _tablets;
-    std::vector<TabletReader::ReadSource> _read_sources;
+    std::vector<TabletReadSource> _read_sources;
 
     std::map<SlotId, vectorized::VExprContextSPtr> _slot_id_to_virtual_column_expr;
     std::map<SlotId, size_t> _slot_id_to_index_in_block;

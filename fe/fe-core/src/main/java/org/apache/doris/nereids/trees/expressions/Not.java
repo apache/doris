@@ -50,13 +50,11 @@ public class Not extends Expression implements UnaryExpression, ExpectsInputType
     }
 
     public Not(Expression child, boolean isGeneratedIsNotNull) {
-        super(ImmutableList.of(child));
-        this.isGeneratedIsNotNull = isGeneratedIsNotNull;
+        this(ImmutableList.of(child), isGeneratedIsNotNull);
     }
 
     private Not(List<Expression> child, boolean isGeneratedIsNotNull) {
-        super(child);
-        this.isGeneratedIsNotNull = isGeneratedIsNotNull;
+        this(child, isGeneratedIsNotNull, false);
     }
 
     public boolean isGeneratedIsNotNull() {
@@ -99,6 +97,13 @@ public class Not extends Expression implements UnaryExpression, ExpectsInputType
     @Override
     public String toString() {
         return "( not " + child().toString() + ")";
+    }
+
+    @Override
+    public String toDigest() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("NOT ").append(child().toDigest());
+        return sb.toString();
     }
 
     @Override

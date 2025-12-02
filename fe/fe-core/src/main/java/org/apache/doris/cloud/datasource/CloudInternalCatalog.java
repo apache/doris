@@ -72,7 +72,7 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import doris.segment_v2.SegmentV2;
-import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.collections4.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -350,10 +350,10 @@ public class CloudInternalCatalog extends InternalCatalog {
             } else if (invertedIndexFileStorageFormat == TInvertedIndexFileStorageFormat.DEFAULT) {
                 if (Config.inverted_index_storage_format.equalsIgnoreCase("V1")) {
                     schemaBuilder.setInvertedIndexStorageFormat(OlapFile.InvertedIndexStorageFormatPB.V1);
-                } else if (Config.inverted_index_storage_format.equalsIgnoreCase("V3")) {
-                    schemaBuilder.setInvertedIndexStorageFormat(OlapFile.InvertedIndexStorageFormatPB.V3);
-                } else {
+                } else if (Config.inverted_index_storage_format.equalsIgnoreCase("V2")) {
                     schemaBuilder.setInvertedIndexStorageFormat(OlapFile.InvertedIndexStorageFormatPB.V2);
+                } else {
+                    schemaBuilder.setInvertedIndexStorageFormat(OlapFile.InvertedIndexStorageFormatPB.V3);
                 }
             } else {
                 throw new DdlException("invalid inverted index storage format");
@@ -737,7 +737,7 @@ public class CloudInternalCatalog extends InternalCatalog {
     // BEGIN DROP TABLE
 
     @Override
-    public void eraseTableDropBackendReplicas(OlapTable olapTable, boolean isReplay) {
+    public void eraseTableDropBackendReplicas(long dbId, OlapTable olapTable, boolean isReplay) {
         if (!Env.getCurrentEnv().isMaster()) {
             return;
         }
@@ -763,7 +763,7 @@ public class CloudInternalCatalog extends InternalCatalog {
                 if (indexs.isEmpty()) {
                     break;
                 }
-                dropMaterializedIndex(olapTable.getId(), indexs, true);
+                dropMaterializedIndex(dbId, olapTable.getId(), indexs, true);
             } catch (Exception e) {
                 LOG.warn("failed to drop index {} of table {}, try cnt {}, execption {}",
                         indexs, olapTable.getId(), tryCnt, e);
@@ -932,7 +932,8 @@ public class CloudInternalCatalog extends InternalCatalog {
         }
     }
 
-    public void dropMaterializedIndex(long tableId, List<Long> indexIds, boolean dropTable) throws DdlException {
+    public void dropMaterializedIndex(long dbId, long tableId, List<Long> indexIds, boolean dropTable)
+            throws DdlException {
         if (Config.enable_check_compatibility_mode) {
             LOG.info("skip dropping materialized index in compatibility checking mode");
             return;
@@ -942,6 +943,7 @@ public class CloudInternalCatalog extends InternalCatalog {
         indexRequestBuilder.setCloudUniqueId(Config.cloud_unique_id);
         indexRequestBuilder.addAllIndexIds(indexIds);
         indexRequestBuilder.setTableId(tableId);
+        indexRequestBuilder.setDbId(dbId);
         final Cloud.IndexRequest indexRequest = indexRequestBuilder.build();
 
         Cloud.IndexResponse response = null;
@@ -972,7 +974,7 @@ public class CloudInternalCatalog extends InternalCatalog {
      * @param tableId
      * @param indexIdList
      */
-    public void eraseDroppedIndex(long tableId, List<Long> indexIdList) {
+    public void eraseDroppedIndex(long dbId, long tableId, List<Long> indexIdList) {
         if (indexIdList == null || indexIdList.size() == 0) {
             LOG.warn("indexIdList is empty");
             return;
@@ -986,7 +988,7 @@ public class CloudInternalCatalog extends InternalCatalog {
             }
 
             try {
-                dropMaterializedIndex(tableId, indexIdList, false);
+                dropMaterializedIndex(dbId, tableId, indexIdList, false);
                 break;
             } catch (Exception e) {
                 LOG.warn("tryCnt:{}, eraseDroppedIndex exception:", tryCnt, e);

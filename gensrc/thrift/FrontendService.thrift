@@ -201,11 +201,18 @@ struct TQueryStatistics {
     11: optional i64 scan_bytes_from_remote_storage
     12: optional i64 spill_write_bytes_to_local_storage
     13: optional i64 spill_read_bytes_from_local_storage
+    14: optional i64 bytes_write_into_cache
+}
+
+struct TQueryStatisticsResult {
+    1: optional bool query_finished
+    2: optional TQueryStatistics statistics
 }
 
 struct TReportWorkloadRuntimeStatusParams {
     1: optional i64 backend_id
-    2: optional map<string, TQueryStatistics> query_statistics_map
+    2: optional map<string, TQueryStatistics> query_statistics_map // deprecated
+    3: optional map<string, TQueryStatisticsResult> query_statistics_result_map
 }
 
 struct TQueryProfile {
@@ -1597,6 +1604,36 @@ struct TFetchRoutineLoadJobResult {
     1: optional list<TRoutineLoadJob> routineLoadJobs
 }
 
+struct TFetchLoadJobRequest {
+}
+
+struct TLoadJob {
+    1: optional string job_id
+    2: optional string label
+    3: optional string state
+    4: optional string progress
+    5: optional string type
+    6: optional string etl_info
+    7: optional string task_info
+    8: optional string error_msg
+    9: optional string create_time
+    10: optional string etl_start_time
+    11: optional string etl_finish_time
+    12: optional string load_start_time
+    13: optional string load_finish_time
+    14: optional string url
+    15: optional string job_details
+    16: optional string transaction_id
+    17: optional string error_tablets
+    18: optional string user
+    19: optional string comment
+    20: optional string first_error_msg
+}
+
+struct TFetchLoadJobResult {
+    1: optional list<TLoadJob> loadJobs
+}
+
 struct TPlanNodeRuntimeStatsItem {
     // node_id means PlanNodeId, add this field so that we can merge RuntimeProfile of same node more easily
     1: optional i32 node_id
@@ -1639,6 +1676,29 @@ struct TGetTableTDEInfoRequest {
 struct TGetTableTDEInfoResult {
     1: optional Status.TStatus status
     2: optional AgentService.TEncryptionAlgorithm algorithm
+}
+
+struct TPartitionMeta {
+    1: optional i64 id
+    2: optional i64 visible_version
+    3: optional i64 visible_version_time
+}
+
+struct TGetOlapTableMetaRequest {
+    1: required string user
+    2: required string passwd
+    3: required string db
+    4: required string table
+    5: required i64 table_id
+    6: optional i32 version // todo serialize according to the version
+    7: optional list<TPartitionMeta> partitions // client owned partition meta
+}
+
+struct TGetOlapTableMetaResult {
+    1: required Status.TStatus status
+    2: required binary table_meta
+    3: optional list<binary> updated_partitions
+    4: optional list<i64> removed_partitions
 }
 
 service FrontendService {
@@ -1742,7 +1802,11 @@ service FrontendService {
 
     TFetchRoutineLoadJobResult fetchRoutineLoadJob(1: TFetchRoutineLoadJobRequest request)
 
+    TFetchLoadJobResult fetchLoadJob(1: TFetchLoadJobRequest request)
+
     TGetEncryptionKeysResult getEncryptionKeys(1: TGetEncryptionKeysRequest request)
 
     TGetTableTDEInfoResult getTableTDEInfo(1: TGetTableTDEInfoRequest request)
+
+    TGetOlapTableMetaResult getOlapTableMeta(1: TGetOlapTableMetaRequest request)
 }

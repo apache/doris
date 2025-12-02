@@ -112,7 +112,7 @@ bool try_read_int_text(T& x, const StringRef& buf) {
 }
 
 template <typename T>
-bool read_date_text_impl(T& x, StringRef& buf) {
+bool read_date_text_impl(T& x, const StringRef& buf) {
     static_assert(std::is_same_v<Int64, T>);
     auto dv = binary_cast<Int64, VecDateTimeValue>(x);
     auto ans = dv.from_date_str(buf.data, buf.size);
@@ -123,7 +123,7 @@ bool read_date_text_impl(T& x, StringRef& buf) {
 }
 
 template <typename T>
-bool read_date_text_impl(T& x, StringRef& buf, const cctz::time_zone& local_time_zone) {
+bool read_date_text_impl(T& x, const StringRef& buf, const cctz::time_zone& local_time_zone) {
     static_assert(std::is_same_v<Int64, T>);
     auto dv = binary_cast<Int64, VecDateTimeValue>(x);
     auto ans = dv.from_date_str(buf.data, buf.size, local_time_zone);
@@ -133,21 +133,21 @@ bool read_date_text_impl(T& x, StringRef& buf, const cctz::time_zone& local_time
 }
 
 template <typename T>
-bool read_ipv4_text_impl(T& x, StringRef& buf) {
+bool read_ipv4_text_impl(T& x, const StringRef& buf) {
     static_assert(std::is_same_v<IPv4, T>);
     bool res = IPv4Value::from_string(x, buf.data, buf.size);
     return res;
 }
 
 template <typename T>
-bool read_ipv6_text_impl(T& x, StringRef& buf) {
+bool read_ipv6_text_impl(T& x, const StringRef& buf) {
     static_assert(std::is_same_v<IPv6, T>);
     bool res = IPv6Value::from_string(x, buf.data, buf.size);
     return res;
 }
 
 template <typename T>
-bool read_datetime_text_impl(T& x, StringRef& buf) {
+bool read_datetime_text_impl(T& x, const StringRef& buf) {
     static_assert(std::is_same_v<Int64, T>);
     auto dv = binary_cast<Int64, VecDateTimeValue>(x);
     auto ans = dv.from_date_str(buf.data, buf.size);
@@ -157,7 +157,7 @@ bool read_datetime_text_impl(T& x, StringRef& buf) {
 }
 
 template <typename T>
-bool read_datetime_text_impl(T& x, StringRef& buf, const cctz::time_zone& local_time_zone) {
+bool read_datetime_text_impl(T& x, const StringRef& buf, const cctz::time_zone& local_time_zone) {
     static_assert(std::is_same_v<Int64, T>);
     auto dv = binary_cast<Int64, VecDateTimeValue>(x);
     auto ans = dv.from_date_str(buf.data, buf.size, local_time_zone);
@@ -167,7 +167,7 @@ bool read_datetime_text_impl(T& x, StringRef& buf, const cctz::time_zone& local_
 }
 
 template <typename T>
-bool read_date_v2_text_impl(T& x, StringRef& buf) {
+bool read_date_v2_text_impl(T& x, const StringRef& buf) {
     static_assert(std::is_same_v<UInt32, T>);
     auto dv = binary_cast<UInt32, DateV2Value<DateV2ValueType>>(x);
     auto ans = dv.from_date_str(buf.data, (int)buf.size, config::allow_zero_date);
@@ -179,7 +179,7 @@ bool read_date_v2_text_impl(T& x, StringRef& buf) {
 }
 
 template <typename T>
-bool read_date_v2_text_impl(T& x, StringRef& buf, const cctz::time_zone& local_time_zone) {
+bool read_date_v2_text_impl(T& x, const StringRef& buf, const cctz::time_zone& local_time_zone) {
     static_assert(std::is_same_v<UInt32, T>);
     auto dv = binary_cast<UInt32, DateV2Value<DateV2ValueType>>(x);
     auto ans = dv.from_date_str(buf.data, buf.size, local_time_zone, config::allow_zero_date);
@@ -191,7 +191,7 @@ bool read_date_v2_text_impl(T& x, StringRef& buf, const cctz::time_zone& local_t
 }
 
 template <typename T>
-bool read_datetime_v2_text_impl(T& x, StringRef& buf, UInt32 scale = -1) {
+bool read_datetime_v2_text_impl(T& x, const StringRef& buf, UInt32 scale = -1) {
     static_assert(std::is_same_v<UInt64, T>);
     auto dv = binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(x);
     auto ans = dv.from_date_str(buf.data, (int)buf.size, scale, config::allow_zero_date);
@@ -203,7 +203,7 @@ bool read_datetime_v2_text_impl(T& x, StringRef& buf, UInt32 scale = -1) {
 }
 
 template <typename T>
-bool read_datetime_v2_text_impl(T& x, StringRef& buf, const cctz::time_zone& local_time_zone,
+bool read_datetime_v2_text_impl(T& x, const StringRef& buf, const cctz::time_zone& local_time_zone,
                                 UInt32 scale = -1) {
     static_assert(std::is_same_v<UInt64, T>);
     auto dv = binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(x);
@@ -255,32 +255,32 @@ StringParser::ParseResult try_read_decimal_text(T& x, const StringRef& in, UInt3
 }
 
 template <typename T>
-bool try_read_ipv4_text(T& x, StringRef& in) {
+bool try_read_ipv4_text(T& x, const StringRef& in) {
     return read_ipv4_text_impl<T>(x, in);
 }
 
 template <typename T>
-bool try_read_ipv6_text(T& x, StringRef& in) {
+bool try_read_ipv6_text(T& x, const StringRef& in) {
     return read_ipv6_text_impl<T>(x, in);
 }
 
 template <typename T>
-bool try_read_datetime_text(T& x, StringRef& in, const cctz::time_zone& local_time_zone) {
+bool try_read_datetime_text(T& x, const StringRef& in, const cctz::time_zone& local_time_zone) {
     return read_datetime_text_impl<T>(x, in, local_time_zone);
 }
 
 template <typename T>
-bool try_read_date_text(T& x, StringRef& in, const cctz::time_zone& local_time_zone) {
+bool try_read_date_text(T& x, const StringRef& in, const cctz::time_zone& local_time_zone) {
     return read_date_text_impl<T>(x, in, local_time_zone);
 }
 
 template <typename T>
-bool try_read_date_v2_text(T& x, StringRef& in, const cctz::time_zone& local_time_zone) {
+bool try_read_date_v2_text(T& x, const StringRef& in, const cctz::time_zone& local_time_zone) {
     return read_date_v2_text_impl<T>(x, in, local_time_zone);
 }
 
 template <typename T>
-bool try_read_datetime_v2_text(T& x, StringRef& in, const cctz::time_zone& local_time_zone,
+bool try_read_datetime_v2_text(T& x, const StringRef& in, const cctz::time_zone& local_time_zone,
                                UInt32 scale) {
     return read_datetime_v2_text_impl<T>(x, in, local_time_zone, scale);
 }

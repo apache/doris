@@ -20,6 +20,9 @@
 #include <gen_cpp/FrontendService.h>
 #include <gen_cpp/PaloInternalService_types.h>
 
+#include <algorithm>
+#include <cctype>
+#include <cstdlib>
 #include <memory>
 #include <string>
 #include <type_traits>
@@ -77,9 +80,8 @@ public:
 
         TAIResource config;
         std::shared_ptr<AIAdapter> adapter;
-        if (Status status =
-                    const_cast<Derived*>(assert_cast<const Derived*>(this))
-                            ->_init_from_resource(context, block, arguments, config, adapter);
+        if (Status status = assert_cast<const Derived*>(this)->_init_from_resource(
+                    context, block, arguments, config, adapter);
             !status.ok()) {
             return status;
         }
@@ -123,18 +125,39 @@ public:
                 }
                 case PrimitiveType::TYPE_BOOLEAN: { // boolean for AI_FILTER
 #ifdef BE_TEST
-                    string_result = "false";
+                    const char* test_result = std::getenv("AI_TEST_RESULT");
+                    if (test_result != nullptr) {
+                        string_result = test_result;
+                    } else {
+                        string_result = "0";
+                    }
 #endif
-                    if (string_result != "true" && string_result != "false") {
+                    trim_string(string_result);
+                    if (string_result != "1" && string_result != "0") {
                         return Status::RuntimeError("Failed to parse boolean value: " +
                                                     string_result);
                     }
                     assert_cast<ColumnUInt8&>(*col_result)
-                            .insert_value(static_cast<UInt8>(string_result == "true"));
+                            .insert_value(static_cast<UInt8>(string_result == "1"));
                     break;
                 }
                 case PrimitiveType::TYPE_FLOAT: { // float for AI_SIMILARITY
-                    assert_cast<ColumnFloat32&>(*col_result).insert_value(std::stof(string_result));
+#ifdef BE_TEST
+                    const char* test_result = std::getenv("AI_TEST_RESULT");
+                    if (test_result != nullptr) {
+                        string_result = test_result;
+                    } else {
+                        string_result = "0.0";
+                    }
+#endif
+                    trim_string(string_result);
+                    try {
+                        float float_value = std::stof(string_result);
+                        assert_cast<ColumnFloat32&>(*col_result).insert_value(float_value);
+                    } catch (...) {
+                        return Status::RuntimeError("Failed to parse float value: " +
+                                                    string_result);
+                    }
                     break;
                 }
                 default:
@@ -148,19 +171,32 @@ public:
     }
 
 private:
+    // Trim whitespace and newlines from string
+    static void trim_string(std::string& str) {
+        str.erase(str.begin(), std::find_if(str.begin(), str.end(),
+                                            [](unsigned char ch) { return !std::isspace(ch); }));
+        str.erase(std::find_if(str.rbegin(), str.rend(),
+                               [](unsigned char ch) { return !std::isspace(ch); })
+                          .base(),
+                  str.end());
+    }
+
     // The ai resource must be literal
     Status _init_from_resource(FunctionContext* context, const Block& block,
                                const ColumnNumbers& arguments, TAIResource& config,
-                               std::shared_ptr<AIAdapter>& adapter) {
+                               std::shared_ptr<AIAdapter>& adapter) const {
         // 1. Initialize config
         const ColumnWithTypeAndName& resource_column = block.get_by_position(arguments[0]);
         StringRef resource_name_ref = resource_column.column->get_data_at(0);
         std::string resource_name = std::string(resource_name_ref.data, resource_name_ref.size);
 
-        const std::map<std::string, TAIResource>& ai_resources =
+        const std::shared_ptr<std::map<std::string, TAIResource>>& ai_resources =
                 context->state()->get_query_ctx()->get_ai_resources();
-        auto it = ai_resources.find(resource_name);
-        if (it == ai_resources.end()) {
+        if (!ai_resources) {
+            return Status::InternalError("AI resources metadata missing in QueryContext");
+        }
+        auto it = ai_resources->find(resource_name);
+        if (it == ai_resources->end()) {
             return Status::InvalidArgument("AI resource not found: " + resource_name);
         }
         config = it->second;

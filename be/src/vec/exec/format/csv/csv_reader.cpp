@@ -301,6 +301,7 @@ Status CsvReader::init_reader(bool is_load) {
     return Status::OK();
 }
 
+// !FIXME: Here we should use MutableBlock
 Status CsvReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
     if (_line_reader_eof) {
         *eof = true;
@@ -643,6 +644,8 @@ Status CsvReader::_fill_dest_columns(const Slice& line, Block* block,
 
         IColumn* col_ptr = columns[i].get();
         if (!_is_load) {
+            // block is a Block*, and get_by_position returns a ColumnPtr,
+            // which is a const pointer. Therefore, using const_cast is permissible.
             col_ptr = const_cast<IColumn*>(
                     block->get_by_position(_file_slot_idx_map[i]).column.get());
         }
@@ -666,6 +669,8 @@ Status CsvReader::_fill_empty_line(Block* block, std::vector<MutableColumnPtr>& 
     for (int i = 0; i < _file_slot_descs.size(); ++i) {
         IColumn* col_ptr = columns[i].get();
         if (!_is_load) {
+            // block is a Block*, and get_by_position returns a ColumnPtr,
+            // which is a const pointer. Therefore, using const_cast is permissible.
             col_ptr = const_cast<IColumn*>(
                     block->get_by_position(_file_slot_idx_map[i]).column.get());
         }
@@ -754,7 +759,7 @@ Status CsvReader::_parse_col_nums(size_t* col_nums) {
         return Status::InternalError<false>(
                 "The first line is empty, can not parse column numbers");
     }
-    if (!validate_utf8(_params, const_cast<char*>(reinterpret_cast<const char*>(ptr)), size)) {
+    if (!validate_utf8(_params, reinterpret_cast<const char*>(ptr), size)) {
         return Status::InternalError<false>("Only support csv data in utf8 codec");
     }
     ptr = _remove_bom(ptr, size);
@@ -771,7 +776,7 @@ Status CsvReader::_parse_col_names(std::vector<std::string>* col_names) {
     if (size == 0) {
         return Status::InternalError<false>("The first line is empty, can not parse column names");
     }
-    if (!validate_utf8(_params, const_cast<char*>(reinterpret_cast<const char*>(ptr)), size)) {
+    if (!validate_utf8(_params, reinterpret_cast<const char*>(ptr), size)) {
         return Status::InternalError<false>("Only support csv data in utf8 codec");
     }
     ptr = _remove_bom(ptr, size);

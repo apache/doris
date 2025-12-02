@@ -101,18 +101,7 @@ Status JniConnector::open(RuntimeState* state, RuntimeProfile* profile) {
     return Status::OK();
 }
 
-Status JniConnector::init(
-        const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range) {
-    // TODO: This logic need to be changed.
-    // See the comment of "predicates" field in JniScanner.java
-
-    // _generate_predicates(colname_to_value_range);
-    // if (_predicates_length != 0 && _predicates != nullptr) {
-    //     int64_t predicates_address = (int64_t)_predicates.get();
-    //     // We can call org.apache.doris.common.jni.vec.ScanPredicate#parseScanPredicates to parse the
-    //     // serialized predicates in java side.
-    //     _scanner_params.emplace("push_down_predicates", std::to_string(predicates_address));
-    // }
+Status JniConnector::init() {
     return Status::OK();
 }
 
@@ -324,8 +313,10 @@ Status JniConnector::_fill_block(Block* block, size_t num_rows) {
     SCOPED_RAW_TIMER(&_fill_block_watcher);
     JNIEnv* env = nullptr;
     RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
+    // todo: maybe do not need to build name to index map every time
+    auto name_to_pos_map = block->get_name_to_pos_map();
     for (int i = 0; i < _column_names.size(); ++i) {
-        auto& column_with_type_and_name = block->get_by_name(_column_names[i]);
+        auto& column_with_type_and_name = block->get_by_position(name_to_pos_map[_column_names[i]]);
         auto& column_ptr = column_with_type_and_name.column;
         auto& column_type = column_with_type_and_name.type;
         RETURN_IF_ERROR(_fill_column(_table_meta, column_ptr, column_type, num_rows));
@@ -337,7 +328,7 @@ Status JniConnector::_fill_block(Block* block, size_t num_rows) {
 }
 
 Status JniConnector::_fill_column(TableMetaAddress& address, ColumnPtr& doris_column,
-                                  DataTypePtr& data_type, size_t num_rows) {
+                                  const DataTypePtr& data_type, size_t num_rows) {
     auto logical_type = data_type->get_primitive_type();
     void* null_map_ptr = address.next_meta_as_ptr();
     if (null_map_ptr == nullptr) {
@@ -410,9 +401,9 @@ Status JniConnector::_fill_varbinary_column(TableMetaAddress& address,
 
 Status JniConnector::_fill_string_column(TableMetaAddress& address, MutableColumnPtr& doris_column,
                                          size_t num_rows) {
-    const auto& string_col = static_cast<const ColumnString&>(*doris_column);
-    auto& string_chars = const_cast<ColumnString::Chars&>(string_col.get_chars());
-    auto& string_offsets = const_cast<ColumnString::Offsets&>(string_col.get_offsets());
+    auto& string_col = static_cast<ColumnString&>(*doris_column);
+    ColumnString::Chars& string_chars = string_col.get_chars();
+    ColumnString::Offsets& string_offsets = string_col.get_offsets();
     int* offsets = reinterpret_cast<int*>(address.next_meta_as_ptr());
     char* chars = reinterpret_cast<char*>(address.next_meta_as_ptr());
 
@@ -438,11 +429,11 @@ Status JniConnector::_fill_string_column(TableMetaAddress& address, MutableColum
 }
 
 Status JniConnector::_fill_array_column(TableMetaAddress& address, MutableColumnPtr& doris_column,
-                                        DataTypePtr& data_type, size_t num_rows) {
+                                        const DataTypePtr& data_type, size_t num_rows) {
     ColumnPtr& element_column = static_cast<ColumnArray&>(*doris_column).get_data_ptr();
-    DataTypePtr& element_type = const_cast<DataTypePtr&>(
+    const DataTypePtr& element_type =
             (assert_cast<const DataTypeArray*>(remove_nullable(data_type).get()))
-                    ->get_nested_type());
+                    ->get_nested_type();
     ColumnArray::Offsets64& offsets_data = static_cast<ColumnArray&>(*doris_column).get_offsets();
 
     int64_t* offsets = reinterpret_cast<int64_t*>(address.next_meta_as_ptr());
@@ -460,13 +451,13 @@ Status JniConnector::_fill_array_column(TableMetaAddress& address, MutableColumn
 }
 
 Status JniConnector::_fill_map_column(TableMetaAddress& address, MutableColumnPtr& doris_column,
-                                      DataTypePtr& data_type, size_t num_rows) {
+                                      const DataTypePtr& data_type, size_t num_rows) {
     auto& map = static_cast<ColumnMap&>(*doris_column);
-    DataTypePtr& key_type = const_cast<DataTypePtr&>(
-            reinterpret_cast<const DataTypeMap*>(remove_nullable(data_type).get())->get_key_type());
-    DataTypePtr& value_type = const_cast<DataTypePtr&>(
+    const DataTypePtr& key_type =
+            reinterpret_cast<const DataTypeMap*>(remove_nullable(data_type).get())->get_key_type();
+    const DataTypePtr& value_type =
             reinterpret_cast<const DataTypeMap*>(remove_nullable(data_type).get())
-                    ->get_value_type());
+                    ->get_value_type();
     ColumnPtr& key_column = map.get_keys_ptr();
     ColumnPtr& value_column = map.get_values_ptr();
     ColumnArray::Offsets64& map_offsets = map.get_offsets();
@@ -483,32 +474,20 @@ Status JniConnector::_fill_map_column(TableMetaAddress& address, MutableColumnPt
                                  map_offsets[origin_size + num_rows - 1] - start_offset));
     RETURN_IF_ERROR(_fill_column(address, value_column, value_type,
                                  map_offsets[origin_size + num_rows - 1] - start_offset));
-    return map.deduplicate_keys();
+    return Status::OK();
 }
 
 Status JniConnector::_fill_struct_column(TableMetaAddress& address, MutableColumnPtr& doris_column,
-                                         DataTypePtr& data_type, size_t num_rows) {
+                                         const DataTypePtr& data_type, size_t num_rows) {
     auto& doris_struct = static_cast<ColumnStruct&>(*doris_column);
     const DataTypeStruct* doris_struct_type =
             reinterpret_cast<const DataTypeStruct*>(remove_nullable(data_type).get());
     for (int i = 0; i < doris_struct.tuple_size(); ++i) {
         ColumnPtr& struct_field = doris_struct.get_column_ptr(i);
-        DataTypePtr& field_type = const_cast<DataTypePtr&>(doris_struct_type->get_element(i));
+        const DataTypePtr& field_type = doris_struct_type->get_element(i);
         RETURN_IF_ERROR(_fill_column(address, struct_field, field_type, num_rows));
     }
     return Status::OK();
-}
-
-void JniConnector::_generate_predicates(
-        const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range) {
-    if (colname_to_value_range == nullptr) {
-        return;
-    }
-    for (auto& kv : *colname_to_value_range) {
-        const std::string& column_name = kv.first;
-        const ColumnValueRangeType& col_val_range = kv.second;
-        std::visit([&](auto&& range) { _parse_value_range(range, column_name); }, col_val_range);
-    }
 }
 
 std::string JniConnector::get_jni_type(const DataTypePtr& data_type) {

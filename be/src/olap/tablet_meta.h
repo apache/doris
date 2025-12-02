@@ -117,7 +117,8 @@ public:
                int64_t time_series_compaction_level_threshold = 1,
                TInvertedIndexFileStorageFormat::type inverted_index_file_storage_format =
                        TInvertedIndexFileStorageFormat::V2,
-               TEncryptionAlgorithm::type tde_algorithm = TEncryptionAlgorithm::PLAINTEXT);
+               TEncryptionAlgorithm::type tde_algorithm = TEncryptionAlgorithm::PLAINTEXT,
+               TStorageFormat::type storage_format = TStorageFormat::V2);
     // If need add a filed in TableMeta, filed init copy in copy construct function
     TabletMeta(const TabletMeta& tablet_meta);
     TabletMeta(TabletMeta&& tablet_meta) = delete;
@@ -144,7 +145,7 @@ public:
     Status deserialize(std::string_view meta_binary);
     void init_from_pb(const TabletMetaPB& tablet_meta_pb);
 
-    void to_meta_pb(TabletMetaPB* tablet_meta_pb);
+    void to_meta_pb(TabletMetaPB* tablet_meta_pb, bool cloud_get_rowset_meta);
     void to_json(std::string* json_string, json2pb::Pb2JsonOptions& options);
     size_t tablet_columns_num() const { return _schema->num_columns(); }
 
@@ -373,6 +374,10 @@ private:
 
     EncryptionAlgorithmPB _encryption_algorithm = PLAINTEXT;
 
+    // Persisted storage format for this tablet (e.g. V2, V3). Used to derive
+    // schema-level defaults such as external ColumnMeta usage.
+    TStorageFormat::type _storage_format = TStorageFormat::V2;
+
     mutable std::shared_mutex _meta_lock;
 };
 
@@ -443,6 +448,10 @@ public:
      */
     DeleteBitmap(DeleteBitmap&& r) noexcept;
     DeleteBitmap& operator=(DeleteBitmap&& r) noexcept;
+
+    static DeleteBitmap from_pb(const DeleteBitmapPB& pb, int64_t tablet_id);
+
+    DeleteBitmapPB to_pb();
 
     /**
      * Makes a snapshot of delete bitmap, read lock will be acquired in this
@@ -607,6 +616,14 @@ public:
     DeleteBitmap agg_cache_snapshot();
 
     void set_tablet_id(int64_t tablet_id);
+
+    /**
+     * Calculate diffset with given `key_set`. All entries with keys contained in this delete bitmap but not
+     * in given key_set will be added to the output delete bitmap.
+     *
+     * @return Deletebitmap containning all entries in diffset
+    */
+    DeleteBitmap diffset(const std::set<BitmapKey>& key_set) const;
 
 private:
     DeleteBitmap::Version _get_rowset_cache_version(const BitmapKey& bmk) const;

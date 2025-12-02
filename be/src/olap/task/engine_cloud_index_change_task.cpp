@@ -65,8 +65,8 @@ Status EngineCloudIndexChangeTask::execute() {
         }
 
         // get tablet
-        CloudTabletSPtr tablet = DORIS_TRY(_get_tablet());
-        if (tablet == nullptr) {
+        CloudTabletSPtr nested_tablet = DORIS_TRY(_get_tablet());
+        if (nested_tablet == nullptr) {
             LOG(WARNING) << "[index_change]tablet: " << _tablet_id << " not exist";
             return Status::InternalError("tablet not exist, tablet_id={}.", _tablet_id);
         }

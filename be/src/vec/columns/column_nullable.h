@@ -123,9 +123,9 @@ public:
     const char* deserialize_and_insert_from_arena(const char* pos) override;
     size_t get_max_row_byte_size() const override;
 
-    void serialize_vec(StringRef* keys, size_t num_rows) const override;
+    void serialize(StringRef* keys, size_t num_rows) const override;
 
-    void deserialize_vec(StringRef* keys, size_t num_rows) override;
+    void deserialize(StringRef* keys, size_t num_rows) override;
 
     void insert_range_from(const IColumn& src, size_t start, size_t length) override;
 

@@ -124,7 +124,7 @@ suite("push_topn_to_agg") {
 |   HAS_COLO_PLAN_NODE: false                                                    |
 |                                                                                |
 |   VRESULT SINK                                                                 |
-|      MYSQL_PROTOCAL                                                            |
+|      MYSQL_PROTOCOL                                                            |
 |                                                                                |
 |   4:VEXCHANGE                                                                  |
 |      offset: 0                                                                 |

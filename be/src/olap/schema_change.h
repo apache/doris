@@ -170,6 +170,9 @@ protected:
 private:
     uint64_t _filtered_rows {};
     uint64_t _merged_rows {};
+
+protected:
+    std::vector<bool> _row_same_bit;
 };
 
 class LinkedSchemaChange : public SchemaChange {
@@ -277,6 +280,7 @@ struct SchemaChangeParams {
     ObjectPool pool;
     int32_t be_exec_version;
     std::string vault_id;
+    bool output_to_file_cache;
 };
 
 class SchemaChangeJob {

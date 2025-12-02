@@ -102,10 +102,10 @@ private:
 
 class CLUCENE_EXPORT DorisRAMFSDirectory : public DorisFSDirectory {
 protected:
-    using FileMap =
-            lucene::util::CLHashMap<char*, lucene::store::RAMFile*, lucene::util::Compare::Char,
-                                    lucene::util::Equals::Char, lucene::util::Deletor::acArray,
-                                    lucene::util::Deletor::Object<lucene::store::RAMFile>>;
+    using FileMap = lucene::util::CLHashMap<const char*, lucene::store::RAMFile*,
+                                            lucene::util::Compare::Char, lucene::util::Equals::Char,
+                                            lucene::util::Deletor::cacArray,
+                                            lucene::util::Deletor::Object<lucene::store::RAMFile>>;
 
     // unlike the java Hashtable, FileMap is not synchronized, and all access must be protected by a lock
     FileMap* filesMap;

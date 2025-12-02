@@ -271,6 +271,9 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
             if (olapTable.isTemporary()) {
                 throw new AnalysisException("do not support create materialized view on temporary table");
             }
+            if (olapScan.isDirectMvScan()) {
+                throw new AnalysisException("do not support create materialized view on another synchronized mv");
+            }
             validateContext.baseIndexName = olapTable.getName();
             validateContext.dbName = olapTable.getDBName();
             validateContext.keysType = olapTable.getKeysType();
@@ -301,8 +304,7 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
                         Column column = ((SlotReference) slot).getOriginalColumn().orElse(null);
                         if (column != null) {
                             if (column.isVisible()) {
-                                AggregateType aggregateType = column.getAggregationType();
-                                if (aggregateType != null && aggregateType != AggregateType.NONE) {
+                                if (context.keysType.isAggregationFamily() && !column.isKey()) {
                                     throw new AnalysisException(String.format(
                                             "The where clause contained aggregate column is not supported, expr is %s",
                                             expr));

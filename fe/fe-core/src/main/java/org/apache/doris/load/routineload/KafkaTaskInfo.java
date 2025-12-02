@@ -24,6 +24,7 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.nereids.load.NereidsLoadTaskInfo;
 import org.apache.doris.nereids.load.NereidsStreamLoadPlanner;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TFileFormatType;
@@ -100,6 +101,7 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
         tRoutineLoadTask.setKafkaLoadInfo(tKafkaLoadInfo);
         tRoutineLoadTask.setType(TLoadSourceType.KAFKA);
         tRoutineLoadTask.setIsMultiTable(isMultiTable);
+        adaptiveBatchParam(tRoutineLoadTask, routineLoadJob);
         if (!isMultiTable) {
             Table tbl = database.getTableOrMetaException(routineLoadJob.getTableId());
             tRoutineLoadTask.setTbl(tbl.getName());
@@ -107,9 +109,6 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
         } else {
             Env.getCurrentEnv().getRoutineLoadManager().addMultiLoadTaskTxnIdToRoutineLoadJobId(txnId, jobId);
         }
-        tRoutineLoadTask.setMaxIntervalS(routineLoadJob.getMaxBatchIntervalS());
-        tRoutineLoadTask.setMaxBatchRows(routineLoadJob.getMaxBatchRows());
-        tRoutineLoadTask.setMaxBatchSize(routineLoadJob.getMaxBatchSizeBytes());
         if (!routineLoadJob.getFormat().isEmpty() && routineLoadJob.getFormat().equalsIgnoreCase("json")) {
             tRoutineLoadTask.setFormat(TFileFormatType.FORMAT_JSON);
         } else {
@@ -119,6 +118,23 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
         tRoutineLoadTask.setQualifiedUser(routineLoadJob.getUserIdentity().getQualifiedUser());
         tRoutineLoadTask.setCloudCluster(routineLoadJob.getCloudCluster());
         return tRoutineLoadTask;
+    }
+
+    private void adaptiveBatchParam(TRoutineLoadTask tRoutineLoadTask, RoutineLoadJob routineLoadJob) {
+        long maxBatchIntervalS = routineLoadJob.getMaxBatchIntervalS();
+        long maxBatchRows = routineLoadJob.getMaxBatchRows();
+        long maxBatchSize = routineLoadJob.getMaxBatchSizeBytes();
+        if (!isEof) {
+            maxBatchIntervalS = Math.max(maxBatchIntervalS, Config.routine_load_adaptive_min_batch_interval_sec);
+            maxBatchRows = Math.max(maxBatchRows, RoutineLoadJob.DEFAULT_MAX_BATCH_ROWS);
+            maxBatchSize = Math.max(maxBatchSize, RoutineLoadJob.DEFAULT_MAX_BATCH_SIZE);
+            this.timeoutMs = maxBatchIntervalS * Config.routine_load_task_timeout_multiplier * 1000;
+        } else {
+            this.timeoutMs = routineLoadJob.getTimeout() * 1000;
+        }
+        tRoutineLoadTask.setMaxIntervalS(maxBatchIntervalS);
+        tRoutineLoadTask.setMaxBatchRows(maxBatchRows);
+        tRoutineLoadTask.setMaxBatchSize(maxBatchSize);
     }
 
     @Override
@@ -137,9 +153,11 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
         TUniqueId loadId = new TUniqueId(id.getMostSignificantBits(), id.getLeastSignificantBits());
         // plan for each task, in case table has change(rollup or schema change)
         Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(routineLoadJob.getDbId());
+        NereidsLoadTaskInfo taskInfo = routineLoadJob.toNereidsRoutineLoadTaskInfo();
+        taskInfo.setTimeout((int) (this.timeoutMs / 1000));
         NereidsStreamLoadPlanner planner = new NereidsStreamLoadPlanner(db,
                 (OlapTable) db.getTableOrMetaException(routineLoadJob.getTableId(),
-                Table.TableType.OLAP), routineLoadJob.toNereidsRoutineLoadTaskInfo());
+                Table.TableType.OLAP), taskInfo);
         TPipelineFragmentParams tExecPlanFragmentParams = routineLoadJob.plan(planner, loadId, txnId);
         TPlanFragment tPlanFragment = tExecPlanFragmentParams.getFragment();
         tPlanFragment.getOutputSink().getOlapTableSink().setTxnId(txnId);

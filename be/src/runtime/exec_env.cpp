@@ -53,10 +53,10 @@ void ExecEnv::set_write_cooldown_meta_executors() {
 #endif // BE_TEST
 
 Result<BaseTabletSPtr> ExecEnv::get_tablet(int64_t tablet_id, SyncRowsetStats* sync_stats,
-                                           bool force_use_cache) {
+                                           bool force_use_only_cached) {
     auto storage_engine = GetInstance()->_storage_engine.get();
     return storage_engine != nullptr
-                   ? storage_engine->get_tablet(tablet_id, sync_stats)
+                   ? storage_engine->get_tablet(tablet_id, sync_stats, force_use_only_cached)
                    : ResultError(Status::InternalError("failed to get tablet {}", tablet_id));
 }
 
@@ -177,6 +177,13 @@ void ExecEnv::wait_for_all_tasks_done() {
         sleep(1);
         ++wait_seconds_passed;
     }
+    // This is a conservative strategy.
+    // Because a query might still have fragments running on other BE nodes.
+    // In other words, the query hasn't truly terminated.
+    // If the current BE is shut down at this point,
+    // the FE will detect the downtime of a related BE and cancel the entire query,
+    // defeating the purpose of a graceful stop.
+    sleep(config::grace_shutdown_post_delay_seconds);
 }
 
 bool ExecEnv::check_auth_token(const std::string& auth_token) {

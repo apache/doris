@@ -314,4 +314,11 @@ ObjectStorageResponse AzureObjClient::check_versioning(const std::string& bucket
     return {0};
 }
 
+ObjectStorageResponse AzureObjClient::abort_multipart_upload(ObjectStoragePathRef path,
+                                                             const std::string& upload_id) {
+    // delete uncommitted blobs
+    // https://learn.microsoft.com/en-us/rest/api/storageservices/delete-blob?tabs=microsoft-entra-id#remarks
+    return delete_object(path);
+}
+
 } // namespace doris::cloud

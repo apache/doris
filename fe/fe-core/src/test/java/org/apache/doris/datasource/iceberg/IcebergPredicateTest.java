@@ -30,9 +30,9 @@ import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
-import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.info.TableNameInfo;
 
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.Lists;
@@ -87,15 +87,15 @@ public class IcebergPredicateTest {
             }};
 
         List<SlotRef> slotRefs = new ArrayList<SlotRef>() {{
-                add(new SlotRef(new TableName(), "c_int"));
-                add(new SlotRef(new TableName(), "c_long"));
-                add(new SlotRef(new TableName(), "c_bool"));
-                add(new SlotRef(new TableName(), "c_float"));
-                add(new SlotRef(new TableName(), "c_double"));
-                add(new SlotRef(new TableName(), "c_dec"));
-                add(new SlotRef(new TableName(), "c_date"));
-                add(new SlotRef(new TableName(), "c_ts"));
-                add(new SlotRef(new TableName(), "c_str"));
+                add(new SlotRef(new TableNameInfo(), "c_int"));
+                add(new SlotRef(new TableNameInfo(), "c_long"));
+                add(new SlotRef(new TableNameInfo(), "c_bool"));
+                add(new SlotRef(new TableNameInfo(), "c_float"));
+                add(new SlotRef(new TableNameInfo(), "c_double"));
+                add(new SlotRef(new TableNameInfo(), "c_dec"));
+                add(new SlotRef(new TableNameInfo(), "c_date"));
+                add(new SlotRef(new TableNameInfo(), "c_ts"));
+                add(new SlotRef(new TableNameInfo(), "c_str"));
             }};
 
         // true indicates support for pushdown

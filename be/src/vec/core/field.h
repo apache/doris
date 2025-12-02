@@ -272,9 +272,10 @@ public:
         return f;
     }
     template <PrimitiveType T>
-    static Field create_field(const typename PrimitiveTypeTraits<T>::NearestFieldType&& data) {
+    static Field create_field(typename PrimitiveTypeTraits<T>::NearestFieldType&& data) {
         auto f = Field(PrimitiveTypeTraits<T>::NearestPrimitiveType);
-        f.template create_concrete<PrimitiveTypeTraits<T>::NearestPrimitiveType>(data);
+        f.template create_concrete<PrimitiveTypeTraits<T>::NearestPrimitiveType>(
+                std::forward<typename PrimitiveTypeTraits<T>::NearestFieldType>(data));
         return f;
     }
 
@@ -483,6 +484,7 @@ public:
     }
 
     std::string_view as_string_view() const;
+    std::string to_string() const;
 
 private:
     std::aligned_union_t<
@@ -506,8 +508,10 @@ private:
     void assign_concrete(const typename PrimitiveTypeTraits<Type>::NearestFieldType& x);
 
     void create(const Field& field);
+    void create(Field&& field);
 
     void assign(const Field& x);
+    void assign(Field&& x);
 
     void destroy();
 

@@ -71,6 +71,7 @@ class InvertedIndexIterator;
 class IndexFileReader;
 class IndexIterator;
 class ColumnReaderCache;
+class ColumnMetaAccessor;
 
 using SegmentSharedPtr = std::shared_ptr<Segment>;
 // A Segment is used to represent a segment in memory format. When segment is
@@ -177,8 +178,6 @@ public:
     // nullptr will returned if storage type does not contains such column
     std::shared_ptr<const vectorized::IDataType> get_data_type_of(const TabletColumn& column,
                                                                   bool read_flat_leaves);
-    // Check is schema read type equals storage column type
-    bool same_with_storage_type(int32_t cid, const Schema& schema, bool read_flat_leaves);
 
     // If column in segment is the same type in schema, then it is safe to apply predicate
     bool can_apply_predicate_safely(
@@ -209,6 +208,8 @@ public:
     // get the column reader by column unique id, return NOT_FOUND if not found reader in this segment
     Status get_column_reader(int32_t col_uid, std::shared_ptr<ColumnReader>* column_reader,
                              OlapReaderStatistics* stats);
+
+    Status traverse_column_meta_pbs(const std::function<void(const ColumnMetaPB&)>& visitor);
 
 private:
     DISALLOW_COPY_AND_ASSIGN(Segment);
@@ -265,8 +266,8 @@ private:
     // Limited cache for column readers
     std::unique_ptr<ColumnReaderCache> _column_reader_cache;
 
-    // map column unique id ---> it's footer ordinal
-    std::unordered_map<int32_t, size_t> _column_uid_to_footer_ordinal;
+    // Centralized accessor for column metadata layout and uid->column_ordinal mapping.
+    std::unique_ptr<ColumnMetaAccessor> _column_meta_accessor;
 
     // Init from ColumnMetaPB in SegmentFooterPB
     // map column unique id ---> it's inner data type

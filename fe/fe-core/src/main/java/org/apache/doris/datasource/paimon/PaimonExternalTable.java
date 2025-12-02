@@ -304,7 +304,8 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
             List<Column> partitionColumns = Lists.newArrayList();
             for (DataField field : columns) {
                 Column column = new Column(field.name().toLowerCase(),
-                        PaimonUtil.paimonTypeToDorisType(field.type()), true, null, true, field.description(), true,
+                        PaimonUtil.paimonTypeToDorisType(field.type(), getCatalog().getEnableMappingVarbinary()), true,
+                        null, true, field.description(), true,
                         -1);
                 PaimonUtil.updatePaimonColumnUniqueId(column, field);
                 if (field.type().getTypeRoot() == DataTypeRoot.TIMESTAMP_WITH_LOCAL_TIME_ZONE) {
@@ -363,5 +364,11 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
         } else {
             return Collections.emptyMap();
         }
+    }
+
+    @Override
+    public boolean isPartitionedTable() {
+        makeSureInitialized();
+        return !paimonTable.partitionKeys().isEmpty();
     }
 }

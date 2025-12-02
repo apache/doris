@@ -56,6 +56,7 @@ import org.apache.doris.thrift.TUniqueKeyUpdateMode;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import org.apache.commons.collections4.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -191,7 +192,7 @@ public class NereidsStreamLoadPlanner {
                     }
                 }
 
-                if (!col.getGeneratedColumnsThatReferToThis().isEmpty()
+                if (CollectionUtils.isNotEmpty(col.getGeneratedColumnsThatReferToThis())
                         && col.getGeneratedColumnInfo() == null && !existInExpr) {
                     throw new UserException("Partial update should include"
                             + " all ordinary columns referenced"
@@ -241,9 +242,9 @@ public class NereidsStreamLoadPlanner {
                 partialUpdateInputColumns);
         NereidsParamCreateContext context = loadScanProvider.createLoadContext();
         TPartialUpdateNewRowPolicy partialUpdateNewRowPolicy = taskInfo.getPartialUpdateNewRowPolicy();
-        LogicalPlan streamLoadPlan = NereidsLoadUtils.createLoadPlan(fileGroupInfo, dataDescription.getPartitionNames(),
-                context, uniquekeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS,
-                partialUpdateNewRowPolicy);
+        LogicalPlan streamLoadPlan = NereidsLoadUtils.createLoadPlan(fileGroupInfo,
+                dataDescription.getPartitionNamesInfo(), context,
+                uniquekeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS, partialUpdateNewRowPolicy);
         NereidsLoadPlanInfoCollector planInfoCollector = new NereidsLoadPlanInfoCollector(destTable, taskInfo, loadId,
                 db.getId(), uniquekeyUpdateMode, partialUpdateNewRowPolicy, partialUpdateInputColumns,
                 context.exprMap);
@@ -305,12 +306,13 @@ public class NereidsStreamLoadPlanner {
         queryOptions.setLoadMemLimit(taskInfo.getMemLimit());
         // load
         queryOptions.setBeExecVersion(Config.be_exec_version);
-        queryOptions.setIsReportSuccess(taskInfo.getEnableProfile());
-        queryOptions.setEnableProfile(taskInfo.getEnableProfile());
+        queryOptions.setIsReportSuccess(taskInfo.getEnableProfile() || Config.enable_stream_load_profile);
+        queryOptions.setEnableProfile(taskInfo.getEnableProfile() || Config.enable_stream_load_profile);
         boolean enableMemtableOnSinkNode = destTable.getTableProperty().getUseSchemaLightChange()
                 ? taskInfo.isMemtableOnSinkNode()
                 : false;
         queryOptions.setEnableMemtableOnSinkNode(enableMemtableOnSinkNode);
+        queryOptions.setNewVersionUnixTimestamp(true);
         params.setQueryOptions(queryOptions);
         TQueryGlobals queryGlobals = new TQueryGlobals();
         queryGlobals.setNowString(TimeUtils.getDatetimeFormatWithTimeZone().format(LocalDateTime.now()));

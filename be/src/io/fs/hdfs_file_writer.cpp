@@ -324,8 +324,9 @@ void HdfsFileWriter::BatchBuffer::clear() {
 
 // TODO(ByteYue): Refactor Upload Buffer to reduce this duplicate code
 void HdfsFileWriter::_write_into_local_file_cache() {
+    int64_t tablet_id = get_tablet_id(_path.native()).value_or(0);
     auto holder = _cache_builder->allocate_cache_holder(_bytes_appended - _batch_buffer.size(),
-                                                        _batch_buffer.capacity());
+                                                        _batch_buffer.capacity(), tablet_id);
     size_t pos = 0;
     size_t data_remain_size = _batch_buffer.size();
     for (auto& block : holder->file_blocks) {

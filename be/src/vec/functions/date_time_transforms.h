@@ -74,6 +74,22 @@ namespace doris::vectorized {
 #define TO_TIME_FUNCTION(CLASS, UNIT) TIME_FUNCTION_IMPL(CLASS, UNIT, UNIT())
 
 TO_TIME_FUNCTION(ToYearImpl, year);
+template <PrimitiveType PType>
+struct ToCenturyImpl {
+    static constexpr PrimitiveType OpArgType = PType;
+    using NativeType = typename PrimitiveTypeTraits<PType>::CppNativeType;
+    static constexpr auto name = "century";
+
+    static inline auto execute(const NativeType& t) {
+        const auto& date_time_value = (typename PrimitiveTypeTraits<PType>::CppType&)(t);
+        int year = date_time_value.year();
+        return (year - 1) / 100 + 1;
+    }
+
+    static DataTypes get_variadic_argument_types() {
+        return {std::make_shared<typename PrimitiveTypeTraits<PType>::DataType>()};
+    }
+};
 TO_TIME_FUNCTION(ToYearOfWeekImpl, year_of_week);
 TO_TIME_FUNCTION(ToQuarterImpl, quarter);
 TO_TIME_FUNCTION(ToMonthImpl, month);
@@ -163,8 +179,10 @@ struct DayNameImpl {
     static constexpr auto max_size = MAX_DAY_NAME_LEN;
 
     static auto execute(const typename PrimitiveTypeTraits<PType>::CppType& dt,
-                        ColumnString::Chars& res_data, size_t& offset) {
-        const auto* day_name = dt.day_name();
+                        ColumnString::Chars& res_data, size_t& offset,
+                        const char* const* day_names) {
+        DCHECK(day_names != nullptr);
+        const auto* day_name = dt.day_name_with_locale(day_names);
         if (day_name != nullptr) {
             auto len = strlen(day_name);
             memcpy(&res_data[offset], day_name, len);
@@ -186,7 +204,8 @@ struct ToIso8601Impl {
     static constexpr auto max_size = std::is_same_v<ArgType, UInt32> ? 10 : 26;
 
     static auto execute(const typename PrimitiveTypeTraits<PType>::CppType& dt,
-                        ColumnString::Chars& res_data, size_t& offset) {
+                        ColumnString::Chars& res_data, size_t& offset,
+                        const char* const* /*names_ptr*/) {
         auto length = dt.to_buffer((char*)res_data.data() + offset,
                                    std::is_same_v<ArgType, UInt32> ? -1 : 6);
         if (std::is_same_v<ArgType, UInt64>) {
@@ -210,8 +229,10 @@ struct MonthNameImpl {
     static constexpr auto max_size = MAX_MONTH_NAME_LEN;
 
     static auto execute(const typename PrimitiveTypeTraits<PType>::CppType& dt,
-                        ColumnString::Chars& res_data, size_t& offset) {
-        const auto* month_name = dt.month_name();
+                        ColumnString::Chars& res_data, size_t& offset,
+                        const char* const* month_names) {
+        DCHECK(month_names != nullptr);
+        const auto* month_name = dt.month_name_with_locale(month_names);
         if (month_name != nullptr) {
             auto len = strlen(month_name);
             memcpy(&res_data[offset], month_name, len);

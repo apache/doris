@@ -29,6 +29,7 @@ import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.AwsSessionCredentials;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
+import software.amazon.awssdk.core.SdkSystemSetting;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -149,10 +150,6 @@ public abstract class AbstractS3CompatibleProperties extends StorageProperties i
         }
     }
 
-    boolean isEndpointCheckRequired() {
-        return true;
-    }
-
     /**
      * Checks and validates the configured endpoint.
      * <p>
@@ -173,22 +170,23 @@ public abstract class AbstractS3CompatibleProperties extends StorageProperties i
         if (StringUtils.isNotBlank(getEndpoint())) {
             return;
         }
-        String endpoint = null;
-        // 1. try getting endpoint from uri
+        // 1. try getting endpoint region
+        String endpoint = getEndpointFromRegion();
+        if (StringUtils.isNotBlank(endpoint)) {
+            setEndpoint(endpoint);
+            return;
+        }
+        // 2. try getting endpoint from uri
         try {
             endpoint = S3PropertyUtils.constructEndpointFromUrl(origProps, getUsePathStyle(),
                     getForceParsingByStandardUrl());
+            if (StringUtils.isNotBlank(endpoint)) {
+                setEndpoint(endpoint);
+            }
         } catch (Exception e) {
             if (LOG.isDebugEnabled()) {
-                LOG.debug("Failed to construct endpoint from url: " + origProps, e);
+                LOG.debug("Failed to construct endpoint from url: {}", e.getMessage(), e);
             }
-        }
-        // 2. try getting endpoint region
-        if (StringUtils.isBlank(endpoint)) {
-            endpoint = getEndpointFromRegion();
-        }
-        if (!StringUtils.isBlank(endpoint)) {
-            setEndpoint(endpoint);
         }
     }
 
@@ -253,6 +251,7 @@ public abstract class AbstractS3CompatibleProperties extends StorageProperties i
         // storage is OSS, OBS, etc., users may still configure the schema as "s3://".
         // To ensure backward compatibility, we append S3-related properties by default.
         appendS3HdfsProperties(hadoopStorageConfig);
+        setDefaultRequestChecksum();
     }
 
     private void appendS3HdfsProperties(Configuration hadoopStorageConfig) {
@@ -276,6 +275,34 @@ public abstract class AbstractS3CompatibleProperties extends StorageProperties i
         hadoopStorageConfig.set("fs.s3a.connection.request.timeout", getRequestTimeoutS());
         hadoopStorageConfig.set("fs.s3a.connection.timeout", getConnectionTimeoutS());
         hadoopStorageConfig.set("fs.s3a.path.style.access", getUsePathStyle());
+    }
+
+    /**
+     * Sets the AWS request checksum calculation property to "WHEN_REQUIRED"
+     * only if it has not been explicitly set by the user.
+     *
+     * <p>
+     * Background:
+     * AWS SDK for Java v2 uses the system property
+     * {@link SdkSystemSetting#AWS_REQUEST_CHECKSUM_CALCULATION} to determine
+     * whether request payloads should have a checksum calculated.
+     * <p>
+     * According to the official AWS discussion:
+     * https://github.com/aws/aws-sdk-java-v2/discussions/5802
+     * - Default SDK behavior may calculate checksums automatically if the property is not set.
+     * - Automatic calculation can affect performance or cause unexpected behavior for large requests.
+     * <p>
+     * This method ensures:
+     * 1. The property is set to "WHEN_REQUIRED" only if the user has not already set it.
+     * 2. User-specified settings are never overridden.
+     * 3. Aligns with AWS SDK recommended best practices.
+     * </p>
+     */
+    public static void setDefaultRequestChecksum() {
+        String key = SdkSystemSetting.AWS_REQUEST_CHECKSUM_CALCULATION.property();
+        if (System.getProperty(key) == null) {
+            System.setProperty(key, "WHEN_REQUIRED");
+        }
     }
 
     @Override

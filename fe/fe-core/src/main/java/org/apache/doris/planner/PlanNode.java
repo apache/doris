@@ -20,7 +20,6 @@
 
 package org.apache.doris.planner;
 
-import org.apache.doris.analysis.BitmapFilterPredicate;
 import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SlotDescriptor;
@@ -32,11 +31,11 @@ import org.apache.doris.common.Id;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.TreeNode;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.iceberg.source.IcebergScanNode;
 import org.apache.doris.planner.normalize.Normalizer;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.statistics.PlanStats;
-import org.apache.doris.statistics.StatisticalType;
-import org.apache.doris.statistics.StatsDeriveResult;
+import org.apache.doris.thrift.TAccessPathType;
+import org.apache.doris.thrift.TColumnAccessPath;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TNormalizedPlanNode;
@@ -49,9 +48,8 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import org.apache.commons.collections.CollectionUtils;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
+import org.apache.commons.collections4.CollectionUtils;
+import org.apache.commons.lang3.StringUtils;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -79,9 +77,7 @@ import java.util.stream.Collectors;
  * this node, ie, they only reference tuples materialized by this node or one of
  * its children (= are bound by tupleIds).
  */
-public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
-    private static final Logger LOG = LogManager.getLogger(PlanNode.class);
-
+public abstract class PlanNode extends TreeNode<PlanNode> {
     protected String planNodeName;
 
     protected PlanNodeId id;  // unique w/in plan tree; assigned by planner
@@ -91,11 +87,6 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
 
     // ids materialized by the tree rooted at this node
     protected ArrayList<TupleId> tupleIds;
-
-    // ids of the TblRefs "materialized" by this node; identical with tupleIds_
-    // if the tree rooted at this node only materializes BaseTblRefs;
-    // useful during plan generation
-    protected ArrayList<TupleId> tblRefIds;
 
     // A set of nullable TupleId produced by this node. It is a subset of tupleIds.
     // A tuple is nullable within a particular plan tree if it's the "nullable" side of
@@ -116,8 +107,6 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
     //  4. Filter data by using "conjuncts".
     protected List<Expr> preFilterConjuncts = Lists.newArrayList();
 
-    protected Expr vpreFilterConjunct = null;
-
     // Fragment that this PlanNode is executed in. Valid only after this PlanNode has been
     // assigned to a fragment. Set and maintained by enclosing PlanFragment.
     protected PlanFragment fragment;
@@ -135,8 +124,6 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
     // sum of tupleIds' avgSerializedSizes; set in computeStats()
     protected float avgRowSize;
 
-    //  Node should compact data.
-    protected boolean compactData;
     // Most of the plan node has the same numInstance as its (left) child, except some special nodes, such as
     // 1. scan node, whose numInstance is calculated according to its data distribution
     // 2. exchange node, which is gather distribution
@@ -150,92 +137,59 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
 
     protected List<SlotId> outputSlotIds;
 
-    protected StatisticalType statisticalType = StatisticalType.DEFAULT;
-    protected StatsDeriveResult statsDeriveResult;
-
     protected TupleDescriptor outputTupleDesc;
-
     protected List<Expr> projectList;
+    private final List<TupleDescriptor> intermediateOutputTupleDescList = Lists.newArrayList();
+    private final List<List<Expr>> intermediateProjectListList = Lists.newArrayList();
 
     protected int nereidsId = -1;
 
     private List<List<Expr>> childrenDistributeExprLists = new ArrayList<>();
-    private List<TupleDescriptor> intermediateOutputTupleDescList = Lists.newArrayList();
-    private List<List<Expr>> intermediateProjectListList = Lists.newArrayList();
 
-    protected PlanNode(PlanNodeId id, List<TupleId> tupleIds, String planNodeName,
-            StatisticalType statisticalType) {
+    protected PlanNode(PlanNodeId id, List<TupleId> tupleIds, String planNodeName) {
         this.id = id;
         this.limit = -1;
         this.offset = 0;
         // make a copy, just to be on the safe side
         this.tupleIds = Lists.newArrayList(tupleIds);
-        this.tblRefIds = Lists.newArrayList(tupleIds);
         this.cardinality = -1;
         this.planNodeName = "V" + planNodeName;
         this.numInstances = 1;
-        this.statisticalType = statisticalType;
     }
 
-    protected PlanNode(PlanNodeId id, String planNodeName, StatisticalType statisticalType) {
+    protected PlanNode(PlanNodeId id, String planNodeName) {
         this.id = id;
         this.limit = -1;
         this.tupleIds = Lists.newArrayList();
-        this.tblRefIds = Lists.newArrayList();
         this.cardinality = -1;
         this.planNodeName = "V" + planNodeName;
         this.numInstances = 1;
-        this.statisticalType = statisticalType;
     }
 
     /**
      * Copy ctor. Also passes in new id.
      */
-    protected PlanNode(PlanNodeId id, PlanNode node, String planNodeName, StatisticalType statisticalType) {
+    protected PlanNode(PlanNodeId id, PlanNode node, String planNodeName) {
         this.id = id;
         this.limit = node.limit;
         this.offset = node.offset;
         this.tupleIds = Lists.newArrayList(node.tupleIds);
-        this.tblRefIds = Lists.newArrayList(node.tblRefIds);
         this.nullableTupleIds = Sets.newHashSet(node.nullableTupleIds);
         this.conjuncts = Expr.cloneList(node.conjuncts, null);
 
         this.cardinality = -1;
-        this.compactData = node.compactData;
         this.planNodeName = "V" + planNodeName;
         this.numInstances = 1;
-        this.statisticalType = statisticalType;
     }
 
     public String getPlanNodeName() {
         return planNodeName;
     }
 
-    public StatsDeriveResult getStatsDeriveResult() {
-        return statsDeriveResult;
-    }
-
-    public StatisticalType getStatisticalType() {
-        return statisticalType;
-    }
-
-    public void setStatsDeriveResult(StatsDeriveResult statsDeriveResult) {
-        this.statsDeriveResult = statsDeriveResult;
-    }
-
-    /**
-     * Sets tblRefIds_, tupleIds_, and nullableTupleIds_.
-     * The default implementation is a no-op.
-     */
-    public void computeTupleIds() {
-        Preconditions.checkState(children.isEmpty() || !tupleIds.isEmpty());
-    }
-
     /**
      * Clears tblRefIds_, tupleIds_, and nullableTupleIds_.
      */
     protected void clearTupleIds() {
-        tblRefIds.clear();
         tupleIds.clear();
         nullableTupleIds.clear();
     }
@@ -296,10 +250,16 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         this.cardinality = cardinality;
     }
 
+    /**
+     * only used for rf ndv computation
+     */
     public long getCardinality() {
         return cardinality;
     }
 
+    /**
+     * only used for rf ndv computation
+     */
     public long getCardinalityAfterFilter() {
         if (cardinalityAfterFilter < 0) {
             return cardinality;
@@ -312,31 +272,9 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         return numNodes;
     }
 
-    public float getAvgRowSize() {
-        return avgRowSize;
-    }
-
-    /**
-     * Set the value of compactData in all children.
-     */
-    public void setCompactData(boolean on) {
-        this.compactData = on;
-        for (PlanNode child : this.getChildren()) {
-            child.setCompactData(on);
-        }
-    }
-
-    public void resetTupleIds(ArrayList<TupleId> tupleIds) {
-        this.tupleIds = tupleIds;
-    }
-
     public ArrayList<TupleId> getTupleIds() {
         Preconditions.checkState(tupleIds != null);
         return tupleIds;
-    }
-
-    public ArrayList<TupleId> getTblRefIds() {
-        return tblRefIds;
     }
 
     public List<TupleId> getOutputTupleIds() {
@@ -355,15 +293,6 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         return conjuncts;
     }
 
-    @Override
-    public List<StatsDeriveResult> getChildrenStats() {
-        List<StatsDeriveResult> statsDeriveResultList = Lists.newArrayList();
-        for (PlanNode child : children) {
-            statsDeriveResultList.add(child.getStatsDeriveResult());
-        }
-        return statsDeriveResultList;
-    }
-
     public static Expr convertConjunctsToAndCompoundPredicate(List<Expr> conjuncts) {
         List<Expr> targetConjuncts = Lists.newArrayList(conjuncts);
         while (targetConjuncts.size() > 1) {
@@ -379,21 +308,6 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
 
         Preconditions.checkArgument(targetConjuncts.size() == 1);
         return targetConjuncts.get(0);
-    }
-
-    public static List<Expr> splitAndCompoundPredicateToConjuncts(Expr vconjunct) {
-        List<Expr> conjuncts = Lists.newArrayList();
-        if (vconjunct instanceof CompoundPredicate) {
-            CompoundPredicate andCompound = (CompoundPredicate) vconjunct;
-            if (andCompound.getOp().equals(CompoundPredicate.Operator.AND)) {
-                conjuncts.addAll(splitAndCompoundPredicateToConjuncts(vconjunct.getChild(0)));
-                conjuncts.addAll(splitAndCompoundPredicateToConjuncts(vconjunct.getChild(1)));
-            }
-        }
-        if (vconjunct != null && conjuncts.isEmpty()) {
-            conjuncts.add(vconjunct);
-        }
-        return conjuncts;
     }
 
     public void addConjuncts(List<Expr> conjuncts) {
@@ -518,7 +432,7 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         return expBuilder.toString();
     }
 
-    private String getplanNodeExplainString(String prefix, TExplainLevel detailLevel) {
+    private String getPlanNodeExplainString(String prefix, TExplainLevel detailLevel) {
         StringBuilder expBuilder = new StringBuilder();
         expBuilder.append(getNodeExplainString(prefix, detailLevel));
         if (limit != -1) {
@@ -533,7 +447,7 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
     }
 
     public void getExplainStringMap(TExplainLevel detailLevel, Map<Integer, String> planNodeMap) {
-        planNodeMap.put(id.asInt(), getplanNodeExplainString("", detailLevel));
+        planNodeMap.put(id.asInt(), getPlanNodeExplainString("", detailLevel));
         for (int i = 0; i < children.size(); ++i) {
             children.get(i).getExplainStringMap(detailLevel, planNodeMap);
         }
@@ -569,9 +483,7 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         }
 
         for (Expr e : conjuncts) {
-            if  (!(e instanceof BitmapFilterPredicate)) {
-                msg.addToConjuncts(e.treeToThrift());
-            }
+            msg.addToConjuncts(e.treeToThrift());
         }
 
         // Serialize any runtime filters
@@ -579,7 +491,7 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
             msg.addToRuntimeFilters(filter.toThrift());
         }
 
-        msg.compact_data = compactData;
+        msg.compact_data = false;
         if (outputSlotIds != null) {
             for (SlotId slotId : outputSlotIds) {
                 msg.addToOutputSlotIds(slotId.asInt());
@@ -730,14 +642,6 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         return normalizedWithoutSort;
     }
 
-    protected String debugString() {
-        // not using Objects.toStrHelper because
-        StringBuilder output = new StringBuilder();
-        output.append("preds=" + Expr.debugString(conjuncts));
-        output.append(" limit=" + Long.toString(limit));
-        return output.toString();
-    }
-
     public static String getExplainString(List<? extends Expr> exprs) {
         if (exprs == null) {
             return "";
@@ -760,6 +664,7 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         this.numInstances = numInstances;
     }
 
+    @Deprecated
     public void appendTrace(StringBuilder sb) {
         sb.append(planNodeName);
         if (!children.isEmpty()) {
@@ -778,6 +683,7 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
     /**
      * find planNode recursively based on the planNodeId
      */
+    @Deprecated
     public static PlanNode findPlanNodeFromPlanNodeId(PlanNode root, PlanNodeId id) {
         if (root == null || root.getId() == null || id == null) {
             return null;
@@ -804,14 +710,6 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
 
     protected void addRuntimeFilter(RuntimeFilter filter) {
         runtimeFilters.add(filter);
-    }
-
-    protected Collection<RuntimeFilter> getRuntimeFilters() {
-        return runtimeFilters;
-    }
-
-    public void clearRuntimeFilters() {
-        runtimeFilters.clear();
     }
 
     protected String getRuntimeFilterExplainString() {
@@ -927,5 +825,110 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
             return false;
         }
         return children.stream().anyMatch(PlanNode::hasSerialScanChildren);
+    }
+
+    protected void printNestedColumns(StringBuilder output, String prefix, TupleDescriptor tupleDesc) {
+        boolean printNestedColumnsHeader = true;
+        for (SlotDescriptor slot : tupleDesc.getSlots()) {
+            String prunedType = null;
+            if (slot.getColumn() != null && !slot.getType().equals(slot.getColumn().getType())) {
+                prunedType = slot.getType().toString();
+            }
+            String displayAllAccessPathsString = null;
+            if (slot.getDisplayAllAccessPaths() != null
+                    && slot.getDisplayAllAccessPaths() != null
+                    && !slot.getDisplayAllAccessPaths().isEmpty()) {
+                if (this instanceof IcebergScanNode) {
+                    displayAllAccessPathsString = mergeIcebergAccessPathsWithId(
+                            slot.getAllAccessPaths(),
+                            slot.getDisplayAllAccessPaths()
+                    );
+                } else {
+                    displayAllAccessPathsString = slot.getDisplayAllAccessPaths()
+                            .stream()
+                            .map(a -> {
+                                if (a.type == TAccessPathType.DATA) {
+                                    return StringUtils.join(a.data_access_path.path, ".");
+                                } else {
+                                    return StringUtils.join(a.meta_access_path.path, ".");
+                                }
+                            })
+                            .collect(Collectors.joining(", "));
+                }
+            }
+            String displayPredicateAccessPathsString = null;
+            if (slot.getDisplayPredicateAccessPaths() != null
+                    && slot.getDisplayPredicateAccessPaths() != null
+                    && !slot.getDisplayPredicateAccessPaths().isEmpty()) {
+                if (this instanceof IcebergScanNode) {
+                    displayPredicateAccessPathsString = mergeIcebergAccessPathsWithId(
+                            slot.getPredicateAccessPaths(),
+                            slot.getDisplayPredicateAccessPaths()
+                    );
+                } else {
+                    displayPredicateAccessPathsString = slot.getPredicateAccessPaths()
+                            .stream()
+                            .map(a -> {
+                                if (a.type == TAccessPathType.DATA) {
+                                    return StringUtils.join(a.data_access_path.path, ".");
+                                } else {
+                                    return StringUtils.join(a.meta_access_path.path, ".");
+                                }
+                            })
+                            .collect(Collectors.joining(", "));
+                }
+            }
+
+
+            if (prunedType == null
+                    && displayAllAccessPathsString == null
+                    && displayPredicateAccessPathsString == null) {
+                continue;
+            }
+
+            if (printNestedColumnsHeader) {
+                output.append(prefix).append("nested columns:\n");
+                printNestedColumnsHeader = false;
+            }
+            output.append(prefix).append("  ").append(slot.getColumn().getName()).append(":\n");
+            output.append(prefix).append("    origin type: ").append(slot.getColumn().getType()).append("\n");
+            if (prunedType != null) {
+                output.append(prefix).append("    pruned type: ").append(prunedType).append("\n");
+            }
+            if (displayAllAccessPathsString != null) {
+                output.append(prefix).append("    all access paths: [")
+                        .append(displayAllAccessPathsString).append("]\n");
+            }
+            if (displayPredicateAccessPathsString != null) {
+                output.append(prefix).append("    predicate access paths: [")
+                        .append(displayPredicateAccessPathsString).append("]\n");
+            }
+        }
+    }
+
+    private String mergeIcebergAccessPathsWithId(
+            List<TColumnAccessPath> accessPaths, List<TColumnAccessPath> displayAccessPaths) {
+        List<String> mergeDisplayAccessPaths = Lists.newArrayList();
+        for (int i = 0; i < displayAccessPaths.size(); i++) {
+            TColumnAccessPath displayAccessPath = displayAccessPaths.get(i);
+            TColumnAccessPath idAccessPath = accessPaths.get(i);
+            List<String> nameAccessPathStrings = displayAccessPath.type == TAccessPathType.DATA
+                    ? displayAccessPath.data_access_path.path : displayAccessPath.meta_access_path.path;
+            List<String> idAccessPathStrings = idAccessPath.type == TAccessPathType.DATA
+                    ? idAccessPath.data_access_path.path : idAccessPath.meta_access_path.path;
+
+            List<String> mergedPath = new ArrayList<>();
+            for (int j = 0; j < idAccessPathStrings.size(); j++) {
+                String name = nameAccessPathStrings.get(j);
+                String id = idAccessPathStrings.get(j);
+                if (name.equals(id)) {
+                    mergedPath.add(name);
+                } else {
+                    mergedPath.add(name + "(" + id + ")");
+                }
+            }
+            mergeDisplayAccessPaths.add(StringUtils.join(mergedPath, "."));
+        }
+        return StringUtils.join(mergeDisplayAccessPaths, ", ");
     }
 }

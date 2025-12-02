@@ -20,6 +20,7 @@ package org.apache.doris.alter;
 import org.apache.doris.analysis.AddColumnClause;
 import org.apache.doris.analysis.AddColumnsClause;
 import org.apache.doris.analysis.AddPartitionClause;
+import org.apache.doris.analysis.AddPartitionFieldClause;
 import org.apache.doris.analysis.AddPartitionLikeClause;
 import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.analysis.AlterMultiPartitionClause;
@@ -29,6 +30,7 @@ import org.apache.doris.analysis.CreateOrReplaceTagClause;
 import org.apache.doris.analysis.DropBranchClause;
 import org.apache.doris.analysis.DropColumnClause;
 import org.apache.doris.analysis.DropPartitionClause;
+import org.apache.doris.analysis.DropPartitionFieldClause;
 import org.apache.doris.analysis.DropPartitionFromIndexClause;
 import org.apache.doris.analysis.DropTagClause;
 import org.apache.doris.analysis.ModifyColumnClause;
@@ -41,6 +43,7 @@ import org.apache.doris.analysis.ModifyTablePropertiesClause;
 import org.apache.doris.analysis.PartitionRenameClause;
 import org.apache.doris.analysis.ReorderColumnsClause;
 import org.apache.doris.analysis.ReplacePartitionClause;
+import org.apache.doris.analysis.ReplacePartitionFieldClause;
 import org.apache.doris.analysis.ReplaceTableClause;
 import org.apache.doris.analysis.RollupRenameClause;
 import org.apache.doris.analysis.TableRenameClause;
@@ -75,6 +78,8 @@ import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.PropertyAnalyzer.RewriteProperty;
 import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
+import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.nereids.trees.plans.commands.AlterSystemCommand;
@@ -181,6 +186,19 @@ public class Alter {
         AlterOperations currentAlterOps = new AlterOperations();
         currentAlterOps.checkConflict(alterClauses);
 
+        // Check for unsupported operations on internal tables
+        for (AlterClause clause : alterClauses) {
+            if (clause instanceof AddPartitionFieldClause) {
+                throw new UserException("ADD PARTITION KEY is only supported for Iceberg tables");
+            }
+            if (clause instanceof DropPartitionFieldClause) {
+                throw new UserException("DROP PARTITION KEY is only supported for Iceberg tables");
+            }
+            if (clause instanceof ReplacePartitionFieldClause) {
+                throw new UserException("REPLACE PARTITION KEY is only supported for Iceberg tables");
+            }
+        }
+
         for (AlterClause clause : alterClauses) {
             Map<String, String> properties = null;
             try {
@@ -255,7 +273,7 @@ public class Alter {
             // TODO(Drogon): check error
             ((SchemaChangeHandler) schemaChangeHandler).updateBinlogConfig(db, olapTable, alterClauses);
         } else if (currentAlterOps.hasSchemaChangeOp()) {
-            // if modify storage type to v2, do schema change to convert all related tablets to segment v2 format
+            // schema change, or change properties that need schema change(dynamic partition, storage_medium...)
             schemaChangeHandler.process(sql, alterClauses, db, olapTable);
         } else if (currentAlterOps.hasRollupOp()) {
             materializedViewHandler.process(alterClauses, db, olapTable);
@@ -415,6 +433,30 @@ public class Alter {
             } else if (alterClause instanceof ReorderColumnsClause) {
                 ReorderColumnsClause reorderColumns = (ReorderColumnsClause) alterClause;
                 table.getCatalog().reorderColumns(table, reorderColumns.getColumnsByPos());
+            } else if (alterClause instanceof AddPartitionFieldClause) {
+                AddPartitionFieldClause addPartitionField = (AddPartitionFieldClause) alterClause;
+                if (table instanceof IcebergExternalTable) {
+                    ((IcebergExternalCatalog) table.getCatalog()).addPartitionField(
+                            (IcebergExternalTable) table, addPartitionField);
+                } else {
+                    throw new UserException("ADD PARTITION KEY is only supported for Iceberg tables");
+                }
+            } else if (alterClause instanceof DropPartitionFieldClause) {
+                DropPartitionFieldClause dropPartitionField = (DropPartitionFieldClause) alterClause;
+                if (table instanceof IcebergExternalTable) {
+                    ((IcebergExternalCatalog) table.getCatalog()).dropPartitionField(
+                            (IcebergExternalTable) table, dropPartitionField);
+                } else {
+                    throw new UserException("DROP PARTITION KEY is only supported for Iceberg tables");
+                }
+            } else if (alterClause instanceof ReplacePartitionFieldClause) {
+                ReplacePartitionFieldClause replacePartitionField = (ReplacePartitionFieldClause) alterClause;
+                if (table instanceof IcebergExternalTable) {
+                    ((IcebergExternalCatalog) table.getCatalog()).replacePartitionField(
+                            (IcebergExternalTable) table, replacePartitionField);
+                } else {
+                    throw new UserException("REPLACE PARTITION KEY is only supported for Iceberg tables");
+                }
             } else {
                 throw new UserException("Invalid alter operations for external table: " + alterClauses);
             }
@@ -589,6 +631,11 @@ public class Alter {
         }
     }
 
+    /*
+     * There's two ways to process properties' change:
+     * 1. processAlterOlapTable will trigger schemaChangeHandler.process
+     * 2. as ModifyTablePropertiesClause trigger schemaChangeHandler.updateTableProperties
+     */
     public void processAlterTable(AlterTableCommand command) throws UserException {
         TableNameInfo dbTableName = command.getTbl();
         String ctlName = dbTableName.getCtl();
@@ -779,7 +826,7 @@ public class Alter {
             // not swap, the origin table is not used anymore, need to drop all its tablets.
             // put original table to recycle bin.
             if (isForce) {
-                Env.getCurrentEnv().onEraseOlapTable(origTable, isReplay);
+                Env.getCurrentEnv().onEraseOlapTable(db.getId(), origTable, isReplay);
             } else {
                 Env.getCurrentRecycleBin().recycleTable(db.getId(), origTable, isReplay, isForce, 0);
             }
@@ -821,6 +868,7 @@ public class Alter {
                 db.registerTable(view);
                 AlterViewInfo alterViewInfo = new AlterViewInfo(db.getId(), view.getId(),
                         inlineViewDef, newFullSchema, sqlMode, comment);
+                Env.getCurrentEnv().getMtmvService().alterView(new BaseTableInfo(view));
                 Env.getCurrentEnv().getEditLog().logModifyViewDef(alterViewInfo);
                 LOG.info("modify view[{}] definition to {}", viewName, inlineViewDef);
             } finally {
@@ -858,7 +906,7 @@ public class Alter {
 
             db.unregisterTable(viewName);
             db.registerTable(view);
-
+            Env.getCurrentEnv().getMtmvService().alterView(new BaseTableInfo(view));
             LOG.info("replay modify view[{}] definition to {}", viewName, inlineViewDef);
         } finally {
             view.writeUnlock();
@@ -1231,6 +1279,7 @@ public class Alter {
     public void processAlterMTMV(AlterMTMV alterMTMV, boolean isReplay) {
         TableNameInfo tbl = alterMTMV.getMvName();
         MTMV mtmv = null;
+        boolean alterSuccess = true;
         try {
             Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(tbl.getDb());
             mtmv = (MTMV) db.getTableOrMetaException(tbl.getTbl(), TableType.MATERIALIZED_VIEW);
@@ -1245,7 +1294,8 @@ public class Alter {
                     mtmv.alterMvProperties(alterMTMV.getMvProperties());
                     break;
                 case ADD_TASK:
-                    mtmv.addTaskResult(alterMTMV.getTask(), alterMTMV.getRelation(), alterMTMV.getPartitionSnapshots(),
+                    alterSuccess = mtmv.addTaskResult(alterMTMV.getTask(), alterMTMV.getRelation(),
+                            alterMTMV.getPartitionSnapshots(),
                             isReplay);
                     // If it is not a replay thread, it means that the current service is already a new version
                     // and does not require compatibility
@@ -1260,7 +1310,7 @@ public class Alter {
                 Env.getCurrentEnv().getMtmvService().alterJob(mtmv, isReplay);
             }
             // 4. log it and replay it in the follower
-            if (!isReplay) {
+            if (!isReplay && alterSuccess) {
                 Env.getCurrentEnv().getEditLog().logAlterMTMV(alterMTMV);
             }
         } catch (UserException e) {

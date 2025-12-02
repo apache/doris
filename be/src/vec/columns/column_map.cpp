@@ -59,6 +59,7 @@ ColumnMap::ColumnMap(MutableColumnPtr&& keys, MutableColumnPtr&& values, Mutable
 
         /// This will also prevent possible overflow in offset.
         if (keys_column->size() != last_offset) {
+            DCHECK(0);
             throw doris::Exception(
                     doris::ErrorCode::INTERNAL_ERROR,
                     "offsets_column size {} has data inconsistent with key_column {}", last_offset,
@@ -517,8 +518,8 @@ Status ColumnMap::deduplicate_keys(bool recursive) {
             values_column_ = (assert_cast<ColumnNullable&>(*values_column)).get_nested_column_ptr();
         }
 
-        if (const auto* values_map = check_and_get_column<ColumnMap>(values_column_.get())) {
-            RETURN_IF_ERROR((const_cast<ColumnMap*>(values_map))->deduplicate_keys(recursive));
+        if (auto* values_map = check_and_get_column<ColumnMap>(values_column_.get())) {
+            RETURN_IF_ERROR(values_map->deduplicate_keys(recursive));
         }
     }
 
@@ -544,7 +545,7 @@ Status ColumnMap::deduplicate_keys(bool recursive) {
             serialized_keys[i].size = 0;
         }
 
-        keys_column->serialize_vec(serialized_keys.data(), inner_rows);
+        keys_column->serialize(serialized_keys.data(), inner_rows);
     }
 
     auto new_offsets = COffsets::create();
@@ -716,13 +717,15 @@ void ColumnMap::sort_column(const ColumnSorter* sorter, EqualFlags& flags,
     sorter->sort_column(static_cast<const ColumnMap&>(*this), flags, perms, range, last_column);
 }
 
-void ColumnMap::serialize_vec(StringRef* keys, size_t num_rows) const {
+void ColumnMap::serialize(StringRef* keys, size_t num_rows) const {
     for (size_t i = 0; i < num_rows; ++i) {
+        // Used in hash_map_context.h, this address is allocated via Arena,
+        // but passed through StringRef, so using const_cast is acceptable.
         keys[i].size += serialize_impl(const_cast<char*>(keys[i].data + keys[i].size), i);
     }
 }
 
-void ColumnMap::deserialize_vec(StringRef* keys, const size_t num_rows) {
+void ColumnMap::deserialize(StringRef* keys, const size_t num_rows) {
     for (size_t i = 0; i != num_rows; ++i) {
         auto sz = deserialize_impl(keys[i].data);
         keys[i].data += sz;

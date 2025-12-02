@@ -186,7 +186,7 @@ Status ExchangeSourceOperatorX::get_block(RuntimeState* state, vectorized::Block
             }
         }
         // Merge actually also handles the limit, but handling the limit one more time will not cause correctness issues
-        if (local_state.num_rows_returned() + block->rows() < _limit) {
+        if (_limit == -1 || local_state.num_rows_returned() + block->rows() < _limit) {
             local_state.add_num_rows_returned(block->rows());
         } else {
             *eos = true;

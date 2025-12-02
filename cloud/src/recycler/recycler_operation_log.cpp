@@ -38,6 +38,7 @@
 #include "common/util.h"
 #include "meta-service/meta_service.h"
 #include "meta-service/meta_service_schema.h"
+#include "meta-store/blob_message.h"
 #include "meta-store/document_message.h"
 #include "meta-store/keys.h"
 #include "meta-store/meta_reader.h"
@@ -62,6 +63,15 @@ namespace doris::cloud {
 using namespace std::chrono;
 
 int OperationLogRecycleChecker::init() {
+    source_snapshot_versionstamp_ = Versionstamp::min();
+    if (instance_info_.has_source_snapshot_id() &&
+        !SnapshotManager::parse_snapshot_versionstamp(instance_info_.source_snapshot_id(),
+                                                      &source_snapshot_versionstamp_)) {
+        LOG_WARNING("failed to parse versionstamp from source snapshot id")
+                .tag("source_snapshot_id", instance_info_.source_snapshot_id());
+        return -1;
+    }
+
     std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
@@ -102,6 +112,11 @@ bool OperationLogRecycleChecker::can_recycle(const Versionstamp& log_versionstam
         return false;
     }
 
+    // Do not recycle operation logs referenced by active snapshots.
+    if (log_min_read_timestamp < source_snapshot_versionstamp_) {
+        return false;
+    }
+
     auto it = snapshot_indexes_.lower_bound(log_min_read_timestamp);
     if (it != snapshot_indexes_.end() && snapshots_[it->second].second < log_versionstamp) {
         // in [log_min_read_timestmap, log_versionstamp)
@@ -114,8 +129,12 @@ bool OperationLogRecycleChecker::can_recycle(const Versionstamp& log_versionstam
 // A recycler for operation logs.
 class OperationLogRecycler {
 public:
-    OperationLogRecycler(std::string_view instance_id, TxnKv* txn_kv, Versionstamp log_version)
-            : instance_id_(instance_id), txn_kv_(txn_kv), log_version_(log_version) {}
+    OperationLogRecycler(std::string_view instance_id, TxnKv* txn_kv, Versionstamp log_version,
+                         const std::vector<std::string>& raw_keys)
+            : instance_id_(instance_id),
+              txn_kv_(txn_kv),
+              log_version_(log_version),
+              raw_keys_(raw_keys) {}
     OperationLogRecycler(const OperationLogRecycler&) = delete;
     OperationLogRecycler& operator=(const OperationLogRecycler&) = delete;
 
@@ -150,6 +169,7 @@ private:
     std::string_view instance_id_;
     TxnKv* txn_kv_;
     Versionstamp log_version_;
+    const std::vector<std::string>& raw_keys_;
 
     std::unique_ptr<Transaction> txn_;
 };
@@ -316,7 +336,6 @@ int OperationLogRecycler::recycle_schema_change_log(const SchemaChangeLogPB& sch
     MetaReader meta_reader(instance_id_, log_version_);
     int64_t new_tablet_id = schema_change_log.new_tablet_id();
     RETURN_ON_FAILURE(recycle_tablet_meta(new_tablet_id));
-    RETURN_ON_FAILURE(recycle_tablet_load_stats(new_tablet_id));
     RETURN_ON_FAILURE(recycle_tablet_compact_stats(new_tablet_id));
 
     for (const RecycleRowsetPB& recycle_rowset_pb : schema_change_log.recycle_rowsets()) {
@@ -359,9 +378,10 @@ int OperationLogRecycler::begin() {
 
 int OperationLogRecycler::commit() {
     // Remove the operation log entry itself after recycling its contents
-    std::string log_key = encode_versioned_key(versioned::log_key(instance_id_), log_version_);
     LOG_INFO("remove operation log key").tag("log_version", log_version_.to_string());
-    txn_->remove(log_key);
+    for (const auto& raw_key : raw_keys_) {
+        txn_->remove(raw_key);
+    }
 
     TxnErrorCode err = txn_->commit();
     if (err != TxnErrorCode::TXN_OK) {
@@ -582,10 +602,9 @@ static TxnErrorCode get_txn_info(TxnKv* txn_kv, std::string_view instance_id, in
 int InstanceRecycler::recycle_operation_logs() {
     if (!instance_info_.has_multi_version_status() ||
         (instance_info_.multi_version_status() != MultiVersionStatus::MULTI_VERSION_ENABLED &&
-         instance_info_.multi_version_status() != MultiVersionStatus::MULTI_VERSION_READ_WRITE &&
-         instance_info_.multi_version_status() != MultiVersionStatus::MULTI_VERSION_WRITE_ONLY)) {
-        LOG_INFO("instance {} is not multi-version enabled, skip recycling operation logs",
-                 instance_id_);
+         instance_info_.multi_version_status() != MultiVersionStatus::MULTI_VERSION_READ_WRITE)) {
+        VLOG_DEBUG << "instance " << instance_id_
+                   << " is not multi-version enabled, skip recycling operation logs.";
         return 0;
     }
 
@@ -609,7 +628,7 @@ int InstanceRecycler::recycle_operation_logs() {
                 .tag("recycled_operation_log_data_size", recycled_operation_log_data_size);
     };
 
-    OperationLogRecycleChecker recycle_checker(instance_id_, txn_kv_.get());
+    OperationLogRecycleChecker recycle_checker(instance_id_, txn_kv_.get(), instance_info_);
     int init_res = recycle_checker.init();
     if (init_res != 0) {
         LOG_WARNING("failed to initialize recycle checker").tag("error_code", init_res);
@@ -617,7 +636,8 @@ int InstanceRecycler::recycle_operation_logs() {
     }
 
     auto scan_and_recycle_operation_log = [&](const std::string_view& key,
-                                              const std::string_view& value) {
+                                              const std::vector<std::string>& raw_keys,
+                                              OperationLogPB operation_log) {
         std::string_view log_key(key);
         Versionstamp log_versionstamp;
         if (!decode_versioned_key(&log_key, &log_versionstamp)) {
@@ -626,37 +646,22 @@ int InstanceRecycler::recycle_operation_logs() {
             return -1;
         }
 
-        OperationLogPB operation_log;
-        if (!operation_log.ParseFromArray(value.data(), value.size())) {
-            LOG_WARNING("failed to parse OperationLogPB from operation log key")
-                    .tag("key", hex(key));
-            return -1;
-        }
-
-        if (!operation_log.has_min_timestamp()) {
-            LOG_WARNING("operation log has not set the min_timestamp")
-                    .tag("key", hex(key))
-                    .tag("version", log_versionstamp.version())
-                    .tag("order", log_versionstamp.order())
-                    .tag("log", operation_log.ShortDebugString());
-            return 0;
-        }
-
+        size_t value_size = operation_log.ByteSizeLong();
         if (recycle_checker.can_recycle(log_versionstamp, operation_log.min_timestamp())) {
             AnnotateTag tag("log_key", hex(key));
-            int res = recycle_operation_log(log_versionstamp, std::move(operation_log));
+            int res = recycle_operation_log(log_versionstamp, raw_keys, std::move(operation_log));
             if (res != 0) {
                 LOG_WARNING("failed to recycle operation log").tag("error_code", res);
                 return res;
             }
 
             recycled_operation_logs++;
-            recycled_operation_log_data_size += value.size();
+            recycled_operation_log_data_size += value_size;
         }
 
         total_operation_logs++;
-        operation_log_data_size += value.size();
-        max_operation_log_data_size = std::max(max_operation_log_data_size, value.size());
+        operation_log_data_size += value_size;
+        max_operation_log_data_size = std::max(max_operation_log_data_size, value_size);
         return 0;
     };
 
@@ -696,15 +701,39 @@ int InstanceRecycler::recycle_operation_logs() {
     std::string log_key_prefix = versioned::log_key(instance_id_);
     std::string begin_key = encode_versioned_key(log_key_prefix, Versionstamp::min());
     std::string end_key = encode_versioned_key(log_key_prefix, Versionstamp::max());
-    return scan_and_recycle(std::move(begin_key), end_key,
-                            std::move(scan_and_recycle_operation_log),
-                            std::move(is_multi_version_status_changed));
+
+    std::unique_ptr<BlobIterator> iter = blob_get_range(txn_kv_, begin_key, end_key);
+    for (size_t i = 0; iter->valid(); iter->next(), i++) {
+        std::string_view key = iter->key();
+        OperationLogPB operation_log;
+        if (!iter->parse_value(&operation_log)) {
+            LOG_WARNING("failed to parse OperationLogPB from operation log key")
+                    .tag("key", hex(key));
+            return -1;
+        }
+
+        int res = scan_and_recycle_operation_log(key, iter->raw_keys(), std::move(operation_log));
+        if (res != 0) {
+            return res;
+        }
+
+        if (i % 1000 == 0 && is_multi_version_status_changed() != 0) {
+            return -1;
+        }
+    }
+    if (iter->error_code() != TxnErrorCode::TXN_OK) {
+        LOG_WARNING("error occurred during scanning operation logs")
+                .tag("error_code", iter->error_code());
+        return -1;
+    }
+    return 0;
 }
 
 int InstanceRecycler::recycle_operation_log(Versionstamp log_version,
+                                            const std::vector<std::string>& raw_keys,
                                             OperationLogPB operation_log) {
     int recycle_log_count = 0;
-    OperationLogRecycler log_recycler(instance_id_, txn_kv_.get(), log_version);
+    OperationLogRecycler log_recycler(instance_id_, txn_kv_.get(), log_version, raw_keys);
     RETURN_ON_FAILURE(log_recycler.begin());
 
 #define RECYCLE_OPERATION_LOG(log_type, method_name)                      \

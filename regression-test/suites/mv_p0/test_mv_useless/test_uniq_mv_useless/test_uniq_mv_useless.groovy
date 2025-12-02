@@ -48,4 +48,20 @@ suite ("test_uniq_mv_useless") {
 
     createMV ("create materialized view k1_k2_u21 as select k2 as a1,k1 as a2 from ${testTable};")
     sql "insert into ${testTable} select 4,4,4;"
+
+    sql """ DROP TABLE IF EXISTS test_uniq_mv_useless_mow_table; """
+    sql """
+            create table test_uniq_mv_useless_mow_table (
+                k1 int null,
+                k2 int null,
+                k3 int 
+            )
+            unique key (k1,k2)
+            distributed BY hash(k1) buckets 3
+            properties("replication_num" = "1", "enable_unique_key_merge_on_write" = "true");
+        """
+    test {
+        sql "create materialized view k1_k2_u12 as select k1 as a1,k2 as a2 from test_uniq_mv_useless_mow_table where k3 > 0;"
+        exception "The where clause contained aggregate column is not supported"
+    }
 }

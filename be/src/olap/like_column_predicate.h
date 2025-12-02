@@ -154,8 +154,7 @@ private:
             StringRef cell_value = column.get_shrink_value(i);
             unsigned char flag = 0;
             THROW_IF_ERROR((_state->scalar_function)(
-                    const_cast<vectorized::LikeSearchState*>(&_like_state),
-                    StringRef(cell_value.data, cell_value.size), pattern, &flag));
+                    &_like_state, StringRef(cell_value.data, cell_value.size), pattern, &flag));
             tmp_res[i] = flag;
         }
         // Sometimes the dict is not initialized when run comparison predicate here, for example,

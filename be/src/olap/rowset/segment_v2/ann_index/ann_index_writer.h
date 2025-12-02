@@ -34,17 +34,26 @@
 #include "olap/rowset/segment_v2/inverted_index_fs_directory.h"
 #include "olap/tablet_schema.h"
 #include "runtime/collection_value.h"
+#include "vec/common/pod_array.h"
 
 namespace doris::segment_v2 {
 #include "common/compile_check_begin.h"
 class AnnIndexColumnWriter : public IndexColumnWriter {
 public:
+#ifdef BE_TEST
+    static constexpr int64_t CHUNK_SIZE = 10;
+#else
+    static constexpr int64_t CHUNK_SIZE = 1'000'000;
+#endif
     static constexpr const char* INDEX_TYPE = "index_type";
     static constexpr const char* METRIC_TYPE = "metric_type";
     static constexpr const char* DIM = "dim";
     static constexpr const char* MAX_DEGREE = "max_degree";
     static constexpr const char* EF_CONSTRUCTION = "ef_construction";
+    static constexpr const char* NLIST = "nlist";
     static constexpr const char* QUANTIZER = "quantizer";
+    static constexpr const char* PQ_M = "pq_m";
+    static constexpr const char* PQ_NBITS = "pq_nbits";
 
     explicit AnnIndexColumnWriter(IndexFileWriter* index_file_writer,
                                   const TabletIndex* index_meta);
@@ -68,6 +77,7 @@ private:
     // VectorIndex should be weak shared by AnnIndexWriter and VectorIndexReader
     // This should be a weak_ptr
     std::shared_ptr<VectorIndex> _vector_index;
+    vectorized::PODArray<float> _float_array;
     IndexFileWriter* _index_file_writer;
     const TabletIndex* _index_meta;
     std::shared_ptr<DorisFSDirectory> _dir;

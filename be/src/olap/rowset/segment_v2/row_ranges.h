@@ -93,6 +93,13 @@ public:
 
     std::string to_string() const { return absl::Substitute("[$0-$1)", _from, _to); }
 
+    uint64_t get_digest(uint64_t seed) const {
+        uint64_t hash = seed;
+        hash = hash * 31 + _from;
+        hash = hash * 31 + _to;
+        return hash;
+    }
+
 private:
     int64_t _from;
     int64_t _to;
@@ -227,6 +234,8 @@ public:
 
     size_t range_size() { return _ranges.size(); }
 
+    RowRange get_range(size_t index) { return _ranges[index]; }
+
     int64_t get_range_from(size_t range_index) { return _ranges[range_index].from(); }
 
     int64_t get_range_to(size_t range_index) { return _ranges[range_index].to(); }
@@ -264,6 +273,13 @@ public:
         }
         _ranges.emplace_back(range_to_add);
         _count += range_to_add.count();
+    }
+
+    uint64_t get_digest(uint64_t seed) const {
+        for (auto range : _ranges) {
+            seed = range.get_digest(seed);
+        }
+        return seed;
     }
 
 private:

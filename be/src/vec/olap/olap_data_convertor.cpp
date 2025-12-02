@@ -354,9 +354,9 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorBitMap::convert_to_olap() 
     }
 
     assert(column_bitmap);
-    auto* bitmap_value = const_cast<BitmapValue*>(column_bitmap->get_data().data() + _row_pos);
-    BitmapValue* bitmap_value_cur = bitmap_value;
-    BitmapValue* bitmap_value_end = bitmap_value_cur + _num_rows;
+    const BitmapValue* bitmap_value = column_bitmap->get_data().data() + _row_pos;
+    const BitmapValue* bitmap_value_cur = bitmap_value;
+    const BitmapValue* bitmap_value_end = bitmap_value_cur + _num_rows;
 
     size_t total_size = 0;
     if (_nullmap) {
@@ -428,10 +428,9 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorQuantileState::convert_to_
             assert_cast<const vectorized::ColumnQuantileState*>(_typed_column.column.get());
 
     assert(column_quantile_state);
-    auto* quantile_state =
-            const_cast<QuantileState*>(column_quantile_state->get_data().data() + _row_pos);
-    QuantileState* quantile_state_cur = quantile_state;
-    QuantileState* quantile_state_end = quantile_state_cur + _num_rows;
+    const QuantileState* quantile_state = column_quantile_state->get_data().data() + _row_pos;
+    const QuantileState* quantile_state_cur = quantile_state;
+    const QuantileState* quantile_state_end = quantile_state_cur + _num_rows;
 
     size_t total_size = 0;
     while (quantile_state_cur != quantile_state_end) {
@@ -470,9 +469,9 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorHLL::convert_to_olap() {
     column_hll = assert_cast<const vectorized::ColumnHLL*>(_typed_column.column.get());
 
     assert(column_hll);
-    auto* hll_value = const_cast<HyperLogLog*>(column_hll->get_data().data() + _row_pos);
-    HyperLogLog* hll_value_cur = hll_value;
-    HyperLogLog* hll_value_end = hll_value_cur + _num_rows;
+    const HyperLogLog* hll_value = column_hll->get_data().data() + _row_pos;
+    const HyperLogLog* hll_value_cur = hll_value;
+    const HyperLogLog* hll_value_end = hll_value_cur + _num_rows;
 
     size_t total_size = 0;
     while (hll_value_cur != hll_value_end) {
@@ -588,13 +587,13 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorVarChar::convert_to_olap(
     const ColumnString::Offset* offset_cur = column_string->get_offsets().data() + _row_pos;
     const ColumnString::Offset* offset_end = offset_cur + _num_rows;
 
-    Slice* slice = _slice.data();
+    StringRef* slice = _slice.data();
     size_t string_offset = *(offset_cur - 1);
     if (null_map) {
         const UInt8* nullmap_cur = null_map + _row_pos;
         while (offset_cur != offset_end) {
             if (!*nullmap_cur) {
-                slice->data = const_cast<char*>(char_data + string_offset);
+                slice->data = char_data + string_offset;
                 slice->size = *offset_cur - string_offset;
                 if (UNLIKELY(slice->size > config::string_type_length_soft_limit_bytes &&
                              _check_length)) {
@@ -621,7 +620,7 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorVarChar::convert_to_olap(
         assert(nullmap_cur == null_map + _row_pos + _num_rows && slice == _slice.get_end_ptr());
     } else {
         while (offset_cur != offset_end) {
-            slice->data = const_cast<char*>(char_data + string_offset);
+            slice->data = char_data + string_offset;
             slice->size = *offset_cur - string_offset;
             if (UNLIKELY(slice->size > config::string_type_length_soft_limit_bytes &&
                          _check_length)) {

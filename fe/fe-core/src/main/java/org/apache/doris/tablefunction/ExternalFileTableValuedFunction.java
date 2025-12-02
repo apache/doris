@@ -32,6 +32,7 @@ import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
@@ -60,6 +61,7 @@ import org.apache.doris.proto.Types.PTypeDesc;
 import org.apache.doris.proto.Types.PTypeNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.resource.computegroup.ComputeGroupMgr;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.system.Backend;
@@ -153,7 +155,8 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         String path = getFilePath();
         BrokerDesc brokerDesc = getBrokerDesc();
         try {
-            if (brokerDesc.getFileType() != null && brokerDesc.getFileType().equals(TFileType.FILE_S3)) {
+            if (brokerDesc.getFileType() != null && brokerDesc.getFileType().equals(TFileType.FILE_S3)
+                    && brokerDesc.getStorageProperties() instanceof ObjectStorageProperties) {
                 ObjectStorageProperties storageProperties = (ObjectStorageProperties) brokerDesc.getStorageProperties();
                 String endpoint = storageProperties.getEndpoint();
                 S3Util.validateAndTestEndpoint(endpoint);
@@ -189,6 +192,12 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
 
         String formatString = getOrDefaultAndRemove(copiedProps, FileFormatConstants.PROP_FORMAT, "").toLowerCase();
         fileFormatProperties = FileFormatProperties.createFileFormatProperties(formatString);
+
+        // Parse enable_mapping_varbinary property
+        String enableMappingVarbinaryStr = getOrDefaultAndRemove(copiedProps,
+                FileFormatConstants.PROP_ENABLE_MAPPING_VARBINARY, "false");
+        fileFormatProperties.enableMappingVarbinary = Boolean.parseBoolean(enableMappingVarbinaryStr);
+
         fileFormatProperties.analyzeFileFormatProperties(copiedProps, true);
 
         if (fileFormatProperties instanceof CsvFileFormatProperties
@@ -248,7 +257,12 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         columns = Lists.newArrayList();
         Backend be = getBackend();
         if (be == null) {
-            throw new AnalysisException("No Alive backends");
+            String computeGroupHints = "";
+            if (Config.isCloudMode()) {
+                // null: computeGroupNotFoundPromptMsg select cluster for hint msg
+                computeGroupHints = ComputeGroupMgr.computeGroupNotFoundPromptMsg(null);
+            }
+            throw new AnalysisException("No Alive backends" + computeGroupHints);
         }
 
         if (fileFormatProperties.getFileFormatType() == TFileFormatType.FORMAT_WAL) {
@@ -417,6 +431,8 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         fileScanRangeParams.setFileAttributes(getFileAttributes());
         ConnectContext ctx = ConnectContext.get();
         fileScanRangeParams.setLoadId(ctx.queryId());
+        // table function fetch schema, whether to enable mapping varbinary
+        fileScanRangeParams.setEnableMappingVarbinary(fileFormatProperties.enableMappingVarbinary);
 
         if (getTFileType() == TFileType.FILE_STREAM) {
             fileStatuses.add(new TBrokerFileStatus("", false, -1, true));

@@ -70,10 +70,22 @@ public class Interval extends Expression implements UnaryExpression, AlwaysNotNu
         return visitor.visitInterval(this, context);
     }
 
+    @Override
+    public String toDigest() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("INTERVAL ");
+        sb.append(value().toDigest());
+        sb.append(" ").append(timeUnit);
+        return sb.toString();
+    }
+
     /**
      * Supported time unit.
      */
     public enum TimeUnit {
+        MINUTE_SECOND("MINUTE_SECOND", false, 1100),
+        DAY_HOUR("DAY_HOUR", false, 1000),
+        DAY_SECOND("DAY_SECOND", false, 900),
         YEAR("YEAR", false, 800),
         MONTH("MONTH", false, 700),
         QUARTER("QUARTER", false, 600), //TODO: need really support quarter

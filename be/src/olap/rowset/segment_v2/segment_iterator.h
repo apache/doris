@@ -174,7 +174,6 @@ private:
     [[nodiscard]] Status _init_bitmap_index_iterators();
     [[nodiscard]] Status _init_index_iterators();
 
-    Status _apply_ann_topn_predicate();
     // calculate row ranges that fall into requested key ranges using short key index
     [[nodiscard]] Status _get_row_ranges_by_keys();
     [[nodiscard]] Status _prepare_seek(const StorageReadOptions::KeyRange& key_range);
@@ -192,13 +191,17 @@ private:
     // calculate row ranges that satisfy requested column conditions using various column index
     [[nodiscard]] Status _get_row_ranges_by_column_conditions();
     [[nodiscard]] Status _get_row_ranges_from_conditions(RowRanges* condition_row_ranges);
+
     [[nodiscard]] Status _apply_bitmap_index();
     [[nodiscard]] Status _apply_inverted_index();
     [[nodiscard]] Status _apply_inverted_index_on_column_predicate(
             ColumnPredicate* pred, std::vector<ColumnPredicate*>& remaining_predicates,
             bool* continue_apply);
+    [[nodiscard]] Status _apply_ann_topn_predicate();
     [[nodiscard]] Status _apply_index_expr();
+
     bool _column_has_fulltext_index(int32_t cid);
+    bool _column_has_ann_index(int32_t cid);
     bool _downgrade_without_index(Status res, bool need_remaining = false);
     inline bool _inverted_index_not_support_pred_type(const PredicateType& type);
     bool _is_literal_node(const TExprNodeType::type& node_type);
@@ -230,7 +233,8 @@ private:
     [[nodiscard]] Status _read_columns_by_rowids(std::vector<ColumnId>& read_column_ids,
                                                  std::vector<rowid_t>& rowid_vector,
                                                  uint16_t* sel_rowid_idx, size_t select_size,
-                                                 vectorized::MutableColumns* mutable_columns);
+                                                 vectorized::MutableColumns* mutable_columns,
+                                                 bool init_condition_cache = false);
 
     Status copy_column_data_by_selector(vectorized::IColumn* input_col_ptr,
                                         vectorized::MutableColumnPtr& output_col,
@@ -381,6 +385,8 @@ private:
     Status _materialization_of_virtual_column(vectorized::Block* block);
     void _prepare_score_column_materialization();
 
+    void _init_row_bitmap_by_condition_cache();
+
     class BitmapRangeIterator;
     class BackwardBitmapRangeIterator;
 
@@ -431,7 +437,7 @@ private:
     // second, read non-predicate columns
     // so we need a field to stand for columns first time to read
     std::vector<ColumnId> _predicate_column_ids;
-    std::vector<ColumnId> _non_predicate_column_ids;
+    std::vector<ColumnId> _common_expr_column_ids;
     // TODO: Should use std::vector<size_t>
     std::vector<ColumnId> _columns_to_filter;
     std::vector<bool> _converted_column_ids;
@@ -485,14 +491,21 @@ private:
     * a boolean value to indicate whether the column has been read by the index.
     */
     std::unordered_map<ColumnId, std::unordered_map<ColumnPredicate*, bool>>
-            _column_predicate_inverted_index_status;
+            _column_predicate_index_exec_status;
 
     /*
     * column and common expr on it.
     * a boolean value to indicate whether the column has been read by the index.
     */
     std::unordered_map<ColumnId, std::unordered_map<const vectorized::VExpr*, bool>>
-            _common_expr_inverted_index_status;
+            _common_expr_index_exec_status;
+
+    /*
+    * common expr context to slotref map
+    * slot ref map is used to get slot ref expr by using column id.
+    */
+    std::unordered_map<vectorized::VExprContext*, std::unordered_map<ColumnId, vectorized::VExpr*>>
+            _common_expr_to_slotref_map;
 
     vectorized::ScoreRuntimeSPtr _score_runtime;
 
@@ -506,6 +519,10 @@ private:
 
     // key is column uid, value is the sparse column cache
     std::unordered_map<int32_t, PathToSparseColumnCacheUPtr> _variant_sparse_column_cache;
+
+    bool _find_condition_cache = false;
+    std::shared_ptr<std::vector<bool>> _condition_cache;
+    static constexpr int CONDITION_CACHE_OFFSET = 2048;
 };
 
 } // namespace segment_v2

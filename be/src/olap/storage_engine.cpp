@@ -1351,7 +1351,7 @@ Status StorageEngine::create_tablet(const TCreateTabletReq& request, RuntimeProf
 }
 
 Result<BaseTabletSPtr> StorageEngine::get_tablet(int64_t tablet_id, SyncRowsetStats* sync_stats,
-                                                 bool force_use_cache) {
+                                                 bool force_use_only_cached) {
     BaseTabletSPtr tablet;
     std::string err;
     tablet = _tablet_manager->get_tablet(tablet_id, true, &err);

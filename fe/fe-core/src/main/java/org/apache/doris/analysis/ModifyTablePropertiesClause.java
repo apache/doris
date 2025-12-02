@@ -296,9 +296,9 @@ public class ModifyTablePropertiesClause extends AlterTableClause {
                                 + " should be set to true or false");
             }
             OlapTable table = null;
-            if (tableName != null) {
-                table = (OlapTable) (Env.getCurrentInternalCatalog().getDbOrAnalysisException(tableName.getDb())
-                        .getTableOrAnalysisException(tableName.getTbl()));
+            if (tableNameInfo != null) {
+                table = (OlapTable) (Env.getCurrentInternalCatalog().getDbOrAnalysisException(tableNameInfo.getDb())
+                        .getTableOrAnalysisException(tableNameInfo.getTbl()));
             }
             if (table == null || !table.getEnableUniqueKeyMergeOnWrite()) {
                 throw new AnalysisException(
@@ -386,13 +386,13 @@ public class ModifyTablePropertiesClause extends AlterTableClause {
     }
 
     private void analyzeForMTMV() throws AnalysisException {
-        if (tableName != null) {
+        if (tableNameInfo != null) {
             // Skip external catalog.
-            if (!(InternalCatalog.INTERNAL_CATALOG_NAME.equals(tableName.getCtl()))) {
+            if (!(InternalCatalog.INTERNAL_CATALOG_NAME.equals(tableNameInfo.getCtl()))) {
                 return;
             }
-            Table table = Env.getCurrentInternalCatalog().getDbOrAnalysisException(tableName.getDb())
-                    .getTableOrAnalysisException(tableName.getTbl());
+            Table table = Env.getCurrentInternalCatalog().getDbOrAnalysisException(tableNameInfo.getDb())
+                    .getTableOrAnalysisException(tableNameInfo.getTbl());
             if (!(table instanceof MTMV)) {
                 return;
             }

@@ -54,6 +54,9 @@
 #include <utility>
 #include <vector>
 
+#include "cloud/cloud_storage_engine.h"
+#include "cloud/cloud_tablet_mgr.h"
+#include "cloud/config.h"
 #include "common/config.h"
 #include "common/exception.h"
 #include "common/logging.h"
@@ -65,6 +68,7 @@
 #include "io/fs/stream_load_pipe.h"
 #include "io/io_common.h"
 #include "olap/data_dir.h"
+#include "olap/delta_writer.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/beta_rowset.h"
@@ -152,6 +156,8 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(arrow_flight_work_pool_queue_size, MetricUnit
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(arrow_flight_work_active_threads, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(arrow_flight_work_pool_max_queue_size, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(arrow_flight_work_max_threads, MetricUnit::NOUNIT);
+
+static bvar::LatencyRecorder g_process_remote_fetch_rowsets_latency("process_remote_fetch_rowsets");
 
 bthread_key_t btls_key;
 
@@ -409,6 +415,7 @@ void PInternalService::open_load_stream(google::protobuf::RpcController* control
         LOG(INFO) << "open load stream, load_id=" << request->load_id()
                   << ", src_id=" << request->src_id();
 
+        std::vector<BaseTabletSPtr> tablets;
         for (const auto& req : request->tablets()) {
             BaseTabletSPtr tablet;
             if (auto res = ExecEnv::get_tablet(req.tablet_id()); !res.has_value()) [[unlikely]] {
@@ -423,6 +430,14 @@ void PInternalService::open_load_stream(google::protobuf::RpcController* control
             resp->set_index_id(req.index_id());
             resp->set_enable_unique_key_merge_on_write(tablet->enable_unique_key_merge_on_write());
             tablet->tablet_schema()->to_schema_pb(resp->mutable_tablet_schema());
+            tablets.push_back(tablet);
+        }
+        if (!tablets.empty()) {
+            auto* tablet_load_infos = response->mutable_tablet_load_rowset_num_infos();
+            for (const auto& tablet : tablets) {
+                BaseDeltaWriter::collect_tablet_load_rowset_num_info(tablet.get(),
+                                                                     tablet_load_infos);
+            }
         }
 
         LoadStream* load_stream = nullptr;
@@ -720,14 +735,23 @@ void PInternalService::outfile_write_success(google::protobuf::RpcController* co
             }
         }
 
-        auto&& res = FileFactory::create_file_writer(
-                FileFactory::convert_storage_type(result_file_sink.storage_backend_type),
-                ExecEnv::GetInstance(), file_options.broker_addresses,
-                file_options.broker_properties, file_name,
-                {
-                        .write_file_cache = false,
-                        .sync_file_data = false,
-                });
+        auto file_type_res =
+                FileFactory::convert_storage_type(result_file_sink.storage_backend_type);
+        if (!file_type_res.has_value()) [[unlikely]] {
+            st = std::move(file_type_res).error();
+            st.to_protobuf(result->mutable_status());
+            LOG(WARNING) << "encounter unkonw type=" << result_file_sink.storage_backend_type
+                         << ", st=" << st;
+            return;
+        }
+
+        auto&& res = FileFactory::create_file_writer(file_type_res.value(), ExecEnv::GetInstance(),
+                                                     file_options.broker_addresses,
+                                                     file_options.broker_properties, file_name,
+                                                     {
+                                                             .write_file_cache = false,
+                                                             .sync_file_data = false,
+                                                     });
         using T = std::decay_t<decltype(res)>;
         if (!res.has_value()) [[unlikely]] {
             st = std::forward<T>(res).error();
@@ -1389,7 +1413,12 @@ void PInternalService::merge_filter(::google::protobuf::RpcController* controlle
         brpc::ClosureGuard closure_guard(done);
         auto attachment = static_cast<brpc::Controller*>(controller)->request_attachment();
         butil::IOBufAsZeroCopyInputStream zero_copy_input_stream(attachment);
-        Status st = _exec_env->fragment_mgr()->merge_filter(request, &zero_copy_input_stream);
+        Status st;
+        try {
+            st = _exec_env->fragment_mgr()->merge_filter(request, &zero_copy_input_stream);
+        } catch (Exception& e) {
+            st = e.to_status();
+        }
         st.to_protobuf(response->mutable_status());
     });
     if (!ret) {
@@ -1405,7 +1434,12 @@ void PInternalService::send_filter_size(::google::protobuf::RpcController* contr
     bool ret = _light_work_pool.try_offer([this, request, response, done]() {
         signal::SignalTaskIdKeeper keeper(request->query_id());
         brpc::ClosureGuard closure_guard(done);
-        Status st = _exec_env->fragment_mgr()->send_filter_size(request);
+        Status st;
+        try {
+            st = _exec_env->fragment_mgr()->send_filter_size(request);
+        } catch (Exception& e) {
+            st = e.to_status();
+        }
         st.to_protobuf(response->mutable_status());
     });
     if (!ret) {
@@ -1421,7 +1455,12 @@ void PInternalService::sync_filter_size(::google::protobuf::RpcController* contr
     bool ret = _light_work_pool.try_offer([this, request, response, done]() {
         signal::SignalTaskIdKeeper keeper(request->query_id());
         brpc::ClosureGuard closure_guard(done);
-        Status st = _exec_env->fragment_mgr()->sync_filter_size(request);
+        Status st;
+        try {
+            st = _exec_env->fragment_mgr()->sync_filter_size(request);
+        } catch (Exception& e) {
+            st = e.to_status();
+        }
         st.to_protobuf(response->mutable_status());
     });
     if (!ret) {
@@ -1440,7 +1479,12 @@ void PInternalService::apply_filterv2(::google::protobuf::RpcController* control
         auto attachment = static_cast<brpc::Controller*>(controller)->request_attachment();
         butil::IOBufAsZeroCopyInputStream zero_copy_input_stream(attachment);
         VLOG_NOTICE << "rpc apply_filterv2 recv";
-        Status st = _exec_env->fragment_mgr()->apply_filterv2(request, &zero_copy_input_stream);
+        Status st;
+        try {
+            st = _exec_env->fragment_mgr()->apply_filterv2(request, &zero_copy_input_stream);
+        } catch (Exception& e) {
+            st = e.to_status();
+        }
         if (!st.ok()) {
             LOG(WARNING) << "apply filter meet error: " << st.to_string();
         }
@@ -2083,8 +2127,8 @@ void PInternalService::multiget_data_v2(google::protobuf::RpcController* control
     }
 
     doris::pipeline::TaskScheduler* exec_sched = nullptr;
-    vectorized::SimplifiedScanScheduler* scan_sched = nullptr;
-    vectorized::SimplifiedScanScheduler* remote_scan_sched = nullptr;
+    vectorized::ScannerScheduler* scan_sched = nullptr;
+    vectorized::ScannerScheduler* remote_scan_sched = nullptr;
     wg->get_query_scheduler(&exec_sched, &scan_sched, &remote_scan_sched);
     DCHECK(remote_scan_sched);
 
@@ -2298,5 +2342,68 @@ void PInternalService::abort_refresh_dictionary(google::protobuf::RpcController*
                                                                            request->version_id());
     st.to_protobuf(response->mutable_status());
 }
+
+void PInternalService::get_tablet_rowsets(google::protobuf::RpcController* controller,
+                                          const PGetTabletRowsetsRequest* request,
+                                          PGetTabletRowsetsResponse* response,
+                                          google::protobuf::Closure* done) {
+    DCHECK(config::is_cloud_mode());
+    auto start_time = GetMonoTimeMicros();
+    Defer defer {
+            [&]() { g_process_remote_fetch_rowsets_latency << GetMonoTimeMicros() - start_time; }};
+    brpc::ClosureGuard closure_guard(done);
+    LOG(INFO) << "process get tablet rowsets, request=" << request->ShortDebugString();
+    if (!request->has_tablet_id() || !request->has_version_start() || !request->has_version_end()) {
+        Status::InvalidArgument("missing params tablet/version_start/version_end")
+                .to_protobuf(response->mutable_status());
+        return;
+    }
+    CloudStorageEngine& storage = ExecEnv::GetInstance()->storage_engine().to_cloud();
+
+    auto maybe_tablet =
+            storage.tablet_mgr().get_tablet(request->tablet_id(), /*warmup data*/ false,
+                                            /*syn_delete_bitmap*/ false, /*delete_bitmap*/ nullptr,
+                                            /*local_only*/ true);
+    if (!maybe_tablet) {
+        maybe_tablet.error().to_protobuf(response->mutable_status());
+        return;
+    }
+    auto tablet = maybe_tablet.value();
+    Result<CaptureRowsetResult> ret;
+    {
+        std::shared_lock l(tablet->get_header_lock());
+        ret = tablet->capture_consistent_rowsets_unlocked(
+                {request->version_start(), request->version_end()},
+                CaptureRowsetOps {.enable_fetch_rowsets_from_peers = false});
+    }
+    if (!ret) {
+        ret.error().to_protobuf(response->mutable_status());
+        return;
+    }
+    auto rowsets = std::move(ret.value().rowsets);
+    for (const auto& rs : rowsets) {
+        RowsetMetaPB meta;
+        rs->rowset_meta()->to_rowset_pb(&meta);
+        response->mutable_rowsets()->Add(std::move(meta));
+    }
+    if (request->has_delete_bitmap_keys()) {
+        DCHECK(tablet->enable_unique_key_merge_on_write());
+        auto delete_bitmap = std::move(ret.value().delete_bitmap);
+        auto keys_pb = request->delete_bitmap_keys();
+        size_t len = keys_pb.rowset_ids().size();
+        DCHECK_EQ(len, keys_pb.segment_ids().size());
+        DCHECK_EQ(len, keys_pb.versions().size());
+        std::set<DeleteBitmap::BitmapKey> keys;
+        for (size_t i = 0; i < len; ++i) {
+            RowsetId rs_id;
+            rs_id.init(keys_pb.rowset_ids(i));
+            keys.emplace(rs_id, keys_pb.segment_ids(i), keys_pb.versions(i));
+        }
+        auto diffset = delete_bitmap->diffset(keys).to_pb();
+        *response->mutable_delete_bitmap() = std::move(diffset);
+    }
+    Status::OK().to_protobuf(response->mutable_status());
+}
+
 #include "common/compile_check_avoid_end.h"
 } // namespace doris

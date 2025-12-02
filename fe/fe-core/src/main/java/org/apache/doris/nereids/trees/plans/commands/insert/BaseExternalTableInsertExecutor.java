@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans.commands.insert;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.SummaryProfile;
@@ -61,8 +62,8 @@ public abstract class BaseExternalTableInsertExecutor extends AbstractInsertExec
     public BaseExternalTableInsertExecutor(ConnectContext ctx, ExternalTable table,
                                            String labelName, NereidsPlanner planner,
                                            Optional<InsertCommandContext> insertCtx,
-                                           boolean emptyInsert) {
-        super(ctx, table, labelName, planner, insertCtx, emptyInsert);
+                                           boolean emptyInsert, long jobId) {
+        super(ctx, table, labelName, planner, insertCtx, emptyInsert, jobId);
         catalogName = table.getCatalog().getName();
         transactionManager = table.getCatalog().getTransactionManager();
 
@@ -112,12 +113,24 @@ public abstract class BaseExternalTableInsertExecutor extends AbstractInsertExec
             }
             summaryProfile.ifPresent(SummaryProfile::setTransactionEndTime);
             txnStatus = TransactionStatus.COMMITTED;
-            Env.getCurrentEnv().getRefreshManager().handleRefreshTable(
-                    catalogName,
-                    table.getDatabase().getFullName(),
-                    table.getName(),
-                    true);
+
+            // Handle post-commit operations (e.g., cache refresh)
+            doAfterCommit();
         }
+    }
+
+    /**
+     * Called after transaction commit.
+     * Subclasses can override this to customize post-commit behavior.
+     * Default: full table refresh.
+     */
+    protected void doAfterCommit() throws DdlException {
+        // Default: full table refresh
+        Env.getCurrentEnv().getRefreshManager().handleRefreshTable(
+                catalogName,
+                table.getDatabase().getFullName(),
+                table.getName(),
+                true);
     }
 
     @Override
@@ -135,18 +148,20 @@ public abstract class BaseExternalTableInsertExecutor extends AbstractInsertExec
         String queryId = DebugUtil.printId(ctx.queryId());
         // if any throwable being thrown during insert operation, first we should abort this txn
         LOG.warn("insert [{}] with query id {} failed", labelName, queryId, t);
-        StringBuilder sb = new StringBuilder(t.getMessage());
+        String firstErrorMsgPart = "";
+        String urlPart = "";
         if (txnId != INVALID_TXN_ID) {
             LOG.warn("insert [{}] with query id {} abort txn {} failed", labelName, queryId, txnId);
             if (!Strings.isNullOrEmpty(coordinator.getFirstErrorMsg())) {
-                sb.append(". first_error_msg: ").append(
-                        StringUtils.abbreviate(coordinator.getFirstErrorMsg(), Config.first_error_msg_max_length));
+                firstErrorMsgPart = StringUtils.abbreviate(coordinator.getFirstErrorMsg(),
+                        Config.first_error_msg_max_length);
             }
             if (!Strings.isNullOrEmpty(coordinator.getTrackingUrl())) {
-                sb.append(". url: ").append(coordinator.getTrackingUrl());
+                urlPart = coordinator.getTrackingUrl();
             }
         }
-        ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, t.getMessage());
+        String finalErrorMsg = InsertUtils.getFinalErrorMsg(t.getMessage(), firstErrorMsgPart, urlPart);
+        ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, finalErrorMsg);
 
         if (table instanceof ExternalTable) {
             try {

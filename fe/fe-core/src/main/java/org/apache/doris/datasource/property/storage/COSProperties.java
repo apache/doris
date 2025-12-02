@@ -53,6 +53,7 @@ public class COSProperties extends AbstractS3CompatibleProperties {
     @Getter
     @ConnectorProperty(names = {"cos.access_key", "s3.access_key", "AWS_ACCESS_KEY", "access_key", "ACCESS_KEY"},
             required = false,
+            sensitive = true,
             description = "The access key of COS.")
     protected String accessKey = "";
 
@@ -166,5 +167,10 @@ public class COSProperties extends AbstractS3CompatibleProperties {
         hadoopStorageConfig.set("fs.cosn.bucket.region", region);
         hadoopStorageConfig.set("fs.cosn.userinfo.secretId", accessKey);
         hadoopStorageConfig.set("fs.cosn.userinfo.secretKey", secretKey);
+    }
+
+    @Override
+    protected Set<String> schemas() {
+        return ImmutableSet.of("cos", "cosn");
     }
 }

@@ -693,6 +693,9 @@ void internal_create_tablet(const CreateTabletsRequest* request, MetaServiceCode
         }
         txn->put(rs_key, rs_val);
         if (is_versioned_write) {
+            std::string rowset_ref_count_key = versioned::data_rowset_ref_count_key(
+                    {instance_id, tablet_id, first_rowset->rowset_id_v2()});
+            txn->atomic_add(rowset_ref_count_key, 1);
             std::string versioned_rs_key = versioned::meta_rowset_load_key(
                     {instance_id, tablet_id, first_rowset->end_version()});
             if (!versioned::document_put(txn.get(), versioned_rs_key, std::move(*first_rowset))) {
@@ -703,7 +706,8 @@ void internal_create_tablet(const CreateTabletsRequest* request, MetaServiceCode
             }
             LOG(INFO) << "put first versioned rowset meta, tablet_id=" << tablet_id
                       << " end_version=" << first_rowset->end_version()
-                      << " key=" << hex(versioned_rs_key);
+                      << " key=" << hex(versioned_rs_key)
+                      << " rowset_ref_count_key=" << hex(rowset_ref_count_key);
         }
 
         tablet_meta.clear_rs_metas(); // Strip off rowset meta
@@ -847,19 +851,6 @@ void internal_create_tablet(const CreateTabletsRequest* request, MetaServiceCode
               << " index_id=" << index_id << " partition_id=" << partition_id
               << " key=" << hex(stats_key);
     if (is_versioned_write) {
-        std::string load_stats_key = versioned::tablet_load_stats_key({instance_id, tablet_id});
-        TabletStatsPB stats_pb_copy(stats_pb);
-        if (!versioned::document_put(txn.get(), load_stats_key, std::move(stats_pb_copy))) {
-            code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
-            msg = fmt::format("failed to serialize versioned tablet stats, key={}",
-                              hex(load_stats_key));
-            return;
-        }
-
-        // The compact stats is initialized with zero values
-        stats_pb.set_num_rows(0);
-        stats_pb.set_num_rowsets(0);
-        stats_pb.set_num_segments(0);
         std::string compact_stats_key =
                 versioned::tablet_compact_stats_key({instance_id, tablet_id});
         if (!versioned::document_put(txn.get(), compact_stats_key, std::move(stats_pb))) {
@@ -868,7 +859,18 @@ void internal_create_tablet(const CreateTabletsRequest* request, MetaServiceCode
                               hex(compact_stats_key));
             return;
         }
-        LOG_INFO("put versioned tablet load and compact stats, ") << "tablet_id=" << tablet_id
+
+        // The load stats is initialized with zero values
+        TabletStatsPB empty_stats_pb;
+        std::string load_stats_key = versioned::tablet_load_stats_key({instance_id, tablet_id});
+        if (!versioned::document_put(txn.get(), load_stats_key, std::move(empty_stats_pb))) {
+            code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+            msg = fmt::format("failed to serialize versioned tablet stats, key={}",
+                              hex(load_stats_key));
+            return;
+        }
+
+        LOG(INFO) << "put versioned tablet load and compact stats, tablet_id=" << tablet_id
                   << " load_stats_key=" << hex(load_stats_key)
                   << " compact_stats_key=" << hex(compact_stats_key);
     }
@@ -1202,16 +1204,10 @@ void MetaServiceImpl::update_tablet(::google::protobuf::RpcController* controlle
     if (is_versioned_write && update_tablet_log.tablet_ids_size() > 0) {
         OperationLogPB log;
         log.mutable_update_tablet()->Swap(&update_tablet_log);
-        std::string update_log_key = versioned::log_key(instance_id);
-        std::string operation_log_value;
-        if (!log.SerializeToString(&operation_log_value)) {
-            code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
-            msg = "failed to serialize update tablet log";
-            return;
-        }
-        versioned_put(txn.get(), update_log_key, operation_log_value);
-        LOG(INFO) << "put versioned update tablet log, key=" << hex(update_log_key)
-                  << " instance_id=" << instance_id << " log_size=" << operation_log_value.size();
+        std::string log_key = versioned::log_key(instance_id);
+        versioned::blob_put(txn.get(), log_key, log);
+        LOG(INFO) << "put update tablet operation log, key=" << hex(log_key)
+                  << " instance_id=" << instance_id;
     }
 
     err = txn->commit();
@@ -1748,6 +1744,24 @@ void MetaServiceImpl::commit_restore_job(::google::protobuf::RpcController* cont
                     .tag("rowset_size", rs_key.size() + rs_val.size())
                     .tag("rowset_meta", rowset_meta.DebugString());
 
+            if (is_versioned_write) {
+                std::string meta_rowset_load_key = versioned::meta_rowset_load_key(
+                        {instance_id, tablet_idx.tablet_id(), rowset_meta.end_version()});
+                // Put versioned rowset compact metadata for new tablet's rowsets
+                LOG_INFO("put restore job's versioned meta rowset load key")
+                        .tag("instance_id", instance_id)
+                        .tag("meta_rowset_load_key", hex(meta_rowset_load_key))
+                        .tag("tablet_id", tablet_idx.tablet_id());
+                // if will revert in drop_partition rpc if commit restore_job failed
+                if (!versioned::document_put(txn.get(), meta_rowset_load_key,
+                                             std::move(rowset_meta))) {
+                    code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+                    msg = fmt::format("failed to serialize versioned rowset meta, key={}",
+                                      hex(meta_rowset_load_key));
+                    return;
+                }
+            }
+
             tablet_stat.data_size += rowset_meta.total_disk_size();
             tablet_stat.num_rows += rowset_meta.num_rows();
             tablet_stat.num_segs += rowset_meta.num_segments();
@@ -1991,6 +2005,21 @@ void MetaServiceImpl::commit_restore_job(::google::protobuf::RpcController* cont
             .tag("tablet_id", tablet_idx.tablet_id())
             .tag("tablet_size", tablet_key.size() + tablet_val.size());
 
+    if (is_versioned_write) {
+        std::string versioned_tablet_key =
+                versioned::meta_tablet_key({instance_id, tablet_meta->tablet_id()});
+        TabletMetaCloudPB meta;
+        meta.CopyFrom(*tablet_meta);
+        if (!versioned::document_put(txn0.get(), versioned_tablet_key, std::move(meta))) {
+            code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+            msg = fmt::format("failed to serialize versioned tablet meta, key={}",
+                              hex(versioned_tablet_key));
+            return;
+        }
+        LOG(INFO) << "put versioned tablet meta, tablet_id=" << tablet_meta->tablet_id()
+                  << " key=" << hex(versioned_tablet_key);
+    }
+
     StatsTabletKeyInfo stat_info {instance_id, tablet_meta->table_id(), tablet_meta->index_id(),
                                   tablet_meta->partition_id(), tablet_meta->tablet_id()};
     std::string stats_key;
@@ -2010,6 +2039,30 @@ void MetaServiceImpl::commit_restore_job(::google::protobuf::RpcController* cont
             .tag("tablet_id", tablet_meta->tablet_id())
             .tag("stats key", hex(stats_key));
 
+    if (is_versioned_write) {
+        TabletStatsPB tablet_load_stats;
+        auto tablet_load_stats_val = tablet_load_stats.SerializeAsString();
+        std::string tablet_load_stats_version_key =
+                versioned::tablet_load_stats_key({instance_id, tablet_meta->tablet_id()});
+        LOG_INFO("put versioned tablet load stats key")
+                .tag("tablet_load_stats_version_key", hex(tablet_load_stats_version_key))
+                .tag("tablet_id", tablet_meta->tablet_id())
+                .tag("value_size", tablet_load_stats_val.size())
+                .tag("instance_id", instance_id);
+        versioned_put(txn0.get(), tablet_load_stats_version_key, tablet_load_stats_val);
+
+        TabletStatsPB tablet_compact_stats;
+        tablet_compact_stats.CopyFrom(stats_pb);
+        auto tablet_compact_stats_val = tablet_compact_stats.SerializeAsString();
+        std::string tablet_compact_stats_version_key =
+                versioned::tablet_compact_stats_key({instance_id, tablet_meta->tablet_id()});
+        LOG_INFO("put versioned tablet compact stats key")
+                .tag("tablet_compact_stats_version_key", hex(tablet_compact_stats_version_key))
+                .tag("tablet_id", tablet_meta->tablet_id())
+                .tag("value_size", tablet_compact_stats_val.size())
+                .tag("instance_id", instance_id);
+        versioned_put(txn0.get(), tablet_compact_stats_version_key, tablet_compact_stats_val);
+    }
     update_tablet_stats(stat_info, tablet_stat, txn0, code, msg);
     if (code != MetaServiceCode::OK) {
         return;
@@ -3766,8 +3819,8 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
         LOG_WARNING("{}, cloud_unique_id={}", msg, request->cloud_unique_id());
         return;
     }
-
-    if (request->without_lock() && request->has_pre_rowset_agg_end_version() &&
+    bool without_lock = request->has_without_lock() ? request->without_lock() : false;
+    if (without_lock && request->has_pre_rowset_agg_end_version() &&
         request->pre_rowset_agg_end_version() > 0) {
         if (request->rowset_ids_size() != request->pre_rowset_versions_size()) {
             code = MetaServiceCode::INVALID_ARGUMENT;
@@ -3784,6 +3837,21 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
            << " not equal to delete_bitmap_storages size="
            << request->delete_bitmap_storages_size();
         msg = ss.str();
+        return;
+    }
+
+    auto store_version = request->has_store_version() ? request->store_version() : 1;
+    if (store_version != 1 && store_version != 2 && store_version != 3) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "delete bitmap store version must be 1, 2, 3";
+        return;
+    }
+
+    bool is_versioned_write = is_version_write_enabled(instance_id);
+    if (!without_lock && is_versioned_write && store_version == 1) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "instance enabled versioned write, please set delete_bitmap_store_write_version to 2 "
+              "or 3 in be.conf";
         return;
     }
 
@@ -3805,7 +3873,6 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
 
     bool is_explicit_txn = (request->has_is_explicit_txn() && request->is_explicit_txn());
     bool is_first_sub_txn = (is_explicit_txn && request->txn_id() == request->lock_id());
-    bool without_lock = request->has_without_lock() ? request->without_lock() : false;
     std::string log = ", update delete bitmap for tablet " + std::to_string(tablet_id);
     if (!without_lock) {
         // 1. Check whether the lock expires
@@ -4066,6 +4133,14 @@ void MetaServiceImpl::get_delete_bitmap(google::protobuf::RpcController* control
            << " begin_version_size=" << begin_versions.size()
            << " end_version_size=" << end_versions.size();
         msg = ss.str();
+        return;
+    }
+
+    bool is_versioned_read = is_version_read_enabled(instance_id);
+    if (is_versioned_read && store_version == 1) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "instance enabled versioned read, please set delete_bitmap_store_read_version to 2 "
+              "or 3 in be.conf";
         return;
     }
 

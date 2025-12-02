@@ -18,6 +18,7 @@
 #include "olap/rowset/segment_v2/variant/hierarchical_data_iterator.h"
 
 #include <memory>
+#include <optional>
 
 #include "common/status.h"
 #include "io/io_common.h"
@@ -305,7 +306,11 @@ Status HierarchicalDataIterator::_init_container(vectorized::MutableColumnPtr& c
 // Return sub-path by specified prefix.
 // For example, for prefix a.b:
 // a.b.c.d -> c.d, a.b.c -> c
-static std::string_view get_sub_path(const std::string_view& path, const std::string_view& prefix) {
+static std::optional<std::string_view> get_sub_path(const std::string_view& path,
+                                                    const std::string_view& prefix) {
+    if (path.size() <= prefix.size() || path[prefix.size()] != '.') {
+        return std::nullopt;
+    }
     return path.substr(prefix.size() + 1);
 }
 
@@ -377,22 +382,24 @@ Status HierarchicalDataIterator::_process_sparse_column(
                     }
                     // Don't include path that is equal to the prefix.
                     if (path.size() != path_prefix.size()) {
-                        auto sub_path = get_sub_path(path, path_prefix);
+                        auto sub_path_optional = get_sub_path(path, path_prefix);
+                        if (!sub_path_optional.has_value()) {
+                            continue;
+                        }
+                        std::string_view sub_path = *sub_path_optional;
                         // Case 1: subcolumn already created, append this row's value into it.
                         if (auto it = subcolumns_from_sparse_column.find(sub_path);
                             it != subcolumns_from_sparse_column.end()) {
-                            const auto& data = ColumnVariant::deserialize_from_sparse_column(
-                                    &src_sparse_data_values, lower_bound_index);
-                            it->second.insert(data.first, data.second);
+                            it->second.deserialize_from_sparse_column(&src_sparse_data_values,
+                                                                      lower_bound_index);
                         }
                         // Case 2: subcolumn not created yet and we still have quota → create it and insert.
                         else if (subcolumns_from_sparse_column.size() < count) {
                             // Initialize subcolumn with current logical row index i to align sizes.
                             ColumnVariant::Subcolumn subcolumn(/*size*/ i, /*is_nullable*/ true,
                                                                false);
-                            const auto& data = ColumnVariant::deserialize_from_sparse_column(
-                                    &src_sparse_data_values, lower_bound_index);
-                            subcolumn.insert(data.first, data.second);
+                            subcolumn.deserialize_from_sparse_column(&src_sparse_data_values,
+                                                                     lower_bound_index);
                             subcolumns_from_sparse_column.emplace(sub_path, std::move(subcolumn));
                         }
                         // Case 3: quota exhausted → keep the key/value in container's sparse column.
@@ -416,9 +423,8 @@ Status HierarchicalDataIterator::_process_sparse_column(
                             //     return Status::InternalError("Failed to add subcolumn for sparse column");
                             // }
                         }
-                        const auto& data = ColumnVariant::deserialize_from_sparse_column(
+                        container_variant.get_subcolumn({})->deserialize_from_sparse_column(
                                 &src_sparse_data_values, lower_bound_index);
-                        container_variant.get_subcolumn({})->insert(data.first, data.second);
                     }
                 }
                 // if root was created, and not seen in sparse data, insert default

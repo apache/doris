@@ -326,11 +326,21 @@ Status DataTypeArraySerDe::read_column_from_arrow(IColumn& column, const arrow::
     auto arrow_offsets_array = concrete_array->offsets();
     auto* arrow_offsets = dynamic_cast<arrow::Int32Array*>(arrow_offsets_array.get());
     auto prev_size = offsets_data.back();
-    auto arrow_nested_start_offset = arrow_offsets->Value(start);
-    auto arrow_nested_end_offset = arrow_offsets->Value(end);
+    const auto* base_offsets_ptr = reinterpret_cast<const uint8_t*>(arrow_offsets->raw_values());
+    const size_t offset_element_size = sizeof(int32_t);
+    int32_t arrow_nested_start_offset = 0;
+    int32_t arrow_nested_end_offset = 0;
+    const uint8_t* start_offset_ptr = base_offsets_ptr + start * offset_element_size;
+    const uint8_t* end_offset_ptr = base_offsets_ptr + end * offset_element_size;
+    memcpy(&arrow_nested_start_offset, start_offset_ptr, offset_element_size);
+    memcpy(&arrow_nested_end_offset, end_offset_ptr, offset_element_size);
+
     for (auto i = start + 1; i < end + 1; ++i) {
+        int32_t current_offset = 0;
+        const uint8_t* current_offset_ptr = base_offsets_ptr + i * offset_element_size;
+        memcpy(&current_offset, current_offset_ptr, offset_element_size);
         // convert to doris offset, start from offsets.back()
-        offsets_data.emplace_back(prev_size + arrow_offsets->Value(i) - arrow_nested_start_offset);
+        offsets_data.emplace_back(prev_size + current_offset - arrow_nested_start_offset);
     }
     return nested_serde->read_column_from_arrow(
             column_array.get_data(), concrete_array->values().get(), arrow_nested_start_offset,
@@ -389,17 +399,17 @@ Status DataTypeArraySerDe::_write_column_to_mysql(const IColumn& column,
     return Status::OK();
 }
 
-Status DataTypeArraySerDe::write_column_to_mysql(const IColumn& column,
-                                                 MysqlRowBuffer<true>& row_buffer, int64_t row_idx,
-                                                 bool col_const,
-                                                 const FormatOptions& options) const {
+Status DataTypeArraySerDe::write_column_to_mysql_binary(const IColumn& column,
+                                                        MysqlRowBinaryBuffer& row_buffer,
+                                                        int64_t row_idx, bool col_const,
+                                                        const FormatOptions& options) const {
     return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
 }
 
-Status DataTypeArraySerDe::write_column_to_mysql(const IColumn& column,
-                                                 MysqlRowBuffer<false>& row_buffer, int64_t row_idx,
-                                                 bool col_const,
-                                                 const FormatOptions& options) const {
+Status DataTypeArraySerDe::write_column_to_mysql_text(const IColumn& column,
+                                                      MysqlRowTextBuffer& row_buffer,
+                                                      int64_t row_idx, bool col_const,
+                                                      const FormatOptions& options) const {
     return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
 }
 
@@ -527,6 +537,46 @@ void DataTypeArraySerDe::write_one_cell_to_binary(const IColumn& src_column,
     }
 }
 
+const uint8_t* DataTypeArraySerDe::deserialize_binary_to_column(const uint8_t* data,
+                                                                IColumn& column) {
+    auto& array_col = assert_cast<ColumnArray&, TypeCheckOnRelease::DISABLE>(column);
+    auto& offsets = array_col.get_offsets();
+    auto& nested_column = array_col.get_data();
+    const size_t nested_size = unaligned_load<size_t>(data);
+    data += sizeof(size_t);
+    if (nested_size == 0) [[unlikely]] {
+        offsets.push_back(offsets.back());
+        return data;
+    }
+
+    for (size_t i = 0; i < nested_size; ++i) {
+        const uint8_t* new_data = DataTypeSerDe::deserialize_binary_to_column(data, nested_column);
+        data = new_data;
+    }
+    offsets.push_back(offsets.back() + nested_size);
+    return data;
+}
+
+const uint8_t* DataTypeArraySerDe::deserialize_binary_to_field(const uint8_t* data, Field& field,
+                                                               FieldInfo& info) {
+    const size_t nested_size = unaligned_load<size_t>(data);
+    data += sizeof(size_t);
+    field = Field::create_field<TYPE_ARRAY>(Array(nested_size));
+    info.num_dimensions++;
+    auto& array = field.get<Array>();
+    PrimitiveType nested_type = PrimitiveType::TYPE_NULL;
+    for (size_t i = 0; i < nested_size; ++i) {
+        Field nested_field;
+        data = DataTypeSerDe::deserialize_binary_to_field(data, nested_field, info);
+        array[i] = std::move(nested_field);
+        if (info.scalar_type_id != PrimitiveType::TYPE_NULL) {
+            nested_type = info.scalar_type_id;
+        }
+    }
+    info.scalar_type_id = nested_type;
+    return data;
+}
+
 void DataTypeArraySerDe::to_string(const IColumn& column, size_t row_num,
                                    BufferWritable& bw) const {
     const auto& data_column = assert_cast<const ColumnArray&>(column);
@@ -544,6 +594,46 @@ void DataTypeArraySerDe::to_string(const IColumn& column, size_t row_num,
         nested_serde->to_string(nested_column, i, bw);
     }
     bw.write("]", 1);
+}
+
+bool DataTypeArraySerDe::write_column_to_presto_text(const IColumn& column, BufferWritable& bw,
+                                                     int64_t row_idx) const {
+    const auto& data_column = assert_cast<const ColumnArray&>(column);
+    const auto& offsets = data_column.get_offsets();
+
+    size_t offset = offsets[row_idx - 1];
+    size_t next_offset = offsets[row_idx];
+
+    const IColumn& nested_column = data_column.get_data();
+    bw.write("[", 1);
+    for (size_t i = offset; i < next_offset; ++i) {
+        if (i != offset) {
+            bw.write(", ", 2);
+        }
+        nested_serde->write_column_to_presto_text(nested_column, bw, i);
+    }
+    bw.write("]", 1);
+    return true;
+}
+
+bool DataTypeArraySerDe::write_column_to_hive_text(const IColumn& column, BufferWritable& bw,
+                                                   int64_t row_idx) const {
+    const auto& data_column = assert_cast<const ColumnArray&>(column);
+    const auto& offsets = data_column.get_offsets();
+
+    size_t offset = offsets[row_idx - 1];
+    size_t next_offset = offsets[row_idx];
+
+    const IColumn& nested_column = data_column.get_data();
+    bw.write("[", 1);
+    for (size_t i = offset; i < next_offset; ++i) {
+        if (i != offset) {
+            bw.write(",", 1);
+        }
+        nested_serde->write_column_to_hive_text(nested_column, bw, i);
+    }
+    bw.write("]", 1);
+    return true;
 }
 
 } // namespace doris::vectorized

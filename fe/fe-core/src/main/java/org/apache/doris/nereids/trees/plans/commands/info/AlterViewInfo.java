@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.trees.plans.commands.info;
 
-import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
@@ -72,8 +71,8 @@ public class AlterViewInfo extends BaseViewInfo {
         }
 
         // check privilege
-        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ctx, new TableName(viewName.getCtl(), viewName.getDb(),
-                viewName.getTbl()), PrivPredicate.ALTER)) {
+        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ctx,
+                new TableNameInfo(viewName.getCtl(), viewName.getDb(), viewName.getTbl()), PrivPredicate.ALTER)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLE_ACCESS_DENIED_ERROR,
                     PrivPredicate.ALTER.getPrivs().toString(), viewName.getTbl());
         }

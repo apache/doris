@@ -73,7 +73,7 @@ Status Merger::vmerge_rowsets(BaseTabletSPtr tablet, ReaderType reader_type,
     reader_params.tablet = tablet;
     reader_params.reader_type = reader_type;
 
-    TabletReader::ReadSource read_source;
+    TabletReadSource read_source;
     read_source.rs_splits.reserve(src_rowset_readers.size());
     for (const RowsetReaderSharedPtr& rs_reader : src_rowset_readers) {
         read_source.rs_splits.emplace_back(rs_reader);
@@ -92,7 +92,7 @@ Status Merger::vmerge_rowsets(BaseTabletSPtr tablet, ReaderType reader_type,
     }
     reader_params.tablet_schema = merge_tablet_schema;
     if (!tablet->tablet_schema()->cluster_key_uids().empty()) {
-        reader_params.delete_bitmap = &tablet->tablet_meta()->delete_bitmap();
+        reader_params.delete_bitmap = tablet->tablet_meta()->delete_bitmap_ptr();
     }
 
     if (stats_output && stats_output->rowid_conversion) {
@@ -257,7 +257,7 @@ Status Merger::vertical_compact_one_group(
     reader_params.tablet = tablet;
     reader_params.reader_type = reader_type;
 
-    TabletReader::ReadSource read_source;
+    TabletReadSource read_source;
     read_source.rs_splits.reserve(src_rowset_readers.size());
     for (const RowsetReaderSharedPtr& rs_reader : src_rowset_readers) {
         read_source.rs_splits.emplace_back(rs_reader);
@@ -277,7 +277,7 @@ Status Merger::vertical_compact_one_group(
     reader_params.tablet_schema = merge_tablet_schema;
     bool has_cluster_key = false;
     if (!tablet->tablet_schema()->cluster_key_uids().empty()) {
-        reader_params.delete_bitmap = &tablet->tablet_meta()->delete_bitmap();
+        reader_params.delete_bitmap = tablet->tablet_meta()->delete_bitmap_ptr();
         has_cluster_key = true;
     }
 
@@ -477,7 +477,7 @@ Status Merger::vertical_merge_rowsets(BaseTabletSPtr tablet, ReaderType reader_t
             tablet->tablet_id(), dst_rowset_writer->context().tablet_path, reader_type);
     {
         std::unique_lock<std::mutex> lock(tablet->sample_info_lock);
-        tablet->sample_infos.resize(column_groups.size(), {0, 0, 0});
+        tablet->sample_infos.resize(column_groups.size());
     }
     // compact group one by one
     for (auto i = 0; i < column_groups.size(); ++i) {

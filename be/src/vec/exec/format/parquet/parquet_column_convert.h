@@ -20,6 +20,7 @@
 #include <gen_cpp/parquet_types.h>
 
 #include "common/cast_set.h"
+#include "vec/columns/column_varbinary.h"
 #include "vec/core/extended_types.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
@@ -64,7 +65,7 @@ struct ConvertParams {
             // The missing parque metadata makes it impossible for us to know the time zone information,
             // so we default to UTC here.
             if (ctz == nullptr) {
-                ctz = const_cast<cctz::time_zone*>(&utc0);
+                ctz = &utc0;
             }
         }
     }
@@ -84,7 +85,7 @@ struct ConvertParams {
                 // When a timestamp is stored as `1970-01-03 12:00:00`,
                 // if isAdjustedToUTC = true, UTC8 should read as `1970-01-03 20:00:00`, UTC6 should read as `1970-01-03 18:00:00`
                 // if isAdjustedToUTC = false, UTC8 and UTC6 should read as `1970-01-03 12:00:00`, which is the same as `1970-01-03 12:00:00` in UTC0
-                ctz = const_cast<cctz::time_zone*>(&utc0);
+                ctz = &utc0;
             }
             const auto& time_unit = timestamp_info.unit;
             if (time_unit.__isset.MILLIS) {
@@ -182,8 +183,8 @@ public:
         ColumnPtr src_logical_column;
         if (is_consistent()) {
             if (dst_logical_type->is_nullable()) {
-                auto doris_nullable_column = const_cast<ColumnNullable*>(
-                        assert_cast<const ColumnNullable*>(dst_logical_col.get()));
+                auto doris_nullable_column =
+                        assert_cast<const ColumnNullable*>(dst_logical_col.get());
                 src_logical_column =
                         ColumnNullable::create(_cached_src_physical_column,
                                                doris_nullable_column->get_null_map_column_ptr());
@@ -351,6 +352,48 @@ public:
 
         return Status::OK();
     }
+};
+
+class UUIDVarBinaryConverter : public PhysicalToLogicalConverter {
+public:
+    UUIDVarBinaryConverter(int type_length) : _type_length(type_length) {}
+
+    Status physical_convert(ColumnPtr& src_physical_col, ColumnPtr& src_logical_column) override {
+        DCHECK(!is_column_const(*src_physical_col)) << src_physical_col->dump_structure();
+        DCHECK(!is_column_const(*src_logical_column)) << src_logical_column->dump_structure();
+        const ColumnUInt8* uint8_col = nullptr;
+        if (is_column_nullable(*src_physical_col)) {
+            const auto& nullable =
+                    assert_cast<const vectorized::ColumnNullable*>(src_physical_col.get());
+            uint8_col = &assert_cast<const ColumnUInt8&>(nullable->get_nested_column());
+        } else {
+            uint8_col = &assert_cast<const ColumnUInt8&>(*src_physical_col);
+        }
+
+        MutableColumnPtr to_col = nullptr;
+        // nullmap flag seems have been handled in upper level
+        if (src_logical_column->is_nullable()) {
+            const auto* nullable =
+                    assert_cast<const vectorized::ColumnNullable*>(src_logical_column.get());
+            to_col = nullable->get_nested_column_ptr()->assume_mutable();
+        } else {
+            to_col = src_logical_column->assume_mutable();
+        }
+        auto* to_varbinary_column = assert_cast<ColumnVarbinary*>(to_col.get());
+        size_t length = uint8_col->size();
+        size_t num_values = length / _type_length;
+        const auto* ptr = uint8_col->get_data().data();
+
+        for (int i = 0; i < num_values; ++i) {
+            auto offset = i * _type_length;
+            const char* data_ptr = reinterpret_cast<const char*>(ptr + offset);
+            to_varbinary_column->insert_data(data_ptr, _type_length);
+        }
+        return Status::OK();
+    }
+
+private:
+    int _type_length;
 };
 
 template <PrimitiveType DecimalPType>

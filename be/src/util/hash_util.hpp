@@ -22,6 +22,7 @@
 
 #include <gen_cpp/Types_types.h>
 #include <xxh3.h>
+#include <xxhash.h>
 #include <zlib.h>
 
 #include <bit>
@@ -129,6 +130,17 @@ public:
     static uint32_t murmur_hash3_32(const void* key, int64_t len, uint32_t seed) {
         uint32_t out = 0;
         murmur_hash3_x86_32(key, len, seed, &out);
+        return out;
+    }
+
+    template <bool is_mmh64_v2>
+    static uint64_t murmur_hash3_64(const void* key, int64_t len, uint64_t seed) {
+        uint64_t out = 0;
+        if constexpr (is_mmh64_v2) {
+            murmur_hash3_x64_64_shared(key, len, seed, &out);
+        } else {
+            murmur_hash3_x64_64(key, len, seed, &out);
+        }
         return out;
     }
 
@@ -349,6 +361,15 @@ public:
     static xxh_u64 xxHash64NullWithSeed(xxh_u64 seed) {
         static const int INT_VALUE = 0;
         return XXH3_64bits_withSeed(reinterpret_cast<const char*>(&INT_VALUE), sizeof(int), seed);
+    }
+
+    static xxh_u64 xxhash64_compat_with_seed(const char* s, size_t len, xxh_u64 seed) {
+        return XXH64(reinterpret_cast<const void*>(s), len, seed);
+    }
+
+    static xxh_u64 xxhash64_compat_null_with_seed(xxh_u64 seed) {
+        static const int INT_VALUE = 0;
+        return XXH64(reinterpret_cast<const void*>(&INT_VALUE), sizeof(int), seed);
     }
 
 #if defined(__clang__)

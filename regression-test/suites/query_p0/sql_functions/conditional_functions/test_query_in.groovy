@@ -61,4 +61,17 @@ suite("test_query_in", "query,p0") {
     qt_in31 """select * from (select 'jj' as kk1, sum(k2) from ${tableName2} where k10 = '2015-04-02' group by kk1)tt
             where kk1 = 'jj'"""
     qt_in32 """select * from ${tableName1} where cast(k1 as char) in (1, -1, 5, 0.1, 3.000) order by k1, k2, k3, k4"""
+
+    sql """ drop table if exists double_test_out_of_range; """
+    sql """
+        create table double_test_out_of_range (
+            id int,
+            v double
+        ) properties("replication_num" = "1");
+    """
+    sql """ insert into double_test_out_of_range values (1, 1e308), (2, 1e309), (3, 1e-308); """
+    qt_in33 """ select * from double_test_out_of_range order by id; """
+    qt_in34 """ select * from double_test_out_of_range where v = 1e308; """
+    qt_in35 """ select * from double_test_out_of_range where v = 1e309; """
+    qt_in36 """ select * from double_test_out_of_range where v = 1e-308; """
 }

@@ -33,6 +33,7 @@ import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
+import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.DoubleType;
@@ -648,6 +649,14 @@ public class NumericArithmetic {
     }
 
     /**
+     * atan
+     */
+    @ExecFunction(name = "atan")
+    public static Expression atan(DoubleLiteral first, DoubleLiteral second) {
+        return new DoubleLiteral(Math.atan2(first.getValue(), second.getValue()));
+    }
+
+    /**
      * asinh
      */
     @ExecFunction(name = "asinh")
@@ -726,6 +735,18 @@ public class NumericArithmetic {
         double evenMag = 2 * Math.ceil(mag / 2);
         double value = Math.copySign(evenMag, first.getValue());
         return new DoubleLiteral(value);
+    }
+
+    /**
+     * factorial
+     */
+    @ExecFunction(name = "factorial")
+    public static Expression factorial(BigIntLiteral first) {
+        long value = first.getValue();
+        if (value < 0 || value > 20) {
+            return new NullLiteral(BigIntType.INSTANCE);
+        }
+        return new BigIntLiteral(ArithmeticUtils.factorial((int) value));
     }
 
     /**

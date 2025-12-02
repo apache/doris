@@ -67,6 +67,7 @@ class SuiteContext implements Closeable {
     private long startTime
     private long finishTime
     private volatile Throwable throwable
+    public volatile Boolean isMultiDockerClusterRunning = false
 
     SuiteContext(File file, String suiteName, String group, ScriptContext scriptContext, SuiteCluster cluster,
                  ExecutorService suiteExecutors, ExecutorService actionExecutors, Config config) {
@@ -171,6 +172,9 @@ class SuiteContext implements Closeable {
     }
 
     String getJdbcUrl() {
+        if (isMultiDockerClusterRunning) {
+            throw new IllegalStateException("In dockers() context, please use connectWithDockerCluster() to setup connection")
+        }
         if (cluster.isRunning()) {
             return cluster.jdbcUrl
         } else {

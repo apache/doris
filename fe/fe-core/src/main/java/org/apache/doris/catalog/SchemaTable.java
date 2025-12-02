@@ -51,6 +51,8 @@ public class SchemaTable extends Table {
     private static final int PRIVILEGE_TYPE_LEN = 64;
     private static final int IS_GRANTABLE_LEN = 3;
 
+    public static final String BLACKHOLE_TABLE_NAME = "blackhole";
+
     // Now we just mock tables, table_privileges, referential_constraints, key_column_usage and routines table
     // Because in MySQL ODBC, these tables are used.
     // TODO(zhaochun): Review some commercial BI to check if we need support where clause in show statement
@@ -572,6 +574,10 @@ public class SchemaTable extends Table {
                                     .column("DISTRIBUTE_TYPE", ScalarType.createStringType())
                                     .column("BUCKETS_NUM", ScalarType.createType(PrimitiveType.INT))
                                     .column("PARTITION_NUM", ScalarType.createType(PrimitiveType.INT))
+                                    .column("PARTITION_METHOD", ScalarType.createVarchar(13))
+                                    .column("PARTITION_EXPRESSION", ScalarType.createVarchar(2048))
+                                    .column("PARTITION_KEY", ScalarType.createStringType())
+                                    .column("RANGE", ScalarType.createStringType())
                                     .build()))
             .put("workload_group_privileges",
                     new SchemaTable(SystemIdGenerator.getNextId(), "workload_group_privileges", TableType.SCHEMA,
@@ -632,6 +638,22 @@ public class SchemaTable extends Table {
                                     .column("REFRESH_INTERVAL_SECOND", ScalarType.createType(PrimitiveType.BIGINT))
                                     .build())
             )
+            .put("column_data_sizes",
+                    new SchemaTable(SystemIdGenerator.getNextId(), "column_data_sizes", TableType.SCHEMA,
+                            builder().column("BACKEND_ID", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("TABLE_ID", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("INDEX_ID", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("PARTITION_ID", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("TABLET_ID", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("ROWSET_ID", ScalarType.createVarchar(64))
+                                    .column("COLUMN_UNIQUE_ID", ScalarType.createType(PrimitiveType.INT))
+                                    .column("COLUMN_NAME", ScalarType.createVarchar(64))
+                                    .column("COLUMN_TYPE", ScalarType.createVarchar(64))
+                                    .column("COMPRESSED_DATA_BYTES", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("UNCOMPRESSED_DATA_BYTES", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("RAW_DATA_BYTES", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .build())
+            )
             .put("routine_load_jobs",
                     new SchemaTable(SystemIdGenerator.getNextId(), "routine_load_jobs", TableType.SCHEMA,
                             builder().column("JOB_ID", ScalarType.createStringType())
@@ -654,6 +676,41 @@ public class SchemaTable extends Table {
                                     .column("USER_NAME", ScalarType.createStringType())
                                     .column("CURRENT_ABORT_TASK_NUM", ScalarType.createType(PrimitiveType.INT))
                                     .column("IS_ABNORMAL_PAUSE", ScalarType.createType(PrimitiveType.BOOLEAN))
+                                    .build())
+            )
+            .put("load_jobs",
+                    new SchemaTable(SystemIdGenerator.getNextId(), "load_jobs", TableType.SCHEMA,
+                            builder().column("JOB_ID", ScalarType.createStringType())
+                                    .column("LABEL", ScalarType.createStringType())
+                                    .column("STATE", ScalarType.createStringType())
+                                    .column("PROGRESS", ScalarType.createStringType())
+                                    .column("TYPE", ScalarType.createStringType())
+                                    .column("ETL_INFO", ScalarType.createStringType())
+                                    .column("TASK_INFO", ScalarType.createStringType())
+                                    .column("ERROR_MSG", ScalarType.createStringType())
+                                    .column("CREATE_TIME", ScalarType.createStringType())
+                                    .column("ETL_START_TIME", ScalarType.createStringType())
+                                    .column("ETL_FINISH_TIME", ScalarType.createStringType())
+                                    .column("LOAD_START_TIME", ScalarType.createStringType())
+                                    .column("LOAD_FINISH_TIME", ScalarType.createStringType())
+                                    .column("URL", ScalarType.createStringType())
+                                    .column("JOB_DETAILS", ScalarType.createStringType())
+                                    .column("TRANSACTION_ID", ScalarType.createStringType())
+                                    .column("ERROR_TABLETS", ScalarType.createStringType())
+                                    .column("USER", ScalarType.createStringType())
+                                    .column("COMMENT", ScalarType.createStringType())
+                                    .column("FIRST_ERROR_MSG", ScalarType.createStringType())
+                                    .build())
+            )
+            .put("file_cache_info",
+                    new SchemaTable(SystemIdGenerator.getNextId(), "file_cache_info", TableType.SCHEMA,
+                            builder().column("HASH", ScalarType.createStringType())
+                                    .column("TABLET_ID", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("SIZE", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("TYPE", ScalarType.createStringType())
+                                    .column("REMOTE_PATH", ScalarType.createStringType())
+                                    .column("CACHE_PATH", ScalarType.createStringType())
+                                    .column("BE_ID", ScalarType.createType(PrimitiveType.BIGINT))
                                     .build())
             )
             .put("backend_tablets", new SchemaTable(SystemIdGenerator.getNextId(), "backend_tablets", TableType.SCHEMA,
@@ -688,6 +745,11 @@ public class SchemaTable extends Table {
                             .column("REF_NAME", ScalarType.createVarchar(NAME_CHAR_LEN))
                             .column("REF_TYPE", ScalarType.createVarchar(NAME_CHAR_LEN))
                             .build())
+            )
+            .put(BLACKHOLE_TABLE_NAME,
+                    new SchemaTable(SystemIdGenerator.getNextId(), BLACKHOLE_TABLE_NAME, TableType.SCHEMA,
+                            builder().column("VERSION", ScalarType.createType(PrimitiveType.INT))
+                                    .build())
             )
             .put("encryption_keys",
                     new SchemaTable(SystemIdGenerator.getNextId(), "encryption_keys", TableType.SCHEMA,

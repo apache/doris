@@ -181,10 +181,10 @@ public class CloudSystemInfoService extends SystemInfoService {
                 if (computeGroupName.equals(vcg.getPolicy().getActiveComputeGroup())) {
                     return vcg.getName();
                 }
-                if (vcg.getPolicy().getStandbyComputeGroup().contains(computeGroupName)) {
+                if (vcg.getPolicy().getStandbyComputeGroup().equals(computeGroupName)) {
                     return vcg.getName();
                 }
-                if (vcg.getSubComputeGroups().contains(computeGroupName)) {
+                if (vcg.getSubComputeGroups().stream().anyMatch(subCgName -> subCgName.equals(computeGroupName))) {
                     return vcg.getName();
                 }
             }
@@ -280,8 +280,6 @@ public class CloudSystemInfoService extends SystemInfoService {
         for (Backend be : toAdd) {
             Env.getCurrentEnv().getEditLog().logAddBackend(be);
             LOG.info("added cloud backend={} ", be);
-            // backends is changed, regenerated tablet number metrics
-            MetricRepo.generateBackendsTabletMetrics();
 
             String host = be.getHost();
             if (existedHostToBeList.keySet().contains(host)) {
@@ -306,8 +304,6 @@ public class CloudSystemInfoService extends SystemInfoService {
             be.setLastMissingHeartbeatTime(System.currentTimeMillis());
             Env.getCurrentEnv().getEditLog().logDropBackend(be);
             LOG.info("dropped cloud backend={}, and lastMissingHeartbeatTime={}", be, be.getLastMissingHeartbeatTime());
-            // backends is changed, regenerated tablet number metrics
-            MetricRepo.generateBackendsTabletMetrics();
         }
 
         // Update idToBackendRef
@@ -316,6 +312,10 @@ public class CloudSystemInfoService extends SystemInfoService {
         toDel.forEach(i -> copiedBackends.remove(i.getId()));
         ImmutableMap<Long, Backend> newIdToBackend = ImmutableMap.copyOf(copiedBackends);
         idToBackendRef = newIdToBackend;
+        // backends is changed, regenerated tablet number metrics
+        // metric repo should be regenerated after setting `idToBackendRef`
+        LOG.info("Add {} and delete {} backend metrics", toAdd.size(), toDel.size());
+        MetricRepo.generateBackendsTabletMetrics();
 
         // Update idToReportVersionRef
         Map<Long, AtomicLong> copiedReportVersions = Maps.newHashMap(idToReportVersionRef);
@@ -406,6 +406,7 @@ public class CloudSystemInfoService extends SystemInfoService {
             // ATTN: Empty clusters are treated as dropped clusters.
             if (be.isEmpty()) {
                 LOG.info("del clusterId {} and clusterName {} due to be nodes eq 0", clusterId, clusterName);
+                MetricRepo.unregisterCloudMetrics(clusterId, clusterName, toDel);
                 boolean succ = clusterNameToId.remove(clusterName, clusterId);
 
                 // remove from computeGroupIdToComputeGroup
@@ -774,8 +775,15 @@ public class CloudSystemInfoService extends SystemInfoService {
                 && Strings.isNullOrEmpty(clusterName)) {
             return 1;
         }
-
-        return super.getMinPipelineExecutorSize();
+        List<Backend> currentBackends = getBackendsByClusterName(clusterName);
+        if (currentBackends == null || currentBackends.isEmpty()) {
+            return 1;
+        }
+        return currentBackends.stream()
+                .mapToInt(Backend::getPipelineExecutorSize)
+                .filter(size -> size > 0)
+                .min()
+                .orElse(1);
     }
 
     @Override
@@ -1649,6 +1657,50 @@ public class CloudSystemInfoService extends SystemInfoService {
             throw new UserException("failed to alter rename compute group", e);
         } finally {
             LOG.info("alter rename compute group, request: {}, response: {}", request, response);
+        }
+    }
+
+    public void alterComputeGroupProperties(String computeGroupName, Map<String, String> properties)
+            throws UserException {
+        String cloudInstanceId = ((CloudEnv) Env.getCurrentEnv()).getCloudInstanceId();
+        if (Strings.isNullOrEmpty(cloudInstanceId)) {
+            throw new DdlException("unable to alter compute group properties due to empty cloud_instance_id");
+        }
+        String computeGroupId = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                .getCloudClusterIdByName(computeGroupName);
+        if (Strings.isNullOrEmpty(computeGroupId)) {
+            LOG.info("alter compute group properties {} not found, unable to alter", computeGroupName);
+            throw new DdlException("compute group '" + computeGroupName + "' not found, unable to alter properties");
+        }
+
+        ClusterPB clusterPB = ClusterPB.newBuilder()
+                .setClusterId(computeGroupId)
+                .setClusterName(computeGroupName)
+                .setType(ClusterPB.Type.COMPUTE)
+                .putAllProperties(properties)
+                .build();
+
+        Cloud.AlterClusterRequest request = Cloud.AlterClusterRequest.newBuilder()
+                .setInstanceId(((CloudEnv) Env.getCurrentEnv()).getCloudInstanceId())
+                .setOp(Cloud.AlterClusterRequest.Operation.ALTER_PROPERTIES)
+                .setCluster(clusterPB)
+                .build();
+
+
+        Cloud.AlterClusterResponse response = null;
+        try {
+            response = MetaServiceProxy.getInstance().alterCluster(request);
+            if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
+                LOG.warn("alter compute group properties not ok, response: {}", response);
+                throw new UserException("failed to alter compute group properties errorCode: "
+                    + response.getStatus().getCode()
+                    + " msg: " + response.getStatus().getMsg() + " may be you can try later");
+            }
+        } catch (RpcException e) {
+            LOG.warn("alter compute group properties rpc exception");
+            throw new UserException("failed to alter compute group properties", e);
+        } finally {
+            LOG.info("alter compute group properties, request: {}, response: {}", request, response);
         }
     }
 }

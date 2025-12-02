@@ -115,6 +115,35 @@ TEST(MysqlRowBufferTest, dynamic_mode) {
     EXPECT_EQ(0, strncmp(buf + 43, "test", 4));
 }
 
+TEST(MysqlRowBufferTest, dynamic_mode_mix) {
+    MysqlRowBuffer mrb;
+    int count = 585;
+    // Each small int -32767 will occupy 7 bytes, 585 * 7 = 4095
+    for (int i = 0; i < count; ++i) {
+        mrb.push_smallint(-32767);
+    }
+
+    mrb.open_dynamic_mode();
+    mrb.push_string("{", 1);
+    mrb.close_dynamic_mode();
+
+    // 4095 + 9 + 1
+    EXPECT_EQ(4105, mrb.length());
+
+    const char* buf = mrb.buf();
+    for (int i = 0; i < count; ++i) {
+        EXPECT_EQ(6, *((uint8_t*)(buf)));
+        ++buf;
+        EXPECT_EQ(0, strncmp(buf, "-32767", 6));
+        buf += 6;
+    }
+    EXPECT_EQ(254, *((uint8_t*)(buf)));
+    ++buf;
+    EXPECT_EQ(1, *((int64_t*)(buf)));
+    buf += 8;
+    EXPECT_EQ(0, strncmp(buf, "{", 1));
+}
+
 TEST(MysqlRowBufferTest, TestBinaryTimeCompressedEncoding) {
     MysqlRowBuffer<true> buffer;
     const char* buf = nullptr;

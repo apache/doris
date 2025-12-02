@@ -22,7 +22,6 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.computegroup.ComputeGroup;
-import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.BeSelectionPolicy;
 import org.apache.doris.thrift.TColumn;
@@ -86,7 +85,7 @@ public class MaterializationNode extends PlanNode {
     private boolean isTopMaterializeNode;
 
     public MaterializationNode(PlanNodeId id, TupleDescriptor desc, PlanNode child) {
-        super(id, desc.getId().asList(), "MaterializeNode", StatisticalType.DEFAULT);
+        super(id, desc.getId().asList(), "MaterializeNode");
         this.materializeTupleDescriptor = desc;
         initNodeInfo();
         this.children.add(child);
@@ -127,6 +126,8 @@ public class MaterializationNode extends PlanNode {
         output.append(detailPrefix).append("table_idxs: ").append(idxs).append("\n");
         output.append(detailPrefix).append("row_ids: ").append(rowIds).append("\n");
         output.append(detailPrefix).append("isTopMaterializeNode: ").append(isTopMaterializeNode).append("\n");
+        printNestedColumns(output, detailPrefix, outputTupleDesc);
+
         return output.toString();
     }
 

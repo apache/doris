@@ -19,6 +19,7 @@ suite("test_insert_statistic", "p0") {
     def dbName = "test_insert_statistic_db"
     def insert_tbl = "test_insert_statistic_tbl"
     def label = "test_insert_statistic_label"
+    sql """DROP DATABASE IF EXISTS ${dbName}"""
     sql """CREATE DATABASE IF NOT EXISTS ${dbName}"""
     sql """use ${dbName}"""
 
@@ -41,11 +42,22 @@ suite("test_insert_statistic", "p0") {
     sql """ 
     INSERT INTO ${insert_tbl}_1 values(1, 1, 1, 1)
     """
+    sql """ 
+    INSERT INTO ${insert_tbl}_1 values(1, 1, 1, 1)
+    """
     def result = sql "SHOW LOAD FROM ${dbName}"
-    logger.info("JobDetails: " + result[0][14])
-    def json = parseJson(result[0][14])
-    assertEquals(json.ScannedRows, 1)
-    assertTrue(json.LoadBytes > 0)
+    log.info("result size: " + result.size())
+    assertEquals(result.size(), 0)
+
+    // group commit
+    sql """ set group_commit = sync_mode; """
+    sql """ 
+    INSERT INTO ${insert_tbl}_1 values(1, 1, 1, 1)
+    """
+    sql """ set group_commit = off_mode; """
+    result = sql "SHOW LOAD FROM ${dbName}"
+    log.info("result size: " + result.size())
+    assertEquals(result.size(), 0)
 
     // insert into select
     sql """ DROP TABLE IF EXISTS ${insert_tbl}_2"""
@@ -67,9 +79,11 @@ suite("test_insert_statistic", "p0") {
     INSERT INTO ${insert_tbl}_2 select * from ${insert_tbl}_1
     """
     result = sql "SHOW LOAD FROM ${dbName}"
-    logger.info("JobDetails: " + result[1][14])
-    json = parseJson(result[1][14])
-    assertEquals(json.ScannedRows, 1)
+    logger.info("JobDetails: " + result[0][14])
+    def json = parseJson(result[0][14])
+    assertEquals(json.ScannedRows, 3)
+    assertEquals(json.FileNumber, 0)
+    assertEquals(json.FileSize, 0)
     assertTrue(json.LoadBytes > 0)
 
     // insert into s3 tvf
@@ -104,8 +118,11 @@ suite("test_insert_statistic", "p0") {
                         );
                     """
     result = sql "SHOW LOAD FROM ${dbName}"
-    logger.info("JobDetails: " + result[2][14])
-    json = parseJson(result[2][14])
-    assertEquals(json.ScannedRows, 1)
+    logger.info("JobDetails: " + result[1][14])
+    json = parseJson(result[1][14])
+    assertEquals(json.ScannedRows, 2)
+    assertEquals(json.FileNumber, 1)
+    assertEquals(json.FileSize, 86)
+    assertEquals(result.size(), 2)
     assertTrue(json.LoadBytes > 0)
 }

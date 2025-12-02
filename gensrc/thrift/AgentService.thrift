@@ -59,7 +59,9 @@ struct TTabletSchema {
 enum TStorageFormat {
     DEFAULT = 0,
     V1 = 1,
-    V2 = 2
+    V2 = 2,
+    // V3 stands externalized column meta (CMO)
+    V3 = 3
 }
 
 enum TEncryptionAlgorithm {
@@ -138,7 +140,8 @@ struct TPushStoragePolicyReq {
 enum TIndexPolicyType {
     ANALYZER,
     TOKENIZER,
-    TOKEN_FILTER
+    TOKEN_FILTER,
+    CHAR_FILTER
 }
 
 struct TIndexPolicy {
@@ -474,7 +477,7 @@ struct TPublishVersionRequest {
 }
 
 struct TVisibleVersionReq {
-    1: required map<Types.TPartitionId, Types.TVersion> partition_version
+    1: optional map<Types.TPartitionId, Types.TVersion> partition_version
 }
 
 struct TCalcDeleteBitmapPartitionInfo {

@@ -675,3 +675,91 @@
 3	116	\N	115	\N
 3	116	\N	116	\N
 
+-- !test24 --
+a	\N	\N	\N	4
+a	\N	\N	\N	5
+a	\N	\N	ef	1
+a	\N	1	ab	\N
+a	\N	2	cd	\N
+a	\N	4	\N	2
+a	\N	5	\N	3
+b	\N	\N	\N	4
+b	\N	\N	\N	5
+b	\N	\N	ef	1
+b	\N	1	ab	\N
+b	\N	2	cd	\N
+b	\N	4	\N	2
+b	\N	5	\N	3
+c	\N	\N	\N	4
+c	\N	\N	\N	5
+c	\N	\N	ef	1
+c	\N	1	ab	\N
+c	\N	2	cd	\N
+c	\N	4	\N	2
+c	\N	5	\N	3
+d	\N	\N	\N	4
+d	\N	\N	\N	5
+d	\N	\N	ef	1
+d	\N	1	ab	\N
+d	\N	2	cd	\N
+d	\N	4	\N	2
+d	\N	5	\N	3
+e	\N	\N	\N	4
+e	\N	\N	\N	5
+e	\N	\N	ef	1
+e	\N	1	ab	\N
+e	\N	2	cd	\N
+e	\N	4	\N	2
+e	\N	5	\N	3
+f	\N	\N	\N	4
+f	\N	\N	\N	5
+f	\N	\N	ef	1
+f	\N	1	ab	\N
+f	\N	2	cd	\N
+f	\N	4	\N	2
+f	\N	5	\N	3
+g	\N	\N	\N	4
+g	\N	\N	\N	5
+g	\N	\N	ef	1
+g	\N	1	ab	\N
+g	\N	2	cd	\N
+g	\N	4	\N	2
+g	\N	5	\N	3
+h	\N	\N	\N	4
+h	\N	\N	\N	5
+h	\N	\N	ef	1
+h	\N	1	ab	\N
+h	\N	2	cd	\N
+h	\N	4	\N	2
+h	\N	5	\N	3
+i	\N	\N	\N	4
+i	\N	\N	\N	5
+i	\N	\N	ef	1
+i	\N	1	ab	\N
+i	\N	2	cd	\N
+i	\N	4	\N	2
+i	\N	5	\N	3
+j	\N	\N	\N	4
+j	\N	\N	\N	5
+j	\N	\N	ef	1
+j	\N	1	ab	\N
+j	\N	2	cd	\N
+j	\N	4	\N	2
+j	\N	5	\N	3
+
+-- !select25 --
+1	{"col1":1, "col2":"a"}
+1	{"col1":2, "col2":"b"}
+
+-- !select26 --
+1	1	a
+1	2	b
+
+-- !select27 --
+1	{"col1":{"col1":1, "col2":"a"}, "col2":{"col1":3, "col2":"c"}}
+1	{"col1":{"col1":2, "col2":"b"}, "col2":{"col1":4, "col2":"d"}}
+
+-- !select28 --
+1	{"col1":1, "col2":"a"}	{"col1":3, "col2":"c"}
+1	{"col1":2, "col2":"b"}	{"col1":4, "col2":"d"}
+

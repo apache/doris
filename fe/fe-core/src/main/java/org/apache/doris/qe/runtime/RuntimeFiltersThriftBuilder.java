@@ -65,7 +65,7 @@ public class RuntimeFiltersThriftBuilder {
         return mergeInstance == instance;
     }
 
-    public void setRuntimeFilterThriftParams(TRuntimeFilterParams runtimeFilterParams) {
+    public void populateRuntimeFilterParams(TRuntimeFilterParams runtimeFilterParams) {
         for (RuntimeFilter rf : runtimeFilters) {
             List<RuntimeFilterTarget> targets = ridToTargets.get(rf.getFilterId());
             if (targets == null) {
@@ -89,8 +89,7 @@ public class RuntimeFiltersThriftBuilder {
                 }
 
                 runtimeFilterParams.putToRidToTargetParamv2(
-                        rf.getFilterId().asInt(), new ArrayList<>(targetToParams.values())
-                );
+                        rf.getFilterId().asInt(), new ArrayList<>(targetToParams.values()));
             }
         }
         for (Map.Entry<RuntimeFilterId, Integer> entry : ridToBuilderNum.entrySet()) {
@@ -122,15 +121,14 @@ public class RuntimeFiltersThriftBuilder {
             PlanFragment fragment = plan.getFragmentJob().getFragment();
             // Transform <fragment, runtimeFilterId> to <runtimeFilterId, fragment>
             for (RuntimeFilterId rid : fragment.getTargetRuntimeFilterIds()) {
-                List<RuntimeFilterTarget> targetFragments =
-                        ridToTargetParam.computeIfAbsent(rid, k -> new ArrayList<>());
+                List<RuntimeFilterTarget> targetFragments = ridToTargetParam.computeIfAbsent(rid,
+                        k -> new ArrayList<>());
                 for (AssignedJob instanceJob : plan.getInstanceJobs()) {
                     BackendWorker backendWorker = (BackendWorker) instanceJob.getAssignedWorker();
                     Backend backend = backendWorker.getBackend();
                     targetFragments.add(new RuntimeFilterTarget(
                             fragment.getFragmentId().asInt(),
-                            new TNetworkAddress(backend.getHost(), backend.getBrpcPort())
-                    ));
+                            new TNetworkAddress(backend.getHost(), backend.getBrpcPort())));
                 }
             }
 
@@ -146,8 +144,7 @@ public class RuntimeFiltersThriftBuilder {
         }
         return new RuntimeFiltersThriftBuilder(
                 mergeAddress, runtimeFilters, mergeInstance,
-                broadcastRuntimeFilterIds, ridToTargetParam, ridToBuilderNum
-        );
+                broadcastRuntimeFilterIds, ridToTargetParam, ridToBuilderNum);
     }
 
     public static class RuntimeFilterTarget {

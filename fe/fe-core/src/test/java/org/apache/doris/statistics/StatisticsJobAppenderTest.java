@@ -17,7 +17,6 @@
 
 package org.apache.doris.statistics;
 
-import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
@@ -30,6 +29,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.collect.Lists;
@@ -99,7 +99,7 @@ public class StatisticsJobAppenderTest {
         };
 
         Queue<QueryColumn> testQueue = new ArrayBlockingQueue<>(100);
-        Map<TableName, Set<Pair<String, String>>> testMap = new HashMap<>();
+        Map<TableNameInfo, Set<Pair<String, String>>> testMap = new HashMap<>();
         QueryColumn high1 = new QueryColumn(10, 20, 30, "high1");
         testQueue.add(high1);
 
@@ -107,7 +107,7 @@ public class StatisticsJobAppenderTest {
         appender.appendColumnsToJobs(testQueue, testMap);
         Assertions.assertEquals(1, testMap.size());
         Assertions.assertEquals(1, testMap.values().size());
-        Assertions.assertTrue(testMap.get(new TableName("internal", "testDb", "testTable")).contains(Pair.of("mockIndex", "high1")));
+        Assertions.assertTrue(testMap.get(new TableNameInfo("internal", "testDb", "testTable")).contains(Pair.of("mockIndex", "high1")));
 
         QueryColumn high2 = new QueryColumn(10, 20, 30, "high2");
         QueryColumn high3 = new QueryColumn(10, 20, 30, "high3");
@@ -116,17 +116,17 @@ public class StatisticsJobAppenderTest {
         appender.appendColumnsToJobs(testQueue, testMap);
         Assertions.assertEquals(2, testMap.size());
 
-        Set<Pair<String, String>> table1Column = testMap.get(new TableName("internal", "testDb", "testTable"));
+        Set<Pair<String, String>> table1Column = testMap.get(new TableNameInfo("internal", "testDb", "testTable"));
         Assertions.assertEquals(2, table1Column.size());
         Assertions.assertTrue(table1Column.contains(Pair.of("mockIndex", "high1")));
         Assertions.assertTrue(table1Column.contains(Pair.of("mockIndex", "high3")));
 
-        Set<Pair<String, String>> table2Column = testMap.get(new TableName("internal", "testDb", "testTable2"));
+        Set<Pair<String, String>> table2Column = testMap.get(new TableNameInfo("internal", "testDb", "testTable2"));
         Assertions.assertEquals(1, table2Column.size());
         Assertions.assertTrue(table2Column.contains(Pair.of("mockIndex", "high2")));
 
         for (int i = 0; i < StatisticsJobAppender.JOB_MAP_SIZE - 2; i++) {
-            testMap.put(new TableName("a", "b", UUID.randomUUID().toString()), new HashSet<>());
+            testMap.put(new TableNameInfo("a", "b", UUID.randomUUID().toString()), new HashSet<>());
         }
         Assertions.assertEquals(StatisticsJobAppender.JOB_MAP_SIZE, testMap.size());
 
@@ -138,7 +138,7 @@ public class StatisticsJobAppenderTest {
         QueryColumn high5 = new QueryColumn(10, 20, 30, "high5");
         testQueue.add(high5);
         appender.appendColumnsToJobs(testQueue, testMap);
-        table2Column = testMap.get(new TableName("internal", "testDb", "testTable2"));
+        table2Column = testMap.get(new TableNameInfo("internal", "testDb", "testTable2"));
         Assertions.assertEquals(2, table2Column.size());
         Assertions.assertTrue(table2Column.contains(Pair.of("mockIndex", "high2")));
         Assertions.assertTrue(table2Column.contains(Pair.of("mockIndex", "high5")));
@@ -186,8 +186,8 @@ public class StatisticsJobAppenderTest {
             }
         };
 
-        Map<TableName, Set<Pair<String, String>>> testLowMap = new HashMap<>();
-        Map<TableName, Set<Pair<String, String>>> testVeryLowMap = new HashMap<>();
+        Map<TableNameInfo, Set<Pair<String, String>>> testLowMap = new HashMap<>();
+        Map<TableNameInfo, Set<Pair<String, String>>> testVeryLowMap = new HashMap<>();
         StatisticsJobAppender appender = new StatisticsJobAppender();
         appender.appendToLowJobs(testLowMap, testVeryLowMap);
         Assertions.assertEquals(100, testLowMap.size());
@@ -263,8 +263,8 @@ public class StatisticsJobAppenderTest {
             }
         };
 
-        Map<TableName, Set<Pair<String, String>>> testLowMap = new HashMap<>();
-        Map<TableName, Set<Pair<String, String>>> testVeryLowMap = new HashMap<>();
+        Map<TableNameInfo, Set<Pair<String, String>>> testLowMap = new HashMap<>();
+        Map<TableNameInfo, Set<Pair<String, String>>> testVeryLowMap = new HashMap<>();
         StatisticsJobAppender appender = new StatisticsJobAppender();
         int processed = appender.appendToLowJobs(testLowMap, testVeryLowMap);
         Assertions.assertEquals(0, testLowMap.size());
@@ -328,8 +328,8 @@ public class StatisticsJobAppenderTest {
                 return thresholds[count++];
             }
         };
-        Map<TableName, Set<Pair<String, String>>> testLowMap = new HashMap<>();
-        Map<TableName, Set<Pair<String, String>>> testVeryLowMap = new HashMap<>();
+        Map<TableNameInfo, Set<Pair<String, String>>> testLowMap = new HashMap<>();
+        Map<TableNameInfo, Set<Pair<String, String>>> testVeryLowMap = new HashMap<>();
         StatisticsJobAppender appender = new StatisticsJobAppender();
         appender.appendToLowJobs(testLowMap, testVeryLowMap);
         Assertions.assertEquals(0, testLowMap.size());
@@ -340,32 +340,32 @@ public class StatisticsJobAppenderTest {
 
     @Test
     public void testDoAppend() {
-        Map<TableName, Set<Pair<String, String>>> jobMap = Maps.newHashMap();
-        TableName tableName1 = new TableName("catalog1", "db1", "table1");
-        TableName tableName2 = new TableName("catalog2", "db2", "table2");
+        Map<TableNameInfo, Set<Pair<String, String>>> jobMap = Maps.newHashMap();
+        TableNameInfo tableNameInfo1 = new TableNameInfo("catalog1", "db1", "table1");
+        TableNameInfo tableNameInfo2 = new TableNameInfo("catalog2", "db2", "table2");
         Pair<String, String> pair1 = Pair.of("index1", "col1");
 
         StatisticsJobAppender appender = new StatisticsJobAppender();
-        Assertions.assertTrue(appender.doAppend(jobMap, pair1, tableName1));
+        Assertions.assertTrue(appender.doAppend(jobMap, pair1, tableNameInfo1));
         Assertions.assertEquals(1, jobMap.size());
-        Assertions.assertTrue(jobMap.containsKey(tableName1));
-        Assertions.assertEquals(1, jobMap.get(tableName1).size());
-        Assertions.assertTrue(jobMap.get(tableName1).contains(pair1));
+        Assertions.assertTrue(jobMap.containsKey(tableNameInfo1));
+        Assertions.assertEquals(1, jobMap.get(tableNameInfo1).size());
+        Assertions.assertTrue(jobMap.get(tableNameInfo1).contains(pair1));
 
         Pair<String, String> pair2 = Pair.of("index2", "col2");
-        Assertions.assertTrue(appender.doAppend(jobMap, pair2, tableName1));
+        Assertions.assertTrue(appender.doAppend(jobMap, pair2, tableNameInfo1));
         Assertions.assertEquals(1, jobMap.size());
-        Assertions.assertTrue(jobMap.containsKey(tableName1));
-        Assertions.assertEquals(2, jobMap.get(tableName1).size());
-        Assertions.assertTrue(jobMap.get(tableName1).contains(pair1));
-        Assertions.assertTrue(jobMap.get(tableName1).contains(pair2));
+        Assertions.assertTrue(jobMap.containsKey(tableNameInfo1));
+        Assertions.assertEquals(2, jobMap.get(tableNameInfo1).size());
+        Assertions.assertTrue(jobMap.get(tableNameInfo1).contains(pair1));
+        Assertions.assertTrue(jobMap.get(tableNameInfo1).contains(pair2));
 
         Pair<String, String> pair3 = Pair.of("index3", "col3");
-        Assertions.assertTrue(appender.doAppend(jobMap, pair3, tableName2));
+        Assertions.assertTrue(appender.doAppend(jobMap, pair3, tableNameInfo2));
         Assertions.assertEquals(2, jobMap.size());
-        Assertions.assertTrue(jobMap.containsKey(tableName2));
-        Assertions.assertEquals(1, jobMap.get(tableName2).size());
-        Assertions.assertTrue(jobMap.get(tableName2).contains(pair3));
+        Assertions.assertTrue(jobMap.containsKey(tableNameInfo2));
+        Assertions.assertEquals(1, jobMap.get(tableNameInfo2).size());
+        Assertions.assertTrue(jobMap.get(tableNameInfo2).contains(pair3));
     }
 
     @Test

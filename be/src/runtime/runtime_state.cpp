@@ -214,6 +214,7 @@ Status RuntimeState::init(const TUniqueId& fragment_instance_id, const TQueryOpt
                           const TQueryGlobals& query_globals, ExecEnv* exec_env) {
     _fragment_instance_id = fragment_instance_id;
     _query_options = query_options;
+    _lc_time_names = query_globals.lc_time_names;
     if (query_globals.__isset.time_zone && query_globals.__isset.nano_seconds) {
         _timezone = query_globals.time_zone;
         _timestamp_ms = query_globals.timestamp_ms;
@@ -423,9 +424,10 @@ std::string RuntimeState::get_error_log_file_path() {
         }
         // expiration must be less than a week (in seconds) for presigned url
         static const unsigned EXPIRATION_SECONDS = 7 * 24 * 60 * 60 - 1;
-        // We should return a public endpoint to user.
-        _error_log_file_path = _s3_error_fs->generate_presigned_url(_s3_error_log_file_path,
-                                                                    EXPIRATION_SECONDS, true);
+        // Use public or private endpoint based on configuration
+        _error_log_file_path =
+                _s3_error_fs->generate_presigned_url(_s3_error_log_file_path, EXPIRATION_SECONDS,
+                                                     config::use_public_endpoint_for_error_log);
     }
     return _error_log_file_path;
 }
@@ -444,8 +446,8 @@ void RuntimeState::emplace_local_state(
 }
 
 doris::pipeline::PipelineXLocalStateBase* RuntimeState::get_local_state(int id) {
-    id = -id;
-    return _op_id_to_local_state[id].get();
+    DCHECK_GT(_op_id_to_local_state.size(), -id);
+    return _op_id_to_local_state[-id].get();
 }
 
 Result<RuntimeState::LocalState*> RuntimeState::get_local_state_result(int id) {

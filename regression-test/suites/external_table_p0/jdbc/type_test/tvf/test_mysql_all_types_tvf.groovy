@@ -20,7 +20,7 @@ suite("test_mysql_all_types_tvf", "p0,external,mysql,external_docker,external_do
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
     String s3_endpoint = getS3Endpoint()
     String bucket = getS3BucketName()
-    String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-j-8.3.0.jar"
+    String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-j-8.4.0.jar"
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String mysql_port = context.config.otherConfigs.get("mysql_57_port");
         sql """drop catalog if exists mysql_all_type_tvf_test """
@@ -30,7 +30,8 @@ suite("test_mysql_all_types_tvf", "p0,external,mysql,external_docker,external_do
             "password"="123456",
             "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}/doris_test?useSSL=false",
             "driver_url" = "${driver_url}",
-            "driver_class" = "com.mysql.cj.jdbc.Driver"
+            "driver_class" = "com.mysql.cj.jdbc.Driver",
+            "enable.mapping.varbinary" = "true"
         );"""
 
         qt_desc_tvf_all_types_null """desc function query('catalog' = 'mysql_all_type_tvf_test', 'query' = 'select * from all_types_nullable')"""

@@ -335,6 +335,16 @@ public:
                                           GetStreamingTaskCommitAttachResponse* response,
                                           ::google::protobuf::Closure* done) override;
 
+    void delete_streaming_job(::google::protobuf::RpcController* controller,
+                              const DeleteStreamingJobRequest* request,
+                              DeleteStreamingJobResponse* response,
+                              ::google::protobuf::Closure* done) override;
+
+    void reset_streaming_job_offset(::google::protobuf::RpcController* controller,
+                                    const ResetStreamingJobOffsetRequest* request,
+                                    ResetStreamingJobOffsetResponse* response,
+                                    ::google::protobuf::Closure* done) override;
+
     void reset_rl_progress(::google::protobuf::RpcController* controller,
                            const ResetRLProgressRequest* request, ResetRLProgressResponse* response,
                            ::google::protobuf::Closure* done) override;
@@ -388,7 +398,8 @@ public:
 private:
     std::pair<MetaServiceCode, std::string> alter_instance(
             const AlterInstanceRequest* request,
-            std::function<std::pair<MetaServiceCode, std::string>(InstanceInfoPB*)> action);
+            std::function<std::pair<MetaServiceCode, std::string>(Transaction*, InstanceInfoPB*)>
+                    action);
 
     bool get_mow_tablet_stats_and_meta(MetaServiceCode& code, std::string& msg,
                                        const GetDeleteBitmapUpdateLockRequest* request,
@@ -464,6 +475,10 @@ private:
             const GetVersionRequest* request, GetVersionResponse* response,
             std::string_view instance_id, KVStats& stats);
 
+    void commit_partition_internal(const PartitionRequest* request, const std::string& instance_id,
+                                   const std::vector<int64_t>& partition_ids, MetaServiceCode& code,
+                                   std::string& msg, KVStats& stats);
+
     std::shared_ptr<TxnKv> txn_kv_;
     std::shared_ptr<ResourceManager> resource_mgr_;
     std::shared_ptr<RateLimiter> rate_limiter_;
@@ -485,6 +500,12 @@ public:
     }
     [[nodiscard]] const std::shared_ptr<ResourceManager>& resource_mgr() const {
         return impl_->resource_mgr();
+    }
+    [[nodiscard]] const std::shared_ptr<TxnLazyCommitter>& txn_lazy_committer() const {
+        return impl_->txn_lazy_committer();
+    }
+    [[nodiscard]] const std::shared_ptr<SnapshotManager>& snapshot_manager() const {
+        return impl_->snapshot_manager();
     }
 
     void begin_txn(::google::protobuf::RpcController* controller, const BeginTxnRequest* request,
@@ -851,6 +872,21 @@ public:
                                           ::google::protobuf::Closure* done) override {
         call_impl(&cloud::MetaService::get_streaming_task_commit_attach, controller, request,
                   response, done);
+    }
+
+    void delete_streaming_job(::google::protobuf::RpcController* controller,
+                              const DeleteStreamingJobRequest* request,
+                              DeleteStreamingJobResponse* response,
+                              ::google::protobuf::Closure* done) override {
+        call_impl(&cloud::MetaService::delete_streaming_job, controller, request, response, done);
+    }
+
+    void reset_streaming_job_offset(::google::protobuf::RpcController* controller,
+                                    const ResetStreamingJobOffsetRequest* request,
+                                    ResetStreamingJobOffsetResponse* response,
+                                    ::google::protobuf::Closure* done) override {
+        call_impl(&cloud::MetaService::reset_streaming_job_offset, controller, request, response,
+                  done);
     }
 
     void reset_rl_progress(::google::protobuf::RpcController* controller,

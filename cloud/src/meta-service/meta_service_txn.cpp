@@ -33,6 +33,7 @@
 #include "meta-service/meta_service.h"
 #include "meta-service/meta_service_helper.h"
 #include "meta-service/meta_service_tablet_stats.h"
+#include "meta-store/blob_message.h"
 #include "meta-store/clone_chain_reader.h"
 #include "meta-store/document_message.h"
 #include "meta-store/keys.h"
@@ -910,6 +911,154 @@ void MetaServiceImpl::reset_rl_progress(::google::protobuf::RpcController* contr
     }
 }
 
+void MetaServiceImpl::reset_streaming_job_offset(::google::protobuf::RpcController* controller,
+                                                 const ResetStreamingJobOffsetRequest* request,
+                                                 ResetStreamingJobOffsetResponse* response,
+                                                 ::google::protobuf::Closure* done) {
+    RPC_PREPROCESS(reset_streaming_job_offset, get, put, del);
+    instance_id = get_instance_id(resource_mgr_, request->cloud_unique_id());
+    if (instance_id.empty()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "empty instance_id";
+        LOG(INFO) << msg << ", cloud_unique_id=" << request->cloud_unique_id();
+        return;
+    }
+    RPC_RATE_LIMIT(reset_streaming_job_offset)
+
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::CREATE>(err);
+        ss << "failed to create txn, err=" << err;
+        msg = ss.str();
+        return;
+    }
+
+    if (!request->has_db_id() || !request->has_job_id()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "empty db_id or job_id";
+        LOG(INFO) << msg << ", cloud_unique_id=" << request->cloud_unique_id();
+        return;
+    }
+
+    int64_t db_id = request->db_id();
+    int64_t job_id = request->job_id();
+    std::string streaming_job_key_str = streaming_job_key({instance_id, db_id, job_id});
+    std::string streaming_job_val;
+
+    // If no offset provided, remove the streaming job progress
+    if (!request->has_offset()) {
+        txn->remove(streaming_job_key_str);
+        LOG(INFO) << "remove streaming_job_key key=" << hex(streaming_job_key_str);
+    } else {
+        // If offset is provided, update the streaming job progress
+        bool prev_existed = true;
+        StreamingTaskCommitAttachmentPB prev_job_info;
+        err = txn->get(streaming_job_key_str, &streaming_job_val);
+        if (err != TxnErrorCode::TXN_OK) {
+            if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+                prev_existed = false;
+            } else {
+                code = cast_as<ErrCategory::READ>(err);
+                ss << "failed to get streaming job progress, db_id=" << db_id
+                   << " job_id=" << job_id << " err=" << err;
+                msg = ss.str();
+                return;
+            }
+        }
+
+        if (prev_existed) {
+            if (!prev_job_info.ParseFromString(streaming_job_val)) {
+                code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+                ss << "failed to parse streaming job offset, db_id=" << db_id
+                   << " job_id=" << job_id;
+                msg = ss.str();
+                return;
+            }
+        }
+
+        std::string new_job_val;
+        StreamingTaskCommitAttachmentPB new_job_info;
+
+        // Set the new offset
+        new_job_info.set_offset(request->offset());
+        new_job_info.set_job_id(job_id);
+
+        // Preserve existing statistics if they exist
+        if (prev_existed) {
+            new_job_info.set_scanned_rows(prev_job_info.scanned_rows());
+            new_job_info.set_load_bytes(prev_job_info.load_bytes());
+            new_job_info.set_num_files(prev_job_info.num_files());
+            new_job_info.set_file_bytes(prev_job_info.file_bytes());
+        }
+
+        if (!new_job_info.SerializeToString(&new_job_val)) {
+            code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+            ss << "failed to serialize new streaming job val, db_id=" << db_id
+               << " job_id=" << job_id;
+            msg = ss.str();
+            return;
+        }
+
+        txn->put(streaming_job_key_str, new_job_val);
+        LOG(INFO) << "reset offset, put streaming_job_key key=" << hex(streaming_job_key_str)
+                  << " prev job val: " << prev_job_info.ShortDebugString()
+                  << " new job val: " << new_job_info.ShortDebugString();
+    }
+
+    err = txn->commit();
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::COMMIT>(err);
+        ss << "failed to commit streaming job offset, db_id=" << db_id << " job_id=" << job_id
+           << " err=" << err;
+        msg = ss.str();
+        return;
+    }
+}
+
+void MetaServiceImpl::delete_streaming_job(::google::protobuf::RpcController* controller,
+                                           const DeleteStreamingJobRequest* request,
+                                           DeleteStreamingJobResponse* response,
+                                           ::google::protobuf::Closure* done) {
+    RPC_PREPROCESS(delete_streaming_job, del);
+    instance_id = get_instance_id(resource_mgr_, request->cloud_unique_id());
+    if (instance_id.empty()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "empty instance_id";
+        LOG(INFO) << msg << ", cloud_unique_id=" << request->cloud_unique_id();
+        return;
+    }
+    RPC_RATE_LIMIT(delete_streaming_job)
+
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::CREATE>(err);
+        ss << "filed to create txn, err=" << err;
+        msg = ss.str();
+        return;
+    }
+
+    if (!request->has_db_id() || !request->has_job_id()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "missing db_id or job_id";
+        LOG(INFO) << msg << ", cloud_unique_id=" << request->cloud_unique_id();
+        return;
+    }
+    int64_t db_id = request->db_id();
+    int64_t job_id = request->job_id();
+    std::string key_to_delete = streaming_job_key({instance_id, db_id, job_id});
+
+    txn->remove(key_to_delete);
+    LOG(INFO) << "remove key=" << hex(key_to_delete);
+
+    err = txn->commit();
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::READ>(err);
+        ss << "failed to commit delete, err=" << err;
+        msg = ss.str();
+        return;
+    }
+}
+
 void get_txn_db_id(TxnKv* txn_kv, const std::string& instance_id, int64_t txn_id,
                    MetaServiceCode& code, std::string& msg, int64_t* db_id, KVStats* stats) {
     std::stringstream ss;
@@ -1630,6 +1779,20 @@ void MetaServiceImpl::commit_txn_immediately(
         txn->put(info_key, info_val);
         LOG_INFO("put info_key={} txn_id={}", hex(info_key), txn_id);
 
+        // Batch get existing versioned tablet stats if needed
+        std::unordered_map<int64_t, TabletStatsPB> existing_versioned_stats;
+        if (is_versioned_write && !tablet_stats.empty()) {
+            internal_get_load_tablet_stats_batch(code, msg, meta_reader, txn.get(), instance_id,
+                                                 tablet_ids, &existing_versioned_stats);
+            if (code != MetaServiceCode::OK) {
+                LOG(WARNING) << "batch get versioned tablet stats failed, code=" << code
+                             << " msg=" << msg << " txn_id=" << txn_id;
+                return;
+            }
+            LOG(INFO) << "batch get " << existing_versioned_stats.size()
+                      << " versioned tablet stats, txn_id=" << txn_id;
+        }
+
         // Update stats of affected tablet
         for (auto& [tablet_id, stats] : tablet_stats) {
             DCHECK(tablet_ids.count(tablet_id));
@@ -1640,16 +1803,7 @@ void MetaServiceImpl::commit_txn_immediately(
             if (code != MetaServiceCode::OK) return;
 
             if (is_versioned_write) {
-                TabletStatsPB stats_pb;
-                internal_get_versioned_tablet_stats(code, msg, meta_reader, txn.get(), instance_id,
-                                                    tablet_idx, stats_pb);
-                if (code != MetaServiceCode::OK) {
-                    LOG(WARNING) << "update versioned tablet stats failed, code=" << code
-                                 << " msg=" << msg << " txn_id=" << txn_id
-                                 << " tablet_id=" << tablet_id;
-                    return;
-                }
-
+                TabletStatsPB stats_pb = existing_versioned_stats[tablet_id];
                 merge_tablet_stats(stats_pb, stats);
                 std::string stats_key = versioned::tablet_load_stats_key({instance_id, tablet_id});
                 if (!versioned::document_put(txn.get(), stats_key, std::move(stats_pb))) {
@@ -1685,17 +1839,9 @@ void MetaServiceImpl::commit_txn_immediately(
                 operation_log.set_min_timestamp(meta_reader.min_read_version());
             }
             operation_log.mutable_commit_txn()->Swap(&commit_txn_log);
-            std::string operation_log_value;
-            if (!operation_log.SerializeToString(&operation_log_value)) {
-                code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
-                ss << "failed to serialize operation_log, txn_id=" << txn_id;
-                msg = ss.str();
-                return;
-            }
+            versioned::blob_put(txn.get(), log_key, operation_log);
             LOG(INFO) << "put commit txn operation log, key=" << hex(log_key)
-                      << " txn_id=" << txn_id
-                      << " operation_log_size=" << operation_log_value.size();
-            versioned_put(txn.get(), log_key, operation_log_value);
+                      << " txn_id=" << txn_id;
         } else {
             std::string recycle_val;
             if (!recycle_pb.SerializeToString(&recycle_val)) {
@@ -2211,16 +2357,9 @@ void MetaServiceImpl::commit_txn_eventually(
                 operation_log.set_min_timestamp(meta_reader.min_read_version());
             }
             operation_log.mutable_commit_txn()->Swap(&commit_txn_log);
-            std::string operation_log_value;
-            if (!operation_log.SerializeToString(&operation_log_value)) {
-                code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
-                ss << "failed to serialize operation_log, txn_id=" << txn_id;
-                msg = ss.str();
-                return;
-            }
-            versioned_put(txn.get(), log_key, operation_log_value);
+            versioned::blob_put(txn.get(), log_key, operation_log);
             LOG(INFO) << "put commit txn operation log, key=" << hex(log_key)
-                      << " txn_id=" << txn_id << " log_size=" << operation_log_value.size();
+                      << " txn_id=" << txn_id;
         }
 
         VLOG_DEBUG << "put_size=" << txn->put_bytes() << " del_size=" << txn->delete_bytes()
@@ -2675,6 +2814,20 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
         txn->put(info_key, info_val);
         LOG(INFO) << "xxx put info_key=" << hex(info_key) << " txn_id=" << txn_id;
 
+        // Batch get existing versioned tablet stats if needed
+        std::unordered_map<int64_t, TabletStatsPB> existing_versioned_stats;
+        if (is_versioned_write && !tablet_stats.empty()) {
+            internal_get_load_tablet_stats_batch(code, msg, meta_reader, txn.get(), instance_id,
+                                                 tablet_ids, &existing_versioned_stats);
+            if (code != MetaServiceCode::OK) {
+                LOG(WARNING) << "batch get versioned tablet stats failed, code=" << code
+                             << " msg=" << msg << " txn_id=" << txn_id;
+                return;
+            }
+            LOG(INFO) << "batch get " << existing_versioned_stats.size()
+                      << " versioned tablet stats, txn_id=" << txn_id;
+        }
+
         // Update stats of affected tablet
         for (auto& [tablet_id, stats] : tablet_stats) {
             DCHECK(tablet_ids.count(tablet_id));
@@ -2685,16 +2838,7 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
             if (code != MetaServiceCode::OK) return;
 
             if (is_versioned_write) {
-                TabletStatsPB stats_pb;
-                internal_get_versioned_tablet_stats(code, msg, meta_reader, txn.get(), instance_id,
-                                                    tablet_idx, stats_pb);
-                if (code != MetaServiceCode::OK) {
-                    LOG(WARNING) << "update versioned tablet stats failed, code=" << code
-                                 << " msg=" << msg << " txn_id=" << txn_id
-                                 << " tablet_id=" << tablet_id;
-                    return;
-                }
-
+                TabletStatsPB stats_pb = existing_versioned_stats[tablet_id];
                 merge_tablet_stats(stats_pb, stats);
                 std::string stats_key = versioned::tablet_load_stats_key({instance_id, tablet_id});
                 if (!versioned::document_put(txn.get(), stats_key, std::move(stats_pb))) {
@@ -2728,21 +2872,14 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
         if (is_versioned_write) {
             commit_txn_log.mutable_recycle_txn()->Swap(&recycle_pb);
             std::string log_key = versioned::log_key({instance_id});
-            std::string operation_log_value;
             OperationLogPB operation_log;
             if (is_versioned_read) {
                 operation_log.set_min_timestamp(meta_reader.min_read_version());
             }
             operation_log.mutable_commit_txn()->Swap(&commit_txn_log);
-            if (!operation_log.SerializeToString(&operation_log_value)) {
-                code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
-                ss << "failed to serialize operation_log, txn_id=" << txn_id;
-                msg = ss.str();
-                return;
-            }
-            versioned_put(txn.get(), log_key, operation_log_value);
+            versioned::blob_put(txn.get(), log_key, operation_log);
             LOG(INFO) << "put commit txn operation log key=" << hex(recycle_key)
-                      << " txn_id=" << txn_id << " log_size=" << operation_log_value.size();
+                      << " txn_id=" << txn_id;
         } else {
             if (!recycle_pb.SerializeToString(&recycle_val)) {
                 code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;

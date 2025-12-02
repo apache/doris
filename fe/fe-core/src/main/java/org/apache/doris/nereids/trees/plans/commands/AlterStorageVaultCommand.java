@@ -39,7 +39,7 @@ import java.util.Map;
 /**
  * Alter Storage Vault command
  */
-public class AlterStorageVaultCommand extends Command implements ForwardWithSync {
+public class AlterStorageVaultCommand extends Command implements NeedAuditEncryption, ForwardWithSync {
     private static final String TYPE = "type";
     private final Map<String, String> properties;
     private final String name;
@@ -96,5 +96,10 @@ public class AlterStorageVaultCommand extends Command implements ForwardWithSync
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitCommand(this, context);
+    }
+
+    @Override
+    public boolean needAuditEncryption() {
+        return true;
     }
 }

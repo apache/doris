@@ -407,7 +407,7 @@ Status ColumnWriter::append(const uint8_t* nullmap, const void* data, size_t num
 
 ScalarColumnWriter::ScalarColumnWriter(const ColumnWriterOptions& opts,
                                        std::unique_ptr<Field> field, io::FileWriter* file_writer)
-        : ColumnWriter(std::move(field), opts.meta->is_nullable()),
+        : ColumnWriter(std::move(field), opts.meta->is_nullable(), opts.meta),
           _opts(opts),
           _file_writer(file_writer),
           _data_size(0) {
@@ -434,7 +434,7 @@ Status ScalarColumnWriter::init() {
     PageBuilder* page_builder = nullptr;
 
     RETURN_IF_ERROR(
-            EncodingInfo::get(get_field()->type_info(), _opts.meta->encoding(), &_encoding_info));
+            EncodingInfo::get(get_field()->type(), _opts.meta->encoding(), &_encoding_info));
     _opts.meta->set_encoding(_encoding_info->encoding());
     // create page builder
     PageBuilderOptions opts;
@@ -448,6 +448,11 @@ Status ScalarColumnWriter::init() {
     // should store more concrete encoding type instead of DEFAULT_ENCODING
     // because the default encoding of a data type can be changed in the future
     DCHECK_NE(_opts.meta->encoding(), DEFAULT_ENCODING);
+    VLOG_DEBUG << fmt::format(
+            "[verbose] scalar column writer init, column_id={}, type={}, encoding={}, "
+            "is_nullable={}",
+            _opts.meta->column_id(), get_field()->type(),
+            EncodingTypePB_Name(_opts.meta->encoding()), _opts.meta->is_nullable());
     _page_builder.reset(page_builder);
     // create ordinal builder
     _ordinal_index_builder = std::make_unique<OrdinalIndexWriter>();
@@ -615,7 +620,13 @@ Status ScalarColumnWriter::finish() {
 }
 
 Status ScalarColumnWriter::write_data() {
+    auto offset = _file_writer->bytes_appended();
+    auto collect_uncompressed_bytes = [](const PageFooterPB& footer) {
+        return footer.uncompressed_size() + footer.ByteSizeLong() +
+               sizeof(uint32_t) /* footer size */ + sizeof(uint32_t) /* checksum */;
+    };
     for (auto& page : _pages) {
+        _total_uncompressed_data_pages_size += collect_uncompressed_bytes(page->footer);
         RETURN_IF_ERROR(_write_data_page(page.get()));
     }
     _pages.clear();
@@ -623,11 +634,14 @@ Status ScalarColumnWriter::write_data() {
     if (_encoding_info->encoding() == DICT_ENCODING) {
         OwnedSlice dict_body;
         RETURN_IF_ERROR(_page_builder->get_dictionary_page(&dict_body));
+        EncodingTypePB dict_word_page_encoding;
+        RETURN_IF_ERROR(_page_builder->get_dictionary_page_encoding(&dict_word_page_encoding));
 
         PageFooterPB footer;
         footer.set_type(DICTIONARY_PAGE);
         footer.set_uncompressed_size(cast_set<uint32_t>(dict_body.slice().get_size()));
-        footer.mutable_dict_page_footer()->set_encoding(PLAIN_ENCODING);
+        footer.mutable_dict_page_footer()->set_encoding(dict_word_page_encoding);
+        _total_uncompressed_data_pages_size += collect_uncompressed_bytes(footer);
 
         PagePointer dict_pp;
         RETURN_IF_ERROR(PageIO::compress_and_write_page(
@@ -635,6 +649,7 @@ Status ScalarColumnWriter::write_data() {
                 {dict_body.slice()}, footer, &dict_pp));
         dict_pp.to_proto(_opts.meta->mutable_dict_page());
     }
+    _total_compressed_data_pages_size += _file_writer->bytes_appended() - offset;
     _page_builder.reset();
     return Status::OK();
 }
@@ -690,8 +705,10 @@ Status ScalarColumnWriter::finish_current_page() {
         return Status::OK();
     }
     if (_opts.need_zone_map) {
+        // If the number of rows in the current page is less than the threshold,
+        // we will invalidate zone map index for this page by set pass_all to true.
         if (_next_rowid - _first_rowid < config::zone_map_row_num_threshold) {
-            _zone_map_index_builder->reset_page_zone_map();
+            _zone_map_index_builder->invalid_page_zone_map();
         }
         RETURN_IF_ERROR(_zone_map_index_builder->flush());
     }
@@ -699,6 +716,8 @@ Status ScalarColumnWriter::finish_current_page() {
     if (_opts.need_bloom_filter) {
         RETURN_IF_ERROR(_bloom_filter_index_builder->flush());
     }
+
+    _raw_data_bytes += _page_builder->get_raw_data_size();
 
     // build data page body : encoded values + [nullmap]
     std::vector<Slice> body;
@@ -792,7 +811,7 @@ StructColumnWriter::StructColumnWriter(
         const ColumnWriterOptions& opts, std::unique_ptr<Field> field,
         ScalarColumnWriter* null_writer,
         std::vector<std::unique_ptr<ColumnWriter>>& sub_column_writers)
-        : ColumnWriter(std::move(field), opts.meta->is_nullable()), _opts(opts) {
+        : ColumnWriter(std::move(field), opts.meta->is_nullable(), opts.meta), _opts(opts) {
     for (auto& sub_column_writer : sub_column_writers) {
         _sub_column_writers.push_back(std::move(sub_column_writer));
     }
@@ -901,7 +920,7 @@ ArrayColumnWriter::ArrayColumnWriter(const ColumnWriterOptions& opts, std::uniqu
                                      OffsetColumnWriter* offset_writer,
                                      ScalarColumnWriter* null_writer,
                                      std::unique_ptr<ColumnWriter> item_writer)
-        : ColumnWriter(std::move(field), opts.meta->is_nullable()),
+        : ColumnWriter(std::move(field), opts.meta->is_nullable(), opts.meta),
           _item_writer(std::move(item_writer)),
           _opts(opts) {
     _offset_writer.reset(offset_writer);
@@ -919,7 +938,7 @@ Status ArrayColumnWriter::init() {
     if (_opts.need_inverted_index) {
         auto* writer = dynamic_cast<ScalarColumnWriter*>(_item_writer.get());
         if (writer != nullptr) {
-            RETURN_IF_ERROR(IndexColumnWriter::create(get_field(), &_inverted_index_builder,
+            RETURN_IF_ERROR(IndexColumnWriter::create(get_field(), &_inverted_index_writer,
                                                       _opts.index_file_writer,
                                                       _opts.inverted_indexes[0]));
         }
@@ -937,7 +956,7 @@ Status ArrayColumnWriter::init() {
 
 Status ArrayColumnWriter::write_inverted_index() {
     if (_opts.need_inverted_index) {
-        return _inverted_index_builder->finish();
+        return _inverted_index_writer->finish();
     }
     return Status::OK();
 }
@@ -969,7 +988,7 @@ Status ArrayColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
         // now only support nested type is scala
         if (writer != nullptr) {
             //NOTE: use array field name as index field, but item_writer size should be used when moving item_data_ptr
-            RETURN_IF_ERROR(_inverted_index_builder->add_array_values(
+            RETURN_IF_ERROR(_inverted_index_writer->add_array_values(
                     _item_writer->get_field()->size(), reinterpret_cast<const void*>(data),
                     reinterpret_cast<const uint8_t*>(nested_null_map), offsets_ptr, num_rows));
         }
@@ -985,7 +1004,8 @@ Status ArrayColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
                     reinterpret_cast<const uint8_t*>(nested_null_map), offsets_ptr, num_rows));
         } else {
             return Status::NotSupported(
-                    "Ann index can only be build on array with scalar type. but got {} as nested",
+                    "Ann index can only be build on array with scalar type. but got {} as "
+                    "nested",
                     _item_writer->get_field()->type());
         }
     }
@@ -1005,7 +1025,7 @@ Status ArrayColumnWriter::append_nullable(const uint8_t* null_map, const uint8_t
     RETURN_IF_ERROR(append_data(ptr, num_rows));
     if (is_nullable()) {
         if (_opts.need_inverted_index) {
-            RETURN_IF_ERROR(_inverted_index_builder->add_array_nulls(null_map, num_rows));
+            RETURN_IF_ERROR(_inverted_index_writer->add_array_nulls(null_map, num_rows));
         }
         RETURN_IF_ERROR(_null_writer->append_data(&null_map, num_rows));
     }
@@ -1073,7 +1093,7 @@ Status ArrayColumnWriter::finish_current_page() {
 MapColumnWriter::MapColumnWriter(const ColumnWriterOptions& opts, std::unique_ptr<Field> field,
                                  ScalarColumnWriter* null_writer, OffsetColumnWriter* offset_writer,
                                  std::vector<std::unique_ptr<ColumnWriter>>& kv_writers)
-        : ColumnWriter(std::move(field), opts.meta->is_nullable()), _opts(opts) {
+        : ColumnWriter(std::move(field), opts.meta->is_nullable(), opts.meta), _opts(opts) {
     CHECK_EQ(kv_writers.size(), 2);
     _offsets_writer.reset(offset_writer);
     if (is_nullable()) {
@@ -1210,7 +1230,7 @@ Status MapColumnWriter::write_inverted_index() {
 
 VariantColumnWriter::VariantColumnWriter(const ColumnWriterOptions& opts,
                                          const TabletColumn* column, std::unique_ptr<Field> field)
-        : ColumnWriter(std::move(field), opts.meta->is_nullable()) {
+        : ColumnWriter(std::move(field), opts.meta->is_nullable(), opts.meta) {
     _impl = std::make_unique<VariantColumnWriterImpl>(opts, column);
 }
 
@@ -1250,6 +1270,7 @@ Status VariantColumnWriter::write_inverted_index() {
 Status VariantColumnWriter::write_bloom_filter_index() {
     return _impl->write_bloom_filter_index();
 }
+
 Status VariantColumnWriter::append_nullable(const uint8_t* null_map, const uint8_t** ptr,
                                             size_t num_rows) {
     return _impl->append_nullable(null_map, ptr, num_rows);

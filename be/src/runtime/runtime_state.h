@@ -142,19 +142,33 @@ public:
         return _query_options.__isset.execution_timeout ? _query_options.execution_timeout
                                                         : _query_options.query_timeout;
     }
-    int num_scanner_threads() const {
-        return _query_options.__isset.num_scanner_threads ? _query_options.num_scanner_threads : 0;
-    }
-    int min_scan_concurrency_of_scan_scheduler() const {
-        return _query_options.__isset.min_scan_scheduler_concurrency
-                       ? _query_options.min_scan_scheduler_concurrency
+    int max_scanners_concurrency() const {
+        return _query_options.__isset.max_scanners_concurrency
+                       ? _query_options.max_scanners_concurrency
                        : 0;
     }
+    int max_file_scanners_concurrency() const {
+        return _query_options.__isset.max_file_scanners_concurrency
+                       ? _query_options.max_file_scanners_concurrency
+                       : max_scanners_concurrency();
+    }
 
-    int min_scan_concurrency_of_scanner() const {
-        return _query_options.__isset.min_scanner_concurrency
-                       ? _query_options.min_scanner_concurrency
+    int min_scanners_concurrency() const {
+        return _query_options.__isset.min_scanners_concurrency
+                       ? _query_options.min_scanners_concurrency
                        : 1;
+    }
+
+    int min_file_scanners_concurrency() const {
+        return _query_options.__isset.min_file_scanners_concurrency
+                       ? _query_options.min_file_scanners_concurrency
+                       : 1;
+    }
+
+    // Support extended regex
+    // like look-around zero-width assertions(`?=`, `?!`, `?<=`, `?<!`)
+    bool enable_extended_regex() const {
+        return _query_options.__isset.enable_extended_regex && _query_options.enable_extended_regex;
     }
 
     TQueryType::type query_type() const { return _query_options.query_type; }
@@ -163,6 +177,7 @@ public:
     // if possible, use timezone_obj() rather than timezone()
     const std::string& timezone() const { return _timezone; }
     const cctz::time_zone& timezone_obj() const { return _timezone_obj; }
+    const std::string& lc_time_names() const { return _lc_time_names; }
     const std::string& user() const { return _user; }
     const TUniqueId& query_id() const { return _query_id; }
     const TUniqueId& fragment_instance_id() const { return _fragment_instance_id; }
@@ -389,6 +404,11 @@ public:
 
     bool return_object_data_as_binary() const {
         return _query_options.return_object_data_as_binary;
+    }
+
+    bool enable_fuzzy_blockable_task() const {
+        return _query_options.__isset.enable_fuzzy_blockable_task &&
+               _query_options.enable_fuzzy_blockable_task;
     }
 
     segment_v2::CompressionTypePB fragement_transmission_compression_type() const {
@@ -693,7 +713,7 @@ public:
     VectorSearchUserParams get_vector_search_params() const {
         return VectorSearchUserParams(_query_options.hnsw_ef_search,
                                       _query_options.hnsw_check_relative_distance,
-                                      _query_options.hnsw_bounded_queue);
+                                      _query_options.hnsw_bounded_queue, _query_options.ivf_nprobe);
     }
 
 private:
@@ -742,6 +762,7 @@ private:
     int32_t _nano_seconds;
     std::string _timezone;
     cctz::time_zone _timezone_obj;
+    std::string _lc_time_names;
 
     TUniqueId _query_id;
     // fragment id for each TPipelineFragmentParams

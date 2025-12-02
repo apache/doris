@@ -227,6 +227,23 @@ public class NereidsPlanner extends Planner {
                         logicalSqlCache.getCacheValues(), logicalSqlCache.getBackendAddress(),
                         logicalSqlCache.getPlanBody()
                 );
+                if (explainLevel != ExplainLevel.NONE) {
+                    this.cascadesContext = CascadesContext.initContext(
+                            statementContext, parsedPlan, PhysicalProperties.ANY);
+                    switch (explainLevel) {
+                        case OPTIMIZED_PLAN:
+                        case ALL_PLAN:
+                            cascadesContext.addPlanProcess(
+                                    new PlanProcess("ImplementSqlCache",
+                                            parsedPlan.treeString(false, parsedPlan),
+                                            physicalPlan.treeString(false, physicalPlan)
+                                    )
+                            );
+                            break;
+                        default: {
+                        }
+                    }
+                }
                 return physicalPlan;
             }
             if (explainLevel == ExplainLevel.PARSED_PLAN || explainLevel == ExplainLevel.ALL_PLAN) {
@@ -377,7 +394,7 @@ public class NereidsPlanner extends Planner {
         if (LOG.isDebugEnabled()) {
             LOG.debug("Start collect and lock table");
         }
-        keepOrShowPlanProcess(showPlanProcess, () -> cascadesContext.newTableCollector().collect());
+        keepOrShowPlanProcess(showPlanProcess, () -> cascadesContext.newTableCollector(true).collect());
         statementContext.lock();
         cascadesContext.setCteContext(new CTEContext());
         NereidsTracer.logImportantTime("EndCollectAndLockTables");
@@ -437,13 +454,19 @@ public class NereidsPlanner extends Planner {
             LOG.debug("Start pre rewrite plan by mv");
         }
         List<Plan> tmpPlansForMvRewrite = cascadesContext.getStatementContext().getTmpPlanForMvRewrite();
+        Plan originalPlan = cascadesContext.getRewritePlan();
         List<Plan> plansWhichContainMv = new ArrayList<>();
+        // because tmpPlansForMvRewrite only one, so timeout is cumulative which is ok
         for (Plan planForRewrite : tmpPlansForMvRewrite) {
-            if (!planForRewrite.getLogicalProperties().equals(
-                    cascadesContext.getRewritePlan().getLogicalProperties())) {
-                continue;
-            }
+            SessionVariable sessionVariable = cascadesContext.getConnectContext()
+                    .getSessionVariable();
+            int timeoutSecond = sessionVariable.nereidsTimeoutSecond;
+            boolean enableTimeout = sessionVariable.enableNereidsTimeout;
             try {
+                // set mv rewrite timeout
+                sessionVariable.nereidsTimeoutSecond = PreMaterializedViewRewriter.convertMillisToCeilingSeconds(
+                                sessionVariable.materializedViewRewriteDurationThresholdMs);
+                sessionVariable.enableNereidsTimeout = true;
                 // pre rewrite
                 Plan rewrittenPlan = MaterializedViewUtils.rewriteByRules(cascadesContext,
                         PreMaterializedViewRewriter::rewrite, planForRewrite, planForRewrite, true);
@@ -455,10 +478,19 @@ public class NereidsPlanner extends Planner {
                 if (ruleOptimizedPlan == null) {
                     continue;
                 }
-                plansWhichContainMv.add(ruleOptimizedPlan);
+                // after rbo, maybe the plan changed a lot, so we need to normalize it with original plan
+                Plan normalizedPlan = MaterializedViewUtils.normalizeSinkExpressions(
+                        ruleOptimizedPlan, originalPlan);
+                if (normalizedPlan != null) {
+                    plansWhichContainMv.add(normalizedPlan);
+                }
             } catch (Exception e) {
                 LOG.error("pre mv rewrite in rbo rewrite fail, query id is {}",
                         cascadesContext.getConnectContext().getQueryIdentifier(), e);
+
+            } finally {
+                sessionVariable.nereidsTimeoutSecond = timeoutSecond;
+                sessionVariable.enableNereidsTimeout = enableTimeout;
             }
         }
         // clear the rewritten plans which are tmp optimized, should be filled by full optimize later
@@ -896,7 +928,7 @@ public class NereidsPlanner extends Planner {
                 plan += "\n\n\n========== STATISTICS ==========\n";
                 if (statementContext != null) {
                     if (statementContext.isHasUnknownColStats()) {
-                        plan += "planed with unknown column statistics\n";
+                        plan += "planned with unknown column statistics\n";
                     }
                 }
         }

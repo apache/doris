@@ -20,13 +20,16 @@ package org.apache.doris.nereids.rules.expression;
 import org.apache.doris.nereids.rules.expression.rules.AddMinMax;
 import org.apache.doris.nereids.rules.expression.rules.ArrayContainToArrayOverlap;
 import org.apache.doris.nereids.rules.expression.rules.BetweenToEqual;
+import org.apache.doris.nereids.rules.expression.rules.CaseWhenToCompoundPredicate;
 import org.apache.doris.nereids.rules.expression.rules.CaseWhenToIf;
+import org.apache.doris.nereids.rules.expression.rules.CondReplaceNullWithFalse;
 import org.apache.doris.nereids.rules.expression.rules.DateFunctionRewrite;
 import org.apache.doris.nereids.rules.expression.rules.DistinctPredicatesRule;
 import org.apache.doris.nereids.rules.expression.rules.ExtractCommonFactorRule;
 import org.apache.doris.nereids.rules.expression.rules.LikeToEqualRewrite;
+import org.apache.doris.nereids.rules.expression.rules.NestedCaseWhenCondToLiteral;
 import org.apache.doris.nereids.rules.expression.rules.NullSafeEqualToEqual;
-import org.apache.doris.nereids.rules.expression.rules.ReplaceNullWithFalseForCond;
+import org.apache.doris.nereids.rules.expression.rules.PushIntoCaseWhenBranch;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyComparisonPredicate;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyConflictCompound;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyInPredicate;
@@ -58,8 +61,11 @@ public class ExpressionOptimization extends ExpressionRewrite {
 
                     DateFunctionRewrite.INSTANCE,
                     ArrayContainToArrayOverlap.INSTANCE,
-                    ReplaceNullWithFalseForCond.INSTANCE,
+                    CondReplaceNullWithFalse.INSTANCE,
+                    NestedCaseWhenCondToLiteral.INSTANCE,
                     CaseWhenToIf.INSTANCE,
+                    CaseWhenToCompoundPredicate.INSTANCE,
+                    PushIntoCaseWhenBranch.INSTANCE,
                     TopnToMax.INSTANCE,
                     NullSafeEqualToEqual.INSTANCE,
                     LikeToEqualRewrite.INSTANCE,

@@ -304,7 +304,7 @@ public abstract class DataType {
             case "timev2":
                 switch (types.size()) {
                     case 1:
-                        dataType = TimeV2Type.INSTANCE;
+                        dataType = TimeV2Type.SYSTEM_DEFAULT;
                         break;
                     case 2:
                         dataType = TimeV2Type.of(Integer.parseInt(types.get(1)));
@@ -422,7 +422,7 @@ public abstract class DataType {
             case JSONB: return JsonType.INSTANCE;
             case IPV4: return IPv4Type.INSTANCE;
             case IPV6: return IPv6Type.INSTANCE;
-            case VARBINARY: return VarBinaryType.INSTANCE;
+            case VARBINARY: return VarBinaryType.createVarBinaryType(type.getLength());
             case AGG_STATE: {
                 org.apache.doris.catalog.AggStateType catalogType = ((org.apache.doris.catalog.AggStateType) type);
                 List<DataType> types = catalogType.getSubTypes().stream().map(DataType::fromCatalogType)
@@ -472,7 +472,8 @@ public abstract class DataType {
                 return new VariantType(variantFields,
                         ((org.apache.doris.catalog.VariantType) type).getVariantMaxSubcolumnsCount(),
                         ((org.apache.doris.catalog.VariantType) type).getEnableTypedPathsToSparse(),
-                        ((org.apache.doris.catalog.VariantType) type).getVariantMaxSparseColumnStatisticsSize());
+                        ((org.apache.doris.catalog.VariantType) type).getVariantMaxSparseColumnStatisticsSize(),
+                        ((org.apache.doris.catalog.VariantType) type).getVariantSparseHashShardCount());
             }
             return VariantType.INSTANCE;
         } else {
@@ -597,10 +598,6 @@ public abstract class DataType {
 
     public boolean isDateLikeType() {
         return isDateType() || isDateTimeType() || isDateV2Type() || isDateTimeV2Type();
-    }
-
-    public boolean isDateV2LikeType() {
-        return isDateV2Type() || isDateTimeV2Type();
     }
 
     public boolean isTimeType() {

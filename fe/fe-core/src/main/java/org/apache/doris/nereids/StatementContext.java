@@ -188,6 +188,14 @@ public class StatementContext implements Closeable {
 
     // tables in this query directly
     private final Map<List<String>, TableIf> tables = Maps.newHashMap();
+    // onelevel tables in this query directly,
+    // if
+    // create v1 as select * from t1
+    // create v2 as select * from v1
+    // current query is: select * from v2 join t2
+    // oneLevelTables will have two data: v2, t2,
+    // tables will have 4 data: t1, v1, v2, t2
+    private final Map<List<String>, TableIf> oneLevelTables = Maps.newHashMap();
     // tables maybe used by mtmv rewritten in this query,
     // this contains mvs which use table in tables and the tables in mvs
     // such as
@@ -274,6 +282,14 @@ public class StatementContext implements Closeable {
     private final Set<List<String>> materializationRewrittenSuccessSet = new HashSet<>();
 
     private boolean isInsert = false;
+    private boolean skipPrunePredicate = false;
+
+    private Optional<Map<TableIf, Set<Expression>>> mvRefreshPredicates = Optional.empty();
+
+    // For Iceberg rewrite operations: store file scan tasks to be used by IcebergScanNode
+    // TODO: better solution?
+    private List<org.apache.iceberg.FileScanTask> icebergRewriteFileScanTasks = null;
+    private boolean hasNestedColumns;
 
     public StatementContext() {
         this(ConnectContext.get(), null, 0);
@@ -355,6 +371,10 @@ public class StatementContext implements Closeable {
 
     public Map<List<String>, TableIf> getTables() {
         return tables;
+    }
+
+    public Map<List<String>, TableIf> getOneLevelTables() {
+        return oneLevelTables;
     }
 
     public Set<MTMV> getCandidateMTMVs() {
@@ -993,5 +1013,48 @@ public class StatementContext implements Closeable {
 
     public boolean isInsert() {
         return isInsert;
+    }
+
+    public Optional<Map<TableIf, Set<Expression>>> getMvRefreshPredicates() {
+        return mvRefreshPredicates;
+    }
+
+    public void setMvRefreshPredicates(
+            Map<TableIf, Set<Expression>> mvRefreshPredicates) {
+        this.mvRefreshPredicates = Optional.of(mvRefreshPredicates);
+    }
+
+    /**
+     * Set file scan tasks for Iceberg rewrite operations.
+     * This allows IcebergScanNode to use specific file scan tasks instead of scanning the full table.
+     */
+    public void setIcebergRewriteFileScanTasks(List<org.apache.iceberg.FileScanTask> tasks) {
+        this.icebergRewriteFileScanTasks = tasks;
+    }
+
+    /**
+     * Get and consume file scan tasks for Iceberg rewrite operations.
+     * Returns the tasks and clears the field to prevent reuse.
+     */
+    public List<org.apache.iceberg.FileScanTask> getAndClearIcebergRewriteFileScanTasks() {
+        List<org.apache.iceberg.FileScanTask> tasks = this.icebergRewriteFileScanTasks;
+        this.icebergRewriteFileScanTasks = null;
+        return tasks;
+    }
+
+    public boolean isSkipPrunePredicate() {
+        return skipPrunePredicate;
+    }
+
+    public void setSkipPrunePredicate(boolean skipPrunePredicate) {
+        this.skipPrunePredicate = skipPrunePredicate;
+    }
+
+    public boolean hasNestedColumns() {
+        return hasNestedColumns;
+    }
+
+    public void setHasNestedColumns(boolean hasNestedColumns) {
+        this.hasNestedColumns = hasNestedColumns;
     }
 }

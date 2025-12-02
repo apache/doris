@@ -95,7 +95,7 @@ struct TQueryOptions {
   4: optional i32 batch_size = 0
   5: optional i32 num_nodes = NUM_NODES_ALL
   6: optional i64 max_scan_range_length = 0 // Deprecated
-  7: optional i32 num_scanner_threads = 0
+  7: optional i32 max_scanners_concurrency = 0
   8: optional i32 max_io_buffers = 0 // Deprecated
   9: optional bool allow_unsupported_formats = 0 // Deprecated
   10: optional i64 default_order_by_limit = -1
@@ -265,7 +265,7 @@ struct TQueryOptions {
 
   91: optional bool runtime_filter_wait_infinitely = false;
 
-  92: optional i32 wait_full_block_schedule_times = 1; // deprecated
+  92: optional i32 condition_cache_digest = 0;
   
   93: optional i32 inverted_index_max_expansions = 50;
 
@@ -368,12 +368,12 @@ struct TQueryOptions {
 
   144: optional bool enable_inverted_index_searcher_cache = true;
   145: optional bool enable_inverted_index_query_cache = true;
-  146: optional bool fuzzy_disable_runtime_filter_in_be = false; // deprecated
+  146: optional bool enable_condition_cache = false; //deprecated 
 
   147: optional i32 profile_level = 1;
 
-  148: optional i32 min_scanner_concurrency = 1;
-  149: optional i32 min_scan_scheduler_concurrency = 0;
+  148: optional i32 min_scanners_concurrency = 1;
+  149: optional i32 min_scan_scheduler_concurrency = 0; //deprecated
   150: optional bool enable_runtime_filter_partition_prune = true;
 
   // The minimum memory that an operator required to run.
@@ -393,20 +393,34 @@ struct TQueryOptions {
   162: optional bool dump_heap_profile_when_mem_limit_exceeded = false
   163: optional bool inverted_index_compatible_read = false
   164: optional bool check_orc_init_sargs_success = false
-  165: optional i32 exchange_multi_blocks_byte_size = 262144 
+  165: optional i32 exchange_multi_blocks_byte_size = 262144
   // true to use strict cast mode.
   166: optional bool enable_strict_cast = false
   167: optional bool new_version_unix_timestamp = false
 
   168: optional i32 hnsw_ef_search = 32;
   169: optional bool hnsw_check_relative_distance = true;
-  170: optional bool hnsw_bounded_queue = true; 
+  170: optional bool hnsw_bounded_queue = true;
 
   171: optional bool optimize_index_scan_parallelism = false;
 
   172: optional bool enable_prefer_cached_rowset
   173: optional i64 query_freshness_tolerance_ms
   174: optional i64 merge_read_slice_size = 8388608;
+
+  175: optional bool enable_fuzzy_blockable_task = false;
+  176: optional list<i32> shuffled_agg_ids;
+
+  177: optional bool enable_extended_regex = false;
+  // Target file size in bytes for Iceberg write operations
+  // Default 0 means use config::iceberg_sink_max_file_size
+  178: optional i64 iceberg_write_target_file_size_bytes = 0;
+  179: optional bool enable_parquet_filter_by_bloom_filter = true;
+  180: optional i32 max_file_scanners_concurrency = 0;
+  181: optional i32 min_file_scanners_concurrency = 0;
+
+
+  182: optional i32 ivf_nprobe = 1;
 
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.
@@ -439,6 +453,7 @@ struct TRuntimeFilterParams {
   // Runtime filter merge instance address. Used if this filter has a remote target
   1: optional Types.TNetworkAddress runtime_filter_merge_addr
 
+  // keep 2/3/4/5 unset if BE is not used for merge 
   // deprecated
   2: optional map<i32, list<TRuntimeFilterTargetParams>> rid_to_target_param
 
@@ -485,6 +500,9 @@ struct TQueryGlobals {
   4: optional bool load_zero_tolerance = false
 
   5: optional i32 nano_seconds
+
+  // Locale name used for month/day names formatting, e.g. en_US
+  6: optional string lc_time_names
 }
 
 

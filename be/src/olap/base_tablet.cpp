@@ -332,21 +332,19 @@ bool BaseTablet::_reconstruct_version_tracker_if_necessary() {
 // should use this method to get a copy of current tablet meta
 // there are some rowset meta in local meta store and in in-memory tablet meta
 // but not in tablet meta in local meta store
-void BaseTablet::generate_tablet_meta_copy(TabletMeta& new_tablet_meta) const {
-    TabletMetaPB tablet_meta_pb;
-    {
-        std::shared_lock rdlock(_meta_lock);
-        _tablet_meta->to_meta_pb(&tablet_meta_pb);
-    }
-    generate_tablet_meta_copy_unlocked(new_tablet_meta);
+void BaseTablet::generate_tablet_meta_copy(TabletMeta& new_tablet_meta,
+                                           bool cloud_get_rowset_meta) const {
+    std::shared_lock rdlock(_meta_lock);
+    generate_tablet_meta_copy_unlocked(new_tablet_meta, cloud_get_rowset_meta);
 }
 
 // this is a unlocked version of generate_tablet_meta_copy()
 // some method already hold the _meta_lock before calling this,
 // such as EngineCloneTask::_finish_clone -> tablet->revise_tablet_meta
-void BaseTablet::generate_tablet_meta_copy_unlocked(TabletMeta& new_tablet_meta) const {
+void BaseTablet::generate_tablet_meta_copy_unlocked(TabletMeta& new_tablet_meta,
+                                                    bool cloud_get_rowset_meta) const {
     TabletMetaPB tablet_meta_pb;
-    _tablet_meta->to_meta_pb(&tablet_meta_pb);
+    _tablet_meta->to_meta_pb(&tablet_meta_pb, cloud_get_rowset_meta);
     new_tablet_meta.init_from_pb(tablet_meta_pb);
 }
 
@@ -943,11 +941,10 @@ Status BaseTablet::fetch_value_by_rowids(RowsetSharedPtr input_rowset, uint32_t 
 
 const signed char* BaseTablet::get_delete_sign_column_data(const vectorized::Block& block,
                                                            size_t rows_at_least) {
-    if (const vectorized::ColumnWithTypeAndName* delete_sign_column =
-                block.try_get_by_name(DELETE_SIGN);
-        delete_sign_column != nullptr) {
+    if (int pos = block.get_position_by_name(DELETE_SIGN); pos != -1) {
+        const vectorized::ColumnWithTypeAndName& delete_sign_column = block.get_by_position(pos);
         const auto& delete_sign_col =
-                reinterpret_cast<const vectorized::ColumnInt8&>(*(delete_sign_column->column));
+                assert_cast<const vectorized::ColumnInt8&>(*(delete_sign_column.column));
         if (delete_sign_col.size() >= rows_at_least) {
             return delete_sign_col.get_data().data();
         }
@@ -1342,37 +1339,6 @@ void BaseTablet::_rowset_ids_difference(const RowsetIdUnorderedSet& cur,
             to_del->insert(id);
         }
     }
-}
-
-Status BaseTablet::_capture_consistent_rowsets_unlocked(
-        const std::vector<Version>& version_path, std::vector<RowsetSharedPtr>* rowsets) const {
-    DCHECK(rowsets != nullptr);
-    rowsets->reserve(version_path.size());
-    for (const auto& version : version_path) {
-        bool is_find = false;
-        do {
-            auto it = _rs_version_map.find(version);
-            if (it != _rs_version_map.end()) {
-                is_find = true;
-                rowsets->push_back(it->second);
-                break;
-            }
-
-            auto it_expired = _stale_rs_version_map.find(version);
-            if (it_expired != _stale_rs_version_map.end()) {
-                is_find = true;
-                rowsets->push_back(it_expired->second);
-                break;
-            }
-        } while (false);
-
-        if (!is_find) {
-            return Status::Error<CAPTURE_ROWSET_ERROR>(
-                    "fail to find Rowset for version. tablet={}, version={}", tablet_id(),
-                    version.to_string());
-        }
-    }
-    return Status::OK();
 }
 
 Status BaseTablet::check_delete_bitmap_correctness(DeleteBitmapPtr delete_bitmap,
@@ -2143,6 +2109,16 @@ void BaseTablet::get_base_rowset_delete_bitmap_count(
             LOG(WARNING) << "can not found base rowset for tablet " << tablet_id();
         }
     }
+}
+
+void TabletReadSource::fill_delete_predicates() {
+    DCHECK_EQ(delete_predicates.size(), 0);
+    auto delete_pred_view =
+            rs_splits | std::views::transform([](auto&& split) {
+                return split.rs_reader->rowset()->rowset_meta();
+            }) |
+            std::views::filter([](const auto& rs_meta) { return rs_meta->has_delete_predicate(); });
+    delete_predicates = {delete_pred_view.begin(), delete_pred_view.end()};
 }
 
 int32_t BaseTablet::max_version_config() {

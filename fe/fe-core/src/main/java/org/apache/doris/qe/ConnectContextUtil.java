@@ -19,7 +19,16 @@ package org.apache.doris.qe;
 
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.cloud.catalog.CloudEnv;
+import org.apache.doris.common.Config;
+import org.apache.doris.common.DdlException;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.Pair;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.nereids.StatementContext;
+
+import java.util.Optional;
+import java.util.stream.Stream;
 
 public class ConnectContextUtil {
 
@@ -38,5 +47,51 @@ public class ConnectContextUtil {
         ctx.getState().reset();
         ctx.setThreadLocalInfo();
         return ctx;
+    }
+
+    public static Optional<Pair<ErrorCode, String>> initCatalogAndDb(ConnectContext ctx, String fullDbName) {
+        String catalogName = null;
+        String dbName = null;
+        String[] dbNames = fullDbName.split("\\.");
+        if (dbNames.length == 1) {
+            dbName = fullDbName;
+        } else if (dbNames.length == 2) {
+            catalogName = dbNames[0];
+            dbName = dbNames[1];
+        } else if (dbNames.length > 2) {
+            if (GlobalVariable.enableNestedNamespace) {
+                // use the first part as catalog name, the rest part as db name
+                catalogName = dbNames[0];
+                dbName = Stream.of(dbNames).skip(1).reduce((a, b) -> a + "." + b).get();
+            } else {
+                return Optional.of(
+                        Pair.of(ErrorCode.ERR_BAD_DB_ERROR, "Only one dot can be in the name: " + fullDbName));
+            }
+        }
+
+        //  mysql client
+        if (Config.isCloudMode()) {
+            try {
+                dbName = ((CloudEnv) ctx.getEnv()).analyzeCloudCluster(dbName, ctx);
+            } catch (DdlException e) {
+                return Optional.of(Pair.of(e.getMysqlErrorCode(), e.getMessage()));
+            }
+            if (dbName == null || dbName.isEmpty()) {
+                return Optional.empty();
+            }
+        }
+
+        try {
+            if (catalogName != null) {
+                ctx.getEnv().changeCatalog(ctx, catalogName);
+            }
+            ctx.getEnv().changeDb(ctx, dbName);
+        } catch (DdlException e) {
+            return Optional.of(Pair.of(e.getMysqlErrorCode(), e.getMessage()));
+        } catch (Throwable t) {
+            return Optional.of(Pair.of(ErrorCode.ERR_INTERNAL_ERROR, Util.getRootCauseMessage(t)));
+        }
+        ctx.getState().setOk();
+        return Optional.empty();
     }
 }

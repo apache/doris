@@ -17,7 +17,6 @@
 
 package org.apache.doris.load;
 
-import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
@@ -35,6 +34,7 @@ import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.OrderByPair;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Or;
@@ -111,17 +111,14 @@ public class ExportMgr {
         } finally {
             writeUnlock();
         }
-        // delete existing files
-        if (Config.enable_delete_existing_files && Boolean.parseBoolean(job.getDeleteExistingFiles())) {
-            if (job.getBrokerDesc() == null) {
-                throw new AnalysisException("Local file system does not support delete existing files");
-            }
-            String fullPath = job.getExportPath();
-            BrokerUtil.deleteDirectoryWithFileSystem(fullPath.substring(0, fullPath.lastIndexOf('/') + 1),
-                    job.getBrokerDesc());
-        }
-        // ATTN: Must add task after edit log, otherwise the job may finish before adding job.
         try {
+            // delete existing files
+            if (Boolean.parseBoolean(job.getDeleteExistingFiles())) {
+                String fullPath = job.getExportPath();
+                BrokerUtil.deleteDirectoryWithFileSystem(fullPath.substring(0, fullPath.lastIndexOf('/') + 1),
+                        job.getBrokerDesc());
+            }
+            // ATTN: Must add task after edit log, otherwise the job may finish before adding job.
             for (int i = 0; i < job.getCopiedTaskExecutors().size(); i++) {
                 Env.getCurrentEnv().getTransientTaskManager().addMemoryTask(job.getCopiedTaskExecutors().get(i));
             }
@@ -223,7 +220,7 @@ public class ExportMgr {
                         PrivPredicate.SELECT.getPrivs().toString(), dbName);
             }
         } else {
-            TableName tableName = jobs.get(0).getTableName();
+            TableNameInfo tableName = jobs.get(0).getTableName();
             if (tableName == null) {
                 return;
             }
@@ -371,7 +368,7 @@ public class ExportMgr {
     }
 
     public boolean isJobShowable(ExportJob job) {
-        TableName tableName = job.getTableName();
+        TableNameInfo tableName = job.getTableName();
         if (tableName == null || tableName.getTbl().equals("DUMMY")) {
             // forward compatibility, no table name is saved before
             Database db = Env.getCurrentInternalCatalog().getDbNullable(job.getDbId());
@@ -557,3 +554,4 @@ public class ExportMgr {
         return size;
     }
 }
+

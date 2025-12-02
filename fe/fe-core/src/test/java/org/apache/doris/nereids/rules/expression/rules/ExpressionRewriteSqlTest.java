@@ -71,7 +71,7 @@ class ExpressionRewriteSqlTest extends SqlTestBase {
                 .rewrite()
                 .matches(
                         logicalFilter().when(f -> f.getPredicate().toSql().equals(
-                                "AND[(score > 1),(id > 1)]"
+                                "AND[(id > 1),(score > 1)]"
                         )));
 
         sql = "select * from T1 where id > 1 and id < 0 or score > 1 and score < 0";

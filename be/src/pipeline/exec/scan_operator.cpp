@@ -72,6 +72,41 @@ bool ScanLocalState<Derived>::should_run_serial() const {
     return _parent->cast<typename Derived::Parent>()._should_run_serial;
 }
 
+int ScanLocalStateBase::max_scanners_concurrency(RuntimeState* state) const {
+    // For select * from table limit 10; should just use one thread.
+    if (should_run_serial()) {
+        return 1;
+    }
+    /*
+     * The max concurrency of scanners for each ScanLocalStateBase is determined by:
+     * 1. User specified max_scanners_concurrency which is set through session variable.
+     * 2. Default: 4
+     *
+     * If this is a serial operator, the max concurrency should multiply by the number of parallel instances of the operator.
+     */
+    return (state->max_scanners_concurrency() > 0 ? state->max_scanners_concurrency() : 4) *
+           (state->query_parallel_instance_num() / _parent->parallelism(state));
+}
+
+int ScanLocalStateBase::min_scanners_concurrency(RuntimeState* state) const {
+    if (should_run_serial()) {
+        return 1;
+    }
+    /*
+     * The min concurrency of scanners for each ScanLocalStateBase is determined by:
+     * 1. User specified min_scanners_concurrency which is set through session variable.
+     * 2. Default: 1
+     *
+     * If this is a serial operator, the max concurrency should multiply by the number of parallel instances of the operator.
+     */
+    return (state->min_scanners_concurrency() > 0 ? state->min_scanners_concurrency() : 1) *
+           (state->query_parallel_instance_num() / _parent->parallelism(state));
+}
+
+vectorized::ScannerScheduler* ScanLocalStateBase::scan_scheduler(RuntimeState* state) const {
+    return state->get_query_ctx()->get_scan_scheduler();
+}
+
 template <typename Derived>
 Status ScanLocalState<Derived>::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(PipelineXLocalState<>::init(state, info));
@@ -115,6 +150,20 @@ Status ScanLocalState<Derived>::open(RuntimeState* state) {
                 p._common_expr_ctxs_push_down[i]->clone(state, _common_expr_ctxs_push_down[i]));
     }
     RETURN_IF_ERROR(_helper.acquire_runtime_filter(state, _conjuncts, p.row_descriptor()));
+
+    // Disable condition cache in topn filter valid. TODO:: Try to support the topn filter in condition cache
+    if (state->query_options().condition_cache_digest && p._topn_filter_source_node_ids.empty()) {
+        _condition_cache_digest = state->query_options().condition_cache_digest;
+        for (auto& conjunct : _conjuncts) {
+            _condition_cache_digest = conjunct->get_digest(_condition_cache_digest);
+            if (!_condition_cache_digest) {
+                break;
+            }
+        }
+    } else {
+        _condition_cache_digest = 0;
+    }
+
     _stale_expr_ctxs.resize(p._stale_expr_ctxs.size());
     for (size_t i = 0; i < _stale_expr_ctxs.size(); i++) {
         RETURN_IF_ERROR(p._stale_expr_ctxs[i]->clone(state, _stale_expr_ctxs[i]));
@@ -222,6 +271,7 @@ Status ScanLocalState<Derived>::_normalize_conjuncts(RuntimeState* state) {
         }
         ++it;
     }
+
     for (auto& it : _slot_id_to_value_range) {
         std::visit(
                 [&](auto&& range) {
@@ -231,7 +281,6 @@ Status ScanLocalState<Derived>::_normalize_conjuncts(RuntimeState* state) {
                     }
                 },
                 it.second.second);
-        _colname_to_value_range[it.second.first->col_name()] = it.second.second;
     }
 
     return Status::OK();
@@ -321,7 +370,8 @@ Status ScanLocalState<Derived>::_normalize_predicate(
                                     value_range.attach_profile_counter(
                                             rf_expr->filter_id(),
                                             rf_expr->predicate_filtered_rows_counter(),
-                                            rf_expr->predicate_input_rows_counter());
+                                            rf_expr->predicate_input_rows_counter(),
+                                            rf_expr->predicate_always_true_rows_counter());
                                 }
                             }};
                             RETURN_IF_PUSH_DOWN(_normalize_in_and_eq_predicate(
@@ -388,7 +438,8 @@ Status ScanLocalState<Derived>::_normalize_bloom_filter(vectorized::VExpr* expr,
             _filter_predicates.bloom_filters.emplace_back(
                     slot->col_name(), expr->get_bloom_filter_func(), rf_expr->filter_id(),
                     rf_expr->predicate_filtered_rows_counter(),
-                    rf_expr->predicate_input_rows_counter());
+                    rf_expr->predicate_input_rows_counter(),
+                    rf_expr->predicate_always_true_rows_counter());
             *pdt = temp_pdt;
         }
     }
@@ -408,7 +459,8 @@ Status ScanLocalState<Derived>::_normalize_bitmap_filter(vectorized::VExpr* expr
             _filter_predicates.bitmap_filters.emplace_back(
                     slot->col_name(), expr->get_bitmap_filter_func(), rf_expr->filter_id(),
                     rf_expr->predicate_filtered_rows_counter(),
-                    rf_expr->predicate_input_rows_counter());
+                    rf_expr->predicate_input_rows_counter(),
+                    rf_expr->predicate_always_true_rows_counter());
             *pdt = temp_pdt;
         }
     }
@@ -547,14 +599,14 @@ Status ScanLocalState<Derived>::_eval_const_conjuncts(vectorized::VExpr* vexpr,
                                                       vectorized::VExprContext* expr_ctx,
                                                       PushDownType* pdt) {
     // Used to handle constant expressions, such as '1 = 1' _eval_const_conjuncts does not handle cases like 'colA = 1'
-    char* constant_val = nullptr;
+    const char* constant_val = nullptr;
     if (vexpr->is_constant()) {
         std::shared_ptr<ColumnPtrWrapper> const_col_wrapper;
         RETURN_IF_ERROR(vexpr->get_const_col(expr_ctx, &const_col_wrapper));
         if (const auto* const_column = check_and_get_column<vectorized::ColumnConst>(
                     const_col_wrapper->column_ptr.get())) {
-            constant_val = const_cast<char*>(const_column->get_data_at(0).data);
-            if (constant_val == nullptr || !*reinterpret_cast<bool*>(constant_val)) {
+            constant_val = const_column->get_data_at(0).data;
+            if (constant_val == nullptr || !*reinterpret_cast<const bool*>(constant_val)) {
                 *pdt = PushDownType::ACCEPTABLE;
                 _eos = true;
                 _scan_dependency->set_ready();
@@ -571,8 +623,8 @@ Status ScanLocalState<Derived>::_eval_const_conjuncts(vectorized::VExpr* vexpr,
             DCHECK_EQ(bool_column->size(), 1);
             /// TODO: There is a DCHECK here, but an additional check is still needed. It should return an error code.
             if (bool_column->size() == 1) {
-                constant_val = const_cast<char*>(bool_column->get_data_at(0).data);
-                if (constant_val == nullptr || !*reinterpret_cast<bool*>(constant_val)) {
+                constant_val = bool_column->get_data_at(0).data;
+                if (constant_val == nullptr || !*reinterpret_cast<const bool*>(constant_val)) {
                     *pdt = PushDownType::ACCEPTABLE;
                     _eos = true;
                     _scan_dependency->set_ready();
@@ -620,16 +672,21 @@ Status ScanLocalState<Derived>::_normalize_in_and_eq_predicate(vectorized::VExpr
                 int runtime_filter_id = -1;
                 std::shared_ptr<RuntimeProfile::Counter> predicate_filtered_rows_counter = nullptr;
                 std::shared_ptr<RuntimeProfile::Counter> predicate_input_rows_counter = nullptr;
+                std::shared_ptr<RuntimeProfile::Counter> predicate_always_true_rows_counter =
+                        nullptr;
                 if (expr_ctx->root()->is_rf_wrapper()) {
                     auto* rf_expr =
                             assert_cast<vectorized::VRuntimeFilterWrapper*>(expr_ctx->root().get());
                     runtime_filter_id = rf_expr->filter_id();
                     predicate_filtered_rows_counter = rf_expr->predicate_filtered_rows_counter();
                     predicate_input_rows_counter = rf_expr->predicate_input_rows_counter();
+                    predicate_always_true_rows_counter =
+                            rf_expr->predicate_always_true_rows_counter();
                 }
                 _filter_predicates.in_filters.emplace_back(
                         slot->col_name(), expr->get_set_func(), runtime_filter_id,
-                        predicate_filtered_rows_counter, predicate_input_rows_counter);
+                        predicate_filtered_rows_counter, predicate_input_rows_counter,
+                        predicate_always_true_rows_counter);
                 *pdt = PushDownType::ACCEPTABLE;
                 return Status::OK();
             }
@@ -658,7 +715,7 @@ Status ScanLocalState<Derived>::_normalize_in_and_eq_predicate(vectorized::VExpr
             // column in (nullptr) is always false so continue to
             // dispose next item
             DCHECK(iter->get_value() != nullptr);
-            auto* value = const_cast<void*>(iter->get_value());
+            const auto* value = iter->get_value();
             RETURN_IF_ERROR(_change_value_range<true>(
                     temp_range, value, ColumnValueRange<T>::add_fixed_value_range, ""));
             iter->next();
@@ -696,7 +753,7 @@ Status ScanLocalState<Derived>::_normalize_in_and_eq_predicate(vectorized::VExpr
                             value.size, sizeof(typename PrimitiveTypeTraits<T>::CppType));
                 }
                 RETURN_IF_ERROR(_change_value_range<true>(
-                        temp_range, reinterpret_cast<void*>(const_cast<char*>(value.data)),
+                        temp_range, reinterpret_cast<const void*>(value.data),
                         ColumnValueRange<T>::add_fixed_value_range, fn_name));
             }
             range.intersection(temp_range);
@@ -801,7 +858,7 @@ Status ScanLocalState<Derived>::_normalize_not_in_and_not_eq_predicate(
         while (iter->has_next()) {
             // column not in (nullptr) is always true
             DCHECK(iter->get_value() != nullptr);
-            auto value = const_cast<void*>(iter->get_value());
+            const auto value = iter->get_value();
             if (is_fixed_range) {
                 RETURN_IF_ERROR(_change_value_range<true>(
                         range, value, ColumnValueRange<T>::remove_fixed_value_range, fn_name));
@@ -843,11 +900,11 @@ Status ScanLocalState<Derived>::_normalize_not_in_and_not_eq_predicate(
             } else {
                 if (is_fixed_range) {
                     RETURN_IF_ERROR(_change_value_range<true>(
-                            range, reinterpret_cast<void*>(const_cast<char*>(value.data)),
+                            range, reinterpret_cast<const void*>(value.data),
                             ColumnValueRange<T>::remove_fixed_value_range, fn_name));
                 } else {
                     RETURN_IF_ERROR(_change_value_range<true>(
-                            not_in_range, reinterpret_cast<void*>(const_cast<char*>(value.data)),
+                            not_in_range, reinterpret_cast<const void*>(value.data),
                             ColumnValueRange<T>::add_fixed_value_range, fn_name));
                 }
             }
@@ -873,7 +930,7 @@ Status ScanLocalState<Derived>::_normalize_not_in_and_not_eq_predicate(
 template <typename Derived>
 template <bool IsFixed, PrimitiveType PrimitiveType, typename ChangeFixedValueRangeFunc>
 Status ScanLocalState<Derived>::_change_value_range(ColumnValueRange<PrimitiveType>& temp_range,
-                                                    void* value,
+                                                    const void* value,
                                                     const ChangeFixedValueRangeFunc& func,
                                                     const std::string& fn_name,
                                                     int slot_ref_child) {
@@ -899,18 +956,19 @@ Status ScanLocalState<Derived>::_change_value_range(ColumnValueRange<PrimitiveTy
     } else if constexpr (PrimitiveType == TYPE_DATETIME) {
         if constexpr (IsFixed) {
             func(temp_range,
-                 reinterpret_cast<typename PrimitiveTypeTraits<PrimitiveType>::CppType*>(value));
+                 reinterpret_cast<const typename PrimitiveTypeTraits<PrimitiveType>::CppType*>(
+                         value));
         } else {
             func(temp_range, to_olap_filter_type(fn_name, slot_ref_child),
-                 reinterpret_cast<typename PrimitiveTypeTraits<PrimitiveType>::CppType*>(
-                         reinterpret_cast<char*>(value)));
+                 reinterpret_cast<const typename PrimitiveTypeTraits<PrimitiveType>::CppType*>(
+                         reinterpret_cast<const char*>(value)));
         }
     } else if constexpr (PrimitiveType == TYPE_HLL) {
         if constexpr (IsFixed) {
-            func(temp_range, reinterpret_cast<StringRef*>(value));
+            func(temp_range, reinterpret_cast<const StringRef*>(value));
         } else {
             func(temp_range, to_olap_filter_type(fn_name, slot_ref_child),
-                 reinterpret_cast<StringRef*>(value));
+                 reinterpret_cast<const StringRef*>(value));
         }
     } else if constexpr ((PrimitiveType == TYPE_DECIMALV2) || (PrimitiveType == TYPE_CHAR) ||
                          (PrimitiveType == TYPE_VARCHAR) || (PrimitiveType == TYPE_DATETIMEV2) ||
@@ -924,10 +982,12 @@ Status ScanLocalState<Derived>::_change_value_range(ColumnValueRange<PrimitiveTy
                          (PrimitiveType == TYPE_BOOLEAN) || (PrimitiveType == TYPE_DATEV2)) {
         if constexpr (IsFixed) {
             func(temp_range,
-                 reinterpret_cast<typename PrimitiveTypeTraits<PrimitiveType>::CppType*>(value));
+                 reinterpret_cast<const typename PrimitiveTypeTraits<PrimitiveType>::CppType*>(
+                         value));
         } else {
             func(temp_range, to_olap_filter_type(fn_name, slot_ref_child),
-                 reinterpret_cast<typename PrimitiveTypeTraits<PrimitiveType>::CppType*>(value));
+                 reinterpret_cast<const typename PrimitiveTypeTraits<PrimitiveType>::CppType*>(
+                         value));
         }
     } else {
         static_assert(always_false_v<PrimitiveType>);
@@ -1000,7 +1060,7 @@ Status ScanLocalState<Derived>::_normalize_noneq_binary_predicate(
                                                                fn_name, slot_ref_child));
                 } else {
                     RETURN_IF_ERROR(_change_value_range<false>(
-                            range, reinterpret_cast<void*>(const_cast<char*>(value.data)),
+                            range, reinterpret_cast<const void*>(value.data),
                             ColumnValueRange<T>::add_value_range, fn_name, slot_ref_child));
                 }
                 *pdt = temp_pdt;
@@ -1035,19 +1095,14 @@ template <typename Derived>
 Status ScanLocalState<Derived>::_start_scanners(
         const std::list<std::shared_ptr<vectorized::ScannerDelegate>>& scanners) {
     auto& p = _parent->cast<typename Derived::Parent>();
-    // If scan operator is serial operator(like topn), its real parallelism is 1.
-    // Otherwise, its real parallelism is query_parallel_instance_num.
-    // query_parallel_instance_num of olap table is usually equal to session var parallel_pipeline_task_num.
-    // for file scan operator, its real parallelism will be 1 if it is in batch mode.
-    // Related pr:
-    // https://github.com/apache/doris/pull/42460
-    // https://github.com/apache/doris/pull/44635
-    const int parallism_of_scan_operator =
-            p.is_serial_operator() ? 1 : p.query_parallel_instance_num();
-
-    _scanner_ctx = vectorized::ScannerContext::create_shared(
-            state(), this, p._output_tuple_desc, p.output_row_descriptor(), scanners, p.limit(),
-            _scan_dependency, parallism_of_scan_operator);
+    _scanner_ctx = vectorized::ScannerContext::create_shared(state(), this, p._output_tuple_desc,
+                                                             p.output_row_descriptor(), scanners,
+                                                             p.limit(), _scan_dependency
+#ifdef BE_TEST
+                                                             ,
+                                                             max_scanners_concurrency(state())
+#endif
+    );
     return Status::OK();
 }
 
@@ -1126,7 +1181,7 @@ template <typename Derived>
 Status ScanLocalState<Derived>::_get_topn_filters(RuntimeState* state) {
     auto& p = _parent->cast<typename Derived::Parent>();
     std::stringstream result;
-    std::copy(p.topn_filter_source_node_ids.begin(), p.topn_filter_source_node_ids.end(),
+    std::copy(p._topn_filter_source_node_ids.begin(), p._topn_filter_source_node_ids.end(),
               std::ostream_iterator<int>(result, ","));
     custom_profile()->add_info_string("TopNFilterSourceNodeIds", result.str());
 
@@ -1228,7 +1283,7 @@ Status ScanOperatorX<LocalStateType>::init(const TPlanNode& tnode, RuntimeState*
     }
 
     if (tnode.__isset.topn_filter_source_node_ids) {
-        topn_filter_source_node_ids = tnode.topn_filter_source_node_ids;
+        _topn_filter_source_node_ids = tnode.topn_filter_source_node_ids;
     }
 
     // The first branch is kept for compatibility with the old version of the FE
@@ -1256,8 +1311,6 @@ Status ScanOperatorX<LocalStateType>::init(const TPlanNode& tnode, RuntimeState*
         }
     }
 
-    _query_parallel_instance_num = state->query_parallel_instance_num();
-
     return Status::OK();
 }
 
@@ -1272,7 +1325,7 @@ Status ScanOperatorX<LocalStateType>::prepare(RuntimeState* state) {
         _colname_to_slot_id[slot->col_name()] = slot->id();
         _slot_id_to_slot_desc[slot->id()] = slot;
     }
-    for (auto id : topn_filter_source_node_ids) {
+    for (auto id : _topn_filter_source_node_ids) {
         if (!state->get_query_ctx()->has_runtime_predicate(id)) {
             // compatible with older versions fe
             continue;
@@ -1315,13 +1368,6 @@ Status ScanOperatorX<LocalStateType>::get_block(RuntimeState* state, vectorized:
                                                 bool* eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
-    // in inverted index apply logic, in order to optimize query performance,
-    // we built some temporary columns into block, these columns only used in scan node level,
-    // remove them when query leave scan node to avoid other nodes use block->columns() to make a wrong decision
-    Defer drop_block_temp_column {[&]() {
-        std::unique_lock l(local_state._block_lock);
-        block->erase_tmp_columns();
-    }};
 
     if (state->is_cancelled()) {
         if (local_state._scanner_ctx) {

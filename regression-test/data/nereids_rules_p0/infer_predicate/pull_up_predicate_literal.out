@@ -5,7 +5,7 @@ PhysicalResultSink
 ----hashJoin[INNER_JOIN] hashCondition=((col1 = ds.col1) and (col2 = ds.col2)) otherCondition=()
 ------PhysicalOneRowRelation
 ------filter((ds.col1 = 'abc') and (ds.col2 = 'def'))
---------PhysicalOlapScan[test_pull_up_predicate_literal]
+--------PhysicalOlapScan[test_pull_up_predicate_literal(ds)]
 
 -- !test_pull_up_literal2 --
 PhysicalResultSink
@@ -13,7 +13,7 @@ PhysicalResultSink
 ----hashJoin[INNER_JOIN] hashCondition=((col1 = ds.col1) and (col2 = ds.col2)) otherCondition=()
 ------PhysicalOneRowRelation
 ------filter((ds.col1 = 'abc') and (ds.col2 = 'def'))
---------PhysicalOlapScan[test_pull_up_predicate_literal]
+--------PhysicalOlapScan[test_pull_up_predicate_literal(ds)]
 
 -- !test_pull_up_literal_suquery --
 PhysicalResultSink
@@ -22,7 +22,7 @@ PhysicalResultSink
 ------PhysicalProject
 --------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------filter((ds.col1 = 'abc') and (ds.col2 = 'def'))
---------PhysicalOlapScan[test_pull_up_predicate_literal]
+--------PhysicalOlapScan[test_pull_up_predicate_literal(ds)]
 
 -- !test_pull_up_literal_extra_literal --
 PhysicalResultSink
@@ -31,7 +31,7 @@ PhysicalResultSink
 ------PhysicalProject
 --------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------filter((ds.col1 = 'abc') and (ds.col2 = 'def'))
---------PhysicalOlapScan[test_pull_up_predicate_literal]
+--------PhysicalOlapScan[test_pull_up_predicate_literal(ds)]
 
 -- !test_pull_up_literal_with_agg_func --
 PhysicalResultSink
@@ -42,7 +42,7 @@ PhysicalResultSink
 ----------hashAgg[LOCAL]
 ------------PhysicalOlapScan[test_pull_up_predicate_literal]
 ------filter((ds.col1 = 'abc') and (ds.col2 = 'def'))
---------PhysicalOlapScan[test_pull_up_predicate_literal]
+--------PhysicalOlapScan[test_pull_up_predicate_literal(ds)]
 
 -- !test_pull_up_literal_to_empty_relation --
 PhysicalResultSink
@@ -56,7 +56,7 @@ PhysicalResultSink
 --------filter((t.col2 = 'def'))
 ----------PhysicalOlapScan[test_pull_up_predicate_literal]
 ------filter((ds.col1 = 'abc') and (ds.col2 = 'def'))
---------PhysicalOlapScan[test_pull_up_predicate_literal]
+--------PhysicalOlapScan[test_pull_up_predicate_literal(ds)]
 
 -- !test_pull_up_literal_outer_has_agg --
 PhysicalResultSink
@@ -67,7 +67,7 @@ PhysicalResultSink
 ----------PhysicalProject
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ----------filter((ds.col1 = 'abc') and (ds.col2 = 'def'))
-------------PhysicalOlapScan[test_pull_up_predicate_literal]
+------------PhysicalOlapScan[test_pull_up_predicate_literal(ds)]
 
 -- !test_pull_up_literal_multi_join --
 PhysicalResultSink
@@ -78,10 +78,10 @@ PhysicalResultSink
 ----------PhysicalProject
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ----------filter((ds.col1 = 'abc') and (ds.col2 = 'def'))
-------------PhysicalOlapScan[test_pull_up_predicate_literal]
+------------PhysicalOlapScan[test_pull_up_predicate_literal(ds)]
 ------PhysicalProject
 --------filter((tmp2.col1 = 'abc'))
-----------PhysicalOlapScan[test_pull_up_predicate_literal]
+----------PhysicalOlapScan[test_pull_up_predicate_literal(tmp2)]
 
 -- !test_pull_up_literal_outer_or --
 PhysicalResultSink
@@ -90,7 +90,7 @@ PhysicalResultSink
 ------PhysicalProject
 --------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------filter((ds.col1 = 'abc') and (ds.col2 = 'def'))
---------PhysicalOlapScan[test_pull_up_predicate_literal]
+--------PhysicalOlapScan[test_pull_up_predicate_literal(ds)]
 
 -- !const_value_and_join_column_type0 --
 PhysicalResultSink
@@ -102,7 +102,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((t2.d_tinyint = 127))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type1 --
 PhysicalResultSink
@@ -114,7 +114,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((t2.d_smallint = 127))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type2 --
 PhysicalResultSink
@@ -126,7 +126,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((t2.d_int = 127))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type3 --
 PhysicalResultSink
@@ -138,7 +138,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((t2.d_bigint = 127))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type4 --
 PhysicalResultSink
@@ -150,7 +150,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((t2.d_largeint = 127))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type5 --
 PhysicalResultSink
@@ -162,7 +162,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((cast(d_bool as TINYINT) = 127))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type6 --
 PhysicalResultSink
@@ -174,7 +174,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((t2.d_float = 127.0))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type7 --
 PhysicalResultSink
@@ -186,7 +186,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((t2.d_double = 127.0))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type8 --
 PhysicalResultSink
@@ -198,7 +198,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((t2.d_decimal = 127.0000000000000000000))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type9 --
 PhysicalResultSink
@@ -210,7 +210,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((t2.d_date = '2000-01-27'))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type10 --
 PhysicalResultSink
@@ -222,7 +222,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((t2.d_datetime = '2000-01-27 00:00:00'))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type11 --
 PhysicalResultSink
@@ -234,7 +234,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((cast(d_char as DECIMALV3(38, 6)) = 127.000000))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type12 --
 PhysicalResultSink
@@ -246,7 +246,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((cast(d_varchar as DECIMALV3(38, 6)) = 127.000000))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type13 --
 PhysicalResultSink
@@ -258,7 +258,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((cast(d_string as DECIMALV3(38, 6)) = 127.000000))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type16 --
 PhysicalResultSink
@@ -274,7 +274,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((t2.d_smallint = 32767))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type18 --
 PhysicalResultSink
@@ -286,7 +286,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((t2.d_int = 32767))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type19 --
 PhysicalResultSink
@@ -298,7 +298,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((t2.d_bigint = 32767))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type20 --
 PhysicalResultSink
@@ -310,7 +310,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((t2.d_largeint = 32767))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type21 --
 PhysicalResultSink
@@ -322,7 +322,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((cast(d_bool as SMALLINT) = 32767))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type22 --
 PhysicalResultSink
@@ -334,7 +334,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((t2.d_float = 32767.0))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type23 --
 PhysicalResultSink
@@ -346,7 +346,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((t2.d_double = 32767.0))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type24 --
 PhysicalResultSink
@@ -358,7 +358,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((t2.d_decimal = 32767.0000000000000000000))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type25 --
 PhysicalResultSink
@@ -378,7 +378,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((cast(d_char as DECIMALV3(38, 6)) = 32767.000000))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type28 --
 PhysicalResultSink
@@ -390,7 +390,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((cast(d_varchar as DECIMALV3(38, 6)) = 32767.000000))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type29 --
 PhysicalResultSink
@@ -402,7 +402,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((cast(d_string as DECIMALV3(38, 6)) = 32767.000000))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type32 --
 PhysicalResultSink
@@ -422,7 +422,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((t2.d_int = 32768))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type35 --
 PhysicalResultSink
@@ -434,7 +434,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((t2.d_bigint = 32768))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type36 --
 PhysicalResultSink
@@ -446,7 +446,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((t2.d_largeint = 32768))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type37 --
 PhysicalResultSink
@@ -458,7 +458,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((cast(d_bool as INT) = 32768))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type38 --
 PhysicalResultSink
@@ -470,7 +470,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((cast(d_float as DOUBLE) = 32768.0))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type39 --
 PhysicalResultSink
@@ -482,7 +482,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((t2.d_double = 32768.0))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type40 --
 PhysicalResultSink
@@ -494,7 +494,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((t2.d_decimal = 32768.0000000000000000000))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type41 --
 PhysicalResultSink
@@ -514,7 +514,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((cast(d_char as DECIMALV3(38, 6)) = 32768.000000))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type44 --
 PhysicalResultSink
@@ -526,7 +526,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((cast(d_varchar as DECIMALV3(38, 6)) = 32768.000000))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type45 --
 PhysicalResultSink
@@ -538,7 +538,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((cast(d_string as DECIMALV3(38, 6)) = 32768.000000))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type48 --
 PhysicalResultSink
@@ -562,7 +562,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((t2.d_bigint = 214748364799))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type52 --
 PhysicalResultSink
@@ -574,7 +574,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((t2.d_largeint = 214748364799))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type53 --
 PhysicalResultSink
@@ -586,7 +586,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((cast(d_bool as BIGINT) = 214748364799))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type54 --
 PhysicalResultSink
@@ -598,7 +598,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((cast(d_float as DOUBLE) = 2.14748364799E11))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type55 --
 PhysicalResultSink
@@ -610,7 +610,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((t2.d_double = 2.14748364799E11))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type56 --
 PhysicalResultSink
@@ -622,7 +622,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((cast(d_decimal as DECIMALV3(38, 18)) = 214748364799.000000000000000000))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type57 --
 PhysicalResultSink
@@ -642,7 +642,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((cast(d_char as DECIMALV3(38, 6)) = 214748364799.000000))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type60 --
 PhysicalResultSink
@@ -654,7 +654,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((cast(d_varchar as DECIMALV3(38, 6)) = 214748364799.000000))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type61 --
 PhysicalResultSink
@@ -666,7 +666,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((cast(d_string as DECIMALV3(38, 6)) = 214748364799.000000))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type64 --
 PhysicalResultSink
@@ -694,7 +694,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((t2.d_largeint = 922337203685477580722))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type69 --
 PhysicalResultSink
@@ -706,7 +706,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((cast(d_bool as LARGEINT) = 922337203685477580722))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type70 --
 PhysicalResultSink
@@ -718,7 +718,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((cast(d_float as DOUBLE) = 9.223372036854776E20))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type71 --
 PhysicalResultSink
@@ -730,7 +730,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((t2.d_double = 9.223372036854776E20))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type72 --
 PhysicalResultSink
@@ -754,7 +754,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((cast(d_char as DECIMALV3(38, 6)) = 922337203685477580722.000000))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type76 --
 PhysicalResultSink
@@ -766,7 +766,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((cast(d_varchar as DECIMALV3(38, 6)) = 922337203685477580722.000000))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type77 --
 PhysicalResultSink
@@ -778,7 +778,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((cast(d_string as DECIMALV3(38, 6)) = 922337203685477580722.000000))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type80 --
 PhysicalResultSink
@@ -790,7 +790,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((t2.d_tinyint = 1))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type81 --
 PhysicalResultSink
@@ -802,7 +802,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((t2.d_smallint = 1))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type82 --
 PhysicalResultSink
@@ -814,7 +814,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((t2.d_int = 1))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type83 --
 PhysicalResultSink
@@ -826,7 +826,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((t2.d_bigint = 1))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type84 --
 PhysicalResultSink
@@ -838,7 +838,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((t2.d_largeint = 1))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type85 --
 PhysicalResultSink
@@ -850,7 +850,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((t2.d_bool = TRUE))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type86 --
 PhysicalResultSink
@@ -862,7 +862,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((t2.d_float = 1.0))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type87 --
 PhysicalResultSink
@@ -874,7 +874,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((t2.d_double = 1.0))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type88 --
 PhysicalResultSink
@@ -886,7 +886,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((t2.d_decimal = 1.0000000000000000000))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type91 --
 PhysicalResultSink
@@ -897,8 +897,8 @@ PhysicalResultSink
 ----------PhysicalProject
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
---------filter((cast(d_char as BOOLEAN) = TRUE))
-----------PhysicalOlapScan[test_types]
+--------filter(cast(d_char as BOOLEAN))
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type92 --
 PhysicalResultSink
@@ -909,8 +909,8 @@ PhysicalResultSink
 ----------PhysicalProject
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
---------filter((cast(d_varchar as BOOLEAN) = TRUE))
-----------PhysicalOlapScan[test_types]
+--------filter(cast(d_varchar as BOOLEAN))
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type93 --
 PhysicalResultSink
@@ -921,8 +921,8 @@ PhysicalResultSink
 ----------PhysicalProject
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
---------filter((cast(d_string as BOOLEAN) = TRUE))
-----------PhysicalOlapScan[test_types]
+--------filter(cast(d_string as BOOLEAN))
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type96 --
 PhysicalResultSink
@@ -950,7 +950,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((cast(d_largeint as DECIMALV3(38, 4)) = 1.0001))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type101 --
 PhysicalResultSink
@@ -962,7 +962,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((cast(d_bool as DECIMALV3(5, 4)) = 1.0001))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type102 --
 PhysicalResultSink
@@ -974,7 +974,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((cast(d_float as DOUBLE) = 1.0001))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type103 --
 PhysicalResultSink
@@ -986,7 +986,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((t2.d_double = 1.0001))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type104 --
 PhysicalResultSink
@@ -998,7 +998,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((t2.d_decimal = 1.0001000000000000000))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type105 --
 PhysicalResultSink
@@ -1018,7 +1018,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((cast(d_char as DECIMALV3(38, 6)) = 1.000100))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type108 --
 PhysicalResultSink
@@ -1030,7 +1030,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((cast(d_varchar as DECIMALV3(38, 6)) = 1.000100))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type109 --
 PhysicalResultSink
@@ -1042,7 +1042,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((cast(d_string as DECIMALV3(38, 6)) = 1.000100))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type112 --
 PhysicalResultSink
@@ -1070,7 +1070,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((cast(d_largeint as DECIMALV3(38, 6)) = 1.000000))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type117 --
 PhysicalResultSink
@@ -1082,7 +1082,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((cast(d_bool as DECIMALV3(13, 12)) = 1.000000000003))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type118 --
 PhysicalResultSink
@@ -1094,7 +1094,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((cast(d_float as DOUBLE) = 1.000000000003))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type119 --
 PhysicalResultSink
@@ -1106,7 +1106,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((t2.d_double = 1.000000000003))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type120 --
 PhysicalResultSink
@@ -1118,7 +1118,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((t2.d_decimal = 1.0000000000030000000))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type121 --
 PhysicalResultSink
@@ -1138,7 +1138,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((cast(d_char as DECIMALV3(38, 6)) = 1.000000))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type124 --
 PhysicalResultSink
@@ -1150,7 +1150,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((cast(d_varchar as DECIMALV3(38, 6)) = 1.000000))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type125 --
 PhysicalResultSink
@@ -1162,7 +1162,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((cast(d_string as DECIMALV3(38, 6)) = 1.000000))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type128 --
 PhysicalResultSink
@@ -1190,7 +1190,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((cast(d_largeint as DECIMALV3(38, 6)) = 12232.239827))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type133 --
 PhysicalResultSink
@@ -1202,7 +1202,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((cast(d_bool as DECIMALV3(21, 16)) = 12232.2398272342335234))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type134 --
 PhysicalResultSink
@@ -1214,7 +1214,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((cast(d_float as DOUBLE) = 12232.239827234234))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type135 --
 PhysicalResultSink
@@ -1226,7 +1226,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((t2.d_double = 12232.239827234234))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type136 --
 PhysicalResultSink
@@ -1238,7 +1238,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((t2.d_decimal = 12232.2398272342335234000))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type137 --
 PhysicalResultSink
@@ -1258,7 +1258,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((cast(d_char as DECIMALV3(38, 6)) = 12232.239827))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type140 --
 PhysicalResultSink
@@ -1270,7 +1270,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((cast(d_varchar as DECIMALV3(38, 6)) = 12232.239827))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type141 --
 PhysicalResultSink
@@ -1282,7 +1282,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((cast(d_string as DECIMALV3(38, 6)) = 12232.239827))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type144 --
 PhysicalResultSink
@@ -1330,7 +1330,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((t2.d_date = '2024-07-01'))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type154 --
 PhysicalResultSink
@@ -1342,7 +1342,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((t2.d_datetime = '2024-07-01 00:00:00'))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type155 --
 PhysicalResultSink
@@ -1354,7 +1354,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((t2.d_char = '2024-07-01'))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type156 --
 PhysicalResultSink
@@ -1366,7 +1366,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((t2.d_varchar = '2024-07-01'))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type157 --
 PhysicalResultSink
@@ -1378,7 +1378,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((t2.d_string = '2024-07-01'))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type158 --
 PhysicalResultSink
@@ -1394,7 +1394,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((t2.d_ipv6 = cast('2024-07-01' as IPV6)))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type160 --
 PhysicalResultSink
@@ -1442,7 +1442,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((t2.d_date = '2024-08-02'))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type170 --
 PhysicalResultSink
@@ -1458,7 +1458,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((t2.d_char = '2024-08-02 10:10:00.123332'))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type172 --
 PhysicalResultSink
@@ -1470,7 +1470,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((t2.d_varchar = '2024-08-02 10:10:00.123332'))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type173 --
 PhysicalResultSink
@@ -1482,7 +1482,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((t2.d_string = '2024-08-02 10:10:00.123332'))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type174 --
 PhysicalResultSink
@@ -1498,7 +1498,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((t2.d_ipv6 = cast('2024-08-02 10:10:00.123332' as IPV6)))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type176 --
 PhysicalResultSink
@@ -1546,7 +1546,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((t2.d_char = 'abcdsadtestchar'))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type188 --
 PhysicalResultSink
@@ -1558,7 +1558,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((t2.d_varchar = 'abcdsadtestchar'))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type189 --
 PhysicalResultSink
@@ -1570,7 +1570,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((t2.d_string = 'abcdsadtestchar'))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type190 --
 PhysicalResultSink
@@ -1586,7 +1586,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((t2.d_ipv6 = cast('abcdsadtestchar' as IPV6)))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type192 --
 PhysicalResultSink
@@ -1634,7 +1634,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((t2.d_char = 'dtestvarcharvarchar'))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type204 --
 PhysicalResultSink
@@ -1646,7 +1646,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((t2.d_varchar = 'dtestvarcharvarchar'))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type205 --
 PhysicalResultSink
@@ -1658,7 +1658,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((t2.d_string = 'dtestvarcharvarchar'))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type206 --
 PhysicalResultSink
@@ -1674,7 +1674,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((t2.d_ipv6 = cast('dtestvarcharvarchar' as IPV6)))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type208 --
 PhysicalResultSink
@@ -1722,7 +1722,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((t2.d_char = 'longlonglongstring'))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type220 --
 PhysicalResultSink
@@ -1734,7 +1734,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((t2.d_varchar = 'longlonglongstring'))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type221 --
 PhysicalResultSink
@@ -1746,7 +1746,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((t2.d_string = 'longlonglongstring'))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type222 --
 PhysicalResultSink
@@ -1762,7 +1762,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((t2.d_ipv6 = cast('longlonglongstring' as IPV6)))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type224 --
 PhysicalResultSink
@@ -1810,7 +1810,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((t2.d_char = '127.0.0.1'))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type236 --
 PhysicalResultSink
@@ -1822,7 +1822,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((t2.d_varchar = '127.0.0.1'))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type237 --
 PhysicalResultSink
@@ -1834,7 +1834,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((t2.d_string = '127.0.0.1'))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type238 --
 PhysicalResultSink
@@ -1846,7 +1846,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((t2.d_ipv4 = 127.0.0.1))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type239 --
 PhysicalResultSink
@@ -1858,7 +1858,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((t2.d_ipv6 = cast('127.0.0.1' as IPV6)))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type240 --
 PhysicalResultSink
@@ -1906,7 +1906,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((t2.d_char = 'ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff'))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type252 --
 PhysicalResultSink
@@ -1918,7 +1918,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((t2.d_varchar = 'ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff'))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type253 --
 PhysicalResultSink
@@ -1930,7 +1930,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((t2.d_string = 'ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff'))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type254 --
 PhysicalResultSink
@@ -1946,7 +1946,7 @@ PhysicalResultSink
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((t2.d_ipv6 = ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff))
-----------PhysicalOlapScan[test_types]
+----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type_res0 --
 127

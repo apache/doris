@@ -49,10 +49,12 @@
 #include "olap/rowset/rowset_writer_context.h" // RowsetWriterContext
 #include "olap/rowset/segment_creator.h"
 #include "olap/rowset/segment_v2/column_writer.h" // ColumnWriter
+#include "olap/rowset/segment_v2/external_col_meta_util.h"
 #include "olap/rowset/segment_v2/index_file_writer.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
 #include "olap/rowset/segment_v2/page_io.h"
 #include "olap/rowset/segment_v2/page_pointer.h"
+#include "olap/rowset/segment_v2/variant/variant_ext_meta_writer.h"
 #include "olap/segment_loader.h"
 #include "olap/short_key_index.h"
 #include "olap/tablet_schema.h"
@@ -78,7 +80,6 @@
 #include "vec/json/path_in_data.h"
 #include "vec/jsonb/serialize.h"
 #include "vec/olap/olap_data_convertor.h"
-
 namespace doris::segment_v2 {
 
 #include "common/compile_check_begin.h"
@@ -355,7 +356,7 @@ void VerticalSegmentWriter::_maybe_invalid_row_cache(const std::string& key) con
     }
 }
 
-void VerticalSegmentWriter::_serialize_block_to_row_column(vectorized::Block& block) {
+void VerticalSegmentWriter::_serialize_block_to_row_column(const vectorized::Block& block) {
     if (block.rows() == 0) {
         return;
     }
@@ -932,6 +933,13 @@ Status VerticalSegmentWriter::write_batch() {
         for (auto& column_writer : _column_writers) {
             RETURN_IF_ERROR(column_writer->finish());
             RETURN_IF_ERROR(column_writer->write_data());
+
+            auto* column_meta = column_writer->get_column_meta();
+            column_meta->set_compressed_data_bytes(
+                    column_writer->get_total_compressed_data_pages_bytes());
+            column_meta->set_uncompressed_data_bytes(
+                    column_writer->get_total_uncompressed_data_pages_bytes());
+            column_meta->set_raw_data_bytes(column_writer->get_raw_data_bytes());
         }
         return Status::OK();
     }
@@ -941,7 +949,7 @@ Status VerticalSegmentWriter::write_batch() {
         _opts.write_type == DataWriteType::TYPE_SCHEMA_CHANGE) {
         for (auto& data : _batched_blocks) {
             // TODO: maybe we should pass range to this method
-            _serialize_block_to_row_column(*const_cast<vectorized::Block*>(data.block));
+            _serialize_block_to_row_column(*data.block);
         }
     }
 
@@ -984,6 +992,13 @@ Status VerticalSegmentWriter::write_batch() {
         }
         RETURN_IF_ERROR(_column_writers[cid]->finish());
         RETURN_IF_ERROR(_column_writers[cid]->write_data());
+
+        auto* column_meta = _column_writers[cid]->get_column_meta();
+        column_meta->set_compressed_data_bytes(
+                _column_writers[cid]->get_total_compressed_data_pages_bytes());
+        column_meta->set_uncompressed_data_bytes(
+                _column_writers[cid]->get_total_uncompressed_data_pages_bytes());
+        column_meta->set_raw_data_bytes(_column_writers[cid]->get_raw_data_bytes());
     }
 
     for (auto& data : _batched_blocks) {
@@ -1329,6 +1344,17 @@ Status VerticalSegmentWriter::_write_primary_key_index() {
 
 Status VerticalSegmentWriter::_write_footer() {
     _footer.set_num_rows(_row_count);
+
+    // Decide whether to externalize ColumnMetaPB by tablet default, and stamp footer version
+
+    if (_tablet_schema->is_external_segment_column_meta_used()) {
+        _footer.set_version(SEGMENT_FOOTER_VERSION_V3_EXT_COL_META);
+        VLOG_DEBUG << "use external column meta";
+        // External ColumnMetaPB writing (optional)
+        RETURN_IF_ERROR(ExternalColMetaUtil::write_external_column_meta(
+                _file_writer, &_footer, _opts.compression_type,
+                [this](const std::vector<Slice>& slices) { return _write_raw_data(slices); }));
+    }
 
     // Footer := SegmentFooterPB, FooterPBSize(4), FooterPBChecksum(4), MagicNumber(4)
     VLOG_DEBUG << "footer " << _footer.DebugString();

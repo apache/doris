@@ -1308,7 +1308,7 @@ TEST_F(ColumnVariantTest, pop_back_test) {
 }
 
 // serialize and deserialize is not implemented
-// serialize_vec, deserialize_vec, serialize_vec_with_null_map, deserialize_vec_with_null_map, get_max_row_byte_size
+// serialize, deserialize, get_max_row_byte_size
 // hash interface
 TEST_F(ColumnVariantTest, update_xxHash_with_value) {
     hash_common_test("update_xxHash_with_value", assert_update_xxHash_with_value_callback);
@@ -3078,7 +3078,7 @@ EXPECT_EQ(info.num_dimensions, 2);
 
     Field array = Field::create_field<TYPE_ARRAY>(Array());
     array.get<Array>().push_back(Field::create_field<TYPE_JSONB>(std::move(field)));
-    array.get<Array>().push_back(Field::create_field<TYPE_JSONB>(std::move(JsonbField())));
+    array.get<Array>().push_back(Field::create_field<TYPE_JSONB>(JsonbField()));
     FieldInfo info;
     schema_util::get_field_info(array, &info);
     // which should support ??!!
@@ -3128,120 +3128,6 @@ TEST_F(ColumnVariantTest, subcolumn_operations_coverage) {
         // Test with different types
         auto src_column2 = VariantUtil::construct_advanced_varint_column();
         dst_subcolumn->insert_range_from(src_column2->get_subcolumns().get_root()->data, 0, 1);
-    }
-
-    // Test parse_binary_from_sparse_column
-    {
-        auto column = VariantUtil::construct_basic_varint_column();
-        vectorized::Field res;
-        FieldInfo field_info;
-
-        // Test String type
-        {
-            std::string test_str = "test_data";
-            std::vector<char> binary_data;
-            size_t str_size = test_str.size();
-            binary_data.resize(sizeof(size_t) + test_str.size());
-            memcpy(binary_data.data(), &str_size, sizeof(size_t));
-            memcpy(binary_data.data() + sizeof(size_t), test_str.data(), test_str.size());
-            const char* data = binary_data.data();
-            parse_binary_from_sparse_column(FieldType::OLAP_FIELD_TYPE_STRING, data, res,
-                                            field_info);
-            EXPECT_EQ(res.get<String>(), "test_data");
-        }
-
-        // Test integer types
-        {
-            Int8 int8_val = 42;
-            const char* data = reinterpret_cast<const char*>(&int8_val);
-            parse_binary_from_sparse_column(FieldType::OLAP_FIELD_TYPE_TINYINT, data, res,
-                                            field_info);
-            EXPECT_EQ(res.get<Int8>(), 42);
-        }
-
-        {
-            Int16 int16_val = 12345;
-            const char* data = reinterpret_cast<const char*>(&int16_val);
-            parse_binary_from_sparse_column(FieldType::OLAP_FIELD_TYPE_SMALLINT, data, res,
-                                            field_info);
-            EXPECT_EQ(res.get<Int16>(), 12345);
-        }
-
-        {
-            Int32 int32_val = 123456789;
-            const char* data = reinterpret_cast<const char*>(&int32_val);
-            parse_binary_from_sparse_column(FieldType::OLAP_FIELD_TYPE_INT, data, res, field_info);
-            EXPECT_EQ(res.get<Int32>(), 123456789);
-        }
-
-        {
-            Int64 int64_val = 1234567890123456789LL;
-            const char* data = reinterpret_cast<const char*>(&int64_val);
-            parse_binary_from_sparse_column(FieldType::OLAP_FIELD_TYPE_BIGINT, data, res,
-                                            field_info);
-            EXPECT_EQ(res.get<Int64>(), 1234567890123456789LL);
-        }
-
-        // Test floating point types
-        {
-            Float32 float32_val = 3.1415901f;
-            const char* data = reinterpret_cast<const char*>(&float32_val);
-            parse_binary_from_sparse_column(FieldType::OLAP_FIELD_TYPE_FLOAT, data, res,
-                                            field_info);
-            EXPECT_FLOAT_EQ(res.get<Float32>(), 0);
-        }
-
-        {
-            Float64 float64_val = 3.141592653589793;
-            const char* data = reinterpret_cast<const char*>(&float64_val);
-            parse_binary_from_sparse_column(FieldType::OLAP_FIELD_TYPE_DOUBLE, data, res,
-                                            field_info);
-            EXPECT_DOUBLE_EQ(res.get<Float64>(), 3.141592653589793);
-        }
-
-        // Test JSONB type
-        {
-            std::string json_str = "{\"key\": \"value\"}";
-            std::vector<char> binary_data;
-            size_t json_size = json_str.size();
-            binary_data.resize(sizeof(size_t) + json_str.size());
-            memcpy(binary_data.data(), &json_size, sizeof(size_t));
-            memcpy(binary_data.data() + sizeof(size_t), json_str.data(), json_str.size());
-            const char* data = binary_data.data();
-            parse_binary_from_sparse_column(FieldType::OLAP_FIELD_TYPE_JSONB, data, res,
-                                            field_info);
-        }
-
-        // Test Array type
-        {
-            std::vector<char> binary_data;
-            size_t array_size = 2;
-            binary_data.resize(sizeof(size_t) + 2 * (sizeof(uint8_t) + sizeof(Int32)));
-            char* data_ptr = binary_data.data();
-
-            // Write array size
-            memcpy(data_ptr, &array_size, sizeof(size_t));
-            data_ptr += sizeof(size_t);
-
-            // Write first element (Int32)
-            *data_ptr++ = static_cast<uint8_t>(PrimitiveType::TYPE_INT);
-            Int32 val1 = 42;
-            memcpy(data_ptr, &val1, sizeof(Int32));
-            data_ptr += sizeof(Int32);
-
-            // Write second element (Int32)
-            *data_ptr++ = static_cast<uint8_t>(PrimitiveType::TYPE_INT);
-            Int32 val2 = 43;
-            memcpy(data_ptr, &val2, sizeof(Int32));
-
-            const char* data = binary_data.data();
-            parse_binary_from_sparse_column(FieldType::OLAP_FIELD_TYPE_ARRAY, data, res,
-                                            field_info);
-            const Array& array = res.get<Array>();
-            EXPECT_EQ(array.size(), 2);
-            EXPECT_EQ(array[0].get<Int32>(), 42);
-            EXPECT_EQ(array[1].get<Int32>(), 43);
-        }
     }
 
     // Test add_sub_column
@@ -3796,6 +3682,107 @@ TEST_F(ColumnVariantTest, subcolumn_insert_range_from_test_advanced) {
         if (i % 1000 == 0) {
             std::cout << "insert count " << i << std::endl;
         }
+    }
+}
+
+TEST_F(ColumnVariantTest, test_variant_no_data_insert) {
+    auto variant = ColumnVariant::create(1);
+    variant->insert_many_defaults(10);
+    EXPECT_EQ(variant->size(), 10);
+    EXPECT_TRUE(variant->only_have_default_values());
+}
+
+TEST_F(ColumnVariantTest, test_variant_deserialize_from_sparse_column) {
+    auto sparse_column = ColumnVariant::create_sparse_column_fn();
+    auto& column_map = assert_cast<ColumnMap&>(*sparse_column);
+    auto& key = assert_cast<ColumnString&>(column_map.get_keys());
+    auto& value = assert_cast<ColumnString&>(column_map.get_values());
+    auto& offsets = column_map.get_offsets();
+
+    {
+        Field int_field = Field::create_field<TYPE_INT>(123);
+        Field array_field = Field::create_field<TYPE_ARRAY>(Array(1));
+        array_field.get<Array&>()[0] = int_field;
+        FieldInfo info = {PrimitiveType::TYPE_TINYINT, false, false, 1};
+        ColumnVariant::Subcolumn int_subcolumn(0, true, false);
+        int_subcolumn.insert(array_field, info);
+        int_subcolumn.serialize_to_sparse_column(&key, "b", &value, 0);
+
+        info = {PrimitiveType::TYPE_INT, false, false, 1};
+        int_subcolumn.insert(array_field, info);
+        int_subcolumn.serialize_to_sparse_column(&key, "b", &value, 1);
+
+        offsets.push_back(key.size());
+
+        ColumnVariant::Subcolumn subcolumn(0, true, false);
+        subcolumn.deserialize_from_sparse_column(&value, 0);
+        EXPECT_EQ(subcolumn.data.size(), 1);
+        EXPECT_EQ(subcolumn.get_least_common_type()->get_primitive_type(),
+                  PrimitiveType::TYPE_ARRAY);
+        EXPECT_EQ(subcolumn.get_dimensions(), 1);
+        EXPECT_EQ(subcolumn.get_least_common_base_type_id(), PrimitiveType::TYPE_TINYINT);
+        auto v = subcolumn.get_last_field();
+        auto& arr = v.get<Array>();
+        EXPECT_EQ(arr.size(), 1);
+        EXPECT_EQ(arr[0].get<Int32>(), 123);
+
+        subcolumn.deserialize_from_sparse_column(&value, 1);
+        EXPECT_EQ(subcolumn.data.size(), 2);
+        EXPECT_EQ(subcolumn.get_least_common_type()->get_primitive_type(),
+                  PrimitiveType::TYPE_ARRAY);
+        EXPECT_EQ(subcolumn.get_dimensions(), 1);
+        EXPECT_EQ(subcolumn.get_least_common_base_type_id(), PrimitiveType::TYPE_INT);
+        auto v2 = subcolumn.get_last_field();
+        auto& arr2 = v2.get<Array>();
+        EXPECT_EQ(arr2.size(), 1);
+        EXPECT_EQ(arr2[0].get<Int32>(), 123);
+    }
+
+    column_map.clear();
+    offsets.clear();
+    key.clear();
+    value.clear();
+
+    {
+        Field int_field = Field::create_field<TYPE_INT>(123);
+        Field array_field = Field::create_field<TYPE_ARRAY>(Array(1));
+        array_field.get<Array&>()[0] = Field();
+        FieldInfo info = {PrimitiveType::TYPE_NULL, false, false, 1};
+        ColumnVariant::Subcolumn int_subcolumn(0, true, false);
+        int_subcolumn.insert(array_field, info);
+        int_subcolumn.serialize_to_sparse_column(&key, "b", &value, 0);
+
+        array_field = Field::create_field<TYPE_ARRAY>(Array(2));
+        array_field.get<Array&>()[0] = Field();
+        array_field.get<Array&>()[1] = int_field;
+        info = {PrimitiveType::TYPE_INT, false, false, 1};
+        int_subcolumn.insert(array_field, info);
+        int_subcolumn.serialize_to_sparse_column(&key, "b", &value, 1);
+
+        offsets.push_back(key.size());
+
+        ColumnVariant::Subcolumn subcolumn(0, true, false);
+        subcolumn.deserialize_from_sparse_column(&value, 0);
+        EXPECT_EQ(subcolumn.data.size(), 1);
+        EXPECT_EQ(subcolumn.get_least_common_type()->get_primitive_type(),
+                  PrimitiveType::TYPE_ARRAY);
+        EXPECT_EQ(subcolumn.get_dimensions(), 1);
+        auto v = subcolumn.get_last_field();
+        auto& arr = v.get<Array>();
+        EXPECT_EQ(arr.size(), 1);
+        EXPECT_TRUE(arr[0].is_null());
+
+        subcolumn.deserialize_from_sparse_column(&value, 1);
+        EXPECT_EQ(subcolumn.data.size(), 2);
+        EXPECT_EQ(subcolumn.get_least_common_type()->get_primitive_type(),
+                  PrimitiveType::TYPE_ARRAY);
+        EXPECT_EQ(subcolumn.get_dimensions(), 1);
+        EXPECT_EQ(subcolumn.get_least_common_base_type_id(), PrimitiveType::TYPE_INT);
+        auto v2 = subcolumn.get_last_field();
+        auto& arr2 = v2.get<Array>();
+        EXPECT_EQ(arr2.size(), 2);
+        EXPECT_TRUE(arr2[0].is_null());
+        EXPECT_EQ(arr2[1].get<Int32>(), 123);
     }
 }
 

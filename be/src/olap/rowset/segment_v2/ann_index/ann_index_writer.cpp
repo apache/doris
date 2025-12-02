@@ -63,7 +63,10 @@ Status AnnIndexColumnWriter::init() {
     build_parameter.max_degree = std::stoi(get_or_default(properties, MAX_DEGREE, "32"));
     build_parameter.metric_type = FaissBuildParameter::string_to_metric_type(metric_type);
     build_parameter.ef_construction = std::stoi(get_or_default(properties, EF_CONSTRUCTION, "40"));
+    build_parameter.ivf_nlist = std::stoi(get_or_default(properties, NLIST, "1024"));
     build_parameter.quantizer = FaissBuildParameter::string_to_quantizer(quantizer);
+    build_parameter.pq_m = std::stoi(get_or_default(properties, PQ_M, "8"));
+    build_parameter.pq_nbits = std::stoi(get_or_default(properties, PQ_NBITS, "8"));
 
     faiss_index->build(build_parameter);
 
@@ -74,6 +77,10 @@ Status AnnIndexColumnWriter::init() {
             "ef_construction {}, quantizer {}",
             index_type, build_parameter.dim, metric_type, build_parameter.max_degree,
             build_parameter.ef_construction, quantizer);
+
+    size_t block_size = CHUNK_SIZE * build_parameter.dim;
+    _float_array.reserve(block_size);
+
     return Status::OK();
 }
 
@@ -102,10 +109,24 @@ Status AnnIndexColumnWriter::add_array_values(size_t field_size, const void* val
     }
 
     const float* p = reinterpret_cast<const float*>(value_ptr);
-    // Train the index if needed
-    // Faiss index will do nothing if index does not need train.
-    _vector_index->train(num_rows, p);
-    RETURN_IF_ERROR(_vector_index->add(num_rows, p));
+
+    const size_t full_elements = CHUNK_SIZE * dim;
+    size_t remaining_elements = num_rows * dim;
+    size_t src_offset = 0;
+    while (remaining_elements > 0) {
+        size_t available_space = full_elements - _float_array.size();
+        size_t elements_to_add = std::min(remaining_elements, available_space);
+
+        _float_array.insert(_float_array.end(), p + src_offset, p + src_offset + elements_to_add);
+        src_offset += elements_to_add;
+        remaining_elements -= elements_to_add;
+
+        if (_float_array.size() == full_elements) {
+            RETURN_IF_ERROR(_vector_index->train(CHUNK_SIZE, _float_array.data()));
+            RETURN_IF_ERROR(_vector_index->add(CHUNK_SIZE, _float_array.data()));
+            _float_array.clear();
+        }
+    }
 
     return Status::OK();
 }
@@ -128,6 +149,15 @@ int64_t AnnIndexColumnWriter::size() const {
 }
 
 Status AnnIndexColumnWriter::finish() {
+    // train/add the remaining data
+    if (!_float_array.empty()) {
+        DCHECK(_float_array.size() % _vector_index->get_dimension() == 0);
+        vectorized::Int64 num_rows = _float_array.size() / _vector_index->get_dimension();
+        RETURN_IF_ERROR(_vector_index->train(num_rows, _float_array.data()));
+        RETURN_IF_ERROR(_vector_index->add(num_rows, _float_array.data()));
+        _float_array.clear();
+    }
+
     return _vector_index->save(_dir.get());
 }
 #include "common/compile_check_end.h"

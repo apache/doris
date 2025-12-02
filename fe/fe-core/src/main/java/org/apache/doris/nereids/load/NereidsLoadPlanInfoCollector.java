@@ -19,11 +19,8 @@ package org.apache.doris.nereids.load;
 
 import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.NullLiteral;
-import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
-import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.AggregateFunction;
@@ -34,34 +31,45 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionType;
-import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.FileFormatConstants;
+import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.analyzer.Scope;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.translator.ExpressionTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
+import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.rules.analysis.ExpressionAnalyzer;
+import org.apache.doris.nereids.rules.expression.rules.ConvertAggStateCast;
 import org.apache.doris.nereids.rules.expression.rules.PartitionPruner;
+import org.apache.doris.nereids.rules.expression.rules.PartitionPruner.PartitionTableType;
 import org.apache.doris.nereids.rules.expression.rules.SortedPartitionRanges;
+import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPostProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPreFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.VarcharType;
+import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.planner.GroupCommitBlockSink;
 import org.apache.doris.planner.OlapTableSink;
 import org.apache.doris.thrift.TExpr;
@@ -75,6 +83,7 @@ import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.thrift.TUniqueKeyUpdateMode;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
@@ -212,16 +221,6 @@ public class NereidsLoadPlanInfoCollector extends DefaultPlanVisitor<Void, PlanT
 
             return params;
         }
-
-        private String getHeaderType(String formatType) {
-            if (formatType != null) {
-                if (formatType.equalsIgnoreCase(FileFormatConstants.FORMAT_CSV_WITH_NAMES)
-                        || formatType.equalsIgnoreCase(FileFormatConstants.FORMAT_CSV_WITH_NAMES_AND_TYPES)) {
-                    return formatType;
-                }
-            }
-            return "";
-        }
     }
 
     private LoadPlanInfo loadPlanInfo;
@@ -339,59 +338,47 @@ public class NereidsLoadPlanInfoCollector extends DefaultPlanVisitor<Void, PlanT
             }
         }
 
-        List<Expr> projectList = outputs.stream().map(e -> ExpressionTranslator.translate(e, context))
-                .collect(Collectors.toList());
+        List<SlotDescriptor> slotDescriptorList = loadPlanInfo.destTuple.getSlots();
+        loadPlanInfo.destSlotIdToExprMap = Maps.newHashMap();
+        for (int i = 0; i < slotDescriptorList.size(); ++i) {
+            DataType targetType = DataType.fromCatalogType(slotDescriptorList.get(i).getType());
+            Expression output = outputs.get(i);
+            if (!(targetType.isJsonType() && output.getDataType().isStringLikeType())) {
+                if (output instanceof Alias) {
+                    output = TypeCoercionUtils.castIfNotSameType(((Alias) output).child(), targetType);
+                } else {
+                    output = TypeCoercionUtils.castIfNotSameType(output, targetType);
+                }
+                if (output instanceof Cast && output.getDataType().isAggStateType()) {
+                    output = ConvertAggStateCast.convert((Cast) output);
+                }
+            }
+            Expr expr = ExpressionTranslator.translate(output, context);
+            loadPlanInfo.destSlotIdToExprMap.put(slotDescriptorList.get(i).getId(), expr);
+        }
+        return null;
+    }
+
+    @Override
+    public Void visitLogicalPostProject(LogicalPostProject<? extends Plan> logicalPostProject,
+                                        PlanTranslatorContext context) {
+        List<NamedExpression> outputs = logicalPostProject.getOutputs();
+        for (NamedExpression expr : outputs) {
+            if (expr.containsType(AggregateFunction.class)) {
+                throw new AnalysisException("Don't support aggregation function in load expression");
+            }
+        }
 
         // For Broker load with multiple file groups, all file groups share the same destTuple.
         // Create slots for destTuple only when processing the first file group (when slots are empty).
         // Subsequent file groups will reuse the slots created by the first file group.
         if (loadPlanInfo.destTuple.getSlots().isEmpty()) {
             List<Slot> slotList = outputs.stream().map(NamedExpression::toSlot).collect(Collectors.toList());
-
-            // ignore projectList's nullability and set the expr's nullable info same as
-            // dest table column
-            // why do this? looks like be works in this way...
-            // and we have to do some extra work in visitLogicalFilter because this ood
-            // behavior
-            int size = slotList.size();
-            List<Slot> newSlotList = new ArrayList<>(size);
-            for (int i = 0; i < size; ++i) {
-                SlotReference slot = (SlotReference) slotList.get(i);
-                Column col = destTable.getColumn(slot.getName());
-                if (col != null) {
-                    slot = slot.withColumn(col);
-                    if (col.isAutoInc()) {
-                        newSlotList.add(slot.withNullable(true));
-                    } else {
-                        newSlotList.add(slot.withNullable(col.isAllowNull()));
-                    }
-                } else {
-                    newSlotList.add(slot);
-                }
-            }
-
-            for (Slot slot : newSlotList) {
+            for (Slot slot : slotList) {
                 context.createSlotDesc(loadPlanInfo.destTuple, (SlotReference) slot, destTable);
             }
         }
-
-        loadPlanInfo.destSlotIdToExprMap = Maps.newHashMap();
-        List<SlotDescriptor> slotDescriptorList = loadPlanInfo.destTuple.getSlots();
-        for (int i = 0; i < slotDescriptorList.size(); ++i) {
-            SlotDescriptor slotDescriptor = slotDescriptorList.get(i);
-            Expr expr = projectList.get(i);
-            PrimitiveType dstType = slotDescriptor.getType().getPrimitiveType();
-            PrimitiveType srcType = expr.getType().getPrimitiveType();
-            if (!(dstType == PrimitiveType.JSONB
-                    && (srcType == PrimitiveType.VARCHAR || srcType == PrimitiveType.STRING))) {
-                try {
-                    expr = castToSlot(slotDescriptor, expr);
-                } catch (org.apache.doris.common.AnalysisException e) {
-                    throw new AnalysisException(e.getMessage(), e.getCause());
-                }
-            }
-            loadPlanInfo.destSlotIdToExprMap.put(slotDescriptor.getId(), expr);
-        }
+        logicalPostProject.child().accept(this, context);
         return null;
     }
 
@@ -401,10 +388,6 @@ public class NereidsLoadPlanInfoCollector extends DefaultPlanVisitor<Void, PlanT
         loadPlanInfo.postFilterExprList = new ArrayList<>(logicalFilter.getConjuncts().size());
         for (Expression conjunct : logicalFilter.getConjuncts()) {
             Expr expr = ExpressionTranslator.translate(conjunct, context);
-            // in visitLogicalProject, we set project exprs nullability same as dest table columns
-            // the conjunct's nullability is based on project exprs, so we need clear the nullable info
-            // and let conjunct calculate the nullability by itself to get the correct nullable info
-            expr.clearNullableFromNereids();
             loadPlanInfo.postFilterExprList.add(expr);
         }
         filterPredicate = logicalFilter.getPredicate();
@@ -457,33 +440,27 @@ public class NereidsLoadPlanInfoCollector extends DefaultPlanVisitor<Void, PlanT
         for (SlotDescriptor slotDescriptor : oneRowTuple.getSlots()) {
             Column column = destTable.getColumn(slotDescriptor.getColumn().getName());
             if (column != null) {
-                Expr expr;
+                Expression expression;
                 if (column.getDefaultValue() != null) {
-                    if (column.getDefaultValueExprDef() != null) {
-                        try {
-                            expr = column.getDefaultValueExpr();
-                        } catch (org.apache.doris.common.AnalysisException e) {
-                            throw new AnalysisException(e.getMessage(), e.getCause());
-                        }
-                    } else {
-                        expr = new StringLiteral(column.getDefaultValue());
-                    }
+                    expression = new NereidsParser().parseExpression(column.getDefaultValueSql());
+                    ExpressionAnalyzer analyzer = new ExpressionAnalyzer(
+                            null, new Scope(ImmutableList.of()), null, true, true);
+                    expression = analyzer.analyze(expression);
                 } else {
                     if (column.isAllowNull()) {
-                        expr = NullLiteral.create(org.apache.doris.catalog.Type.VARCHAR);
+                        expression = new NullLiteral(VarcharType.SYSTEM_DEFAULT);
                     } else {
-                        expr = null;
+                        expression = null;
                     }
                 }
                 if (exprMap.containsKey(column.getName())) {
                     continue;
                 }
-                if (expr != null) {
-                    try {
-                        expr = castToSlot(slotDescriptor, expr);
-                    } catch (org.apache.doris.common.AnalysisException e) {
-                        throw new AnalysisException(e.getMessage(), e.getCause());
-                    }
+                Expr expr = null;
+                if (expression != null) {
+                    expression = TypeCoercionUtils.castIfNotSameType(expression,
+                            DataType.fromCatalogType(slotDescriptor.getType()));
+                    expr = ExpressionTranslator.translate(expression, context);
                 }
                 loadPlanInfo.srcSlotIdToDefaultValueMap.put(slotDescriptor.getId(), expr);
                 srcSlots.put(column.getName(), slotDescriptor);
@@ -501,28 +478,14 @@ public class NereidsLoadPlanInfoCollector extends DefaultPlanVisitor<Void, PlanT
         return tupleDescriptor;
     }
 
-    private Expr castToSlot(SlotDescriptor slotDesc, Expr expr) throws org.apache.doris.common.AnalysisException {
-        PrimitiveType dstType = slotDesc.getType().getPrimitiveType();
-        PrimitiveType srcType = expr.getType().getPrimitiveType();
-        if (PrimitiveType.typeWithPrecision.contains(dstType) && PrimitiveType.typeWithPrecision.contains(srcType)
-                && !slotDesc.getType().equals(expr.getType())) {
-            return expr.castTo(slotDesc.getType());
-        } else if (dstType != srcType || slotDesc.getType().isAggStateType() && expr.getType().isAggStateType()
-                && !slotDesc.getType().equals(expr.getType())) {
-            return expr.castTo(slotDesc.getType());
-        } else {
-            return expr;
-        }
-    }
-
     // get all specified partition ids.
     // if no partition specified, return null
     private List<Long> getAllPartitionIds() throws DdlException, AnalysisException {
-        PartitionNames partitionNames = taskInfo.getPartitions();
-        if (partitionNames != null) {
-            List<Long> partitionIds = new ArrayList<>(partitionNames.getPartitionNames().size());
-            for (String partName : partitionNames.getPartitionNames()) {
-                Partition part = destTable.getPartition(partName, partitionNames.isTemp());
+        PartitionNamesInfo partitionNamesInfo = taskInfo.getPartitionNamesInfo();
+        if (partitionNamesInfo != null) {
+            List<Long> partitionIds = new ArrayList<>(partitionNamesInfo.getPartitionNames().size());
+            for (String partName : partitionNamesInfo.getPartitionNames()) {
+                Partition part = destTable.getPartition(partName, partitionNamesInfo.isTemp());
                 if (part == null) {
                     ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_PARTITION, partName, destTable.getName());
                 }
@@ -537,7 +500,7 @@ public class NereidsLoadPlanInfoCollector extends DefaultPlanVisitor<Void, PlanT
                 List<Long> prunedPartitions = PartitionPruner.prune(
                         partitionSlots, filterPredicate, idToPartitions,
                         CascadesContext.initContext(new StatementContext(), logicalPlan, PhysicalProperties.ANY),
-                        PartitionPruner.PartitionTableType.OLAP, sortedPartitionRanges);
+                        PartitionTableType.OLAP, sortedPartitionRanges).first;
                 return prunedPartitions;
             } else {
                 return null;

@@ -93,6 +93,7 @@ public:
         memcpy(&_last_value, &new_vals[*count - 1], SIZE_OF_TYPE);
 
         _count += *count;
+        _raw_data_size += *count * SIZE_OF_TYPE;
         return Status::OK();
     }
 
@@ -111,6 +112,7 @@ public:
         RETURN_IF_CATCH_EXCEPTION({
             _count = 0;
             _finished = false;
+            _raw_data_size = 0;
             _rle_encoder->Clear();
             _rle_encoder->Reserve(RLE_PAGE_HEADER_SIZE, 0);
         });
@@ -120,6 +122,8 @@ public:
     size_t count() const override { return _count; }
 
     uint64_t size() const override { return _rle_encoder->len(); }
+
+    uint64_t get_raw_data_size() const override { return _raw_data_size; }
 
     Status get_first_value(void* value) const override {
         DCHECK(_finished);
@@ -158,6 +162,7 @@ private:
     faststring _buf;
     CppType _first_value;
     CppType _last_value;
+    uint64_t _raw_data_size = 0;
 };
 
 template <FieldType Type>

@@ -23,6 +23,7 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.gson.annotations.SerializedName;
+import org.apache.commons.lang3.StringUtils;
 
 import java.io.DataOutput;
 import java.io.IOException;
@@ -40,6 +41,11 @@ public class FailureReason implements Writable {
 
     public FailureReason(String msg) {
         this.msg = msg;
+        if (StringUtils.isNotEmpty(msg) && msg.contains("Insert has filtered data in strict mode")) {
+            this.code = InternalErrorCode.TOO_MANY_FAILURE_ROWS_ERR;
+        } else {
+            this.code = InternalErrorCode.INTERNAL_ERR;
+        }
     }
 
     public InternalErrorCode getCode() {

@@ -167,6 +167,100 @@ public:
         }
     }
 
+    /**
+     * To figure out whether this page is matched partially or completely.
+     *
+     * 1. EQ: if `_value` belongs to the interval [min, max], return true to further compute each value in this page.
+     * 2. NE: return true to further compute each value in this page if some values not equal to `_value`.
+     * 3. LT|LE: if `_value` is greater than min, return true to further compute each value in this page.
+     * 4. GT|GE: if `_value` is less than max, return true to further compute each value in this page.
+     */
+
+    bool camp_field(const vectorized::Field& min_field, const vectorized::Field& max_field) const {
+        T min_value;
+        T max_value;
+        if constexpr (is_int_or_bool(Type) || is_float_or_double(Type)) {
+            min_value =
+                    (typename PrimitiveTypeTraits<Type>::CppType)min_field
+                            .template get<typename PrimitiveTypeTraits<Type>::NearestFieldType>();
+            max_value =
+                    (typename PrimitiveTypeTraits<Type>::CppType)max_field
+                            .template get<typename PrimitiveTypeTraits<Type>::NearestFieldType>();
+        } else {
+            min_value = min_field.template get<typename PrimitiveTypeTraits<Type>::CppType>();
+            max_value = max_field.template get<typename PrimitiveTypeTraits<Type>::CppType>();
+        }
+
+        if constexpr (PT == PredicateType::EQ) {
+            return Compare::less_equal(min_value, _value) &&
+                   Compare::greater_equal(max_value, _value);
+        } else if constexpr (PT == PredicateType::NE) {
+            return !Compare::equal(min_value, _value) || !Compare::equal(max_value, _value);
+        } else if constexpr (PT == PredicateType::LT || PT == PredicateType::LE) {
+            return Compare::less_equal(min_value, _value);
+        } else {
+            static_assert(PT == PredicateType::GT || PT == PredicateType::GE);
+            return Compare::greater_equal(max_value, _value);
+        }
+    }
+
+    bool evaluate_and(vectorized::ParquetPredicate::ColumnStat* statistic) const override {
+        bool result = true;
+        if ((*statistic->get_stat_func)(statistic, column_id())) {
+            vectorized::Field min_field;
+            vectorized::Field max_field;
+            if (!vectorized::ParquetPredicate::parse_min_max_value(
+                         statistic->col_schema, statistic->encoded_min_value,
+                         statistic->encoded_max_value, *statistic->ctz, &min_field, &max_field)
+                         .ok()) [[unlikely]] {
+                result = true;
+            } else {
+                result = camp_field(min_field, max_field);
+            }
+        }
+
+        if constexpr (PT == PredicateType::EQ) {
+            if (result && statistic->get_bloom_filter_func != nullptr &&
+                (*statistic->get_bloom_filter_func)(statistic, column_id())) {
+                if (!statistic->bloom_filter) {
+                    return result;
+                }
+                return evaluate_and(statistic->bloom_filter.get());
+            }
+        }
+        return result;
+    }
+
+    bool evaluate_and(vectorized::ParquetPredicate::CachedPageIndexStat* statistic,
+                      RowRanges* row_ranges) const override {
+        vectorized::ParquetPredicate::PageIndexStat* stat = nullptr;
+        if (!(statistic->get_stat_func)(&stat, column_id())) {
+            return true;
+        }
+
+        for (int page_id = 0; page_id < stat->num_of_pages; page_id++) {
+            if (stat->is_all_null[page_id]) {
+                // all null page, not need read.
+                continue;
+            }
+
+            vectorized::Field min_field;
+            vectorized::Field max_field;
+            if (!vectorized::ParquetPredicate::parse_min_max_value(
+                         stat->col_schema, stat->encoded_min_value[page_id],
+                         stat->encoded_max_value[page_id], *statistic->ctz, &min_field, &max_field)
+                         .ok()) [[unlikely]] {
+                row_ranges->add(stat->ranges[page_id]);
+                continue;
+            };
+
+            if (camp_field(min_field, max_field)) {
+                row_ranges->add(stat->ranges[page_id]);
+            }
+        };
+        return row_ranges->count() > 0;
+    }
+
     bool is_always_true(const std::pair<WrapperField*, WrapperField*>& statistic) const override {
         if (statistic.first->is_null() || statistic.second->is_null()) {
             return false;
@@ -220,24 +314,20 @@ public:
                 // DecimalV2 using decimal12_t in bloom filter, should convert value to decimal12_t
                 if constexpr (Type == PrimitiveType::TYPE_DECIMALV2) {
                     decimal12_t decimal12_t_val(_value.int_value(), _value.frac_value());
-                    return bf->test_bytes(
-                            const_cast<char*>(reinterpret_cast<const char*>(&decimal12_t_val)),
-                            sizeof(decimal12_t));
+                    return bf->test_bytes(reinterpret_cast<const char*>(&decimal12_t_val),
+                                          sizeof(decimal12_t));
                     // Datev1 using uint24_t in bloom filter
                 } else if constexpr (Type == PrimitiveType::TYPE_DATE) {
                     uint24_t date_value(uint32_t(_value.to_olap_date()));
-                    return bf->test_bytes(
-                            const_cast<char*>(reinterpret_cast<const char*>(&date_value)),
-                            sizeof(uint24_t));
+                    return bf->test_bytes(reinterpret_cast<const char*>(&date_value),
+                                          sizeof(uint24_t));
                     // DatetimeV1 using int64_t in bloom filter
                 } else if constexpr (Type == PrimitiveType::TYPE_DATETIME) {
                     int64_t datetime_value(_value.to_olap_datetime());
-                    return bf->test_bytes(
-                            const_cast<char*>(reinterpret_cast<const char*>(&datetime_value)),
-                            sizeof(int64_t));
+                    return bf->test_bytes(reinterpret_cast<const char*>(&datetime_value),
+                                          sizeof(int64_t));
                 } else {
-                    return bf->test_bytes(const_cast<char*>(reinterpret_cast<const char*>(&_value)),
-                                          sizeof(T));
+                    return bf->test_bytes(reinterpret_cast<const char*>(&_value), sizeof(T));
                 }
             }
         } else {
@@ -261,6 +351,43 @@ public:
 
     bool can_do_bloom_filter(bool ngram) const override {
         return PT == PredicateType::EQ && !ngram;
+    }
+
+    bool evaluate_and(const vectorized::ParquetBlockSplitBloomFilter* bf) const override {
+        if constexpr (PT == PredicateType::EQ) {
+            auto test_bytes = [&]<typename V>(const V& value) {
+                return bf->test_bytes(const_cast<char*>(reinterpret_cast<const char*>(&value)),
+                                      sizeof(V));
+            };
+
+            // Only support Parquet native types where physical == logical representation
+            // BOOLEAN -> hash as int32 (Parquet bool stored as int32)
+            if constexpr (Type == PrimitiveType::TYPE_BOOLEAN) {
+                int32_t int32_value = static_cast<int32_t>(_value);
+                return test_bytes(int32_value);
+            } else if constexpr (Type == PrimitiveType::TYPE_INT) {
+                // INT -> hash as int32
+                return test_bytes(_value);
+            } else if constexpr (Type == PrimitiveType::TYPE_BIGINT) {
+                // BIGINT -> hash as int64
+                return test_bytes(_value);
+            } else if constexpr (Type == PrimitiveType::TYPE_FLOAT) {
+                // FLOAT -> hash as float
+                return test_bytes(_value);
+            } else if constexpr (Type == PrimitiveType::TYPE_DOUBLE) {
+                // DOUBLE -> hash as double
+                return test_bytes(_value);
+            } else if constexpr (std::is_same_v<T, StringRef>) {
+                // VARCHAR/STRING -> hash bytes
+                return bf->test_bytes(_value.data, _value.size);
+            } else {
+                // Unsupported types: return true (accept)
+                return true;
+            }
+        } else {
+            LOG(FATAL) << "Bloom filter is not supported by predicate type.";
+            return true;
+        }
     }
 
     void evaluate_or(const vectorized::IColumn& column, const uint16_t* sel, uint16_t size,
@@ -288,8 +415,9 @@ public:
         // so reference here is safe.
         // https://stackoverflow.com/questions/14688285/c-local-variable-destruction-order
         Defer defer([&]() {
-            update_filter_info(current_evaluated_rows - current_passed_rows,
-                               current_evaluated_rows);
+            update_filter_info(current_evaluated_rows - current_passed_rows, current_evaluated_rows,
+                               0);
+            try_reset_judge_selectivity();
         });
 
         if (column.is_nullable()) {

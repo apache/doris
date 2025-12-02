@@ -33,6 +33,7 @@
 #include "olap/column_predicate.h"
 #include "olap/olap_common.h"
 #include "vec/columns/column.h"
+#include "vec/exec/format/parquet/parquet_predicate.h"
 
 namespace roaring {
 class Roaring;
@@ -79,6 +80,22 @@ public:
         throw Exception(Status::FatalError("should not reach here"));
     }
 
+    virtual bool evaluate_and(vectorized::ParquetPredicate::ColumnStat* statistic) const {
+        throw Exception(Status::FatalError("should not reach here"));
+    }
+
+    /**
+     * For Parquet page indexes, since the number of rows filtered by each column's page index is not the same,
+     * a `RowRanges` is needed to represent the range of rows to be read after filtering. If no rows need to
+     * be read, it returns false; otherwise, it returns true. Because the page index needs to be
+     * parsed, `CachedPageIndexStat` is used to avoid repeatedly parsing the page index information
+     * of the same column.
+     */
+    virtual bool evaluate_and(vectorized::ParquetPredicate::CachedPageIndexStat* statistic,
+                              RowRanges* row_ranges) const {
+        throw Exception(Status::FatalError("should not reach here"));
+    }
+
     virtual bool evaluate_and(const segment_v2::BloomFilter* bf) const {
         throw Exception(Status::FatalError("should not reach here"));
     }
@@ -117,6 +134,14 @@ public:
                       bool* flags) const override;
     bool support_zonemap() const override { return _predicate->support_zonemap(); }
     bool evaluate_and(const std::pair<WrapperField*, WrapperField*>& statistic) const override;
+    bool evaluate_and(vectorized::ParquetPredicate::ColumnStat* statistic) const override {
+        return _predicate->evaluate_and(statistic);
+    }
+
+    bool evaluate_and(vectorized::ParquetPredicate::CachedPageIndexStat* statistic,
+                      RowRanges* row_ranges) const override {
+        return _predicate->evaluate_and(statistic, row_ranges);
+    }
     bool evaluate_and(const segment_v2::BloomFilter* bf) const override;
     bool evaluate_and(const StringRef* dict_words, const size_t dict_num) const override;
     void evaluate_or(vectorized::MutableColumns& block, uint16_t* sel, uint16_t selected_size,
@@ -180,6 +205,21 @@ public:
                       bool* flags) const override;
     void evaluate_or(vectorized::MutableColumns& block, uint16_t* sel, uint16_t selected_size,
                      bool* flags) const override;
+    bool evaluate_and(vectorized::ParquetPredicate::ColumnStat* statistic) const override {
+        if (num_of_column_predicate() == 1) {
+            return _block_column_predicate_vec[0]->evaluate_and(statistic);
+        } else {
+            for (int i = 0; i < num_of_column_predicate(); ++i) {
+                if (_block_column_predicate_vec[i]->evaluate_and(statistic)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+    }
+
+    bool evaluate_and(vectorized::ParquetPredicate::CachedPageIndexStat* statistic,
+                      RowRanges* row_ranges) const override;
 
     // note(wb) we didnt't implement evaluate_vec method here, because storage layer only support AND predicate now;
 };
@@ -202,6 +242,18 @@ public:
     bool evaluate_and(const segment_v2::BloomFilter* bf) const override;
 
     bool evaluate_and(const StringRef* dict_words, const size_t dict_num) const override;
+
+    bool evaluate_and(vectorized::ParquetPredicate::ColumnStat* statistic) const override {
+        for (auto& block_column_predicate : _block_column_predicate_vec) {
+            if (!block_column_predicate->evaluate_and(statistic)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    bool evaluate_and(vectorized::ParquetPredicate::CachedPageIndexStat* statistic,
+                      RowRanges* row_ranges) const override;
 
     bool can_do_bloom_filter(bool ngram) const override {
         for (auto& pred : _block_column_predicate_vec) {

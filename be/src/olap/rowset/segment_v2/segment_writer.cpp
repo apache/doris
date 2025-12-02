@@ -46,10 +46,12 @@
 #include "olap/rowset/rowset_writer_context.h" // RowsetWriterContext
 #include "olap/rowset/segment_creator.h"
 #include "olap/rowset/segment_v2/column_writer.h" // ColumnWriter
+#include "olap/rowset/segment_v2/external_col_meta_util.h"
 #include "olap/rowset/segment_v2/index_file_writer.h"
 #include "olap/rowset/segment_v2/index_writer.h"
 #include "olap/rowset/segment_v2/page_io.h"
 #include "olap/rowset/segment_v2/page_pointer.h"
+#include "olap/rowset/segment_v2/variant/variant_ext_meta_writer.h"
 #include "olap/rowset/segment_v2/variant_stats_calculator.h"
 #include "olap/segment_loader.h"
 #include "olap/short_key_index.h"
@@ -72,7 +74,6 @@
 #include "vec/jsonb/serialize.h"
 #include "vec/olap/olap_data_convertor.h"
 #include "vec/runtime/vdatetime_value.h"
-
 namespace doris {
 namespace segment_v2 {
 #include "common/compile_check_begin.h"
@@ -375,7 +376,7 @@ void SegmentWriter::_maybe_invalid_row_cache(const std::string& key) {
     }
 }
 
-void SegmentWriter::_serialize_block_to_row_column(vectorized::Block& block) {
+void SegmentWriter::_serialize_block_to_row_column(const vectorized::Block& block) {
     if (block.rows() == 0) {
         return;
     }
@@ -697,7 +698,7 @@ Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_po
     // or it's schema change write(since column data type maybe changed, so we should reubild)
     if (_opts.write_type == DataWriteType::TYPE_DIRECT ||
         _opts.write_type == DataWriteType::TYPE_SCHEMA_CHANGE) {
-        _serialize_block_to_row_column(*const_cast<vectorized::Block*>(block));
+        _serialize_block_to_row_column(*block);
     }
 
     _olap_data_convertor->set_source_content(block, row_pos, num_rows);
@@ -1043,10 +1044,9 @@ Status SegmentWriter::finalize(uint64_t* segment_file_size, uint64_t* index_size
                                                              cache_builder->_expiration_time == 0 &&
                                                              config::is_cloud_mode()) {
         auto size = *index_size + *segment_file_size;
-        auto holder = cache_builder->allocate_cache_holder(index_start, size);
+        auto holder = cache_builder->allocate_cache_holder(index_start, size, _tablet->tablet_id());
         for (auto& segment : holder->file_blocks) {
-            static_cast<void>(
-                    segment->change_cache_type_between_normal_and_index(io::FileCacheType::INDEX));
+            static_cast<void>(segment->change_cache_type(io::FileCacheType::INDEX));
         }
     }
     return Status::OK();
@@ -1065,6 +1065,20 @@ void SegmentWriter::clear() {
 Status SegmentWriter::_write_data() {
     for (auto& column_writer : _column_writers) {
         RETURN_IF_ERROR(column_writer->write_data());
+
+        auto* column_meta = column_writer->get_column_meta();
+        DCHECK(column_meta != nullptr);
+        column_meta->set_compressed_data_bytes(
+                (column_meta->has_compressed_data_bytes() ? column_meta->compressed_data_bytes()
+                                                          : 0) +
+                column_writer->get_total_compressed_data_pages_bytes());
+        column_meta->set_uncompressed_data_bytes(
+                (column_meta->has_uncompressed_data_bytes() ? column_meta->uncompressed_data_bytes()
+                                                            : 0) +
+                column_writer->get_total_uncompressed_data_pages_bytes());
+        column_meta->set_raw_data_bytes(
+                (column_meta->has_raw_data_bytes() ? column_meta->raw_data_bytes() : 0) +
+                column_writer->get_raw_data_bytes());
     }
     return Status::OK();
 }
@@ -1130,6 +1144,15 @@ Status SegmentWriter::_write_primary_key_index() {
 
 Status SegmentWriter::_write_footer() {
     _footer.set_num_rows(_row_count);
+    // Decide whether to externalize ColumnMetaPB by tablet default, and stamp footer version
+    if (_tablet_schema->is_external_segment_column_meta_used()) {
+        _footer.set_version(SEGMENT_FOOTER_VERSION_V3_EXT_COL_META);
+        VLOG_DEBUG << "use external column meta";
+        // External ColumnMetaPB writing (optional)
+        RETURN_IF_ERROR(ExternalColMetaUtil::write_external_column_meta(
+                _file_writer, &_footer, _opts.compression_type,
+                [this](const std::vector<Slice>& slices) { return _write_raw_data(slices); }));
+    }
 
     // Footer := SegmentFooterPB, FooterPBSize(4), FooterPBChecksum(4), MagicNumber(4)
     std::string footer_buf;

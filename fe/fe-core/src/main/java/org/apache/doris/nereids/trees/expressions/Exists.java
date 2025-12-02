@@ -75,6 +75,16 @@ public class Exists extends SubqueryExpr implements LeafExpression {
         return "EXISTS (SUBQUERY) " + super.toString();
     }
 
+    @Override
+    public String toDigest() {
+        StringBuilder sb = new StringBuilder();
+        sb.append(isNot ? "NOT " : "")
+                .append("EXISTS (")
+                .append(queryPlan.toDigest())
+                .append(")");
+        return sb.toString();
+    }
+
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitExistsSubquery(this, context);
     }

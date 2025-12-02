@@ -36,6 +36,7 @@
 #include "vec/columns/column_dictionary.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
 
 // for uint24_t
 template <>
@@ -67,8 +68,8 @@ public:
     using T = typename PrimitiveTypeTraits<Type>::CppType;
     template <typename ConditionType, typename ConvertFunc>
     InListPredicateBase(uint32_t column_id, const ConditionType& conditions,
-                        const ConvertFunc& convert, bool is_opposite, const TabletColumn* col,
-                        vectorized::Arena& arena)
+                        const ConvertFunc& convert, bool is_opposite,
+                        const vectorized::DataTypePtr& data_type, vectorized::Arena& arena)
             : ColumnPredicate(column_id, is_opposite),
               _min_value(type_limit<T>::max()),
               _max_value(type_limit<T>::min()) {
@@ -76,10 +77,10 @@ public:
         for (const auto& condition : conditions) {
             T tmp;
             if constexpr (Type == TYPE_STRING || Type == TYPE_CHAR) {
-                tmp = convert(*col, condition, arena);
+                tmp = convert(data_type, condition, arena);
             } else if constexpr (Type == TYPE_DECIMAL32 || Type == TYPE_DECIMAL64 ||
                                  Type == TYPE_DECIMAL128I || Type == TYPE_DECIMAL256) {
-                tmp = convert(*col, condition);
+                tmp = convert(data_type, condition);
             } else {
                 tmp = convert(condition);
             }
@@ -286,6 +287,88 @@ public:
         }
     }
 
+    bool camp_field(const vectorized::Field& min_field, const vectorized::Field& max_field) const {
+        T min_value;
+        T max_value;
+        if constexpr (is_int_or_bool(Type) || is_float_or_double(Type)) {
+            min_value =
+                    (typename PrimitiveTypeTraits<Type>::CppType)min_field
+                            .template get<typename PrimitiveTypeTraits<Type>::NearestFieldType>();
+            max_value =
+                    (typename PrimitiveTypeTraits<Type>::CppType)max_field
+                            .template get<typename PrimitiveTypeTraits<Type>::NearestFieldType>();
+        } else {
+            min_value = min_field.template get<typename PrimitiveTypeTraits<Type>::CppType>();
+            max_value = max_field.template get<typename PrimitiveTypeTraits<Type>::CppType>();
+        }
+
+        if constexpr (PT == PredicateType::IN_LIST) {
+            return (Compare::less_equal(min_value, _max_value) &&
+                    Compare::greater_equal(max_value, _min_value)) ||
+                   (Compare::greater_equal(max_value, _min_value) &&
+                    Compare::less_equal(min_value, _max_value));
+        } else {
+            return true;
+        }
+    }
+
+    bool evaluate_and(vectorized::ParquetPredicate::ColumnStat* statistic) const override {
+        bool result = true;
+        if ((*statistic->get_stat_func)(statistic, column_id())) {
+            vectorized::Field min_field;
+            vectorized::Field max_field;
+            if (!vectorized::ParquetPredicate::parse_min_max_value(
+                         statistic->col_schema, statistic->encoded_min_value,
+                         statistic->encoded_max_value, *statistic->ctz, &min_field, &max_field)
+                         .ok()) [[unlikely]] {
+                result = true;
+            } else {
+                result = camp_field(min_field, max_field);
+            }
+        }
+
+        if constexpr (PT == PredicateType::IN_LIST) {
+            if (result && statistic->get_bloom_filter_func != nullptr &&
+                (*statistic->get_bloom_filter_func)(statistic, column_id())) {
+                if (!statistic->bloom_filter) {
+                    return result;
+                }
+                return evaluate_and(statistic->bloom_filter.get());
+            }
+        }
+        return result;
+    }
+
+    bool evaluate_and(vectorized::ParquetPredicate::CachedPageIndexStat* statistic,
+                      RowRanges* row_ranges) const override {
+        vectorized::ParquetPredicate::PageIndexStat* stat = nullptr;
+        if (!(statistic->get_stat_func)(&stat, column_id())) {
+            return true;
+        }
+
+        for (int page_id = 0; page_id < stat->num_of_pages; page_id++) {
+            if (stat->is_all_null[page_id]) {
+                // all null page, not need read.
+                continue;
+            }
+
+            vectorized::Field min_field;
+            vectorized::Field max_field;
+            if (!vectorized::ParquetPredicate::parse_min_max_value(
+                         stat->col_schema, stat->encoded_min_value[page_id],
+                         stat->encoded_max_value[page_id], *statistic->ctz, &min_field, &max_field)
+                         .ok()) [[unlikely]] {
+                row_ranges->add(stat->ranges[page_id]);
+                continue;
+            };
+
+            if (camp_field(min_field, max_field)) {
+                row_ranges->add(stat->ranges[page_id]);
+            }
+        };
+        return row_ranges->count() > 0;
+    }
+
     bool evaluate_and(const StringRef* dict_words, const size_t count) const override {
         for (size_t i = 0; i != count; ++i) {
             const auto found = _values->find(dict_words[i].data, dict_words[i].size) ^ _opposite;
@@ -330,26 +413,23 @@ public:
                     // Datev1/DatetimeV1 using VecDatetimeValue in bloom filter, NO need to convert.
                     const T* value = (const T*)(iter->get_value());
                     decimal12_t decimal12_t_val(value->int_value(), value->frac_value());
-                    if (bf->test_bytes(
-                                const_cast<char*>(reinterpret_cast<const char*>(&decimal12_t_val)),
-                                sizeof(decimal12_t))) {
+                    if (bf->test_bytes(reinterpret_cast<const char*>(&decimal12_t_val),
+                                       sizeof(decimal12_t))) {
                         return true;
                     }
                 } else if constexpr (Type == PrimitiveType::TYPE_DATE) {
                     const T* value = (const T*)(iter->get_value());
                     uint24_t date_value(uint32_t(value->to_olap_date()));
-                    if (bf->test_bytes(
-                                const_cast<char*>(reinterpret_cast<const char*>(&date_value)),
-                                sizeof(uint24_t))) {
+                    if (bf->test_bytes(reinterpret_cast<const char*>(&date_value),
+                                       sizeof(uint24_t))) {
                         return true;
                     }
                     // DatetimeV1 using int64_t in bloom filter
                 } else if constexpr (Type == PrimitiveType::TYPE_DATETIME) {
                     const T* value = (const T*)(iter->get_value());
                     int64_t datetime_value(value->to_olap_datetime());
-                    if (bf->test_bytes(
-                                const_cast<char*>(reinterpret_cast<const char*>(&datetime_value)),
-                                sizeof(int64_t))) {
+                    if (bf->test_bytes(reinterpret_cast<const char*>(&datetime_value),
+                                       sizeof(int64_t))) {
                         return true;
                     }
                 } else {
@@ -373,6 +453,58 @@ public:
 
     double get_ignore_threshold() const override {
         return get_in_list_ignore_thredhold(_values->size());
+    }
+
+    bool evaluate_and(const vectorized::ParquetBlockSplitBloomFilter* bf) const override {
+        if constexpr (PT == PredicateType::IN_LIST) {
+            HybridSetBase::IteratorBase* iter = _values->begin();
+            while (iter->has_next()) {
+                const T* value = (const T*)(iter->get_value());
+
+                auto test_bytes = [&]<typename V>(const V& val) {
+                    return bf->test_bytes(const_cast<char*>(reinterpret_cast<const char*>(&val)),
+                                          sizeof(V));
+                };
+
+                // Small integers (TINYINT, SMALLINT, INTEGER) -> hash as int32
+                if constexpr (Type == PrimitiveType::TYPE_TINYINT ||
+                              Type == PrimitiveType::TYPE_SMALLINT ||
+                              Type == PrimitiveType::TYPE_INT) {
+                    int32_t int32_value = static_cast<int32_t>(*value);
+                    if (test_bytes(int32_value)) {
+                        return true;
+                    }
+                } else if constexpr (Type == PrimitiveType::TYPE_BIGINT) {
+                    // BIGINT -> hash as int64
+                    if (test_bytes(*value)) {
+                        return true;
+                    }
+                } else if constexpr (Type == PrimitiveType::TYPE_DOUBLE) {
+                    // DOUBLE -> hash as double
+                    if (test_bytes(*value)) {
+                        return true;
+                    }
+                } else if constexpr (Type == PrimitiveType::TYPE_FLOAT) {
+                    // FLOAT -> hash as float
+                    if (test_bytes(*value)) {
+                        return true;
+                    }
+                } else if constexpr (std::is_same_v<T, StringRef>) {
+                    // VARCHAR/STRING -> hash bytes
+                    if (bf->test_bytes(value->data, value->size)) {
+                        return true;
+                    }
+                } else {
+                    // Unsupported types: return true (accept)
+                    return true;
+                }
+                iter->next();
+            }
+            return false;
+        } else {
+            LOG(FATAL) << "Bloom filter is not supported by predicate type.";
+            return true;
+        }
     }
 
 private:
@@ -592,7 +724,8 @@ template <PrimitiveType Type, PredicateType PT, typename ConditionType, typename
           size_t N = 0>
 ColumnPredicate* _create_in_list_predicate(uint32_t column_id, const ConditionType& conditions,
                                            const ConvertFunc& convert, bool is_opposite,
-                                           const TabletColumn* col, vectorized::Arena& arena) {
+                                           const vectorized::DataTypePtr& data_type,
+                                           vectorized::Arena& arena) {
     using T = typename PrimitiveTypeTraits<Type>::CppType;
     if constexpr (N >= 1 && N <= FIXED_CONTAINER_MAX_SIZE) {
         using Set = std::conditional_t<
@@ -600,49 +733,50 @@ ColumnPredicate* _create_in_list_predicate(uint32_t column_id, const ConditionTy
                 HybridSet<Type, FixedContainer<T, N>,
                           vectorized::PredicateColumnType<PredicateEvaluateType<Type>>>>;
         return new InListPredicateBase<Type, PT, Set>(column_id, conditions, convert, is_opposite,
-                                                      col, arena);
+                                                      data_type, arena);
     } else {
         using Set = std::conditional_t<
                 std::is_same_v<T, StringRef>, StringSet<DynamicContainer<std::string>>,
                 HybridSet<Type, DynamicContainer<T>,
                           vectorized::PredicateColumnType<PredicateEvaluateType<Type>>>>;
         return new InListPredicateBase<Type, PT, Set>(column_id, conditions, convert, is_opposite,
-                                                      col, arena);
+                                                      data_type, arena);
     }
 }
 
 template <PrimitiveType Type, PredicateType PT, typename ConditionType, typename ConvertFunc>
 ColumnPredicate* create_in_list_predicate(uint32_t column_id, const ConditionType& conditions,
                                           const ConvertFunc& convert, bool is_opposite,
-                                          const TabletColumn* col, vectorized::Arena& arena) {
+                                          const vectorized::DataTypePtr& data_type,
+                                          vectorized::Arena& arena) {
     if (conditions.size() == 1) {
         return _create_in_list_predicate<Type, PT, ConditionType, ConvertFunc, 1>(
-                column_id, conditions, convert, is_opposite, col, arena);
+                column_id, conditions, convert, is_opposite, data_type, arena);
     } else if (conditions.size() == 2) {
         return _create_in_list_predicate<Type, PT, ConditionType, ConvertFunc, 2>(
-                column_id, conditions, convert, is_opposite, col, arena);
+                column_id, conditions, convert, is_opposite, data_type, arena);
     } else if (conditions.size() == 3) {
         return _create_in_list_predicate<Type, PT, ConditionType, ConvertFunc, 3>(
-                column_id, conditions, convert, is_opposite, col, arena);
+                column_id, conditions, convert, is_opposite, data_type, arena);
     } else if (conditions.size() == 4) {
         return _create_in_list_predicate<Type, PT, ConditionType, ConvertFunc, 4>(
-                column_id, conditions, convert, is_opposite, col, arena);
+                column_id, conditions, convert, is_opposite, data_type, arena);
     } else if (conditions.size() == 5) {
         return _create_in_list_predicate<Type, PT, ConditionType, ConvertFunc, 5>(
-                column_id, conditions, convert, is_opposite, col, arena);
+                column_id, conditions, convert, is_opposite, data_type, arena);
     } else if (conditions.size() == 6) {
         return _create_in_list_predicate<Type, PT, ConditionType, ConvertFunc, 6>(
-                column_id, conditions, convert, is_opposite, col, arena);
+                column_id, conditions, convert, is_opposite, data_type, arena);
     } else if (conditions.size() == 7) {
         return _create_in_list_predicate<Type, PT, ConditionType, ConvertFunc, 7>(
-                column_id, conditions, convert, is_opposite, col, arena);
+                column_id, conditions, convert, is_opposite, data_type, arena);
     } else if (conditions.size() == FIXED_CONTAINER_MAX_SIZE) {
         return _create_in_list_predicate<Type, PT, ConditionType, ConvertFunc,
                                          FIXED_CONTAINER_MAX_SIZE>(column_id, conditions, convert,
-                                                                   is_opposite, col, arena);
+                                                                   is_opposite, data_type, arena);
     } else {
         return _create_in_list_predicate<Type, PT, ConditionType, ConvertFunc>(
-                column_id, conditions, convert, is_opposite, col, arena);
+                column_id, conditions, convert, is_opposite, data_type, arena);
     }
 }
 

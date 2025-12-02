@@ -315,7 +315,7 @@ std::shared_ptr<MetricEntity> MetricRegistry::get_entity(const std::string& name
 void MetricRegistry::trigger_all_hooks(bool force) const {
     std::lock_guard<std::mutex> l(_lock);
     for (const auto& entity : _entities) {
-        std::lock_guard<std::mutex> l(entity.first->_lock);
+        std::lock_guard<std::mutex> le(entity.first->_lock);
         entity.first->trigger_hook_unlocked(force);
     }
 }
@@ -371,7 +371,7 @@ std::string MetricRegistry::to_json(bool with_tablet_metrics) const {
         if (entity.first->_type == MetricEntityType::kTablet && !with_tablet_metrics) {
             continue;
         }
-        std::lock_guard<std::mutex> l(entity.first->_lock);
+        std::lock_guard<std::mutex> le(entity.first->_lock);
         entity.first->trigger_hook_unlocked(false);
         for (const auto& metric : entity.first->_metrics) {
             rj::Value metric_obj(rj::kObjectType);
@@ -409,7 +409,7 @@ std::string MetricRegistry::to_core_string() const {
     std::stringstream ss;
     std::lock_guard<std::mutex> l(_lock);
     for (const auto& entity : _entities) {
-        std::lock_guard<std::mutex> l(entity.first->_lock);
+        std::lock_guard<std::mutex> le(entity.first->_lock);
         entity.first->trigger_hook_unlocked(false);
         for (const auto& metric : entity.first->_metrics) {
             if (metric.first->is_core_metric) {

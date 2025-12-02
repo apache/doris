@@ -39,7 +39,6 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.spi.Split;
-import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.system.Backend;
 import org.apache.doris.tablefunction.ExternalFileTableValuedFunction;
 import org.apache.doris.thrift.TExternalScanRange;
@@ -102,9 +101,8 @@ public abstract class FileQueryScanNode extends FileScanNode {
      * These scan nodes do not have corresponding catalog/database/table info, so no need to do priv check
      */
     public FileQueryScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName,
-            StatisticalType statisticalType, boolean needCheckColumnPriv,
-            SessionVariable sv) {
-        super(id, desc, planNodeName, statisticalType, needCheckColumnPriv);
+            boolean needCheckColumnPriv, SessionVariable sv) {
+        super(id, desc, planNodeName, needCheckColumnPriv);
         this.sessionVariable = sv;
     }
 
@@ -150,9 +148,6 @@ public abstract class FileQueryScanNode extends FileScanNode {
         List<Column> columns = desc.getTable().getBaseSchema(false);
         params.setNumOfColumnsFromFile(columns.size() - partitionKeys.size());
         for (SlotDescriptor slot : desc.getSlots()) {
-            if (!slot.isMaterialized()) {
-                continue;
-            }
             TFileScanSlotInfo slotInfo = new TFileScanSlotInfo();
             slotInfo.setSlotId(slot.getId().asInt());
             slotInfo.setIsFileSlot(!partitionKeys.contains(slot.getColumn().getName()));
@@ -162,15 +157,13 @@ public abstract class FileQueryScanNode extends FileScanNode {
         setColumnPositionMapping();
         // For query, set src tuple id to -1.
         params.setSrcTupleId(-1);
+        // Set enable_mapping_varbinary from catalog or TVF
+        params.setEnableMappingVarbinary(getEnableMappingVarbinary());
     }
 
     private void updateRequiredSlots() throws UserException {
         params.unsetRequiredSlots();
         for (SlotDescriptor slot : desc.getSlots()) {
-            if (!slot.isMaterialized()) {
-                continue;
-            }
-
             TFileScanSlotInfo slotInfo = new TFileScanSlotInfo();
             slotInfo.setSlotId(slot.getId().asInt());
             slotInfo.setIsFileSlot(!getPathPartitionKeys().contains(slot.getColumn().getName()));
@@ -456,7 +449,8 @@ public abstract class FileQueryScanNode extends FileScanNode {
                     }
                 }
             }
-        } else if ((locationType == TFileType.FILE_S3 || locationType == TFileType.FILE_LOCAL)
+        } else if ((locationType == TFileType.FILE_S3 || locationType == TFileType.FILE_LOCAL
+                || locationType == TFileType.FILE_HTTP)
                 && !params.isSetProperties()) {
             params.setProperties(locationProperties);
         }
@@ -555,6 +549,30 @@ public abstract class FileQueryScanNode extends FileScanNode {
 
     protected TFileAttributes getFileAttributes() throws UserException {
         throw new NotImplementedException("getFileAttributes is not implemented.");
+    }
+
+    protected boolean getEnableMappingVarbinary() {
+        try {
+            TableIf table = getTargetTable();
+            // For External Catalog tables get from catalog properties
+            if (table instanceof ExternalTable) {
+                ExternalTable externalTable = (ExternalTable) table;
+                CatalogIf<?> catalog = externalTable.getCatalog();
+                if (catalog instanceof ExternalCatalog) {
+                    return ((ExternalCatalog) catalog).getEnableMappingVarbinary();
+                }
+            }
+            // For TVF read directly from fileFormatProperties
+            if (table instanceof FunctionGenTable) {
+                FunctionGenTable functionGenTable = (FunctionGenTable) table;
+                ExternalFileTableValuedFunction tvf = (ExternalFileTableValuedFunction) functionGenTable.getTvf();
+                return tvf.fileFormatProperties.enableMappingVarbinary;
+            }
+        } catch (Exception e) {
+            LOG.info("Failed to get enable_mapping_varbinary from catalog, use default value false. Error: {}",
+                    e.getMessage());
+        }
+        return false;
     }
 
     protected abstract List<String> getPathPartitionKeys() throws UserException;

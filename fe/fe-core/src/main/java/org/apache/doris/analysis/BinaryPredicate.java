@@ -22,21 +22,15 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.Function.NullableMode;
-import org.apache.doris.catalog.FunctionSet;
-import org.apache.doris.catalog.ScalarFunction;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Pair;
-import org.apache.doris.common.Reference;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TExprOpcode;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-import com.google.common.collect.Range;
 import com.google.gson.annotations.SerializedName;
 
 import java.util.ArrayList;
@@ -107,18 +101,6 @@ public class BinaryPredicate extends Predicate {
                     return null;
             }
         }
-
-        public boolean isEquivalence() {
-            return this == EQ || this == EQ_FOR_NULL;
-        }
-
-        public boolean isUnNullSafeEquivalence() {
-            return this == EQ;
-        }
-
-        public boolean isUnequivalence() {
-            return this == NE;
-        }
     }
 
     @SerializedName("op")
@@ -129,7 +111,6 @@ public class BinaryPredicate extends Predicate {
     // for restoring
     public BinaryPredicate() {
         super();
-        printSqlInParens = true;
     }
 
     public BinaryPredicate(Operator op, Expr e1, Expr e2) {
@@ -140,7 +121,6 @@ public class BinaryPredicate extends Predicate {
         children.add(e1);
         Preconditions.checkNotNull(e2);
         children.add(e2);
-        printSqlInParens = true;
     }
 
     public BinaryPredicate(Operator op, Expr e1, Expr e2, Type retType, NullableMode nullableMode) {
@@ -153,7 +133,6 @@ public class BinaryPredicate extends Predicate {
         children.add(e2);
         fn = new Function(new FunctionName(op.name), Lists.newArrayList(e1.getType(), e2.getType()), retType,
                 false, true, nullableMode);
-        printSqlInParens = true;
     }
 
     protected BinaryPredicate(BinaryPredicate other) {
@@ -161,29 +140,6 @@ public class BinaryPredicate extends Predicate {
         op = other.op;
         slotIsleft = other.slotIsleft;
         isInferred = other.isInferred;
-        printSqlInParens = true;
-    }
-
-    public static void initBuiltins(FunctionSet functionSet) {
-        for (Type t : Type.getSupportedTypes()) {
-            if (t.isNull()) {
-                continue; // NULL is handled through type promotion.
-            }
-            functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(
-                    Operator.EQ.getName(), Lists.newArrayList(t, t), Type.BOOLEAN));
-            functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(
-                    Operator.NE.getName(), Lists.newArrayList(t, t), Type.BOOLEAN));
-            functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(
-                    Operator.LE.getName(), Lists.newArrayList(t, t), Type.BOOLEAN));
-            functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(
-                    Operator.GE.getName(), Lists.newArrayList(t, t), Type.BOOLEAN));
-            functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(
-                    Operator.LT.getName(), Lists.newArrayList(t, t), Type.BOOLEAN));
-            functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(
-                    Operator.GT.getName(), Lists.newArrayList(t, t), Type.BOOLEAN));
-            functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(
-                    Operator.EQ_FOR_NULL.getName(), Lists.newArrayList(t, t), Type.BOOLEAN));
-        }
     }
 
     @Override
@@ -207,34 +163,6 @@ public class BinaryPredicate extends Predicate {
     }
 
     @Override
-    public Expr negate() {
-        Operator newOp = null;
-        switch (op) {
-            case EQ:
-                newOp = Operator.NE;
-                break;
-            case NE:
-                newOp = Operator.EQ;
-                break;
-            case LT:
-                newOp = Operator.GE;
-                break;
-            case LE:
-                newOp = Operator.GT;
-                break;
-            case GE:
-                newOp = Operator.LT;
-                break;
-            case GT:
-                newOp = Operator.LE;
-                break;
-            default:
-                throw new IllegalStateException("Not implemented");
-        }
-        return new BinaryPredicate(newOp, getChild(0), getChild(1));
-    }
-
-    @Override
     public boolean equals(Object obj) {
         if (!super.equals(obj)) {
             return false;
@@ -244,19 +172,15 @@ public class BinaryPredicate extends Predicate {
 
     @Override
     public String toSqlImpl() {
-        return getChild(0).toSql() + " " + op.toString() + " " + getChild(1).toSql();
+        return "(" + getChild(0).toSql() + " " + op.toString() + " " + getChild(1).toSql() + ")";
     }
 
     @Override
     public String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
             TableIf table) {
-        return getChild(0).toSql(disableTableName, needExternalSql, tableType, table) + " " + op.toString() + " "
-                + getChild(1).toSql(disableTableName, needExternalSql, tableType, table);
-    }
-
-    @Override
-    public String toDigestImpl() {
-        return getChild(0).toDigest() + " " + op.toString() + " " + getChild(1).toDigest();
+        return "(" + getChild(0).toSql(disableTableName, needExternalSql, tableType, table)
+                + " " + op.toString() + " "
+                + getChild(1).toSql(disableTableName, needExternalSql, tableType, table) + ")";
     }
 
     @Override
@@ -354,135 +278,9 @@ public class BinaryPredicate extends Predicate {
         return null;
     }
 
-    /**
-     * If e is an equality predicate between two slots that only require implicit
-     * casts, returns those two slots; otherwise returns null.
-     */
-    public static Pair<SlotId, SlotId> getEqSlots(Expr e) {
-        if (!(e instanceof BinaryPredicate)) {
-            return null;
-        }
-        return ((BinaryPredicate) e).getEqSlots();
-    }
-
-    /**
-     * If this is an equality predicate between two slots that only require implicit
-     * casts, returns those two slots; otherwise returns null.
-     */
-    @Override
-    public Pair<SlotId, SlotId> getEqSlots() {
-        if (op != Operator.EQ) {
-            return null;
-        }
-        SlotRef lhs = getChild(0).unwrapSlotRef(true);
-        if (lhs == null) {
-            return null;
-        }
-        SlotRef rhs = getChild(1).unwrapSlotRef(true);
-        if (rhs == null) {
-            return null;
-        }
-        return Pair.of(lhs.getSlotId(), rhs.getSlotId());
-    }
-
-
     public boolean slotIsLeft() {
         Preconditions.checkState(slotIsleft != null);
         return slotIsleft;
-    }
-
-    public Range<LiteralExpr> convertToRange() {
-        Preconditions.checkState(getChildWithoutCast(0) instanceof SlotRef);
-        Preconditions.checkState(getChildWithoutCast(1) instanceof LiteralExpr);
-        LiteralExpr literalExpr = (LiteralExpr) getChildWithoutCast(1);
-        switch (op) {
-            case EQ:
-                return Range.singleton(literalExpr);
-            case GE:
-                return Range.atLeast(literalExpr);
-            case GT:
-                return Range.greaterThan(literalExpr);
-            case LE:
-                return Range.atMost(literalExpr);
-            case LT:
-                return Range.lessThan(literalExpr);
-            case NE:
-            default:
-                return null;
-        }
-    }
-
-    @Override
-    public Expr getResultValue(boolean forPushDownPredicatesToView) throws AnalysisException {
-        recursiveResetChildrenResult(forPushDownPredicatesToView);
-        final Expr leftChildValue = getChild(0);
-        final Expr rightChildValue = getChild(1);
-        if (!(leftChildValue instanceof LiteralExpr)
-                || !(rightChildValue instanceof LiteralExpr)) {
-            return this;
-        }
-        return compareLiteral((LiteralExpr) leftChildValue, (LiteralExpr) rightChildValue);
-    }
-
-    private Expr compareLiteral(LiteralExpr first, LiteralExpr second) {
-        final boolean isFirstNull = (first instanceof NullLiteral);
-        final boolean isSecondNull = (second instanceof NullLiteral);
-        if (op == Operator.EQ_FOR_NULL) {
-            if (isFirstNull && isSecondNull) {
-                return new BoolLiteral(true);
-            } else if (isFirstNull || isSecondNull) {
-                return new BoolLiteral(false);
-            }
-        } else  {
-            if (isFirstNull || isSecondNull) {
-                return new NullLiteral();
-            }
-        }
-
-        final int compareResult = first.compareLiteral(second);
-        switch (op) {
-            case EQ:
-            case EQ_FOR_NULL:
-                return new BoolLiteral(compareResult == 0);
-            case GE:
-                return new BoolLiteral(compareResult >= 0);
-            case GT:
-                return new BoolLiteral(compareResult > 0);
-            case LE:
-                return new BoolLiteral(compareResult <= 0);
-            case LT:
-                return new BoolLiteral(compareResult < 0);
-            case NE:
-                return new BoolLiteral(compareResult != 0);
-            default:
-                Preconditions.checkState(false, "No defined binary operator.");
-        }
-        return this;
-    }
-
-    @Override
-    public void setSelectivity() {
-        switch (op) {
-            case EQ:
-            case EQ_FOR_NULL: {
-                Reference<SlotRef> slotRefRef = new Reference<SlotRef>();
-                boolean singlePredicate = isSingleColumnPredicate(slotRefRef, null);
-                if (singlePredicate) {
-                    long distinctValues = slotRefRef.getRef().getNumDistinctValues();
-                    if (distinctValues != -1) {
-                        selectivity = 1.0 / distinctValues;
-                    }
-                }
-                break;
-            }
-            default: {
-                // Reference hive
-                selectivity = 1.0 / 3.0;
-                break;
-            }
-        }
-
-        return;
     }
 
     @Override

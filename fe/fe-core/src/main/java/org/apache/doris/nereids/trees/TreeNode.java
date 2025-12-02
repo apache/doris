@@ -236,7 +236,7 @@ public interface TreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>> {
 
     default void foreachUp(Consumer<TreeNode<NODE_TYPE>> func) {
         for (NODE_TYPE child : children()) {
-            child.foreach(func);
+            child.foreachUp(func);
         }
         func.accept(this);
     }
@@ -388,5 +388,9 @@ public interface TreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>> {
 
         // If the "that" tree hasn't been fully traversed, return false.
         return thatDeque.isEmpty();
+    }
+
+    default String toDigest() {
+        return "";
     }
 }

@@ -224,8 +224,7 @@ public:
      * number_filters(4) | length(4) | column_name | op(4) | scale(4) | num_values(4) | value_length(4) | value | ...
      * Then, pass the byte array address in configuration map, like "push_down_predicates=${address}"
      */
-    Status init(
-            const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range);
+    Status init();
 
     /**
      * Call java side function JniScanner.getNextBatchMeta. The columns information are stored as long array:
@@ -329,7 +328,7 @@ private:
     Status _fill_block(Block* block, size_t num_rows);
 
     static Status _fill_column(TableMetaAddress& address, ColumnPtr& doris_column,
-                               DataTypePtr& data_type, size_t num_rows);
+                               const DataTypePtr& data_type, size_t num_rows);
 
     static Status _fill_string_column(TableMetaAddress& address, MutableColumnPtr& doris_column,
                                       size_t num_rows);
@@ -338,13 +337,13 @@ private:
                                          size_t num_rows);
 
     static Status _fill_map_column(TableMetaAddress& address, MutableColumnPtr& doris_column,
-                                   DataTypePtr& data_type, size_t num_rows);
+                                   const DataTypePtr& data_type, size_t num_rows);
 
     static Status _fill_array_column(TableMetaAddress& address, MutableColumnPtr& doris_column,
-                                     DataTypePtr& data_type, size_t num_rows);
+                                     const DataTypePtr& data_type, size_t num_rows);
 
     static Status _fill_struct_column(TableMetaAddress& address, MutableColumnPtr& doris_column,
-                                      DataTypePtr& data_type, size_t num_rows);
+                                      const DataTypePtr& data_type, size_t num_rows);
 
     static Status _fill_column_meta(const ColumnPtr& doris_column, const DataTypePtr& data_type,
                                     std::vector<long>& meta_data);
@@ -363,9 +362,6 @@ private:
     static long _get_fixed_length_column_address(const IColumn& doris_column) {
         return (long)assert_cast<const COLUMN_TYPE&>(doris_column).get_data().data();
     }
-
-    void _generate_predicates(
-            const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range);
 
     template <PrimitiveType primitive_type>
     void _parse_value_range(const ColumnValueRange<primitive_type>& col_val_range,

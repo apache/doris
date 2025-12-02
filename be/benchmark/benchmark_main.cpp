@@ -18,8 +18,10 @@
 #include <benchmark/benchmark.h>
 
 #include "benchmark_bit_pack.hpp"
+#include "benchmark_block_bloom_filter.hpp"
 #include "benchmark_fastunion.hpp"
 #include "benchmark_hll_merge.hpp"
+#include "benchmark_string.hpp"
 #include "binary_cast_benchmark.hpp"
 #include "vec/columns/column_string.h"
 #include "vec/core/block.h"

@@ -34,6 +34,8 @@
 #include "common/bvars.h"
 #include "meta-service/txn_lazy_committer.h"
 #include "meta-store/versionstamp.h"
+#include "recycler/snapshot_chain_compactor.h"
+#include "recycler/snapshot_data_migrator.h"
 #include "recycler/storage_vault_accessor.h"
 #include "recycler/white_black_list.h"
 #include "snapshot/snapshot_manager.h"
@@ -118,6 +120,8 @@ private:
 
     std::shared_ptr<TxnLazyCommitter> txn_lazy_committer_;
     std::shared_ptr<SnapshotManager> snapshot_manager_;
+    std::shared_ptr<SnapshotDataMigrator> snapshot_data_migrator_;
+    std::shared_ptr<SnapshotChainCompactor> snapshot_chain_compactor_;
 };
 
 enum class RowsetRecyclingState {
@@ -418,11 +422,11 @@ private:
     // for scan all rs of tablet and statistics metrics
     int scan_tablet_and_statistics(int64_t tablet_id, RecyclerMetricsContext& metrics_context);
 
-    // Recycle operation log and the log key.
+    // Recycle operation log and the log keys. The log keys are specified by `raw_keys`.
     //
-    // The log_key is constructed from the log_version and instance_id.
-    // Both `operation_log` and `log_key` will be removed in the same transaction, to ensure atomicity.
-    int recycle_operation_log(Versionstamp log_version, OperationLogPB operation_log);
+    // Both `operation_log` and `raw_keys` will be removed in the same transaction, to ensure atomicity.
+    int recycle_operation_log(Versionstamp log_version, const std::vector<std::string>& raw_keys,
+                              OperationLogPB operation_log);
 
     // Recycle rowset meta and data, return 0 for success otherwise error
     //
@@ -467,8 +471,9 @@ private:
 // Helper class to check if operation logs can be recycled based on snapshots and versionstamps
 class OperationLogRecycleChecker {
 public:
-    OperationLogRecycleChecker(std::string_view instance_id, TxnKv* txn_kv)
-            : instance_id_(instance_id), txn_kv_(txn_kv) {}
+    OperationLogRecycleChecker(std::string_view instance_id, TxnKv* txn_kv,
+                               const InstanceInfoPB& instance_info)
+            : instance_id_(instance_id), txn_kv_(txn_kv), instance_info_(instance_info) {}
 
     // Initialize the checker by loading snapshots and setting max version stamp
     int init();
@@ -481,7 +486,9 @@ public:
 private:
     std::string_view instance_id_;
     TxnKv* txn_kv_;
+    const InstanceInfoPB& instance_info_;
     Versionstamp max_versionstamp_;
+    Versionstamp source_snapshot_versionstamp_;
     std::map<Versionstamp, size_t> snapshot_indexes_;
     std::vector<std::pair<SnapshotPB, Versionstamp>> snapshots_;
 };

@@ -21,11 +21,13 @@ import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.nereids.DorisParser;
+import org.apache.doris.nereids.DorisParser.InsertTableContext;
+import org.apache.doris.nereids.DorisParser.SupportedDmlStatementContext;
 import org.apache.doris.nereids.trees.plans.commands.info.SetVarOp;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 
 import org.antlr.v4.runtime.ParserRuleContext;
-import org.apache.commons.collections.MapUtils;
+import org.apache.commons.collections4.MapUtils;
 
 import java.util.HashMap;
 import java.util.List;
@@ -117,6 +119,30 @@ public class LogicalPlanBuilderForEncryption extends LogicalPlanBuilder {
         return super.visitCreateTable(ctx);
     }
 
+    // create storage vault clause
+    @Override
+    public LogicalPlan visitCreateStorageVault(DorisParser.CreateStorageVaultContext ctx) {
+        if (ctx.properties != null && ctx.properties.fileProperties != null) {
+            DorisParser.PropertyClauseContext propertyClauseContext = ctx.properties;
+            encryptProperty(visitPropertyClause(propertyClauseContext),
+                    propertyClauseContext.fileProperties.start.getStartIndex(),
+                    propertyClauseContext.fileProperties.stop.getStopIndex());
+        }
+        return super.visitCreateStorageVault(ctx);
+    }
+
+    // alter storage vault clause
+    @Override
+    public LogicalPlan visitAlterStorageVault(DorisParser.AlterStorageVaultContext ctx) {
+        if (ctx.properties != null && ctx.properties.fileProperties != null) {
+            DorisParser.PropertyClauseContext propertyClauseContext = ctx.properties;
+            encryptProperty(visitPropertyClause(propertyClauseContext),
+                    propertyClauseContext.fileProperties.start.getStartIndex(),
+                    propertyClauseContext.fileProperties.stop.getStopIndex());
+        }
+        return super.visitAlterStorageVault(ctx);
+    }
+
     // select from tvf
     @Override
     public LogicalPlan visitTableValuedFunction(DorisParser.TableValuedFunctionContext ctx) {
@@ -126,6 +152,24 @@ public class LogicalPlanBuilderForEncryption extends LogicalPlanBuilder {
                     properties.stop.getStopIndex());
         }
         return super.visitTableValuedFunction(ctx);
+    }
+
+    // create job select tvf
+    @Override
+    public LogicalPlan visitCreateScheduledJob(DorisParser.CreateScheduledJobContext ctx) {
+        SupportedDmlStatementContext supportedDmlStatementContext = ctx.supportedDmlStatement();
+        visitInsertTable((InsertTableContext) supportedDmlStatementContext);
+        return super.visitCreateScheduledJob(ctx);
+    }
+
+    // alter job select tvf
+    @Override
+    public LogicalPlan visitAlterJob(DorisParser.AlterJobContext ctx) {
+        SupportedDmlStatementContext supportedDmlStatementContext = ctx.supportedDmlStatement();
+        if (ctx.supportedDmlStatement() != null) {
+            visitInsertTable((InsertTableContext) supportedDmlStatementContext);
+        }
+        return super.visitAlterJob(ctx);
     }
 
     private void encryptProperty(Map<String, String> properties, int start, int stop) {
