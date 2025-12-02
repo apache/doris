@@ -47,11 +47,11 @@ namespace vectorized {
 class Block;
 class IColumn;
 struct ColumnWithTypeAndName;
-struct ParseConfig;
 } // namespace vectorized
 } // namespace doris
 
 const std::string SPARSE_COLUMN_PATH = "__DORIS_VARIANT_SPARSE__";
+const std::string DOC_SNAPSHOT_COLUMN_PATH = "__DORIS_VARIANT_DOC_SNAPSHOT__";
 namespace doris::vectorized::schema_util {
 using PathToNoneNullValues = std::unordered_map<std::string, int64_t>;
 using PathToDataTypes = std::unordered_map<PathInData, std::vector<DataTypePtr>, PathInData::Hash>;
@@ -91,13 +91,6 @@ struct ExtraInfo {
 
 TabletColumn get_column_by_type(const vectorized::DataTypePtr& data_type, const std::string& name,
                                 const ExtraInfo& ext_info);
-
-// three steps to parse and encode variant columns into flatterned columns
-// 1. parse variant from raw json string
-// 2. finalize variant column to each subcolumn least commn types, default ignore sparse sub columns
-// 3. encode sparse sub columns
-Status parse_variant_columns(Block& block, const std::vector<int>& variant_pos,
-                             const ParseConfig& config);
 
 // check if the tuple_paths has ambiguous paths
 // situation:
@@ -139,8 +132,10 @@ TabletColumn create_sparse_column(const TabletColumn& variant);
 // Create one bucket sparse column: name = variant.name_lower_case() + "." + SPARSE_COLUMN_PATH + ".b{index}"
 TabletColumn create_sparse_shard_column(const TabletColumn& variant, int bucket_index);
 
+TabletColumn create_doc_snapshot_column(const TabletColumn& variant, int bucket_index);
+
 // Compute bucket id for given path string using SipHash64(path) % bucket_num.
-uint32_t variant_sparse_shard_of(const StringRef& path, uint32_t bucket_num);
+uint32_t variant_binary_shard_of(const StringRef& path, uint32_t bucket_num);
 
 void get_field_info(const Field& field, FieldInfo* info);
 

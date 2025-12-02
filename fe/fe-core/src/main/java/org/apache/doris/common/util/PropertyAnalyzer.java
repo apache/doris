@@ -265,6 +265,13 @@ public class PropertyAnalyzer {
     // number of buckets when using bucketized sparse serialization
     public static final String PROPERTIES_VARIANT_SPARSE_HASH_SHARD_COUNT = "variant_sparse_hash_shard_count";
 
+    public static final String PROPERTIES_VARIANT_ENABLE_DOC_SNAPSHOT_MODE = "variant_enable_doc_snapshot_mode";
+
+    public static final String PROPERTIES_VARIANT_DOC_SNAPSHOT_MIN_ROWS = "variant_doc_snapshot_min_rows";
+
+    // number of buckets when using doc snapshot serialization
+    public static final String PROPERTIES_VARIANT_DOC_SNAPSHOT_SHARD_COUNT = "variant_doc_snapshot_shard_count";
+
     public enum RewriteType {
         PUT,      // always put property
         REPLACE,  // replace if exists property
@@ -1954,6 +1961,58 @@ public class PropertyAnalyzer {
             properties.remove(PROPERTIES_VARIANT_SPARSE_HASH_SHARD_COUNT);
         }
         return bucketNum;
+    }
+
+    public static boolean analyzeEnableVariantDocSnapshotMode(Map<String, String> properties, boolean defaultValue)
+                                                                                throws AnalysisException {
+        boolean enableVariantDocSnapshotMode = defaultValue;
+        if (properties != null && properties.containsKey(PROPERTIES_VARIANT_ENABLE_DOC_SNAPSHOT_MODE)) {
+            String enableVariantDocSnapshotModeStr = properties.get(PROPERTIES_VARIANT_ENABLE_DOC_SNAPSHOT_MODE);
+            try {
+                enableVariantDocSnapshotMode = Boolean.parseBoolean(enableVariantDocSnapshotModeStr);
+            } catch (Exception e) {
+                throw new AnalysisException("variant_enable_doc_snapshot_mode must be `true` or `false`");
+            }
+            properties.remove(PROPERTIES_VARIANT_ENABLE_DOC_SNAPSHOT_MODE);
+        }
+        return enableVariantDocSnapshotMode;
+    }
+
+    public static long analyzeVariantDocSnapshotMinRows(Map<String, String> properties, long defaultValue)
+                                                                                throws AnalysisException {
+        long minRows = defaultValue;
+        if (properties != null && properties.containsKey(PROPERTIES_VARIANT_DOC_SNAPSHOT_MIN_ROWS)) {
+            String minRowsStr = properties.get(PROPERTIES_VARIANT_DOC_SNAPSHOT_MIN_ROWS);
+            try {
+                minRows = Long.parseLong(minRowsStr);
+                if (minRows < 0 || minRows > 1_000_000_000) {
+                    throw new AnalysisException("variant_doc_snapshot_min_rows must between 0 and 1000000000 ");
+                }
+            } catch (Exception e) {
+                throw new AnalysisException("variant_doc_snapshot_min_rows format error:" + e.getMessage());
+            }
+            properties.remove(PROPERTIES_VARIANT_DOC_SNAPSHOT_MIN_ROWS);
+        }
+        return minRows;
+    }
+
+    public static int analyzeVariantDocSnapshotShardCount(Map<String, String> properties, int defaultValue)
+            throws AnalysisException {
+        int shardCount = defaultValue;
+        if (properties != null && properties.containsKey(PROPERTIES_VARIANT_DOC_SNAPSHOT_SHARD_COUNT)) {
+            String shardCountStr = properties.get(PROPERTIES_VARIANT_DOC_SNAPSHOT_SHARD_COUNT);
+            try {
+                shardCount = Integer.parseInt(shardCountStr);
+                if (shardCount < 0 || shardCount > 1024) {
+                    throw new AnalysisException("variant_doc_snapshot_shard_count must between 0 and 1024 ");
+                }
+            } catch (Exception e) {
+                throw new AnalysisException(
+                        "variant_doc_snapshot_shard_count format error:" + e.getMessage());
+            }
+            properties.remove(PROPERTIES_VARIANT_DOC_SNAPSHOT_SHARD_COUNT);
+        }
+        return shardCount;
     }
 
     public static TEncryptionAlgorithm analyzeTDEAlgorithm(Map<String, String> properties) throws AnalysisException {

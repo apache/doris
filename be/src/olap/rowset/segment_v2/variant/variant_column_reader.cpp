@@ -35,6 +35,8 @@
 #include "olap/rowset/segment_v2/variant/hierarchical_data_iterator.h"
 #include "olap/rowset/segment_v2/variant/sparse_column_extract_iterator.h"
 #include "olap/rowset/segment_v2/variant/sparse_column_merge_iterator.h"
+#include "olap/rowset/segment_v2/variant/variant_doc_snapshot_iterator.h"
+#include "olap/rowset/segment_v2/variant/variant_doc_snpashot_compact_iterator.h"
 #include "olap/tablet_schema.h"
 #include "util/slice.h"
 #include "vec/columns/column_array.h"
@@ -89,7 +91,7 @@ public:
         _sparse_data_buckets.clear();
         _sparse_data_buckets.reserve(_iters.size());
         for (auto& it : _iters) {
-            vectorized::MutableColumnPtr m = vectorized::ColumnVariant::create_sparse_column_fn();
+            vectorized::MutableColumnPtr m = vectorized::ColumnVariant::create_binary_column_fn();
             RETURN_IF_ERROR(it->next_batch(n, m, has_null));
             _sparse_data_buckets.emplace_back(std::move(m));
         }
@@ -102,7 +104,7 @@ public:
         _sparse_data_buckets.clear();
         _sparse_data_buckets.reserve(_iters.size());
         for (auto& it : _iters) {
-            vectorized::MutableColumnPtr m = vectorized::ColumnVariant::create_sparse_column_fn();
+            vectorized::MutableColumnPtr m = vectorized::ColumnVariant::create_binary_column_fn();
             RETURN_IF_ERROR(it->read_by_rowids(rowids, count, m));
             _sparse_data_buckets.emplace_back(std::move(m));
         }
@@ -197,7 +199,7 @@ std::pair<std::shared_ptr<ColumnReader>, std::string>
 UnifiedSparseColumnReader::select_reader_and_cache_key(const std::string& relative_path) const {
     if (has_buckets()) {
         uint32_t N = static_cast<uint32_t>(_buckets.size());
-        uint32_t bucket_index = vectorized::schema_util::variant_sparse_shard_of(
+        uint32_t bucket_index = vectorized::schema_util::variant_binary_shard_of(
                 StringRef {relative_path.data(), relative_path.size()}, N);
         DCHECK(bucket_index < _buckets.size());
         std::string key = std::string(SPARSE_COLUMN_PATH) + ".b" + std::to_string(bucket_index);
@@ -288,7 +290,7 @@ Status VariantColumnReader::_create_hierarchical_reader(ColumnIteratorUPtr* read
         ColumnIteratorUPtr iter;
         RETURN_IF_ERROR(_sparse_reader.new_sparse_iterator(&iter));
         sparse_iter = std::make_unique<SubstreamIterator>(
-                vectorized::ColumnVariant::create_sparse_column_fn(), std::move(iter), nullptr);
+                vectorized::ColumnVariant::create_binary_column_fn(), std::move(iter), nullptr);
     }
     if (node == nullptr) {
         node = _subcolumns_meta_info->find_exact(path);
@@ -317,7 +319,7 @@ Status VariantColumnReader::_create_hierarchical_reader(ColumnIteratorUPtr* read
 Status VariantColumnReader::_create_sparse_merge_reader(ColumnIteratorUPtr* iterator,
                                                         const StorageReadOptions* opts,
                                                         const TabletColumn& target_col,
-                                                        SparseColumnCacheSPtr sparse_column_cache,
+                                                        BinaryColumnCacheSPtr sparse_column_cache,
                                                         ColumnReaderCache* column_reader_cache,
                                                         std::optional<uint32_t> bucket_index) {
     std::shared_lock<std::shared_mutex> lock(_subcolumns_meta_mutex);
@@ -338,7 +340,7 @@ Status VariantColumnReader::_create_sparse_merge_reader(ColumnIteratorUPtr* iter
         if (bucket_index.has_value() && _sparse_reader.has_buckets()) {
             uint32_t N = static_cast<uint32_t>(_sparse_reader.num_buckets());
             if (N > 1) {
-                uint32_t b = vectorized::schema_util::variant_sparse_shard_of(
+                uint32_t b = vectorized::schema_util::variant_binary_shard_of(
                         StringRef {path.data(), path.size()}, N);
                 if (b != bucket_index.value()) {
                     continue; // prune subcolumns of other buckets early
@@ -407,23 +409,23 @@ Status VariantColumnReader::_new_default_iter_with_same_nested(
     return Status::OK();
 }
 
-Result<SparseColumnCacheSPtr> VariantColumnReader::_get_shared_column_cache(
-        PathToSparseColumnCache* sparse_column_cache_ptr, const std::string& path,
-        std::shared_ptr<ColumnReader> sparse_column_reader) {
-    if (!sparse_column_cache_ptr || !sparse_column_cache_ptr->contains(path)) {
+Result<BinaryColumnCacheSPtr> VariantColumnReader::_get_binary_column_cache(
+        PathToBinaryColumnCache* binary_column_cache_ptr, const std::string& path,
+        std::shared_ptr<ColumnReader> binary_column_reader) {
+    if (!binary_column_cache_ptr || !binary_column_cache_ptr->contains(path)) {
         ColumnIteratorUPtr inner_iter;
-        RETURN_IF_ERROR_RESULT(sparse_column_reader->new_iterator(&inner_iter, nullptr));
-        vectorized::MutableColumnPtr sparse_column =
-                vectorized::ColumnVariant::create_sparse_column_fn();
-        auto sparse_column_cache = std::make_shared<SparseColumnCache>(std::move(inner_iter),
-                                                                       std::move(sparse_column));
-        // if sparse_column_cache_ptr is nullptr, means the sparse column cache is not used
-        if (sparse_column_cache_ptr) {
-            sparse_column_cache_ptr->emplace(path, sparse_column_cache);
+        RETURN_IF_ERROR_RESULT(binary_column_reader->new_iterator(&inner_iter, nullptr));
+        vectorized::MutableColumnPtr binary_column =
+                vectorized::ColumnVariant::create_binary_column_fn();
+        auto binary_column_cache = std::make_shared<BinaryColumnCache>(std::move(inner_iter),
+                                                                       std::move(binary_column));
+        // if binary_column_cache_ptr is nullptr, means the binary column cache is not used
+        if (binary_column_cache_ptr) {
+            binary_column_cache_ptr->emplace(path, binary_column_cache);
         }
-        return sparse_column_cache;
+        return binary_column_cache;
     }
-    return sparse_column_cache_ptr->at(path);
+    return binary_column_cache_ptr->at(path);
 }
 
 vectorized::DataTypePtr create_variant_type(const TabletColumn& target_col) {
@@ -436,7 +438,7 @@ vectorized::DataTypePtr create_variant_type(const TabletColumn& target_col) {
 
 Status VariantColumnReader::_build_read_plan_flat_leaves(
         ReadPlan* plan, const TabletColumn& target_col, const StorageReadOptions* opts,
-        ColumnReaderCache* column_reader_cache, PathToSparseColumnCache* sparse_column_cache_ptr) {
+        ColumnReaderCache* column_reader_cache, PathToBinaryColumnCache* binary_column_cache_ptr) {
     // make sure external meta is loaded otherwise can't find any meta data for extracted columns
     // TODO(lhy): this will load all external meta if not loaded, and memory will be consumed.
     RETURN_IF_ERROR(load_external_meta_once());
@@ -479,6 +481,17 @@ Status VariantColumnReader::_build_read_plan_flat_leaves(
             plan->sparse_cache_key =
                     std::string(SPARSE_COLUMN_PATH) + ".b" + std::to_string(bucket_index);
             plan->bucket_index = bucket_index;
+            return Status::OK();
+        }
+
+        // case 3: doc snapshot column
+        if (rel.find(DOC_SNAPSHOT_COLUMN_PATH) != std::string::npos) {
+            size_t bucket = rel.rfind('.');
+            uint32_t bucket_value = static_cast<uint32_t>(std::stoul(rel.substr(bucket + 1)));
+            plan->kind = ReadKind::DOC_SNAPSHOT;
+            plan->type = vectorized::DataTypeFactory::instance().create_data_type(target_col);
+            plan->relative_path = relative_path;
+            plan->doc_snapshot_buckets.push_back(bucket_value);
             return Status::OK();
         }
 
@@ -579,7 +592,7 @@ bool VariantColumnReader::_has_prefix_path_unlocked(
 Status VariantColumnReader::_build_read_plan(ReadPlan* plan, const TabletColumn& target_col,
                                              const StorageReadOptions* opt,
                                              ColumnReaderCache* column_reader_cache,
-                                             PathToSparseColumnCache* sparse_column_cache_ptr) {
+                                             PathToBinaryColumnCache* binary_column_cache_ptr) {
     // root column use unique id, leaf column use parent_unique_id
     int32_t col_uid =
             target_col.unique_id() >= 0 ? target_col.unique_id() : target_col.parent_unique_id();
@@ -604,7 +617,7 @@ Status VariantColumnReader::_build_read_plan(ReadPlan* plan, const TabletColumn&
     // english only in comments
     if (need_read_flat_leaves(opt)) {
         return _build_read_plan_flat_leaves(plan, target_col, opt, column_reader_cache,
-                                            sparse_column_cache_ptr);
+                                            binary_column_cache_ptr);
     }
 
     std::shared_lock<std::shared_mutex> lock(_subcolumns_meta_mutex);
@@ -617,6 +630,18 @@ Status VariantColumnReader::_build_read_plan(ReadPlan* plan, const TabletColumn&
     if (node == nullptr) {
         relative_path = vectorized::PathInData(relative_path.get_path());
         node = _subcolumns_meta_info->find_exact(relative_path);
+    }
+
+    // read root
+    if (root->path == relative_path && !_doc_snapshot_column_readers.empty()) {
+        plan->kind = ReadKind::DOC_SNAPSHOT_ALL;
+        plan->type = create_variant_type(target_col);
+        plan->relative_path = relative_path;
+        plan->root = root;
+        for (const auto& [bucket_value, _] : _doc_snapshot_column_readers) {
+            plan->doc_snapshot_buckets.push_back(bucket_value);
+        }
+        return Status::OK();
     }
 
     // Check if path exist in sparse column
@@ -710,6 +735,18 @@ Status VariantColumnReader::_build_read_plan(ReadPlan* plan, const TabletColumn&
             plan->root = root;
             return Status::OK();
         }
+
+        // find if path exists in doc snapshot column
+        auto picked_doc_snapshot_buckets =
+                _pick_doc_snapshot_column_buckets(relative_path.get_path());
+        if (!picked_doc_snapshot_buckets.empty()) {
+            plan->kind = ReadKind::DOC_SNAPSHOT_EXTRACT;
+            plan->type = create_variant_type(target_col);
+            plan->relative_path = relative_path;
+            plan->doc_snapshot_buckets = std::move(picked_doc_snapshot_buckets);
+            return Status::OK();
+        }
+
         // Sparse column not exists and not reached stats limit, then the target path is not
         // exist, get a default iterator
         plan->kind = ReadKind::DEFAULT_FILL;
@@ -722,7 +759,7 @@ Status VariantColumnReader::_build_read_plan(ReadPlan* plan, const TabletColumn&
 Status VariantColumnReader::_create_iterator_from_plan(
         ColumnIteratorUPtr* iterator, const ReadPlan& plan, const TabletColumn& target_col,
         const StorageReadOptions* opt, ColumnReaderCache* column_reader_cache,
-        PathToSparseColumnCache* sparse_column_cache_ptr) {
+        PathToBinaryColumnCache* binary_column_cache_ptr) {
     switch (plan.kind) {
     case ReadKind::ROOT_FLAT: {
         *iterator = std::make_unique<VariantRootColumnIterator>(
@@ -747,8 +784,8 @@ Status VariantColumnReader::_create_iterator_from_plan(
     }
     case ReadKind::SPARSE_EXTRACT: {
         DCHECK(plan.sparse_column_reader != nullptr);
-        SparseColumnCacheSPtr sparse_column_cache = DORIS_TRY(_get_shared_column_cache(
-                sparse_column_cache_ptr, plan.sparse_cache_key, plan.sparse_column_reader));
+        BinaryColumnCacheSPtr sparse_column_cache = DORIS_TRY(_get_binary_column_cache(
+                binary_column_cache_ptr, plan.sparse_cache_key, plan.sparse_column_reader));
         *iterator = std::make_unique<SparseColumnExtractIterator>(
                 plan.relative_path.get_path(), std::move(sparse_column_cache), opt);
         if (opt && opt->stats) {
@@ -758,8 +795,8 @@ Status VariantColumnReader::_create_iterator_from_plan(
     }
     case ReadKind::SPARSE_MERGE: {
         DCHECK(plan.sparse_column_reader != nullptr);
-        SparseColumnCacheSPtr sparse_column_cache = DORIS_TRY(_get_shared_column_cache(
-                sparse_column_cache_ptr, plan.sparse_cache_key, plan.sparse_column_reader));
+        BinaryColumnCacheSPtr sparse_column_cache = DORIS_TRY(_get_binary_column_cache(
+                binary_column_cache_ptr, plan.sparse_cache_key, plan.sparse_column_reader));
         RETURN_IF_ERROR(_create_sparse_merge_reader(iterator, opt, target_col, sparse_column_cache,
                                                     column_reader_cache, plan.bucket_index));
         return Status::OK();
@@ -776,21 +813,56 @@ Status VariantColumnReader::_create_iterator_from_plan(
         }
         return Status::OK();
     }
+    case ReadKind::DOC_SNAPSHOT: {
+        DCHECK(plan.doc_snapshot_buckets.size() == 1);
+        ColumnIteratorUPtr inner_iter;
+        RETURN_IF_ERROR(_doc_snapshot_column_readers.at(plan.doc_snapshot_buckets[0])
+                                ->new_iterator(&inner_iter, nullptr));
+        *iterator = std::make_unique<VariantDocSnapshotCompactIterator>(std::move(inner_iter));
+        return Status::OK();
     }
-    return Status::InternalError("Unknown ReadKind for VariantColumnReader");
-}
+    case ReadKind::DOC_SNAPSHOT_EXTRACT: {
+        DCHECK(plan.doc_snapshot_buckets.size() >= 1);
 
-Status VariantColumnReader::_new_iterator_with_flat_leaves(
-        ColumnIteratorUPtr* iterator, vectorized::DataTypePtr* type, const TabletColumn& target_col,
-        const StorageReadOptions* opts, bool /*exceeded_sparse_column_limit*/,
-        bool /*existed_in_sparse_column*/, ColumnReaderCache* column_reader_cache,
-        PathToSparseColumnCache* sparse_column_cache_ptr) {
-    ReadPlan plan;
-    RETURN_IF_ERROR(_build_read_plan_flat_leaves(&plan, target_col, opts, column_reader_cache,
-                                                 sparse_column_cache_ptr));
-    *type = plan.type;
-    return _create_iterator_from_plan(iterator, plan, target_col, opts, column_reader_cache,
-                                      sparse_column_cache_ptr);
+        std::vector<BinaryColumnCacheSPtr> doc_snapshot_column_caches;
+        for (const auto& bucket : plan.doc_snapshot_buckets) {
+            std::string path = DOC_SNAPSHOT_COLUMN_PATH + "." + std::to_string(bucket);
+            BinaryColumnCacheSPtr doc_snapshot_column_cache = DORIS_TRY(_get_binary_column_cache(
+                    binary_column_cache_ptr, path, _doc_snapshot_column_readers.at(bucket)));
+            doc_snapshot_column_caches.push_back(std::move(doc_snapshot_column_cache));
+        }
+        *iterator = std::make_unique<VariantDocSnapshotPathIterator>(
+                std::move(doc_snapshot_column_caches), plan.relative_path.get_path());
+        if (opt && opt->stats) {
+            opt->stats->variant_subtree_doc_snapshot_extract_iter_count++;
+        }
+        return Status::OK();
+    }
+    case ReadKind::DOC_SNAPSHOT_ALL: {
+        std::vector<BinaryColumnCacheSPtr> doc_snapshot_column_caches;
+        for (const auto& bucket : plan.doc_snapshot_buckets) {
+            std::string path = DOC_SNAPSHOT_COLUMN_PATH + "." + std::to_string(bucket);
+            BinaryColumnCacheSPtr doc_snapshot_column_cache = DORIS_TRY(_get_binary_column_cache(
+                    binary_column_cache_ptr, path, _doc_snapshot_column_readers.at(bucket)));
+            doc_snapshot_column_caches.push_back(std::move(doc_snapshot_column_cache));
+        }
+        std::unique_ptr<SubstreamIterator> root_column_reader;
+        DCHECK(plan.root);
+        root_column_reader = std::make_unique<SubstreamIterator>(
+                plan.root->data.file_column_type->create_column(),
+                std::make_unique<FileColumnIterator>(_root_column_reader),
+                plan.root->data.file_column_type);
+        *iterator = std::make_unique<VariantDocSnapshotRootIterator>(
+                std::move(doc_snapshot_column_caches), std::move(root_column_reader));
+        if (opt && opt->stats) {
+            opt->stats->variant_subtree_doc_snapshot_all_iter_count++;
+        }
+        return Status::OK();
+    }
+    default: {
+        return Status::InternalError("Unknown ReadKind for VariantColumnReader");
+    }
+    }
 }
 
 Status VariantColumnReader::new_iterator(ColumnIteratorUPtr* iterator,
@@ -804,13 +876,13 @@ Status VariantColumnReader::new_iterator(ColumnIteratorUPtr* iterator,
                                          const TabletColumn* target_col,
                                          const StorageReadOptions* opt,
                                          ColumnReaderCache* column_reader_cache,
-                                         PathToSparseColumnCache* sparse_column_cache_ptr) {
+                                         PathToBinaryColumnCache* binary_column_cache_ptr) {
     ReadPlan plan;
     RETURN_IF_ERROR(_build_read_plan(&plan, *target_col, opt, column_reader_cache,
-                                     sparse_column_cache_ptr));
+                                     binary_column_cache_ptr));
     // Caller of this overload does not need the storage type; only iterator is used.
     return _create_iterator_from_plan(iterator, plan, *target_col, opt, column_reader_cache,
-                                      sparse_column_cache_ptr);
+                                      binary_column_cache_ptr);
 }
 
 Status VariantColumnReader::init(const ColumnReaderOptions& opts, ColumnMetaAccessor* accessor,
@@ -869,6 +941,8 @@ Status VariantColumnReader::init(const ColumnReaderOptions& opts, ColumnMetaAcce
         if (relative.empty()) {
             return Status::OK();
         }
+
+        // case 1: single sparse column
         std::string rel_str = relative.get_path();
         if (rel_str == SPARSE_COLUMN_PATH) {
             DCHECK(col.has_variant_statistics()) << col.DebugString();
@@ -883,6 +957,8 @@ Status VariantColumnReader::init(const ColumnReaderOptions& opts, ColumnMetaAcce
             *handled = true;
             return Status::OK();
         }
+
+        // case 2: bucketized sparse column
         std::string bucket_prefix = std::string(SPARSE_COLUMN_PATH) + ".b";
         if (rel_str.starts_with(bucket_prefix)) {
             int idx = atoi(rel_str.substr(bucket_prefix.size()).c_str());
@@ -894,6 +970,23 @@ Status VariantColumnReader::init(const ColumnReaderOptions& opts, ColumnMetaAcce
             std::shared_ptr<ColumnReader> reader;
             RETURN_IF_ERROR(ColumnReader::create(opts, col, num_rows, file_reader, &reader));
             tmp_bucket_readers[idx] = reader;
+            *handled = true;
+            return Status::OK();
+        }
+
+        // case 3: doc snapshot column
+        if (rel_str.find(DOC_SNAPSHOT_COLUMN_PATH) != std::string::npos) {
+            size_t bucket = rel_str.rfind('.');
+            int bucket_value = std::stoi(rel_str.substr(bucket + 1));
+            std::shared_ptr<ColumnReader> column_reader;
+            RETURN_IF_ERROR(ColumnReader::create(opts, col, num_rows, file_reader, &column_reader));
+            _doc_snapshot_column_readers.emplace(bucket_value, std::move(column_reader));
+            const auto& variant_stats = col.variant_statistics();
+            std::set<std::string, std::less<>> paths;
+            for (const auto& [subpath, size] : variant_stats.doc_snapshot_column_non_null_size()) {
+                paths.insert(subpath);
+            }
+            _statistics->doc_snapshot_column_paths[bucket_value] = std::move(paths);
             *handled = true;
             return Status::OK();
         }
@@ -1228,6 +1321,21 @@ Status DefaultNestedColumnIterator::read_by_rowids(const rowid_t* rowids, const 
         dst->insert_many_defaults(count);
     }
     return Status::OK();
+}
+
+std::vector<uint32_t> VariantColumnReader::_pick_doc_snapshot_column_buckets(
+        const std::string& path) {
+    std::vector<uint32_t> bucket_values;
+    for (const auto& [bucket_value, reader] : _doc_snapshot_column_readers) {
+        const auto& doc_snapshot_stats = _statistics->doc_snapshot_column_paths[bucket_value];
+        const std::string& prefix = path + ".";
+        if (doc_snapshot_stats.find(path) != doc_snapshot_stats.end() ||
+            (doc_snapshot_stats.lower_bound(prefix) != doc_snapshot_stats.end() &&
+             doc_snapshot_stats.lower_bound(prefix)->starts_with(prefix))) {
+            bucket_values.push_back(bucket_value);
+        }
+    }
+    return bucket_values;
 }
 
 #include "common/compile_check_end.h"

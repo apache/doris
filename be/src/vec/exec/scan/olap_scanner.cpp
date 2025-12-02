@@ -796,6 +796,10 @@ void OlapScanner::_collect_profile_before_close() {
                    stats.variant_subtree_hierarchical_iter_count);
     COUNTER_UPDATE(local_state->_variant_subtree_sparse_iter_count,
                    stats.variant_subtree_sparse_iter_count);
+    COUNTER_UPDATE(local_state->_variant_subtree_doc_snapshot_extract_iter_count,
+                   stats.variant_subtree_doc_snapshot_extract_iter_count);
+    COUNTER_UPDATE(local_state->_variant_subtree_doc_snapshot_all_iter_count,
+                   stats.variant_subtree_doc_snapshot_all_iter_count);
 
     InvertedIndexProfileReporter inverted_index_profile;
     inverted_index_profile.update(local_state->_index_filter_profile.get(),

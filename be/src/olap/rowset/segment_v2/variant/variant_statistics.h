@@ -20,31 +20,28 @@
 #include <map>
 #include <string>
 
+#include "gen_cpp/segment_v2.pb.h"
+
 namespace doris {
 namespace segment_v2 {
 
 #include "common/compile_check_begin.h"
 
 struct VariantStatistics {
-    // If reached the size of this, we should stop writing statistics for sparse data
-    std::map<std::string, int64_t> subcolumns_non_null_size;
-    std::map<std::string, int64_t> sparse_column_non_null_size;
+    std::map<std::string, uint32_t> subcolumns_non_null_size;
+    // sparse column non-null size for all buckets
+    std::map<std::string, uint32_t> sparse_column_non_null_size;
+
+    // doc snapshot column non-null size for each bucket
+    std::unordered_map<uint32_t, std::set<std::string, std::less<>>> doc_snapshot_column_paths;
 
     void to_pb(VariantStatisticsPB* stats) const {
+        auto* sparse_map = stats->mutable_sparse_column_non_null_size();
         for (const auto& [path, value] : sparse_column_non_null_size) {
-            stats->mutable_sparse_column_non_null_size()->emplace(path, value);
-        }
-        LOG(INFO) << "num subcolumns " << subcolumns_non_null_size.size() << ", num sparse columns "
-                  << sparse_column_non_null_size.size();
-    }
-
-    void from_pb(const VariantStatisticsPB& stats) {
-        for (const auto& [path, value] : stats.sparse_column_non_null_size()) {
-            sparse_column_non_null_size[path] = value;
+            (*sparse_map)[path] = value;
         }
     }
 };
-
 #include "common/compile_check_end.h"
 
 } // namespace segment_v2

@@ -529,75 +529,6 @@ Status get_least_common_schema(const std::vector<TabletSchemaSPtr>& schemas,
     return Status::OK();
 }
 
-Status _parse_variant_columns(Block& block, const std::vector<int>& variant_pos,
-                              const ParseConfig& config) {
-    for (int i = 0; i < variant_pos.size(); ++i) {
-        auto column_ref = block.get_by_position(variant_pos[i]).column;
-        bool is_nullable = column_ref->is_nullable();
-        const auto& column = remove_nullable(column_ref);
-        const auto& var = assert_cast<const ColumnVariant&>(*column.get());
-        var.assume_mutable_ref().finalize();
-
-        MutableColumnPtr variant_column;
-        if (!var.is_scalar_variant()) {
-            variant_column = var.assume_mutable();
-            // already parsed
-            continue;
-        }
-        ColumnPtr scalar_root_column;
-        if (var.get_root_type()->get_primitive_type() == TYPE_JSONB) {
-            // TODO more efficient way to parse jsonb type, currently we just convert jsonb to
-            // json str and parse them into variant
-            RETURN_IF_ERROR(cast_column({var.get_root(), var.get_root_type(), ""},
-                                        var.get_root()->is_nullable()
-                                                ? make_nullable(std::make_shared<DataTypeString>())
-                                                : std::make_shared<DataTypeString>(),
-                                        &scalar_root_column));
-            if (scalar_root_column->is_nullable()) {
-                scalar_root_column = assert_cast<const ColumnNullable*>(scalar_root_column.get())
-                                             ->get_nested_column_ptr();
-            }
-        } else {
-            const auto& root = *var.get_root();
-            scalar_root_column =
-                    root.is_nullable()
-                            ? assert_cast<const ColumnNullable&>(root).get_nested_column_ptr()
-                            : var.get_root();
-        }
-
-        if (scalar_root_column->is_column_string()) {
-            variant_column = ColumnVariant::create(0);
-            parse_json_to_variant(*variant_column.get(),
-                                  assert_cast<const ColumnString&>(*scalar_root_column), config);
-        } else {
-            // Root maybe other types rather than string like ColumnVariant(Int32).
-            // In this case, we should finlize the root and cast to JSON type
-            auto expected_root_type =
-                    make_nullable(std::make_shared<ColumnVariant::MostCommonType>());
-            var.ensure_root_node_type(expected_root_type);
-            variant_column = var.assume_mutable();
-        }
-
-        // Wrap variant with nullmap if it is nullable
-        ColumnPtr result = variant_column->get_ptr();
-        if (is_nullable) {
-            const auto& null_map =
-                    assert_cast<const ColumnNullable&>(*column_ref).get_null_map_column_ptr();
-            result = ColumnNullable::create(result, null_map);
-        }
-        block.get_by_position(variant_pos[i]).column = result;
-    }
-    return Status::OK();
-}
-
-Status parse_variant_columns(Block& block, const std::vector<int>& variant_pos,
-                             const ParseConfig& config) {
-    // Parse each variant column from raw string column
-    RETURN_IF_CATCH_EXCEPTION({
-        return vectorized::schema_util::_parse_variant_columns(block, variant_pos, config);
-    });
-}
-
 // sort by paths in lexicographical order
 vectorized::ColumnVariant::Subcolumns get_sorted_subcolumns(
         const vectorized::ColumnVariant::Subcolumns& subcolumns) {
@@ -668,7 +599,25 @@ TabletColumn create_sparse_shard_column(const TabletColumn& variant, int bucket_
     return res;
 }
 
-uint32_t variant_sparse_shard_of(const StringRef& path, uint32_t bucket_num) {
+TabletColumn create_doc_snapshot_column(const TabletColumn& variant, int bucket_index) {
+    TabletColumn res;
+    std::string name = variant.name_lower_case() + "." + DOC_SNAPSHOT_COLUMN_PATH + "." +
+                       std::to_string(bucket_index);
+    res.set_name(name);
+    res.set_type(FieldType::OLAP_FIELD_TYPE_MAP);
+    res.set_aggregation_method(variant.aggregation());
+    res.set_parent_unique_id(variant.unique_id());
+    res.set_default_value("NULL");
+    res.set_path_info(PathInData {name});
+
+    TabletColumn child_tcolumn;
+    child_tcolumn.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
+    res.add_sub_column(child_tcolumn);
+    res.add_sub_column(child_tcolumn);
+    return res;
+}
+
+uint32_t variant_binary_shard_of(const StringRef& path, uint32_t bucket_num) {
     if (bucket_num <= 1) return 0;
     SipHash hash;
     hash.update(path.data, path.size);
@@ -844,6 +793,10 @@ Status VariantCompactionUtil::check_path_stats(const std::vector<RowsetSharedPtr
     std::unordered_map<int32_t, PathToNoneNullValues> output_uid_to_path_stats;
     RETURN_IF_ERROR(aggregate_path_to_stats(output, &output_uid_to_path_stats));
     for (const auto& [uid, stats] : output_uid_to_path_stats) {
+        if (output->tablet_schema()->column_by_uid(uid).is_variant_type() &&
+            output->tablet_schema()->column_by_uid(uid).variant_enable_doc_snapshot_mode()) {
+            continue;
+        }
         if (original_uid_to_path_stats.find(uid) == original_uid_to_path_stats.end()) {
             return Status::InternalError("Path stats not found for uid {}, tablet_id {}", uid,
                                          tablet->tablet_id());
@@ -993,8 +946,6 @@ void VariantCompactionUtil::get_compaction_subcolumns_from_subpaths(
             subcolumn.set_aggregation_method(parent_column->aggregation());
             subcolumn.set_variant_max_subcolumns_count(
                     parent_column->variant_max_subcolumns_count());
-            subcolumn.set_variant_enable_typed_paths_to_sparse(
-                    parent_column->variant_enable_typed_paths_to_sparse());
             subcolumn.set_is_nullable(true);
             output_schema->append_column(subcolumn);
             VLOG_DEBUG << "append sub column " << subpath << " data type "
@@ -1075,6 +1026,17 @@ Status VariantCompactionUtil::get_extended_compaction_schema(
             continue;
         }
         VLOG_DEBUG << "column " << column->name() << " unique id " << column->unique_id();
+
+        if (column->variant_enable_doc_snapshot_mode()) {
+            const int bucket_num = std::max(1, column->variant_doc_snapshot_shard_count());
+            for (int b = 0; b < bucket_num; ++b) {
+                TabletColumn doc_snapshot_bucket_column = create_doc_snapshot_column(*column, b);
+                doc_snapshot_bucket_column.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
+                doc_snapshot_bucket_column.set_is_nullable(false);
+                output_schema->append_column(doc_snapshot_bucket_column);
+            }
+            continue;
+        }
 
         // 1. append typed columns
         RETURN_IF_ERROR(get_compaction_typed_columns(

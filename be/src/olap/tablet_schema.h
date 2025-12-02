@@ -213,24 +213,11 @@ public:
 
     void set_frac(int frac) { _frac = frac; }
 
+    int32_t variant_max_subcolumns_count() const { return _variant_max_subcolumns_count; }
+
     void set_variant_max_subcolumns_count(int32_t variant_max_subcolumns_count) {
         _variant_max_subcolumns_count = variant_max_subcolumns_count;
     }
-
-    void set_variant_enable_typed_paths_to_sparse(bool enable) {
-        _variant_enable_typed_paths_to_sparse = enable;
-    }
-
-    void set_variant_max_sparse_column_statistics_size(
-            int32_t variant_max_sparse_column_statistics_size) {
-        _variant_max_sparse_column_statistics_size = variant_max_sparse_column_statistics_size;
-    }
-
-    void set_variant_sparse_hash_shard_count(int32_t variant_sparse_hash_shard_count) {
-        _variant_sparse_hash_shard_count = variant_sparse_hash_shard_count;
-    }
-
-    int32_t variant_max_subcolumns_count() const { return _variant_max_subcolumns_count; }
 
     PatternTypePB pattern_type() const { return _pattern_type; }
 
@@ -243,6 +230,37 @@ public:
     }
 
     int32_t variant_sparse_hash_shard_count() const { return _variant_sparse_hash_shard_count; }
+
+    bool variant_enable_doc_snapshot_mode() const { return _variant_enable_doc_snapshot_mode; }
+
+    int64_t variant_doc_snapshot_min_rows() const { return _variant_doc_snapshot_min_rows; }
+
+    int32_t variant_doc_snapshot_shard_count() const { return _variant_doc_snapshot_shard_count; }
+
+    void set_variant_doc_snapshot_min_rows(int64_t variant_doc_snapshot_min_rows) {
+        _variant_doc_snapshot_min_rows = variant_doc_snapshot_min_rows;
+    }
+
+    void set_variant_doc_snapshot_shard_count(int32_t variant_doc_snapshot_shard_count) {
+        _variant_doc_snapshot_shard_count = variant_doc_snapshot_shard_count;
+    }
+
+    void set_variant_max_sparse_column_statistics_size(
+            int32_t variant_max_sparse_column_statistics_size) {
+        _variant_max_sparse_column_statistics_size = variant_max_sparse_column_statistics_size;
+    }
+
+    void set_variant_sparse_hash_shard_count(int32_t variant_sparse_hash_shard_count) {
+        _variant_sparse_hash_shard_count = variant_sparse_hash_shard_count;
+    }
+
+    void set_variant_enable_doc_snapshot_mode(bool variant_enable_doc_snapshot_mode) {
+        _variant_enable_doc_snapshot_mode = variant_enable_doc_snapshot_mode;
+    }
+
+    void set_variant_enable_typed_paths_to_sparse(bool variant_enable_typed_paths_to_sparse) {
+        _variant_enable_typed_paths_to_sparse = variant_enable_typed_paths_to_sparse;
+    }
 
     bool is_decimal() const { return _is_decimal; }
 
@@ -294,6 +312,12 @@ private:
             BeConsts::DEFAULT_VARIANT_MAX_SPARSE_COLUMN_STATS_SIZE;
     // default to 0, no shard
     int32_t _variant_sparse_hash_shard_count = 0;
+
+    bool _variant_enable_doc_snapshot_mode = false;
+
+    int64_t _variant_doc_snapshot_min_rows = 0;
+
+    int32_t _variant_doc_snapshot_shard_count = 128;
 };
 
 bool operator==(const TabletColumn& a, const TabletColumn& b);

@@ -448,6 +448,8 @@ struct OlapReaderStatistics {
     int64_t variant_subtree_leaf_iter_count = 0;
     int64_t variant_subtree_hierarchical_iter_count = 0;
     int64_t variant_subtree_sparse_iter_count = 0;
+    int64_t variant_subtree_doc_snapshot_extract_iter_count = 0;
+    int64_t variant_subtree_doc_snapshot_all_iter_count = 0;
 };
 
 using ColumnId = uint32_t;

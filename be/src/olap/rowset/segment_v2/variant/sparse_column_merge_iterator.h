@@ -58,7 +58,7 @@ namespace doris::segment_v2 {
 class SparseColumnMergeIterator : public BaseSparseColumnProcessor {
 public:
     SparseColumnMergeIterator(const TabletSchema::PathsSetInfo& path_set_info,
-                              SparseColumnCacheSPtr sparse_column_cache,
+                              BinaryColumnCacheSPtr sparse_column_cache,
                               SubstreamReaderTree&& src_subcolumns_for_sparse,
                               const StorageReadOptions* opts)
             : BaseSparseColumnProcessor(std::move(sparse_column_cache), opts),

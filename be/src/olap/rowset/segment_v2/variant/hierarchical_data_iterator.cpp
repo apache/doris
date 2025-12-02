@@ -299,6 +299,7 @@ Status HierarchicalDataIterator::_init_container(vectorized::MutableColumnPtr& c
         RETURN_IF_ERROR(_process_sparse_column(container_variant, nrows));
     }
 
+    container_variant.get_doc_snapshot_column()->assume_mutable()->resize(nrows);
     container_variant.set_num_rows(nrows);
     return Status::OK();
 }
@@ -390,7 +391,7 @@ Status HierarchicalDataIterator::_process_sparse_column(
                         // Case 1: subcolumn already created, append this row's value into it.
                         if (auto it = subcolumns_from_sparse_column.find(sub_path);
                             it != subcolumns_from_sparse_column.end()) {
-                            it->second.deserialize_from_sparse_column(&src_sparse_data_values,
+                            it->second.deserialize_from_binary_column(&src_sparse_data_values,
                                                                       lower_bound_index);
                         }
                         // Case 2: subcolumn not created yet and we still have quota → create it and insert.
@@ -398,7 +399,7 @@ Status HierarchicalDataIterator::_process_sparse_column(
                             // Initialize subcolumn with current logical row index i to align sizes.
                             ColumnVariant::Subcolumn subcolumn(/*size*/ i, /*is_nullable*/ true,
                                                                false);
-                            subcolumn.deserialize_from_sparse_column(&src_sparse_data_values,
+                            subcolumn.deserialize_from_binary_column(&src_sparse_data_values,
                                                                      lower_bound_index);
                             subcolumns_from_sparse_column.emplace(sub_path, std::move(subcolumn));
                         }
@@ -423,7 +424,7 @@ Status HierarchicalDataIterator::_process_sparse_column(
                             //     return Status::InternalError("Failed to add subcolumn for sparse column");
                             // }
                         }
-                        container_variant.get_subcolumn({})->deserialize_from_sparse_column(
+                        container_variant.get_subcolumn({})->deserialize_from_binary_column(
                                 &src_sparse_data_values, lower_bound_index);
                     }
                 }

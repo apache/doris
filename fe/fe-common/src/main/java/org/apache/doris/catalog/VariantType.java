@@ -52,6 +52,15 @@ public class VariantType extends ScalarType {
     @SerializedName(value = "variantSparseHashShardCount")
     private final int variantSparseHashShardCount;
 
+    @SerializedName(value = "enableVariantDocSnapshotMode")
+    private final boolean enableVariantDocSnapshotMode;
+
+    @SerializedName(value = "variantDocSnapshotMinRows")
+    private final long variantDocSnapshotMinRows;
+
+    @SerializedName(value = "variantDocSnapshotShardCount")
+    private final int variantDocSnapshotShardCount;
+
     private Map<String, String> properties = Maps.newHashMap();
 
     public VariantType() {
@@ -61,6 +70,9 @@ public class VariantType extends ScalarType {
         this.enableTypedPathsToSparse = false;
         this.variantMaxSparseColumnStatisticsSize = 10000;
         this.variantSparseHashShardCount = 0;
+        this.enableVariantDocSnapshotMode = false;
+        this.variantDocSnapshotMinRows = 0L;
+        this.variantDocSnapshotShardCount = 128;
     }
 
     public VariantType(ArrayList<VariantField> fields) {
@@ -74,6 +86,9 @@ public class VariantType extends ScalarType {
         this.enableTypedPathsToSparse = false;
         this.variantMaxSparseColumnStatisticsSize = 10000;
         this.variantSparseHashShardCount = 0;
+        this.enableVariantDocSnapshotMode = false;
+        this.variantDocSnapshotMinRows = 0L;
+        this.variantDocSnapshotShardCount = 128;
     }
 
     public VariantType(Map<String, String> properties) {
@@ -84,6 +99,9 @@ public class VariantType extends ScalarType {
         this.enableTypedPathsToSparse = false;
         this.variantMaxSparseColumnStatisticsSize = 10000;
         this.variantSparseHashShardCount = 0;
+        this.enableVariantDocSnapshotMode = false;
+        this.variantDocSnapshotMinRows = 0L;
+        this.variantDocSnapshotShardCount = 128;
     }
 
     public VariantType(ArrayList<VariantField> fields, Map<String, String> properties) {
@@ -98,12 +116,18 @@ public class VariantType extends ScalarType {
         this.enableTypedPathsToSparse = false;
         this.variantMaxSparseColumnStatisticsSize = 10000;
         this.variantSparseHashShardCount = 0;
+        this.enableVariantDocSnapshotMode = false;
+        this.variantDocSnapshotMinRows = 0L;
+        this.variantDocSnapshotShardCount = 128;
     }
 
     public VariantType(ArrayList<VariantField> fields, int variantMaxSubcolumnsCount,
                                                         boolean enableTypedPathsToSparse,
                                                         int variantMaxSparseColumnStatisticsSize,
-                                                        int variantSparseHashShardCount) {
+                                                        int variantSparseHashShardCount,
+                                                        boolean enableVariantDocSnapshotMode,
+                                                        long variantDocSnapshotMinRows,
+                                                        int variantDocSnapshotShardCount) {
         super(PrimitiveType.VARIANT);
         Preconditions.checkNotNull(fields);
         this.predefinedFields = fields;
@@ -114,51 +138,43 @@ public class VariantType extends ScalarType {
         this.enableTypedPathsToSparse = enableTypedPathsToSparse;
         this.variantMaxSparseColumnStatisticsSize = variantMaxSparseColumnStatisticsSize;
         this.variantSparseHashShardCount = variantSparseHashShardCount;
+        this.enableVariantDocSnapshotMode = enableVariantDocSnapshotMode;
+        this.variantDocSnapshotMinRows = variantDocSnapshotMinRows;
+        this.variantDocSnapshotShardCount = variantDocSnapshotShardCount;
     }
 
     @Override
     public String toSql(int depth) {
-        if (predefinedFields.isEmpty() && variantMaxSubcolumnsCount == 0) {
-            return "variant";
-        }
         StringBuilder sb = new StringBuilder();
         sb.append("variant");
         sb.append("<");
         if (!predefinedFields.isEmpty()) {
             sb.append(predefinedFields.stream()
                                 .map(variantField -> variantField.toSql(depth)).collect(Collectors.joining(",")));
-            if (variantMaxSubcolumnsCount == 0 && !enableTypedPathsToSparse
-                    && variantMaxSparseColumnStatisticsSize == 10000) {
-                // end sign for predefinedFields
-                sb.append(">");
-                return sb.toString();
-            } else {
-                sb.append(",");
-            }
+            sb.append(",");
         }
 
         sb.append("PROPERTIES (");
-        if (variantMaxSubcolumnsCount != 0) {
-            sb.append("\"variant_max_subcolumns_count\" = \"")
+        sb.append("\"variant_max_subcolumns_count\" = \"")
                                     .append(String.valueOf(variantMaxSubcolumnsCount)).append("\"");
-        }
-        if (variantMaxSubcolumnsCount != 0 && enableTypedPathsToSparse) {
-            sb.append(",");
-        }
-        if (enableTypedPathsToSparse) {
-            sb.append("\"variant_enable_typed_paths_to_sparse\" = \"")
+        sb.append(",");
+        sb.append("\"variant_enable_typed_paths_to_sparse\" = \"")
                                     .append(String.valueOf(enableTypedPathsToSparse)).append("\"");
-        }
-        if (variantMaxSparseColumnStatisticsSize != 10000) {
-            sb.append(",");
-            sb.append("\"variant_max_sparse_column_statistics_size\" = \"")
+        sb.append(",");
+        sb.append("\"variant_max_sparse_column_statistics_size\" = \"")
                                     .append(String.valueOf(variantMaxSparseColumnStatisticsSize)).append("\"");
-        }
-        if (variantSparseHashShardCount != 0 && variantSparseHashShardCount != 1) {
-            sb.append(",");
-            sb.append("\"variant_sparse_hash_shard_count\" = \"")
+        sb.append(",");
+        sb.append("\"variant_sparse_hash_shard_count\" = \"")
                                     .append(String.valueOf(variantSparseHashShardCount)).append("\"");
-        }
+        sb.append(",");
+        sb.append("\"variant_enable_doc_snapshot_mode\" = \"")
+                                    .append(String.valueOf(enableVariantDocSnapshotMode)).append("\"");
+        sb.append(",");
+        sb.append("\"variant_doc_snapshot_min_rows\" = \"")
+                                    .append(String.valueOf(variantDocSnapshotMinRows)).append("\"");
+        sb.append(",");
+        sb.append("\"variant_doc_snapshot_shard_count\" = \"")
+                                    .append(String.valueOf(variantDocSnapshotShardCount)).append("\"");
         sb.append(")>");
         return sb.toString();
     }
@@ -197,7 +213,11 @@ public class VariantType extends ScalarType {
         }
         VariantType otherVariantType = (VariantType) other;
         return Objects.equals(otherVariantType.getPredefinedFields(), predefinedFields)
-                && variantMaxSubcolumnsCount == otherVariantType.variantMaxSubcolumnsCount;
+                && variantMaxSubcolumnsCount == otherVariantType.variantMaxSubcolumnsCount
+                && enableTypedPathsToSparse == otherVariantType.enableTypedPathsToSparse
+                && enableVariantDocSnapshotMode == otherVariantType.enableVariantDocSnapshotMode
+                && variantDocSnapshotMinRows == otherVariantType.variantDocSnapshotMinRows
+                && variantDocSnapshotShardCount == otherVariantType.variantDocSnapshotShardCount;
     }
 
     @Override
@@ -223,5 +243,17 @@ public class VariantType extends ScalarType {
 
     public int getVariantSparseHashShardCount() {
         return variantSparseHashShardCount;
+    }
+
+    public boolean getEnableVariantDocSnapshotMode() {
+        return enableVariantDocSnapshotMode;
+    }
+
+    public long getVariantDocSnapshotMinRows() {
+        return variantDocSnapshotMinRows;
+    }
+
+    public int getVariantDocSnapshotShardCount() {
+        return variantDocSnapshotShardCount;
     }
 }

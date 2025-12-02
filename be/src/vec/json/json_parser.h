@@ -124,6 +124,12 @@ enum class ExtractType {
 
 struct ParseConfig {
     bool enable_flatten_nested = false;
+    // parse variant column to subcolumns or doc snapshot
+    // if parse_to_subcolumns is true, the variant column will be parsed to subcolumns
+    // if parse_to_doc_snapshot is true, the variant column will be parsed to doc snapshot
+    // if both are true, the variant column will be parsed to both subcolumns and doc snapshot
+    bool parse_to_subcolumns = true;
+    bool parse_to_doc_snapshot = false;
 };
 /// Result of parsing of a document.
 /// Contains all paths extracted from document

@@ -54,6 +54,7 @@
 #include "olap/rowset/segment_v2/page_io.h"
 #include "olap/rowset/segment_v2/page_pointer.h"
 #include "olap/rowset/segment_v2/variant/variant_ext_meta_writer.h"
+#include "olap/rowset/segment_v2/variant/variant_util.h"
 #include "olap/rowset/segment_v2/variant_stats_calculator.h"
 #include "olap/segment_loader.h"
 #include "olap/short_key_index.h"
@@ -530,6 +531,12 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
     for (auto i : including_cids) {
         full_block.replace_by_position(i, block->get_by_position(input_id++).column);
     }
+
+    if (_opts.rowset_ctx->write_type != DataWriteType::TYPE_COMPACTION &&
+        _tablet_schema->num_variant_columns() > 0) {
+        RETURN_IF_ERROR(
+                variant_util::parse_variant_columns(full_block, *_tablet_schema, including_cids));
+    }
     RETURN_IF_ERROR(_olap_data_convertor->set_source_content_with_specifid_columns(
             &full_block, row_pos, num_rows, including_cids));
 
@@ -702,6 +709,12 @@ Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_po
     if (_opts.write_type == DataWriteType::TYPE_DIRECT ||
         _opts.write_type == DataWriteType::TYPE_SCHEMA_CHANGE) {
         _serialize_block_to_row_column(*block);
+    }
+
+    if (_opts.rowset_ctx->write_type != DataWriteType::TYPE_COMPACTION &&
+        _tablet_schema->num_variant_columns() > 0) {
+        RETURN_IF_ERROR(variant_util::parse_variant_columns(const_cast<vectorized::Block&>(*block),
+                                                            *_tablet_schema, _column_ids));
     }
 
     _olap_data_convertor->set_source_content(block, row_pos, num_rows);

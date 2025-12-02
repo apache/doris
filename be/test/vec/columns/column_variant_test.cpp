@@ -194,16 +194,16 @@ TEST_F(ColumnVariantTest, basic_deserialize) {
 
         auto data = path->get_data_at(start);
         EXPECT_EQ(data, StringRef("v.b.d", 5));
-        auto pair = variant->deserialize_from_sparse_column(value, start++);
+        auto pair = variant->deserialize_from_binary_column(value, start++);
         EXPECT_EQ(pair.first.get<Int64>(), 30);
 
         auto data2 = path->get_data_at(start);
-        auto pair2 = variant->deserialize_from_sparse_column(value, start++);
+        auto pair2 = variant->deserialize_from_binary_column(value, start++);
         EXPECT_EQ(data2, StringRef("v.c.d", 5));
         EXPECT_EQ(pair2.first.get<Int64>(), 30);
 
         auto data3 = path->get_data_at(start);
-        auto pair3 = variant->deserialize_from_sparse_column(value, start++);
+        auto pair3 = variant->deserialize_from_binary_column(value, start++);
         EXPECT_EQ(data3, StringRef("v.d.d", 5));
         EXPECT_EQ(pair3.first.get<String>(), "50");
         EXPECT_EQ(start, end);
@@ -348,12 +348,12 @@ TEST_F(ColumnVariantTest, basic_inset_range_from) {
 
         auto data = path->get_data_at(start);
         EXPECT_EQ(data, StringRef("v.a", 3));
-        auto pair = dst->deserialize_from_sparse_column(value, start++);
+        auto pair = dst->deserialize_from_binary_column(value, start++);
         EXPECT_EQ(pair.first.get<Int64>(), 20);
 
         auto data2 = path->get_data_at(start);
         EXPECT_EQ(data2, StringRef("v.c", 3));
-        auto pair2 = dst->deserialize_from_sparse_column(value, start++);
+        auto pair2 = dst->deserialize_from_binary_column(value, start++);
         EXPECT_EQ(pair2.first.get<Int64>(), 20);
 
         EXPECT_EQ(start, end);
@@ -366,17 +366,17 @@ TEST_F(ColumnVariantTest, basic_inset_range_from) {
 
         auto data = path->get_data_at(start);
         EXPECT_EQ(data, StringRef("v.a", 3));
-        auto pair = dst->deserialize_from_sparse_column(value, start++);
+        auto pair = dst->deserialize_from_binary_column(value, start++);
         EXPECT_EQ(pair.first.get<Int64>(), 20);
 
         auto data2 = path->get_data_at(start);
         EXPECT_EQ(data2, StringRef("v.c", 3));
-        auto pair2 = dst->deserialize_from_sparse_column(value, start++);
+        auto pair2 = dst->deserialize_from_binary_column(value, start++);
         EXPECT_EQ(pair2.first.get<Int64>(), 20);
 
         auto data3 = path->get_data_at(start);
         EXPECT_EQ(data3, StringRef("v.d.d", 5));
-        auto pair3 = dst->deserialize_from_sparse_column(value, start++);
+        auto pair3 = dst->deserialize_from_binary_column(value, start++);
         EXPECT_EQ(pair3.first.get<String>(), "50");
 
         EXPECT_EQ(start, end);
@@ -510,9 +510,9 @@ TEST_F(ColumnVariantTest, is_null_at) {
     auto [sparse_column_keys, sparse_column_values] = v1->get_sparse_data_paths_and_values();
     std::string_view pa("v.a");
     EXPECT_NO_THROW(
-            sub1->serialize_to_sparse_column(sparse_column_keys, pa, sparse_column_values, 2));
+            sub1->serialize_to_binary_column(sparse_column_keys, pa, sparse_column_values, 2));
     EXPECT_ANY_THROW(
-            sub1->serialize_to_sparse_column(sparse_column_keys, pa, sparse_column_values, 16));
+            sub1->serialize_to_binary_column(sparse_column_keys, pa, sparse_column_values, 16));
 }
 
 TEST_F(ColumnVariantTest, advanced_finalize) {
@@ -569,19 +569,19 @@ TEST_F(ColumnVariantTest, advanced_deserialize) {
         size_t end = offsets[row];
 
         auto data = path->get_data_at(start);
-        auto pair = variant->deserialize_from_sparse_column(value, start++);
+        auto pair = variant->deserialize_from_binary_column(value, start++);
         EXPECT_EQ(data, StringRef("v.b.d", 5));
         EXPECT_EQ(convert_field_to_string(pair.first),
                   convert_field_to_string(get_jsonb_field("array_int")));
 
         auto data2 = path->get_data_at(start);
-        auto pair2 = variant->deserialize_from_sparse_column(value, start++);
+        auto pair2 = variant->deserialize_from_binary_column(value, start++);
         EXPECT_EQ(data2, StringRef("v.c.d", 5));
         EXPECT_EQ(convert_field_to_string(pair2.first),
                   convert_field_to_string(VariantUtil::get_field("string")));
 
         auto data3 = path->get_data_at(start);
-        auto pair3 = variant->deserialize_from_sparse_column(value, start++);
+        auto pair3 = variant->deserialize_from_binary_column(value, start++);
         EXPECT_EQ(data3, StringRef("v.d.d", 5));
         EXPECT_EQ(convert_field_to_string(pair3.first),
                   convert_field_to_string(get_jsonb_field("array_int")));
@@ -593,19 +593,19 @@ TEST_F(ColumnVariantTest, advanced_deserialize) {
         size_t end = offsets[row];
 
         auto data = path->get_data_at(start);
-        auto pair = variant->deserialize_from_sparse_column(value, start++);
+        auto pair = variant->deserialize_from_binary_column(value, start++);
         EXPECT_EQ(data, StringRef("v.b.d", 5));
         EXPECT_EQ(convert_field_to_string(pair.first),
                   convert_field_to_string(get_jsonb_field("array_str")));
 
         auto data2 = path->get_data_at(start);
-        auto pair2 = variant->deserialize_from_sparse_column(value, start++);
+        auto pair2 = variant->deserialize_from_binary_column(value, start++);
         EXPECT_EQ(data2, StringRef("v.c.d", 5));
         EXPECT_EQ(convert_field_to_string(pair2.first),
                   convert_field_to_string(get_jsonb_field("int")));
 
         auto data3 = path->get_data_at(start);
-        auto pair3 = variant->deserialize_from_sparse_column(value, start++);
+        auto pair3 = variant->deserialize_from_binary_column(value, start++);
         EXPECT_EQ(data3, StringRef("v.d.d", 5));
         EXPECT_EQ(convert_field_to_string(pair3.first),
                   convert_field_to_string(get_jsonb_field("array_str")));
@@ -684,12 +684,12 @@ TEST_F(ColumnVariantTest, advanced_insert_range_from) {
 
         auto data = path->get_data_at(start);
         EXPECT_EQ(data, StringRef("v.a", 3));
-        auto pair = dst->deserialize_from_sparse_column(value, start++);
+        auto pair = dst->deserialize_from_binary_column(value, start++);
         EXPECT_EQ(pair.first.get<Int64>(), 20);
 
         auto data2 = path->get_data_at(start);
         EXPECT_EQ(data2, StringRef("v.c", 3));
-        auto pair2 = dst->deserialize_from_sparse_column(value, start++);
+        auto pair2 = dst->deserialize_from_binary_column(value, start++);
         EXPECT_EQ(convert_field_to_string(pair2.first),
                   convert_field_to_string(VariantUtil::get_field("array_int")));
 
@@ -701,18 +701,18 @@ TEST_F(ColumnVariantTest, advanced_insert_range_from) {
         size_t end = offsets[row];
 
         auto data = path->get_data_at(start);
-        auto pair = dst->deserialize_from_sparse_column(value, start++);
+        auto pair = dst->deserialize_from_binary_column(value, start++);
         EXPECT_EQ(data, StringRef("v.a", 3));
         EXPECT_EQ(pair.first.get<Int64>(), 20);
 
         auto data2 = path->get_data_at(start);
-        auto pair2 = dst->deserialize_from_sparse_column(value, start++);
+        auto pair2 = dst->deserialize_from_binary_column(value, start++);
         EXPECT_EQ(data2, StringRef("v.c", 3));
         EXPECT_EQ(convert_field_to_string(pair2.first),
                   convert_field_to_string(VariantUtil::get_field("array_int")));
 
         auto data3 = path->get_data_at(start);
-        auto pair3 = dst->deserialize_from_sparse_column(value, start++);
+        auto pair3 = dst->deserialize_from_binary_column(value, start++);
         EXPECT_EQ(data3, StringRef("v.d.d", 5));
         EXPECT_EQ(convert_field_to_string(pair3.first),
                   convert_field_to_string(get_jsonb_field("array_int")));
@@ -725,18 +725,18 @@ TEST_F(ColumnVariantTest, advanced_insert_range_from) {
         size_t end = offsets[row];
 
         auto data = path->get_data_at(start);
-        auto pair = dst->deserialize_from_sparse_column(value, start++);
+        auto pair = dst->deserialize_from_binary_column(value, start++);
         EXPECT_EQ(data, StringRef("v.a", 3));
         EXPECT_EQ(pair.first.get<Int64>(), 20);
 
         auto data2 = path->get_data_at(start);
-        auto pair2 = dst->deserialize_from_sparse_column(value, start++);
+        auto pair2 = dst->deserialize_from_binary_column(value, start++);
         EXPECT_EQ(data2, StringRef("v.c", 3));
         EXPECT_EQ(convert_field_to_string(pair2.first),
                   convert_field_to_string(VariantUtil::get_field("array_int")));
 
         auto data3 = path->get_data_at(start);
-        auto pair3 = dst->deserialize_from_sparse_column(value, start++);
+        auto pair3 = dst->deserialize_from_binary_column(value, start++);
         EXPECT_EQ(data3, StringRef("v.d.d", 5));
         EXPECT_EQ(convert_field_to_string(pair3.first),
                   convert_field_to_string(get_jsonb_field("array_str")));
@@ -807,23 +807,23 @@ TEST_F(ColumnVariantTest, empty_inset_range_from) {
 
         auto data0 = path->get_data_at(start);
         EXPECT_EQ(data0, StringRef("v.s", 3));
-        auto pair0 = dst->deserialize_from_sparse_column(value, start++);
+        auto pair0 = dst->deserialize_from_binary_column(value, start++);
         EXPECT_EQ(convert_field_to_string(pair0.first),
                   convert_field_to_string(VariantUtil::get_field("string")));
 
         auto data = path->get_data_at(start);
         EXPECT_EQ(data, StringRef("v.x", 3));
-        auto pair = dst->deserialize_from_sparse_column(value, start++);
+        auto pair = dst->deserialize_from_binary_column(value, start++);
         EXPECT_EQ(pair.first.get<Int16>(), std::numeric_limits<Int16>::max());
 
         auto data2 = path->get_data_at(start);
         EXPECT_EQ(data2, StringRef("v.y", 3));
-        auto pair2 = dst->deserialize_from_sparse_column(value, start++);
+        auto pair2 = dst->deserialize_from_binary_column(value, start++);
         EXPECT_EQ(pair2.first.get<Int32>(), std::numeric_limits<Int32>::max());
 
         auto data3 = path->get_data_at(start);
         EXPECT_EQ(data3, StringRef("v.z", 3));
-        auto pair3 = dst->deserialize_from_sparse_column(value, start++);
+        auto pair3 = dst->deserialize_from_binary_column(value, start++);
         EXPECT_EQ(pair3.first.get<Int64>(),
                   Int64(static_cast<Int64>(std::numeric_limits<Int32>::max()) + 1));
 
@@ -859,23 +859,23 @@ TEST_F(ColumnVariantTest, empty_inset_range_from) {
 
         auto data0 = path->get_data_at(start);
         EXPECT_EQ(data0, StringRef("v.s", 3));
-        auto pair0 = dst->deserialize_from_sparse_column(value, start++);
+        auto pair0 = dst->deserialize_from_binary_column(value, start++);
         EXPECT_EQ(convert_field_to_string(pair0.first),
                   convert_field_to_string(VariantUtil::get_field("string")));
 
         auto data = path->get_data_at(start);
         EXPECT_EQ(data, StringRef("v.x", 3));
-        auto pair = dst->deserialize_from_sparse_column(value, start++);
+        auto pair = dst->deserialize_from_binary_column(value, start++);
         EXPECT_EQ(pair.first.get<Int16>(), std::numeric_limits<Int16>::max());
 
         auto data2 = path->get_data_at(start);
         EXPECT_EQ(data2, StringRef("v.y", 3));
-        auto pair2 = dst->deserialize_from_sparse_column(value, start++);
+        auto pair2 = dst->deserialize_from_binary_column(value, start++);
         EXPECT_EQ(pair2.first.get<Int32>(), std::numeric_limits<Int32>::max());
 
         auto data3 = path->get_data_at(start);
         EXPECT_EQ(data3, StringRef("v.z", 3));
-        auto pair3 = dst->deserialize_from_sparse_column(value, start++);
+        auto pair3 = dst->deserialize_from_binary_column(value, start++);
         EXPECT_EQ(pair3.first.get<Int64>(),
                   Int64(static_cast<Int64>(std::numeric_limits<Int32>::max()) + 1));
 
@@ -896,16 +896,16 @@ TEST_F(ColumnVariantTest, empty_inset_range_from) {
 
         auto data = path->get_data_at(start);
         EXPECT_EQ(data, StringRef("v.b.d", 5));
-        auto pair = dst->deserialize_from_sparse_column(value, start++);
+        auto pair = dst->deserialize_from_binary_column(value, start++);
         EXPECT_EQ(pair.first.get<Int64>(), 30);
 
         auto data2 = path->get_data_at(start);
-        auto pair2 = dst->deserialize_from_sparse_column(value, start++);
+        auto pair2 = dst->deserialize_from_binary_column(value, start++);
         EXPECT_EQ(data2, StringRef("v.c.d", 5));
         EXPECT_EQ(pair2.first.get<Int64>(), 30);
 
         auto data3 = path->get_data_at(start);
-        auto pair3 = dst->deserialize_from_sparse_column(value, start++);
+        auto pair3 = dst->deserialize_from_binary_column(value, start++);
         EXPECT_EQ(data3, StringRef("v.d.d", 5));
         EXPECT_EQ(pair3.first.get<String>(), "50");
         EXPECT_EQ(start, end);
@@ -3483,7 +3483,7 @@ TEST_F(ColumnVariantTest, test_variant_no_data_insert) {
 }
 
 TEST_F(ColumnVariantTest, test_variant_deserialize_from_sparse_column) {
-    auto sparse_column = ColumnVariant::create_sparse_column_fn();
+    auto sparse_column = ColumnVariant::create_binary_column_fn();
     auto& column_map = assert_cast<ColumnMap&>(*sparse_column);
     auto& key = assert_cast<ColumnString&>(column_map.get_keys());
     auto& value = assert_cast<ColumnString&>(column_map.get_values());
@@ -3496,16 +3496,16 @@ TEST_F(ColumnVariantTest, test_variant_deserialize_from_sparse_column) {
         FieldInfo info = {PrimitiveType::TYPE_TINYINT, false, false, 1};
         ColumnVariant::Subcolumn int_subcolumn(0, true, false);
         int_subcolumn.insert(array_field, info);
-        int_subcolumn.serialize_to_sparse_column(&key, "b", &value, 0);
+        int_subcolumn.serialize_to_binary_column(&key, "b", &value, 0);
 
         info = {PrimitiveType::TYPE_INT, false, false, 1};
         int_subcolumn.insert(array_field, info);
-        int_subcolumn.serialize_to_sparse_column(&key, "b", &value, 1);
+        int_subcolumn.serialize_to_binary_column(&key, "b", &value, 1);
 
         offsets.push_back(key.size());
 
         ColumnVariant::Subcolumn subcolumn(0, true, false);
-        subcolumn.deserialize_from_sparse_column(&value, 0);
+        subcolumn.deserialize_from_binary_column(&value, 0);
         EXPECT_EQ(subcolumn.data.size(), 1);
         EXPECT_EQ(subcolumn.get_least_common_type()->get_primitive_type(),
                   PrimitiveType::TYPE_ARRAY);
@@ -3516,7 +3516,7 @@ TEST_F(ColumnVariantTest, test_variant_deserialize_from_sparse_column) {
         EXPECT_EQ(arr.size(), 1);
         EXPECT_EQ(arr[0].get<Int32>(), 123);
 
-        subcolumn.deserialize_from_sparse_column(&value, 1);
+        subcolumn.deserialize_from_binary_column(&value, 1);
         EXPECT_EQ(subcolumn.data.size(), 2);
         EXPECT_EQ(subcolumn.get_least_common_type()->get_primitive_type(),
                   PrimitiveType::TYPE_ARRAY);
@@ -3540,19 +3540,19 @@ TEST_F(ColumnVariantTest, test_variant_deserialize_from_sparse_column) {
         FieldInfo info = {PrimitiveType::TYPE_NULL, false, false, 1};
         ColumnVariant::Subcolumn int_subcolumn(0, true, false);
         int_subcolumn.insert(array_field, info);
-        int_subcolumn.serialize_to_sparse_column(&key, "b", &value, 0);
+        int_subcolumn.serialize_to_binary_column(&key, "b", &value, 0);
 
         array_field = Field::create_field<TYPE_ARRAY>(Array(2));
         array_field.get<Array&>()[0] = Field();
         array_field.get<Array&>()[1] = int_field;
         info = {PrimitiveType::TYPE_INT, false, false, 1};
         int_subcolumn.insert(array_field, info);
-        int_subcolumn.serialize_to_sparse_column(&key, "b", &value, 1);
+        int_subcolumn.serialize_to_binary_column(&key, "b", &value, 1);
 
         offsets.push_back(key.size());
 
         ColumnVariant::Subcolumn subcolumn(0, true, false);
-        subcolumn.deserialize_from_sparse_column(&value, 0);
+        subcolumn.deserialize_from_binary_column(&value, 0);
         EXPECT_EQ(subcolumn.data.size(), 1);
         EXPECT_EQ(subcolumn.get_least_common_type()->get_primitive_type(),
                   PrimitiveType::TYPE_ARRAY);
@@ -3562,7 +3562,7 @@ TEST_F(ColumnVariantTest, test_variant_deserialize_from_sparse_column) {
         EXPECT_EQ(arr.size(), 1);
         EXPECT_TRUE(arr[0].is_null());
 
-        subcolumn.deserialize_from_sparse_column(&value, 1);
+        subcolumn.deserialize_from_binary_column(&value, 1);
         EXPECT_EQ(subcolumn.data.size(), 2);
         EXPECT_EQ(subcolumn.get_least_common_type()->get_primitive_type(),
                   PrimitiveType::TYPE_ARRAY);

@@ -53,7 +53,7 @@ TEST(HierarchicalDataIteratorTest, ProcessSparseExtractSubpaths) {
     std::unique_ptr<ColumnIterator> sparse_reader = std::make_unique<DummySparseIterator>();
     doris::segment_v2::ColumnIteratorUPtr iter;
     auto sparse_iter = std::make_unique<SubstreamIterator>(
-            doris::vectorized::ColumnVariant::create_sparse_column_fn(), std::move(sparse_reader),
+            doris::vectorized::ColumnVariant::create_binary_column_fn(), std::move(sparse_reader),
             nullptr);
     ASSERT_TRUE(HierarchicalDataIterator::create(
                         &iter, /*col_uid*/ 0, PathInData("a.b"), /*node*/ nullptr,
