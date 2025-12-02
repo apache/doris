@@ -242,8 +242,7 @@ public class BindSink implements AnalysisRuleFactory {
                         boundSink.getDmlCommandType() != DMLCommandType.INSERT
                                 || ConnectContext.get().getSessionVariable().isRequireSequenceInInsert())) {
                     if (!seqColInTable.isPresent() || seqColInTable.get().getDefaultValue() == null
-                            || !seqColInTable.get().getDefaultValue()
-                            .equalsIgnoreCase(DefaultValue.CURRENT_TIMESTAMP)) {
+                            || !DefaultValue.isCurrentTimeStampDefaultValue(seqColInTable.get().getDefaultValue())) {
                         throw new org.apache.doris.common.AnalysisException("Table " + table.getName()
                                 + " has sequence column, need to specify the sequence column");
                     }
