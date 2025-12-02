@@ -237,7 +237,7 @@ TEST(FunctionJsonbTEST, JsonbExtractTest) {
             {{STRING(R"([null, true, false, 100, 6.18, "abc"])"), STRING("$.k1")},
              Null()}, // multi type array
             {{STRING(R"([{"k1":"v41", "k2": 400}, 1, "a", 3.14])"), STRING("$.k1")},
-             Null()}, // complex array
+             STRING(R"("v41")")}, // complex array
     };
 
     static_cast<void>(check_function<DataTypeJsonb, true>(func_name, input_types, data_set));
