@@ -330,22 +330,59 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
         LogicalProject<Plan> project = eliminateGroupByConstant(groupByExprContext, rewriteContext,
                 normalizedGroupExprs, normalizedAggOutput, bottomProjects, aggregate, upperProjects, newAggregate);
 
-        if (having.isPresent()) {
-            Set<Slot> havingUsedSlots = having.get().getInputSlots();
-            Set<Slot> aggOutputExprIds = newAggregate.getOutputSet();
-            if (aggOutputExprIds.containsAll(havingUsedSlots)) {
-                // when having just use output slots from agg, we push down having as parent of agg
-                return project.withChildren(ImmutableList.of(
-                        new LogicalHaving<>(
-                                ExpressionUtils.replace(having.get().getConjuncts(), project.getAliasToProducer()),
-                                project.child()
-                        )));
-            } else {
-                return (LogicalPlan) having.get().withChildren(project);
-            }
-        } else {
+        if (!having.isPresent()) {
             return project;
         }
+
+        Map<Slot, Expression> windowExpressions = Maps.newHashMap();
+        for (NamedExpression expression : project.getProjects()) {
+            if (expression instanceof Alias && expression.containsType(WindowExpression.class)) {
+                Expression windowExpr = (Expression) ExpressionUtils.collect(
+                        ImmutableList.of(expression), WindowExpression.class::isInstance).iterator().next();
+                windowExpressions.put(expression.toSlot(), ((Alias) expression).child());
+            }
+        }
+
+        Set<Slot> havingUsedSlots = having.get().getInputSlots();
+        if (!windowExpressions.isEmpty()) {
+            for (Slot slot : havingUsedSlots) {
+                if (windowExpressions.containsKey(slot)) {
+                    throw new AnalysisException(having.get().getType() + " can not contains "
+                            + WindowExpression.class.getSimpleName() + " expression: "
+                            + windowExpressions.get(slot).toSql());
+                }
+            }
+        }
+
+        Set<Slot> aggOutputExprIds = newAggregate.getOutputSet();
+        if (aggOutputExprIds.containsAll(havingUsedSlots)) {
+            // when having just use output slots from agg, we push down having as parent of agg
+            return project.withChildren(ImmutableList.of(
+                    new LogicalHaving<>(
+                            ExpressionUtils.replace(having.get().getConjuncts(), project.getAliasToProducer()),
+                            project.child()
+                    )));
+        }
+
+        if (windowExpressions.isEmpty()) {
+            return (LogicalPlan) having.get().withChildren(project);
+        }
+
+        ImmutableList.Builder<NamedExpression> childProjects = ImmutableList.builderWithExpectedSize(
+                project.getProjects().size() - windowExpressions.size());
+        ImmutableList.Builder<NamedExpression> topProjects = ImmutableList.builderWithExpectedSize(
+                project.getProjects().size());
+        for (NamedExpression expression : project.getProjects()) {
+            if (expression.containsType(WindowExpression.class)) {
+                topProjects.add(expression);
+            } else {
+                childProjects.add(expression);
+                topProjects.add(expression.toSlot());
+            }
+        }
+
+        return new LogicalProject<>(topProjects.build(),
+                having.get().withChildren(new LogicalProject<>(childProjects.build(), newAggregate)));
     }
 
     private List<NamedExpression> normalizeOutput(List<NamedExpression> aggregateOutput,
