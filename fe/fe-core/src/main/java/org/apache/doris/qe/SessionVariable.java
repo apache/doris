@@ -1571,6 +1571,16 @@ public class SessionVariable implements Serializable, Writable {
     )
     public boolean enablePruneNestedColumns = true;
 
+    @VariableMgr.VarAttr(name = "eager_aggregation_mode", needForward = true,
+            description = {"0: 根据统计信息决定是使用eager aggregation，"
+                    + "1: 强制使用 eager aggregation，"
+                    + "-1: 禁止使用 eager aggregation",
+                    "0: Determine eager aggregation by statistics, "
+                            + "1: force eager aggregation, "
+                            + "-1: Prohibit eager aggregation "}
+    )
+    public int eagerAggregationMode = 0;
+
     public boolean enableTopnLazyMaterialization() {
         return ConnectContext.get() != null
                 && ConnectContext.get().getSessionVariable().topNLazyMaterializationThreshold > 0;

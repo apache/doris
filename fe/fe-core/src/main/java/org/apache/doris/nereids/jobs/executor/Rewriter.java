@@ -169,6 +169,7 @@ import org.apache.doris.nereids.rules.rewrite.VariantSubPathPruning;
 import org.apache.doris.nereids.rules.rewrite.batch.ApplyToJoin;
 import org.apache.doris.nereids.rules.rewrite.batch.CorrelateApplyToUnCorrelateApply;
 import org.apache.doris.nereids.rules.rewrite.batch.EliminateUselessPlanUnderApply;
+import org.apache.doris.nereids.rules.rewrite.eageraggregation.PushdownSumIfAggregation;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalApply;
@@ -652,6 +653,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                 new PushDownAggThroughJoin()
                         )),
                         costBased(custom(RuleType.PUSH_DOWN_DISTINCT_THROUGH_JOIN, PushDownDistinctThroughJoin::new)),
+                        custom(RuleType.PUSH_DOWN_AGG_THROUGH_JOIN, PushdownSumIfAggregation::new),
                         topDown(new PushCountIntoUnionAll())
                 ),
 

@@ -170,6 +170,14 @@ public class LogicalUnion extends LogicalSetOperation implements Union, OutputPr
         return new LogicalUnion(qualifier, outputs, childrenOutputs, constantExprsList, hasPushedFilter, children);
     }
 
+    public LogicalSetOperation withChildrenAndOutputs(List<Plan> children, List<NamedExpression> newOuptuts,
+            List<List<SlotReference>> childrenOutputs) {
+        Preconditions.checkArgument(children.size() == childrenOutputs.size(),
+                "children size %s is not equals with children outputs size %s",
+                children.size(), childrenOutputs.size());
+        return new LogicalUnion(qualifier, newOuptuts, childrenOutputs, constantExprsList, hasPushedFilter, children);
+    }
+
     @Override
     public LogicalUnion withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new LogicalUnion(qualifier, outputs, regularChildrenOutputs, constantExprsList, hasPushedFilter,
