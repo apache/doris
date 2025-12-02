@@ -23,8 +23,10 @@ import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
+import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.mtmv.BaseColInfo;
 import org.apache.doris.mtmv.BaseTableInfo;
+import org.apache.doris.mtmv.MTMVPartitionInfo;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
@@ -224,13 +226,23 @@ public class PartitionCompensator {
     /**
      * Check if need union compensate or not
      */
-    public static boolean needUnionRewrite(MaterializationContext materializationContext) {
+    public static boolean needUnionRewrite(MaterializationContext materializationContext) throws AnalysisException {
         if (!(materializationContext instanceof AsyncMaterializationContext)) {
             return false;
         }
         MTMV mtmv = ((AsyncMaterializationContext) materializationContext).getMtmv();
         PartitionType type = mtmv.getPartitionInfo().getType();
-        List<BaseColInfo> pctInfos = mtmv.getMvPartitionInfo().getPctInfos();
+        MTMVPartitionInfo mvPartitionInfo = mtmv.getMvPartitionInfo();
+        List<BaseColInfo> pctInfos = mvPartitionInfo.getPctInfos();
+        Set<MTMVRelatedTableIf> pctTables = mvPartitionInfo.getPctTables();
+        for (MTMVRelatedTableIf pctTable : pctTables) {
+            if (pctTable instanceof ExternalTable && !((ExternalTable) pctTable).supportInternalPartitionPruned()) {
+                // if pct table is external table and not support internal partition pruned,
+                // we consider query all partitions from pct table, this would cause loop union compensate,
+                // so we skip union compensate in this case
+                return false;
+            }
+        }
         return !PartitionType.UNPARTITIONED.equals(type) && !pctInfos.isEmpty();
     }
 
@@ -238,11 +250,11 @@ public class PartitionCompensator {
      * Get query used partitions
      * this is calculated from tableUsedPartitionNameMap and tables in statementContext
      *
-     * @param customRelationIdSet if union compensate occurs, the new query used partitions is changed,
+     * @param currentUsedRelationIdSet if union compensate occurs, the new query used partitions is changed,
      *         so need to get used partitions by relation id set
      */
     public static Map<List<String>, Set<String>> getQueryUsedPartitions(StatementContext statementContext,
-            BitSet customRelationIdSet) {
+            BitSet currentUsedRelationIdSet) {
         // get table used partitions
         // if table is not in statementContext().getTables() which means the table is partition prune as empty relation
         Multimap<List<String>, Pair<RelationId, Set<String>>> tableUsedPartitionNameMap = statementContext
@@ -266,6 +278,13 @@ public class PartitionCompensator {
                     // It means all partitions are used when query
                     queryUsedRelatedTablePartitionsMap.put(queryUsedTable, null);
                     continue tableLoop;
+                }
+                // If currentUsedRelationIdSet is not empty, need check relation id to get concrete used partitions
+                BitSet usedPartitionRelation = new BitSet();
+                usedPartitionRelation.set(tableUsedPartitionPair.key().asInt());
+                if (!currentUsedRelationIdSet.isEmpty()
+                        && !currentUsedRelationIdSet.intersects(usedPartitionRelation)) {
+                    continue;
                 }
                 usedPartitionSet.addAll(tableUsedPartitionPair.value());
             }
