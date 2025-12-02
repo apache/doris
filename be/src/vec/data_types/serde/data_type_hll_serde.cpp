@@ -151,22 +151,7 @@ Status DataTypeHLLSerDe::write_column_to_mysql_binary(const IColumn& column,
                                                       MysqlRowBinaryBuffer& result, int64_t row_idx,
                                                       bool col_const,
                                                       const FormatOptions& options) const {
-    auto& data_column = assert_cast<const ColumnHLL&>(column);
-    if (_return_object_as_string) {
-        const auto col_index = index_check_const(row_idx, col_const);
-        HyperLogLog hyperLogLog = data_column.get_element(col_index);
-        size_t size = hyperLogLog.max_serialized_size();
-        std::unique_ptr<char[]> buf = std::make_unique_for_overwrite<char[]>(size);
-        hyperLogLog.serialize((uint8_t*)buf.get());
-        if (UNLIKELY(0 != result.push_string(buf.get(), size))) {
-            return Status::InternalError("pack mysql buffer failed.");
-        }
-    } else {
-        if (UNLIKELY(0 != result.push_null())) {
-            return Status::InternalError("pack mysql buffer failed.");
-        }
-    }
-    return Status::OK();
+    return Status::NotSupported("Bitmap type does not support write to mysql binary format");
 }
 
 bool DataTypeHLLSerDe::write_column_to_mysql_text(const IColumn& column, BufferWritable& bw,

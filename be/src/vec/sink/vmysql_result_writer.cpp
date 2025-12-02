@@ -278,7 +278,8 @@ Status VMysqlResultWriter<is_binary_format>::_write_one_block(RuntimeState* stat
                     auto type = arguments[col_idx].type;
                     if (type == PrimitiveType::TYPE_ARRAY || type == PrimitiveType::TYPE_MAP ||
                         type == PrimitiveType::TYPE_STRUCT ||
-                        type == PrimitiveType::TYPE_QUANTILE_STATE) {
+                        type == PrimitiveType::TYPE_QUANTILE_STATE ||
+                        type == PrimitiveType::TYPE_HLL || type == PrimitiveType::TYPE_BITMAP) {
                         // Complex types are not supported in binary format yet
                         // So use text format serialization interface here
                         const auto col_index =
