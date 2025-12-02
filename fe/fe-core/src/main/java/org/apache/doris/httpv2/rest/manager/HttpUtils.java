@@ -127,10 +127,6 @@ public class HttpUtils {
     }
 
     public static CloseableHttpClient getHttpClient() {
-        return HttpClientBuilder.create().build();
-    }
-
-    private static String executeRequest(HttpRequestBase request) throws IOException {
         SSLContext sslContext = null;
         if (Config.enable_tls) {
             KeyStore keyStore;
@@ -153,10 +149,11 @@ public class HttpUtils {
                 throw new RuntimeException(e);
             }
         }
+        return HttpClientBuilder.create().setSSLContext(sslContext).build();
+    }
 
-        CloseableHttpClient client = HttpClientBuilder.create()
-                .setSSLContext(sslContext)
-                .build();
+    private static String executeRequest(HttpRequestBase request) throws IOException {
+        CloseableHttpClient client = getHttpClient();
         return client.execute(request, httpResponse -> EntityUtils.toString(httpResponse.getEntity()));
     }
 
