@@ -1392,7 +1392,21 @@ Status FileScanner::_set_fill_or_truncate_columns(bool need_to_get_parsed_schema
     std::unordered_map<std::string, DataTypePtr> name_to_col_type;
     RETURN_IF_ERROR(_cur_reader->get_columns(&name_to_col_type, &_missing_cols));
     for (const auto& [col_name, col_type] : name_to_col_type) {
-        _slot_lower_name_to_col_type.emplace(to_lower(col_name), col_type);
+        auto col_name_lower = to_lower(col_name);
+        if (_partition_col_descs.contains(col_name_lower)) {
+            /*
+             * `_slot_lower_name_to_col_type` is used by `_init_src_block` and `_cast_to_input_block` during LOAD to
+             * generate columns of the corresponding type, which records the columns existing in the file.
+             *
+             * When a column in `COLUMNS FROM PATH` exists in a file column, the column type in the block will
+             * not match the slot type in `_output_tuple_desc`, causing an error when
+             * Serde `deserialize_one_cell_from_json` fills the partition values.
+             *
+             * So for partition column not need fill _slot_lower_name_to_col_type.
+             */
+            continue;
+        }
+        _slot_lower_name_to_col_type.emplace(col_name_lower, col_type);
     }
 
     if (!_fill_partition_from_path && config::enable_iceberg_partition_column_fallback) {
