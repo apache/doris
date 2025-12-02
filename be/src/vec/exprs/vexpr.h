@@ -204,6 +204,16 @@ public:
                                    [](VExprSPtr child) { return child->is_rf_wrapper(); });
     }
 
+    // rf wrapper 只能在最顶层出现，不能嵌套
+    Status check_rf_wrapper() const {
+        if (std::ranges::any_of(_children.begin(), _children.end(),
+                                [](VExprSPtr child) { return child->is_rf_wrapper(); })) {
+            return Status::InternalError("Runtime filter wrapper can't be nested. {}",
+                                         this->debug_string());
+        }
+        return Status::OK();
+    }
+
     virtual void do_judge_selectivity(uint64_t filter_rows, uint64_t input_rows) {
         for (auto child : _children) {
             child->do_judge_selectivity(filter_rows, input_rows);

@@ -211,6 +211,7 @@ Status VExprContext::execute_conjuncts(const VExprContextSPtrs& ctxs,
     for (const auto& ctx : ctxs) {
         // Statistics are only required when an rf wrapper exists in the expr.
         bool is_rf_wrapper = ctx->root()->is_rf_wrapper();
+        RETURN_IF_ERROR(ctx->root()->check_rf_wrapper());
         ColumnPtr filter_column;
         RETURN_IF_ERROR(ctx->execute(block, filter_column));
         if (const auto* nullable_column = check_and_get_column<ColumnNullable>(*filter_column)) {
