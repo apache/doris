@@ -864,10 +864,9 @@ public class IcebergUtils {
      * @throws IllegalArgumentException if the timestamp string cannot be parsed
      */
     private static long parseTimestampToMicros(String valueStr, TimestampType timestampType) {
-        // Use Doris's built-in DateLiteral.parseDateTime() which supports multiple
-        // formats
-        Result<TemporalAccessor, org.apache.doris.nereids.exceptions.AnalysisException> parseResult = org.apache.doris.nereids.trees.expressions.literal.DateLiteral
-                .parseDateTime(valueStr);
+        // Use Doris's built-in DateLiteral.parseDateTime() which supports multiple formats
+        Result<TemporalAccessor, org.apache.doris.nereids.exceptions.AnalysisException> parseResult =
+                org.apache.doris.nereids.trees.expressions.literal.DateLiteral.parseDateTime(valueStr);
 
         if (parseResult.isError()) {
             throw new IllegalArgumentException(
