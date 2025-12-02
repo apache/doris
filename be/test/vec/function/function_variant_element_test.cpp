@@ -22,11 +22,11 @@
 namespace doris::vectorized {
 
 TEST(function_variant_element_test, extract_from_sparse_column) {
-    auto variant_column = ColumnVariant::create(1 /*max_subcolumns_count*/);
-    auto* variant_ptr = assert_cast<ColumnVariant*>(variant_column.get());
+    auto variant_column = ColumnObject::create(1 /*max_subcolumns_count*/);
+    auto* variant_ptr = assert_cast<ColumnObject*>(variant_column.get());
 
-    ColumnVariant::Subcolumn subcolumn(0, true, false);
-    Field field = Field::create_field<TYPE_STRING>("John");
+    ColumnObject::Subcolumn subcolumn(0, true, false);
+    Field field = "John";
     subcolumn.insert(field);
 
     auto [sparse_column_keys, sparse_column_values] =
@@ -51,7 +51,7 @@ TEST(function_variant_element_test, extract_from_sparse_column) {
             FunctionVariantElement::get_element_column(*variant_column, index_column, &result);
     EXPECT_TRUE(status.ok());
 
-    auto result_ptr = assert_cast<const ColumnVariant&>(*result.get());
+    auto result_ptr = assert_cast<const ColumnObject&>(*result.get());
     std::string result_string;
     result_ptr.serialize_one_row_to_string(0, &result_string);
     EXPECT_EQ(result_string, "{\"age\":\"John\",\"name\":\"John\"}");
