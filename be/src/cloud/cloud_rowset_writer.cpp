@@ -141,7 +141,7 @@ Status CloudRowsetWriter::build(RowsetSharedPtr& rowset) {
 }
 
 Status CloudRowsetWriter::_collect_all_merge_file_indices(RowsetMeta* rowset_meta) {
-    if (!config::enable_merge_file) {
+    if (!_context.merge_file_active) {
         return Status::OK();
     }
 
@@ -172,10 +172,9 @@ Status CloudRowsetWriter::_collect_all_merge_file_indices(RowsetMeta* rowset_met
 Status CloudRowsetWriter::_collect_merge_file_index(io::FileWriter* file_writer,
                                                     const std::string& file_path,
                                                     RowsetMeta* rowset_meta) {
-    auto* merge_writer = dynamic_cast<io::MergeFileWriter*>(file_writer);
-    if (merge_writer == nullptr) {
-        return Status::OK(); // Not a merge file writer, skip
-    }
+    // At this point, we only call this when RowsetWriterContext::merge_file_active is true,
+    // and all writers should be MergeFileWriter. So we can safely cast without extra checks.
+    auto* merge_writer = static_cast<io::MergeFileWriter*>(file_writer);
 
     if (merge_writer->state() != io::FileWriter::State::CLOSED) {
         // Writer is still open; index will be collected after it is closed.

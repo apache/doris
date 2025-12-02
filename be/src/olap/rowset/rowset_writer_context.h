@@ -118,7 +118,20 @@ struct RowsetWriterContext {
 
     bool is_transient_rowset_writer = false;
 
+    // Intent flag: caller can actively turn merge-file feature on/off for this rowset.
+    // This describes whether we *want* to try small-file merging.
     bool enable_merge_file = true;
+
+    // Effective flag: whether this context actually ends up using MergeFileSystem for writes.
+    // This is decided inside fs() based on enable_merge_file plus other conditions
+    // (cloud mode, S3 filesystem, V1 inverted index, global config, etc.), and once
+    // set to true it remains stable even if config::enable_merge_file changes later.
+    mutable bool merge_file_active = false;
+
+    // Cached FileSystem instance to ensure consistency across multiple fs() calls.
+    // This prevents creating multiple MergeFileSystem instances and ensures
+    // merge_file_active flag remains consistent.
+    mutable io::FileSystemSPtr _cached_fs = nullptr;
 
     // For collect segment statistics for compaction
     std::vector<RowsetReaderSharedPtr> input_rs_readers;
@@ -148,7 +161,12 @@ struct RowsetWriterContext {
         }
     }
 
-    io::FileSystemSPtr fs() {
+    io::FileSystemSPtr fs() const {
+        // Return cached instance if available to ensure consistency across multiple calls
+        if (_cached_fs != nullptr) {
+            return _cached_fs;
+        }
+
         auto fs = [this]() -> io::FileSystemSPtr {
             if (is_local_rowset()) {
                 return io::global_local_filesystem();
@@ -194,23 +212,23 @@ struct RowsetWriterContext {
         }
 
         // Only enable merge file for S3 file system, not for HDFS or other remote file systems
-        bool should_wrap_with_merge_fs = enable_merge_file && config::is_cloud_mode() &&
-                                         config::enable_merge_file && !has_v1_inverted_index &&
-                                         is_s3_fs;
+        merge_file_active = enable_merge_file && config::is_cloud_mode() &&
+                            config::enable_merge_file && !has_v1_inverted_index && is_s3_fs;
 
-        if (should_wrap_with_merge_fs) {
-            std::unordered_map<std::string, io::MergeFileSegmentIndex> index_map;
+        if (merge_file_active) {
             io::MergeFileAppendInfo append_info;
             append_info.tablet_id = tablet_id;
             append_info.rowset_id = rowset_id.to_string();
             append_info.txn_id = txn_id;
-            fs = std::make_shared<io::MergeFileSystem>(fs, index_map, append_info);
+            fs = std::make_shared<io::MergeFileSystem>(fs, append_info);
         }
 
+        // Cache the result to ensure consistency across multiple calls
+        _cached_fs = fs;
         return fs;
     }
 
-    io::FileSystem& fs_ref() { return *fs(); }
+    io::FileSystem& fs_ref() const { return *fs(); }
 
     io::FileWriterOptions get_file_writer_options() {
         io::FileWriterOptions opts {
