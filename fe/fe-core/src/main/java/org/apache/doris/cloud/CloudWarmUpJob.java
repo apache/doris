@@ -24,6 +24,7 @@ import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Triple;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
