@@ -44,6 +44,7 @@ import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.TimeV2Type;
+import org.apache.doris.nereids.util.DateTimeFormatterUtils;
 import org.apache.doris.nereids.util.DateUtils;
 import org.apache.doris.qe.ConnectContext;
 
@@ -304,6 +305,47 @@ public class DateTimeExtractAndTransform {
                 java.time.LocalDateTime.of(((int) date.getYear()), ((int) date.getMonth()), ((int) date.getDay()),
                         ((int) date.getHour()), ((int) date.getMinute()), ((int) date.getSecond()),
                         ((int) date.getMicroSecond() * 1000))));
+    }
+
+    /**
+     * time_format constant folding for time literal.
+     */
+    @ExecFunction(name = "time_format")
+    public static Expression timeFormat(TimeV2Literal time, StringLikeLiteral format) {
+        if (StringUtils.trim(format.getValue()).length() > 128) {
+            throw new AnalysisException("The length of format string in time_format() function should not be greater"
+                    + " than 128.");
+        }
+        return new VarcharLiteral(DateTimeFormatterUtils.formatTimeLiteral(time, format.getValue()));
+    }
+
+    /**
+     * time_format constant folding for datev2 literal.
+     */
+    @ExecFunction(name = "time_format")
+    public static Expression timeFormat(DateV2Literal date, StringLikeLiteral format) {
+        if (StringUtils.trim(format.getValue()).length() > 128) {
+            throw new AnalysisException("The length of format string in time_format() function should not be greater"
+                    + " than 128.");
+        }
+        DateTimeV2Literal dateTime = new DateTimeV2Literal(date.getYear(), date.getMonth(), date.getDay(),
+                0, 0, 0, 0);
+        return timeFormat(dateTime, format);
+    }
+
+    /**
+     * time_format constant folding for datetimev2 literal.
+     */
+    @ExecFunction(name = "time_format")
+    public static Expression timeFormat(DateTimeV2Literal dateTime, StringLikeLiteral format) {
+        if (StringUtils.trim(format.getValue()).length() > 128) {
+            throw new AnalysisException("The length of format string in time_format() function should not be greater"
+                    + " than 128.");
+        }
+        TimeV2Literal time = new TimeV2Literal((int) dateTime.getHour(), (int) dateTime.getMinute(),
+                (int) dateTime.getSecond(), (int) dateTime.getMicroSecond(), dateTime.getScale(),
+                false);
+        return timeFormat(time, format);
     }
 
     /**
