@@ -22,6 +22,7 @@
 
 #include <map>
 #include <memory>
+#include <shared_mutex>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -360,6 +361,9 @@ private:
             PathToSparseColumnCache* sparse_column_cache_ptr, const std::string& path,
             std::shared_ptr<ColumnReader> sparse_column_reader);
 
+    // Protect `_subcolumns_meta_info` and `_statistics` when loading external meta.
+    // english only in comments
+    mutable std::shared_mutex _subcolumns_meta_mutex;
     std::unique_ptr<SubcolumnColumnMetaInfo> _subcolumns_meta_info;
     // Sparse column readers (single or bucketized)
     UnifiedSparseColumnReader _sparse_reader;
