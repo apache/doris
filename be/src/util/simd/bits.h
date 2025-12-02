@@ -195,6 +195,7 @@ inline T count_zero_num(const int8_t* __restrict data, const uint8_t* __restrict
     }
 #elif defined(__SSE2__) && defined(__POPCNT__)
     const __m128i zero16 = _mm_setzero_si128();
+    const __m128i one16 = _mm_set1_epi8(1);
     const int8_t* end64 = data + (size / 64 * 64);
 
     for (; data < end64; data += 64, null_map += 64) {
@@ -202,25 +203,31 @@ inline T count_zero_num(const int8_t* __restrict data, const uint8_t* __restrict
                 static_cast<uint64_t>(_mm_movemask_epi8(_mm_or_si128(
                         _mm_cmpeq_epi8(_mm_loadu_si128(reinterpret_cast<const __m128i*>(data)),
                                        zero16),
-                        _mm_loadu_si128(reinterpret_cast<const __m128i*>(null_map))))) |
+                        _mm_cmpeq_epi8(_mm_loadu_si128(reinterpret_cast<const __m128i*>(null_map)),
+                                       one16)))) |
                 (static_cast<uint64_t>(_mm_movemask_epi8(_mm_or_si128(
                          _mm_cmpeq_epi8(
                                  _mm_loadu_si128(reinterpret_cast<const __m128i*>(data + 16)),
                                  zero16),
-                         _mm_loadu_si128(reinterpret_cast<const __m128i*>(null_map + 16)))))
+                         _mm_cmpeq_epi8(
+                                 _mm_loadu_si128(reinterpret_cast<const __m128i*>(null_map + 16)),
+                                 one16))))
                  << 16U) |
                 (static_cast<uint64_t>(_mm_movemask_epi8(_mm_or_si128(
                          _mm_cmpeq_epi8(
                                  _mm_loadu_si128(reinterpret_cast<const __m128i*>(data + 32)),
                                  zero16),
-                         _mm_loadu_si128(reinterpret_cast<const __m128i*>(null_map + 32)))))
+                         _mm_cmpeq_epi8(
+                                 _mm_loadu_si128(reinterpret_cast<const __m128i*>(null_map + 32)),
+                                 one16))))
                  << 32U) |
                 (static_cast<uint64_t>(_mm_movemask_epi8(_mm_or_si128(
-                         _mm_cmpeq_epi8(
-                                 _mm_loadu_si128(reinterpret_cast<const __m128i*>(data + 48)),
-                                 zero16),
-                         _mm_loadu_si128(reinterpret_cast<const __m128i*>(null_map + 48)))))
-                 << 48U));
+                        _mm_cmpeq_epi8(_mm_loadu_si128(reinterpret_cast<const __m128i*>(data + 48)),
+                                       zero16),
+                        _mm_cmpeq_epi8(
+                                _mm_loadu_si128(reinterpret_cast<const __m128i*>(null_map + 48)),
+                                one16)))))
+                        << 48U);
     }
 #endif
     for (; data < end; ++data, ++null_map) {
