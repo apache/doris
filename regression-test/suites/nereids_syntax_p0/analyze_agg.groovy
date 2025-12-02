@@ -85,6 +85,27 @@ suite("analyze_agg") {
                 x
         """
 
+    // check group by expression not contains aggregate function and window expression
+    test {
+        sql "select SUM(id) FROM t1 group by 1;"
+        exception "GROUP BY expression must not contain aggregate functions: sum(id)"
+    }
+
+    test {
+        sql "select id FROM t1 group by SUM(id);"
+        exception "GROUP BY expression must not contain aggregate functions: sum(id)"
+    }
+
+    test {
+        sql "select SUM(id) OVER() FROM t1 group by 1;"
+        exception "GROUP BY expression must not contain window functions: sum(id) OVER()"
+    }
+
+    test {
+        sql "select id FROM t1 group by SUM(id) OVER();"
+        exception "GROUP BY expression must not contain window functions: sum(id) OVER()"
+    }
+
     sql "drop table if exists test_sum0_multi_distinct_with_group_by"
     sql "create table test_sum0_multi_distinct_with_group_by (a int, b int, c int) distributed by hash(a) properties('replication_num'='1');"
     sql """
