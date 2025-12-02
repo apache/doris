@@ -22,6 +22,7 @@
 
 #include <map>
 #include <memory>
+#include <shared_mutex>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -195,6 +196,11 @@ private:
                                        const TabletColumn& target_col,
                                        ColumnIteratorUPtr inner_iter,
                                        ColumnReaderCache* column_reader_cache);
+
+    // Protect `_subcolumns_meta_info` and `_statistics` when loading external meta.
+    // english only in comments
+    mutable std::shared_mutex _subcolumns_meta_mutex;
+
     std::unique_ptr<SubcolumnColumnMetaInfo> _subcolumns_meta_info;
     std::shared_ptr<ColumnReader> _sparse_column_reader;
     std::shared_ptr<ColumnReader> _root_column_reader;
