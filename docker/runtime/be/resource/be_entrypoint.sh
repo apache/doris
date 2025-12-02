@@ -53,7 +53,7 @@ function add_workloadgroup_config()
 {
     echo "" >> ${DORIS_HOME}/conf/be.conf
     if [[ "x$ENABLE_WORKLOAD_GROUP" == "xtrue" ]]; then
-          echo "doris_cgroup_cpu_path=$WORKLOAD_GROUP_PATH" >> ${DORIS_HOME}/conf/be.conf
+          echo "doris_cgroup_cpu_path = $WORKLOAD_GROUP_PATH" >> ${DORIS_HOME}/conf/be.conf
     fi
 }
 
