@@ -222,6 +222,22 @@ public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void
                     () -> join.right().accept(this, context));
             switch (join.getJoinType()) {
                 case CROSS_JOIN:
+                    /*
+                     * select * from t1 where exsits (select * from t2) or t1.a=t1.b
+                     * The above SQL will generate a mark join, with the join type being CROSS_JOIN.
+                     * In this case,
+                     * it is equivalent to simulating a left semi join using a cross join, and
+                     * predicates cannot be pulled up from the right child.
+                     */
+                    if (join.isMarkJoin()) {
+                        predicates.addAll(leftPredicates.get());
+                    } else {
+                        predicates.addAll(leftPredicates.get());
+                        predicates.addAll(rightPredicates.get());
+                        predicates.addAll(join.getHashJoinConjuncts());
+                        predicates.addAll(join.getOtherJoinConjuncts());
+                    }
+                    break;
                 case INNER_JOIN: {
                     predicates.addAll(leftPredicates.get());
                     predicates.addAll(rightPredicates.get());
