@@ -141,6 +141,10 @@ public class CheckAnalysis implements AnalysisRuleFactory {
                 throw new AnalysisException(
                         "GROUP BY expression must not contain aggregate functions: " + expr.toSql());
             }
+            if (expr.containsType(WindowExpression.class)) {
+                throw new AnalysisException(
+                        "GROUP BY expression must not contain window functions: " + expr.toSql());
+            }
         }
     }
 }
