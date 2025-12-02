@@ -1658,6 +1658,10 @@ DECLARE_mInt32(file_cache_async_write_back_threshold_factor);
 
 DECLARE_mBool(prefetch_segment_footer);
 
+// Concurrency stats dump configuration
+DECLARE_mBool(enable_concurrency_stats_dump);
+DECLARE_mInt32(concurrency_stats_dump_interval_ms);
+
 #ifdef BE_TEST
 // test s3
 DECLARE_String(test_s3_resource);

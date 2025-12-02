@@ -40,6 +40,7 @@
 #include "io/io_common.h"
 #include "runtime/exec_env.h"
 #include "util/bit_util.h"
+#include "util/concurrency_stats.h"
 #include "util/doris_metrics.h"
 #include "util/runtime_profile.h"
 #include "util/stopwatch.hpp"
@@ -161,6 +162,7 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
                                             const IOContext* io_ctx) {
     g_cached_remote_reader_read_active << 1;
     Defer _ = [&]() { g_cached_remote_reader_read_active << -1; };
+    SCOPED_CONCURRENCY_COUNT(ConcurrencyStatsManager::instance().cached_remote_reader_read_at);
 
     g_read_at_req_bytes << result.size;
     const bool is_dryrun = io_ctx->is_dryrun;
@@ -287,8 +289,10 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
     sw.start();
 
     g_cached_remote_reader_get_or_set_active << 1;
+    ConcurrencyStatsManager::instance().cached_remote_reader_get_or_set->increment();
     auto holder = std::make_shared<FileBlocksHolder>(
             _cache->get_or_set(_cache_hash, align_left, align_size, cache_context));
+    ConcurrencyStatsManager::instance().cached_remote_reader_get_or_set->decrement();
     g_cached_remote_reader_get_or_set_active << -1;
 
     stats.cache_get_or_set_timer += sw.elapsed_time();
@@ -341,6 +345,8 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
         }
         {
             SCOPED_RAW_TIMER(&stats.local_write_timer);
+            SCOPED_CONCURRENCY_COUNT(
+                    ConcurrencyStatsManager::instance().cached_remote_reader_write_back);
             _write_to_file_cache(empty_blocks, buffer.get(), empty_start);
         }
         for (auto& block : empty_blocks) {
@@ -386,6 +392,8 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
         if (block_state != FileBlock::State::DOWNLOADED) {
             g_cached_remote_reader_blocking_active << 1;
             Defer _ = [&]() { g_cached_remote_reader_blocking_active << -1; };
+            SCOPED_CONCURRENCY_COUNT(
+                    ConcurrencyStatsManager::instance().cached_remote_reader_blocking);
             MonotonicStopWatch watch2;
             watch2.start();
             do {
@@ -414,6 +422,8 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
                 } else {
                     size_t file_offset = current_offset - left;
                     SCOPED_RAW_TIMER(&stats.local_read_timer);
+                    SCOPED_CONCURRENCY_COUNT(
+                            ConcurrencyStatsManager::instance().cached_remote_reader_local_read);
                     st = block->read(Slice(result.data + (current_offset - offset), read_size),
                                      file_offset);
                 }

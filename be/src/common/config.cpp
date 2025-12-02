@@ -1604,6 +1604,12 @@ DEFINE_Validator(file_cache_async_write_back_threshold_factor,
 
 DEFINE_mBool(prefetch_segment_footer, "false");
 
+// Concurrency stats dump configuration
+DEFINE_mBool(enable_concurrency_stats_dump, "false");
+DEFINE_mInt32(concurrency_stats_dump_interval_ms, "100");
+DEFINE_Validator(concurrency_stats_dump_interval_ms,
+                 [](const int32_t config) -> bool { return config >= 10; });
+
 // clang-format off
 #ifdef BE_TEST
 // test s3

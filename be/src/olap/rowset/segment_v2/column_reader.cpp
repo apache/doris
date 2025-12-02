@@ -66,6 +66,7 @@
 #include "util/binary_cast.hpp"
 #include "util/bitmap.h"
 #include "util/block_compression.h"
+#include "util/concurrency_stats.h"
 #include "util/rle_encoding.h" // for RleDecoder
 #include "util/slice.h"
 #include "vec/columns/column.h"
@@ -368,6 +369,7 @@ Status ColumnReader::read_page(const ColumnIteratorOptions& iter_opts, const Pag
                                BlockCompressionCodec* codec) const {
     g_column_reader_read_page_active << 1;
     Defer _ = [&]() { g_column_reader_read_page_active << -1; };
+    SCOPED_CONCURRENCY_COUNT(ConcurrencyStatsManager::instance().column_reader_read_page);
     iter_opts.sanity_check();
     PageReadOptions opts(iter_opts.io_ctx);
     opts.verify_checksum = _opts.verify_checksum;

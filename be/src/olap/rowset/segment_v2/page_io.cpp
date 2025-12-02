@@ -42,6 +42,7 @@
 #include "olap/rowset/segment_v2/page_handle.h"
 #include "util/block_compression.h"
 #include "util/coding.h"
+#include "util/concurrency_stats.h"
 #include "util/crc32c.h"
 #include "util/faststring.h"
 #include "util/runtime_profile.h"
@@ -260,6 +261,7 @@ Status PageIO::read_and_decompress_page_(const PageReadOptions& opts, PageHandle
         }
         g_page_io_decompress_active << 1;
         Defer _ = [&]() { g_page_io_decompress_active << -1; };
+        SCOPED_CONCURRENCY_COUNT(ConcurrencyStatsManager::instance().page_io_decompress);
         SCOPED_RAW_TIMER(&opts.stats->decompress_ns);
         std::unique_ptr<DataPage> decompressed_page = std::make_unique<DataPage>(
                 footer->uncompressed_size() + footer_size + 4, opts.use_page_cache, opts.type);
@@ -285,6 +287,7 @@ Status PageIO::read_and_decompress_page_(const PageReadOptions& opts, PageHandle
     if (opts.pre_decode && opts.encoding_info) {
         auto* pre_decoder = opts.encoding_info->get_data_page_pre_decoder();
         if (pre_decoder) {
+            SCOPED_CONCURRENCY_COUNT(ConcurrencyStatsManager::instance().page_io_pre_decode);
             RETURN_IF_ERROR(pre_decoder->decode(
                     &page, &page_slice, footer->data_page_footer().nullmap_size() + footer_size + 4,
                     opts.use_page_cache, opts.type));
@@ -316,6 +319,7 @@ Status PageIO::read_and_decompress_page_(const PageReadOptions& opts, PageHandle
     }
     if (opts.use_page_cache && cache) {
         g_page_io_insert_page_cache_active << 1;
+        SCOPED_CONCURRENCY_COUNT(ConcurrencyStatsManager::instance().page_io_insert_page_cache);
         // insert this page into cache and return the cache handle
         cache->insert(cache_key, page.get(), &cache_handle, opts.type, opts.kept_in_memory);
         *handle = PageHandle(std::move(cache_handle));

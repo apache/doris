@@ -70,6 +70,7 @@
 #include "runtime/runtime_predicate.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
+#include "util/concurrency_stats.h"
 #include "util/defer_op.h"
 #include "util/doris_metrics.h"
 #include "util/key_util.h"
@@ -2062,6 +2063,7 @@ void SegmentIterator::_clear_iterators() {
 Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
     g_segment_iterator_next_batch_active_num << 1;
     Defer _ = [&]() { g_segment_iterator_next_batch_active_num << -1; };
+    SCOPED_CONCURRENCY_COUNT(ConcurrencyStatsManager::instance().segment_iterator_next_batch);
 
     bool is_mem_reuse = block->mem_reuse();
     DCHECK(is_mem_reuse);
