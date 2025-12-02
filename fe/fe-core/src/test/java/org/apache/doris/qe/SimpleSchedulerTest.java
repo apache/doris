@@ -32,7 +32,6 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.junit.Assert;
 import org.junit.jupiter.api.BeforeAll;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.Execution;
 import org.junit.jupiter.api.parallel.ExecutionMode;
@@ -60,21 +59,10 @@ public class SimpleSchedulerTest {
         be4 = new Backend(1003L, "192.168.100.3", 9050);
         be5 = new Backend(1004L, "192.168.100.4", 9050);
 
-        SystemInfoService currentSystemInfo = Env.getCurrentSystemInfo();
-        currentSystemInfo.addBackend(be1);
-        currentSystemInfo.addBackend(be2);
-        currentSystemInfo.addBackend(be3);
-        currentSystemInfo.addBackend(be4);
-        currentSystemInfo.addBackend(be5);
-    }
-
-    @BeforeEach
-    public void setAlive() {
-        be1.setAlive(true);
-        be2.setAlive(true);
-        be3.setAlive(true);
-        be4.setAlive(true);
-        be5.setAlive(true);
+        SystemInfoService systemInfoService = Env.getCurrentSystemInfo();
+        for (Backend be : genBackends().values()) {
+            systemInfoService.addBackend(be);
+        }
     }
 
     private static Map<Long, Backend> genBackends() {
