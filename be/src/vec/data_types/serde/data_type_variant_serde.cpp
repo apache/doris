@@ -162,8 +162,8 @@ Status DataTypeVariantSerDe::write_column_to_arrow(const IColumn& column, const 
     return Status::OK();
 }
 
-void DataTypeVariantSerDe::to_string(const IColumn& column, size_t row_num,
-                                     BufferWritable& bw) const {
+void DataTypeVariantSerDe::to_string(const IColumn& column, size_t row_num, BufferWritable& bw,
+                                     const FormatOptions& options) const {
     const auto& var = assert_cast<const ColumnVariant&>(column);
     var.serialize_one_row_to_string(row_num, bw);
 }

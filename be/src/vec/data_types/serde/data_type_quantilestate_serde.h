@@ -136,8 +136,8 @@ public:
         return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
     }
 
-    bool write_column_to_mysql_text(const IColumn& column, BufferWritable& bw,
-                                    int64_t row_idx) const override;
+    bool write_column_to_mysql_text(const IColumn& column, BufferWritable& bw, int64_t row_idx,
+                                    const FormatOptions& options) const override;
 
     Status write_column_to_orc(const std::string& timezone, const IColumn& column,
                                const NullMap* null_map, orc::ColumnVectorBatch* orc_col_batch,
@@ -184,7 +184,8 @@ public:
         return Status::OK();
     }
 
-    void to_string(const IColumn& column, size_t row_num, BufferWritable& bw) const override {
+    void to_string(const IColumn& column, size_t row_num, BufferWritable& bw,
+                   const FormatOptions& options) const override {
         const auto& data = assert_cast<const ColumnQuantileState&>(column).get_element(row_num);
         std::string result(data.get_serialized_size(), '0');
         data.serialize((uint8_t*)result.data());

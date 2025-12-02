@@ -112,7 +112,7 @@ Status VMysqlResultWriter<is_binary_format>::init(RuntimeState* state) {
     set_output_object_data(state->return_object_data_as_binary());
     _is_dry_run = state->query_options().dry_run_query;
 
-    RETURN_IF_ERROR(_set_options(state->query_options().serde_dialect));
+    RETURN_IF_ERROR(_set_options(state));
     return Status::OK();
 }
 
@@ -130,20 +130,11 @@ void VMysqlResultWriter<is_binary_format>::_init_profile() {
 }
 
 template <bool is_binary_format>
-Status VMysqlResultWriter<is_binary_format>::_set_options(
-        const TSerdeDialect::type& serde_dialect) {
+Status VMysqlResultWriter<is_binary_format>::_set_options(RuntimeState* state) {
+    const auto& serde_dialect = state->query_options().serde_dialect;
     switch (serde_dialect) {
     case TSerdeDialect::DORIS:
-        // eg:
-        //  array: ["abc", "def", "", null]
-        //  map: {"k1":null, "k2":"v3"}
-        _options.nested_string_wrapper = "\"";
-        _options.wrapper_len = 1;
-        _options.map_key_delim = ':';
-        _options.null_format = "null";
-        _options.null_len = 4;
-        _options.mysql_collection_delim = ", ";
-        _options.is_bool_value_num = true;
+        _options = DataTypeSerDe::get_default_format_options();
         break;
     case TSerdeDialect::PRESTO:
         // eg:
@@ -172,6 +163,8 @@ Status VMysqlResultWriter<is_binary_format>::_set_options(
     default:
         return Status::InternalError("unknown serde dialect: {}", serde_dialect);
     }
+
+    _options.timezone = &state->timezone_obj();
     return Status::OK();
 }
 
@@ -275,13 +268,17 @@ Status VMysqlResultWriter<is_binary_format>::_write_one_block(RuntimeState* stat
         if (!is_binary_format) {
             const auto& serde_dialect = state->query_options().serde_dialect;
             auto write_to_text = [serde_dialect](DataTypeSerDeSPtr& serde, const IColumn* column,
-                                                 BufferWriter& write_buffer, size_t col_index) {
+                                                 BufferWriter& write_buffer, size_t col_index,
+                                                 const DataTypeSerDe::FormatOptions& options) {
                 if (serde_dialect == TSerdeDialect::DORIS) {
-                    return serde->write_column_to_mysql_text(*column, write_buffer, col_index);
+                    return serde->write_column_to_mysql_text(*column, write_buffer, col_index,
+                                                             options);
                 } else if (serde_dialect == TSerdeDialect::PRESTO) {
-                    return serde->write_column_to_presto_text(*column, write_buffer, col_index);
+                    return serde->write_column_to_presto_text(*column, write_buffer, col_index,
+                                                              options);
                 } else if (serde_dialect == TSerdeDialect::HIVE) {
-                    return serde->write_column_to_hive_text(*column, write_buffer, col_index);
+                    return serde->write_column_to_hive_text(*column, write_buffer, col_index,
+                                                            options);
                 } else {
                     return false;
                 }
@@ -292,7 +289,8 @@ Status VMysqlResultWriter<is_binary_format>::_write_one_block(RuntimeState* stat
                 for (size_t col_idx = 0; col_idx < num_cols; ++col_idx) {
                     const auto col_index = index_check_const(row_idx, arguments[col_idx].is_const);
                     const auto* column = arguments[col_idx].column;
-                    if (write_to_text(arguments[col_idx].serde, column, write_buffer, col_index)) {
+                    if (write_to_text(arguments[col_idx].serde, column, write_buffer, col_index,
+                                      _options)) {
                         write_buffer.commit();
                         auto str = mysql_output_tmp_col->get_data_at(write_buffer_index);
                         direct_write_to_mysql_result_string(mysql_rows, str.data, str.size);

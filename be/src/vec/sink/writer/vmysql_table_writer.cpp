@@ -45,6 +45,7 @@
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_date_or_datetime_v2.h"
+#include "vec/data_types/serde/data_type_serde.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vec/runtime/vdatetime_value.h"
@@ -116,13 +117,18 @@ Status VMysqlTableWriter::write(RuntimeState* state, vectorized::Block& block) {
     Block output_block;
     RETURN_IF_ERROR(_projection_block(block, &output_block));
     auto num_rows = output_block.rows();
+    vectorized::DataTypeSerDe::FormatOptions format_options =
+            DataTypeSerDe::get_default_format_options();
+    format_options.timezone = &state->timezone_obj();
     for (int i = 0; i < num_rows; ++i) {
-        RETURN_IF_ERROR(_insert_row(output_block, i));
+        RETURN_IF_ERROR(_insert_row(output_block, i, format_options));
     }
     return Status::OK();
 }
 
-Status VMysqlTableWriter::_insert_row(vectorized::Block& block, size_t row) {
+Status VMysqlTableWriter::_insert_row(
+        vectorized::Block& block, size_t row,
+        const vectorized::DataTypeSerDe::FormatOptions& format_options) {
     _insert_stmt_buffer.clear();
     fmt::format_to(_insert_stmt_buffer, "INSERT INTO {} VALUES (", _conn_info.table_name);
     size_t num_columns = _vec_output_expr_ctxs.size();
@@ -207,7 +213,7 @@ Status VMysqlTableWriter::_insert_row(vectorized::Block& block, size_t row) {
         case TYPE_DECIMAL64:
         case TYPE_DECIMAL128I:
         case TYPE_DECIMAL256: {
-            auto val = type_ptr->to_string(*column, row);
+            auto val = type_ptr->to_string(*column, row, format_options);
             fmt::format_to(_insert_stmt_buffer, "{}", val);
             break;
         }

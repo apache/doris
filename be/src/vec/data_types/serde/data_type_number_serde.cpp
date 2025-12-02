@@ -29,10 +29,12 @@
 #include "util/to_string.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/core/types.h"
+#include "vec/data_types/serde/data_type_serde.h"
 #include "vec/functions/cast/cast_to_basic_number_common.h"
 #include "vec/functions/cast/cast_to_boolean.h"
 #include "vec/functions/cast/cast_to_string.h"
 #include "vec/io/io_helper.h"
+#include "vec/runtime/timestamptz_value.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
@@ -279,8 +281,8 @@ template <PrimitiveType T>
 constexpr bool can_write_to_jsonb_from_number() {
     return T == TYPE_BOOLEAN || T == TYPE_TINYINT || T == TYPE_SMALLINT || T == TYPE_INT ||
            T == TYPE_BIGINT || T == TYPE_LARGEINT || T == TYPE_FLOAT || T == TYPE_DOUBLE ||
-           T == TYPE_DATEV2 || T == TYPE_DATETIMEV2 || T == TYPE_IPV4 || T == TYPE_IPV6 ||
-           T == TYPE_TIMEV2;
+           T == TYPE_DATEV2 || T == TYPE_DATETIMEV2 || T == TYPE_TIMESTAMPTZ || T == TYPE_IPV4 ||
+           T == TYPE_IPV6 || T == TYPE_TIMEV2;
 }
 
 template <PrimitiveType T>
@@ -323,6 +325,10 @@ bool write_to_jsonb_from_number(auto& data, JsonbWriter& writer, int scale) {
                 writer,
                 CastToString::from_datetimev2(
                         binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(data), scale));
+    } else if constexpr (T == TYPE_TIMESTAMPTZ) {
+        return jsonb_writer_string(
+                writer,
+                CastToString::from_timestamptz(binary_cast<UInt64, TimestampTzValue>(data), scale));
     } else if constexpr (T == TYPE_IPV4) {
         return jsonb_writer_string(writer, CastToString::from_ip(data));
     } else if constexpr (T == TYPE_IPV6) {
@@ -498,6 +504,10 @@ Status DataTypeNumberSerDe<T>::_write_column_to_mysql(const IColumn& column,
         } else {
             buf_ret = result.push_double(data[col_index]);
         }
+    } else if constexpr (T == TYPE_TIMESTAMPTZ) {
+        TimestampTzValue tz_value(data[col_index]);
+        DCHECK(options.timezone != nullptr);
+        buf_ret = result.push_timestamptz(tz_value, *options.timezone, get_scale());
     }
     if (UNLIKELY(buf_ret != 0)) {
         return Status::InternalError("pack mysql buffer failed.");
@@ -607,7 +617,7 @@ void DataTypeNumberSerDe<T>::read_one_cell_from_jsonb(IColumn& column,
     } else if constexpr (T == TYPE_INT || T == TYPE_DATEV2 || T == TYPE_IPV4) {
         col.insert_value(arg->unpack<JsonbInt32Val>()->val());
     } else if constexpr (T == TYPE_BIGINT || T == TYPE_DATE || T == TYPE_DATETIME ||
-                         T == TYPE_DATETIMEV2) {
+                         T == TYPE_DATETIMEV2 || T == TYPE_TIMESTAMPTZ) {
         col.insert_value(arg->unpack<JsonbInt64Val>()->val());
     } else if constexpr (T == TYPE_LARGEINT) {
         col.insert_value(arg->unpack<JsonbInt128Val>()->val());
@@ -641,7 +651,7 @@ void DataTypeNumberSerDe<T>::write_one_cell_to_jsonb(const IColumn& column,
         int32_t val = *reinterpret_cast<const int32_t*>(data_ref.data);
         result.writeInt32(val);
     } else if constexpr (T == TYPE_BIGINT || T == TYPE_DATE || T == TYPE_DATETIME ||
-                         T == TYPE_DATETIMEV2) {
+                         T == TYPE_DATETIMEV2 || T == TYPE_TIMESTAMPTZ) {
         int64_t val = *reinterpret_cast<const int64_t*>(data_ref.data);
         result.writeInt64(val);
     } else if constexpr (T == TYPE_LARGEINT) {
@@ -818,6 +828,9 @@ const uint8_t* DataTypeNumberSerDe<T>::deserialize_binary_to_column(const uint8_
         data += sizeof(uint8_t);
         col.insert_value(unaligned_load<UInt64>(data));
         data += sizeof(UInt64);
+    } else if constexpr (T == TYPE_TIMESTAMPTZ) {
+        col.insert_value(unaligned_load<UInt64>(data));
+        data += sizeof(UInt64);
     } else {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "deserialize_binary_to_column with type '{}'", type_to_string(T));
@@ -882,6 +895,10 @@ const uint8_t* DataTypeNumberSerDe<T>::deserialize_binary_to_field(const uint8_t
         info.scale = static_cast<int>(scale);
         field = Field::create_field<TYPE_DATETIMEV2>(v);
         data += sizeof(UInt64);
+    } else if constexpr (T == TYPE_TIMESTAMPTZ) {
+        UInt64 v = unaligned_load<UInt64>(data);
+        field = Field::create_field<TYPE_TIMESTAMPTZ>(v);
+        data += sizeof(UInt64);
     } else {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "deserialize_binary_to_column with type '{}'", type_to_string(T));
@@ -890,7 +907,7 @@ const uint8_t* DataTypeNumberSerDe<T>::deserialize_binary_to_field(const uint8_t
 }
 template <PrimitiveType T>
 void value_to_string(const typename PrimitiveTypeTraits<T>::ColumnItemType value,
-                     BufferWritable& bw, int scale) {
+                     BufferWritable& bw, int scale, const DataTypeSerDe::FormatOptions& options) {
     if constexpr (T == TYPE_BOOLEAN || T == TYPE_TINYINT || T == TYPE_SMALLINT || T == TYPE_INT ||
                   T == TYPE_BIGINT || T == TYPE_LARGEINT || T == TYPE_FLOAT || T == TYPE_DOUBLE) {
         CastToString::push_number(value, bw);
@@ -905,49 +922,55 @@ void value_to_string(const typename PrimitiveTypeTraits<T>::ColumnItemType value
         DateV2Value<doris::DateTimeV2ValueType> dt =
                 binary_cast<UInt64, DateV2Value<doris::DateTimeV2ValueType>>(value);
         CastToString::push_datetimev2(dt, scale, bw);
+    } else if constexpr (T == TYPE_TIMESTAMPTZ) {
+        TimestampTzValue tz_value = binary_cast<UInt64, TimestampTzValue>(value);
+        CastToString::push_timestamptz(tz_value, scale, bw, options);
     } else if constexpr (T == TYPE_TIME || T == TYPE_TIMEV2) {
         CastToString::push_time(value, scale, bw);
     } else if constexpr (T == TYPE_IPV4 || T == TYPE_IPV6) {
         CastToString::push_ip(value, bw);
     } else {
-        static_assert(std::is_same_v<decltype(T), void>, "non-exhaustive visitor!");
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "value_to_string not implemented for type: {}", type_to_string(T));
     }
 }
 
 template <PrimitiveType T>
-void DataTypeNumberSerDe<T>::to_string(const IColumn& column, size_t row_num,
-                                       BufferWritable& bw) const {
+void DataTypeNumberSerDe<T>::to_string(const IColumn& column, size_t row_num, BufferWritable& bw,
+                                       const FormatOptions& options) const {
     auto& data = assert_cast<const ColumnType&, TypeCheckOnRelease::DISABLE>(column).get_data();
-    if constexpr (is_date_type(T) || is_time_type(T) || is_ip(T)) {
+    if constexpr (is_timestamptz_type(T) || is_date_type(T) || is_time_type(T) || is_ip(T)) {
         if (_nesting_level > 1) {
             bw.write('"');
         }
-        value_to_string<T>(data[row_num], bw, get_scale());
+        value_to_string<T>(data[row_num], bw, get_scale(), options);
         if (_nesting_level > 1) {
             bw.write('"');
         }
     } else {
-        value_to_string<T>(data[row_num], bw, get_scale());
+        value_to_string<T>(data[row_num], bw, get_scale(), options);
     }
 }
 
 template <PrimitiveType T>
 bool DataTypeNumberSerDe<T>::write_column_to_presto_text(const IColumn& column, BufferWritable& bw,
-                                                         int64_t row_idx) const {
+                                                         int64_t row_idx,
+                                                         const FormatOptions& options) const {
     auto& data = assert_cast<const ColumnType&, TypeCheckOnRelease::DISABLE>(column).get_data();
-    value_to_string<T>(data[row_idx], bw, get_scale());
+    value_to_string<T>(data[row_idx], bw, get_scale(), options);
     return true;
 }
 
 template <PrimitiveType T>
 bool DataTypeNumberSerDe<T>::write_column_to_hive_text(const IColumn& column, BufferWritable& bw,
-                                                       int64_t row_idx) const {
+                                                       int64_t row_idx,
+                                                       const FormatOptions& options) const {
     auto& data = assert_cast<const ColumnType&, TypeCheckOnRelease::DISABLE>(column).get_data();
     if constexpr (is_date_type(T) || is_time_type(T) || is_ip(T)) {
         if (_nesting_level > 1) {
             bw.write('"');
         }
-        value_to_string<T>(data[row_idx], bw, get_scale());
+        value_to_string<T>(data[row_idx], bw, get_scale(), options);
         if (_nesting_level > 1) {
             bw.write('"');
         }
@@ -956,13 +979,14 @@ bool DataTypeNumberSerDe<T>::write_column_to_hive_text(const IColumn& column, Bu
         std::string bool_value = data[row_idx] ? "true" : "false";
         bw.write(bool_value.data(), bool_value.size());
     } else {
-        value_to_string<T>(data[row_idx], bw, get_scale());
+        value_to_string<T>(data[row_idx], bw, get_scale(), options);
     }
     return true;
 }
 
 template <PrimitiveType T>
-void DataTypeNumberSerDe<T>::to_string_batch(const IColumn& column, ColumnString& column_to) const {
+void DataTypeNumberSerDe<T>::to_string_batch(const IColumn& column, ColumnString& column_to,
+                                             const FormatOptions& options) const {
     auto& data = assert_cast<const ColumnType&>(column).get_data();
     const size_t size = column.size();
     const auto maybe_reserve_size = CastToString::string_length<T>;
@@ -971,7 +995,7 @@ void DataTypeNumberSerDe<T>::to_string_batch(const IColumn& column, ColumnString
     BufferWriter bw(column_to);
     const auto scale = get_scale();
     for (size_t i = 0; i < size; ++i) {
-        value_to_string<T>(data[i], bw, scale);
+        value_to_string<T>(data[i], bw, scale, options);
         bw.commit();
     }
 }
@@ -993,4 +1017,5 @@ template class DataTypeNumberSerDe<TYPE_IPV4>;
 template class DataTypeNumberSerDe<TYPE_IPV6>;
 template class DataTypeNumberSerDe<TYPE_TIME>;
 template class DataTypeNumberSerDe<TYPE_TIMEV2>;
+template class DataTypeNumberSerDe<TYPE_TIMESTAMPTZ>;
 } // namespace doris::vectorized

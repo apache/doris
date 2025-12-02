@@ -174,7 +174,8 @@ Status DataTypeBitMapSerDe::_write_column_to_mysql(const IColumn& column,
 }
 
 bool DataTypeBitMapSerDe::write_column_to_mysql_text(const IColumn& column, BufferWritable& bw,
-                                                     int64_t row_idx) const {
+                                                     int64_t row_idx,
+                                                     const FormatOptions& options) const {
     const auto& data_column = assert_cast<const ColumnBitmap&>(column);
     if (_return_object_as_string) {
         BitmapValue bitmap_value = data_column.get_element(row_idx);
@@ -252,8 +253,8 @@ Status DataTypeBitMapSerDe::from_string(StringRef& str, IColumn& column,
     return deserialize_one_cell_from_json(column, slice, options);
 }
 
-void DataTypeBitMapSerDe::to_string(const IColumn& column, size_t row_num,
-                                    BufferWritable& bw) const {
+void DataTypeBitMapSerDe::to_string(const IColumn& column, size_t row_num, BufferWritable& bw,
+                                    const FormatOptions& options) const {
     /// TODO: remove const_cast in the future
     auto& data =
             const_cast<BitmapValue&>(assert_cast<const ColumnBitmap&>(column).get_element(row_num));

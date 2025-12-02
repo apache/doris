@@ -492,16 +492,16 @@ void DataTypeDecimalSerDe<T>::write_one_cell_to_jsonb(const IColumn& column, Jso
 }
 
 template <PrimitiveType T>
-void DataTypeDecimalSerDe<T>::to_string(const IColumn& column, size_t row_num,
-                                        BufferWritable& bw) const {
+void DataTypeDecimalSerDe<T>::to_string(const IColumn& column, size_t row_num, BufferWritable& bw,
+                                        const FormatOptions& options) const {
     auto& data =
             assert_cast<const ColumnDecimal<T>&, TypeCheckOnRelease::DISABLE>(column).get_data();
     CastToString::push_decimal(data[row_num], scale, bw);
 }
 
 template <PrimitiveType T>
-void DataTypeDecimalSerDe<T>::to_string_batch(const IColumn& column,
-                                              ColumnString& column_to) const {
+void DataTypeDecimalSerDe<T>::to_string_batch(const IColumn& column, ColumnString& column_to,
+                                              const FormatOptions& options) const {
     auto& data = assert_cast<const ColumnDecimal<T>&>(column).get_data();
     const size_t size = column.size();
     const auto maybe_reserve_size = CastToString::string_length<T>;

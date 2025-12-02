@@ -577,8 +577,8 @@ const uint8_t* DataTypeArraySerDe::deserialize_binary_to_field(const uint8_t* da
     return data;
 }
 
-void DataTypeArraySerDe::to_string(const IColumn& column, size_t row_num,
-                                   BufferWritable& bw) const {
+void DataTypeArraySerDe::to_string(const IColumn& column, size_t row_num, BufferWritable& bw,
+                                   const FormatOptions& options) const {
     const auto& data_column = assert_cast<const ColumnArray&>(column);
     const auto& offsets = data_column.get_offsets();
 
@@ -591,13 +591,14 @@ void DataTypeArraySerDe::to_string(const IColumn& column, size_t row_num,
         if (i != offset) {
             bw.write(", ", 2);
         }
-        nested_serde->to_string(nested_column, i, bw);
+        nested_serde->to_string(nested_column, i, bw, options);
     }
     bw.write("]", 1);
 }
 
 bool DataTypeArraySerDe::write_column_to_presto_text(const IColumn& column, BufferWritable& bw,
-                                                     int64_t row_idx) const {
+                                                     int64_t row_idx,
+                                                     const FormatOptions& options) const {
     const auto& data_column = assert_cast<const ColumnArray&>(column);
     const auto& offsets = data_column.get_offsets();
 
@@ -610,14 +611,15 @@ bool DataTypeArraySerDe::write_column_to_presto_text(const IColumn& column, Buff
         if (i != offset) {
             bw.write(", ", 2);
         }
-        nested_serde->write_column_to_presto_text(nested_column, bw, i);
+        nested_serde->write_column_to_presto_text(nested_column, bw, i, options);
     }
     bw.write("]", 1);
     return true;
 }
 
 bool DataTypeArraySerDe::write_column_to_hive_text(const IColumn& column, BufferWritable& bw,
-                                                   int64_t row_idx) const {
+                                                   int64_t row_idx,
+                                                   const FormatOptions& options) const {
     const auto& data_column = assert_cast<const ColumnArray&>(column);
     const auto& offsets = data_column.get_offsets();
 
@@ -630,7 +632,7 @@ bool DataTypeArraySerDe::write_column_to_hive_text(const IColumn& column, Buffer
         if (i != offset) {
             bw.write(",", 1);
         }
-        nested_serde->write_column_to_hive_text(nested_column, bw, i);
+        nested_serde->write_column_to_hive_text(nested_column, bw, i, options);
     }
     bw.write("]", 1);
     return true;
