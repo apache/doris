@@ -447,9 +447,8 @@ public:
         return make_nullable(std::make_shared<DataTypeInt32>());
     }
 
-    // It's really hard to define max unix timestamp because of timezone.
-    // so this value is 253402329599(UTC 9999-12-31 23:59:59) - 24 * 3600(for all timezones)
-    static const int64_t TIMESTAMP_VALID_MAX = 253402243199L;
+    // Align with FROM_UNIXTIME upper bound (3001-01-19 00:00:00)
+    static const int64_t TIMESTAMP_VALID_MAX = 32536771199L;
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
@@ -533,16 +532,9 @@ struct MinuteFromUnixtimeImpl {
         static const libdivide::divider<int64_t> fast_div_60(60);
         static const libdivide::divider<int64_t> fast_div_3600(3600);
 
-        int64_t remainder;
-        if (LIKELY(local_time >= 0)) {
-            remainder = local_time - local_time / fast_div_3600 * 3600;
-        } else {
-            remainder = local_time % 3600;
-            if (remainder < 0) {
-                remainder += 3600;
-            }
-        }
-        return static_cast<int32_t>(remainder / fast_div_60);
+        local_time = local_time - local_time / fast_div_3600 * 3600;
+
+        return static_cast<int32_t>(local_time / fast_div_60);
     }
 };
 
@@ -551,16 +543,7 @@ struct SecondFromUnixtimeImpl {
     static constexpr auto name = "second_from_unixtime";
 
     static int32_t extract_field(int64_t local_time, const cctz::time_zone& /*ctz*/) {
-        int64_t remainder;
-        if (LIKELY(local_time >= 0)) {
-            remainder = local_time % 60;
-        } else {
-            remainder = local_time % 60;
-            if (remainder < 0) {
-                remainder += 60;
-            }
-        }
-        return static_cast<int32_t>(remainder);
+        return static_cast<int32_t>(local_time % 60);
     }
 };
 

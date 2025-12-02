@@ -104,7 +104,7 @@ public class DateTimeExtractAndTransform {
     }
 
     // Maximum valid timestamp value (UTC 9999-12-31 23:59:59 - 24 * 3600 for all timezones)
-    private static final long TIMESTAMP_VALID_MAX = 253402243199L;
+    private static final long TIMESTAMP_VALID_MAX = 32536771199L;
 
     /**
      * datetime arithmetic function date-v2
@@ -1344,19 +1344,14 @@ public class DateTimeExtractAndTransform {
      */
     @ExecFunction(name = "hour_from_unixtime")
     public static Expression hourFromUnixtime(BigIntLiteral unixTime) {
-        long localTime = unixTime.getValue();
-
-        long remainder;
-        if (localTime >= 0) {
-            remainder = localTime - (localTime / 86400) * 86400;
-        } else {
-            remainder = localTime % 86400;
-            if (remainder < 0) {
-                remainder += 86400;
-            }
+        long epochSecond = unixTime.getValue();
+        if (epochSecond < 0 || epochSecond > TIMESTAMP_VALID_MAX) {
+            return new NullLiteral(IntegerType.INSTANCE);
         }
-        int hour = (int) (remainder / 3600);
-        return new IntegerLiteral(hour);
+
+        ZoneId timeZone = DateUtils.getTimeZone();
+        ZonedDateTime zonedDateTime = Instant.ofEpochSecond(epochSecond).atZone(timeZone);
+        return new IntegerLiteral(zonedDateTime.getHour());
     }
 
     /**
@@ -1365,21 +1360,13 @@ public class DateTimeExtractAndTransform {
     @ExecFunction(name = "minute_from_unixtime")
     public static Expression minuteFromUnixtime(BigIntLiteral unixTime) {
         long localTime = unixTime.getValue();
-
         if (localTime < 0 || localTime > TIMESTAMP_VALID_MAX) {
             return new NullLiteral(IntegerType.INSTANCE);
         }
 
-        long remainder;
-        if (localTime >= 0) {
-            remainder = localTime - (localTime / 3600) * 3600;
-        } else {
-            remainder = localTime % 3600;
-            if (remainder < 0) {
-                remainder += 3600;
-            }
-        }
-        int minute = (int) (remainder / 60);
+        localTime = localTime - (localTime / 3600) * 3600;
+
+        int minute = (int) (localTime / 60);
         return new IntegerLiteral(minute);
     }
 
