@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.cdcclient.constants;
+package org.apache.doris.job.common;
 
 public class LoadConstants {
     public static final String JDBC_URL = "jdbc_url";
@@ -30,4 +30,5 @@ public class LoadConstants {
     public static final String STARTUP_MODE = "startup_mode";
     public static final String SPLIT_SIZE = "split_size";
     public static final String TABLE_PROPS_PREFIX = "table.create.properties.";
+
 }

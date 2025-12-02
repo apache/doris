@@ -99,7 +99,7 @@ materializedViewStatement
     | SHOW CREATE MATERIALIZED VIEW mvName=multipartIdentifier                                  #showCreateMTMV
     ;
 supportedJobStatement
-    : CREATE JOB label=multipartIdentifier propertyClause?
+    : CREATE JOB label=multipartIdentifier jobProperties=propertyClause?
       ON (STREAMING | SCHEDULE(
             (EVERY timeInterval=INTEGER_VALUE timeUnit=identifier
             (STARTS (startTime=STRING_LITERAL | CURRENT_TIMESTAMP))?
@@ -108,8 +108,10 @@ supportedJobStatement
             (AT (atTime=STRING_LITERAL | CURRENT_TIMESTAMP))
             )
          )
-       commentSpec?
-       DO supportedDmlStatement                                                                                                             #createScheduledJob
+      commentSpec?
+       (FROM sourceType=identifier LEFT_PAREN sourceProperties=propertyItemList RIGHT_PAREN
+            TO DATABASE targetDb=identifier (LEFT_PAREN targetProperties=propertyItemList RIGHT_PAREN)?
+       | DO supportedDmlStatement )                                                                                                         #createScheduledJob
    | PAUSE JOB WHERE (jobNameKey=identifier) EQ (jobNameValue=STRING_LITERAL)                                                                #pauseJob
    | ALTER JOB (jobName=multipartIdentifier) (propertyClause | supportedDmlStatement | propertyClause  supportedDmlStatement)                  #alterJob
    | DROP JOB (IF EXISTS)? WHERE (jobNameKey=identifier) EQ (jobNameValue=STRING_LITERAL)                                                    #dropJob

@@ -394,14 +394,37 @@ public abstract class JdbcClient {
 
     public List<Column> getColumnsFromJdbc(String remoteDbName, String remoteTableName) {
         List<JdbcFieldSchema> jdbcTableSchema = getJdbcColumnsInfo(remoteDbName, remoteTableName);
+        List<String> primaryKeys = getPrimaryKeys(remoteDbName, remoteTableName);
         List<Column> dorisTableSchema = Lists.newArrayListWithCapacity(jdbcTableSchema.size());
         for (JdbcFieldSchema field : jdbcTableSchema) {
+            boolean isKey = primaryKeys.contains(field.getColumnName());
             dorisTableSchema.add(new Column(field.getColumnName(),
-                    jdbcTypeToDoris(field), true, null,
+                    jdbcTypeToDoris(field), isKey, null,
                     field.isAllowNull(), field.getRemarks(),
                     true, -1));
         }
         return dorisTableSchema;
+    }
+
+    private List<String> getPrimaryKeys(String remoteDbName, String remoteTableName) {
+        Connection conn = getConnection();
+        ResultSet rs = null;
+        List<String> primaryKeys = Lists.newArrayList();
+        try {
+            DatabaseMetaData databaseMetaData = conn.getMetaData();
+            String catalogName = getCatalogName(conn);
+            rs = databaseMetaData.getPrimaryKeys(catalogName, remoteDbName, remoteTableName);
+            while (rs.next()) {
+                String fieldName = rs.getString("COLUMN_NAME");
+                primaryKeys.add(fieldName);
+            }
+        } catch (SQLException e) {
+            throw new JdbcClientException("failed to get jdbc primary key info for remote table `%s.%s`: %s",
+                    remoteDbName, remoteTableName, Util.getRootCauseMessage(e));
+        } finally {
+            close(rs, conn);
+        }
+        return primaryKeys;
     }
 
     // protected methods, for subclass to override

@@ -35,6 +35,7 @@ import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.job.base.AbstractJob;
 import org.apache.doris.job.base.JobExecutionConfiguration;
 import org.apache.doris.job.base.TimerDefinition;
+import org.apache.doris.job.common.DataSourceType;
 import org.apache.doris.job.common.FailureReason;
 import org.apache.doris.job.common.IntervalUnit;
 import org.apache.doris.job.common.JobStatus;
@@ -47,6 +48,8 @@ import org.apache.doris.job.extensions.insert.InsertTask;
 import org.apache.doris.job.offset.Offset;
 import org.apache.doris.job.offset.SourceOffsetProvider;
 import org.apache.doris.job.offset.SourceOffsetProviderFactory;
+import org.apache.doris.job.offset.jdbc.JdbcSourceOffsetProvider;
+import org.apache.doris.job.util.StreamingJobUtils;
 import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.load.loadv2.LoadStatistic;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -55,25 +58,17 @@ import org.apache.doris.nereids.analyzer.UnboundTVFRelation;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.AlterJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.BaseViewInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertUtils;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
-import org.apache.doris.proto.InternalService;
-import org.apache.doris.proto.InternalService.PRequestCdcClientResult;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
-import org.apache.doris.resource.Tag;
-import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.RpcException;
-import org.apache.doris.system.Backend;
-import org.apache.doris.system.BeSelectionPolicy;
-import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TCell;
-import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TRow;
-import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.transaction.TransactionException;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TxnStateChangeCallback;
@@ -85,21 +80,24 @@ import lombok.Setter;
 import lombok.extern.log4j.Log4j2;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
-
+import static org.apache.doris.job.common.LoadConstants.DATABASE;
+import static org.apache.doris.job.common.LoadConstants.DRIVER_CLASS;
+import static org.apache.doris.job.common.LoadConstants.DRIVER_URL;
+import static org.apache.doris.job.common.LoadConstants.EXCLUDE_TABLES;
+import static org.apache.doris.job.common.LoadConstants.INCLUDE_TABLES;
+import static org.apache.doris.job.common.LoadConstants.JDBC_URL;
+import static org.apache.doris.job.common.LoadConstants.PASSWORD;
+import static org.apache.doris.job.common.LoadConstants.USER;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
@@ -127,17 +125,30 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     private String tvfType;
     private Map<String, String> originTvfProps;
     @Getter
-    StreamingInsertTask runningStreamTask;
+    AbstractStreamingTask runningStreamTask;
     SourceOffsetProvider offsetProvider;
     @Setter
     @Getter
     private long lastScheduleTaskTimestamp = -1L;
     private InsertIntoTableCommand baseCommand;
     private ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
-    private ConcurrentLinkedQueue<StreamingInsertTask> streamInsertTaskQueue = new ConcurrentLinkedQueue<>();
+    private ConcurrentLinkedQueue<AbstractStreamingTask> streamInsertTaskQueue = new ConcurrentLinkedQueue<>();
     @Setter
     @Getter
     private String jobRuntimeMsg = "";
+
+    @Getter
+    @SerializedName("tdb")
+    private String targetDb;
+    @Getter
+    @SerializedName("ds")
+    private DataSourceType dataSourceType;
+    @Getter
+    @SerializedName("sprops")
+    private Map<String, String> sourceProperties;
+    @Getter
+    @SerializedName("tprops")
+    private Map<String, String> targetProperties;
 
     public StreamingInsertJob(String jobName,
             JobStatus jobStatus,
@@ -151,73 +162,79 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         super(Env.getCurrentEnv().getNextId(), jobName, jobStatus, dbName, comment, createUser,
                 jobConfig, createTimeMs, executeSql);
         this.properties = properties;
+        initInsertJob();
+    }
+
+    // for streaming job from...to database
+    public StreamingInsertJob(String jobName,
+            JobStatus jobStatus,
+            String dbName,
+            String comment,
+            UserIdentity createUser,
+            JobExecutionConfiguration jobConfig,
+            Long createTimeMs,
+            String executeSql,
+            Map<String, String> properties,
+            String targetDb,
+            DataSourceType dataSourceType,
+            Map<String, String> sourceProperties,
+            Map<String, String> targetProperties) {
+        super(Env.getCurrentEnv().getNextId(), jobName, jobStatus, dbName, comment, createUser,
+                jobConfig, createTimeMs, executeSql);
+        this.properties = properties;
+        this.targetDb = targetDb;
+        this.dataSourceType = dataSourceType;
+        this.sourceProperties = sourceProperties;
+        this.targetProperties = targetProperties;
+        initSourceJob();
+    }
+
+    /**
+     * Initialize job from source to database, like multi table mysql to doris.
+     * 1. get mysql connection info from sourceProperties
+     * 2. fetch table list from mysql
+     * 3. create doris table if not exists
+     * 4. check whether need full data sync
+     * 5. need => fetch split and write to system table
+     */
+    private void initSourceJob() {
         try {
-            log.info("======fetch cdc split");
-            fetchCdcSplit();
-        } catch (JobException e) {
-            throw new RuntimeException(e);
+            init();
+            checkRequiredSourceProperties();
+            List<String> createTbls = createTableIfNotExists();
+            this.offsetProvider = new JdbcSourceOffsetProvider();
+            JdbcSourceOffsetProvider rdsOffsetProvider = (JdbcSourceOffsetProvider)this.offsetProvider;
+            rdsOffsetProvider.setJobId(getJobId());
+            rdsOffsetProvider.setSourceType(dataSourceType);
+            rdsOffsetProvider.setSourceProperties(sourceProperties);
+            rdsOffsetProvider.splitChunks(createTbls);
+        }catch (Exception ex){
+            log.warn("init streaming job for {} failed", dataSourceType, ex);
+            throw new RuntimeException(ex.getMessage());
         }
-        init();
     }
 
-    // todo: down to offset provider
-    private void fetchCdcSplit() throws JobException{
-        Backend backend = selectBackend(1L);
-        Map<String, Object> params = new HashMap<>();
-        params.put("jobId", "1");
-        params.put("dataSource", "MYSQL");
-        params.put("snapshotTable", "user_info");
-        Map<String, Object> config = new HashMap<>();
-        config.put("host", "127.0.0.1");
-        config.put("port", "3308");
-        config.put("username", "root");
-        config.put("password", "123456");
-        config.put("database", "test");
-        config.put("include_tables", "user_info");
-        params.put("config", config);
-
-        InternalService.PRequestCdcClientRequest request = InternalService.PRequestCdcClientRequest.newBuilder()
-                .setApi("/api/fetchSplits")
-                .setParams(GsonUtils.GSON.toJson(params)).build();
-        TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
-        InternalService.PRequestCdcClientResult result = null;
-        try {
-            Future<PRequestCdcClientResult> future =
-                    BackendServiceProxy.getInstance().requestCdcClient(address, request);
-            result = future.get();
-            TStatusCode code = TStatusCode.findByValue(result.getStatus().getStatusCode());
-            if (code != TStatusCode.OK) {
-                log.error("Failed to get split from backend, {}", result.getStatus().getErrorMsgs(0));
-                throw new JobException("Failed to get split from backend," + result.getStatus().getErrorMsgs(0) + ", response: " + result.getResponse());
-            }
-        } catch (ExecutionException | InterruptedException ex) {
-            log.error("Get splits error: ", ex);
-            throw new JobException(ex);
-        }
-        log.info("========fetch cdc split {}", result.getResponse());
+    private void checkRequiredSourceProperties() {
+        Preconditions.checkArgument(sourceProperties.get(JDBC_URL) != null, "jdbc_url is required property");
+        Preconditions.checkArgument(sourceProperties.get(DRIVER_URL) != null, "driver_url is required property");
+        Preconditions.checkArgument(sourceProperties.get(DRIVER_CLASS) != null, "driver_class is required property");
+        Preconditions.checkArgument(sourceProperties.get(USER) != null, "user is required property");
+        Preconditions.checkArgument(sourceProperties.get(PASSWORD) != null, "password is required property");
+        Preconditions.checkArgument(sourceProperties.get(DATABASE) != null, "database is required property");
+        Preconditions.checkArgument(sourceProperties.get(INCLUDE_TABLES) != null || sourceProperties.get(EXCLUDE_TABLES) != null,
+                "Either include_tables or exclude_tables must be specified");
     }
 
-    public static Backend selectBackend(Long jobId) throws JobException {
-        Backend backend = null;
-        BeSelectionPolicy policy = null;
-
-        policy = new BeSelectionPolicy.Builder()
-                .setEnableRoundRobin(true)
-                .needLoadAvailable().build();
-        List<Long> backendIds;
-        backendIds = Env.getCurrentSystemInfo().selectBackendIdsByPolicy(policy, 1);
-        if (backendIds.isEmpty()) {
-            throw new JobException(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG + ", policy: " + policy);
+    private List<String> createTableIfNotExists() throws UserException, JobException {
+        List<String> syncTbls = new ArrayList<>();
+        List<CreateTableInfo> createTableInfos = StreamingJobUtils.generateCreateTableInfos(targetDb,
+                dataSourceType, sourceProperties, targetProperties);
+        for (CreateTableInfo createTableInfo : createTableInfos) {
+            Env.getCurrentEnv().createTable(createTableInfo);
+            syncTbls.add(createTableInfo.getTableName());
         }
-        //jobid % backendSize
-        long index = backendIds.get(jobId.intValue() % backendIds.size());
-        backend = Env.getCurrentSystemInfo().getBackend(index);
-        if (backend == null) {
-            throw new JobException(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG + ", policy: " + policy);
-        }
-        return backend;
+        return syncTbls;
     }
-
 
     private void init() {
         try {
@@ -230,7 +247,15 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             timerDefinition.setIntervalUnit(IntervalUnit.SECOND);
             timerDefinition.setStartTimeMs(execConfig.getTimerDefinition().getStartTimeMs());
             execConfig.setTimerDefinition(timerDefinition);
+        } catch (AnalysisException ae) {
+            log.warn("parse streaming insert job failed, props: {}", properties, ae);
+            throw new RuntimeException(ae.getMessage());
+        }
+    }
 
+    private void initInsertJob() {
+        try {
+            init();
             UnboundTVFRelation currentTvf = getCurrentTvf();
             this.tvfType = currentTvf.getFunctionName();
             this.originTvfProps = currentTvf.getProperties().getMap();
@@ -240,9 +265,6 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                 Offset offset = validateOffset(jobProperties.getOffsetProperty());
                 this.offsetProvider.updateOffset(offset);
             }
-        } catch (AnalysisException ae) {
-            log.warn("parse streaming insert job failed, props: {}", properties, ae);
-            throw new RuntimeException(ae.getMessage());
         } catch (Exception ex) {
             log.warn("init streaming insert job failed, sql: {}", getExecuteSql(), ex);
             throw new RuntimeException(ex.getMessage());
@@ -394,12 +416,13 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         return newTasks;
     }
 
-    protected StreamingInsertTask createStreamingInsertTask() {
-        if (originTvfProps == null) {
-            this.originTvfProps = getCurrentTvf().getProperties().getMap();
+    protected AbstractStreamingTask createStreamingTask() {
+        AbstractStreamingTask task = null;
+        if (tvfType != null) {
+            task = createStreamingInsertTask();
+        }else {
+            task = createStreamingMultiTblTask();
         }
-        this.runningStreamTask = new StreamingInsertTask(getJobId(), Env.getCurrentEnv().getNextId(), getExecuteSql(),
-                offsetProvider, getCurrentDbName(), jobProperties, originTvfProps, getCreateUser());
         Env.getCurrentEnv().getJobManager().getStreamingTaskManager().registerTask(runningStreamTask);
         this.runningStreamTask.setStatus(TaskStatus.PENDING);
         log.info("create new streaming insert task for job {}, task {} ",
@@ -408,7 +431,25 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         return runningStreamTask;
     }
 
-    public void recordTasks(StreamingInsertTask task) {
+    /**
+     * for From MySQL TO Database
+     * @return
+     */
+    private AbstractStreamingTask createStreamingMultiTblTask() {
+        this.runningStreamTask = new StreamingMultiTblTask(getJobId(), Env.getCurrentEnv().getNextId(), offsetProvider, sourceProperties, targetProperties);
+        return runningStreamTask;
+    }
+
+    protected AbstractStreamingTask createStreamingInsertTask() {
+        if (originTvfProps == null) {
+            this.originTvfProps = getCurrentTvf().getProperties().getMap();
+        }
+        this.runningStreamTask = new StreamingInsertTask(getJobId(), Env.getCurrentEnv().getNextId(), getExecuteSql(),
+                offsetProvider, getCurrentDbName(), jobProperties, originTvfProps, getCreateUser());
+        return runningStreamTask;
+    }
+
+    public void recordTasks(AbstractStreamingTask task) {
         if (Config.max_streaming_task_show_count < 1) {
             return;
         }
@@ -422,23 +463,25 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     /**
      * for show command to display all streaming insert tasks of this job.
      */
-    public List<StreamingInsertTask> queryAllStreamTasks() {
+    public List<AbstractStreamingTask> queryAllStreamTasks() {
         if (CollectionUtils.isEmpty(streamInsertTaskQueue)) {
             return new ArrayList<>();
         }
-        List<StreamingInsertTask> tasks = new ArrayList<>(streamInsertTaskQueue);
-        Comparator<StreamingInsertTask> taskComparator =
-                Comparator.comparingLong(StreamingInsertTask::getCreateTimeMs).reversed();
+        List<AbstractStreamingTask> tasks = new ArrayList<>(streamInsertTaskQueue);
+        Comparator<AbstractStreamingTask> taskComparator =
+                Comparator.comparingLong(AbstractStreamingTask::getCreateTimeMs).reversed();
         tasks.sort(taskComparator);
         return tasks;
     }
 
     protected void fetchMeta() {
         try {
-            if (originTvfProps == null) {
+            if (originTvfProps == null && StringUtils.isNotEmpty(getExecuteSql())) {
                 this.originTvfProps = getCurrentTvf().getProperties().getMap();
+                offsetProvider.fetchRemoteMeta(originTvfProps);
+            } else {
+                offsetProvider.fetchRemoteMeta(new HashMap<>());
             }
-            offsetProvider.fetchRemoteMeta(originTvfProps);
         } catch (Exception ex) {
             log.warn("fetch remote meta failed, job id: {}", getJobId(), ex);
             failureReason = new FailureReason(InternalErrorCode.GET_REMOTE_DATA_ERROR,
@@ -499,7 +542,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         try {
             succeedTaskCount.incrementAndGet();
             Env.getCurrentEnv().getJobManager().getStreamingTaskManager().removeRunningTask(task);
-            StreamingInsertTask nextTask = createStreamingInsertTask();
+            AbstractStreamingTask nextTask = createStreamingInsertTask();
             this.runningStreamTask = nextTask;
             log.info("Streaming insert job {} create next streaming insert task {} after task {} success",
                     getJobId(), nextTask.getTaskId(), task.getTaskId());
@@ -624,9 +667,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         trow.addToColumnValue(new TCell().setStringVal(getJobConfig().getExecuteType().name()));
         trow.addToColumnValue(new TCell().setStringVal(FeConstants.null_string));
         trow.addToColumnValue(new TCell().setStringVal(getJobStatus().name()));
-
-        trow.addToColumnValue(new TCell().setStringVal(StringUtils.isNotEmpty(getEncryptedSql())
-                ? getEncryptedSql() : generateEncryptedSql()));
+        trow.addToColumnValue(new TCell().setStringVal(getShowSQL()));
         trow.addToColumnValue(new TCell().setStringVal(TimeUtils.longToTimeString(getCreateTimeMs())));
         trow.addToColumnValue(new TCell().setStringVal(String.valueOf(getSucceedTaskCount().get())));
         trow.addToColumnValue(new TCell().setStringVal(String.valueOf(getFailedTaskCount().get())));
@@ -656,7 +697,35 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         return trow;
     }
 
-    private static boolean checkPrivilege(ConnectContext ctx, LogicalPlan logicalPlan) throws AnalysisException {
+    private String getShowSQL() {
+        if (StringUtils.isNotEmpty(getExecuteSql())) {
+            return StringUtils.isNotEmpty(getEncryptedSql())
+                    ? getEncryptedSql() : generateEncryptedSql();
+        } else {
+            StringBuilder sb = new StringBuilder();
+            sb.append("FROM ").append(dataSourceType.name());
+            sb.append("(");
+            for (Map.Entry<String, String> entry : sourceProperties.entrySet()) {
+                sb.append("'").append(entry.getKey())
+                        .append("'='").append(entry.getValue()).append("',");
+            }
+            sb.deleteCharAt(sb.length() - 1);
+            sb.append(" ) TO DATABSE ").append(targetDb);
+            if (!targetProperties.isEmpty()) {
+                sb.append(" (");
+                for (Map.Entry<String, String> entry : targetProperties.entrySet()) {
+                    sb.append("'").append(entry.getKey())
+                            .append("'='").append(entry.getValue()).append("',");
+                }
+                sb.deleteCharAt(sb.length() - 1);
+                sb.append(")");
+            }
+            return sb.toString();
+        }
+    }
+
+    private static boolean checkPrivilege(ConnectContext ctx, String  sql) throws AnalysisException {
+        LogicalPlan logicalPlan = new NereidsParser().parseSingle(sql);
         if (!(logicalPlan instanceof InsertIntoTableCommand)) {
             throw new AnalysisException("Only support insert command");
         }
@@ -677,31 +746,57 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         return true;
     }
 
-    public boolean checkPrivilege(ConnectContext ctx) throws AnalysisException {
-        LogicalPlan logicalPlan = new NereidsParser().parseSingle(getExecuteSql());
-        return checkPrivilege(ctx, logicalPlan);
+    public static boolean checkPrivilege(ConnectContext ctx, String sql, String targetDb) throws AnalysisException {
+        if (StringUtils.isNotEmpty(sql)) {
+            return checkPrivilege(ctx, sql);
+        }else if (StringUtils.isNotEmpty(targetDb)) {
+            return checkHasSourceJobPriv(ctx, targetDb);
+        } else {
+            log.info("insert sql and target db are both empty");
+            return false;
+        }
     }
 
-    public static boolean checkPrivilege(ConnectContext ctx, String sql) throws AnalysisException {
-        LogicalPlan logicalPlan = new NereidsParser().parseSingle(sql);
-        return checkPrivilege(ctx, logicalPlan);
+    public boolean checkPrivilege(ConnectContext ctx) throws AnalysisException {
+        if (StringUtils.isNotEmpty(getExecuteSql())) {
+            return checkPrivilege(ctx, getExecuteSql());
+        }else if (StringUtils.isNotEmpty(getTargetDb())){
+            return checkHasSourceJobPriv(ctx, targetDb);
+        }else {
+            log.info("insert sql and target db are both empty");
+            return false;
+        }
     }
 
     public boolean hasPrivilege(UserIdentity userIdentity) {
         ConnectContext ctx = InsertTask.makeConnectContext(userIdentity, getCurrentDbName());
         try {
-            LogicalPlan logicalPlan = new NereidsParser().parseSingle(getExecuteSql());
-            LogicalPlan logicalQuery = ((InsertIntoTableCommand) logicalPlan).getLogicalQuery();
-            List<String> targetTable = InsertUtils.getTargetTableQualified(logicalQuery, ctx);
-            Preconditions.checkArgument(targetTable.size() == 3, "target table name is invalid");
-            return Env.getCurrentEnv().getAccessManager().checkTblPriv(userIdentity,
-                    InternalCatalog.INTERNAL_CATALOG_NAME,
-                    targetTable.get(1),
-                    targetTable.get(2),
-                    PrivPredicate.LOAD);
+            if (StringUtils.isNotEmpty(getExecuteSql())) {
+                LogicalPlan logicalPlan = new NereidsParser().parseSingle(getExecuteSql());
+                LogicalPlan logicalQuery = ((InsertIntoTableCommand) logicalPlan).getLogicalQuery();
+                List<String> targetTable = InsertUtils.getTargetTableQualified(logicalQuery, ctx);
+                Preconditions.checkArgument(targetTable.size() == 3, "target table name is invalid");
+                return Env.getCurrentEnv().getAccessManager().checkTblPriv(userIdentity,
+                        InternalCatalog.INTERNAL_CATALOG_NAME,
+                        targetTable.get(1),
+                        targetTable.get(2),
+                        PrivPredicate.LOAD);
+            } else if (StringUtils.isNotEmpty(getTargetDb())){
+                return checkHasSourceJobPriv(ctx, targetDb);
+            } else {
+                log.info("insert sql and target db are both empty");
+                return false;
+            }
         } finally {
             ctx.cleanup();
         }
+    }
+
+    private static boolean checkHasSourceJobPriv(ConnectContext ctx, String targetDb){
+        return Env.getCurrentEnv().getAccessManager().checkDbPriv(ctx,
+                InternalCatalog.INTERNAL_CATALOG_NAME,
+                targetDb,
+                PrivPredicate.LOAD);
     }
 
     private String generateEncryptedSql() {
@@ -859,8 +954,12 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
 
     @Override
     public void gsonPostProcess() throws IOException {
-        if (offsetProvider == null && tvfType != null) {
-            offsetProvider = SourceOffsetProviderFactory.createSourceOffsetProvider(tvfType);
+        if (offsetProvider == null) {
+            if (tvfType != null) {
+                offsetProvider = SourceOffsetProviderFactory.createSourceOffsetProvider(tvfType);
+            }else {
+                offsetProvider = new JdbcSourceOffsetProvider();
+            }
         }
 
         if (jobProperties == null && properties != null) {

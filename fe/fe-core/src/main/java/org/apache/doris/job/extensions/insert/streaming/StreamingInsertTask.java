@@ -54,31 +54,16 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 @Log4j2
 @Getter
-public class StreamingInsertTask {
+public class StreamingInsertTask extends AbstractStreamingTask {
     private static final String LABEL_SPLITTER = "_";
-    private static final int MAX_RETRY = 3;
-    private long jobId;
-    private long taskId;
-    private String labelName;
-    @Setter
-    private volatile TaskStatus status;
-    private String errMsg;
-    private Long createTimeMs;
-    private Long startTimeMs;
-    private Long finishTimeMs;
     private String sql;
     private StmtExecutor stmtExecutor;
     private InsertIntoTableCommand taskCommand;
     private String currentDb;
-    private UserIdentity userIdentity;
     private ConnectContext ctx;
-    private Offset runningOffset;
-    @Getter
-    private AtomicBoolean isCanceled = new AtomicBoolean(false);
     private StreamingJobProperties jobProperties;
     private Map<String, String> originTvfProps;
     SourceOffsetProvider offsetProvider;
-    private int retryCount = 0;
 
     public StreamingInsertTask(long jobId,
                                long taskId,
@@ -100,39 +85,9 @@ public class StreamingInsertTask {
         this.createTimeMs = System.currentTimeMillis();
     }
 
-    public void execute() throws JobException {
-        while (retryCount <= MAX_RETRY) {
-            try {
-                before();
-                run();
-                onSuccess();
-                return;
-            } catch (Exception e) {
-                if (TaskStatus.CANCELED.equals(status)) {
-                    return;
-                }
-                this.errMsg = e.getMessage();
-                retryCount++;
-                if (retryCount > MAX_RETRY) {
-                    log.error("Task execution failed after {} retries.", MAX_RETRY, e);
-                    onFail(e.getMessage());
-                    return;
-                }
-                log.warn("execute streaming task error, job id is {}, task id is {}, retrying {}/{}: {}",
-                        jobId, taskId, retryCount, MAX_RETRY, e.getMessage());
-            } finally {
-                // The cancel logic will call the closeOrReleased Resources method by itself.
-                // If it is also called here,
-                // it may result in the inability to obtain relevant information when canceling the task
-                if (!TaskStatus.CANCELED.equals(status)) {
-                    closeOrReleaseResources();
-                }
-            }
-        }
-    }
-
-    private void before() throws Exception {
-        if (isCanceled.get()) {
+    @Override
+    public void before() throws Exception {
+        if (getIsCanceled().get()) {
             log.info("streaming insert task has been canceled, task id is {}", getTaskId());
             return;
         }
@@ -158,8 +113,9 @@ public class StreamingInsertTask {
         this.stmtExecutor = new StmtExecutor(ctx, new LogicalPlanAdapter(taskCommand, ctx.getStatementContext()));
     }
 
-    private void run() throws JobException {
-        if (isCanceled.get()) {
+    @Override
+    public void run() throws JobException {
+        if (getIsCanceled().get()) {
             log.info("task has been canceled, task id is {}", getTaskId());
             return;
         }
@@ -180,8 +136,9 @@ public class StreamingInsertTask {
         }
     }
 
+    @Override
     public boolean onSuccess() throws JobException {
-        if (isCanceled.get()) {
+        if (getIsCanceled().get()) {
             return false;
         }
         this.status = TaskStatus.SUCCESS;
@@ -200,8 +157,9 @@ public class StreamingInsertTask {
         return true;
     }
 
+    @Override
     public void onFail(String errMsg) throws JobException {
-        if (isCanceled.get()) {
+        if (getIsCanceled().get()) {
             return;
         }
         this.errMsg = errMsg;
@@ -215,16 +173,17 @@ public class StreamingInsertTask {
         streamingInsertJob.onStreamTaskFail(this);
     }
 
+    @Override
     public void cancel(boolean needWaitCancelComplete) {
         if (TaskStatus.SUCCESS.equals(status) || TaskStatus.FAILED.equals(status)
                 || TaskStatus.CANCELED.equals(status)) {
             return;
         }
         status = TaskStatus.CANCELED;
-        if (isCanceled.get()) {
+        if (getIsCanceled().get()) {
             return;
         }
-        isCanceled.getAndSet(true);
+        getIsCanceled().getAndSet(true);
         this.errMsg = "task cancelled";
         if (null != stmtExecutor) {
             log.info("cancelling streaming insert task, job id is {}, task id is {}",
@@ -234,6 +193,7 @@ public class StreamingInsertTask {
         }
     }
 
+    @Override
     public void closeOrReleaseResources() {
         if (null != stmtExecutor) {
             stmtExecutor = null;
@@ -254,57 +214,5 @@ public class StreamingInsertTask {
             return true;
         }
         return false;
-    }
-
-    /**
-     * show streaming insert task info detail
-     */
-    public TRow getTvfInfo(String jobName) {
-        TRow trow = new TRow();
-        trow.addToColumnValue(new TCell().setStringVal(String.valueOf(this.getTaskId())));
-        trow.addToColumnValue(new TCell().setStringVal(String.valueOf(this.getJobId())));
-        trow.addToColumnValue(new TCell().setStringVal(jobName));
-        trow.addToColumnValue(new TCell().setStringVal(this.getLabelName()));
-        trow.addToColumnValue(new TCell().setStringVal(this.getStatus().name()));
-        // err msg
-        trow.addToColumnValue(new TCell().setStringVal(StringUtils.isNotBlank(errMsg)
-                ? errMsg : FeConstants.null_string));
-
-        // create time
-        trow.addToColumnValue(new TCell().setStringVal(TimeUtils.longToTimeString(this.getCreateTimeMs())));
-        trow.addToColumnValue(new TCell().setStringVal(null == getStartTimeMs() ? FeConstants.null_string
-                : TimeUtils.longToTimeString(this.getStartTimeMs())));
-        // load end time
-        trow.addToColumnValue(new TCell().setStringVal(TimeUtils.longToTimeString(this.getFinishTimeMs())));
-
-        List<LoadJob> loadJobs = Env.getCurrentEnv().getLoadManager()
-                .queryLoadJobsByJobIds(Arrays.asList(this.getTaskId()));
-        if (!loadJobs.isEmpty()) {
-            LoadJob loadJob = loadJobs.get(0);
-            if (loadJob.getLoadingStatus() != null && loadJob.getLoadingStatus().getTrackingUrl() != null) {
-                trow.addToColumnValue(new TCell().setStringVal(loadJob.getLoadingStatus().getTrackingUrl()));
-            } else {
-                trow.addToColumnValue(new TCell().setStringVal(FeConstants.null_string));
-            }
-
-            if (loadJob.getLoadStatistic() != null) {
-                trow.addToColumnValue(new TCell().setStringVal(loadJob.getLoadStatistic().toJson()));
-            } else {
-                trow.addToColumnValue(new TCell().setStringVal(FeConstants.null_string));
-            }
-        } else {
-            trow.addToColumnValue(new TCell().setStringVal(FeConstants.null_string));
-            trow.addToColumnValue(new TCell().setStringVal(FeConstants.null_string));
-        }
-
-        if (this.getUserIdentity() == null) {
-            trow.addToColumnValue(new TCell().setStringVal(FeConstants.null_string));
-        } else {
-            trow.addToColumnValue(new TCell().setStringVal(this.getUserIdentity().getQualifiedUser()));
-        }
-        trow.addToColumnValue(new TCell().setStringVal(""));
-        trow.addToColumnValue(new TCell().setStringVal(runningOffset == null
-                ? FeConstants.null_string : runningOffset.showRange()));
-        return trow;
     }
 }

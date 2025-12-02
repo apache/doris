@@ -1173,13 +1173,20 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         Optional<Long> interval = ctx.timeInterval == null ? Optional.empty() :
                 Optional.of(Long.valueOf(ctx.timeInterval.getText()));
         Optional<String> intervalUnit = ctx.timeUnit == null ? Optional.empty() : Optional.of(ctx.timeUnit.getText());
-        Map<String, String> properties = ctx.propertyClause() != null
-                ? Maps.newHashMap(visitPropertyClause(ctx.propertyClause())) : Maps.newHashMap();
+        Map<String, String> jobProperties = ctx.jobProperties != null
+                ? Maps.newHashMap(visitPropertyClause(ctx.jobProperties)) : Maps.newHashMap();
         String comment =
                 visitCommentSpec(ctx.commentSpec());
-        String executeSql = getOriginSql(ctx.supportedDmlStatement());
+        String executeSql = ctx.supportedDmlStatement() == null ? "" : getOriginSql(ctx.supportedDmlStatement());
+        Optional<String> sourceType = ctx.sourceType == null ? Optional.empty() : Optional.of(ctx.sourceType.getText());
+        String targetDb = ctx.targetDb == null ? "" : ctx.targetDb.getText();
+        Map<String, String> sourceProperties = ctx.sourceProperties != null
+                ? Maps.newHashMap(visitPropertyItemList(ctx.sourceProperties)) : Maps.newHashMap();
+        Map<String, String> targetProperties = ctx.targetProperties != null
+                ? Maps.newHashMap(visitPropertyItemList(ctx.targetProperties)) : Maps.newHashMap();
         CreateJobInfo createJobInfo = new CreateJobInfo(label, atTime, interval, intervalUnit, startTime,
-                endsTime, immediateStartOptional, comment, executeSql, ctx.STREAMING() != null, properties);
+                endsTime, immediateStartOptional, comment, executeSql, ctx.STREAMING() != null,
+                jobProperties,sourceType, targetDb, sourceProperties, targetProperties);
         return new CreateJobCommand(createJobInfo);
     }
 

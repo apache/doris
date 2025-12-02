@@ -17,6 +17,7 @@
 
 package org.apache.doris.cdcclient.utils;
 
+import com.mysql.cj.conf.ConnectionUrl;
 import java.util.Map;
 import java.util.Properties;
 import org.apache.commons.lang3.StringUtils;
@@ -34,11 +35,13 @@ public class ConfigUtil {
     public static MySqlSourceConfig generateMySqlConfig(JobConfig config) {
         Map<String, String> cdcConfig = config.getConfig();
         MySqlSourceConfigFactory configFactory = new MySqlSourceConfigFactory();
-        configFactory.hostname(cdcConfig.get(LoadConstants.HOST));
-        configFactory.port(Integer.valueOf(cdcConfig.get(LoadConstants.PORT)));
-        configFactory.username(cdcConfig.get(LoadConstants.USERNAME));
-        configFactory.password(cdcConfig.get(LoadConstants.PASSWORD));
 
+        ConnectionUrl cu =
+                ConnectionUrl.getConnectionUrlInstance(cdcConfig.get(LoadConstants.JDBC_URL), null);
+        configFactory.hostname(cu.getMainHost().getHost());
+        configFactory.port(cu.getMainHost().getPort());
+        configFactory.username(cdcConfig.get(LoadConstants.USER));
+        configFactory.password(cdcConfig.get(LoadConstants.PASSWORD));
         String databaseName = cdcConfig.get(LoadConstants.DATABASE);
         configFactory.databaseList(databaseName);
         configFactory.serverId(String.valueOf(Math.abs(config.getJobId().hashCode())));
@@ -107,8 +110,7 @@ public class ConfigUtil {
         }
 
         Properties jdbcProperteis = new Properties();
-        jdbcProperteis.put("allowPublicKeyRetrieval", "true");
-        jdbcProperteis.put("useSSL", "false");
+        jdbcProperteis.putAll(cu.getOriginalProperties());
         configFactory.jdbcProperties(jdbcProperteis);
 
         if (cdcConfig.containsKey(LoadConstants.SPLIT_SIZE)) {

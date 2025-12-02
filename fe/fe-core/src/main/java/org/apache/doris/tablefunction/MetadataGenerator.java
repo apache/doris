@@ -67,6 +67,7 @@ import org.apache.doris.datasource.iceberg.IcebergMetadataCache;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalCatalog;
 import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.job.common.JobType;
+import org.apache.doris.job.extensions.insert.streaming.AbstractStreamingTask;
 import org.apache.doris.job.extensions.insert.streaming.StreamingInsertJob;
 import org.apache.doris.job.extensions.insert.streaming.StreamingInsertTask;
 import org.apache.doris.job.extensions.mtmv.MTMVJob;
@@ -1231,8 +1232,8 @@ public class MetadataGenerator {
 
             if (job instanceof StreamingInsertJob) {
                 StreamingInsertJob streamingJob = (StreamingInsertJob) job;
-                List<StreamingInsertTask> streamingInsertTasks = streamingJob.queryAllStreamTasks();
-                for (StreamingInsertTask task : streamingInsertTasks) {
+                List<AbstractStreamingTask> streamingInsertTasks = streamingJob.queryAllStreamTasks();
+                for (AbstractStreamingTask task : streamingInsertTasks) {
                     TRow tvfInfo = task.getTvfInfo(job.getJobName());
                     if (tvfInfo != null) {
                         dataBatch.add(tvfInfo);

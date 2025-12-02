@@ -17,6 +17,7 @@
 
 package org.apache.doris.job.manager;
 
+import org.apache.doris.job.extensions.insert.streaming.AbstractStreamingTask;
 import org.apache.doris.job.extensions.insert.streaming.StreamingInsertTask;
 
 import lombok.Getter;
@@ -28,28 +29,29 @@ import java.util.concurrent.LinkedBlockingDeque;
 
 public class StreamingTaskManager {
     @Getter
-    private final LinkedBlockingDeque<StreamingInsertTask> needScheduleTasksQueue = new LinkedBlockingDeque<>();
+    private final LinkedBlockingDeque<AbstractStreamingTask> needScheduleTasksQueue = new LinkedBlockingDeque<>();
     @Getter
-    private List<StreamingInsertTask> runningTasks = Collections.synchronizedList(new ArrayList<>());
+    private List<AbstractStreamingTask> runningTasks = Collections.synchronizedList(new ArrayList<>());
 
-    public void registerTask(StreamingInsertTask task) {
+    public void registerTask(AbstractStreamingTask task) {
         needScheduleTasksQueue.add(task);
     }
 
     public StreamingInsertTask getStreamingInsertTaskById(long taskId) {
         synchronized (runningTasks) {
-            return runningTasks.stream()
+            return (StreamingInsertTask) runningTasks.stream()
                     .filter(task -> task.getTaskId() == taskId)
+                    .filter(task -> task instanceof StreamingInsertTask)
                     .findFirst()
                     .orElse(null);
         }
     }
 
-    public void addRunningTask(StreamingInsertTask task) {
+    public void addRunningTask(AbstractStreamingTask task) {
         runningTasks.add(task);
     }
 
-    public void removeRunningTask(StreamingInsertTask task) {
+    public void removeRunningTask(AbstractStreamingTask task) {
         runningTasks.remove(task);
     }
 }

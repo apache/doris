@@ -65,7 +65,8 @@ public class StreamingJobSchedulerTask extends AbstractTask {
                 return;
             }
         }
-        streamingInsertJob.createStreamingInsertTask();
+
+        streamingInsertJob.createStreamingTask();;
         streamingInsertJob.updateJobStatus(JobStatus.RUNNING);
         streamingInsertJob.setAutoResumeCount(0);
     }

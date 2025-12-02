@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands.info;
 
+import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -28,6 +29,7 @@ import org.apache.doris.job.base.AbstractJob;
 import org.apache.doris.job.base.JobExecuteType;
 import org.apache.doris.job.base.JobExecutionConfiguration;
 import org.apache.doris.job.base.TimerDefinition;
+import org.apache.doris.job.common.DataSourceType;
 import org.apache.doris.job.common.IntervalUnit;
 import org.apache.doris.job.common.JobStatus;
 import org.apache.doris.job.extensions.insert.InsertJob;
@@ -70,6 +72,10 @@ public class CreateJobInfo {
     private final String executeSql;
     private final boolean streamingJob;
     private final Map<String, String> jobProperties;
+    private final Optional<String> sourceType;
+    private final String targetDb;
+    private final Map<String, String> sourceProperties;
+    private final Map<String, String> targetProperties;
 
     /**
      * Constructor for CreateJobInfo.
@@ -88,7 +94,8 @@ public class CreateJobInfo {
                          Optional<Long> intervalOptional, Optional<String> intervalTimeUnitOptional,
                          Optional<String> startsTimeStampOptional, Optional<String> endsTimeStampOptional,
                          Optional<Boolean> immediateStartOptional, String comment, String executeSql,
-                         boolean streamingJob, Map<String, String> jobProperties) {
+                         boolean streamingJob, Map<String, String> jobProperties, Optional<String> sourceType,
+                         String targetDb, Map<String, String> sourceProperties, Map<String, String> targetProperties) {
         this.labelNameOptional = labelNameOptional;
         this.onceJobStartTimestampOptional = onceJobStartTimestampOptional;
         this.intervalOptional = intervalOptional;
@@ -100,6 +107,10 @@ public class CreateJobInfo {
         this.executeSql = executeSql;
         this.streamingJob = streamingJob;
         this.jobProperties = jobProperties;
+        this.sourceType = sourceType;
+        this.targetDb = targetDb;
+        this.sourceProperties = sourceProperties;
+        this.targetProperties = targetProperties;
     }
 
     /**
@@ -140,8 +151,22 @@ public class CreateJobInfo {
         } else {
             buildRecurringJob(timerDefinition, jobExecutionConfiguration);
         }
+
         jobExecutionConfiguration.setTimerDefinition(timerDefinition);
-        return analyzeAndCreateJob(executeSql, dbName, jobExecutionConfiguration, jobProperties);
+        // set source type
+        if (streamingJob) {
+            if (sourceType.isPresent()) {
+                DataSourceType dataSourceType = DataSourceType.valueOf(sourceType.get());
+                return analyzeAndCreateFromSourceJob(dbName, jobExecutionConfiguration, jobProperties, targetDb, dataSourceType, sourceProperties, targetProperties);
+            }else {
+                return analyzeAndCreateStreamingInsertJob(executeSql, dbName, jobExecutionConfiguration, jobProperties);
+            }
+        } else {
+            if (sourceType.isPresent()) {
+                throw new AnalysisException("From..To Database is only supported in streaming job");
+            }
+            return analyzeAndCreateInsertJob(executeSql, dbName, jobExecutionConfiguration);
+        }
     }
 
     private void buildStreamingJob(TimerDefinition timerDefinition) {
@@ -216,12 +241,47 @@ public class CreateJobInfo {
 
     protected void checkAuth() throws AnalysisException {
         if (streamingJob) {
-            StreamingInsertJob.checkPrivilege(ConnectContext.get(), executeSql);
+            StreamingInsertJob.checkPrivilege(ConnectContext.get(), executeSql, targetDb);
             return;
         }
 
         if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
+        }
+    }
+
+    /**
+     * Analyzes From Source To Database.
+     *
+     * @return an instance of AbstractJob corresponding to the SQL statement
+     * @throws UserException if there is an error during SQL analysis or job creation
+     */
+    private AbstractJob analyzeAndCreateFromSourceJob(String currentDbName,
+            JobExecutionConfiguration jobExecutionConfiguration, Map<String, String> jobProperties, String targetDb,
+            DataSourceType dataSourceType, Map<String, String> sourceProperties, Map<String, String> targetProperties) throws UserException {
+        Optional<Database> db = Env.getCurrentEnv().getInternalCatalog().getDb(targetDb);
+        if (!db.isPresent()) {
+            throw new AnalysisException("Target database " + targetDb + " does not exist");
+        }
+        return new StreamingInsertJob(labelNameOptional.get(),
+                JobStatus.PENDING,
+                currentDbName,
+                comment,
+                ConnectContext.get().getCurrentUserIdentity(),
+                jobExecutionConfiguration,
+                System.currentTimeMillis(),
+                "",
+                jobProperties, targetDb, dataSourceType, sourceProperties, targetProperties);
+    }
+
+
+    private AbstractJob analyzeAndCreateJob(String sql, String currentDbName,
+                                            JobExecutionConfiguration jobExecutionConfiguration,
+                                            Map<String, String> properties) throws UserException {
+        if (jobExecutionConfiguration.getExecuteType().equals(JobExecuteType.STREAMING)) {
+            return analyzeAndCreateStreamingInsertJob(sql, currentDbName, jobExecutionConfiguration, properties);
+        } else {
+            return analyzeAndCreateInsertJob(sql, currentDbName, jobExecutionConfiguration);
         }
     }
 
@@ -235,16 +295,6 @@ public class CreateJobInfo {
      * @return an instance of AbstractJob corresponding to the SQL statement
      * @throws UserException if there is an error during SQL analysis or job creation
      */
-    private AbstractJob analyzeAndCreateJob(String sql, String currentDbName,
-                                            JobExecutionConfiguration jobExecutionConfiguration,
-                                            Map<String, String> properties) throws UserException {
-        if (jobExecutionConfiguration.getExecuteType().equals(JobExecuteType.STREAMING)) {
-            return analyzeAndCreateStreamingInsertJob(sql, currentDbName, jobExecutionConfiguration, properties);
-        } else {
-            return analyzeAndCreateInsertJob(sql, currentDbName, jobExecutionConfiguration);
-        }
-    }
-
     private AbstractJob analyzeAndCreateInsertJob(String sql, String currentDbName,
             JobExecutionConfiguration jobExecutionConfiguration) throws UserException {
         NereidsParser parser = new NereidsParser();
@@ -270,6 +320,16 @@ public class CreateJobInfo {
         }
     }
 
+    /**
+     * Analyzes the provided SQL statement and creates an appropriate job based on the parsed logical plan.
+     * Currently, only "InsertIntoTableCommand" is supported for job creation.
+     *
+     * @param sql                       the SQL statement to be analyzed
+     * @param currentDbName             the current database name where the SQL statement will be executed
+     * @param jobExecutionConfiguration the configuration for job execution
+     * @return an instance of AbstractJob corresponding to the SQL statement
+     * @throws UserException if there is an error during SQL analysis or job creation
+     */
     private AbstractJob analyzeAndCreateStreamingInsertJob(String sql, String currentDbName,
             JobExecutionConfiguration jobExecutionConfiguration, Map<String, String> properties) throws UserException {
         NereidsParser parser = new NereidsParser();

@@ -17,13 +17,10 @@
 
 package org.apache.doris.cdcclient.controller;
 
-import java.util.List;
 import org.apache.doris.cdcclient.common.Env;
 import org.apache.doris.cdcclient.model.request.FetchRecordReq;
 import org.apache.doris.cdcclient.model.request.FetchTableSplitsReq;
 import org.apache.doris.cdcclient.model.request.WriteRecordReq;
-import org.apache.doris.cdcclient.model.response.RecordWithMeta;
-import org.apache.doris.cdcclient.model.response.WriteMetaResp;
 import org.apache.doris.cdcclient.model.rest.ResponseEntityBuilder;
 import org.apache.doris.cdcclient.service.PipelineCoordinator;
 import org.apache.doris.cdcclient.source.reader.SourceReader;
@@ -35,6 +32,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
+import java.util.List;
 
 @RestController
 public class ClientController {
@@ -59,8 +57,8 @@ public class ClientController {
     @RequestMapping(path = "/api/fetchRecords", method = RequestMethod.POST)
     public Object fetchRecords(@RequestBody FetchRecordReq recordReq) {
         try {
-            RecordWithMeta response = pipelineCoordinator.read(recordReq);
-            return ResponseEntityBuilder.ok(response);
+            SourceReader<?, ?> reader = Env.getCurrentEnv().getReader(recordReq);
+            return ResponseEntityBuilder.ok(reader.read(recordReq));
         } catch (Exception ex) {
             LOG.error("Failed fetch record, jobId={}", recordReq.getJobId(), ex);
             return ResponseEntityBuilder.badRequest(ex.getMessage());
@@ -70,13 +68,15 @@ public class ClientController {
     /** Fetch records from source reader and Write records to backend */
     @RequestMapping(path = "/api/writeRecords", method = RequestMethod.POST)
     public Object writeRecord(@RequestBody WriteRecordReq recordReq) {
-        try {
-            WriteMetaResp response = pipelineCoordinator.writeRecords(recordReq);
-            return ResponseEntityBuilder.ok(response);
-        } catch (Exception ex) {
-            LOG.error("Failed to write record, jobId={}", recordReq.getJobId(), ex);
-            return ResponseEntityBuilder.badRequest(ex.getMessage());
-        }
+        pipelineCoordinator.writeRecordsAsync(recordReq);
+        return ResponseEntityBuilder.ok("Request accepted, processing asynchronously");
+    }
+
+    /** Fetch lastest end meta */
+    @RequestMapping(path = "/api/fetchEndOffset", method = RequestMethod.POST)
+    public Object fetchEndOffset(@RequestBody WriteRecordReq recordReq) {
+        pipelineCoordinator.writeRecordsAsync(recordReq);
+        return ResponseEntityBuilder.ok("Request accepted, processing asynchronously");
     }
 
     @RequestMapping(path = "/api/close/{jobId}", method = RequestMethod.POST)
