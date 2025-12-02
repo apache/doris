@@ -230,6 +230,11 @@ std::unique_ptr<PhysicalToLogicalConverter> PhysicalToLogicalConverter::get_conv
             // for FixedSizeBinary
             physical_converter =
                     std::make_unique<FixedSizeBinaryConverter>(parquet_schema.type_length);
+        } else if (src_logical_primitive == TYPE_FLOAT &&
+                   src_physical_type == tparquet::Type::FIXED_LEN_BYTE_ARRAY &&
+                   parquet_schema.logicalType.__isset.FLOAT16) {
+            physical_converter =
+                    std::make_unique<Float16PhysicalConverter>(parquet_schema.type_length);
         } else {
             physical_converter = std::make_unique<ConsistentPhysicalConverter>();
         }
