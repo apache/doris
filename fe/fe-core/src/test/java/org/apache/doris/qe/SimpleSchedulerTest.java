@@ -193,20 +193,30 @@ public class SimpleSchedulerTest {
         scanRangeLocation5.setBackendId(be5.getId());
         locations.add(scanRangeLocation5);
 
-        for (int i = 0; i <= Config.do_add_backend_black_list_threshold_count; i++) {
-            SimpleScheduler.addToBlacklist(be1.getId(), "test");
-            SimpleScheduler.addToBlacklist(be2.getId(), "test");
-            SimpleScheduler.addToBlacklist(be3.getId(), "test");
-            SimpleScheduler.addToBlacklist(be4.getId(), "test");
-            SimpleScheduler.addToBlacklist(be5.getId(), "test");
-        }
 
-        try {
-            SimpleScheduler.getHost(locations.get(0).backend_id, locations, backends, ref);
-            Assert.fail();
-        } catch (UserException e) {
-            System.out.println(e.getMessage());
+        boolean addBacklistSuccess = false;
+        // retry multiple times, because the UpdateBlacklistThread delete blacklist backend every second,
+        // so the SimpleScheduler.getHost() maybe not throw exception because the backend not exists in
+        // the blacklist
+        for (int retryTimes = 0; retryTimes < 20; retryTimes++) {
+            for (int i = 0; i <= Config.do_add_backend_black_list_threshold_count; i++) {
+                SimpleScheduler.addToBlacklist(be1.getId(), "test");
+                SimpleScheduler.addToBlacklist(be2.getId(), "test");
+                SimpleScheduler.addToBlacklist(be3.getId(), "test");
+                SimpleScheduler.addToBlacklist(be4.getId(), "test");
+                SimpleScheduler.addToBlacklist(be5.getId(), "test");
+            }
+
+            try {
+                SimpleScheduler.getHost(locations.get(0).backend_id, locations, backends, ref);
+                Assert.fail();
+            } catch (UserException e) {
+                System.out.println(e.getMessage());
+                addBacklistSuccess = true;
+                break;
+            }
         }
+        Assert.assertTrue(addBacklistSuccess);
 
         Thread.sleep((Config.heartbeat_interval_second + 5) * 1000);
         Assert.assertNotNull(SimpleScheduler.getHost(locations.get(0).backend_id, locations, backends, ref));
