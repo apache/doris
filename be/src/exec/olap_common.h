@@ -210,7 +210,8 @@ public:
             if (null_pred.condition_values.size() != 0) {
                 filters.emplace_back(_column_name, null_pred, _runtime_filter_id,
                                      _predicate_filtered_rows_counter,
-                                     _predicate_input_rows_counter);
+                                     _predicate_input_rows_counter,
+                                     _predicate_always_true_rows_counter);
                 return;
             }
 
@@ -223,9 +224,9 @@ public:
             }
 
             if (low.condition_values.size() != 0) {
-                filters.emplace_back(_column_name, low, _runtime_filter_id,
-                                     _predicate_filtered_rows_counter,
-                                     _predicate_input_rows_counter);
+                filters.emplace_back(
+                        _column_name, low, _runtime_filter_id, _predicate_filtered_rows_counter,
+                        _predicate_input_rows_counter, _predicate_always_true_rows_counter);
             }
 
             TCondition high;
@@ -237,9 +238,9 @@ public:
             }
 
             if (high.condition_values.size() != 0) {
-                filters.emplace_back(_column_name, high, _runtime_filter_id,
-                                     _predicate_filtered_rows_counter,
-                                     _predicate_input_rows_counter);
+                filters.emplace_back(
+                        _column_name, high, _runtime_filter_id, _predicate_filtered_rows_counter,
+                        _predicate_input_rows_counter, _predicate_always_true_rows_counter);
             }
         } else {
             // 3. convert to is null and is not null filter condition
@@ -254,7 +255,8 @@ public:
             if (null_pred.condition_values.size() != 0) {
                 filters.emplace_back(_column_name, null_pred, _runtime_filter_id,
                                      _predicate_filtered_rows_counter,
-                                     _predicate_input_rows_counter);
+                                     _predicate_input_rows_counter,
+                                     _predicate_always_true_rows_counter);
             }
         }
     }
@@ -272,7 +274,8 @@ public:
 
         if (condition.condition_values.size() != 0) {
             filters.emplace_back(_column_name, condition, _runtime_filter_id,
-                                 _predicate_filtered_rows_counter, _predicate_input_rows_counter);
+                                 _predicate_filtered_rows_counter, _predicate_input_rows_counter,
+                                 _predicate_always_true_rows_counter);
         }
     }
 
@@ -312,7 +315,8 @@ public:
     void attach_profile_counter(
             int runtime_filter_id,
             std::shared_ptr<RuntimeProfile::Counter> predicate_filtered_rows_counter,
-            std::shared_ptr<RuntimeProfile::Counter> predicate_input_rows_counter) {
+            std::shared_ptr<RuntimeProfile::Counter> predicate_input_rows_counter,
+            std::shared_ptr<RuntimeProfile::Counter> predicate_always_true_rows_counter) {
         DCHECK(predicate_filtered_rows_counter != nullptr);
         DCHECK(predicate_input_rows_counter != nullptr);
 
@@ -323,6 +327,9 @@ public:
         }
         if (predicate_input_rows_counter != nullptr) {
             _predicate_input_rows_counter = predicate_input_rows_counter;
+        }
+        if (predicate_always_true_rows_counter != nullptr) {
+            _predicate_always_true_rows_counter = predicate_always_true_rows_counter;
         }
     }
 
@@ -397,6 +404,8 @@ private:
     std::shared_ptr<RuntimeProfile::Counter> _predicate_filtered_rows_counter =
             std::make_shared<RuntimeProfile::Counter>(TUnit::UNIT, 0);
     std::shared_ptr<RuntimeProfile::Counter> _predicate_input_rows_counter =
+            std::make_shared<RuntimeProfile::Counter>(TUnit::UNIT, 0);
+    std::shared_ptr<RuntimeProfile::Counter> _predicate_always_true_rows_counter =
             std::make_shared<RuntimeProfile::Counter>(TUnit::UNIT, 0);
 };
 template <>

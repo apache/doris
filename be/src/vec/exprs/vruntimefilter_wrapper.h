@@ -124,6 +124,9 @@ public:
     std::shared_ptr<RuntimeProfile::Counter> predicate_input_rows_counter() const {
         return _rf_input_rows;
     }
+    std::shared_ptr<RuntimeProfile::Counter> predicate_always_true_rows_counter() const {
+        return _always_true_filter_rows;
+    }
 
 private:
     void reset_judge_selectivity() const {
