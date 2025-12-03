@@ -142,7 +142,7 @@ public class BuildIndexOp extends AlterTableOp {
             throw new AnalysisException(indexType + " index is not needed to build.");
         }
 
-        if (indexType == IndexDefinition.IndexType.ANN) {
+        if (indexType == IndexDef.IndexType.ANN) {
             List<String> columns = existedIdx.getColumns();
             Map<String, String> properties = existedIdx.getProperties();
             String comment = existedIdx.getComment();
