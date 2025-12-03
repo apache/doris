@@ -994,7 +994,7 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
                         + typeDefParams.stream().map(String::toString).collect(Collectors.joining(", ")));
             }
         }
-        Map<String, String> sessionVariables = ConnectContextUtil.getAffectQueryResultSessionVariables(ctx);
+        Map<String, String> sessionVariables = ConnectContextUtil.getAffectQueryResultInPlanVariables(ctx);
         function = AliasFunction.createFunction(functionName, argsDef.getArgTypes(),
                 Type.VARCHAR, argsDef.isVariadic(), parameters, translateToLegacyExpr(originFunction, ctx),
                 sessionVariables);

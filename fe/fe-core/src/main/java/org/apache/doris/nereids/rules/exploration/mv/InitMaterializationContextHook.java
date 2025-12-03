@@ -285,7 +285,7 @@ public class InitMaterializationContextHook implements PlannerHook {
                         basicMvContext.setDatabase(meta.getDbName());
 
                         boolean sessionVarMatch = SessionVarGuardRewriter.checkSessionVariablesMatch(
-                                ConnectContextUtil.getAffectQueryResultSessionVariables(
+                                ConnectContextUtil.getAffectQueryResultInPlanVariables(
                                         cascadesContext.getConnectContext()), meta.getSessionVariables());
                         MTMVCache mtmvCache = MTMVCache.from(querySql.get(),
                                 basicMvContext, true,

@@ -838,7 +838,7 @@ public class Alter {
         String tableName = tableNameInfo.getTbl();
         View view = (View) db.getTableOrMetaException(tableName, TableType.VIEW);
         modifyViewDef(db, view, alterViewInfo.getInlineViewDef(),
-                ConnectContextUtil.getAffectQueryResultSessionVariables(ConnectContext.get()),
+                ConnectContextUtil.getAffectQueryResultInPlanVariables(ConnectContext.get()),
                 alterViewInfo.getColumns(), alterViewInfo.getComment());
     }
 

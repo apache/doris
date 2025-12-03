@@ -47,7 +47,7 @@ public class ShowCreateMTMVInfo {
     private static final ShowResultSetMetaData META_DATA = ShowResultSetMetaData.builder()
             .addColumn(new Column("Materialized View", ScalarType.createVarchar(20)))
             .addColumn(new Column("Create Materialized View", ScalarType.createVarchar(30)))
-            .addColumn(new Column("var", ScalarType.createVarchar(10000)))
+            .addColumn(new Column("Session Variables", ScalarType.createVarchar(10000)))
             .build();
 
     private final TableNameInfo mvName;

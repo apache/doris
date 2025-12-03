@@ -87,8 +87,7 @@ public class SessionVarGuardExpr extends Expression implements UnaryExpression {
     }
 
     private AutoCloseSessionVariable openGuard() {
-        ConnectContext ctx = ConnectContext.get();
-        return new AutoCloseSessionVariable(ctx, sessionVars);
+        return new AutoCloseSessionVariable(ConnectContext.get(), sessionVars);
     }
 
     @Override

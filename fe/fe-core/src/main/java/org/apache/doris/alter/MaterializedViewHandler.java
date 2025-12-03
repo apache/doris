@@ -231,7 +231,7 @@ public class MaterializedViewHandler extends AlterHandler {
 
             long baseIndexId = checkAndGetBaseIndex(baseIndexName, olapTable);
             // Step1.3: mv clause validation
-            Map<String, String> sessionVariables = ConnectContextUtil.getAffectQueryResultSessionVariables(
+            Map<String, String> sessionVariables = ConnectContextUtil.getAffectQueryResultInPlanVariables(
                     ConnectContext.get());
             List<Column> mvColumns = checkAndPrepareMaterializedView(createMvCommand, olapTable, sessionVariables);
 
@@ -328,7 +328,7 @@ public class MaterializedViewHandler extends AlterHandler {
                 RollupJobV2 alterJobV2 =
                         createMaterializedViewJob(rawSql, rollupIndexName, baseIndexName, rollupSchema, null,
                         addRollupOp.getProperties(), olapTable, db, baseIndexId, olapTable.getKeysType(),
-                        null, ConnectContextUtil.getAffectQueryResultSessionVariables(ConnectContext.get()));
+                        null, ConnectContextUtil.getAffectQueryResultInPlanVariables(ConnectContext.get()));
 
                 rollupNameJobMap.put(addRollupOp.getRollupName(), alterJobV2);
                 logJobIdSet.add(alterJobV2.getJobId());

@@ -135,7 +135,7 @@ public class MTMVCache {
             // Only add SessionVarGuardExpr if requested
             Optional<SessionVarGuardRewriter> exprRewriter = addSessionVarGuard
                     ? Optional.of(new SessionVarGuardRewriter(
-                    ConnectContextUtil.getAffectQueryResultSessionVariables(createCacheContext),
+                    ConnectContextUtil.getAffectQueryResultInPlanVariables(createCacheContext),
                     cascadesContext))
                     : Optional.empty();
             Plan addGuardRewritePlan = exprRewriter

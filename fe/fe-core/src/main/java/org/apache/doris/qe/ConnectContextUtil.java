@@ -96,7 +96,7 @@ public class ConnectContextUtil {
         return Optional.empty();
     }
 
-    public static Map<String, String> getAffectQueryResultSessionVariables(ConnectContext ctx) {
+    public static Map<String, String> getAffectQueryResultInPlanVariables(ConnectContext ctx) {
         if (ctx == null || ctx.getSessionVariable() == null) {
             return null;
         }

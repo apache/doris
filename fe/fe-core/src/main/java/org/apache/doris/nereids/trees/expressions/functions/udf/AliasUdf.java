@@ -100,8 +100,8 @@ public class AliasUdf extends ScalarFunction implements ExplicitlyCastableSignat
         String functionSql = function.getOriginFunction().toSqlWithoutTbl();
         Map<String, String> sessionVariables = function.getSessionVariables();
         Expression parsedFunction;
-        ConnectContext ctx = ConnectContext.get();
-        try (AutoCloseSessionVariable autoClose = new AutoCloseSessionVariable(ctx, sessionVariables)) {
+        try (AutoCloseSessionVariable autoClose = new AutoCloseSessionVariable(ConnectContext.get(),
+                sessionVariables)) {
             parsedFunction = new NereidsParser().parseExpression(functionSql);
         }
         AliasUdf aliasUdf = new AliasUdf(

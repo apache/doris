@@ -209,7 +209,8 @@ public class MTMV extends OlapTable {
 
     public boolean addTaskResult(MTMVTask task, MTMVRelation relation,
             Map<String, MTMVRefreshPartitionSnapshot> partitionSnapshots, boolean isReplay) {
-        MTMVCache mtmvCache = null;
+        MTMVCache mtmvCacheWithGuard = null;
+        MTMVCache mtmvCacheWithoutGuard = null;
         boolean needUpdateCache = false;
         if (task.getStatus() == TaskStatus.SUCCESS && !Env.isCheckpointThread()
                 && !Config.enable_check_compatibility_mode) {
@@ -220,13 +221,17 @@ public class MTMV extends OlapTable {
                 if (!isReplay) {
                     ConnectContext currentContext = ConnectContext.get();
                     // shouldn't do this while holding mvWriteLock
-                    mtmvCache = MTMVCache.from(this.getQuerySql(),
+                    // TODO: these two cache compute share something same, can be simplified in future
+                    mtmvCacheWithGuard = MTMVCache.from(this.getQuerySql(),
                             MTMVPlanUtil.createMTMVContext(this, MTMVPlanUtil.DISABLE_RULES_WHEN_GENERATE_MTMV_CACHE),
                             true, true, currentContext, true);
-
+                    mtmvCacheWithoutGuard = MTMVCache.from(this.getQuerySql(),
+                            MTMVPlanUtil.createMTMVContext(this, MTMVPlanUtil.DISABLE_RULES_WHEN_GENERATE_MTMV_CACHE),
+                            true, true, currentContext, false);
                 }
             } catch (Throwable e) {
-                mtmvCache = null;
+                mtmvCacheWithGuard = null;
+                mtmvCacheWithoutGuard = null;
                 LOG.warn("generate cache failed", e);
             }
         }
@@ -247,9 +252,9 @@ public class MTMV extends OlapTable {
                 this.relation = relation;
                 if (needUpdateCache) {
                     // Initialize cacheWithGuard, cacheWithoutGuard will be lazily generated when needed
-                    this.cacheWithGuard = mtmvCache;
+                    this.cacheWithGuard = mtmvCacheWithGuard;
                     // Clear the other cache to ensure consistency
-                    this.cacheWithoutGuard = null;
+                    this.cacheWithoutGuard = mtmvCacheWithoutGuard;
                 }
             } else {
                 this.status.setRefreshState(MTMVRefreshState.FAIL);

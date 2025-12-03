@@ -522,7 +522,7 @@ public class ColumnDefinition {
                 generatedColumnDesc.map(GeneratedColumnDesc::translateToInfo).orElse(null),
                 generatedColumnsThatReferToThis,
                 generatedColumnDesc.map(desc ->
-                        ConnectContextUtil.getAffectQueryResultSessionVariables(ConnectContext.get()))
+                        ConnectContextUtil.getAffectQueryResultInPlanVariables(ConnectContext.get()))
                         .orElse(null)
                 );
         column.setAggregationTypeImplicit(aggTypeImplicit);
@@ -541,7 +541,7 @@ public class ColumnDefinition {
                 generatedColumnDesc.map(GeneratedColumnDesc::translateToInfo).orElse(null),
                 generatedColumnsThatReferToThis,
                 generatedColumnDesc.map(desc ->
-                        ConnectContextUtil.getAffectQueryResultSessionVariables(ConnectContext.get()))
+                        ConnectContextUtil.getAffectQueryResultInPlanVariables(ConnectContext.get()))
                         .orElse(null));
         column.setAggregationTypeImplicit(aggTypeImplicit);
         return column;

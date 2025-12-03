@@ -484,7 +484,7 @@ public class BindSink implements AnalysisRuleFactory {
                     boundExpression = boundExpression.accept(
                             new AddSessionVarGuardRewriter(column.getSessionVariables()), Boolean.FALSE);
                 }
-                Alias output = new Alias(boundExpression, info.getExprSql());
+                Alias output = new Alias(boundExpression, column.getName());
                 columnToOutput.put(column.getName(), output);
                 columnToReplaced.put(column.getName(), output.toSlot());
                 replaceMap.put(output.toSlot(), output.child());

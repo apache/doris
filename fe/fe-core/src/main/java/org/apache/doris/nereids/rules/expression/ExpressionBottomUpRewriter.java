@@ -23,7 +23,6 @@ import org.apache.doris.nereids.pattern.ExpressionPatternTraverseListeners.Combi
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SessionVarGuardExpr;
 import org.apache.doris.qe.AutoCloseSessionVariable;
-import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 import org.apache.logging.log4j.LogManager;
@@ -77,7 +76,8 @@ public class ExpressionBottomUpRewriter implements ExpressionRewriteRule<Express
             try {
                 Expression beforeRewrite;
                 if (expression instanceof SessionVarGuardExpr) {
-                    try (AutoCloseSessionVariable auto = new AutoCloseSessionVariable(ConnectContext.get(),
+                    try (AutoCloseSessionVariable auto = new AutoCloseSessionVariable(
+                            context.cascadesContext.getConnectContext(),
                             ((SessionVarGuardExpr) expression).getSessionVars())) {
                         afterRewrite = rewriteChildren(expression, context, currentBatch, rules, listeners);
                     }

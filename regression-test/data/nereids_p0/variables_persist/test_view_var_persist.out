@@ -186,9 +186,6 @@ false
 -- !array_funcs_reverse --
 2.049688	0.524844	2.024844	1.024844	[1.024844, 2.049688]
 
--- !array_product_reverse --
--89876380639897212857971241.198438
-
 -- !compare_expr_reverse --
 1.012345678	1.0123456781	true	true	false	false
 

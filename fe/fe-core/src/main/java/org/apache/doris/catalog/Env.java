@@ -6318,7 +6318,7 @@ public class Env {
             View newView = new View(tableId, tableName, columns);
             newView.setComment(createViewInfo.getComment());
             newView.setInlineViewDefWithSessionVariables(createViewInfo.getInlineViewDef(),
-                    ConnectContextUtil.getAffectQueryResultSessionVariables(ConnectContext.get()));
+                    ConnectContextUtil.getAffectQueryResultInPlanVariables(ConnectContext.get()));
             if (!((Database) db).createTableWithLock(newView, false, createViewInfo.isIfNotExists()).first) {
                 throw new DdlException("Failed to create view[" + tableName + "].");
             }

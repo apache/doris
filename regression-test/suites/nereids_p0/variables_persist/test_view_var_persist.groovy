@@ -15,18 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_view") {
-    // 这个结果是完整的结果，超出了38个精度
-    // 999999999999998246906000000000.76833464320
-    // 这个是截断到38个精度的结果
-    // 999999999999998246906000000000.76833464
-
-    // 打开enable256,创建视图;
+suite("test_view_var_persist") {
+    // Enable enable256 and create view;
     sql "set enable_decimal256=true;"
     sql "drop view if exists v_test_decimal_mul_overflow1;"
     sql """create view v_test_decimal_mul_overflow1 as select f1,f2,f1*f2 multi from test_decimal_mul_overflow1;"""
 
-    // 关闭enable256,进行查询，预期结果是multi超出38个精度的结果, multi+1仍然是38个精度
+    // Disable enable256 and perform query, expected result: multi exceeds 38 precision, multi+1 is still 38 precision
     sql "set enable_decimal256=false;"
 
     // expect column multi scale is 11:999999999999998246906000000000.76833464320 instead of 8: 999999999999998246906000000000.76833464
@@ -66,7 +61,7 @@ suite("test_view") {
     """
     qt_mod "select * from v_mod;"
 
-    // view内部的表达式的测试
+    // Test expressions inside view
     multi_sql """drop view if exists test_lower_project;
     set enable_decimal256=true;
     create view test_lower_project as select t1.c1 as col1, t2.c1 as col2 from 
@@ -75,22 +70,22 @@ suite("test_view") {
     sql "set enable_decimal256=false;"
     qt_view_inner_expression "select * from test_lower_project;"
 
-    // 测试嵌套视图
+    // Test nested views
     // case1
-    // 外层视图关闭256，但是是直接select *
+    // Outer view disables 256, but is direct select *
     multi_sql """set enable_decimal256=false;
     drop view if exists test_nested_view;
     create view test_nested_view as select * from test_lower_project;"""
     sql "set enable_decimal256=true;"
-    // 查询嵌套视图，预期是256精度的
+    // Query nested view, expected to be 256 precision
     qt_nest_view "select * from test_nested_view;"
 
     // case2
-    // 外层视图关闭256，select col1+1 有表达式
+    // Outer view disables 256, select col1+1 has expression
     multi_sql """set enable_decimal256=false;
     drop view if exists test_nested_view_expr;
     create view test_nested_view_expr as select col1+1 from test_lower_project;"""
-    // 查询嵌套视图，预期是128精度的
+    // Query nested view, expected to be 128 precision
     sql "set enable_decimal256=true;"
     qt_nest_view_expr_256 "select * from test_nested_view_expr;"
     sql "set enable_decimal256=false;"
@@ -243,14 +238,14 @@ suite("test_view") {
     """
     qt_union "select * from v_test_union order by 1;"
 
-    // ========== 反向用例：关闭256创建视图，打开256查询 ==========
+    // ========== Reverse test cases: disable 256 to create view, enable 256 to query ==========
 
-    // 关闭enable256,创建视图;
+    // Disable enable256 and create view;
     sql "set enable_decimal256=false;"
     sql "drop view if exists v_test_decimal_mul_overflow1_reverse;"
     sql """create view v_test_decimal_mul_overflow1_reverse as select f1,f2,f1*f2 multi from test_decimal_mul_overflow1;"""
 
-    // 打开enable256,进行查询
+    // Enable enable256 and perform query
     sql "set enable_decimal256=true;"
     qt_scale_is_8_reverse "select multi from v_test_decimal_mul_overflow1_reverse;"
     qt_scale_is_8_reverse "select multi+1 c1 from v_test_decimal_mul_overflow1_reverse;"
@@ -287,7 +282,7 @@ suite("test_view") {
     """
     qt_mod_reverse "select * from v_mod_reverse;"
 
-    // view内部的表达式的测试 - 反向
+    // Test expressions inside view - reverse
     multi_sql """drop view if exists test_lower_project_reverse;
     set enable_decimal256=false;
     create view test_lower_project_reverse as select t1.c1 as col1, t2.c1 as col2 from 
@@ -296,28 +291,28 @@ suite("test_view") {
     sql "set enable_decimal256=true;"
     qt_view_inner_expression_reverse "select * from test_lower_project_reverse;"
 
-    // 测试嵌套视图 - 反向
+    // Test nested views - reverse
     // case1
-    // 外层视图打开256，但是是直接select *
+    // Outer view enables 256, but is direct select *
     multi_sql """set enable_decimal256=true;
     drop view if exists test_nested_view_reverse;
     create view test_nested_view_reverse as select * from test_lower_project_reverse;"""
     sql "set enable_decimal256=false;"
-    // 查询嵌套视图
+    // Query nested view
     qt_nest_view_reverse "select * from test_nested_view_reverse;"
 
     // case2
-    // 外层视图打开256，select col1+1 有表达式
+    // Outer view enables 256, select col1+1 has expression
     multi_sql """set enable_decimal256=true;
     drop view if exists test_nested_view_expr_reverse;
     create view test_nested_view_expr_reverse as select col1+1 from test_lower_project_reverse;"""
-    // 查询嵌套视图
+    // Query nested view
     sql "set enable_decimal256=false;"
     qt_nest_view_expr_128_reverse "select * from test_nested_view_expr_reverse;"
     sql "set enable_decimal256=true;"
     qt_nest_view_expr_256_reverse "select * from test_nested_view_expr_reverse;"
 
-    // agg - 反向
+    // agg - reverse
     multi_sql """set enable_decimal256=false;
     drop view if EXISTS v_test_sum_reverse;
     create view v_test_sum_reverse as select f1, sum(f2) col_sum from test_decimal_mul_overflow1 group by f1;
@@ -356,7 +351,7 @@ suite("test_view") {
     """
     qt_agg_funcs_reverse "select * from v_test_agg_func_reverse;"
 
-    // two phase agg - 反向
+    // two phase agg - reverse
     multi_sql """
         set enable_decimal256=false;
         drop view if EXISTS v_test_agg_two_phase_reverse;
@@ -380,7 +375,7 @@ suite("test_view") {
     set enable_decimal256=true;"""
     qt_distinct_agg_rewrite_reverse "select * from v_distinct_agg_rewrite_reverse;"
 
-    // window - 反向
+    // window - reverse
     multi_sql """
         set enable_decimal256=false;
         drop view if exists test_window_sum_reverse;
@@ -397,7 +392,7 @@ suite("test_view") {
     """
     qt_window_expr_reverse "select * from test_window_sum_expr_reverse;"
 
-    // test if - 反向
+    // test if - reverse
     multi_sql """
         set enable_decimal256=false;
         drop view if EXISTS v_test_if_reverse;
@@ -406,7 +401,7 @@ suite("test_view") {
     """
     qt_if_reverse "select col_if from v_test_if_reverse;"
 
-    // test casewhen - 反向
+    // test casewhen - reverse
     multi_sql """
         set enable_decimal256=false;
         drop view if EXISTS v_test_casewhen_reverse;
@@ -423,7 +418,7 @@ suite("test_view") {
     """
     qt_if_condition_func_reverse "select * from v_test_if_condition_reverse;"
 
-    // array func - 反向
+    // array func - reverse
     multi_sql """
     set enable_decimal256=false;
     drop view if EXISTS v_test_array_func_reverse;
@@ -442,7 +437,7 @@ suite("test_view") {
     qt_array_product_reverse "select * from v_test_array_product_reverse;"
     */
 
-    // compare expr - 反向
+    // compare expr - reverse
     multi_sql """
         set enable_decimal256=false;
         drop view if exists v_test_compare_reverse;
@@ -467,9 +462,9 @@ suite("test_view") {
     """
     qt_union_reverse "select * from v_test_union_reverse;"
 
-    // ========== 测试多个变量同时持久化的场景 ==========
+    // ========== Test scenarios with multiple variables persisted simultaneously ==========
     
-    // 场景1: 同时设置 enable_decimal256 和 decimal_overflow_scale
+    // Scenario 1: Set both enable_decimal256 and decimal_overflow_scale
     multi_sql """
         set enable_decimal256=true;
         set decimal_overflow_scale=10;
@@ -480,7 +475,7 @@ suite("test_view") {
     """
     qt_multi_vars "select multi from v_test_multi_vars;"
 
-    // 场景2: 多个变量在复杂表达式中
+    // Scenario 2: Multiple variables in complex expressions
     multi_sql """
         set enable_decimal256=true;
         set decimal_overflow_scale=8;
@@ -492,7 +487,7 @@ suite("test_view") {
     qt_multi_vars_complex "select * from v_test_multi_vars_complex;"
 
 
-    // 场景6: 嵌套视图中，外层视图对多个列进行表达式计算
+    // Scenario 6: In nested views, outer view performs expression calculations on multiple columns
     multi_sql """drop view if exists v_inner_base;
     set enable_decimal256=true;
     set decimal_overflow_scale=10;
