@@ -454,9 +454,13 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
             throw new AnalysisException("No 'symbol' in properties");
         }
         if (!returnType.isArrayType()) {
-            throw new AnalysisException("JAVA_UDF OF UDTF return type must be array type");
+            throw new AnalysisException("JAVA_UDTF OR PYTHON_UDTF return type must be array type");
         }
-        analyzeJavaUdf(symbol);
+        if (binaryType == TFunctionBinaryType.JAVA_UDF) {
+            analyzeJavaUdf(symbol);
+        } else if (binaryType == TFunctionBinaryType.PYTHON_UDF) {
+            analyzePythonUdtf(symbol);
+        }
         URI location;
         if (!Strings.isNullOrEmpty(originalUserFile)) {
             location = URI.create(originalUserFile);
@@ -470,6 +474,8 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
         function.setChecksum(checksum);
         function.setNullableMode(returnNullMode);
         function.setUDTFunction(true);
+        function.setRuntimeVersion(runtimeVersion);
+        function.setFunctionCode(functionCode);
         // Todo: maybe in create tables function, need register two function, one is
         // normal and one is outer as those have different result when result is NULL.
     }
@@ -890,6 +896,26 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
                             "UDF class '%s' of method '%s' %s is [%s] type, but create function command type is %s.",
                             clazz.getCanonicalName(), method.getName(), pname, pType.getCanonicalName(),
                             expType.getPrimitiveType().toString()));
+        }
+    }
+
+    private void analyzePythonUdtf(String clazz) throws AnalysisException {
+        if (Strings.isNullOrEmpty(clazz)) {
+            throw new AnalysisException("No symbol class name provided for Python UDTF");
+        }
+
+        if (Strings.isNullOrEmpty(this.functionCode)) {
+            return;
+        }
+
+        this.functionCode = this.functionCode.trim();
+        if (!(this.functionCode.startsWith("$$") && this.functionCode.endsWith("$$"))) {
+            throw new AnalysisException("Inline Python UDTF code must be start with $$ and end with $$");
+        }
+
+        this.functionCode = this.functionCode.substring(2, this.functionCode.length() - 2);
+        if (this.functionCode.isEmpty()) {
+            throw new AnalysisException("Inline Python UDTF is empty");
         }
     }
 

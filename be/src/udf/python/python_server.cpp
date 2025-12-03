@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "udf/python/python_udf_server.h"
+#include "udf/python/python_server.h"
 
 #include <butil/fd_utility.h>
 #include <dirent.h>
@@ -29,10 +29,11 @@
 #include "common/config.h"
 #include "udf/python/python_udaf_client.h"
 #include "udf/python/python_udf_client.h"
+#include "udf/python/python_udtf_client.h"
 
 namespace doris {
 
-Status PythonUDFServerManager::init(const std::vector<PythonVersion>& versions) {
+Status PythonServerManager::init(const std::vector<PythonVersion>& versions) {
     std::lock_guard<std::mutex> lock(_pools_mutex);
     for (const auto& version : versions) {
         if (_pools.find(version) != _pools.end()) continue;
@@ -45,9 +46,8 @@ Status PythonUDFServerManager::init(const std::vector<PythonVersion>& versions) 
 }
 
 template <typename T>
-Status PythonUDFServerManager::get_client(const PythonUDFMeta& func_meta,
-                                          const PythonVersion& version,
-                                          std::shared_ptr<T>* client) {
+Status PythonServerManager::get_client(const PythonUDFMeta& func_meta, const PythonVersion& version,
+                                       std::shared_ptr<T>* client) {
     PythonUDFProcessPoolPtr* pool = nullptr;
     {
         std::lock_guard<std::mutex> lock(_pools_mutex);
@@ -65,12 +65,12 @@ Status PythonUDFServerManager::get_client(const PythonUDFMeta& func_meta,
     return Status::OK();
 }
 
-Status PythonUDFServerManager::fork(PythonUDFProcessPool* pool, ProcessPtr* process) {
+Status PythonServerManager::fork(PythonUDFProcessPool* pool, ProcessPtr* process) {
     DCHECK(pool != nullptr);
     const PythonVersion& version = pool->get_python_version();
     // e.g. /usr/local/python3.7/bin/python3
     std::string python_executable_path = version.get_executable_path();
-    // e.g. /{DORIS_HOME}/plugins/python_udf/python_udf_server.py
+    // e.g. /{DORIS_HOME}/plugins/python_udf/python_server.py
     std::string fight_server_path = get_fight_server_path();
     // e.g. grpc+unix:///home/doris/output/be/lib/udf/python/python_udf
     std::string base_unix_socket_path = get_base_unix_socket_path();
@@ -131,7 +131,7 @@ Status PythonUDFServerManager::fork(PythonUDFProcessPool* pool, ProcessPtr* proc
     return Status::OK();
 }
 
-void PythonUDFServerManager::shutdown() {
+void PythonServerManager::shutdown() {
     std::lock_guard lock(_pools_mutex);
     for (auto& pool : _pools) {
         pool.second->shutdown();
@@ -140,13 +140,17 @@ void PythonUDFServerManager::shutdown() {
     LOG(INFO) << "Python UDF server manager shutdown successfully";
 }
 
-// Explicit template instantiation for UDF and UDAF clients
-template Status PythonUDFServerManager::get_client<PythonUDFClient>(
+// Explicit template instantiation for UDF, UDAF and UDTF clients
+template Status PythonServerManager::get_client<PythonUDFClient>(
         const PythonUDFMeta& func_meta, const PythonVersion& version,
         std::shared_ptr<PythonUDFClient>* client);
 
-template Status PythonUDFServerManager::get_client<PythonUDAFClient>(
+template Status PythonServerManager::get_client<PythonUDAFClient>(
         const PythonUDFMeta& func_meta, const PythonVersion& version,
         std::shared_ptr<PythonUDAFClient>* client);
+
+template Status PythonServerManager::get_client<PythonUDTFClient>(
+        const PythonUDFMeta& func_meta, const PythonVersion& version,
+        std::shared_ptr<PythonUDTFClient>* client);
 
 } // namespace doris

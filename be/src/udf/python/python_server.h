@@ -20,23 +20,22 @@
 #include <memory>
 
 #include "common/status.h"
+#include "udf/python/python_udaf_client.h"
 #include "udf/python/python_udf_client.h"
 #include "udf/python/python_udf_meta.h"
 #include "udf/python/python_udf_runtime.h"
+#include "udf/python/python_udtf_client.h"
 
 namespace doris {
 
-class PythonUDAFClient;
-using PythonUDAFClientPtr = std::shared_ptr<PythonUDAFClient>;
-
-class PythonUDFServerManager {
+class PythonServerManager {
 public:
-    PythonUDFServerManager() = default;
+    PythonServerManager() = default;
 
-    ~PythonUDFServerManager() = default;
+    ~PythonServerManager() = default;
 
-    static PythonUDFServerManager& instance() {
-        static PythonUDFServerManager instance;
+    static PythonServerManager& instance() {
+        static PythonServerManager instance;
         return instance;
     }
 

@@ -29,8 +29,8 @@
 
 #include "common/status.h"
 #include "runtime/user_function_cache.h"
+#include "udf/python/python_server.h"
 #include "udf/python/python_udf_meta.h"
-#include "udf/python/python_udf_server.h"
 #include "util/arrow/block_convertor.h"
 #include "util/arrow/row_batch.h"
 #include "util/timezone_utils.h"
@@ -91,7 +91,7 @@ Status PythonFunctionCall::open(FunctionContext* context,
     }
 
     PythonUDFClientPtr client = nullptr;
-    RETURN_IF_ERROR(PythonUDFServerManager::instance().get_client(func_meta, version, &client));
+    RETURN_IF_ERROR(PythonServerManager::instance().get_client(func_meta, version, &client));
 
     if (!client) {
         return Status::InternalError("Python UDF client is null");

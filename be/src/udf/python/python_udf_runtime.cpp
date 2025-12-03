@@ -26,7 +26,7 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
-#include "udf/python/python_udf_server.h"
+#include "udf/python/python_server.h"
 
 namespace doris {
 
@@ -95,7 +95,7 @@ Status PythonUDFProcessPool::init() {
     std::lock_guard<std::mutex> lock(_mtx);
     for (size_t i = 0; i < _init_pool_size; ++i) {
         ProcessPtr process;
-        RETURN_IF_ERROR(PythonUDFServerManager::instance().fork(this, &process));
+        RETURN_IF_ERROR(PythonServerManager::instance().fork(this, &process));
         _idle_processes.push(std::move(process));
         ++_current_size;
     }
@@ -121,7 +121,7 @@ Status PythonUDFProcessPool::borrow_process(ProcessPtr* process) {
 
         // If we can create a new process, do it
         if (_current_size < _max_pool_size) {
-            RETURN_IF_ERROR(PythonUDFServerManager::instance().fork(this, process));
+            RETURN_IF_ERROR(PythonServerManager::instance().fork(this, process));
             ++_current_size;
             return Status::OK();
         }
