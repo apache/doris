@@ -18,7 +18,6 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.IndexDef;
-import org.apache.doris.analysis.IndexDef.IndexType;
 import org.apache.doris.analysis.InvertedIndexUtil;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
