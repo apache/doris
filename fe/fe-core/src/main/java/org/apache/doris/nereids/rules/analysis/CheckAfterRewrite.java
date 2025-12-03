@@ -29,7 +29,6 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotNotFromChildren;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
-import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
@@ -43,15 +42,15 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalDeferMaterializeOlapS
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 
-import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Sets;
 import org.apache.commons.lang3.StringUtils;
 import org.roaringbitmap.RoaringBitmap;
 
-import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -74,6 +73,7 @@ public class CheckAfterRewrite extends OneAnalysisRuleFactory {
     private void checkUnexpectedExpression(Plan plan) {
         boolean isGenerate = plan instanceof Generate;
         boolean isAgg = plan instanceof LogicalAggregate;
+        boolean isRepeat = plan instanceof LogicalRepeat;
         boolean isWindow = plan instanceof LogicalWindow;
         boolean notAggAndWindow = !isAgg && !isWindow;
 
@@ -85,7 +85,7 @@ public class CheckAfterRewrite extends OneAnalysisRuleFactory {
                     throw new AnalysisException("table generating function is not allowed in " + plan.getType());
                 } else if (notAggAndWindow && expr instanceof AggregateFunction) {
                     throw new AnalysisException("aggregate function is not allowed in " + plan.getType());
-                } else if (!isAgg && expr instanceof GroupingScalarFunction) {
+                } else if (!isRepeat && expr instanceof GroupingScalarFunction) {
                     throw new AnalysisException("grouping scalar function is not allowed in " + plan.getType());
                 } else if (!isWindow && (expr instanceof WindowExpression || expr instanceof WindowFunction)) {
                     throw new AnalysisException("analytic function is not allowed in " + plan.getType());
@@ -110,15 +110,19 @@ public class CheckAfterRewrite extends OneAnalysisRuleFactory {
         Set<Slot> inputSlots = plan.getInputSlots();
         RoaringBitmap childrenOutput = plan.getChildrenOutputExprIdBitSet();
 
-        ImmutableSet.Builder<Slot> notFromChildrenBuilder = ImmutableSet.builderWithExpectedSize(inputSlots.size());
+        Set<Slot> notFromChildren = Sets.newHashSet();
         for (Slot inputSlot : inputSlots) {
             if (!childrenOutput.contains(inputSlot.getExprId().asInt())) {
-                notFromChildrenBuilder.add(inputSlot);
+                notFromChildren.add(inputSlot);
             }
         }
-        Set<Slot> notFromChildren = notFromChildrenBuilder.build();
+
         if (notFromChildren.isEmpty()) {
             return;
+        }
+        if (plan instanceof LogicalRepeat) {
+            LogicalRepeat repeat = (LogicalRepeat) plan;
+            notFromChildren.remove(repeat.getGroupingId().get());
         }
         notFromChildren = removeValidSlotsNotFromChildren(notFromChildren, childrenOutput);
         if (!notFromChildren.isEmpty()) {
@@ -142,19 +146,7 @@ public class CheckAfterRewrite extends OneAnalysisRuleFactory {
     private Set<Slot> removeValidSlotsNotFromChildren(Set<Slot> slots, RoaringBitmap childrenOutput) {
         return slots.stream()
                 .filter(expr -> {
-                    if (expr instanceof VirtualSlotReference) {
-                        List<Expression> realExpressions = ((VirtualSlotReference) expr).getRealExpressions();
-                        if (realExpressions.isEmpty()) {
-                            // valid
-                            return false;
-                        }
-                        return realExpressions.stream()
-                                .map(Expression::getInputSlots)
-                                .flatMap(Set::stream)
-                                .anyMatch(realUsedExpr -> !childrenOutput.contains(realUsedExpr.getExprId().asInt()));
-                    } else {
-                        return !(expr instanceof SlotNotFromChildren);
-                    }
+                    return !(expr instanceof SlotNotFromChildren);
                 })
                 .collect(Collectors.toSet());
     }
