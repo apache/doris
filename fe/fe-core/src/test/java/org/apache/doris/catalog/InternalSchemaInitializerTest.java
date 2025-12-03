@@ -17,11 +17,10 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.analysis.ColumnDef;
 import org.apache.doris.analysis.ColumnPosition;
-import org.apache.doris.analysis.ModifyColumnClause;
 import org.apache.doris.common.UserException;
+import org.apache.doris.nereids.trees.plans.commands.info.AlterOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterTableOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyColumnOp;
 import org.apache.doris.plugin.audit.AuditLoader;
@@ -144,29 +143,29 @@ class InternalSchemaInitializerTest {
 
         // Simulate column position logic in InternalSchemaInitializer
         // Note: Based on test failure, the system uses FIRST position rather than after a specific column
-        List<AlterClause> alterClauses = Lists.newArrayList();
+        List<AlterOp> alterOps = Lists.newArrayList();
 
         // Add scan_bytes_from_local_storage column using FIRST position
         ColumnPosition localStoragePosition = ColumnPosition.FIRST;
-        ModifyColumnClause localStorageClause = new ModifyColumnClause(
-                localStorageDef, localStoragePosition, null, Maps.newHashMap());
-        localStorageClause.setColumn(localStorageDef.toColumn());
-        alterClauses.add(localStorageClause);
+        ModifyColumnOp modifyColumnOp = new ModifyColumnOp(
+                localStorageDef.translateToColumnDefinition(), localStoragePosition, null, Maps.newHashMap());
+        modifyColumnOp.setColumn(localStorageDef.toColumn());
+        alterOps.add(modifyColumnOp);
 
         // Add scan_bytes_from_remote_storage column using FIRST position
         ColumnPosition remoteStoragePosition = ColumnPosition.FIRST;
-        ModifyColumnClause remoteStorageClause = new ModifyColumnClause(
-                remoteStorageDef, remoteStoragePosition, null, Maps.newHashMap());
-        remoteStorageClause.setColumn(remoteStorageDef.toColumn());
-        alterClauses.add(remoteStorageClause);
+        ModifyColumnOp modifyColumnOp1 = new ModifyColumnOp(
+                remoteStorageDef.translateToColumnDefinition(), remoteStoragePosition, null, Maps.newHashMap());
+        modifyColumnOp1.setColumn(remoteStorageDef.toColumn());
+        alterOps.add(modifyColumnOp1);
 
         // Verify the generated AlterClauses
-        Assertions.assertEquals(2, alterClauses.size(), "Two AlterClauses should be generated");
+        Assertions.assertEquals(2, alterOps.size(), "Two AlterClauses should be generated");
 
         // Verify that column positions are FIRST
-        Assertions.assertTrue(((ModifyColumnClause) alterClauses.get(0)).getColPos().isFirst(),
+        Assertions.assertTrue(((ModifyColumnOp) alterOps.get(0)).getColPos().isFirst(),
                 "The position of the scan_bytes_from_local_storage column should be FIRST");
-        Assertions.assertTrue(((ModifyColumnClause) alterClauses.get(1)).getColPos().isFirst(),
+        Assertions.assertTrue(((ModifyColumnOp) alterOps.get(1)).getColPos().isFirst(),
                 "The position of the scan_bytes_from_remote_storage column should be FIRST");
     }
 
@@ -216,7 +215,7 @@ class InternalSchemaInitializerTest {
         }
 
         // Simulate column processing logic in InternalSchemaInitializer
-        List<AlterClause> alterClauses = Lists.newArrayList();
+        List<AlterOp> alterOps = Lists.newArrayList();
 
         // Add columns if they don't exist
         for (int i = 0; i < expectedSchema.size(); i++) {
@@ -235,9 +234,9 @@ class InternalSchemaInitializerTest {
                 }
                 ColumnPosition position = afterColumn == null ? ColumnPosition.FIRST :
                         new ColumnPosition(afterColumn);
-                ModifyColumnClause clause = new ModifyColumnClause(def, position, null, Maps.newHashMap());
-                clause.setColumn(def.toColumn());
-                alterClauses.add(clause);
+                ModifyColumnOp op = new ModifyColumnOp(def.translateToColumnDefinition(), position, null, Maps.newHashMap());
+                op.setColumn(def.toColumn());
+                alterOps.add(op);
             }
             // Note: InternalSchemaInitializer.created() method does not check if column types match
             // It only adds columns that don't exist in the table
@@ -247,11 +246,11 @@ class InternalSchemaInitializerTest {
         boolean hasLocalStorageClause = false;
         boolean hasRemoteStorageClause = false;
 
-        for (AlterClause clause : alterClauses) {
-            ModifyColumnClause modifyClause = (ModifyColumnClause) clause;
-            if (modifyClause.getColumn().getName().equals("scan_bytes_from_local_storage")) {
+        for (AlterOp op : alterOps) {
+            ModifyColumnOp modifyColumnOp = (ModifyColumnOp) op;
+            if (modifyColumnOp.getColumn().getName().equals("scan_bytes_from_local_storage")) {
                 hasLocalStorageClause = true;
-            } else if (modifyClause.getColumn().getName().equals("scan_bytes_from_remote_storage")) {
+            } else if (modifyColumnOp.getColumn().getName().equals("scan_bytes_from_remote_storage")) {
                 hasRemoteStorageClause = true;
             }
         }
