@@ -334,19 +334,32 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
 
     ctx->push_back_scan_task(scan_task);
 }
-
-int ScannerScheduler::get_remote_scan_thread_num() {
-    static int remote_max_thread_num = []() {
-        int num = config::doris_max_remote_scanner_thread_pool_thread_num != -1
-                          ? config::doris_max_remote_scanner_thread_pool_thread_num
-                          : std::max(512, CpuInfo::num_cores() * 10);
-        return std::max(num, config::doris_scanner_thread_pool_thread_num);
-    }();
-    return remote_max_thread_num;
+int ScannerScheduler::default_local_scan_thread_num() {
+    return config::doris_scanner_thread_pool_thread_num > 0
+                   ? config::doris_scanner_thread_pool_thread_num
+                   : std::max(48, CpuInfo::num_cores() * 2);
+}
+int ScannerScheduler::default_remote_scan_thread_num() {
+    int num = config::doris_max_remote_scanner_thread_pool_thread_num > 0
+                      ? config::doris_max_remote_scanner_thread_pool_thread_num
+                      : std::max(512, CpuInfo::num_cores() * 10);
+    return std::max(num, default_local_scan_thread_num());
 }
 
 int ScannerScheduler::get_remote_scan_thread_queue_size() {
     return config::doris_remote_scanner_thread_pool_queue_size;
+}
+
+int ScannerScheduler::default_min_active_scan_threads() {
+    return config::min_active_scan_threads > 0
+                   ? config::min_active_scan_threads
+                   : config::min_active_scan_threads = CpuInfo::num_cores() * 2;
+}
+
+int ScannerScheduler::default_min_active_file_scan_threads() {
+    return config::min_active_file_scan_threads > 0
+                   ? config::min_active_file_scan_threads
+                   : config::min_active_file_scan_threads = CpuInfo::num_cores() * 8;
 }
 
 void ScannerScheduler::_make_sure_virtual_col_is_materialized(
