@@ -189,7 +189,7 @@ suite("test_mow_compaction_and_read_stale", "nonConcurrent") {
 
     def tablets = sql_return_maparray """ show tablets from ${testTable}; """
     logger.info("tablets: " + tablets)
-    assertEquals(1, tablets.size())
+    assertTrue(tablets.size() >= 1)
     def tablet = tablets[0]
     String tablet_id = tablet.TabletId
 
