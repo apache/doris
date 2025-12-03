@@ -129,6 +129,7 @@ private:
     RuntimeProfile::Counter* _io_timer = nullptr;
     RuntimeProfile::Counter* _read_compressed_counter = nullptr;
     RuntimeProfile::Counter* _decompressor_timer = nullptr;
+    RuntimeProfile::Counter* _predecode_timer = nullptr;
     RuntimeProfile::Counter* _read_uncompressed_counter = nullptr;
 
     RuntimeProfile::Counter* _rows_vec_cond_filtered_counter = nullptr;

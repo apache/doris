@@ -288,6 +288,7 @@ Status PageIO::read_and_decompress_page_(const PageReadOptions& opts, PageHandle
         auto* pre_decoder = opts.encoding_info->get_data_page_pre_decoder();
         if (pre_decoder) {
             SCOPED_CONCURRENCY_COUNT(ConcurrencyStatsManager::instance().page_io_pre_decode);
+            SCOPED_RAW_TIMER(&opts.stats->predecode_ns);
             RETURN_IF_ERROR(pre_decoder->decode(
                     &page, &page_slice, footer->data_page_footer().nullmap_size() + footer_size + 4,
                     opts.use_page_cache, opts.type));

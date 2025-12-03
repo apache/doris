@@ -291,6 +291,7 @@ struct OlapReaderStatistics {
     int64_t compressed_bytes_read = 0;
 
     int64_t decompress_ns = 0;
+    int64_t predecode_ns = 0;
     int64_t uncompressed_bytes_read = 0;
 
     // total read bytes in memory

@@ -163,6 +163,7 @@ Status OlapScanLocalState::_init_profile() {
 
     _io_timer = ADD_TIMER(_segment_profile, "IOTimer");
     _decompressor_timer = ADD_TIMER(_segment_profile, "DecompressorTimer");
+    _predecode_timer = ADD_TIMER(_segment_profile, "PredecodeTimer");
 
     _total_pages_num_counter = ADD_COUNTER(_segment_profile, "TotalPagesNum", TUnit::UNIT);
     _cached_pages_num_counter = ADD_COUNTER(_segment_profile, "CachedPagesNum", TUnit::UNIT);

@@ -603,6 +603,7 @@ void NewOlapScanner::_collect_profile_before_close() {
     COUNTER_UPDATE(Parent->_read_compressed_counter, stats.compressed_bytes_read);               \
     COUNTER_UPDATE(Parent->_scan_bytes, stats.uncompressed_bytes_read);                          \
     COUNTER_UPDATE(Parent->_decompressor_timer, stats.decompress_ns);                            \
+    COUNTER_UPDATE(Parent->_predecode_timer, stats.predecode_ns);                                \
     COUNTER_UPDATE(Parent->_read_uncompressed_counter, stats.uncompressed_bytes_read);           \
     COUNTER_UPDATE(Parent->_block_load_timer, stats.block_load_ns);                              \
     COUNTER_UPDATE(Parent->_block_load_counter, stats.blocks_load);                              \
