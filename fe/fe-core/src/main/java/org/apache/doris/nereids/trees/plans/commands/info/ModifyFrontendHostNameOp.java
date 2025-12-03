@@ -14,23 +14,21 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-suite("test_decimal_bitmap_index_multi_page") {
-    def tbName = "test_decimal_bitmap_index_multi_page"
 
-    qt_sql "desc ${tbName};"
-    def show_result = sql "show index from ${tbName}"
-    logger.info("show index from " + tbName + " result: " + show_result)
-    assertEquals(show_result.size(), 1)
-    assertEquals(show_result[0][2], "bitmap_index_multi_page")
-    qt_sql "select * from ${tbName} order by a ASC limit 3;"
-    qt_sql "select * from ${tbName} order by a DESC limit 3;"
+package org.apache.doris.nereids.trees.plans.commands.info;
 
-    try {
-        test {
-            sql """select hll_union(`a`) from ${tbName};"""
-            exception "errCode = 2, detailMessage = HLL_UNION, HLL_UNION_AGG, HLL_RAW_AGG and HLL_CARDINALITY's params must be hll column"
-        }        
-    } finally {
+/**
+ * ModifyFrontendHostNameOp
+ */
+public class ModifyFrontendHostNameOp extends ModifyNodeHostNameOp {
+    public ModifyFrontendHostNameOp(String hostPort, String newHost, ModifyOpType modifyOpType) {
+        super(hostPort, newHost, modifyOpType);
     }
 
+    public ModifyFrontendHostNameOp(String hostPort, String newHost, ModifyOpType modifyOpType,
+                                   String host, int port) {
+        super(hostPort, newHost, modifyOpType);
+        this.host = host;
+        this.port = port;
+    }
 }

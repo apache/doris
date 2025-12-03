@@ -52,6 +52,12 @@ public:
         _now_offset = 0;
     }
 
+    char* data() { return reinterpret_cast<char*>(_data.data() + _now_offset + _offsets.back()); }
+
+    void add_offset(size_t len) { _now_offset += len; }
+
+    void resize(size_t size) { _data.resize(size + _now_offset + _offsets.back()); }
+
     template <typename T>
     void write_number(T data) {
         fmt::memory_buffer buffer;
@@ -234,6 +240,10 @@ public:
         memcpy(data, _data, len);
         _data += len;
     }
+
+    const char* data() { return _data; }
+
+    void add_offset(size_t len) { _data += len; }
 
     void read_var_uint(UInt64& x) {
         x = 0;

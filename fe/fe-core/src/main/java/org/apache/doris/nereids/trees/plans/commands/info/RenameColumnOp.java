@@ -18,8 +18,6 @@
 package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.alter.AlterOpType;
-import org.apache.doris.analysis.AlterTableClause;
-import org.apache.doris.analysis.ColumnRenameClause;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeNameFormat;
@@ -67,11 +65,6 @@ public class RenameColumnOp extends AlterTableOp {
         }
 
         FeNameFormat.checkColumnName(newColName);
-    }
-
-    @Override
-    public AlterTableClause translateToLegacyAlterClause() {
-        return new ColumnRenameClause(colName, newColName);
     }
 
     @Override

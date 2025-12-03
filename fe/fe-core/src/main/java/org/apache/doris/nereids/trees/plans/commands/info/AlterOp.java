@@ -15,45 +15,34 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
+package org.apache.doris.nereids.trees.plans.commands.info;
 
-#include <butil/macros.h>
-#include <stdint.h>
+import org.apache.doris.alter.AlterOpType;
 
-#include <cstddef>
-#include <memory>
+import org.apache.commons.lang3.NotImplementedException;
 
-#include "common/status.h"
+import java.util.Map;
 
-namespace doris {
+/**
+ * AlterOp
+ */
+public abstract class AlterOp {
 
-class TypeInfo;
+    protected AlterOpType opType;
 
-namespace io {
-class FileWriter;
+    public AlterOp(AlterOpType opType) {
+        this.opType = opType;
+    }
+
+    public AlterOpType getOpType() {
+        return opType;
+    }
+
+    public abstract boolean allowOpMTMV();
+
+    public abstract boolean needChangeMTMVState();
+
+    public Map<String, String> getProperties() {
+        throw new NotImplementedException("AlterOp.getProperties() is not implemented");
+    }
 }
-
-namespace segment_v2 {
-class ColumnIndexMetaPB;
-
-class BitmapIndexWriter {
-public:
-    static Status create(const TypeInfo* type_info, std::unique_ptr<BitmapIndexWriter>* res);
-
-    BitmapIndexWriter() = default;
-    virtual ~BitmapIndexWriter() = default;
-
-    virtual void add_values(const void* values, size_t count) = 0;
-
-    virtual void add_nulls(uint32_t count) = 0;
-
-    virtual Status finish(io::FileWriter* file_writer, ColumnIndexMetaPB* index_meta) = 0;
-
-    virtual uint64_t size() const = 0;
-
-private:
-    DISALLOW_COPY_AND_ASSIGN(BitmapIndexWriter);
-};
-
-} // namespace segment_v2
-} // namespace doris

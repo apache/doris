@@ -62,10 +62,6 @@ public:
 
     using ColumnPredicate::evaluate;
 
-    Status evaluate(BitmapIndexIterator*, uint32_t, roaring::Roaring*) const override {
-        return Status::OK();
-    }
-
 private:
     bool _can_ignore() const override { return false; }
 

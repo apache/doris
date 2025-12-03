@@ -137,47 +137,6 @@ public:
 
     PredicateType type() const override { return PT; }
 
-    Status evaluate(BitmapIndexIterator* iterator, uint32_t num_rows,
-                    roaring::Roaring* result) const override {
-        if (iterator == nullptr) {
-            return Status::OK();
-        }
-        if (iterator->has_null_bitmap()) {
-            roaring::Roaring null_bitmap;
-            RETURN_IF_ERROR(iterator->read_null_bitmap(&null_bitmap));
-            *result -= null_bitmap;
-        }
-        roaring::Roaring indices;
-        HybridSetBase::IteratorBase* iter = _values->begin();
-        while (iter->has_next()) {
-            const void* value = iter->get_value();
-            bool exact_match;
-            auto&& value_ = PrimitiveTypeConvertor<Type>::to_storage_field_type(
-                    *reinterpret_cast<const T*>(value));
-            Status status = iterator->seek_dictionary(&value_, &exact_match);
-            rowid_t seeked_ordinal = iterator->current_ordinal();
-            if (!status.is<ErrorCode::ENTRY_NOT_FOUND>()) {
-                if (!status.ok()) {
-                    return status;
-                }
-                if (exact_match) {
-                    roaring::Roaring index;
-                    RETURN_IF_ERROR(iterator->read_bitmap(seeked_ordinal, &index));
-                    indices |= index;
-                }
-            }
-            iter->next();
-        }
-
-        if constexpr (PT == PredicateType::IN_LIST) {
-            *result &= indices;
-        } else {
-            *result -= indices;
-        }
-
-        return Status::OK();
-    }
-
     Status evaluate(const vectorized::IndexFieldNameAndTypePair& name_with_type,
                     IndexIterator* iterator, uint32_t num_rows,
                     roaring::Roaring* result) const override {

@@ -25,8 +25,7 @@
 
 namespace doris {
 
-TabletColumnPtr create_int_key(int32_t id, bool is_nullable, bool is_bf_column,
-                               bool has_bitmap_index) {
+TabletColumnPtr create_int_key(int32_t id, bool is_nullable, bool is_bf_column) {
     auto column = std::make_shared<TabletColumn>();
     column->_unique_id = id;
     column->_col_name = std::to_string(id);
@@ -36,13 +35,11 @@ TabletColumnPtr create_int_key(int32_t id, bool is_nullable, bool is_bf_column,
     column->_length = 4;
     column->_index_length = 4;
     column->_is_bf_column = is_bf_column;
-    column->_has_bitmap_index = has_bitmap_index;
     return column;
 }
 
 TabletColumnPtr create_int_value(int32_t id, FieldAggregationMethod agg_method, bool is_nullable,
-                                 const std::string default_value, bool is_bf_column,
-                                 bool has_bitmap_index) {
+                                 const std::string default_value, bool is_bf_column) {
     auto column = std::make_shared<TabletColumn>();
     column->_unique_id = id;
     column->_col_name = std::to_string(id);
@@ -57,7 +54,6 @@ TabletColumnPtr create_int_value(int32_t id, FieldAggregationMethod agg_method, 
         column->_default_value = default_value;
     }
     column->_is_bf_column = is_bf_column;
-    column->_has_bitmap_index = has_bitmap_index;
     return column;
 }
 

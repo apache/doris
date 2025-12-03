@@ -15,26 +15,21 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.rules.implementation;
-
-import org.apache.doris.nereids.rules.Rule;
-import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalRepeat;
+package org.apache.doris.nereids.trees.plans.commands.info;
 
 /**
- * Implementation rule that convert logical repeat to physical repeat.
+ * ModifyBackendHostNameOp
  */
-public class LogicalRepeatToPhysicalRepeat extends OneImplementationRuleFactory {
-    @Override
-    public Rule build() {
-        return logicalRepeat().then(repeat ->
-            new PhysicalRepeat<>(
-                repeat.getGroupingSets(),
-                repeat.getOutputExpressions(),
-                repeat.getGroupingId().get(),
-                repeat.getLogicalProperties(),
-                repeat.child()
-            )
-        ).toRule(RuleType.LOGICAL_REPEAT_TO_PHYSICAL_REPEAT_RULE);
+public class ModifyBackendHostNameOp extends ModifyNodeHostNameOp {
+
+    public ModifyBackendHostNameOp(String hostPort, String newHost, ModifyOpType modifyOpType) {
+        super(hostPort, newHost, modifyOpType);
+    }
+
+    public ModifyBackendHostNameOp(String hostPort, String newHost, ModifyOpType modifyOpType,
+                                   String host, int port) {
+        super(hostPort, newHost, modifyOpType);
+        this.host = host;
+        this.port = port;
     }
 }

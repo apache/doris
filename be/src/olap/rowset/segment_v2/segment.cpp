@@ -263,8 +263,7 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
         }
         if (read_options.col_id_to_predicates.contains(column_id) &&
             can_apply_predicate_safely(column_id, *schema,
-                                       read_options.target_cast_type_for_variants,
-                                       read_options.io_ctx.reader_type)) {
+                                       read_options.target_cast_type_for_variants, read_options)) {
             bool matched = true;
             RETURN_IF_ERROR(reader->match_condition(entry.second.get(), &matched));
             if (!matched) {
@@ -296,7 +295,7 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
             DCHECK(reader != nullptr);
             if (can_apply_predicate_safely(runtime_predicate->column_id(), *schema,
                                            read_options.target_cast_type_for_variants,
-                                           read_options.io_ctx.reader_type)) {
+                                           read_options)) {
                 bool matched = true;
                 RETURN_IF_ERROR(reader->match_condition(&and_predicate, &matched));
                 if (!matched) {
@@ -600,7 +599,7 @@ Status Segment::healthy_status() {
 
 // Return the storage datatype of related column to field.
 vectorized::DataTypePtr Segment::get_data_type_of(const TabletColumn& column,
-                                                  bool read_flat_leaves) {
+                                                  const StorageReadOptions& read_options) {
     const vectorized::PathInDataPtr path = column.path_info_ptr();
 
     // none variant column
@@ -624,10 +623,12 @@ vectorized::DataTypePtr Segment::get_data_type_of(const TabletColumn& column,
     // If status is not ok, it will throw exception(data corruption)
     THROW_IF_ERROR(get_column_reader(unique_id, &v_reader, &stats));
     DCHECK(v_reader != nullptr);
-    const auto* variant_reader = static_cast<const VariantColumnReader*>(v_reader.get());
+    auto* variant_reader = static_cast<VariantColumnReader*>(v_reader.get());
     // Delegate type inference for variant paths to VariantColumnReader.
-    return variant_reader->infer_data_type_for_path(column, relative_path, read_flat_leaves,
-                                                    _column_reader_cache.get(), unique_id);
+    vectorized::DataTypePtr type;
+    THROW_IF_ERROR(variant_reader->infer_data_type_for_path(&type, column, read_options,
+                                                            _column_reader_cache.get()));
+    return type;
 }
 
 Status Segment::_create_column_meta_once(OlapReaderStatistics* stats) {
@@ -790,26 +791,6 @@ Status Segment::get_column_reader(const TabletColumn& col,
                                                             stats);
     }
     return _column_reader_cache->get_column_reader(col_uid, column_reader, stats);
-}
-
-Status Segment::new_bitmap_index_iterator(const TabletColumn& tablet_column,
-                                          const StorageReadOptions& read_options,
-                                          std::unique_ptr<BitmapIndexIterator>* iter) {
-    RETURN_IF_ERROR(_create_column_meta_once(read_options.stats));
-    std::shared_ptr<ColumnReader> reader;
-    auto st = get_column_reader(tablet_column, &reader, read_options.stats);
-    if (st.is<ErrorCode::NOT_FOUND>()) {
-        return Status::OK();
-    }
-    RETURN_IF_ERROR(st);
-    DCHECK(reader != nullptr);
-    if (reader->has_bitmap_index()) {
-        BitmapIndexIterator* it;
-        RETURN_IF_ERROR(reader->new_bitmap_index_iterator(&it));
-        iter->reset(it);
-        return Status::OK();
-    }
-    return Status::OK();
 }
 
 Status Segment::new_index_iterator(const TabletColumn& tablet_column, const TabletIndex* index_meta,
@@ -990,7 +971,7 @@ Status Segment::seek_and_read_by_rowid(const TabletSchema& schema, SlotDescripto
                 slot->col_unique_id(),
                 assert_cast<const vectorized::DataTypeVariant&>(*remove_nullable(slot->type()))
                         .variant_max_subcolumns_count());
-        auto storage_type = get_data_type_of(column, false);
+        auto storage_type = get_data_type_of(column, storage_read_options);
         vectorized::MutableColumnPtr file_storage_column = storage_type->create_column();
         DCHECK(storage_type != nullptr);
 

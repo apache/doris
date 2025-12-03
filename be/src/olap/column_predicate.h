@@ -21,7 +21,6 @@
 #include <roaring/roaring.hh>
 
 #include "common/exception.h"
-#include "olap/rowset/segment_v2/bitmap_index_reader.h"
 #include "olap/rowset/segment_v2/bloom_filter.h"
 #include "olap/rowset/segment_v2/inverted_index_iterator.h"
 #include "runtime/define_primitive_type.h"
@@ -169,10 +168,6 @@ public:
     virtual ~ColumnPredicate() = default;
 
     virtual PredicateType type() const = 0;
-
-    //evaluate predicate on Bitmap
-    virtual Status evaluate(BitmapIndexIterator* iterator, uint32_t num_rows,
-                            roaring::Roaring* roaring) const = 0;
 
     //evaluate predicate on inverted
     virtual Status evaluate(const vectorized::IndexFieldNameAndTypePair& name_with_type,

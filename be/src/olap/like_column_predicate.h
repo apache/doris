@@ -43,10 +43,6 @@ class Roaring;
 namespace doris {
 class FunctionContext;
 
-namespace segment_v2 {
-class BitmapIndexIterator;
-} // namespace segment_v2
-
 template <PrimitiveType T>
 class LikeColumnPredicate : public ColumnPredicate {
 public:
@@ -56,11 +52,6 @@ public:
 
     PredicateType type() const override { return PredicateType::EQ; }
     void evaluate_vec(const vectorized::IColumn& column, uint16_t size, bool* flags) const override;
-
-    Status evaluate(BitmapIndexIterator* iterator, uint32_t num_rows,
-                    roaring::Roaring* roaring) const override {
-        return Status::OK();
-    }
 
     void evaluate_and_vec(const vectorized::IColumn& column, uint16_t size,
                           bool* flags) const override;

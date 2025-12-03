@@ -18,8 +18,6 @@
 package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.alter.AlterOpType;
-import org.apache.doris.analysis.AlterTableClause;
-import org.apache.doris.analysis.BuildIndexClause;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Index;
@@ -162,12 +160,6 @@ public class BuildIndexOp extends AlterTableOp {
 
         indexDef.validate();
         this.index = existedIdx.clone();
-    }
-
-    @Override
-    public AlterTableClause translateToLegacyAlterClause() {
-        indexDef.getIndexType();
-        return new BuildIndexClause(tableName, indexDef, index, alter);
     }
 
     @Override

@@ -43,13 +43,10 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScalarFunction;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.algebra.Repeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -176,7 +173,6 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
             MaterializationContext materializationContext,
             ExpressionRewriteMode groupByMode,
             ExpressionRewriteMode aggregateFunctionMode) {
-
         // try to roll up.
         // split the query top plan expressions to group expressions and functions, if can not, bail out.
         Pair<Set<? extends Expression>, Set<? extends Expression>> queryGroupAndFunctionPair
@@ -320,7 +316,7 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
                 queryStructInfo.getTableBitSet());
         AggregateExpressionRewriteContext expressionRewriteContext = new AggregateExpressionRewriteContext(
                 rewriteMode, mvShuttledExprToMvScanExprQueryBased, queryStructInfo.getTopPlan(),
-                queryStructInfo.getTableBitSet());
+                queryStructInfo.getTableBitSet(), queryStructInfo.getGroupingId());
         Expression rewrittenExpression = queryFunctionShuttled.accept(AGGREGATE_EXPRESSION_REWRITER,
                 expressionRewriteContext);
         if (!expressionRewriteContext.isValid()) {
@@ -741,38 +737,12 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
         }
 
         @Override
-        public Expression visitGroupingScalarFunction(GroupingScalarFunction groupingScalarFunction,
-                AggregateExpressionRewriteContext context) {
-            List<Expression> children = groupingScalarFunction.children();
-            List<Expression> rewrittenChildren = new ArrayList<>();
-            for (Expression child : children) {
-                Expression rewrittenChild = child.accept(this, context);
-                if (!context.isValid()) {
-                    return groupingScalarFunction;
-                }
-                rewrittenChildren.add(rewrittenChild);
-            }
-            return groupingScalarFunction.withChildren(rewrittenChildren);
-        }
-
-        @Override
         public Expression visitSlot(Slot slot, AggregateExpressionRewriteContext rewriteContext) {
             if (!rewriteContext.isValid()) {
                 return slot;
             }
-            if (slot instanceof VirtualSlotReference) {
-                Optional<GroupingScalarFunction> originExpression = ((VirtualSlotReference) slot).getOriginExpression();
-                if (!originExpression.isPresent()) {
-                    return Repeat.generateVirtualGroupingIdSlot();
-                } else {
-                    GroupingScalarFunction groupingScalarFunction = originExpression.get();
-                    groupingScalarFunction =
-                            (GroupingScalarFunction) groupingScalarFunction.accept(this, rewriteContext);
-                    if (!rewriteContext.isValid()) {
-                        return slot;
-                    }
-                    return Repeat.generateVirtualSlotByFunction(groupingScalarFunction);
-                }
+            if (rewriteContext.getGroupingId().isPresent() && slot.equals(rewriteContext.getGroupingId().get())) {
+                return slot;
             }
             if (rewriteContext.getMvExprToMvScanExprQueryBasedMapping().containsKey(slot)) {
                 return rewriteContext.getMvExprToMvScanExprQueryBasedMapping().get(slot);
@@ -817,14 +787,16 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
         private final Map<Expression, Expression> mvExprToMvScanExprQueryBasedMapping;
         private final Plan queryTopPlan;
         private final BitSet queryTableBitSet;
+        private final Optional<SlotReference> groupingId;
 
         public AggregateExpressionRewriteContext(ExpressionRewriteMode expressionRewriteMode,
                 Map<Expression, Expression> mvExprToMvScanExprQueryBasedMapping, Plan queryTopPlan,
-                BitSet queryTableBitSet) {
+                BitSet queryTableBitSet, Optional<SlotReference> groupingId) {
             this.expressionRewriteMode = expressionRewriteMode;
             this.mvExprToMvScanExprQueryBasedMapping = mvExprToMvScanExprQueryBasedMapping;
             this.queryTopPlan = queryTopPlan;
             this.queryTableBitSet = queryTableBitSet;
+            this.groupingId = groupingId;
         }
 
         public boolean isValid() {
@@ -849,6 +821,10 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
 
         public BitSet getQueryTableBitSet() {
             return queryTableBitSet;
+        }
+
+        public Optional<SlotReference> getGroupingId() {
+            return groupingId;
         }
 
         /**

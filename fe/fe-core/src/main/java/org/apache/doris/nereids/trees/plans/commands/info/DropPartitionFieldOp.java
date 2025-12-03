@@ -18,8 +18,6 @@
 package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.alter.AlterOpType;
-import org.apache.doris.analysis.AlterTableClause;
-import org.apache.doris.analysis.DropPartitionFieldClause;
 import org.apache.doris.common.UserException;
 import org.apache.doris.qe.ConnectContext;
 
@@ -73,11 +71,6 @@ public class DropPartitionFieldOp extends AlterTableOp {
         if (partitionFieldName == null && columnName == null) {
             throw new UserException("Partition field name or column name must be specified");
         }
-    }
-
-    @Override
-    public AlterTableClause translateToLegacyAlterClause() {
-        return new DropPartitionFieldClause(partitionFieldName, transformName, transformArg, columnName);
     }
 
     @Override

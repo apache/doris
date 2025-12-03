@@ -497,7 +497,7 @@ suite("test_partial_update_row_store_schema_change", "p0") {
 
     qt_sql10 " select * from ${tableName} order by c0 "
     
-    sql " CREATE INDEX test ON ${tableName} (c1) USING BITMAP "
+    sql " CREATE INDEX test ON ${tableName} (c1) USING INVERTED "
     // if timeout awaitility will raise exception
     Awaitility.await().atMost(try_times, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).await().until(() -> {
         def res = sql " SHOW ALTER TABLE COLUMN WHERE TableName = '${tableName}' ORDER BY CreateTime DESC LIMIT 1 "
@@ -1081,7 +1081,7 @@ suite("test_partial_update_row_store_schema_change", "p0") {
 
     qt_sql23 " select * from ${tableName} order by c0 "
     
-    sql " CREATE INDEX test ON ${tableName} (c1) USING BITMAP "
+    sql " CREATE INDEX test ON ${tableName} (c1) USING INVERTED "
     // if timeout awaitility will raise exception
     Awaitility.await().atMost(try_times, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).await().until(() -> {
         def res = sql " SHOW ALTER TABLE COLUMN WHERE TableName = '${tableName}' ORDER BY CreateTime DESC LIMIT 1 "
