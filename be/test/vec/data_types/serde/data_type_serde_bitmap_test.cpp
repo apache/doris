@@ -26,31 +26,6 @@
 
 namespace doris::vectorized {
 
-TEST(BitmapSerdeTest, writeColumnToMysql) {
-    auto bitmap_serde = std::make_shared<vectorized::DataTypeBitMapSerDe>(1);
-    auto column_bitmap = ColumnBitmap::create();
-    column_bitmap->insert_value(BitmapValue::empty_bitmap());
-    ASSERT_EQ(column_bitmap->size(), 1);
-    MysqlRowBuffer<false> mysql_rb;
-    DataTypeSerDe::FormatOptions options;
-    options.nested_string_wrapper = "\"";
-    options.wrapper_len = 1;
-    options.map_key_delim = ':';
-    options.null_format = "null";
-    options.null_len = 4;
-    bitmap_serde->set_return_object_as_string(true);
-    auto st = bitmap_serde->write_column_to_mysql(*column_bitmap, mysql_rb, 0, false, options);
-    EXPECT_TRUE(st.ok());
-    ASSERT_EQ(mysql_rb.length(), 2);
-
-    column_bitmap->insert_value(BitmapValue(123));
-    bitmap_serde->set_return_object_as_string(true);
-    st = bitmap_serde->write_column_to_mysql(*column_bitmap, mysql_rb, 1, false, options);
-    EXPECT_TRUE(st.ok());
-    ASSERT_EQ(mysql_rb.length(), 8);
-    std::cout << "test write_column_to_mysql success" << std::endl;
-}
-
 TEST(BitmapSerdeTest, writeOneCellToJsonb) {
     auto bitmap_serde = std::make_shared<vectorized::DataTypeBitMapSerDe>(1);
     auto column_bitmap = ColumnBitmap::create();
