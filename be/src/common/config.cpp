@@ -304,12 +304,14 @@ DEFINE_mInt64(doris_blocking_priority_queue_wait_timeout_ms, "500");
 // and the min thread num of remote scanner thread pool
 DEFINE_Int32(doris_scanner_thread_pool_thread_num, "-1");
 
+namespace dynamic {
 int doris_scanner_thread_pool_thread_num() {
     if (doris_scanner_thread_pool_thread_num > 0) {
         return doris_scanner_thread_pool_thread_num;
     }
     return std::max(48, CpuInfo::num_cores() * 2);
 }
+} // namespace dynamic
 
 DEFINE_Int32(doris_scanner_min_thread_pool_thread_num, "8");
 DEFINE_Int32(remote_split_source_batch_size, "1000");
