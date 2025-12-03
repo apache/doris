@@ -93,6 +93,7 @@ public:
     ConcurrencyCounter* page_io_insert_page_cache;
     ConcurrencyCounter* cached_remote_reader_read_at;
     ConcurrencyCounter* cached_remote_reader_get_or_set;
+    ConcurrencyCounter* cached_remote_reader_get_or_set_wait_lock;
     ConcurrencyCounter* cached_remote_reader_get_or_set_downloader;
     ConcurrencyCounter* cached_remote_reader_write_back;
     ConcurrencyCounter* cached_remote_reader_blocking;

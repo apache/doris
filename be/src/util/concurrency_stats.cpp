@@ -34,6 +34,8 @@ ConcurrencyStatsManager::ConcurrencyStatsManager() : _running(false) {
     page_io_insert_page_cache = new ConcurrencyCounter("page_io.insert_page_cache");
     cached_remote_reader_read_at = new ConcurrencyCounter("file_cache.read_at");
     cached_remote_reader_get_or_set = new ConcurrencyCounter("file_cache.get_or_set");
+    cached_remote_reader_get_or_set_wait_lock =
+            new ConcurrencyCounter("file_cache.get_or_set_wait_lock");
     cached_remote_reader_get_or_set_downloader =
             new ConcurrencyCounter("file_cache.get_or_set_downloader");
     cached_remote_reader_write_back = new ConcurrencyCounter("file_cache.write_back");
@@ -50,6 +52,7 @@ ConcurrencyStatsManager::ConcurrencyStatsManager() : _running(false) {
     _counters.push_back(page_io_insert_page_cache);
     _counters.push_back(cached_remote_reader_read_at);
     _counters.push_back(cached_remote_reader_get_or_set);
+    _counters.push_back(cached_remote_reader_get_or_set_wait_lock);
     // _counters.push_back(cached_remote_reader_get_or_set_downloader);
     _counters.push_back(cached_remote_reader_write_back);
     _counters.push_back(cached_remote_reader_blocking);
