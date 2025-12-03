@@ -1544,7 +1544,8 @@ void TabletSchema::update_tablet_columns(const TabletSchema& tablet_schema,
 
 bool TabletSchema::has_inverted_index_with_index_id(int64_t index_id) const {
     for (size_t i = 0; i < _indexes.size(); i++) {
-        if (_indexes[i]->index_type() == IndexType::INVERTED &&
+        if ((_indexes[i]->index_type() == IndexType::INVERTED ||
+             _indexes[i]->index_type() == IndexType::ANN) &&
             _indexes[i]->index_id() == index_id) {
             return true;
         }
@@ -1645,7 +1646,6 @@ const TabletIndex* TabletSchema::ann_index(int32_t col_unique_id,
 }
 
 const TabletIndex* TabletSchema::ann_index(const TabletColumn& col) const {
-    // Some columns(Float, Double, JSONB ...) from the variant do not support inverted index
     if (!segment_v2::IndexColumnWriter::check_support_ann_index(col)) {
         return nullptr;
     }
