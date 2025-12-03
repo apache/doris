@@ -251,7 +251,7 @@ suite("test_timestamptz_storage_uniq_key") {
         ('9999-12-31 23:59:59 +08:00', '9999-12-31 23:59:59 +08:00', 2);
     """
 
-    qt_select_timestamptz_storage_uniq_key_no_scale """
+    qt_all1 """
         SELECT * FROM timestamptz_storage_uniq_key_no_scale ORDER BY 1, 2, 3;
     """
 
@@ -261,6 +261,8 @@ suite("test_timestamptz_storage_uniq_key") {
     """
     assertFalse(ret.toString().contains("CAST")) && assertFalse(ret.toString().contains("cast"))
     // assertTrue(ret.toString().contains("""= '2023-01-01 09:00:00'"""))
+    assertTrue(ret.toString().contains("partitions=1/5 (p0)"));
+    assertTrue(ret.toString().contains("tablets=1/16"));
     qt_eq0 """
         SELECT * FROM timestamptz_storage_uniq_key_no_scale where ts_tz = '0000-01-01 00:00:00 +00:00' ORDER BY 1, 2, 3;
     """
@@ -269,6 +271,8 @@ suite("test_timestamptz_storage_uniq_key") {
         explain SELECT * FROM timestamptz_storage_uniq_key_no_scale where ts_tz = '9999-12-31 23:59:59 +08:00' ORDER BY 1, 2, 3;
     """
     assertFalse(ret.toString().contains("CAST")) && assertFalse(ret.toString().contains("cast"))
+    assertTrue(ret.toString().contains("partitions=1/5 (p_max)"));
+    assertTrue(ret.toString().contains("tablets=1/16"));
     qt_eq1 """
         SELECT * FROM timestamptz_storage_uniq_key_no_scale where ts_tz = '9999-12-31 23:59:59 +08:00' ORDER BY 1, 2, 3;
     """
@@ -278,6 +282,8 @@ suite("test_timestamptz_storage_uniq_key") {
         explain SELECT * FROM timestamptz_storage_uniq_key_no_scale where ts_tz != '0000-01-01 00:00:00 +00:00' ORDER BY 1, 2, 3;
     """
     assertFalse(ret.toString().contains("CAST")) && assertFalse(ret.toString().contains("cast"))
+    assertTrue(ret.toString().contains("partitions=5/5 (p0,p1,p2,p3,p_max)"));
+    assertTrue(ret.toString().contains("tablets=80/80"));
     qt_neq0 """
         SELECT * FROM timestamptz_storage_uniq_key_no_scale where ts_tz != '0000-01-01 00:00:00 +00:00' ORDER BY 1, 2, 3;
     """
@@ -286,6 +292,8 @@ suite("test_timestamptz_storage_uniq_key") {
         explain SELECT * FROM timestamptz_storage_uniq_key_no_scale where ts_tz != '9999-12-31 23:59:59 +08:00' ORDER BY 1, 2, 3;
     """
     assertFalse(ret.toString().contains("CAST")) && assertFalse(ret.toString().contains("cast"))
+    assertTrue(ret.toString().contains("partitions=5/5 (p0,p1,p2,p3,p_max)"));
+    assertTrue(ret.toString().contains("tablets=80/80"));
     qt_neq1 """
         SELECT * FROM timestamptz_storage_uniq_key_no_scale where ts_tz != '9999-12-31 23:59:59 +08:00' ORDER BY 1, 2, 3;
     """
@@ -303,6 +311,8 @@ suite("test_timestamptz_storage_uniq_key") {
         explain SELECT * FROM timestamptz_storage_uniq_key_no_scale where ts_tz > '9999-12-31 23:59:59 +08:00' ORDER BY 1, 2, 3;
     """
     assertFalse(ret.toString().contains("CAST")) && assertFalse(ret.toString().contains("cast"))
+    assertTrue(ret.toString().contains("partitions=1/5 (p_max)"));
+    assertTrue(ret.toString().contains("tablets=16/16"));
     qt_gt1 """
         SELECT * FROM timestamptz_storage_uniq_key_no_scale where ts_tz > '9999-12-31 23:59:59 +08:00' ORDER BY 1, 2, 3;
     """
@@ -320,6 +330,8 @@ suite("test_timestamptz_storage_uniq_key") {
         explain SELECT * FROM timestamptz_storage_uniq_key_no_scale where ts_tz >= '9999-12-31 23:59:59 +08:00' ORDER BY 1, 2, 3;
     """
     assertFalse(ret.toString().contains("CAST")) && assertFalse(ret.toString().contains("cast"))
+    assertTrue(ret.toString().contains("partitions=1/5 (p_max)"));
+    assertTrue(ret.toString().contains("tablets=16/16"));
     qt_ge1 """
         SELECT * FROM timestamptz_storage_uniq_key_no_scale where ts_tz >= '9999-12-31 23:59:59 +08:00' ORDER BY 1, 2, 3;
     """
@@ -337,6 +349,8 @@ suite("test_timestamptz_storage_uniq_key") {
         explain SELECT * FROM timestamptz_storage_uniq_key_no_scale where ts_tz < '9999-12-31 23:59:59 +08:00' ORDER BY 1, 2, 3;
     """
     assertFalse(ret.toString().contains("CAST")) && assertFalse(ret.toString().contains("cast"))
+    assertTrue(ret.toString().contains("partitions=4/5 (p0,p1,p2,p3)"));
+    assertTrue(ret.toString().contains("tablets=64/64"));
     qt_lt1 """
         SELECT * FROM timestamptz_storage_uniq_key_no_scale where ts_tz < '9999-12-31 23:59:59 +08:00' ORDER BY 1, 2, 3;
     """
@@ -346,6 +360,8 @@ suite("test_timestamptz_storage_uniq_key") {
         explain SELECT * FROM timestamptz_storage_uniq_key_no_scale where ts_tz <= '0000-01-01 00:00:00 +00:00' ORDER BY 1, 2, 3;
     """
     assertFalse(ret.toString().contains("CAST")) && assertFalse(ret.toString().contains("cast"))
+    assertTrue(ret.toString().contains("partitions=1/5 (p0)"));
+    assertTrue(ret.toString().contains("tablets=16/16"));
     qt_le0 """
         SELECT * FROM timestamptz_storage_uniq_key_no_scale where ts_tz <= '0000-01-01 00:00:00 +00:00' ORDER BY 1, 2, 3;
     """
@@ -354,6 +370,8 @@ suite("test_timestamptz_storage_uniq_key") {
         explain SELECT * FROM timestamptz_storage_uniq_key_no_scale where ts_tz <= '9999-12-31 23:59:59 +08:00' ORDER BY 1, 2, 3;
     """
     assertFalse(ret.toString().contains("CAST")) && assertFalse(ret.toString().contains("cast"))
+    assertTrue(ret.toString().contains("partitions=5/5 (p0,p1,p2,p3,p_max)"));
+    assertTrue(ret.toString().contains("tablets=80/80"));
     qt_lt1 """
         SELECT * FROM timestamptz_storage_uniq_key_no_scale where ts_tz <= '9999-12-31 23:59:59 +08:00' ORDER BY 1, 2, 3;
     """
@@ -363,6 +381,8 @@ suite("test_timestamptz_storage_uniq_key") {
         explain SELECT * FROM timestamptz_storage_uniq_key_no_scale where ts_tz in('0000-01-01 00:00:00 +00:00', '2023-08-08 20:20:20 +08:00','9999-12-31 23:59:59 +08:00', '2023-02-02 12:00:00 +03:00', '2023-10-10 10:10:10 -03:00') ORDER BY 1, 2, 3;
     """
     assertFalse(ret.toString().contains("CAST")) && assertFalse(ret.toString().contains("cast"))
+    assertTrue(ret.toString().contains("partitions=4/5 (p0,p2,p3,p_max)"));
+    assertTrue(ret.toString().contains("tablets=20/64"));
     qt_in """
         SELECT * FROM timestamptz_storage_uniq_key_no_scale where ts_tz in('0000-01-01 00:00:00 +00:00', '2023-08-08 20:20:20 +08:00','9999-12-31 23:59:59 +08:00', '2023-02-02 12:00:00 +03:00', '2023-10-10 10:10:10 -03:00') ORDER BY 1, 2, 3;
     """
@@ -372,6 +392,8 @@ suite("test_timestamptz_storage_uniq_key") {
         explain SELECT * FROM timestamptz_storage_uniq_key_no_scale where ts_tz not in('0000-01-01 00:00:00 +00:00', '2023-08-08 20:20:20 +08:00','9999-12-31 23:59:59 +08:00', '2023-02-02 12:00:00 +03:00', '2023-10-10 10:10:10 -03:00') ORDER BY 1, 2, 3;
     """
     assertFalse(ret.toString().contains("CAST")) && assertFalse(ret.toString().contains("cast"))
+    assertTrue(ret.toString().contains("partitions=5/5 (p0,p1,p2,p3,p_max)"));
+    assertTrue(ret.toString().contains("tablets=80/80"));
     qt_not_in """
         SELECT * FROM timestamptz_storage_uniq_key_no_scale where ts_tz not in('0000-01-01 00:00:00 +00:00', '2023-08-08 20:20:20 +08:00','9999-12-31 23:59:59 +08:00', '2023-02-02 12:00:00 +03:00', '2023-10-10 10:10:10 -03:00') ORDER BY 1, 2, 3;
     """
@@ -380,6 +402,8 @@ suite("test_timestamptz_storage_uniq_key") {
         explain SELECT * FROM timestamptz_storage_uniq_key_no_scale where ts_tz IS NULL ORDER BY 1, 2;
     """
     assertFalse(ret.toString().contains("CAST")) && assertFalse(ret.toString().contains("cast"))
+    assertTrue(ret.toString().contains("partitions=1/5 (p0)"));
+    assertTrue(ret.toString().contains("tablets=1/16"));
     qt_is_null """
         SELECT * FROM timestamptz_storage_uniq_key_no_scale where ts_tz IS NULL ORDER BY 1, 2;
     """

@@ -16,32 +16,6 @@
 // under the License.
 
 suite("test_timestamptz_delete_dup_key") {
-        /*
-        CREATE TABLE `dt_delete_dup_key_no_scale` (
-          `ts_tz` datetimev2,
-          `ts_tz_value` datetimev2,
-          `VALUE` INT
-        ) DUPLICATE KEY(`ts_tz`)
-        DISTRIBUTED BY HASH(`ts_tz`) BUCKETS 16
-        PROPERTIES (
-        "replication_num" = "1"
-        );
-
-    INSERT INTO dt_delete_dup_key_no_scale VALUES
-    (null, null, -1),
-    ('0000-01-01 00:00:00 +00:00', '0000-01-01 00:00:00 +00:00', 0),
-    ('0000-01-01 00:00:00 +00:00', '0000-01-01 00:00:00 +00:00', 10),
-    ('2023-01-01 12:00:00 +00:00', '2023-01-01 12:00:00 +00:00', 1),
-    ('2023-08-08 20:20:20 +00:00', '2023-08-08 20:20:20 +00:00', 8),
-    ('2023-12-12 12:12:12 +00:00', '2023-12-12 12:12:12 +00:00', 12),
-    ('9999-12-30 23:59:59 +00:00', '9999-12-30 23:59:59 +00:00', 8998),
-    ('9999-12-31 23:59:59 +00:00', '9999-12-31 23:59:59 +00:00', 9998),
-    ('9999-12-31 23:59:59 +00:00', '9999-12-31 23:59:59 +00:00', 9999);
-
-        DELETE FROM dt_delete_dup_key_no_scale WHERE ts_tz = '0000-01-01 10:00:00 +08:00';
-        DELETE FROM dt_delete_dup_key_no_scale WHERE ts_tz = '2025-01-01 10:00:00 +01:00';
-*/
-
     sql "set time_zone = '+00:00'; "
 
     sql """

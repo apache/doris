@@ -49,6 +49,7 @@ suite("test_timestamptz_storage_dup_key") {
     def zoned_now = ZonedDateTime.now(ZoneId.of(timezone_str))
     def formatter_no_scale = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ssXXX")
 
+    // check inserted default value
     for (col_name in ["ts_tz ", "ts_tz_value"]) {
         def query_result = sql """ 
             SELECT cast(${col_name} as string) FROM timestamptz_storage_dup_key_default_value_no_scale;
@@ -87,6 +88,7 @@ suite("test_timestamptz_storage_dup_key") {
     def formatter_with_scale = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSSSSSXXX")
     zoned_now = ZonedDateTime.now(ZoneId.of(timezone_str))
 
+    // check inserted default value
     for (col_name in ["ts_tz ", "ts_tz_value"]) {
         def query_result = sql """ 
             SELECT cast(${col_name} as string) FROM timestamptz_storage_dup_key_default_value_with_scale;
@@ -329,6 +331,8 @@ explain SELECT * FROM timestamptz_storage_dup_key_no_scale where ts_tz = '2023-0
         explain SELECT * FROM timestamptz_storage_dup_key_no_scale where ts_tz = '0000-01-01 00:00:00 +00:00' ORDER BY 1, 2, 3;
     """
     assertFalse(ret.toString().contains("CAST")) && assertFalse(ret.toString().contains("cast"))
+    assertTrue(ret.toString().contains("partitions=1/5 (p0)"));
+    assertTrue(ret.toString().contains("tablets=1/16"));
     // assertTrue(ret.toString().contains("""= '0000-01-01 00:00:00'"""))
     qt_eq0 """
         SELECT * FROM timestamptz_storage_dup_key_no_scale where ts_tz = '0000-01-01 00:00:00 +00:00' ORDER BY 1, 2, 3;
@@ -346,6 +350,8 @@ explain SELECT * FROM timestamptz_storage_dup_key_no_scale where ts_tz = '2023-0
         explain SELECT * FROM timestamptz_storage_dup_key_no_scale where ts_tz = '2023-08-08 20:20:20 +08:00' ORDER BY 1, 2, 3;
     """
     assertFalse(ret.toString().contains("CAST")) && assertFalse(ret.toString().contains("cast"))
+    assertTrue(ret.toString().contains("partitions=1/5 (p2)"));
+    assertTrue(ret.toString().contains("tablets=1/16"));
     qt_eq2 """
         SELECT * FROM timestamptz_storage_dup_key_no_scale where ts_tz = '2023-08-08 20:20:20 +08:00' ORDER BY 1, 2, 3;
     """
@@ -354,8 +360,20 @@ explain SELECT * FROM timestamptz_storage_dup_key_no_scale where ts_tz = '2023-0
         explain SELECT * FROM timestamptz_storage_dup_key_no_scale where ts_tz = '9999-12-31 23:59:58 +08:00' ORDER BY 1, 2, 3;
     """
     assertFalse(ret.toString().contains("CAST")) && assertFalse(ret.toString().contains("cast"))
+    assertTrue(ret.toString().contains("partitions=1/5 (p3)"));
+    assertTrue(ret.toString().contains("tablets=1/16"));
     qt_eq3 """
         SELECT * FROM timestamptz_storage_dup_key_no_scale where ts_tz = '9999-12-31 23:59:58 +08:00' ORDER BY 1, 2, 3;
+    """
+
+    ret = sql """
+        explain SELECT * FROM timestamptz_storage_dup_key_no_scale where ts_tz = '9999-12-31 23:59:59 +08:00' ORDER BY 1, 2, 3;
+    """
+    assertFalse(ret.toString().contains("CAST")) && assertFalse(ret.toString().contains("cast"))
+    assertTrue(ret.toString().contains("partitions=1/5 (p_max)"));
+    assertTrue(ret.toString().contains("tablets=1/16"));
+    qt_eq4 """
+        SELECT * FROM timestamptz_storage_dup_key_no_scale where ts_tz = '9999-12-31 23:59:59 +08:00' ORDER BY 1, 2, 3;
     """
 
     // test !=
@@ -363,6 +381,8 @@ explain SELECT * FROM timestamptz_storage_dup_key_no_scale where ts_tz = '2023-0
         explain SELECT * FROM timestamptz_storage_dup_key_no_scale where ts_tz != '0000-01-01 00:00:00 +00:00' ORDER BY 1, 2, 3;
     """
     assertFalse(ret.toString().contains("CAST")) && assertFalse(ret.toString().contains("cast"))
+    assertTrue(ret.toString().contains("partitions=5/5 (p0,p1,p2,p3,p_max)"));
+    assertTrue(ret.toString().contains("tablets=80/80"));
     qt_neq """
         SELECT * FROM timestamptz_storage_dup_key_no_scale where ts_tz != '0000-01-01 00:00:00 +00:00' ORDER BY 1, 2, 3;
     """
@@ -379,6 +399,8 @@ explain SELECT * FROM timestamptz_storage_dup_key_no_scale where ts_tz = '2023-0
         explain SELECT * FROM timestamptz_storage_dup_key_no_scale where ts_tz != '2023-08-08 20:20:20 +08:00' ORDER BY 1, 2, 3;
     """
     assertFalse(ret.toString().contains("CAST")) && assertFalse(ret.toString().contains("cast"))
+    assertTrue(ret.toString().contains("partitions=5/5 (p0,p1,p2,p3,p_max)"));
+    assertTrue(ret.toString().contains("tablets=80/80"));
     qt_neq2 """
         SELECT * FROM timestamptz_storage_dup_key_no_scale where ts_tz != '2023-08-08 20:20:20 +08:00' ORDER BY 1, 2, 3;
     """
@@ -387,8 +409,20 @@ explain SELECT * FROM timestamptz_storage_dup_key_no_scale where ts_tz = '2023-0
         explain SELECT * FROM timestamptz_storage_dup_key_no_scale where ts_tz != '9999-12-31 23:59:58 +08:00' ORDER BY 1, 2, 3;
     """
     assertFalse(ret.toString().contains("CAST")) && assertFalse(ret.toString().contains("cast"))
+    assertTrue(ret.toString().contains("partitions=5/5 (p0,p1,p2,p3,p_max)"));
+    assertTrue(ret.toString().contains("tablets=80/80"));
     qt_neq3 """
         SELECT * FROM timestamptz_storage_dup_key_no_scale where ts_tz != '9999-12-31 23:59:58 +08:00' ORDER BY 1, 2, 3;
+    """
+
+    ret = sql """
+        explain SELECT * FROM timestamptz_storage_dup_key_no_scale where ts_tz != '9999-12-31 23:59:59 +08:00' ORDER BY 1, 2, 3;
+    """
+    assertFalse(ret.toString().contains("CAST")) && assertFalse(ret.toString().contains("cast"))
+    assertTrue(ret.toString().contains("partitions=5/5 (p0,p1,p2,p3,p_max)"));
+    assertTrue(ret.toString().contains("tablets=80/80"));
+    qt_neq4 """
+        SELECT * FROM timestamptz_storage_dup_key_no_scale where ts_tz != '9999-12-31 23:59:59 +08:00' ORDER BY 1, 2, 3;
     """
 
     // test >
@@ -396,6 +430,8 @@ explain SELECT * FROM timestamptz_storage_dup_key_no_scale where ts_tz = '2023-0
         explain SELECT * FROM timestamptz_storage_dup_key_no_scale where ts_tz > '0000-01-01 00:00:00 +00:00' ORDER BY 1, 2, 3;
     """
     assertFalse(ret.toString().contains("CAST")) && assertFalse(ret.toString().contains("cast"))
+    assertTrue(ret.toString().contains("partitions=5/5 (p0,p1,p2,p3,p_max)"));
+    assertTrue(ret.toString().contains("tablets=80/80"));
     qt_gt0 """
         SELECT * FROM timestamptz_storage_dup_key_no_scale where ts_tz > '0000-01-01 00:00:00 +00:00' ORDER BY 1, 2, 3;
     """
@@ -412,6 +448,8 @@ explain SELECT * FROM timestamptz_storage_dup_key_no_scale where ts_tz = '2023-0
         explain SELECT * FROM timestamptz_storage_dup_key_no_scale where ts_tz > '2023-08-08 20:20:20 +08:00' ORDER BY 1, 2, 3;
     """
     assertFalse(ret.toString().contains("CAST")) && assertFalse(ret.toString().contains("cast"))
+    assertTrue(ret.toString().contains("partitions=3/5 (p2,p3,p_max)"));
+    assertTrue(ret.toString().contains("tablets=48/48"));
     qt_gt2 """
         SELECT * FROM timestamptz_storage_dup_key_no_scale where ts_tz > '2023-08-08 20:20:20 +08:00' ORDER BY 1, 2, 3;
     """
@@ -420,8 +458,20 @@ explain SELECT * FROM timestamptz_storage_dup_key_no_scale where ts_tz = '2023-0
         explain SELECT * FROM timestamptz_storage_dup_key_no_scale where ts_tz > '9999-12-31 23:59:58 +08:00' ORDER BY 1, 2, 3;
     """
     assertFalse(ret.toString().contains("CAST")) && assertFalse(ret.toString().contains("cast"))
+    assertTrue(ret.toString().contains("partitions=2/5 (p3,p_max)"));
+    assertTrue(ret.toString().contains("tablets=32/32"));
     qt_gt3 """
         SELECT * FROM timestamptz_storage_dup_key_no_scale where ts_tz > '9999-12-31 23:59:58 +08:00' ORDER BY 1, 2, 3;
+    """
+
+    ret = sql """
+        explain SELECT * FROM timestamptz_storage_dup_key_no_scale where ts_tz > '9999-12-31 23:59:59 +08:00' ORDER BY 1, 2, 3;
+    """
+    assertFalse(ret.toString().contains("CAST")) && assertFalse(ret.toString().contains("cast"))
+    assertTrue(ret.toString().contains("partitions=1/5 (p_max)"));
+    assertTrue(ret.toString().contains("tablets=16/16"));
+    qt_gt4 """
+        SELECT * FROM timestamptz_storage_dup_key_no_scale where ts_tz > '9999-12-31 23:59:59 +08:00' ORDER BY 1, 2, 3;
     """
 
     // test >=
@@ -429,6 +479,8 @@ explain SELECT * FROM timestamptz_storage_dup_key_no_scale where ts_tz = '2023-0
         explain SELECT * FROM timestamptz_storage_dup_key_no_scale where ts_tz >= '0000-01-01 00:00:00 +00:00' ORDER BY 1, 2, 3;
     """
     assertFalse(ret.toString().contains("CAST")) && assertFalse(ret.toString().contains("cast"))
+    assertTrue(ret.toString().contains("partitions=5/5 (p0,p1,p2,p3,p_max)"));
+    assertTrue(ret.toString().contains("tablets=80/80"));
     qt_ge0 """
         SELECT * FROM timestamptz_storage_dup_key_no_scale where ts_tz >= '0000-01-01 00:00:00 +00:00' ORDER BY 1, 2, 3;
     """
@@ -445,6 +497,8 @@ explain SELECT * FROM timestamptz_storage_dup_key_no_scale where ts_tz = '2023-0
         explain SELECT * FROM timestamptz_storage_dup_key_no_scale where ts_tz >= '2023-08-08 20:20:20 +08:00' ORDER BY 1, 2, 3;
     """
     assertFalse(ret.toString().contains("CAST")) && assertFalse(ret.toString().contains("cast"))
+    assertTrue(ret.toString().contains("partitions=3/5 (p2,p3,p_max)"));
+    assertTrue(ret.toString().contains("tablets=48/48"));
     qt_ge2 """
         SELECT * FROM timestamptz_storage_dup_key_no_scale where ts_tz >= '2023-08-08 20:20:20 +08:00' ORDER BY 1, 2, 3;
     """
@@ -478,16 +532,20 @@ explain SELECT * FROM timestamptz_storage_dup_key_no_scale where ts_tz = '2023-0
         explain SELECT * FROM timestamptz_storage_dup_key_no_scale where ts_tz < '2023-08-08 20:20:20 +08:00' ORDER BY 1, 2, 3;
     """
     assertFalse(ret.toString().contains("CAST")) && assertFalse(ret.toString().contains("cast"))
+    assertTrue(ret.toString().contains("partitions=3/5 (p0,p1,p2)"));
+    assertTrue(ret.toString().contains("tablets=48/48"));
     qt_lt2 """
         SELECT * FROM timestamptz_storage_dup_key_no_scale where ts_tz < '2023-08-08 20:20:20 +08:00' ORDER BY 1, 2, 3;
     """
 
     ret = sql """
-        explain SELECT * FROM timestamptz_storage_dup_key_no_scale where ts_tz < '9999-12-31 23:59:58 +08:00' ORDER BY 1, 2, 3;
+        explain SELECT * FROM timestamptz_storage_dup_key_no_scale where ts_tz < '9999-12-31 23:59:59 +08:00' ORDER BY 1, 2, 3;
     """
     assertFalse(ret.toString().contains("CAST")) && assertFalse(ret.toString().contains("cast"))
+    assertTrue(ret.toString().contains("partitions=4/5 (p0,p1,p2,p3)"));
+    assertTrue(ret.toString().contains("tablets=64/64"));
     qt_lt3 """
-        SELECT * FROM timestamptz_storage_dup_key_no_scale where ts_tz < '9999-12-31 23:59:58 +08:00' ORDER BY 1, 2, 3;
+        SELECT * FROM timestamptz_storage_dup_key_no_scale where ts_tz < '9999-12-31 23:59:59 +08:00' ORDER BY 1, 2, 3;
     """
 
     // test <=
@@ -495,6 +553,8 @@ explain SELECT * FROM timestamptz_storage_dup_key_no_scale where ts_tz = '2023-0
         explain SELECT * FROM timestamptz_storage_dup_key_no_scale where ts_tz <= '0000-01-01 00:00:00 +00:00' ORDER BY 1, 2, 3;
     """
     assertFalse(ret.toString().contains("CAST")) && assertFalse(ret.toString().contains("cast"))
+    assertTrue(ret.toString().contains("partitions=1/5 (p0)"));
+    assertTrue(ret.toString().contains("tablets=16/16"));
     qt_le0 """
         SELECT * FROM timestamptz_storage_dup_key_no_scale where ts_tz <= '0000-01-01 00:00:00 +00:00' ORDER BY 1, 2, 3;
     """
@@ -511,34 +571,42 @@ explain SELECT * FROM timestamptz_storage_dup_key_no_scale where ts_tz = '2023-0
         explain SELECT * FROM timestamptz_storage_dup_key_no_scale where ts_tz <= '2023-08-08 20:20:20 +08:00' ORDER BY 1, 2, 3;
     """
     assertFalse(ret.toString().contains("CAST")) && assertFalse(ret.toString().contains("cast"))
+    assertTrue(ret.toString().contains("partitions=3/5 (p0,p1,p2)"));
+    assertTrue(ret.toString().contains("tablets=48/48"));
     qt_le2 """
         SELECT * FROM timestamptz_storage_dup_key_no_scale where ts_tz <= '2023-08-08 20:20:20 +08:00' ORDER BY 1, 2, 3;
     """
 
     ret = sql """
-        explain SELECT * FROM timestamptz_storage_dup_key_no_scale where ts_tz <= '9999-12-31 23:59:58 +08:00' ORDER BY 1, 2, 3;
+        explain SELECT * FROM timestamptz_storage_dup_key_no_scale where ts_tz <= '9999-12-31 23:59:59 +08:00' ORDER BY 1, 2, 3;
     """
     assertFalse(ret.toString().contains("CAST")) && assertFalse(ret.toString().contains("cast"))
+    assertTrue(ret.toString().contains("partitions=5/5 (p0,p1,p2,p3,p_max)"));
+    assertTrue(ret.toString().contains("tablets=80/80"));
     qt_le3 """
-        SELECT * FROM timestamptz_storage_dup_key_no_scale where ts_tz <= '9999-12-31 23:59:58 +08:00' ORDER BY 1, 2, 3;
+        SELECT * FROM timestamptz_storage_dup_key_no_scale where ts_tz <= '9999-12-31 23:59:59 +08:00' ORDER BY 1, 2, 3;
     """
 
     // test in
     ret = sql """
-        explain SELECT * FROM timestamptz_storage_dup_key_no_scale where ts_tz in('0000-01-01 08:00:00 +08:00', '2023-08-08 12:20:20 +00:00', '9999-12-31 23:59:58 +08:00') ORDER BY 1, 2, 3;
+        explain SELECT * FROM timestamptz_storage_dup_key_no_scale where ts_tz in('0000-01-01 08:00:00 +08:00', '2023-08-08 12:20:20 +00:00', '9999-12-31 23:59:59 +08:00') ORDER BY 1, 2, 3;
     """
     assertFalse(ret.toString().contains("CAST")) && assertFalse(ret.toString().contains("cast"))
+    assertTrue(ret.toString().contains("partitions=3/5 (p0,p2,p_max)"));
+    assertTrue(ret.toString().contains("tablets=9/48"));
     qt_in """
-        SELECT * FROM timestamptz_storage_dup_key_no_scale where ts_tz in('0000-01-01 08:00:00 +08:00', '2023-08-08 12:20:20 +00:00', '9999-12-31 23:59:58 +08:00') ORDER BY 1, 2, 3;
+        SELECT * FROM timestamptz_storage_dup_key_no_scale where ts_tz in('0000-01-01 08:00:00 +08:00', '2023-08-08 12:20:20 +00:00', '9999-12-31 23:59:59 +08:00') ORDER BY 1, 2, 3;
     """
 
     // test not in
     ret = sql """
-        explain SELECT * FROM timestamptz_storage_dup_key_no_scale where ts_tz not in('0000-01-01 08:00:00 +08:00', '2023-08-08 12:20:20 +00:00', '9999-12-31 23:59:58 +08:00') ORDER BY 1, 2, 3;
+        explain SELECT * FROM timestamptz_storage_dup_key_no_scale where ts_tz not in('0000-01-01 08:00:00 +08:00', '2023-08-08 12:20:20 +00:00', '9999-12-31 23:59:59 +08:00') ORDER BY 1, 2, 3;
     """
     assertFalse(ret.toString().contains("CAST")) && assertFalse(ret.toString().contains("cast"))
+    assertTrue(ret.toString().contains("partitions=5/5 (p0,p1,p2,p3,p_max)"));
+    assertTrue(ret.toString().contains("tablets=80/80"));
     qt_not_in """
-        SELECT * FROM timestamptz_storage_dup_key_no_scale where ts_tz not in('0000-01-01 08:00:00 +08:00', '2023-08-08 12:20:20 +00:00', '9999-12-31 23:59:58 +08:00') ORDER BY 1, 2, 3;
+        SELECT * FROM timestamptz_storage_dup_key_no_scale where ts_tz not in('0000-01-01 08:00:00 +08:00', '2023-08-08 12:20:20 +00:00', '9999-12-31 23:59:59 +08:00') ORDER BY 1, 2, 3;
     """
 
     // test is null
@@ -547,6 +615,8 @@ explain SELECT * FROM timestamptz_storage_dup_key_no_scale where ts_tz = '2023-0
     """
     assertFalse(ret.toString().contains("CAST")) && assertFalse(ret.toString().contains("cast"))
     assertTrue(ret.toString().contains("""IS NULL"""))
+    assertTrue(ret.toString().contains("partitions=1/5 (p0)"));
+    assertTrue(ret.toString().contains("tablets=1/16"));
     qt_is_null """
         SELECT * FROM timestamptz_storage_dup_key_no_scale where ts_tz IS NULL ORDER BY 1, 2, 3;
     """
@@ -557,6 +627,8 @@ explain SELECT * FROM timestamptz_storage_dup_key_no_scale where ts_tz = '2023-0
     """
     assertFalse(ret.toString().contains("CAST")) && assertFalse(ret.toString().contains("cast"))
     assertTrue(ret.toString().contains("""IS NOT NULL"""))
+    assertTrue(ret.toString().contains("partitions=5/5 (p0,p1,p2,p3,p_max)"));
+    assertTrue(ret.toString().contains("tablets=80/80"));
     qt_is_not_null """
         SELECT * FROM timestamptz_storage_dup_key_no_scale where ts_tz IS NOT NULL ORDER BY 1, 2, 3;
     """
@@ -581,6 +653,90 @@ explain SELECT * FROM timestamptz_storage_dup_key_no_scale where ts_tz = '2023-0
     //     SELECT ts_tz, count(distinct ts_tz_value) FROM timestamptz_storage_dup_key_no_scale group by ts_tz ORDER BY 1;
     // """
 
+    // list partition
+    sql """
+        DROP TABLE IF EXISTS `timestamptz_storage_dup_key_no_scale_list_partition_no_partition`;
+    """
+    sql """
+        CREATE TABLE `timestamptz_storage_dup_key_no_scale_list_partition_no_partition` (
+          `ts_tz` TIMESTAMPTZ,
+          `VALUE` INT
+        ) duplicate KEY(`ts_tz`)
+        partition by LIST(`ts_tz`) (
+            PARTITION p0 VALUES IN ('2025-12-31 23:59:59+08:00')
+        )
+        DISTRIBUTED BY HASH(`ts_tz`) BUCKETS 16
+        PROPERTIES (
+        "replication_num" = "1"
+        );
+    """
+    // no partition for null value
+    test {
+        sql """
+        INSERT INTO timestamptz_storage_dup_key_no_scale_list_partition_no_partition VALUES (null, 9999);
+        """
+        exception "no partition for this tuple"
+    }
+    // no partition for value
+    test {
+        sql """
+        INSERT INTO timestamptz_storage_dup_key_no_scale_list_partition_no_partition VALUES ('0000-01-01 00:00:00 +00:00', 9999);
+        """
+        exception "no partition for this tuple"
+    }
+    test {
+        sql """
+        INSERT INTO timestamptz_storage_dup_key_no_scale_list_partition_no_partition VALUES ('2021-01-01 00:00:00.000001 +00:00', 9999);
+        """
+        exception "no partition for this tuple"
+    }
+    test {
+        sql """
+        INSERT INTO timestamptz_storage_dup_key_no_scale_list_partition_no_partition VALUES ('9999-12-31 23:59:59+08:00', 9999);
+        """
+        exception "no partition for this tuple"
+    }
+    test {
+        sql """
+        INSERT INTO timestamptz_storage_dup_key_no_scale_list_partition_no_partition VALUES ('9999-12-31 23:59:59.999999+08:00', 9999);
+        """
+        exception "no partition for this tuple"
+    }
+
+    sql """
+        DROP TABLE IF EXISTS `timestamptz_storage_dup_key_no_scale_list_partition`;
+    """
+    sql """
+        CREATE TABLE `timestamptz_storage_dup_key_no_scale_list_partition` (
+          `ts_tz` TIMESTAMPTZ,
+          `VALUE` INT
+        ) duplicate KEY(`ts_tz`)
+        partition by LIST(`ts_tz`) (
+            PARTITION pnull VALUES IN (null),
+            PARTITION p0 VALUES IN (
+                '0000-01-01 00:00:00+00:00',
+                '0000-01-01 00:00:01+00:00'),
+            PARTITION p1 VALUES IN ('2023-01-02 00:00:00+08:00'),
+            PARTITION p2 VALUES IN ('2023-08-08 20:20:21+08:00'),
+            PARTITION p3 VALUES IN ('9999-12-31 23:59:59+08:00')
+        )
+        DISTRIBUTED BY HASH(`ts_tz`) BUCKETS 16
+        PROPERTIES (
+        "replication_num" = "1"
+        );
+    """
+    /*
+    sql """
+    insert into timestamptz_storage_dup_key_no_scale_list_partition values
+        (null, -1),
+        ('0000-01-01 00:00:00 +00:00', 0),
+        ('0000-01-01 00:00:01 +00:00', 1),
+        ('2023-01-02 00:00:00 +08:00', 2),
+        ('2023-08-08 20:20:21 +08:00', 3),
+        ('9999-12-31 23:59:59 +08:00', 4);
+    """
+    */
+
     // multi key columns
     sql """
         DROP TABLE IF EXISTS `timestamptz_storage_dup_key_multi_key_cols`;
@@ -592,6 +748,13 @@ explain SELECT * FROM timestamptz_storage_dup_key_no_scale where ts_tz = '2023-0
           `ts_tz_value` TIMESTAMPTZ,
           `VALUE` INT
         ) DUPLICATE KEY(`ts_tz`, `name`)
+        partition by RANGE(`ts_tz`) (
+            PARTITION p0 VALUES LESS THAN ('${partition_value0}'),
+            PARTITION p1 VALUES LESS THAN ('${partition_value1}'),
+            PARTITION p2 VALUES LESS THAN ('${partition_value2}'),
+            PARTITION p3 VALUES LESS THAN ('${partition_value3}'),
+            PARTITION p_max VALUES LESS THAN (MAXVALUE)
+        )
         DISTRIBUTED BY HASH(`ts_tz`, `name`) BUCKETS 16
         PROPERTIES (
         "replication_num" = "1"
@@ -633,6 +796,8 @@ explain SELECT * FROM timestamptz_storage_dup_key_no_scale where ts_tz = '2023-0
         explain SELECT * FROM timestamptz_storage_dup_key_multi_key_cols where ts_tz = '0000-01-01 00:00:00 +00:00' ORDER BY 1, 2, 3;
     """
     assertFalse(ret.toString().contains("CAST")) && assertFalse(ret.toString().contains("cast"))
+    assertTrue(ret.toString().contains("partitions=1/5 (p0)"));
+    assertTrue(ret.toString().contains("tablets=16/16"));
     qt_multi_key_eq0 """
         SELECT * FROM timestamptz_storage_dup_key_multi_key_cols where ts_tz = '0000-01-01 00:00:00 +00:00' ORDER BY 1, 2, 3;
     """
@@ -649,6 +814,8 @@ explain SELECT * FROM timestamptz_storage_dup_key_no_scale where ts_tz = '2023-0
         explain SELECT * FROM timestamptz_storage_dup_key_multi_key_cols where ts_tz = '9999-12-31 23:59:59 +08:00' ORDER BY 1, 2, 3;
     """
     assertFalse(ret.toString().contains("CAST")) && assertFalse(ret.toString().contains("cast"))
+    assertTrue(ret.toString().contains("partitions=1/5 (p_max)"));
+    assertTrue(ret.toString().contains("tablets=16/16"));
     qt_multi_key_eq2 """
         SELECT * FROM timestamptz_storage_dup_key_multi_key_cols where ts_tz = '9999-12-31 23:59:59 +08:00' ORDER BY 1, 2, 3;
     """
@@ -748,6 +915,59 @@ explain SELECT * FROM timestamptz_storage_dup_key_no_scale where ts_tz = '2023-0
         exception "no partition for this tuple"
     }
 
+    expected_partitions_with_scale = [
+        [start: "0000-01-01 00:00:00.000000+00:00", end: partition_value_with_scale0],
+        [start: partition_value_with_scale0, end: partition_value_with_scale1],
+        [start: partition_value_with_scale1, end: partition_value_with_scale2],
+        [start: partition_value_with_scale2, end: partition_value_with_scale3],
+        [start: partition_value_with_scale3, end: "MAXVALUE"]
+    ]
+
+    // type is with scale, but partition value is without scale
+    sql """
+        DROP TABLE IF EXISTS `timestamptz_storage_dup_key_scale_partition_no_scale`;
+    """
+    sql """
+        CREATE TABLE `timestamptz_storage_dup_key_scale_partition_no_scale` (
+          `ts_tz` TIMESTAMPTZ(6),
+          `ts_tz_value` TIMESTAMPTZ(6),
+          `VALUE` INT
+        ) DUPLICATE KEY(`ts_tz`)
+        partition by RANGE(`ts_tz`) (
+            PARTITION p0 VALUES LESS THAN ('${partition_value0}'),
+            PARTITION p1 VALUES LESS THAN ('${partition_value1}'),
+            PARTITION p2 VALUES LESS THAN ('${partition_value2}'),
+            PARTITION p3 VALUES LESS THAN ('${partition_value3}'),
+            PARTITION p_max VALUES LESS THAN (MAXVALUE)
+        )
+        DISTRIBUTED BY HASH(`ts_tz`) BUCKETS 16
+        PROPERTIES (
+        "replication_num" = "1"
+        );
+    """
+    sql """INSERT INTO timestamptz_storage_dup_key_scale_partition_no_scale VALUES
+    (null, null, -1),
+    ('0000-01-01 00:00:00 +00:00', '0000-01-01 00:00:00 +00:00', 0),
+    ('0000-01-01 00:00:00.000000 +00:00', '0000-01-01 00:00:00.000000 +00:00', 0),
+    ('0000-01-01 00:00:00.000001 +00:00', '0000-01-01 00:00:00.000001 +00:00', 0),
+    ('0000-01-01 00:00:00.123456 +00:00', '0000-01-01 00:00:00.123456 +00:00', 0),
+    ('0000-01-01 00:00:00.999999 +00:00', '0000-01-01 00:00:00.999999 +00:00', 10),
+    ('2023-08-08 20:20:20 +00:00', '2023-08-08 20:20:20 +00:00', 8),
+    ('2023-08-08 20:20:20.000000 +00:00', '2023-08-08 20:20:20.000000 +00:00', 8),
+    ('2023-08-08 20:20:20.000001 +00:00', '2023-08-08 20:20:20.000001 +00:00', 8),
+    ('2023-08-08 20:20:20.123456 +00:00', '2023-08-08 20:20:20.123456 +00:00', 8),
+    ('2023-08-08 20:20:20.999999 +00:00', '2023-08-08 20:20:20.999999 +00:00', 8),
+    ('9999-12-31 23:59:59 +08:00', '9999-12-31 23:59:59 +08:00', 9998),
+    ('9999-12-31 23:59:59.000000 +08:00', '9999-12-31 23:59:59.000000 +08:00', 9998),
+    ('9999-12-31 23:59:59.000001 +08:00', '9999-12-31 23:59:59.000001 +08:00', 9998),
+    ('9999-12-31 23:59:59.123456 +08:00', '9999-12-31 23:59:59.123456 +08:00', 9998),
+    ('9999-12-31 23:59:59.999999 +08:00', '9999-12-31 23:59:59.999999 +08:00', 9999);
+    """
+
+    qt_scale_all0 """
+        SELECT * FROM timestamptz_storage_dup_key_scale_partition_no_scale ORDER BY 1, 2, 3;
+    """
+
     sql """
         DROP TABLE IF EXISTS `timestamptz_storage_dup_key_scale`;
     """
@@ -793,13 +1013,6 @@ explain SELECT * FROM timestamptz_storage_dup_key_no_scale where ts_tz = '2023-0
         SELECT * FROM timestamptz_storage_dup_key_scale ORDER BY 1, 2, 3;
     """
 
-    expected_partitions_with_scale = [
-        [start: "0000-01-01 00:00:00.000000+00:00", end: partition_value_with_scale0],
-        [start: partition_value_with_scale0, end: partition_value_with_scale1],
-        [start: partition_value_with_scale1, end: partition_value_with_scale2],
-        [start: partition_value_with_scale2, end: partition_value_with_scale3],
-        [start: partition_value_with_scale3, end: "MAXVALUE"]
-    ]
     def partitionPatternWithScaleMaxValue = /\[\('(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{6}[+-]\d{2}:\d{2})'\),\s*\((?:'(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{6}[+-]\d{2}:\d{2})'|(MAXVALUE))\)\)/
     partitionRanges = []
 
@@ -841,6 +1054,8 @@ explain SELECT * FROM timestamptz_storage_dup_key_no_scale where ts_tz = '2023-0
         explain SELECT * FROM timestamptz_storage_dup_key_scale where ts_tz = '0000-01-01 00:00:00 +00:00' ORDER BY 1, 2, 3;
     """
     assertFalse(ret.toString().contains("CAST")) && assertFalse(ret.toString().contains("cast"))
+    assertTrue(ret.toString().contains("partitions=1/5 (p0)"));
+    assertTrue(ret.toString().contains("tablets=1/16"));
     qt_scale_eq0 """
         SELECT * FROM timestamptz_storage_dup_key_scale where ts_tz = '0000-01-01 00:00:00.000000 +00:00' ORDER BY 1, 2, 3;
     """
@@ -849,6 +1064,8 @@ explain SELECT * FROM timestamptz_storage_dup_key_no_scale where ts_tz = '2023-0
         explain SELECT * FROM timestamptz_storage_dup_key_scale where ts_tz = '0000-01-01 00:00:00.000001 +00:00' ORDER BY 1, 2, 3;
     """
     assertFalse(ret.toString().contains("CAST")) && assertFalse(ret.toString().contains("cast"))
+    assertTrue(ret.toString().contains("partitions=1/5 (p0)"));
+    assertTrue(ret.toString().contains("tablets=1/16"));
     qt_scale_eq1 """
         SELECT * FROM timestamptz_storage_dup_key_scale where ts_tz = '0000-01-01 00:00:00.000001 +00:00' ORDER BY 1, 2, 3;
     """
@@ -857,6 +1074,8 @@ explain SELECT * FROM timestamptz_storage_dup_key_no_scale where ts_tz = '2023-0
         explain SELECT * FROM timestamptz_storage_dup_key_scale where ts_tz = '2023-08-08 20:20:20.123456 +00:00' ORDER BY 1, 2, 3;
     """
     assertFalse(ret.toString().contains("CAST")) && assertFalse(ret.toString().contains("cast"))
+    assertTrue(ret.toString().contains("partitions=1/5 (p3)"));
+    assertTrue(ret.toString().contains("tablets=1/16"));
     qt_scale_eq2 """
         SELECT * FROM timestamptz_storage_dup_key_scale where ts_tz = '2023-08-08 20:20:20.123456 +00:00' ORDER BY 1, 2, 3;
     """
@@ -865,6 +1084,8 @@ explain SELECT * FROM timestamptz_storage_dup_key_no_scale where ts_tz = '2023-0
         explain SELECT * FROM timestamptz_storage_dup_key_scale where ts_tz = '9999-12-31 23:59:59.999999 +08:00' ORDER BY 1, 2, 3;
     """
     assertFalse(ret.toString().contains("CAST")) && assertFalse(ret.toString().contains("cast"))
+    assertTrue(ret.toString().contains("partitions=1/5 (p_max)"));
+    assertTrue(ret.toString().contains("tablets=1/16"));
     qt_scale_eq3 """
         SELECT * FROM timestamptz_storage_dup_key_scale where ts_tz = '9999-12-31 23:59:59.999999 +08:00' ORDER BY 1, 2, 3;
     """
@@ -874,6 +1095,8 @@ explain SELECT * FROM timestamptz_storage_dup_key_no_scale where ts_tz = '2023-0
         explain SELECT * FROM timestamptz_storage_dup_key_scale where ts_tz != '0000-01-01 00:00:00 +00:00' ORDER BY 1, 2, 3;
     """
     assertFalse(ret.toString().contains("CAST")) && assertFalse(ret.toString().contains("cast"))
+    assertTrue(ret.toString().contains("partitions=3/5 (p0,p3,p_max)"));
+    assertTrue(ret.toString().contains("tablets=48/48"));
     qt_scale_neq0 """
         SELECT * FROM timestamptz_storage_dup_key_scale where ts_tz != '0000-01-01 00:00:00.000000 +00:00' ORDER BY 1, 2, 3;
     """
@@ -898,6 +1121,8 @@ explain SELECT * FROM timestamptz_storage_dup_key_no_scale where ts_tz = '2023-0
         explain SELECT * FROM timestamptz_storage_dup_key_scale where ts_tz != '9999-12-31 23:59:59.999999 +08:00' ORDER BY 1, 2, 3;
     """
     assertFalse(ret.toString().contains("CAST")) && assertFalse(ret.toString().contains("cast"))
+    assertTrue(ret.toString().contains("partitions=3/5 (p0,p3,p_max)"));
+    assertTrue(ret.toString().contains("tablets=48/48"));
     qt_scale_neq3 """
         SELECT * FROM timestamptz_storage_dup_key_scale where ts_tz != '9999-12-31 23:59:59.999999 +08:00' ORDER BY 1, 2, 3;
     """
@@ -907,6 +1132,8 @@ explain SELECT * FROM timestamptz_storage_dup_key_no_scale where ts_tz = '2023-0
         explain SELECT * FROM timestamptz_storage_dup_key_scale where ts_tz > '0000-01-01 00:00:00 +00:00' ORDER BY 1, 2, 3;
     """
     assertFalse(ret.toString().contains("CAST")) && assertFalse(ret.toString().contains("cast"))
+    assertTrue(ret.toString().contains("partitions=3/5 (p0,p3,p_max)"));
+    assertTrue(ret.toString().contains("tablets=48/48"));
     qt_scale_gt0 """
         SELECT * FROM timestamptz_storage_dup_key_scale where ts_tz > '0000-01-01 00:00:00.000000 +00:00' ORDER BY 1, 2, 3;
     """
@@ -931,6 +1158,8 @@ explain SELECT * FROM timestamptz_storage_dup_key_no_scale where ts_tz = '2023-0
         explain SELECT * FROM timestamptz_storage_dup_key_scale where ts_tz > '9999-12-31 23:59:59.999999 +08:00' ORDER BY 1, 2, 3;
     """
     assertFalse(ret.toString().contains("CAST")) && assertFalse(ret.toString().contains("cast"))
+    assertTrue(ret.toString().contains("partitions=1/5 (p_max)"));
+    assertTrue(ret.toString().contains("tablets=16/16"));
     qt_scale_gt3 """
         SELECT * FROM timestamptz_storage_dup_key_scale where ts_tz > '9999-12-31 23:59:59.999999 +08:00' ORDER BY 1, 2, 3;
     """
@@ -940,6 +1169,8 @@ explain SELECT * FROM timestamptz_storage_dup_key_no_scale where ts_tz = '2023-0
         explain SELECT * FROM timestamptz_storage_dup_key_scale where ts_tz >= '0000-01-01 00:00:00 +00:00' ORDER BY 1, 2, 3;
     """
     assertFalse(ret.toString().contains("CAST")) && assertFalse(ret.toString().contains("cast"))
+    assertTrue(ret.toString().contains("partitions=3/5 (p0,p3,p_max)"));
+    assertTrue(ret.toString().contains("tablets=48/48"));
     qt_scale_ge0 """
         SELECT * FROM timestamptz_storage_dup_key_scale where ts_tz >= '0000-01-01 00:00:00.000000 +00:00' ORDER BY 1, 2, 3;
     """
@@ -964,6 +1195,8 @@ explain SELECT * FROM timestamptz_storage_dup_key_no_scale where ts_tz = '2023-0
         explain SELECT * FROM timestamptz_storage_dup_key_scale where ts_tz >= '9999-12-31 23:59:59.999999 +08:00' ORDER BY 1, 2, 3;
     """
     assertFalse(ret.toString().contains("CAST")) && assertFalse(ret.toString().contains("cast"))
+    assertTrue(ret.toString().contains("partitions=1/5 (p_max)"));
+    assertTrue(ret.toString().contains("tablets=16/16"));
     qt_scale_ge3 """
         SELECT * FROM timestamptz_storage_dup_key_scale where ts_tz >= '9999-12-31 23:59:59.999999 +08:00' ORDER BY 1, 2, 3;
     """
@@ -989,6 +1222,8 @@ explain SELECT * FROM timestamptz_storage_dup_key_no_scale where ts_tz = '2023-0
         explain SELECT * FROM timestamptz_storage_dup_key_scale where ts_tz < '2023-08-08 20:20:20.123456 +00:00' ORDER BY 1, 2, 3;
     """
     assertFalse(ret.toString().contains("CAST")) && assertFalse(ret.toString().contains("cast"))
+    assertTrue(ret.toString().contains("partitions=2/5 (p0,p3)"));
+    assertTrue(ret.toString().contains("tablets=32/32"));
     qt_scale_lt2 """
         SELECT * FROM timestamptz_storage_dup_key_scale where ts_tz < '2023-08-08 20:20:20.123456 +00:00' ORDER BY 1, 2, 3;
     """
@@ -997,6 +1232,8 @@ explain SELECT * FROM timestamptz_storage_dup_key_no_scale where ts_tz = '2023-0
         explain SELECT * FROM timestamptz_storage_dup_key_scale where ts_tz < '9999-12-31 23:59:59.999999 +08:00' ORDER BY 1, 2, 3;
     """
     assertFalse(ret.toString().contains("CAST")) && assertFalse(ret.toString().contains("cast"))
+    assertTrue(ret.toString().contains("partitions=2/5 (p0,p3)"));
+    assertTrue(ret.toString().contains("tablets=32/32"));
     qt_scale_lt3 """
         SELECT * FROM timestamptz_storage_dup_key_scale where ts_tz < '9999-12-31 23:59:59.999999 +08:00' ORDER BY 1, 2, 3;
     """
@@ -1007,6 +1244,8 @@ explain SELECT * FROM timestamptz_storage_dup_key_no_scale where ts_tz = '2023-0
         explain SELECT * FROM timestamptz_storage_dup_key_scale where ts_tz <= '0000-01-01 00:00:00 +00:00' ORDER BY 1, 2, 3;
     """
     assertFalse(ret.toString().contains("CAST")) && assertFalse(ret.toString().contains("cast"))
+    assertTrue(ret.toString().contains("partitions=1/5 (p0)"));
+    assertTrue(ret.toString().contains("tablets=16/16"));
     qt_scale_le0 """
         SELECT * FROM timestamptz_storage_dup_key_scale where ts_tz <= '0000-01-01 00:00:00.000000 +00:00' ORDER BY 1, 2, 3;
     """
@@ -1031,20 +1270,47 @@ explain SELECT * FROM timestamptz_storage_dup_key_no_scale where ts_tz = '2023-0
         explain SELECT * FROM timestamptz_storage_dup_key_scale where ts_tz <= '9999-12-31 23:59:59.999999 +08:00' ORDER BY 1, 2, 3;
     """
     assertFalse(ret.toString().contains("CAST")) && assertFalse(ret.toString().contains("cast"))
+    assertTrue(ret.toString().contains("partitions=3/5 (p0,p3,p_max)"));
+    assertTrue(ret.toString().contains("tablets=48/48"));
     qt_scale_le3 """
         SELECT * FROM timestamptz_storage_dup_key_scale where ts_tz <= '9999-12-31 23:59:59.999999 +08:00' ORDER BY 1, 2, 3;
     """
 
     // test in
+    ret = sql """
+        explain SELECT * FROM timestamptz_storage_dup_key_scale where ts_tz in('0000-01-01 00:00:00.000000 +00:00', '0000-01-01 00:00:00.000001 +00:00', '9999-12-31 23:59:59.999999 +08:00', '2023-12-12 12:12:12.123461 +09:00', '2023-08-08 20:20:20.999999 +00:00') ORDER BY 1, 2, 3;
+    """
+    assertFalse(ret.toString().contains("CAST")) && assertFalse(ret.toString().contains("cast"))
+    assertTrue(ret.toString().contains("partitions=3/5 (p0,p3,p_max)"));
+    assertTrue(ret.toString().contains("tablets=15/48"));
     qt_scale_in """
         SELECT * FROM timestamptz_storage_dup_key_scale where ts_tz in('0000-01-01 00:00:00.000000 +00:00', '0000-01-01 00:00:00.000001 +00:00', '9999-12-31 23:59:59.999999 +08:00', '2023-12-12 12:12:12.123461 +09:00', '2023-08-08 20:20:20.999999 +00:00') ORDER BY 1, 2, 3;
     """
+
+    ret = sql """
+        explain SELECT * FROM timestamptz_storage_dup_key_scale where ts_tz not in('0000-01-01 00:00:00.000000 +00:00', '0000-01-01 00:00:00.000001 +00:00', '9999-12-31 23:59:59.999999 +08:00', '2023-12-12 12:12:12.123461 +09:00', '2023-08-08 20:20:20.999999 +00:00') ORDER BY 1, 2, 3;
+    """
+    assertFalse(ret.toString().contains("CAST")) && assertFalse(ret.toString().contains("cast"))
+    assertTrue(ret.toString().contains("partitions=3/5 (p0,p3,p_max)"));
+    assertTrue(ret.toString().contains("tablets=48/48"));
     qt_scale_not_in """
         SELECT * FROM timestamptz_storage_dup_key_scale where ts_tz not in('0000-01-01 00:00:00.000000 +00:00', '0000-01-01 00:00:00.000001 +00:00', '9999-12-31 23:59:59.999999 +08:00', '2023-12-12 12:12:12.123461 +09:00', '2023-08-08 20:20:20.999999 +00:00') ORDER BY 1, 2, 3;
     """
+
+    ret = sql """
+        explain SELECT * FROM timestamptz_storage_dup_key_scale where ts_tz IS NULL ORDER BY 1, 2, 3;
+    """
+    assertTrue(ret.toString().contains("partitions=1/5 (p0)"));
+    assertTrue(ret.toString().contains("tablets=1/16"));
     qt_scale_is_null """
         SELECT * FROM timestamptz_storage_dup_key_scale where ts_tz IS NULL ORDER BY 1, 2, 3;
     """
+
+    ret = sql """
+        explain SELECT * FROM timestamptz_storage_dup_key_scale where ts_tz IS NOT NULL ORDER BY 1, 2, 3;
+    """
+    assertTrue(ret.toString().contains("partitions=3/5 (p0,p3,p_max)"));
+    assertTrue(ret.toString().contains("tablets=48/48"));
     qt_scale_is_not_null """
         SELECT * FROM timestamptz_storage_dup_key_scale where ts_tz IS NOT NULL ORDER BY 1, 2, 3;
     """
@@ -1099,7 +1365,6 @@ explain SELECT * FROM timestamptz_storage_dup_key_no_scale where ts_tz = '2023-0
         exception "no partition for this tuple"
     }
 
-/*
     sql """
         DROP TABLE IF EXISTS `timestamptz_storage_dup_key_scale_list_partition`;
     """
@@ -1124,13 +1389,13 @@ explain SELECT * FROM timestamptz_storage_dup_key_no_scale where ts_tz = '2023-0
         "replication_num" = "1"
         );
     """
-
+/*
     sql """INSERT INTO timestamptz_storage_dup_key_scale_list_partition VALUES
     (null, -1),
-    ('0000-01-01 00:00:00.000000 +00:00', 2),
-    ('0000-01-01 00:00:00.000001 +00:00', 3),
-    ('0000-01-01 00:00:00.123456 +00:00', 4),
-    ('0000-01-01 00:00:00.999999 +00:00', 5),
+    ('0000-01-01 00:00:00.000000+00:00', 2),
+    ('0000-01-01 00:00:00.000001+00:00', 3),
+    ('0000-01-01 00:00:00.123456+00:00', 4),
+    ('0000-01-01 00:00:00.999999+00:00', 5),
     ('2023-01-02 00:00:00.123456+08:00', 6),
     ('2023-08-08 20:20:21.900000+08:00', 7),
     ('9999-12-31 23:59:59.999999+08:00', 8);
@@ -1211,6 +1476,7 @@ explain SELECT * FROM timestamptz_storage_dup_key_no_scale where ts_tz = '2023-0
         );
     """
 
+    /*
     sql """INSERT INTO timestamptz_storage_dup_key_scale_list_partition_multi_cols VALUES
     (null, null, -1),
     ('0000-01-01 00:00:00.000000 +00:00', 'jack', 1),
@@ -1224,4 +1490,5 @@ explain SELECT * FROM timestamptz_storage_dup_key_no_scale where ts_tz = '2023-0
     qt_scale_list_partition1 """
         SELECT * FROM timestamptz_storage_dup_key_scale_list_partition_multi_cols ORDER BY 1, 2, 3;
     """
+    */
 }

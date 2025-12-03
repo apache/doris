@@ -958,7 +958,7 @@ Status OlapScanLocalState::_build_key_ranges_and_filters() {
         custom_profile()->add_info_string("KeyRanges", _scan_keys.debug_string());
         custom_profile()->add_info_string("TabletIds", tablets_id_to_string(_scan_ranges));
     }
-    VLOG_CRITICAL << _scan_keys.debug_string();
+    LOG(INFO) << _scan_keys.debug_string();
 
     return Status::OK();
 }

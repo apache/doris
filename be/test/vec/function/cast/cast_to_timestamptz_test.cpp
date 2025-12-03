@@ -69,13 +69,13 @@ TEST_F(CastTimeStampTzTest, from_string_strict_mode_to_timestamptz) {
                 assert_cast<const ColumnTimeStampTz&>(*block.get_by_position(result).column);
 
         EXPECT_EQ(TimestampTzValue {col_res.get_element(0)}.to_string(time_zone),
-                  "2024-06-20 12:12:12.000000 +08:00");
+                  "2024-06-20 12:12:12.000000+08:00");
         EXPECT_EQ(TimestampTzValue {col_res.get_element(1)}.to_string(time_zone),
-                  "2024-06-21 04:12:12.000000 +08:00");
+                  "2024-06-21 04:12:12.000000+08:00");
         EXPECT_EQ(TimestampTzValue {col_res.get_element(2)}.to_string(time_zone),
-                  "2024-06-20 20:12:12.000000 +08:00");
+                  "2024-06-20 20:12:12.000000+08:00");
         EXPECT_EQ(TimestampTzValue {col_res.get_element(3)}.to_string(time_zone),
-                  "2024-06-20 12:12:12.000000 +08:00");
+                  "2024-06-20 12:12:12.000000+08:00");
     }
     // error cast
 
@@ -115,13 +115,13 @@ TEST_F(CastTimeStampTzTest, from_string_non_strict_mode_to_timestamptz) {
                 assert_cast<const ColumnTimeStampTz&>(column_nullable.get_nested_column());
 
         EXPECT_EQ(TimestampTzValue {col_res.get_element(0)}.to_string(time_zone),
-                  "2024-06-20 12:12:12.000000 +08:00");
+                  "2024-06-20 12:12:12.000000+08:00");
         EXPECT_EQ(TimestampTzValue {col_res.get_element(1)}.to_string(time_zone),
-                  "2024-06-21 04:12:12.000000 +08:00");
+                  "2024-06-21 04:12:12.000000+08:00");
         EXPECT_EQ(TimestampTzValue {col_res.get_element(2)}.to_string(time_zone),
-                  "2024-06-20 20:12:12.000000 +08:00");
+                  "2024-06-20 20:12:12.000000+08:00");
         EXPECT_EQ(TimestampTzValue {col_res.get_element(3)}.to_string(time_zone),
-                  "2024-06-20 12:12:12.000000 +08:00");
+                  "2024-06-20 12:12:12.000000+08:00");
     }
 
     // error cast
@@ -145,11 +145,11 @@ TEST_F(CastTimeStampTzTest, from_string_non_strict_mode_to_timestamptz) {
         const auto& null_map = column_nullable.get_null_map_data();
 
         EXPECT_EQ(TimestampTzValue {col_res.get_element(0)}.to_string(time_zone),
-                  "2024-06-20 12:12:12.000000 +08:00");
+                  "2024-06-20 12:12:12.000000+08:00");
         EXPECT_EQ(TimestampTzValue {col_res.get_element(1)}.to_string(time_zone),
-                  "2024-06-21 04:12:12.000000 +08:00");
+                  "2024-06-21 04:12:12.000000+08:00");
         EXPECT_EQ(TimestampTzValue {col_res.get_element(2)}.to_string(time_zone),
-                  "2024-06-20 20:12:12.000000 +08:00");
+                  "2024-06-20 20:12:12.000000+08:00");
         EXPECT_TRUE(null_map[3]);
     }
 }
@@ -174,13 +174,13 @@ TEST_F(CastTimeStampTzTest, from_datetime_strict_mode_to_timestamptz) {
                 assert_cast<const ColumnTimeStampTz&>(*block.get_by_position(result).column);
 
         EXPECT_EQ(TimestampTzValue {col_res.get_element(0)}.to_string(time_zone),
-                  "2024-06-20 12:12:12.123456 +08:00");
+                  "2024-06-20 12:12:12.123456+08:00");
         EXPECT_EQ(TimestampTzValue {col_res.get_element(1)}.to_string(time_zone),
-                  "2024-06-20 12:12:12.000000 +08:00");
+                  "2024-06-20 12:12:12.000000+08:00");
         EXPECT_EQ(TimestampTzValue {col_res.get_element(2)}.to_string(time_zone),
-                  "1970-01-01 00:00:00.000000 +08:00");
+                  "1970-01-01 00:00:00.000000+08:00");
         EXPECT_EQ(TimestampTzValue {col_res.get_element(3)}.to_string(time_zone),
-                  "2038-01-19 03:14:07.000000 +08:00");
+                  "2038-01-19 03:14:07.000000+08:00");
     }
 
     // error cast
@@ -222,13 +222,13 @@ TEST_F(CastTimeStampTzTest, from_datetime_non_strict_mode_to_timestamptz) {
                 assert_cast<const ColumnTimeStampTz&>(column_nullable.get_nested_column());
 
         EXPECT_EQ(TimestampTzValue {col_res.get_element(0)}.to_string(time_zone),
-                  "2024-06-20 12:12:12.123456 +08:00");
+                  "2024-06-20 12:12:12.123456+08:00");
         EXPECT_EQ(TimestampTzValue {col_res.get_element(1)}.to_string(time_zone),
-                  "2024-06-20 12:12:12.000000 +08:00");
+                  "2024-06-20 12:12:12.000000+08:00");
         EXPECT_EQ(TimestampTzValue {col_res.get_element(2)}.to_string(time_zone),
-                  "1970-01-01 00:00:00.000000 +08:00");
+                  "1970-01-01 00:00:00.000000+08:00");
         EXPECT_EQ(TimestampTzValue {col_res.get_element(3)}.to_string(time_zone),
-                  "2038-01-19 03:14:07.000000 +08:00");
+                  "2038-01-19 03:14:07.000000+08:00");
     }
 
     //error cast
@@ -254,11 +254,11 @@ TEST_F(CastTimeStampTzTest, from_datetime_non_strict_mode_to_timestamptz) {
 
         EXPECT_TRUE(null_map[0]);
         EXPECT_EQ(TimestampTzValue {col_res.get_element(1)}.to_string(time_zone),
-                  "2024-06-20 12:12:12.000000 +08:00");
+                  "2024-06-20 12:12:12.000000+08:00");
         EXPECT_EQ(TimestampTzValue {col_res.get_element(2)}.to_string(time_zone),
-                  "1970-01-01 00:00:00.000000 +08:00");
+                  "1970-01-01 00:00:00.000000+08:00");
         EXPECT_EQ(TimestampTzValue {col_res.get_element(3)}.to_string(time_zone),
-                  "2038-01-19 03:14:07.000000 +08:00");
+                  "2038-01-19 03:14:07.000000+08:00");
     }
 }
 

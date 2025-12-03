@@ -166,9 +166,12 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
         RowCursor& start_key = _keys_param.start_keys[i];
         RowCursor& end_key = _keys_param.end_keys[i];
 
+         LOG(INFO) << "lower key not include"
+                            << ", start_key=" << start_key.to_string()
+                            << ", end_key=" << end_key.to_string();
         if (!is_lower_key_included) {
             if (compare_row_key(start_key, end_key) >= 0) {
-                VLOG_NOTICE << "return EOF when lower key not include"
+                LOG(INFO) << "return EOF when lower key not include"
                             << ", start_key=" << start_key.to_string()
                             << ", end_key=" << end_key.to_string();
                 eof = true;
@@ -176,7 +179,7 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
             }
         } else {
             if (compare_row_key(start_key, end_key) > 0) {
-                VLOG_NOTICE << "return EOF when lower key include="
+                LOG(INFO) << "return EOF when lower key include="
                             << ", start_key=" << start_key.to_string()
                             << ", end_key=" << end_key.to_string();
                 eof = true;
@@ -189,7 +192,7 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
     }
 
     if (eof) {
-        return Status::OK();
+        return Status::EndOfFile("reach end of scan range. tablet={}", _tablet->tablet_id());
     }
 
     bool need_ordered_result = true;

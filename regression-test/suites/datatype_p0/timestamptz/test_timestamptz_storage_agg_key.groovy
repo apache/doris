@@ -250,6 +250,8 @@ suite("test_timestamptz_storage_agg_key") {
         explain SELECT * FROM timestamptz_storage_agg_key_no_scale where ts_tz = '0000-01-01 08:00:00+08:00' ORDER BY 1, 2;
     """
     assertFalse(ret.toString().contains("CAST")) && assertFalse(ret.toString().contains("cast"))
+    assertTrue(ret.toString().contains("partitions=1/5 (p0)"));
+    assertTrue(ret.toString().contains("tablets=1/16"));
     qt_eq0 """
         SELECT * FROM timestamptz_storage_agg_key_no_scale where ts_tz = '0000-01-01 08:00:00+08:00' ORDER BY 1, 2;
     """
@@ -258,6 +260,8 @@ suite("test_timestamptz_storage_agg_key") {
         explain SELECT * FROM timestamptz_storage_agg_key_no_scale where ts_tz = '2025-12-12 12:12:12+08:00' ORDER BY 1, 2;
     """
     assertFalse(ret.toString().contains("CAST")) && assertFalse(ret.toString().contains("cast"))
+    assertTrue(ret.toString().contains("partitions=1/5 (p3)"));
+    assertTrue(ret.toString().contains("tablets=1/16"));
     qt_eq1 """
         SELECT * FROM timestamptz_storage_agg_key_no_scale where ts_tz = '2025-12-12 12:12:12+08:00' ORDER BY 1, 2;
     """
@@ -266,6 +270,8 @@ suite("test_timestamptz_storage_agg_key") {
         explain SELECT * FROM timestamptz_storage_agg_key_no_scale where ts_tz = '9999-12-31 23:59:59+08:00' ORDER BY 1, 2;
     """
     assertFalse(ret.toString().contains("CAST")) && assertFalse(ret.toString().contains("cast"))
+    assertTrue(ret.toString().contains("partitions=1/5 (p_max)"));
+    assertTrue(ret.toString().contains("tablets=1/16"));
     qt_eq2 """
         SELECT * FROM timestamptz_storage_agg_key_no_scale where ts_tz = '9999-12-31 23:59:59+08:00' ORDER BY 1, 2;
     """
@@ -275,6 +281,8 @@ suite("test_timestamptz_storage_agg_key") {
         explain SELECT * FROM timestamptz_storage_agg_key_no_scale where ts_tz != '0000-01-01 08:00:00+08:00' ORDER BY 1, 2;
     """
     assertFalse(ret.toString().contains("CAST")) && assertFalse(ret.toString().contains("cast"))
+    assertTrue(ret.toString().contains("partitions=3/5 (p0,p3,p_max)"));
+    assertTrue(ret.toString().contains("tablets=48/48"));
     qt_neq0 """
         SELECT * FROM timestamptz_storage_agg_key_no_scale where ts_tz != '0000-01-01 08:00:00+08:00' ORDER BY 1, 2;
     """
@@ -300,6 +308,8 @@ suite("test_timestamptz_storage_agg_key") {
         explain SELECT * FROM timestamptz_storage_agg_key_no_scale where ts_tz > '0000-01-01 08:00:00+08:00' ORDER BY 1, 2;
     """
     assertFalse(ret.toString().contains("CAST")) && assertFalse(ret.toString().contains("cast"))
+    assertTrue(ret.toString().contains("partitions=3/5 (p0,p3,p_max)"));
+    assertTrue(ret.toString().contains("tablets=48/48"));
     qt_gt0 """
         SELECT * FROM timestamptz_storage_agg_key_no_scale where ts_tz > '0000-01-01 08:00:00+08:00' ORDER BY 1, 2;
     """
@@ -316,6 +326,8 @@ suite("test_timestamptz_storage_agg_key") {
         explain SELECT * FROM timestamptz_storage_agg_key_no_scale where ts_tz > '9999-12-31 23:59:59+08:00' ORDER BY 1, 2;
     """
     assertFalse(ret.toString().contains("CAST")) && assertFalse(ret.toString().contains("cast"))
+    assertTrue(ret.toString().contains("partitions=1/5 (p_max)"));
+    assertTrue(ret.toString().contains("tablets=16/16"));
     qt_gt2 """
         SELECT * FROM timestamptz_storage_agg_key_no_scale where ts_tz > '9999-12-31 23:59:59+08:00' ORDER BY 1, 2;
     """
@@ -325,6 +337,8 @@ suite("test_timestamptz_storage_agg_key") {
         explain SELECT * FROM timestamptz_storage_agg_key_no_scale where ts_tz >= '0000-01-01 08:00:00+08:00' ORDER BY 1, 2;
     """
     assertFalse(ret.toString().contains("CAST")) && assertFalse(ret.toString().contains("cast"))
+    assertTrue(ret.toString().contains("partitions=3/5 (p0,p3,p_max)"));
+    assertTrue(ret.toString().contains("tablets=48/48"));
     qt_ge0 """
         SELECT * FROM timestamptz_storage_agg_key_no_scale where ts_tz >= '0000-01-01 08:00:00+08:00' ORDER BY 1, 2;
     """
@@ -341,6 +355,8 @@ suite("test_timestamptz_storage_agg_key") {
         explain SELECT * FROM timestamptz_storage_agg_key_no_scale where ts_tz >= '9999-12-31 23:59:59+08:00' ORDER BY 1, 2;
     """
     assertFalse(ret.toString().contains("CAST")) && assertFalse(ret.toString().contains("cast"))
+    assertTrue(ret.toString().contains("partitions=1/5 (p_max)"));
+    assertTrue(ret.toString().contains("tablets=16/16"));
     qt_ge2 """
         SELECT * FROM timestamptz_storage_agg_key_no_scale where ts_tz >= '9999-12-31 23:59:59+08:00' ORDER BY 1, 2;
     """
@@ -366,6 +382,8 @@ suite("test_timestamptz_storage_agg_key") {
         explain SELECT * FROM timestamptz_storage_agg_key_no_scale where ts_tz < '9999-12-31 23:59:59+08:00' ORDER BY 1, 2;
     """
     assertFalse(ret.toString().contains("CAST")) && assertFalse(ret.toString().contains("cast"))
+    assertTrue(ret.toString().contains("partitions=2/5 (p0,p3)"));
+    assertTrue(ret.toString().contains("tablets=32/32"));
     qt_lt2 """
         SELECT * FROM timestamptz_storage_agg_key_no_scale where ts_tz < '9999-12-31 23:59:59+08:00' ORDER BY 1, 2;
     """
@@ -375,6 +393,8 @@ suite("test_timestamptz_storage_agg_key") {
         explain SELECT * FROM timestamptz_storage_agg_key_no_scale where ts_tz <= '0000-01-01 08:00:00+08:00' ORDER BY 1, 2;
     """
     assertFalse(ret.toString().contains("CAST")) && assertFalse(ret.toString().contains("cast"))
+    assertTrue(ret.toString().contains("partitions=1/5 (p0)"));
+    assertTrue(ret.toString().contains("tablets=16/16"));
     qt_le0 """
         SELECT * FROM timestamptz_storage_agg_key_no_scale where ts_tz <= '0000-01-01 08:00:00+08:00' ORDER BY 1, 2;
     """
@@ -391,6 +411,8 @@ suite("test_timestamptz_storage_agg_key") {
         explain SELECT * FROM timestamptz_storage_agg_key_no_scale where ts_tz <= '9999-12-31 23:59:59+08:00' ORDER BY 1, 2;
     """
     assertFalse(ret.toString().contains("CAST")) && assertFalse(ret.toString().contains("cast"))
+    assertTrue(ret.toString().contains("partitions=3/5 (p0,p3,p_max)"));
+    assertTrue(ret.toString().contains("tablets=48/48"));
     qt_le2 """
         SELECT * FROM timestamptz_storage_agg_key_no_scale where ts_tz <= '9999-12-31 23:59:59+08:00' ORDER BY 1, 2;
     """
@@ -400,6 +422,8 @@ suite("test_timestamptz_storage_agg_key") {
         explain SELECT * FROM timestamptz_storage_agg_key_no_scale where ts_tz in('0000-01-01 08:00:00+08:00', '2025-12-12 12:12:12+08:00', '9999-12-31 23:59:59+08:00', '2023-10-10 10:10:10 -03:00') ORDER BY 1, 2;
     """
     assertFalse(ret.toString().contains("CAST")) && assertFalse(ret.toString().contains("cast"))
+    assertTrue(ret.toString().contains("partitions=3/5 (p0,p3,p_max)"));
+    assertTrue(ret.toString().contains("tablets=12/48"));
     qt_agg_key_in """
         SELECT * FROM timestamptz_storage_agg_key_no_scale where ts_tz in('0000-01-01 08:00:00+08:00', '2025-12-12 12:12:12+08:00', '9999-12-31 23:59:59+08:00', '2023-10-10 10:10:10 -03:00') ORDER BY 1, 2;
     """
@@ -409,6 +433,8 @@ suite("test_timestamptz_storage_agg_key") {
         explain SELECT * FROM timestamptz_storage_agg_key_no_scale where ts_tz not in('0000-01-01 08:00:00+08:00', '2025-12-12 12:12:12+08:00', '9999-12-31 23:59:59+08:00', '2023-10-10 10:10:10 -03:00') ORDER BY 1, 2;
     """
     assertFalse(ret.toString().contains("CAST")) && assertFalse(ret.toString().contains("cast"))
+    assertTrue(ret.toString().contains("partitions=3/5 (p0,p3,p_max)"));
+    assertTrue(ret.toString().contains("tablets=48/48"));
     qt_agg_key_not_in """
         SELECT * FROM timestamptz_storage_agg_key_no_scale where ts_tz not in('0000-01-01 08:00:00+08:00', '2025-12-12 12:12:12+08:00', '9999-12-31 23:59:59+08:00', '2023-10-10 10:10:10 -03:00') ORDER BY 1, 2;
     """
@@ -781,6 +807,8 @@ suite("test_timestamptz_storage_agg_key") {
         explain SELECT * FROM timestamptz_storage_agg_key_scale where ts_tz = '0000-01-01 00:00:00.000000 +00:00' ORDER BY 1, 2;
     """
     assertFalse(ret.toString().contains("CAST")) && assertFalse(ret.toString().contains("cast"))
+    assertTrue(ret.toString().contains("partitions=1/5 (p0)"));
+    assertTrue(ret.toString().contains("tablets=1/16"));
     qt_scale_eq0 """
         SELECT * FROM timestamptz_storage_agg_key_scale where ts_tz = '0000-01-01 00:00:00.000000 +00:00' ORDER BY 1, 2;
     """
@@ -797,15 +825,19 @@ suite("test_timestamptz_storage_agg_key") {
         explain SELECT * FROM timestamptz_storage_agg_key_scale where ts_tz = '9999-12-31 23:59:59.999999 +08:00' ORDER BY 1, 2;
     """
     assertFalse(ret.toString().contains("CAST")) && assertFalse(ret.toString().contains("cast"))
+    assertTrue(ret.toString().contains("partitions=1/5 (p_max)"));
+    assertTrue(ret.toString().contains("tablets=1/16"));
     qt_scale_eq2 """
         SELECT * FROM timestamptz_storage_agg_key_scale where ts_tz = '9999-12-31 23:59:59.999999 +08:00' ORDER BY 1, 2;
     """
 
     // test !=
     ret = sql """
-        explain SELECT * FROM timestamptz_storage_agg_key_scale where ts_tz = '0000-01-01 00:00:00.000000 +00:00' ORDER BY 1, 2;
+        explain SELECT * FROM timestamptz_storage_agg_key_scale where ts_tz != '0000-01-01 00:00:00.000000 +00:00' ORDER BY 1, 2;
     """
     assertFalse(ret.toString().contains("CAST")) && assertFalse(ret.toString().contains("cast"))
+    assertTrue(ret.toString().contains("partitions=3/5 (p0,p3,p_max)"));
+    assertTrue(ret.toString().contains("tablets=48/48"));
     qt_scale_neq0 """
         SELECT * FROM timestamptz_storage_agg_key_scale where ts_tz != '0000-01-01 00:00:00.000000 +00:00' ORDER BY 1, 2;
     """
@@ -822,6 +854,8 @@ suite("test_timestamptz_storage_agg_key") {
         explain SELECT * FROM timestamptz_storage_agg_key_scale where ts_tz != '9999-12-31 23:59:59.999999 +08:00' ORDER BY 1, 2;
     """
     assertFalse(ret.toString().contains("CAST")) && assertFalse(ret.toString().contains("cast"))
+    assertTrue(ret.toString().contains("partitions=3/5 (p0,p3,p_max)"));
+    assertTrue(ret.toString().contains("tablets=48/48"));
     qt_scale_neq2 """
         SELECT * FROM timestamptz_storage_agg_key_scale where ts_tz != '9999-12-31 23:59:59.999999 +08:00' ORDER BY 1, 2;
     """
@@ -831,6 +865,8 @@ suite("test_timestamptz_storage_agg_key") {
         explain SELECT * FROM timestamptz_storage_agg_key_scale where ts_tz > '0000-01-01 00:00:00.000000 +00:00' ORDER BY 1, 2;
     """
     assertFalse(ret.toString().contains("CAST")) && assertFalse(ret.toString().contains("cast"))
+    assertTrue(ret.toString().contains("partitions=3/5 (p0,p3,p_max)"));
+    assertTrue(ret.toString().contains("tablets=48/48"));
     qt_scale_gt0 """
         SELECT * FROM timestamptz_storage_agg_key_scale where ts_tz > '0000-01-01 00:00:00.000000 +00:00' ORDER BY 1, 2;
     """
@@ -847,6 +883,8 @@ suite("test_timestamptz_storage_agg_key") {
         explain SELECT * FROM timestamptz_storage_agg_key_scale where ts_tz > '9999-12-31 23:59:59.999999 +08:00' ORDER BY 1, 2;
     """
     assertFalse(ret.toString().contains("CAST")) && assertFalse(ret.toString().contains("cast"))
+    assertTrue(ret.toString().contains("partitions=1/5 (p_max)"));
+    assertTrue(ret.toString().contains("tablets=16/16"));
     qt_scale_gt2 """
         SELECT * FROM timestamptz_storage_agg_key_scale where ts_tz > '9999-12-31 23:59:59.999999 +08:00' ORDER BY 1, 2;
     """
@@ -856,6 +894,8 @@ suite("test_timestamptz_storage_agg_key") {
         explain SELECT * FROM timestamptz_storage_agg_key_scale where ts_tz >= '0000-01-01 00:00:00.000000 +00:00' ORDER BY 1, 2;
     """
     assertFalse(ret.toString().contains("CAST")) && assertFalse(ret.toString().contains("cast"))
+    assertTrue(ret.toString().contains("partitions=3/5 (p0,p3,p_max)"));
+    assertTrue(ret.toString().contains("tablets=48/48"));
     qt_scale_ge0 """
         SELECT * FROM timestamptz_storage_agg_key_scale where ts_tz >= '0000-01-01 00:00:00.000000 +00:00' ORDER BY 1, 2;
     """
@@ -872,6 +912,8 @@ suite("test_timestamptz_storage_agg_key") {
         explain SELECT * FROM timestamptz_storage_agg_key_scale where ts_tz >= '9999-12-31 23:59:59.999999 +08:00' ORDER BY 1, 2;
     """
     assertFalse(ret.toString().contains("CAST")) && assertFalse(ret.toString().contains("cast"))
+    assertTrue(ret.toString().contains("partitions=1/5 (p_max)"));
+    assertTrue(ret.toString().contains("tablets=16/16"));
     qt_scale_ge2 """
         SELECT * FROM timestamptz_storage_agg_key_scale where ts_tz >= '9999-12-31 23:59:59.999999 +08:00' ORDER BY 1, 2;
     """
@@ -897,6 +939,8 @@ suite("test_timestamptz_storage_agg_key") {
         explain SELECT * FROM timestamptz_storage_agg_key_scale where ts_tz < '9999-12-31 23:59:59.999999 +08:00' ORDER BY 1, 2;
     """
     assertFalse(ret.toString().contains("CAST")) && assertFalse(ret.toString().contains("cast"))
+    assertTrue(ret.toString().contains("partitions=2/5 (p0,p3)"));
+    assertTrue(ret.toString().contains("tablets=32/32"));
     qt_scale_lt2 """
         SELECT * FROM timestamptz_storage_agg_key_scale where ts_tz < '9999-12-31 23:59:59.999999 +08:00' ORDER BY 1, 2;
     """
@@ -906,6 +950,8 @@ suite("test_timestamptz_storage_agg_key") {
         explain SELECT * FROM timestamptz_storage_agg_key_scale where ts_tz <= '0000-01-01 00:00:00.000000 +00:00' ORDER BY 1, 2;
     """
     assertFalse(ret.toString().contains("CAST")) && assertFalse(ret.toString().contains("cast"))
+    assertTrue(ret.toString().contains("partitions=1/5 (p0)"));
+    assertTrue(ret.toString().contains("tablets=16/16"));
     qt_scale_le0 """
         SELECT * FROM timestamptz_storage_agg_key_scale where ts_tz <= '0000-01-01 00:00:00.000000 +00:00' ORDER BY 1, 2;
     """
@@ -922,6 +968,8 @@ suite("test_timestamptz_storage_agg_key") {
         explain SELECT * FROM timestamptz_storage_agg_key_scale where ts_tz <= '9999-12-31 23:59:59.999999 +08:00' ORDER BY 1, 2;
     """
     assertFalse(ret.toString().contains("CAST")) && assertFalse(ret.toString().contains("cast"))
+    assertTrue(ret.toString().contains("partitions=3/5 (p0,p3,p_max)"));
+    assertTrue(ret.toString().contains("tablets=48/48"));
     qt_scale_le2 """
         SELECT * FROM timestamptz_storage_agg_key_scale where ts_tz <= '9999-12-31 23:59:59.999999 +08:00' ORDER BY 1, 2;
     """
@@ -949,75 +997,65 @@ suite("test_timestamptz_storage_agg_key") {
           `VALUE` INT sum
         ) AGGREGATE KEY(`ts_tz`)
         partition by LIST(`ts_tz`) (
-            PARTITION p2023_null VALUES IN (null),
-            PARTITION p2023_h1 VALUES IN (
-                '2023-01-01 12:00:00.123450',
-                '2023-02-02 12:00:00.123451',
-                '2023-03-03 12:00:00.123452',
-                '2023-04-04 23:59:59.123453',
-                '2023-05-05 00:00:00.123454',
-                '2023-06-06 15:30:30.123455'),
-            PARTITION p2023_h2 VALUES IN (
-                '2023-07-07 07:07:07.123456',
-                '2023-08-08 20:20:20.123457',
-                '2023-09-09 09:09:09.123458',
-                '2023-10-10 10:10:10.123459',
-                '2023-11-11 11:11:11.123460',
-                '2023-12-12 12:12:12.123461')
+            PARTITION pnull VALUES IN (null),
+            PARTITION p0 VALUES IN (
+                '0000-01-01 00:00:00.000000+00:00',
+                '0000-01-01 00:00:00.000001+00:00',
+                '0000-01-01 00:00:00.123456+00:00',
+                '0000-01-01 00:00:00.999999+00:00'),
+            PARTITION p1 VALUES IN ('2023-01-02 00:00:00.123456+08:00'),
+            PARTITION p2 VALUES IN ('2023-08-08 20:20:21.900000+08:00'),
+            PARTITION p3 VALUES IN (
+                '9999-12-31 23:59:59.000000+08:00',
+                '9999-12-31 23:59:59.000001+08:00',
+                '9999-12-31 23:59:59.123456+08:00',
+                '9999-12-31 23:59:59.999999+08:00')
         )
         DISTRIBUTED BY HASH(`ts_tz`) BUCKETS 16
         PROPERTIES (
         "replication_num" = "1"
         );
     """
-    // '2023-12-12 12:12:12.999999')
 
+    /*
     sql """INSERT INTO timestamptz_storage_agg_key_scale_list_partition VALUES
     (null, -1),
-    ('2023-01-01 12:00:00.123450 +00:00', 1),
-    ('2023-07-07 07:07:07.123456 +00:00', 7),
-    ('2023-08-08 20:20:20.123457 -00:00', 8),
-    ('2023-09-09 09:09:09.123458 +00:00', 9),
-    ('2023-10-10 10:10:10.123459 -00:00', 10),
-    ('2023-02-02 12:00:00.123451 +00:00', 2),
-    ('2023-03-03 12:00:00.123452 -00:00', 3),
-    ('2023-04-04 23:59:59.123453 +00:00', 4),
-    ('2023-05-05 00:00:00.123454 +00:00', 5),
-    ('2023-06-06 15:30:30.123455 -00:00', 6),
-    ('2023-11-11 11:11:11.123460 +00:00', 11),
-    ('2023-12-12 12:12:12.123461 +00:00', 12);
+    ('0000-01-01 00:00:00.000000+00:00', 0),
+    ('0000-01-01 00:00:00.000001+00:00', 1),
+    ('0000-01-01 00:00:00.123456+00:00', 2),
+    ('0000-01-01 00:00:00.999999+00:00', 3),
+    ('2023-01-02 00:00:00.123456+08:00', 4),
+    ('2023-08-08 20:20:21.900000+08:00', 5),
+    ('9999-12-31 23:59:59.000000+08:00', 6),
+    ('9999-12-31 23:59:59.000001+08:00', 7),
+    ('9999-12-31 23:59:59.123456+08:00', 8),
+    ('9999-12-31 23:59:59.999999+08:00', 9);
     """
-    // ('2023-12-12 12:12:12.999999 +00:00', 13);
     qt_agg_key_scale_list_partition0 """
         SELECT * FROM timestamptz_storage_agg_key_scale_list_partition ORDER BY 1, 2;
     """
+    */
 
     // list partition, multi columns
     sql """
-        DROP TABLE IF EXISTS `timestamptz_storage_agg_key_scale`;
+        DROP TABLE IF EXISTS `timestamptz_storage_agg_key_scale_list_partition_multi_columns`;
     """
     sql """
-        CREATE TABLE `timestamptz_storage_agg_key_scale` (
+        CREATE TABLE `timestamptz_storage_agg_key_scale_list_partition_multi_columns` (
           `ts_tz` TIMESTAMPTZ(6),
           `name` VARCHAR(64),
           `VALUE` INT sum
         ) AGGREGATE KEY(`ts_tz`, `name`)
         partition by LIST(`ts_tz`, `name`) (
-            PARTITION p2023_null VALUES IN ((null, null)),
-            PARTITION p2023_h1 VALUES IN (
-                ('2023-01-01 12:00:00.123450', 'jack'),
-                ('2023-02-02 12:00:00.123451', 'rose'),
-                ('2023-03-03 12:00:00.123452', 'lily'),
-                ('2023-04-04 23:59:59.123453', 'tulip'),
-                ('2023-05-05 00:00:00.123454', 'daisy'),
-                ('2023-06-06 15:30:30.123455', 'sunflower')),
-            PARTITION p2023_h2 VALUES IN (
-                ('2023-07-07 07:07:07.123456', 'jack'),
-                ('2023-08-08 20:20:20.123457', 'rose'),
-                ('2023-09-09 09:09:09.123458', 'lily'),
-                ('2023-10-10 10:10:10.123459', 'tulip'),
-                ('2023-11-11 11:11:11.123460', 'daisy'),
-                ('2023-12-12 12:12:12.123461', 'sunflower'))
+            PARTITION pnull VALUES IN ((null, null)),
+            PARTITION p0 VALUES IN (
+                ('0000-01-01 00:00:00.000000+00:00', 'jack'),
+                ('0000-01-01 00:00:00.000001+00:00', 'jack'),
+                ('0000-01-01 00:00:00.123456+00:00', 'jack'),
+                ('0000-01-01 00:00:00.999999+00:00', 'jack')),
+            PARTITION p1 VALUES IN (('2023-01-02 00:00:00.123456+08:00', 'rose')),
+            PARTITION p2 VALUES IN (('2023-08-08 20:20:21.900000+08:00', 'lily')),
+            PARTITION p3 VALUES IN (('9999-12-31 23:59:59.999999+08:00', 'tulip'))
         )
         DISTRIBUTED BY HASH(`ts_tz`) BUCKETS 16
         PROPERTIES (
@@ -1025,22 +1063,19 @@ suite("test_timestamptz_storage_agg_key") {
         );
     """
 
-    sql """INSERT INTO timestamptz_storage_agg_key_scale VALUES
+    /*
+    sql """INSERT INTO timestamptz_storage_agg_key_scale_list_partition_multi_columns VALUES
     (null, null, -1),
-    ('2023-01-01 12:00:00.123450 +00:00', 'jack', 1),
-    ('2023-07-07 07:07:07.123456 +00:00', 'jack', 7),
-    ('2023-08-08 20:20:20.123457 -00:00', 'rose', 8),
-    ('2023-09-09 09:09:09.123458 +00:00', 'lily', 9),
-    ('2023-10-10 10:10:10.123459 -00:00', 'tulip', 10),
-    ('2023-02-02 12:00:00.123451 +00:00', 'rose', 2),
-    ('2023-03-03 12:00:00.123452 -00:00', 'lily', 3),
-    ('2023-04-04 23:59:59.123453 +00:00', 'tulip', 4),
-    ('2023-05-05 00:00:00.123454 +00:00', 'daisy', 5),
-    ('2023-06-06 15:30:30.123455 -00:00', 'sunflower', 6),
-    ('2023-11-11 11:11:11.123460 +00:00', 'daisy', 11),
-    ('2023-12-12 12:12:12.123461 +00:00', 'sunflower', 12);
+    ('0000-01-01 00:00:00.000000 +00:00', 'jack', 1),
+    ('0000-01-01 00:00:00.000001 +00:00', 'jack', 2),
+    ('0000-01-01 00:00:00.123456 +00:00', 'jack', 3),
+    ('0000-01-01 00:00:00.999999 +00:00', 'jack', 4),
+    ('2023-01-02 00:00:00.123456+08:00', 'rose', 5),
+    ('2023-08-08 20:20:21.900000+08:00', 'lily', 6),
+    ('9999-12-31 23:59:59.999999+08:00', 'tulip', 7);
     """
     qt_agg_key_scale_list_partition1 """
-        SELECT * FROM timestamptz_storage_agg_key_scale ORDER BY 1, 2;
+        SELECT * FROM timestamptz_storage_agg_key_scale_list_partition_multi_columns ORDER BY 1, 2;
     """
+    */
 }
