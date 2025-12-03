@@ -368,7 +368,10 @@ public class NereidsLoadScanProvider {
                 }
             } else {
                 Column slotColumn;
-                if (fileGroup.getFileFormatProperties().getFileFormatType() == TFileFormatType.FORMAT_ARROW) {
+                TFileFormatType fileFormatType = fileGroup.getFileFormatProperties().getFileFormatType();
+                // Use real column type for arrow/native format, other formats read as varchar first
+                if (fileFormatType == TFileFormatType.FORMAT_ARROW
+                        || fileFormatType == TFileFormatType.FORMAT_NATIVE) {
                     slotColumn = new Column(realColName, colToType.get(realColName), true);
                 } else {
                     if (fileGroupInfo.getUniqueKeyUpdateMode() == TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS
