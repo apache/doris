@@ -25,7 +25,6 @@ import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.SqlUtils;
-import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.proto.OlapFile;
 import org.apache.doris.proto.OlapFile.PatternTypePB;
@@ -854,18 +853,6 @@ public class Column implements GsonPostProcessable {
         }
         builder.setVisible(visible);
 
-        if (indexes != null) {
-            for (Index index : indexes) {
-                if (index.getIndexType() == IndexDefinition.IndexType.BITMAP) {
-                    List<String> columns = index.getColumns();
-                    if (this.name.equalsIgnoreCase(columns.get(0))) {
-                        builder.setHasBitmapIndex(true);
-                        break;
-                    }
-                }
-            }
-        }
-
         if (this.type.isArrayType()) {
             Column child = this.getChildren().get(0);
             builder.addChildrenColumns(child.toPb(Sets.newHashSet(), Lists.newArrayList()));
@@ -1222,15 +1209,6 @@ public class Column implements GsonPostProcessable {
     }
 
     public void setIndexFlag(TColumn tColumn, OlapTable olapTable) {
-        List<Index> indexes = olapTable.getIndexes();
-        for (Index index : indexes) {
-            if (index.getIndexType() == IndexDefinition.IndexType.BITMAP) {
-                List<String> columns = index.getColumns();
-                if (tColumn.getColumnName().equals(columns.get(0))) {
-                    tColumn.setHasBitmapIndex(true);
-                }
-            }
-        }
         Set<String> bfColumns = olapTable.getCopiedBfColumns();
         if (bfColumns != null && bfColumns.contains(tColumn.getColumnName())) {
             tColumn.setIsBloomFilterColumn(true);

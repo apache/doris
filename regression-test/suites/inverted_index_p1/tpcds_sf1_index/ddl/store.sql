@@ -28,7 +28,7 @@ CREATE TABLE IF NOT EXISTS store (
     s_country varchar(20),
     s_gmt_offset decimal(5,2),
     s_tax_percentage decimal(5,2),
-    INDEX s_store_sk_idx(s_store_sk) USING BITMAP COMMENT "s_store_sk index",
+    INDEX s_store_sk_idx(s_store_sk) USING INVERTED COMMENT "s_store_sk index",
     INDEX s_store_id_idx(s_store_id) USING INVERTED COMMENT "s_store_id index",
     INDEX s_store_name_idx(s_store_name) USING INVERTED COMMENT "s_store_name index",
     INDEX s_number_employees_idx(s_number_employees) USING INVERTED COMMENT "s_number_employees index",

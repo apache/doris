@@ -121,7 +121,6 @@ public:
     Status write_data();
     Status write_ordinal_index();
     Status write_zone_map();
-    Status write_bitmap_index();
     Status write_inverted_index();
     Status write_bloom_filter_index();
     uint64_t estimate_buffer_size();

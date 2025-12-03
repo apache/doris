@@ -448,36 +448,6 @@ suite('test_manager_interface_1',"p0") {
         result = sql """ insert into test_manager_tb values (5,"hell0",50); """ 
         assertTrue(result[0][0] == 1)
 
-        sql """  CREATE INDEX  bitmap_index_name ON test_manager_tb (k1) USING BITMAP COMMENT 'bitmap_k1'; """ 
-
-        def j = 0 ;
-        def retryTime = 100;
-        for (j  =0 ;j < retryTime;j++) {
-            result = sql """ show index from test_manager_tb; """ 
-            
-            if (result.size() == 1){
-                break;
-            }
-            sleep(1000);
-        }        
-        logger.info("result = ${result}" )
-
-        if (j == retryTime) {
-            logger.info("  TEST show index from '$table_name' FAIL.");
-            assertTrue(false);
-        }
-
-
-        
-        assertTrue(result[0][2] == "bitmap_index_name" )//Key_name
-        assertTrue(result[0][4] == "k1" )//Column_name
-        assertTrue(result[0][10] == "BITMAP" || result[0][10] == "INVERTED" ) //BITMAP
-        assertTrue(result[0][11] == "bitmap_k1" ) //bitmap_siteid
-
-        sql """ drop INDEX bitmap_index_name on test_manager_tb;""" 
-
-    
-
     
         sql """ drop table test_manager_tb FORCE """
         sql """ drop database if exists  test_manager_tb_case_4  FORCE"""

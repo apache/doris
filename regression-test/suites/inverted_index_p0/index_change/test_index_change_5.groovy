@@ -76,15 +76,10 @@ suite("test_index_change_5") {
     wait_for_last_build_index_finish(tableName, timeout)
     sql """ DROP INDEX idx_note ON ${tableName} """
     wait_for_last_build_index_finish(tableName, timeout)
-    // create bitmap index
-    sql """ CREATE INDEX idx_sex ON ${tableName}(`sex`) USING BITMAP """
-    wait_for_last_col_change_finish(tableName, timeout)
-    // wait_for_build_index_on_partition_finish(tableName, timeout)
 
     def show_result = sql "show index from ${tableName}"
     logger.info("show index from " + tableName + " result: " + show_result)
-    assertEquals(show_result.size(), 1)
-    assertEquals(show_result[0][2], "idx_sex")
+    assertEquals(show_result.size(), 0)
 
     qt_select7 """ SELECT * FROM ${tableName} t WHERE city MATCH 'beijing' ORDER BY user_id; """
     qt_select8 """ SELECT * FROM ${tableName} t WHERE city MATCH 'beijing' and sex = 1 ORDER BY user_id; """
@@ -146,15 +141,10 @@ suite("test_index_change_5") {
     wait_for_last_build_index_finish(tableName, timeout)
     sql """ DROP INDEX idx_note ON ${tableName} """
     wait_for_last_build_index_finish(tableName, timeout)
-    // create bitmap index
-    sql """ CREATE INDEX idx_sex ON ${tableName}(`sex`) USING BITMAP """
-    wait_for_last_col_change_finish(tableName, timeout)
-    // wait_for_build_index_on_partition_finish(tableName, timeout)
 
     show_result = sql "show index from ${tableName}"
     logger.info("show index from " + tableName + " result: " + show_result)
-    assertEquals(show_result.size(), 1)
-    assertEquals(show_result[0][2], "idx_sex")
+    assertEquals(show_result.size(), 0)
 
     qt_select7_v1 """ SELECT * FROM ${tableName} t WHERE city MATCH 'beijing' ORDER BY user_id; """
     qt_select8_v1 """ SELECT * FROM ${tableName} t WHERE city MATCH 'beijing' and sex = 1 ORDER BY user_id; """
