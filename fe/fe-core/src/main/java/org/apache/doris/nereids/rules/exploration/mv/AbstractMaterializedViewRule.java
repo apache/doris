@@ -1066,9 +1066,9 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
         // check the order keys of TopN between query and view is consistent
         List<OrderKey> queryOrderKeys = queryTopNode.getOrderKeys();
         List<OrderKey> viewOrderKeys = viewTopNode.getOrderKeys();
-        if (queryOrderKeys.size() != viewOrderKeys.size()) {
+        if (queryOrderKeys.size() > viewOrderKeys.size()) {
             materializationContext.recordFailReason(queryStructInfo,
-                    "query topN order keys size is not consistent with view topN order keys size",
+                    "query topN order keys size is bigger than view topN order keys size",
                     () -> String.format("query topN order keys = %s,\n view topN order keys = %s,\n",
                             queryOrderKeys, viewOrderKeys));
             return null;
@@ -1096,7 +1096,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             viewShuttledOrderKeys.add(new OrderKey(viewOrderByExpressionsQueryBasedSet.get(j), viewOrderKey.isAsc(),
                     viewOrderKey.isNullFirst()));
         }
-        if (!queryShuttledOrderKeys.equals(viewShuttledOrderKeys)) {
+        if (!MaterializedViewUtils.isPrefixSameFromStart(queryShuttledOrderKeys, viewShuttledOrderKeys)) {
             materializationContext.recordFailReason(queryStructInfo,
                     "view topN order key doesn't match query order key",
                     () -> String.format("queryShuttledOrderKeys = %s,\n viewShuttledOrderKeys = %s,\n",
