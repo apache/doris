@@ -1042,6 +1042,19 @@ struct ArrayVal : public ContainerVal {
 inline Status JsonbDocument::checkAndCreateDocument(const char* pb, size_t size,
                                                     JsonbDocument** doc) {
     *doc = nullptr;
+    // Fix Issue #58523: Tolerate empty data from legacy versions.
+    // If size is 0, we return a static valid "Null" document.
+    if (size == 0) {
+        // 手动构造一个合法的 Null 文档二进制数据
+        // 第1个字节：Version = 1 (JSONB_VER)
+        // 第2个字节：Type    = 0 (T_Null)
+        static char s_null_buf[] = {1, 0};
+
+        // 将 doc 指向这个静态的内存区域
+        *doc = reinterpret_cast<JsonbDocument*>(s_null_buf);
+        return Status::OK();
+    }
+
     if (!pb || size < sizeof(JsonbHeader) + sizeof(JsonbValue)) {
         return Status::InvalidArgument("Invalid JSONB document: too small size({}) or null pointer",
                                        size);
