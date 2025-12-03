@@ -134,8 +134,10 @@ TEST_F(ParquetReaderTest, normal) {
     TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
     auto tuple_desc = desc_tbl->get_tuple_descriptor(0);
     std::vector<std::string> column_names;
+    std::unordered_map<std::string, uint32_t> col_name_to_block_idx;
     for (int i = 0; i < slot_descs.size(); i++) {
         column_names.push_back(slot_descs[i]->col_name());
+        col_name_to_block_idx[slot_descs[i]->col_name()] = i;
     }
     TFileScanRangeParams scan_params;
     TFileRangeDesc scan_range;
@@ -149,8 +151,8 @@ TEST_F(ParquetReaderTest, normal) {
     RuntimeState runtime_state((TQueryGlobals()));
     runtime_state.set_desc_tbl(desc_tbl);
 
-    static_cast<void>(
-            p_reader->init_reader(column_names, {}, nullptr, nullptr, nullptr, nullptr, nullptr));
+    static_cast<void>(p_reader->init_reader(column_names, &col_name_to_block_idx, {}, nullptr,
+                                            nullptr, nullptr, nullptr, nullptr));
     std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
             partition_columns;
     std::unordered_map<std::string, VExprContextSPtr> missing_columns;
@@ -195,8 +197,10 @@ TEST_F(ParquetReaderTest, uuid_varbinary) {
     TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
     auto tuple_desc = desc_tbl->get_tuple_descriptor(0);
     std::vector<std::string> column_names;
+    std::unordered_map<std::string, uint32_t> col_name_to_block_idx;
     for (int i = 0; i < slot_descs.size(); i++) {
         column_names.push_back(slot_descs[i]->col_name());
+        col_name_to_block_idx[slot_descs[i]->col_name()] = i;
     }
     TFileScanRangeParams scan_params;
     scan_params.enable_mapping_varbinary = true;
@@ -211,7 +215,8 @@ TEST_F(ParquetReaderTest, uuid_varbinary) {
     RuntimeState runtime_state((TQueryGlobals()));
     runtime_state.set_desc_tbl(desc_tbl);
 
-    st = p_reader->init_reader(column_names, {}, nullptr, nullptr, nullptr, nullptr, nullptr);
+    st = p_reader->init_reader(column_names, &col_name_to_block_idx, {}, nullptr, nullptr, nullptr,
+                               nullptr, nullptr);
     EXPECT_TRUE(st.ok()) << st;
     std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
             partition_columns;
@@ -265,8 +270,10 @@ TEST_F(ParquetReaderTest, varbinary_varbinary) {
     TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
     auto tuple_desc = desc_tbl->get_tuple_descriptor(0);
     std::vector<std::string> column_names;
+    std::unordered_map<std::string, uint32_t> col_name_to_block_idx;
     for (int i = 0; i < slot_descs.size(); i++) {
         column_names.push_back(slot_descs[i]->col_name());
+        col_name_to_block_idx[slot_descs[i]->col_name()] = i;
     }
     TFileScanRangeParams scan_params;
     scan_params.enable_mapping_varbinary = true;
@@ -281,7 +288,8 @@ TEST_F(ParquetReaderTest, varbinary_varbinary) {
     RuntimeState runtime_state((TQueryGlobals()));
     runtime_state.set_desc_tbl(desc_tbl);
 
-    st = p_reader->init_reader(column_names, {}, nullptr, nullptr, nullptr, nullptr, nullptr);
+    st = p_reader->init_reader(column_names, &col_name_to_block_idx, {}, nullptr, nullptr, nullptr,
+                               nullptr, nullptr);
     EXPECT_TRUE(st.ok()) << st;
     std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
             partition_columns;
@@ -335,8 +343,10 @@ TEST_F(ParquetReaderTest, varbinary_string) {
     TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
     auto tuple_desc = desc_tbl->get_tuple_descriptor(0);
     std::vector<std::string> column_names;
+    std::unordered_map<std::string, uint32_t> col_name_to_block_idx;
     for (int i = 0; i < slot_descs.size(); i++) {
         column_names.push_back(slot_descs[i]->col_name());
+        col_name_to_block_idx[slot_descs[i]->col_name()] = i;
     }
     TFileScanRangeParams scan_params;
     // use string to read parquet column, but dst type is varbinary
@@ -353,7 +363,8 @@ TEST_F(ParquetReaderTest, varbinary_string) {
     RuntimeState runtime_state((TQueryGlobals()));
     runtime_state.set_desc_tbl(desc_tbl);
 
-    st = p_reader->init_reader(column_names, {}, nullptr, nullptr, nullptr, nullptr, nullptr);
+    st = p_reader->init_reader(column_names, &col_name_to_block_idx, {}, nullptr, nullptr, nullptr,
+                               nullptr, nullptr);
     EXPECT_TRUE(st.ok()) << st;
     std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
             partition_columns;
@@ -407,8 +418,10 @@ TEST_F(ParquetReaderTest, varbinary_string2) {
     TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
     auto tuple_desc = desc_tbl->get_tuple_descriptor(0);
     std::vector<std::string> column_names;
+    std::unordered_map<std::string, uint32_t> col_name_to_block_idx;
     for (int i = 0; i < slot_descs.size(); i++) {
         column_names.push_back(slot_descs[i]->col_name());
+        col_name_to_block_idx[slot_descs[i]->col_name()] = i;
     }
     TFileScanRangeParams scan_params;
     // although want use binary column read, _cached_src_physical_type is string, so use string to read parquet column, but dst type is string
@@ -425,7 +438,8 @@ TEST_F(ParquetReaderTest, varbinary_string2) {
     RuntimeState runtime_state((TQueryGlobals()));
     runtime_state.set_desc_tbl(desc_tbl);
 
-    st = p_reader->init_reader(column_names, {}, nullptr, nullptr, nullptr, nullptr, nullptr);
+    st = p_reader->init_reader(column_names, &col_name_to_block_idx, {}, nullptr, nullptr, nullptr,
+                               nullptr, nullptr);
     EXPECT_TRUE(st.ok()) << st;
     std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
             partition_columns;
