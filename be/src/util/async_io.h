@@ -35,7 +35,9 @@ struct AsyncIOCtx {
 class AsyncIO {
 public:
     AsyncIO() {
-        _io_thread_pool = new PriorityThreadPool(config::doris_scanner_thread_pool_thread_num,
+        _io_thread_pool = new PriorityThreadPool(config::doris_scan_thread_pool_thread_num > 0
+                                                         ? config::doris_scan_thread_pool_thread_num
+                                                         : std::max(48, CpuInfo::num_cores() * 2),
                                                  config::doris_scanner_thread_pool_queue_size,
                                                  "async_io_thread_pool");
         _remote_thread_pool = new PriorityThreadPool(
