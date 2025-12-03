@@ -20,6 +20,7 @@
 #include <bthread/bthread.h>
 
 #include "io/fs/file_system.h"
+#include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "work_thread_pool.hpp"
 
