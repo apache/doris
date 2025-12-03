@@ -70,6 +70,7 @@ public class MaterializedViewLimitAggregateRule extends AbstractMaterializedView
         return structInfo.getTopPlan().accept(StructInfo.PLAN_PATTERN_CHECKER, checkContext)
                 && checkContext.isContainsTopAggregate() && checkContext.getTopAggregateNum() == 1
                 && !checkContext.isContainsTopTopN()
+                && !checkContext.isContainsTopWindow()
                 && checkContext.isContainsTopLimit() && checkContext.getTopLimitNum() == 1;
     }
 

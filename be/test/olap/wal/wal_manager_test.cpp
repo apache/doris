@@ -65,7 +65,9 @@ public:
 
 class WalManagerTest : public testing::Test {
 public:
-    WalManagerTest() : _runtime_state(TQueryGlobals()), _global_profile("<global profile>") {
+    WalManagerTest()
+            : _runtime_state(TQueryOptions(), TQueryGlobals()),
+              _global_profile("<global profile>") {
         _runtime_state.resize_op_id_to_local_state(-1);
         init();
         _profile = _runtime_state.runtime_profile();

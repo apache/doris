@@ -65,7 +65,8 @@ public:
 class VfileScannerExceptionTest : public testing::Test {
 public:
     VfileScannerExceptionTest()
-            : _runtime_state(TQueryGlobals()), _global_profile("<global profile>") {
+            : _runtime_state(TQueryOptions(), TQueryGlobals()),
+              _global_profile("<global profile>") {
         _runtime_state.resize_op_id_to_local_state(-1);
         init();
         _profile = _runtime_state.runtime_profile();

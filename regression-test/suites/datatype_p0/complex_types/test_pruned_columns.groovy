@@ -85,4 +85,37 @@ suite("test_pruned_columns") {
     qt_sql7 """
         select struct_element(dynamic_attributes['theme_preference'], 'confidence_score') from `tbl_test_pruned_columns_map` order by id;
     """
+
+    // test light schema change with nested complex types
+    sql """
+        DROP TABLE IF EXISTS nested_sc_tbl;
+        CREATE TABLE nested_sc_tbl (
+            `id` BIGINT,
+            `s_info` STRUCT<a:INT, b:VARCHAR(20)>,
+            `arr_s` ARRAY<STRUCT<x:INT, y:INT>>,
+            `map_s` MAP<VARCHAR, STRUCT<m:INT, n:FLOAT>>
+        ) 
+        UNIQUE KEY(`id`) 
+        DISTRIBUTED BY HASH(`id`) BUCKETS 4 
+        PROPERTIES (
+            "replication_num" = "1",
+            "light_schema_change" = "true" 
+        );
+    """
+    sql """
+        ALTER TABLE nested_sc_tbl  MODIFY COLUMN s_info STRUCT<a:INT, b:VARCHAR(25), c:INT>;
+    """
+    sql """
+        INSERT INTO nested_sc_tbl VALUES (1, struct(10, 'v1_struct', 100), array(struct(100, 200)), map('k1', struct(1, 1.1)));
+    """
+    sql """
+        ALTER TABLE nested_sc_tbl MODIFY COLUMN arr_s ARRAY<STRUCT<x:INT, y:INT, z:VARCHAR(10)>>;
+    """
+    sql """
+        INSERT INTO nested_sc_tbl VALUES (3, struct(30.5, 'v3', 888), array(struct(500, 600, 'added_z'), struct(501, 601, 'added_z_2')), map('k3', struct(3, 3.3)));
+    """
+
+    qt_sql8 """
+        select struct_element(element_at(arr_s, 1), 'z') as inner_z FROM nested_sc_tbl ORDER BY id;
+    """
 }
