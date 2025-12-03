@@ -217,4 +217,90 @@ TEST_F(ColumnReaderTest, MultiAccessPaths) {
     ASSERT_EQ(map_iter->_key_iterator->_reading_flag, ColumnIterator::ReadingFlag::NEED_TO_READ);
     ASSERT_EQ(map_iter->_val_iterator->_reading_flag, ColumnIterator::ReadingFlag::SKIP_READING);
 }
+
+TEST_F(ColumnReaderTest, OffsetPeekUsesPageSentinelWhenNoRemaining) {
+    // create a bare FileColumnIterator with a dummy ColumnReader
+    auto reader = std::make_shared<ColumnReader>();
+    auto file_iter = std::make_unique<FileColumnIterator>(reader);
+    auto* page = file_iter->get_current_page();
+
+    // simulate a page that has no remaining offsets in decoder but has a valid
+    // next_array_item_ordinal recorded in footer
+    page->num_rows = 0;
+    page->offset_in_page = 0;
+    page->next_array_item_ordinal = 12345;
+
+    OffsetFileColumnIterator offset_iter(std::move(file_iter));
+    ordinal_t offset = 0;
+    auto st = offset_iter._peek_one_offset(&offset);
+
+    ASSERT_TRUE(st.ok()) << "peek one offset failed: " << st.to_string();
+    ASSERT_EQ(static_cast<ordinal_t>(12345), offset);
+}
+
+TEST_F(ColumnReaderTest, OffsetCalculateOffsetsUsesPageSentinelForLastOffset) {
+    // create offset iterator with a page whose sentinel offset is set in footer
+    auto reader = std::make_shared<ColumnReader>();
+    auto file_iter = std::make_unique<FileColumnIterator>(reader);
+    auto* page = file_iter->get_current_page();
+
+    // simulate page with no remaining values, but a valid next_array_item_ordinal
+    page->num_rows = 0;
+    page->offset_in_page = 0;
+    page->next_array_item_ordinal = 15;
+
+    OffsetFileColumnIterator offset_iter(std::move(file_iter));
+
+    // prepare in-memory column offsets:
+    // offsets_data = [first_column_offset, first_storage_offset, next_storage_offset_placeholder]
+    // first_column_offset = 100
+    // first_storage_offset = 10
+    // placeholder real next_storage_offset will be fetched from page sentinel (15)
+    vectorized::ColumnArray::ColumnOffsets column_offsets;
+    auto& data = column_offsets.get_data();
+    data.push_back(100); // index 0: first_column_offset
+    data.push_back(10);  // index 1: first_storage_offset
+    data.push_back(12);  // index 2: placeholder storage offset for middle element
+
+    auto st = offset_iter._calculate_offsets(1, column_offsets);
+    ASSERT_TRUE(st.ok()) << "calculate offsets failed: " << st.to_string();
+
+    // after calculation:
+    // data[1] = 100 + (12 - 10) = 102
+    // data[2] = 100 + (15 - 10) = 105 (using page sentinel as next_storage_offset)
+    ASSERT_EQ(static_cast<ordinal_t>(100), data[0]);
+    ASSERT_EQ(static_cast<ordinal_t>(102), data[1]);
+    ASSERT_EQ(static_cast<ordinal_t>(105), data[2]);
+}
+
+TEST_F(ColumnReaderTest, MapReadByRowidsSkipReadingResizesDestination) {
+    // create a basic map iterator with dummy readers/iterators
+    auto map_reader = std::make_shared<ColumnReader>();
+    auto null_iter = std::make_unique<FileColumnIterator>(std::make_shared<ColumnReader>());
+    auto offsets_iter = std::make_unique<OffsetFileColumnIterator>(
+            std::make_unique<FileColumnIterator>(std::make_shared<ColumnReader>()));
+    auto key_iter = std::make_unique<FileColumnIterator>(std::make_shared<ColumnReader>());
+    auto val_iter = std::make_unique<FileColumnIterator>(std::make_shared<ColumnReader>());
+
+    MapFileColumnIterator map_iter(map_reader, std::move(null_iter), std::move(offsets_iter),
+                                   std::move(key_iter), std::move(val_iter));
+    map_iter.set_column_name("map_col");
+    map_iter.set_reading_flag(ColumnIterator::ReadingFlag::SKIP_READING);
+
+    // prepare an empty ColumnMap as destination
+    auto keys = vectorized::ColumnInt32::create();
+    auto values = vectorized::ColumnInt32::create();
+    auto offsets = vectorized::ColumnArray::ColumnOffsets::create();
+    offsets->get_data().push_back(0);
+    auto column_map =
+            vectorized::ColumnMap::create(std::move(keys), std::move(values), std::move(offsets));
+    vectorized::MutableColumnPtr dst = std::move(column_map);
+
+    const rowid_t rowids[] = {1, 5, 7};
+    size_t count = sizeof(rowids) / sizeof(rowids[0]);
+    auto st = map_iter.read_by_rowids(rowids, count, dst);
+
+    ASSERT_TRUE(st.ok()) << "read_by_rowids failed: " << st.to_string();
+    ASSERT_EQ(count, dst->size());
+}
 } // namespace doris::segment_v2
