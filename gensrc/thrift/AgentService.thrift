@@ -272,6 +272,8 @@ struct TAlterTabletReqV2 {
     9: optional Descriptors.TDescriptorTable desc_tbl
     10: optional list<Descriptors.TColumn> columns
     11: optional i32 be_exec_version = 0
+    12: optional PaloInternalService.TQueryGlobals query_globals
+    13: optional PaloInternalService.TQueryOptions query_options
 
     // For cloud
     1000: optional i64 job_id
