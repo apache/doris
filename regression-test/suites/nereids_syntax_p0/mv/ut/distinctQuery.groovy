@@ -46,7 +46,7 @@ suite ("distinctQuery") {
 
     create_sync_mv(db, "distinctQuery", "distinctQuery_mv", "select deptno as a1, count(salary) as a2 from distinctQuery group by deptno;")
 
-    create_sync_mv(db, "distinctQuery", "distinctQuery_mv2", "select empid as a3, deptno as a4, count(distinct empid) as a5 from distinctQuery group by empid, deptno;")
+    create_sync_mv(db, "distinctQuery", "distinctQuery_mv2", "select empid, deptno, count(salary) from distinctQuery group by empid, deptno;")
 
     sql "analyze table distinctQuery with sync;"
     
