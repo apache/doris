@@ -98,6 +98,16 @@ suite("analyze_agg") {
     }
 
     test {
+        // no exception
+        sql "select id as k from t1 group by k;"
+    }
+
+    test {
+        sql "select sum(id) as k from t1 group by k;"
+        exception "Unknown column 'k' in 'table list' in AGGREGATE clause"
+    }
+
+    test {
         sql "select id FROM t1 group by SUM(id);"
         exception "GROUP BY expression must not contain aggregate functions: sum(id)"
     }
@@ -108,10 +118,16 @@ suite("analyze_agg") {
     }
 
     test {
+        sql "select SUM(id) OVER() as k FROM t1 group by k;"
+        exception "GROUP BY expression must not contain window functions: sum(id) OVER()"
+    }
+
+    test {
         sql "select id FROM t1 group by SUM(id) OVER();"
         exception "GROUP BY expression must not contain window functions: sum(id) OVER()"
     }
 
+    // having need before windows
     qt_having_with_window_1 '''explain shape plan
         select sum(id) over ()
         from t1
