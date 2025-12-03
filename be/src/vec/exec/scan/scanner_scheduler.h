@@ -108,9 +108,9 @@ public:
 
     Status submit(std::shared_ptr<ScannerContext> ctx, std::shared_ptr<ScanTask> scan_task);
 
-    static int get_local_scan_thread_num();
+    static int default_local_scan_thread_num();
 
-    static int get_remote_scan_thread_num();
+    static int default_remote_scan_thread_num();
 
     static int get_remote_scan_thread_queue_size();
 

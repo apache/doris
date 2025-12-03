@@ -389,13 +389,13 @@ WorkloadGroupInfo WorkloadGroupInfo::parse_topic_info(
     }
 
     // 9 scan thread num
-    int scan_thread_num = ScannerScheduler::get_local_scan_thread_num();
+    int scan_thread_num = ScannerScheduler::default_local_scan_thread_num();
     if (tworkload_group_info.__isset.scan_thread_num && tworkload_group_info.scan_thread_num > 0) {
         scan_thread_num = tworkload_group_info.scan_thread_num;
     }
 
     // 10 max remote scan thread num
-    int max_remote_scan_thread_num = vectorized::ScannerScheduler::get_remote_scan_thread_num();
+    int max_remote_scan_thread_num = vectorized::ScannerScheduler::default_remote_scan_thread_num();
     if (tworkload_group_info.__isset.max_remote_scan_thread_num &&
         tworkload_group_info.max_remote_scan_thread_num > 0) {
         max_remote_scan_thread_num = tworkload_group_info.max_remote_scan_thread_num;
