@@ -415,6 +415,15 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
     }
 
     @Test
+    public void testDereference() throws Exception {
+        assertColumn("select s.city from tbl",
+                "struct<city:text>",
+                ImmutableList.of(path("s", "city")),
+                ImmutableList.of()
+        );
+    }
+
+    @Test
     public void testPushDownThroughJoin() {
         PlanChecker.from(connectContext)
                 .analyze("select coalesce(struct_element(s, 'city'), 'abc') from (select * from tbl)a join (select 100 id, 'f1' name)b on a.id=b.id")
