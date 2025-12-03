@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.distribute.worker.job;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.ExternalScanNode;
 import org.apache.doris.datasource.mvcc.MvccUtil;
@@ -64,6 +65,10 @@ public class UnassignedAllBEJob extends AbstractUnassignedJob {
         DictionarySink sink = (DictionarySink) fragment.getSink();
         // it may be ScanNode or optimized to EmptySetNode. use universay function to get the deepest source.
         PlanNode rootNode = fragment.getDeepestLinearSource();
+        long catalogId = Env.getCurrentInternalCatalog().getId();
+        if (rootNode instanceof OlapScanNode) {
+            catalogId = ((OlapScanNode) rootNode).getCatalogId();
+        }
         List<Backend> bes;
         if (sink.allowAdaptiveLoad() && rootNode instanceof OlapScanNode) {
             Dictionary dictionary = sink.getDictionary();
@@ -75,21 +80,21 @@ public class UnassignedAllBEJob extends AbstractUnassignedJob {
             }
             if (usingVersion > lastVersion) {
                 // load new data
-                bes = computeFullLoad(workerManager, inputJobs);
+                bes = computeFullLoad(workerManager, inputJobs, catalogId);
             } else {
                 // try to load only for the BEs which is outdated
-                bes = computePartiallLoad(workerManager, inputJobs, dictionary, sink);
+                bes = computePartiallLoad(workerManager, inputJobs, dictionary, sink, catalogId);
                 statementContext.setPartialLoadDictionary(true);
             }
         } else {
             // we explicitly request all BEs to load data. or ExternalTable. (or EmptySetNode - should not happen)
-            bes = computeFullLoad(workerManager, inputJobs);
+            bes = computeFullLoad(workerManager, inputJobs, catalogId);
         }
 
         List<AssignedJob> assignedJobs = Lists.newArrayList();
         for (int i = 0; i < bes.size(); ++i) {
             // every time one BE is selected
-            DistributedPlanWorker worker = workerManager.getWorker(bes.get(i));
+            DistributedPlanWorker worker = workerManager.getWorker(catalogId, bes.get(i));
             if (worker != null) {
                 assignedJobs.add(assignWorkerAndDataSources(i, connectContext.nextInstanceId(), worker,
                         new DefaultScanSource(ImmutableMap.of())));
@@ -122,7 +127,7 @@ public class UnassignedAllBEJob extends AbstractUnassignedJob {
     }
 
     private List<Backend> computeFullLoad(DistributedPlanWorkerManager workerManager,
-            ListMultimap<ExchangeNode, AssignedJob> inputJobs) {
+            ListMultimap<ExchangeNode, AssignedJob> inputJobs, long catalogId) {
         // input jobs from upstream fragment - may have many instances.
         ExchangeNode exchange = inputJobs.keySet().iterator().next(); // random one - should be same for any exchange.
         int expectInstanceNum = exchange.getNumInstances();
@@ -130,7 +135,7 @@ public class UnassignedAllBEJob extends AbstractUnassignedJob {
         // for Coordinator to know the right parallelism of DictionarySink
         exchange.getFragment().setParallelExecNum(expectInstanceNum);
 
-        List<Backend> bes = workerManager.getAllBackends(true);
+        List<Backend> bes = workerManager.getAllBackends(catalogId, true);
         if (bes.size() != expectInstanceNum) {
             // BE number changed when planning
             throw new IllegalArgumentException("BE number should be " + expectInstanceNum + ", but is " + bes.size());
@@ -139,10 +144,11 @@ public class UnassignedAllBEJob extends AbstractUnassignedJob {
     }
 
     private List<Backend> computePartiallLoad(DistributedPlanWorkerManager workerManager,
-            ListMultimap<ExchangeNode, AssignedJob> inputJobs, Dictionary dictionary, DictionarySink sink) {
+            ListMultimap<ExchangeNode, AssignedJob> inputJobs, Dictionary dictionary, DictionarySink sink,
+            long catalogId) {
         // dictionary's src version(bundled with dictionary's version) is same with usingVersion(otherwise FullLoad)
         // so we can just use the src version to find the outdated backends
-        List<Backend> outdateBEs = dictionary.filterOutdatedBEs(workerManager.getAllBackends(true));
+        List<Backend> outdateBEs = dictionary.filterOutdatedBEs(workerManager.getAllBackends(catalogId, true));
 
         // reset all exchange node's instance number to the number of outdated backends
         PlanFragment fragment = inputJobs.keySet().iterator().next().getFragment(); // random one exchange
