@@ -20,7 +20,6 @@ package org.apache.doris.catalog;
 import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.analysis.DefaultValueExprDef;
 import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.IndexDef;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.Config;

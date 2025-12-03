@@ -35,6 +35,7 @@
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_meta.h"
 #include "olap/rowset/rowset_reader.h"
+#include "olap/rowset/segment_v2/indexed_column_reader.h"
 #include "olap/rowset/segment_v2/segment.h"
 #include "olap/tablet_meta.h"
 #include "olap/tablet_schema.h"
