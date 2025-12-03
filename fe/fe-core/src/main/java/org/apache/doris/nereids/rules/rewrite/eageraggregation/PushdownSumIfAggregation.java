@@ -142,7 +142,7 @@ public class PushdownSumIfAggregation extends DefaultPlanRewriter<JobContext> im
                                         new If(
                                                 output.child(0).child(0).child(0),
                                                 toReplace,
-                                                new NullLiteral()
+                                                new NullLiteral(toReplace.getDataType())
                                     )
                             )
                         );
