@@ -55,13 +55,32 @@ template <PrimitiveType T>
 struct AggregateFunctionAvgData {
     using ResultType = typename PrimitiveTypeTraits<T>::ColumnItemType;
     static constexpr PrimitiveType ResultPType = T;
-    typename PrimitiveTypeTraits<T>::ColumnItemType sum {};
+    ResultType sum {};
     UInt64 count = 0;
 
-    AggregateFunctionAvgData& operator=(const AggregateFunctionAvgData<T>& src) {
-        sum = src.sum;
-        count = src.count;
-        return *this;
+    AggregateFunctionAvgData& operator=(const AggregateFunctionAvgData<T>& src) = default;
+
+    template <typename ResultT>
+    ResultT result(ResultType multiplier) const {
+        if (!count) {
+            // null is handled in AggregationNode::_get_without_key_result
+            return static_cast<ResultT>(sum);
+        }
+        // to keep the same result with row vesion; see AggregateFunctions::decimalv2_avg_get_value
+        if constexpr (T == TYPE_DECIMALV2 && IsDecimalV2<ResultT>) {
+            DecimalV2Value decimal_val_count(count, 0);
+            DecimalV2Value decimal_val_sum(sum * multiplier);
+            DecimalV2Value cal_ret = decimal_val_sum / decimal_val_count;
+            Decimal128V2 ret(cal_ret.value());
+            return ret;
+        } else {
+            if constexpr (T == TYPE_DECIMAL256) {
+                return static_cast<ResultT>(sum * multiplier /
+                                            typename PrimitiveTypeTraits<T>::ColumnItemType(count));
+            } else {
+                return static_cast<ResultT>(sum * multiplier) / static_cast<ResultT>(count);
+            }
+        }
     }
 
     template <typename ResultT>
@@ -77,21 +96,7 @@ struct AggregateFunctionAvgData {
             // null is handled in AggregationNode::_get_without_key_result
             return static_cast<ResultT>(sum);
         }
-        // to keep the same result with row vesion; see AggregateFunctions::decimalv2_avg_get_value
-        if constexpr (T == TYPE_DECIMALV2 && IsDecimalV2<ResultT>) {
-            DecimalV2Value decimal_val_count(count, 0);
-            DecimalV2Value decimal_val_sum(sum);
-            DecimalV2Value cal_ret = decimal_val_sum / decimal_val_count;
-            Decimal128V2 ret(cal_ret.value());
-            return ret;
-        } else {
-            if constexpr (T == TYPE_DECIMAL256) {
-                return static_cast<ResultT>(sum /
-                                            typename PrimitiveTypeTraits<T>::ColumnItemType(count));
-            } else {
-                return static_cast<ResultT>(sum) / static_cast<ResultT>(count);
-            }
-        }
+        return static_cast<ResultT>(sum) / static_cast<ResultT>(count);
     }
 
     void write(BufferWritable& buf) const {
@@ -112,31 +117,41 @@ class AggregateFunctionAvg final
           UnaryExpression,
           NullableAggregateFunction {
 public:
-    using ResultType = std::conditional_t<
-            T == TYPE_DECIMALV2, Decimal128V2,
-            std::conditional_t<is_decimal(T), typename Data::ResultType, Float64>>;
-    using ResultDataType = std::conditional_t<
-            T == TYPE_DECIMALV2, DataTypeDecimalV2,
-            std::conditional_t<is_decimal(T), DataTypeDecimal<Data::ResultPType>, DataTypeFloat64>>;
+    using ResultDataType =
+            std::conditional_t<is_decimal(T),
+                               typename PrimitiveTypeTraits<Data::ResultPType>::DataType,
+                               DataTypeFloat64>;
     using ColVecType = typename PrimitiveTypeTraits<T>::ColumnType;
-    using ColVecResult = std::conditional_t<
-            T == TYPE_DECIMALV2, ColumnDecimal128V2,
-            std::conditional_t<is_decimal(T), ColumnDecimal<Data::ResultPType>, ColumnFloat64>>;
+    using ColVecResult =
+            std::conditional_t<is_decimal(T),
+                               typename PrimitiveTypeTraits<Data::ResultPType>::ColumnType,
+                               ColumnFloat64>;
     // The result calculated by PercentileApprox is an approximate value,
     // so the underlying storage uses float. The following calls will involve
     // an implicit cast to float.
 
     using DataType = typename Data::ResultType;
+    using ResultType = std::conditional_t<is_decimal(T), DataType, Float64>;
     /// ctor for native types
+    // consistent with fe/fe-common/src/main/java/org/apache/doris/catalog/ScalarType.java
+    static constexpr uint32_t DEFAULT_MIN_AVG_DECIMAL128_SCALE = 4;
     AggregateFunctionAvg(const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper<Data, AggregateFunctionAvg<T, Data>>(argument_types_),
-              scale(get_decimal_scale(*argument_types_[0])) {}
+              input_scale(get_decimal_scale(*argument_types_[0])),
+              output_scale(std::max(DEFAULT_MIN_AVG_DECIMAL128_SCALE, input_scale)) {
+        if constexpr (is_decimal(T)) {
+            multiplier =
+                    ResultType(ResultDataType::get_scale_multiplier(output_scale - input_scale));
+        }
+    }
 
     String get_name() const override { return "avg"; }
 
     DataTypePtr get_return_type() const override {
         if constexpr (is_decimal(T)) {
-            return std::make_shared<ResultDataType>(ResultDataType::max_precision(), scale);
+            return std::make_shared<ResultDataType>(
+                    ResultDataType::max_precision(),
+                    std::max(DEFAULT_MIN_AVG_DECIMAL128_SCALE, output_scale));
         } else {
             return std::make_shared<ResultDataType>();
         }
@@ -152,14 +167,14 @@ public:
                 assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(*columns[0]);
         if constexpr (is_add) {
             if constexpr (is_decimal(T)) {
-                this->data(place).sum += (DataType)column.get_data()[row_num].value;
+                this->data(place).sum += column.get_data()[row_num].value;
             } else {
                 this->data(place).sum += (DataType)column.get_data()[row_num];
             }
             ++this->data(place).count;
         } else {
             if constexpr (is_decimal(T)) {
-                this->data(place).sum -= (DataType)column.get_data()[row_num].value;
+                this->data(place).sum -= column.get_data()[row_num].value;
             } else {
                 this->data(place).sum -= (DataType)column.get_data()[row_num];
             }
@@ -198,7 +213,11 @@ public:
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         auto& column = assert_cast<ColVecResult&>(to);
-        column.get_data().push_back(this->data(place).template result<ResultType>());
+        if constexpr (is_decimal(T)) {
+            column.get_data().push_back(this->data(place).template result<ResultType>(multiplier));
+        } else {
+            column.get_data().push_back(this->data(place).template result<ResultType>());
+        }
     }
 
     void deserialize_from_column(AggregateDataPtr places, const IColumn& column, Arena&,
@@ -346,7 +365,9 @@ public:
     }
 
 private:
-    UInt32 scale;
+    uint32_t input_scale;
+    uint32_t output_scale;
+    ResultType multiplier;
 };
 
 } // namespace doris::vectorized
