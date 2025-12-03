@@ -47,6 +47,9 @@ struct CastFromVariant {
         if (is_root_valuable) {
             ColumnPtr nested = variant.get_root();
             auto nested_from_type = variant.get_root_type();
+            if (context == nullptr) {
+                throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR, "context is null");
+            }
             // DCHECK(nested_from_type->is_nullable());
             DCHECK(!data_type_to->is_nullable());
             auto new_context = context->clone();
