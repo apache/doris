@@ -90,6 +90,9 @@ private:
                                std::unordered_map<std::string, std::string>& file_mapping,
                                std::unordered_map<RowsetId, RowsetId>& rowset_id_mapping);
 
+    Status _rename_index_ids(TabletSchemaPB& schema_pb,
+                             const TabletSchemaSPtr& tablet_schema) const;
+
 private:
     CloudStorageEngine& _engine;
     std::atomic<uint64_t> _snapshot_base_id {0};

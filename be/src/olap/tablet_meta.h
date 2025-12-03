@@ -117,7 +117,8 @@ public:
                int64_t time_series_compaction_level_threshold = 1,
                TInvertedIndexFileStorageFormat::type inverted_index_file_storage_format =
                        TInvertedIndexFileStorageFormat::V2,
-               TEncryptionAlgorithm::type tde_algorithm = TEncryptionAlgorithm::PLAINTEXT);
+               TEncryptionAlgorithm::type tde_algorithm = TEncryptionAlgorithm::PLAINTEXT,
+               TStorageFormat::type storage_format = TStorageFormat::V2);
     // If need add a filed in TableMeta, filed init copy in copy construct function
     TabletMeta(const TabletMeta& tablet_meta);
     TabletMeta(TabletMeta&& tablet_meta) = delete;
@@ -372,6 +373,10 @@ private:
     int64_t _ttl_seconds = 0;
 
     EncryptionAlgorithmPB _encryption_algorithm = PLAINTEXT;
+
+    // Persisted storage format for this tablet (e.g. V2, V3). Used to derive
+    // schema-level defaults such as external ColumnMeta usage.
+    TStorageFormat::type _storage_format = TStorageFormat::V2;
 
     mutable std::shared_mutex _meta_lock;
 };

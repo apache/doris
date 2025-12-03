@@ -252,10 +252,6 @@ public:
 
     void clone_fn_contexts(VExprContext* other);
 
-    bool force_materialize_slot() const { return _force_materialize_slot; }
-
-    void set_force_materialize_slot() { _force_materialize_slot = true; }
-
     VExprContext& operator=(const VExprContext& other) {
         if (this == &other) {
             return *this;
@@ -335,10 +331,6 @@ private:
 
     /// The depth of expression-tree.
     int _depth_num = 0;
-
-    // This flag only works on VSlotRef.
-    // Force to materialize even if the slot need_materialize is false, we just ignore need_materialize flag
-    bool _force_materialize_slot = false;
 
     std::shared_ptr<IndexExecContext> _index_context;
     size_t _memory_usage = 0;

@@ -16,6 +16,7 @@
 // under the License.
 
 #include <faiss/IndexHNSW.h>
+#include <faiss/IndexIVFFlat.h>
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
@@ -39,79 +40,178 @@ namespace doris::vectorized {
 
 // Test saving and loading an index
 TEST_F(VectorSearchTest, TestSaveAndLoad) {
-    // Step 1: Create first index instance
-    auto index1 = std::make_unique<FaissVectorIndex>();
+    std::vector<FaissBuildParameter::Quantizer> quantizers = {
+            FaissBuildParameter::Quantizer::FLAT, FaissBuildParameter::Quantizer::SQ4,
+            FaissBuildParameter::Quantizer::SQ8, FaissBuildParameter::Quantizer::PQ};
 
-    // Step 2: Set build parameters
-    FaissBuildParameter params;
-    params.dim = 128;       // Vector dimension
-    params.max_degree = 16; // HNSW max connections
-    params.index_type = FaissBuildParameter::IndexType::HNSW;
-    index1->build(params);
+    for (auto quantizer : quantizers) {
+        // Step 1: Create first index instance
+        auto index1 = std::make_unique<FaissVectorIndex>();
 
-    // Step 3: Add vectors to the index
-    const int num_vectors = 100;
-    std::vector<float> vectors;
-    for (int i = 0; i < num_vectors; i++) {
-        auto tmp = vector_search_utils::generate_random_vector(params.dim);
-        vectors.insert(vectors.end(), tmp.begin(), tmp.end());
+        // Step 2: Set build parameters
+        FaissBuildParameter params;
+        params.dim = 128;       // Vector dimension
+        params.max_degree = 16; // HNSW max connections
+        params.pq_m = 4;
+        params.pq_nbits = 8;
+        params.index_type = FaissBuildParameter::IndexType::HNSW;
+        params.quantizer = quantizer;
+        index1->build(params);
+
+        // Step 3: Add vectors to the index
+        const int num_vectors = 100;
+        std::vector<float> vectors;
+        for (int i = 0; i < num_vectors; i++) {
+            auto tmp = vector_search_utils::generate_random_vector(params.dim);
+            vectors.insert(vectors.end(), tmp.begin(), tmp.end());
+        }
+
+        std::ignore = index1->train(num_vectors, vectors.data());
+        std::ignore = index1->add(num_vectors, vectors.data());
+
+        // Step 4: Save the index
+        auto save_status = index1->save(_ram_dir.get());
+        ASSERT_TRUE(save_status.ok()) << "Failed to save index: " << save_status.to_string();
+
+        // Step 5: Create a new index instance
+        auto index2 = std::make_unique<FaissVectorIndex>();
+
+        // Step 6: Load the index
+        auto load_status = index2->load(_ram_dir.get());
+        ASSERT_TRUE(load_status.ok()) << "Failed to load index: " << load_status.to_string();
+
+        // Step 7: Verify the loaded index works by searching
+        auto query_vec = vector_search_utils::generate_random_vector(params.dim);
+        const int top_k = 10;
+
+        // TopN search requires a candidate roaring and rows_of_segment now.
+        HNSWSearchParameters topn_params;
+        auto topn_roaring = std::make_unique<roaring::Roaring>();
+        for (int i = 0; i < num_vectors; ++i) topn_roaring->add(i);
+        topn_params.roaring = topn_roaring.get();
+        topn_params.rows_of_segment = num_vectors;
+
+        IndexSearchResult search_result1;
+        IndexSearchResult search_result2;
+
+        std::ignore = index1->ann_topn_search(query_vec.data(), top_k, topn_params, search_result1);
+
+        std::ignore = index2->ann_topn_search(query_vec.data(), top_k, topn_params, search_result2);
+
+        // Compare the results
+        EXPECT_EQ(search_result1.roaring->cardinality(), search_result2.roaring->cardinality())
+                << "Row ID cardinality mismatch";
+        for (size_t i = 0; i < search_result1.roaring->cardinality(); ++i) {
+            EXPECT_EQ(search_result1.distances[i], search_result2.distances[i])
+                    << "Distance mismatch at index " << i;
+        }
+
+        HNSWSearchParameters hnsw_params;
+        auto roaring_bitmap = std::make_unique<roaring::Roaring>();
+        hnsw_params.roaring = roaring_bitmap.get();
+        for (size_t i = 0; i < num_vectors; ++i) {
+            hnsw_params.roaring->add(i);
+        }
+        IndexSearchResult range_search_result1;
+        std::ignore = index1->range_search(vectors.data(), 10, hnsw_params, range_search_result1);
+        IndexSearchResult range_search_result2;
+        std::ignore = index2->range_search(vectors.data(), 10, hnsw_params, range_search_result2);
+        EXPECT_EQ(range_search_result1.roaring->cardinality(),
+                  range_search_result2.roaring->cardinality())
+                << "Row ID cardinality mismatch";
+        for (size_t i = 0; i < range_search_result1.roaring->cardinality(); ++i) {
+            EXPECT_EQ(range_search_result1.distances[i], range_search_result2.distances[i])
+                    << "Distance mismatch at index " << i;
+        }
     }
+}
 
-    std::ignore = index1->add(num_vectors, vectors.data());
+TEST_F(VectorSearchTest, TestSaveAndLoadIVF) {
+    std::vector<FaissBuildParameter::Quantizer> quantizers = {
+            FaissBuildParameter::Quantizer::FLAT, FaissBuildParameter::Quantizer::SQ4,
+            FaissBuildParameter::Quantizer::SQ8, FaissBuildParameter::Quantizer::PQ};
 
-    // Step 4: Save the index
-    auto save_status = index1->save(_ram_dir.get());
-    ASSERT_TRUE(save_status.ok()) << "Failed to save index: " << save_status.to_string();
+    for (auto quantizer : quantizers) {
+        // Step 1: Create first index instance
+        auto index1 = std::make_unique<FaissVectorIndex>();
 
-    // Step 5: Create a new index instance
-    auto index2 = std::make_unique<FaissVectorIndex>();
+        // Step 2: Set build parameters
+        FaissBuildParameter params;
+        params.dim = 128; // Vector dimension
+        params.ivf_nlist = 4;
+        params.pq_m = 4;
+        params.pq_nbits = 8;
+        params.quantizer = quantizer;
+        params.index_type = FaissBuildParameter::IndexType::IVF;
+        index1->build(params);
 
-    // Step 6: Load the index
-    auto load_status = index2->load(_ram_dir.get());
-    ASSERT_TRUE(load_status.ok()) << "Failed to load index: " << load_status.to_string();
+        // Step 3: Add vectors to the index
+        const int num_vectors = 100;
+        std::vector<float> vectors;
+        for (int i = 0; i < num_vectors; i++) {
+            auto tmp = vector_search_utils::generate_random_vector(params.dim);
+            vectors.insert(vectors.end(), tmp.begin(), tmp.end());
+        }
 
-    // Step 7: Verify the loaded index works by searching
-    auto query_vec = vector_search_utils::generate_random_vector(params.dim);
-    const int top_k = 10;
+        std::ignore = index1->train(num_vectors, vectors.data());
+        std::ignore = index1->add(num_vectors, vectors.data());
 
-    // TopN search requires a candidate roaring and rows_of_segment now.
-    HNSWSearchParameters topn_params;
-    auto topn_roaring = std::make_unique<roaring::Roaring>();
-    for (int i = 0; i < num_vectors; ++i) topn_roaring->add(i);
-    topn_params.roaring = topn_roaring.get();
-    topn_params.rows_of_segment = num_vectors;
+        // Step 4: Save the index
+        auto save_status = index1->save(_ram_dir.get());
+        ASSERT_TRUE(save_status.ok()) << "Failed to save index: " << save_status.to_string();
 
-    IndexSearchResult search_result1;
-    IndexSearchResult search_result2;
+        // Step 5: Create a new index instance
+        auto index2 = std::make_unique<FaissVectorIndex>();
+        index2->set_type(segment_v2::AnnIndexType::IVF);
 
-    std::ignore = index1->ann_topn_search(query_vec.data(), top_k, topn_params, search_result1);
+        // Step 6: Load the index
+        auto load_status = index2->load(_ram_dir.get());
+        ASSERT_TRUE(load_status.ok()) << "Failed to load index: " << load_status.to_string();
 
-    std::ignore = index2->ann_topn_search(query_vec.data(), top_k, topn_params, search_result2);
+        // Step 7: Verify the loaded index works by searching
+        auto query_vec = vector_search_utils::generate_random_vector(params.dim);
+        const int top_k = 10;
 
-    // Compare the results
-    EXPECT_EQ(search_result1.roaring->cardinality(), search_result2.roaring->cardinality())
-            << "Row ID cardinality mismatch";
-    for (size_t i = 0; i < search_result1.roaring->cardinality(); ++i) {
-        EXPECT_EQ(search_result1.distances[i], search_result2.distances[i])
-                << "Distance mismatch at index " << i;
-    }
+        // TopN search requires a candidate roaring and rows_of_segment now.
+        IVFSearchParameters topn_params;
+        auto topn_roaring = std::make_unique<roaring::Roaring>();
+        for (int i = 0; i < num_vectors; ++i) topn_roaring->add(i);
+        topn_params.roaring = topn_roaring.get();
+        topn_params.rows_of_segment = num_vectors;
+        topn_params.nprobe = 4;
 
-    HNSWSearchParameters hnsw_params;
-    auto roaring_bitmap = std::make_unique<roaring::Roaring>();
-    hnsw_params.roaring = roaring_bitmap.get();
-    for (size_t i = 0; i < num_vectors; ++i) {
-        hnsw_params.roaring->add(i);
-    }
-    IndexSearchResult range_search_result1;
-    std::ignore = index1->range_search(vectors.data(), 10, hnsw_params, range_search_result1);
-    IndexSearchResult range_search_result2;
-    std::ignore = index2->range_search(vectors.data(), 10, hnsw_params, range_search_result2);
-    EXPECT_EQ(range_search_result1.roaring->cardinality(),
-              range_search_result2.roaring->cardinality())
-            << "Row ID cardinality mismatch";
-    for (size_t i = 0; i < range_search_result1.roaring->cardinality(); ++i) {
-        EXPECT_EQ(range_search_result1.distances[i], range_search_result2.distances[i])
-                << "Distance mismatch at index " << i;
+        IndexSearchResult search_result1;
+        IndexSearchResult search_result2;
+
+        std::ignore = index1->ann_topn_search(query_vec.data(), top_k, topn_params, search_result1);
+
+        std::ignore = index2->ann_topn_search(query_vec.data(), top_k, topn_params, search_result2);
+
+        // Compare the results
+        EXPECT_EQ(search_result1.roaring->cardinality(), search_result2.roaring->cardinality())
+                << "Row ID cardinality mismatch";
+        for (size_t i = 0; i < search_result1.roaring->cardinality(); ++i) {
+            EXPECT_EQ(search_result1.distances[i], search_result2.distances[i])
+                    << "Distance mismatch at index " << i;
+        }
+
+        IVFSearchParameters ivf_params;
+        auto roaring_bitmap = std::make_unique<roaring::Roaring>();
+        ivf_params.roaring = roaring_bitmap.get();
+        for (size_t i = 0; i < num_vectors; ++i) {
+            ivf_params.roaring->add(i);
+        }
+        IndexSearchResult range_search_result1;
+        std::ignore = index1->range_search(vectors.data(), 10, ivf_params, range_search_result1);
+        IndexSearchResult range_search_result2;
+        std::ignore = index2->range_search(vectors.data(), 10, ivf_params, range_search_result2);
+        EXPECT_EQ(range_search_result1.roaring->cardinality(),
+                  range_search_result2.roaring->cardinality())
+                << "Row ID cardinality mismatch";
+        for (size_t i = 0; i < range_search_result1.roaring->cardinality(); ++i) {
+            EXPECT_EQ(range_search_result1.distances[i], range_search_result2.distances[i])
+                    << "Distance mismatch at index " << i;
+        }
     }
 }
 
@@ -405,6 +505,117 @@ TEST_F(VectorSearchTest, CompRangeSearch) {
             ASSERT_NEAR(doris_result.roaring->cardinality(), native_results.size(), 1)
                     << fmt::format("\nd: {}, m: {}, n: {}, metric: {}", random_d, random_m,
                                    random_n, metric);
+            ASSERT_EQ(doris_result.distances != nullptr, true);
+            if (doris_result.roaring->cardinality() == native_results.size()) {
+                for (size_t i = 0; i < native_results.size(); i++) {
+                    const size_t rowid = native_results[i].first;
+                    const float dis = native_results[i].second;
+                    ASSERT_EQ(doris_result.roaring->contains(rowid), true)
+                            << "Row ID mismatch at rank " << i;
+                    if (metric == faiss::METRIC_L2) {
+                        ASSERT_FLOAT_EQ(doris_result.distances[i], sqrt(dis))
+                                << "Distance mismatch at rank " << i;
+                    } else {
+                        ASSERT_FLOAT_EQ(doris_result.distances[i], dis)
+                                << "Distance mismatch at rank " << i;
+                    }
+                }
+            }
+        }
+    }
+}
+
+TEST_F(VectorSearchTest, CompRangeSearchIVF) {
+    size_t iterations = 5;
+    std::vector<faiss::MetricType> metrics = {faiss::METRIC_L2, faiss::METRIC_INNER_PRODUCT};
+    for (size_t i = 0; i < iterations; ++i) {
+        for (auto metric : metrics) {
+            // Random parameters for each test iteration
+            std::random_device rd;
+            std::mt19937 gen(rd());
+            size_t random_d = std::uniform_int_distribution<>(1, 512)(gen);
+            size_t random_n = std::uniform_int_distribution<>(10, 200)(gen);
+
+            // Step 1: Create and build index
+            auto doris_index = std::make_unique<FaissVectorIndex>();
+            FaissBuildParameter params;
+            params.dim = random_d;
+            params.ivf_nlist = 4;
+            params.index_type = FaissBuildParameter::IndexType::IVF;
+            if (metric == faiss::METRIC_L2) {
+                params.metric_type = FaissBuildParameter::MetricType::L2;
+            } else if (metric == faiss::METRIC_INNER_PRODUCT) {
+                params.metric_type = FaissBuildParameter::MetricType::IP;
+            } else {
+                throw std::runtime_error(fmt::format("Unsupported metric type: {}", metric));
+            }
+            doris_index->build(params);
+
+            const int num_vectors = random_n;
+            std::vector<float> flat_vector;
+            std::vector<float> query_vec;
+            for (int i = 0; i < num_vectors; i++) {
+                auto vec = vector_search_utils::generate_random_vector(params.dim);
+                if (i == 0) {
+                    query_vec = vec;
+                }
+                flat_vector.insert(flat_vector.end(), vec.begin(), vec.end());
+            }
+
+            std::unique_ptr<faiss::Index> native_index;
+            std::unique_ptr<faiss::IndexFlat> quantizer = nullptr;
+            if (metric == faiss::METRIC_L2) {
+                quantizer = std::make_unique<faiss::IndexFlat>(params.dim, faiss::METRIC_L2);
+                native_index = std::make_unique<faiss::IndexIVFFlat>(
+                        quantizer.get(), params.dim, params.ivf_nlist, faiss::METRIC_L2);
+            } else if (metric == faiss::METRIC_INNER_PRODUCT) {
+                quantizer =
+                        std::make_unique<faiss::IndexFlat>(params.dim, faiss::METRIC_INNER_PRODUCT);
+                native_index = std::make_unique<faiss::IndexIVFFlat>(
+                        quantizer.get(), params.dim, params.ivf_nlist, faiss::METRIC_INNER_PRODUCT);
+            } else {
+                throw std::runtime_error(fmt::format("Unsupported metric type: {}", metric));
+            }
+
+            doris::vector_search_utils::add_vectors_to_indexes_batch_mode(
+                    doris_index.get(), native_index.get(), num_vectors, flat_vector);
+
+            float radius = 0;
+            radius = doris::vector_search_utils::get_radius_from_flatten(
+                    query_vec.data(), params.dim, flat_vector, 0.4f);
+
+            IVFSearchParameters ivf_params;
+            ivf_params.nprobe = 4;
+            // Search on all rows;
+            auto roaring = std::make_unique<roaring::Roaring>();
+            ivf_params.roaring = roaring.get();
+            for (size_t i = 0; i < num_vectors; i++) {
+                ivf_params.roaring->add(i);
+            }
+            ivf_params.is_le_or_lt = metric == faiss::METRIC_L2;
+            IndexSearchResult doris_result;
+            std::ignore =
+                    doris_index->range_search(query_vec.data(), radius, ivf_params, doris_result);
+
+            faiss::SearchParametersIVF search_params_native;
+            search_params_native.nprobe = ivf_params.nprobe;
+            faiss::RangeSearchResult search_result_native(1, true);
+            // 对于L2，radius要平方；对于IP，直接用
+            float faiss_radius = (metric == faiss::METRIC_L2) ? radius * radius : radius;
+            native_index->range_search(1, query_vec.data(), faiss_radius, &search_result_native,
+                                       &search_params_native);
+
+            std::vector<std::pair<int, float>> native_results;
+            size_t begin = search_result_native.lims[0];
+            size_t end = search_result_native.lims[1];
+            for (size_t i = begin; i < end; i++) {
+                native_results.push_back(
+                        {search_result_native.labels[i], search_result_native.distances[i]});
+            }
+
+            // Make sure result is same
+            ASSERT_NEAR(doris_result.roaring->cardinality(), native_results.size(), 1)
+                    << fmt::format("\nd: {}, n: {}, metric: {}", random_d, random_n, metric);
             ASSERT_EQ(doris_result.distances != nullptr, true);
             if (doris_result.roaring->cardinality() == native_results.size()) {
                 for (size_t i = 0; i < native_results.size(); i++) {
@@ -820,6 +1031,71 @@ TEST_F(VectorSearchTest, InnerProductRangeSearchBasic) {
         for (size_t i = 0; i < doris_result.roaring->cardinality(); ++i) {
             ASSERT_GE(doris_result.distances[i], radius - 1e-6)
                     << "Distance should be >= radius for inner product range search";
+        }
+    }
+}
+
+TEST_F(VectorSearchTest, InnerProductRangeSearchBasicIVF) {
+    const size_t iterations = 3;
+
+    for (size_t iter = 0; iter < iterations; ++iter) {
+        const int dim = 64;
+        const int n = 500;
+        const int nlist = 4;
+
+        // Create Doris IVF index
+        auto doris_index = std::make_unique<FaissVectorIndex>();
+        FaissBuildParameter params;
+        params.dim = dim;
+        params.index_type = FaissBuildParameter::IndexType::IVF;
+        params.ivf_nlist = nlist;
+        params.quantizer = FaissBuildParameter::Quantizer::FLAT;
+        params.metric_type = FaissBuildParameter::MetricType::IP;
+        doris_index->build(params);
+
+        // Generate vectors
+        std::vector<std::vector<float>> vectors;
+        std::vector<float> flat_vectors;
+        for (int i = 0; i < n; ++i) {
+            auto vec = doris::vector_search_utils::generate_random_vector(dim);
+            vectors.push_back(vec);
+            flat_vectors.insert(flat_vectors.end(), vec.begin(), vec.end());
+        }
+
+        // Add vectors to index
+        doris_index->train(n, flat_vectors.data());
+        doris_index->add(n, flat_vectors.data());
+
+        // Use first vector as query
+        std::vector<float> query_vec = vectors[0];
+
+        // Calculate radius based on inner product distribution
+        float radius = doris::vector_search_utils::get_radius_from_matrix(
+                query_vec.data(), dim, vectors, 0.5f, faiss::METRIC_INNER_PRODUCT);
+
+        // Perform Doris range search
+        IVFSearchParameters doris_params;
+        doris_params.nprobe = 4;          // Search in 4 clusters
+        doris_params.is_le_or_lt = false; // For inner product, we want values >= radius
+        auto roaring = std::make_unique<roaring::Roaring>();
+        for (int i = 0; i < n; ++i) {
+            roaring->add(i);
+        }
+        doris_params.roaring = roaring.get();
+
+        IndexSearchResult doris_result;
+        auto status =
+                doris_index->range_search(query_vec.data(), radius, doris_params, doris_result);
+        ASSERT_TRUE(status.ok()) << "Doris IVF range search failed";
+
+        // Verify basic properties
+        ASSERT_GT(doris_result.roaring->cardinality(), 0u) << "Should find some results";
+        ASSERT_NE(doris_result.distances, nullptr) << "Distances should be provided";
+
+        // Verify all returned distances are >= radius
+        for (size_t i = 0; i < doris_result.roaring->cardinality(); ++i) {
+            ASSERT_GE(doris_result.distances[i], radius - 1e-6)
+                    << "Distance should be >= radius for IVF inner product range search";
         }
     }
 }

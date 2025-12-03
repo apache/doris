@@ -21,7 +21,6 @@
 #include <glog/logging.h>
 
 #include <ostream>
-#include <vector>
 
 #include "common/status.h"
 #include "runtime/descriptors.h"
@@ -29,13 +28,8 @@
 #include "vec/core/block.h"
 #include "vec/exprs/vexpr_context.h"
 
-namespace doris {
-namespace vectorized {
-class VExprContext;
-} // namespace vectorized
-} // namespace doris
-
 namespace doris::vectorized {
+class VExprContext;
 
 VSlotRef::VSlotRef(const doris::TExprNode& node)
         : VExpr(node),
@@ -63,13 +57,7 @@ Status VSlotRef::prepare(doris::RuntimeState* state, const doris::RowDescriptor&
     }
     _column_name = &slot_desc->col_name();
     _column_uniq_id = slot_desc->col_unique_id();
-    if (!context->force_materialize_slot() && !slot_desc->is_materialized()) {
-        // slot should be ignored manually
-        _column_id = -1;
-        _prepare_finished = true;
-        return Status::OK();
-    }
-    _column_id = desc.get_column_id(_slot_id, context->force_materialize_slot());
+    _column_id = desc.get_column_id(_slot_id);
     if (_column_id < 0) {
         return Status::Error<ErrorCode::INTERNAL_ERROR>(
                 "VSlotRef {} have invalid slot id: {}, desc: {}, slot_desc: {}, desc_tbl: {}",

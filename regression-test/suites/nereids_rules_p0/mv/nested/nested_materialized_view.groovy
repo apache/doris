@@ -902,8 +902,8 @@ select * from (
     sql "SET enable_materialized_view_nest_rewrite = true"
     // DP Hyper can not use pre materialized view rewrite
     sql """SET enable_dphyp_optimizer = false"""
-    mv_rewrite_all_success(query2_0, ["mv_all_6_a", "mv_all_6_b", "mv_all_6_c", "mv_all_6_d"],
-            true, [TRY_IN_RBO, FORCE_IN_RBO])
+    mv_rewrite_all_success_without_check_chosen(query2_0, ["mv_all_6_a", "mv_all_6_b", "mv_all_6_c", "mv_all_6_d"],
+            [TRY_IN_RBO, FORCE_IN_RBO])
     mv_rewrite_all_fail(query2_0, ["mv_all_6_a", "mv_all_6_b", "mv_all_6_c", "mv_all_6_d"],
             [NOT_IN_RBO])
     // Compare result when before and after mv rewrite

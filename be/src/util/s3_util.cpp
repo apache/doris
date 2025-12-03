@@ -114,7 +114,7 @@ constexpr char S3_SK[] = "AWS_SECRET_KEY";
 constexpr char S3_ENDPOINT[] = "AWS_ENDPOINT";
 constexpr char S3_REGION[] = "AWS_REGION";
 constexpr char S3_TOKEN[] = "AWS_TOKEN";
-constexpr char S3_MAX_CONN_SIZE[] = "AWS_MAX_CONN_SIZE";
+constexpr char S3_MAX_CONN_SIZE[] = "AWS_MAX_CONNECTIONS";
 constexpr char S3_REQUEST_TIMEOUT_MS[] = "AWS_REQUEST_TIMEOUT_MS";
 constexpr char S3_CONN_TIMEOUT_MS[] = "AWS_CONNECTION_TIMEOUT_MS";
 constexpr char S3_NEED_OVERRIDE_ENDPOINT[] = "AWS_NEED_OVERRIDE_ENDPOINT";
@@ -369,8 +369,7 @@ std::shared_ptr<io::ObjStorageClient> S3ClientFactory::_create_s3_client(
     if (s3_conf.max_connections > 0) {
         aws_config.maxConnections = s3_conf.max_connections;
     } else {
-        // AWS SDK max concurrent tcp connections for a single http client to use. Default 25.
-        aws_config.maxConnections = std::max(config::doris_scanner_thread_pool_thread_num, 25);
+        aws_config.maxConnections = 102400;
     }
 
     aws_config.requestTimeoutMs = 30000;

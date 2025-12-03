@@ -80,6 +80,7 @@ suite("test_domain_connection_and_ak_sk_correction",  "load_p0") {
     logger.info("the first sql result is {}", result)
 
     label = UUID.randomUUID().toString().replace("-", "")
+    def errorEndpoint = "oss-cn-hong123kong.aliyuncs.com"
     try {
         result = sql """
             LOAD LABEL ${label}
@@ -91,7 +92,7 @@ suite("test_domain_connection_and_ak_sk_correction",  "load_p0") {
             )
             WITH S3
             (
-                "AWS_ENDPOINT" = "${getS3Endpoint()}1",
+                "AWS_ENDPOINT" = "${errorEndpoint}",
                 "AWS_ACCESS_KEY" = "${getS3AK()}",
                 "AWS_SECRET_KEY" = "${getS3SK()}",
                 "AWS_REGION" = "${getS3Region()}",
@@ -99,10 +100,10 @@ suite("test_domain_connection_and_ak_sk_correction",  "load_p0") {
             );
         """
         logger.info("the second sql result is {}", result)
-        assertTrue(false. "The endpoint is wrong, so the connection test should fale")
+        assertTrue(false. "The endpoint is wrong, so the connection test should fail")
     } catch (Exception e) {
         logger.info("the second sql exception result is {}", e.getMessage())
-        assertTrue(e.getMessage().contains("Failed to access object storage"), e.getMessage())
+        assertTrue(e.getMessage().contains("${errorEndpoint}"), e.getMessage())
     }
 
     sql """ DROP TABLE IF EXISTS ${tableName} FORCE"""

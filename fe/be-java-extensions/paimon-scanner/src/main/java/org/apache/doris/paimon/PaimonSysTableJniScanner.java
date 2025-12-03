@@ -163,19 +163,22 @@ public class PaimonSysTableJniScanner extends JniScanner {
         int rows = 0;
         while (recordIterator != null) {
             InternalRow record;
+            long startTime = System.nanoTime();
+
             while ((record = recordIterator.next()) != null) {
+                rows += 1;
                 columnValue.setOffsetRow(record);
                 for (int i = 0; i < fields.length; i++) {
                     columnValue.setIdx(i, types[i], paimonDataTypeList.get(i));
-                    long l = System.nanoTime();
                     appendData(i, columnValue);
-                    appendDataTime += System.nanoTime() - l;
                 }
-                rows++;
+
                 if (rows >= batchSize) {
+                    appendDataTime += System.nanoTime() - startTime;
                     return rows;
                 }
             }
+
             recordIterator.releaseBatch();
             recordIterator = reader.readBatch();
             if (recordIterator == null && paimonSplits.hasNext()) {

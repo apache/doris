@@ -76,7 +76,7 @@ public:
     // Same as above with convenience of hashing the key.
     void insert(const StringRef& key) noexcept {
         if (key.data) {
-            insert(HashUtil::crc_hash(key.data, uint32_t(key.size), _hash_seed));
+            insert(HashUtil::crc32c_hash(key.data, uint32_t(key.size), _hash_seed));
         }
     }
 
@@ -105,7 +105,7 @@ public:
     // Same as above with convenience of hashing the key.
     bool find(const StringRef& key) const noexcept {
         if (key.data) {
-            return find(HashUtil::crc_hash(key.data, uint32_t(key.size), _hash_seed));
+            return find(HashUtil::crc32c_hash(key.data, uint32_t(key.size), _hash_seed));
         }
         return false;
     }

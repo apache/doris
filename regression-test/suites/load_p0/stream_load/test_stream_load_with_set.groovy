@@ -33,16 +33,19 @@ suite("test_stream_load_with_set", "load_p0") {
             k07 LARGEINT        NULL,
             k08 FLOAT           NULL,
             k09 DOUBLE          NULL,
-            k10 DECIMAL(9,1)           NULL,
-            k11 DECIMALV3(9,1)         NULL,
+            k10 DECIMAL(9,1)    NULL,
+            k11 DECIMALV3(9,1)  NULL,
             k12 DATETIME        NULL,
             k13 DATEV2          NULL,
             k14 DATETIMEV2      NULL,
             k15 CHAR            NULL,
             k16 VARCHAR         NULL,
-            kd01 DATE            NOT NULL,
             k17 STRING          NULL,
-            k18 JSON            NULL
+            k18 JSON            NULL,
+            kd01 DATE           NOT NULL,
+            kd02 INT            NULL,
+            kd03 VARCHAR(256)   NULL,
+            kd04 DATE           NOT NULL
         )
         DUPLICATE KEY(k00)
         DISTRIBUTED BY HASH(k00) BUCKETS 1
@@ -54,7 +57,7 @@ suite("test_stream_load_with_set", "load_p0") {
     streamLoad {
         table "${tableName}"
         set 'column_separator', '|'
-        set 'columns', "k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18,kd01=20240123"
+        set 'columns', "k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18,kd01=20240123, kd02=abs(-2)+3, kd03=uuid(), kd04=now()"
         file "basic_data.csv"
         time 10000 // limit inflight 10s
 
@@ -75,7 +78,7 @@ suite("test_stream_load_with_set", "load_p0") {
     streamLoad {
         table "${tableName}"
         set 'column_separator', '|'
-        set 'columns', "kd01=20240123"
+        set 'columns', "kd01=20240123, kd02=abs(-2)+3, kd03=uuid(), kd04=now()"
         file "basic_data.csv"
         time 10000 // limit inflight 10s
 

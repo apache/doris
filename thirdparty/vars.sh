@@ -115,6 +115,12 @@ ZLIB_NAME=zlib-1.3.1.tar.gz
 ZLIB_SOURCE=zlib-1.3.1
 ZLIB_MD5SUM="9855b6d802d7fe5b7bd5b196a2271655"
 
+# crc32c
+CRC32C_DOWNLOAD="https://github.com/google/crc32c/archive/refs/tags/1.1.2.tar.gz"
+CRC32C_NAME=crc32c-1.1.2.tar.gz
+CRC32C_SOURCE=crc32c-1.1.2
+CRC32C_MD5SUM="cc0338e6a60c38cab04a70a2c36cd9f2"
+
 # lz4
 LZ4_DOWNLOAD="https://github.com/lz4/lz4/archive/v1.9.4.tar.gz"
 LZ4_NAME=lz4-1.9.4.tar.gz
@@ -469,10 +475,10 @@ HADOOP_LIBS_SOURCE="doris-thirdparty-hadoop-3.3.6.6-for-doris"
 HADOOP_LIBS_MD5SUM="13b66d5f2abffd1740e692b65df5962e"
 
 # libhdfs 3.4
-HADOOP_LIBS_3_4_DOWNLOAD="https://github.com/apache/doris-thirdparty/archive/refs/tags/hadoop-3.4.2.1-for-doris.tar.gz"
-HADOOP_LIBS_3_4_NAME="hadoop-3.4.2.1-for-doris.tar.gz"
-HADOOP_LIBS_3_4_SOURCE="doris-thirdparty-hadoop-3.4.2.1-for-doris"
-HADOOP_LIBS_3_4_MD5SUM="4ca35773ecfae856962885413f6bbeac"
+HADOOP_LIBS_3_4_DOWNLOAD="https://github.com/apache/doris-thirdparty/archive/refs/tags/hadoop-3.4.2.2-for-doris.tar.gz"
+HADOOP_LIBS_3_4_NAME="hadoop-3.4.2.2-for-doris.tar.gz"
+HADOOP_LIBS_3_4_SOURCE="doris-thirdparty-hadoop-3.4.2.2-for-doris"
+HADOOP_LIBS_3_4_MD5SUM="b649508cdff5c8603abd659b754a2796"
 
 # AvxToNeon
 AVX2NEON_DOWNLOAD="https://github.com/kunpengcompute/AvxToNeon/archive/refs/tags/v1.0.0.tar.gz"
@@ -559,6 +565,7 @@ export TP_ARCHIVES=(
     'SNAPPY'
     'GPERFTOOLS'
     'ZLIB'
+    'CRC32C'
     'LZ4'
     'BZIP'
     'LZO2'
