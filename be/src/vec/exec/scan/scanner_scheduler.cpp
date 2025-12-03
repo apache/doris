@@ -351,14 +351,15 @@ int ScannerScheduler::get_remote_scan_thread_queue_size() {
 }
 
 int ScannerScheduler::default_min_active_scan_threads() {
-    return config::min_active_scan_threads > 0 ? config::min_active_scan_threads
-                                               : min_active_scan_threads = CpuInfo::num_cores() * 2;
+    return config::min_active_scan_threads > 0
+                   ? config::min_active_scan_threads
+                   : config::min_active_scan_threads = CpuInfo::num_cores() * 2;
 }
 
 int ScannerScheduler::default_min_active_file_scan_threads() {
     return config::min_active_file_scan_threads > 0
                    ? config::min_active_file_scan_threads
-                   : min_active_file_scan_threads = CpuInfo::num_cores() * 8;
+                   : config::min_active_file_scan_threads = CpuInfo::num_cores() * 8;
 }
 
 void ScannerScheduler::_make_sure_virtual_col_is_materialized(
