@@ -18,6 +18,8 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("onlyGroupBy") {
+    String db = context.config.getDbNameByFile(context.file)
+    sql "use ${db}"
     sql "SET experimental_enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
     sql """ DROP TABLE IF EXISTS onlyGroupBy; """
@@ -44,8 +46,7 @@ suite ("onlyGroupBy") {
     sql """insert into onlyGroupBy values("2020-01-03",3,"c",3,3,3);"""
     sql """insert into onlyGroupBy values("2020-01-03",3,"c",3,3,3);"""
 
-    createMV("create materialized view onlyGroupBy_mv as select deptno, count(salary) from onlyGroupBy group by deptno;")
-
+    create_sync_mv(db, "onlyGroupBy", "onlyGroupBy_mv", "select deptno as a1, count(salary) from onlyGroupBy group by deptno;")
     sql """insert into onlyGroupBy values("2020-01-01",1,"a",1,1,1);"""
 
     sql "analyze table onlyGroupBy with sync;"

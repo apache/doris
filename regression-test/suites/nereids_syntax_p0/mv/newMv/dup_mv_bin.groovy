@@ -18,6 +18,8 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("dup_mv_bin") {
+    String db = context.config.getDbNameByFile(context.file)
+    sql "use ${db}"
     sql """ DROP TABLE IF EXISTS dup_mv_bin; """
 
     sql """
@@ -36,8 +38,7 @@ suite ("dup_mv_bin") {
     sql "insert into dup_mv_bin select 2,2,2,'b';"
     sql "insert into dup_mv_bin select 3,-3,null,'c';"
 
-    createMV( "create materialized view k12b as select k1,bin(k2) from dup_mv_bin;")
-    sleep(3000)
+    create_sync_mv(db, "dup_mv_bin", "k12b", "select k1 as a1,bin(k2) from dup_mv_bin;")
 
     sql "insert into dup_mv_bin select -4,-4,-4,'d';"
 
