@@ -402,7 +402,7 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* s
         // If the `max_scanners_count` was not set,
         // use `config::doris_scanner_thread_pool_thread_num` as the default value.
         if (max_scanners_count <= 0) {
-            max_scanners_count = config::doris_scanner_thread_pool_thread_num;
+            max_scanners_count = config::doris_scanner_thread_pool_thread_num();
         }
 
         // Too small value of `min_rows_per_scanner` is meaningless.
