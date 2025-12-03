@@ -401,11 +401,10 @@ bool DataTypeNullableSerDe::write_column_to_hive_text(const IColumn& column, Buf
     }
 }
 
-template <bool is_binary_format>
-Status DataTypeNullableSerDe::_write_column_to_mysql(const IColumn& column,
-                                                     MysqlRowBuffer<is_binary_format>& result,
-                                                     int64_t row_idx, bool col_const,
-                                                     const FormatOptions& options) const {
+Status DataTypeNullableSerDe::write_column_to_mysql_binary(const IColumn& column,
+                                                           MysqlRowBinaryBuffer& result,
+                                                           int64_t row_idx, bool col_const,
+                                                           const FormatOptions& options) const {
     const auto& col = assert_cast<const ColumnNullable&>(column);
     const auto col_index = index_check_const(row_idx, col_const);
     if (col.has_null() && col.is_null_at(col_index)) {
@@ -414,24 +413,10 @@ Status DataTypeNullableSerDe::_write_column_to_mysql(const IColumn& column,
         }
     } else {
         const auto& nested_col = col.get_nested_column();
-        RETURN_IF_ERROR(nested_serde->write_column_to_mysql(nested_col, result, col_index,
-                                                            col_const, options));
+        RETURN_IF_ERROR(nested_serde->write_column_to_mysql_binary(nested_col, result, col_index,
+                                                                   col_const, options));
     }
     return Status::OK();
-}
-
-Status DataTypeNullableSerDe::write_column_to_mysql_binary(const IColumn& column,
-                                                           MysqlRowBinaryBuffer& row_buffer,
-                                                           int64_t row_idx, bool col_const,
-                                                           const FormatOptions& options) const {
-    return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
-}
-
-Status DataTypeNullableSerDe::write_column_to_mysql_text(const IColumn& column,
-                                                         MysqlRowTextBuffer& row_buffer,
-                                                         int64_t row_idx, bool col_const,
-                                                         const FormatOptions& options) const {
-    return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
 }
 
 Status DataTypeNullableSerDe::write_column_to_orc(const std::string& timezone,

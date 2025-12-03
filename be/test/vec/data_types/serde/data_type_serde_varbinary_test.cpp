@@ -155,30 +155,12 @@ TEST_F(DataTypeVarbinarySerDeTest, MysqlTextAndBinaryAndConst) {
 
     DataTypeSerDe::FormatOptions opt;
 
-    // text protocol
-    {
-        MysqlRowBuffer<false> rb;
-        for (int i = 0; i < static_cast<int>(vals.size()); ++i) {
-            auto st = serde.write_column_to_mysql(*col, rb, i, false, opt);
-            EXPECT_TRUE(st.ok()) << st.to_string();
-        }
-        EXPECT_GT(rb.length(), 0);
-        const unsigned char* buf = reinterpret_cast<const unsigned char*>(rb.buf());
-        EXPECT_EQ(buf[0], 1);
-        EXPECT_EQ(buf[2], 3);
-        MysqlRowBuffer<false> rb_const;
-        for (int i = 0; i < 3; ++i) {
-            auto st = serde.write_column_to_mysql(*col, rb_const, i, true, opt);
-            EXPECT_TRUE(st.ok()) << st.to_string();
-        }
-        EXPECT_EQ(reinterpret_cast<const unsigned char*>(rb_const.buf())[0], 1);
-    }
     // binary protocol (smoke)
     {
-        MysqlRowBuffer<true> rb;
+        MysqlRowBinaryBuffer rb;
         rb.start_binary_row(vals.size());
         for (int i = 0; i < static_cast<int>(vals.size()); ++i) {
-            auto st = serde.write_column_to_mysql(*col, rb, i, false, opt);
+            auto st = serde.write_column_to_mysql_binary(*col, rb, i, false, opt);
             EXPECT_TRUE(st.ok()) << st.to_string();
         }
         EXPECT_GT(rb.length(), 0);

@@ -27,33 +27,6 @@
 
 namespace doris::vectorized {
 
-TEST(HLLSerdeTest, writeColumnToMysql) {
-    auto hll_serde = std::make_shared<vectorized::DataTypeHLLSerDe>(1);
-    auto column_hll = ColumnHLL::create();
-    column_hll->insert_value(HyperLogLog::empty());
-    ASSERT_EQ(column_hll->size(), 1);
-    MysqlRowBuffer<false> mysql_rb;
-    DataTypeSerDe::FormatOptions options;
-    options.nested_string_wrapper = "\"";
-    options.wrapper_len = 1;
-    options.map_key_delim = ':';
-    options.null_format = "null";
-    options.null_len = 4;
-    hll_serde->set_return_object_as_string(true);
-    auto st = hll_serde->write_column_to_mysql(*column_hll, mysql_rb, 0, false, options);
-    EXPECT_TRUE(st.ok());
-    ASSERT_EQ(mysql_rb.length(), 2);
-
-    HyperLogLog hll;
-    hll.update(123);
-    column_hll->insert_value(hll);
-    hll_serde->set_return_object_as_string(true);
-    st = hll_serde->write_column_to_mysql(*column_hll, mysql_rb, 1, false, options);
-    EXPECT_TRUE(st.ok());
-    ASSERT_EQ(mysql_rb.length(), 13);
-    std::cout << "test write_column_to_mysql success" << std::endl;
-}
-
 TEST(HLLSerdeTest, writeOneCellToJsonb) {
     auto hll_serde = std::make_shared<vectorized::DataTypeHLLSerDe>(1);
     auto column_hll = ColumnHLL::create();

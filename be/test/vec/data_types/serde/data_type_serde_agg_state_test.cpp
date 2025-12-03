@@ -42,60 +42,6 @@ public:
             datatype_agg_state_hll_union->get_serde();
 };
 
-TEST_F(AggStateSerdeTest, writeColumnToMysql) {
-    auto column_fixed_length = ColumnFixedLengthObject::create(sizeof(int64_t));
-    column_fixed_length->insert_default();
-    ASSERT_EQ(column_fixed_length->size(), 1);
-    MysqlRowBuffer<false> mysql_rb;
-    DataTypeSerDe::FormatOptions options;
-    options.nested_string_wrapper = "\"";
-    options.wrapper_len = 1;
-    options.map_key_delim = ':';
-    options.null_format = "null";
-    options.null_len = 4;
-    datatype_agg_state_serde_count->set_return_object_as_string(true);
-    auto st = datatype_agg_state_serde_count->write_column_to_mysql(*column_fixed_length, mysql_rb,
-                                                                    0, false, options);
-    EXPECT_TRUE(st.ok());
-    ASSERT_EQ(mysql_rb.length(), 9);
-
-    column_fixed_length->resize(2);
-    *((int64_t*)&(column_fixed_length->get_data()[column_fixed_length->item_size()])) = 22;
-    datatype_agg_state_serde_count->set_return_object_as_string(true);
-    st = datatype_agg_state_serde_count->write_column_to_mysql(*column_fixed_length, mysql_rb, 1,
-                                                               false, options);
-    EXPECT_TRUE(st.ok());
-    ASSERT_EQ(mysql_rb.length(), 18);
-    std::cout << "test write_column_to_mysql success" << std::endl;
-}
-
-TEST_F(AggStateSerdeTest, writeColumnToMysql2) {
-    auto column_string = ColumnString::create();
-    column_string->insert_default();
-    ASSERT_EQ(column_string->size(), 1);
-    MysqlRowBuffer<false> mysql_rb;
-    DataTypeSerDe::FormatOptions options;
-    options.nested_string_wrapper = "\"";
-    options.wrapper_len = 1;
-    options.map_key_delim = ':';
-    options.null_format = "null";
-    options.null_len = 4;
-    datatype_agg_state_serde_hll_union->set_return_object_as_string(true);
-    auto st = datatype_agg_state_serde_hll_union->write_column_to_mysql(*column_string, mysql_rb, 0,
-                                                                        false, options);
-    EXPECT_TRUE(st.ok());
-    ASSERT_EQ(mysql_rb.length(), 1);
-
-    std::string str = "123";
-    column_string->insert_data(str.c_str(), str.size());
-    datatype_agg_state_serde_hll_union->set_return_object_as_string(true);
-    st = datatype_agg_state_serde_hll_union->write_column_to_mysql(*column_string, mysql_rb, 1,
-                                                                   false, options);
-    EXPECT_TRUE(st.ok());
-    ASSERT_EQ(mysql_rb.length(), 5);
-    std::cout << "test write_column_to_mysql2 success" << std::endl;
-}
-
 TEST_F(AggStateSerdeTest, writeOneCellToJsonb) {
     auto column_fixed_length = ColumnFixedLengthObject::create(sizeof(int64_t));
     column_fixed_length->resize(1);

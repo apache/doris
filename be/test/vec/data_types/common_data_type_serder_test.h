@@ -311,20 +311,6 @@ public:
         }
     }
 
-    // assert mysql text format, now we just simple assert not to fatal or exception here
-    static void assert_mysql_format(MutableColumns& load_cols, DataTypeSerDeSPtrs serders) {
-        MysqlRowBuffer<false> row_buffer;
-        for (size_t i = 0; i < load_cols.size(); ++i) {
-            auto& col = load_cols[i];
-            for (size_t j = 0; j < col->size(); ++j) {
-                Status st;
-                EXPECT_NO_FATAL_FAILURE(
-                        st = serders[i]->write_column_to_mysql(*col, row_buffer, j, false, {}));
-                EXPECT_TRUE(st.ok()) << st.to_string();
-            }
-        }
-    }
-
     // assert arrow serialize
     static void assert_arrow_format(MutableColumns& load_cols, DataTypes types) {
         // make a block to write to arrow

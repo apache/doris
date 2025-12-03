@@ -316,19 +316,6 @@ Status DataTypeStringSerDeBase<ColumnType>::read_column_from_arrow(
 }
 
 template <typename ColumnType>
-Status DataTypeStringSerDeBase<ColumnType>::write_column_to_mysql_binary(
-        const IColumn& column, MysqlRowBinaryBuffer& row_buffer, int64_t row_idx, bool col_const,
-        const FormatOptions& options) const {
-    return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
-}
-template <typename ColumnType>
-Status DataTypeStringSerDeBase<ColumnType>::write_column_to_mysql_text(
-        const IColumn& column, MysqlRowTextBuffer& row_buffer, int64_t row_idx, bool col_const,
-        const FormatOptions& options) const {
-    return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
-}
-
-template <typename ColumnType>
 Status DataTypeStringSerDeBase<ColumnType>::write_column_to_orc(
         const std::string& timezone, const IColumn& column, const NullMap* null_map,
         orc::ColumnVectorBatch* orc_col_batch, int64_t start, int64_t end,

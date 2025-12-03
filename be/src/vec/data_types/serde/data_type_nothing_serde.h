@@ -97,12 +97,6 @@ public:
         return Status::NotSupported("write_column_to_mysql with type " + column.get_name());
     }
 
-    Status write_column_to_mysql_text(const IColumn& column, MysqlRowTextBuffer& row_buffer,
-                                      int64_t row_idx, bool col_const,
-                                      const FormatOptions& options) const override {
-        return Status::NotSupported("write_column_to_mysql with type " + column.get_name());
-    }
-
     Status write_column_to_orc(const std::string& timezone, const IColumn& column,
                                const NullMap* null_map, orc::ColumnVectorBatch* orc_col_batch,
                                int64_t start, int64_t end,

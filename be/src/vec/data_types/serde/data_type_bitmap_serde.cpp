@@ -150,11 +150,10 @@ void DataTypeBitMapSerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbV
     col.insert_value(bitmap_value);
 }
 
-template <bool is_binary_format>
-Status DataTypeBitMapSerDe::_write_column_to_mysql(const IColumn& column,
-                                                   MysqlRowBuffer<is_binary_format>& result,
-                                                   int64_t row_idx, bool col_const,
-                                                   const FormatOptions& options) const {
+Status DataTypeBitMapSerDe::write_column_to_mysql_binary(const IColumn& column,
+                                                         MysqlRowBinaryBuffer& result,
+                                                         int64_t row_idx, bool col_const,
+                                                         const FormatOptions& options) const {
     auto& data_column = assert_cast<const ColumnBitmap&>(column);
     if (_return_object_as_string) {
         const auto col_index = index_check_const(row_idx, col_const);
@@ -186,20 +185,6 @@ bool DataTypeBitMapSerDe::write_column_to_mysql_text(const IColumn& column, Buff
     } else {
         return false;
     }
-}
-
-Status DataTypeBitMapSerDe::write_column_to_mysql_binary(const IColumn& column,
-                                                         MysqlRowBinaryBuffer& row_buffer,
-                                                         int64_t row_idx, bool col_const,
-                                                         const FormatOptions& options) const {
-    return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
-}
-
-Status DataTypeBitMapSerDe::write_column_to_mysql_text(const IColumn& column,
-                                                       MysqlRowTextBuffer& row_buffer,
-                                                       int64_t row_idx, bool col_const,
-                                                       const FormatOptions& options) const {
-    return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
 }
 
 Status DataTypeBitMapSerDe::write_column_to_orc(const std::string& timezone, const IColumn& column,

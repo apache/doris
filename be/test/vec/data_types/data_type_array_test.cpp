@@ -485,11 +485,6 @@ TEST_F(DataTypeArrayTest, SerdeJsonbTest) {
     CommonDataTypeSerdeTest::assert_jsonb_format(array_columns, serdes);
 }
 
-TEST_F(DataTypeArrayTest, SerdeMysqlTest) {
-    // insert from data csv and assert insert result
-    CommonDataTypeSerdeTest::assert_mysql_format(array_columns, serdes);
-}
-
 TEST_F(DataTypeArrayTest, SerializeDeserializeTest) {
     // insert from data csv and assert insert result
     CommonDataTypeTest::serialize_deserialize_assert(array_columns, array_types);

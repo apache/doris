@@ -233,23 +233,6 @@ TEST_F(DataTypeIPTest, SerdeJsonbTest) {
                                         CommonDataTypeSerdeTest::assert_jsonb_format);
 }
 
-TEST_F(DataTypeIPTest, SerdeMysqlAndArrowTest) {
-    auto serde_ipv4 = dt_ipv4->get_serde(1);
-    auto serde_ipv6 = dt_ipv6->get_serde(1);
-    auto column_ipv4 = dt_ipv4->create_column();
-    auto column_ipv6 = dt_ipv6->create_column();
-
-    // insert from data csv and assert insert result
-    MutableColumns ip_cols;
-    ip_cols.push_back(column_ipv4->get_ptr());
-    ip_cols.push_back(column_ipv6->get_ptr());
-    DataTypeSerDeSPtrs serde = {dt_ipv4->get_serde(), dt_ipv6->get_serde()};
-    CommonDataTypeSerdeTest::check_data(ip_cols, serde, ';', {1, 2}, data_files[0],
-                                        CommonDataTypeSerdeTest::assert_mysql_format);
-
-    CommonDataTypeSerdeTest::assert_arrow_format(ip_cols, {dt_ipv4, dt_ipv6});
-}
-
 TEST_F(DataTypeIPTest, SerdeTOJsonInComplex) {
     // make array<ip>
     auto array_ipv4 = std::make_shared<DataTypeArray>(dt_ipv4);

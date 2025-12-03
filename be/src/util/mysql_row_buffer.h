@@ -52,7 +52,6 @@ class DecimalV2Value;
 class IPv4Value;
 class IPv6Value;
 
-template <bool is_binary_format = false>
 class MysqlRowBuffer {
 public:
     MysqlRowBuffer();
@@ -139,12 +138,10 @@ private:
     int _dynamic_mode;
     uint64_t _len_pos;
     uint32_t _field_pos = 0;
-    uint32_t _field_count = 0;
 
     char _default_buf[4096];
 };
 
-using MysqlRowTextBuffer = MysqlRowBuffer<false>;
-using MysqlRowBinaryBuffer = MysqlRowBuffer<true>;
+using MysqlRowBinaryBuffer = MysqlRowBuffer;
 
 } // namespace doris

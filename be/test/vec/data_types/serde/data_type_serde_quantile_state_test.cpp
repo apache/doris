@@ -25,35 +25,6 @@
 
 namespace doris::vectorized {
 
-TEST(QuantileStateSerdeTest, writeColumnToMysql) {
-    auto quantile_state_serde = std::make_shared<vectorized::DataTypeQuantileStateSerDe>(1);
-    auto column_quantile_state = ColumnQuantileState::create();
-    column_quantile_state->insert_value(QuantileState());
-    ASSERT_EQ(column_quantile_state->size(), 1);
-    MysqlRowBuffer<false> mysql_rb;
-    DataTypeSerDe::FormatOptions options;
-    options.nested_string_wrapper = "\"";
-    options.wrapper_len = 1;
-    options.map_key_delim = ':';
-    options.null_format = "null";
-    options.null_len = 4;
-    quantile_state_serde->set_return_object_as_string(true);
-    auto st = quantile_state_serde->write_column_to_mysql(*column_quantile_state, mysql_rb, 0,
-                                                          false, options);
-    EXPECT_TRUE(st.ok());
-    ASSERT_EQ(mysql_rb.length(), 6);
-
-    QuantileState quantile_state;
-    quantile_state.add_value(123);
-    column_quantile_state->insert_value(quantile_state);
-    quantile_state_serde->set_return_object_as_string(true);
-    st = quantile_state_serde->write_column_to_mysql(*column_quantile_state, mysql_rb, 1, false,
-                                                     options);
-    EXPECT_TRUE(st.ok());
-    ASSERT_EQ(mysql_rb.length(), 20);
-    std::cout << "test write_column_to_mysql success" << std::endl;
-}
-
 TEST(QuantileStateSerdeTest, writeOneCellToJsonb) {
     auto quantile_state_serde = std::make_shared<vectorized::DataTypeQuantileStateSerDe>(1);
     auto column_quantile_state = ColumnQuantileState::create();

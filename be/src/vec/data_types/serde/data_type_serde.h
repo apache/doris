@@ -414,23 +414,6 @@ public:
 
     virtual void read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const = 0;
 
-    // MySQL serializer and deserializer
-
-    template <bool is_binary_format>
-    Status write_column_to_mysql(const IColumn& column,
-                                 MysqlRowBuffer<is_binary_format>& row_buffer, int64_t row_idx,
-                                 bool col_const, const FormatOptions& options) const {
-        if constexpr (is_binary_format) {
-            return write_column_to_mysql_binary(column, row_buffer, row_idx, col_const, options);
-        } else {
-            return write_column_to_mysql_text(column, row_buffer, row_idx, col_const, options);
-        }
-    }
-
-    virtual Status write_column_to_mysql_text(const IColumn& column, MysqlRowTextBuffer& row_buffer,
-                                              int64_t row_idx, bool col_const,
-                                              const FormatOptions& options) const = 0;
-
     // return true if output as string
     // return false if output null
     virtual bool write_column_to_mysql_text(const IColumn& column, BufferWritable& bw,

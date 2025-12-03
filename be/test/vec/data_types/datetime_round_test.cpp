@@ -90,37 +90,6 @@ static void from_thrift_checker(UInt32 scale, const String& input, const String&
     EXPECT_EQ(datetime_ptr->to_string(*column, 1), expected);
 }
 
-static void serialization_checker(UInt32 scale, const std::string& input,
-                                  const std::string& expected) {
-    std::shared_ptr<const DataTypeDateTimeV2> datetime_ptr =
-            std::dynamic_pointer_cast<const DataTypeDateTimeV2>(
-                    DataTypeFactory::instance().create_data_type(
-                            doris::FieldType::OLAP_FIELD_TYPE_DATETIMEV2, 0, scale));
-
-    StringRef rb(const_cast<char*>(input.c_str()), input.size());
-    ColumnDateTimeV2::MutablePtr column = ColumnDateTimeV2::create(0);
-    auto rt = datetime_ptr->from_string(rb, &(*column));
-    EXPECT_TRUE(rt.ok());
-    auto serde = std::dynamic_pointer_cast<DataTypeDateTimeV2SerDe>(datetime_ptr->get_serde());
-    MysqlRowBuffer<false> mysql_rb;
-    DataTypeSerDe::FormatOptions options;
-    options.nested_string_wrapper = "\"";
-    options.wrapper_len = 1;
-    options.map_key_delim = ':';
-    options.null_format = "null";
-    options.null_len = 4;
-    rt = serde->write_column_to_mysql(*column, mysql_rb, 0, false, options);
-    EXPECT_TRUE(rt.ok());
-    auto elem_size = static_cast<uint8_t>(*mysql_rb.buf());
-    if (elem_size != expected.size()) {
-        std::cerr << "Left size " << elem_size << " right size " << expected.size() << " left str "
-                  << std::string_view(mysql_rb.buf() + 1, elem_size) << " right str " << expected
-                  << std::endl;
-        ASSERT_TRUE(false); // terminate ut
-    }
-    EXPECT_EQ(std::string_view(mysql_rb.buf() + 1, expected.size()), expected);
-}
-
 static std::multimap<size_t /*scale*/,
                      std::multimap<std::string /*input*/, std::string /*expected*/>>
         scale_with_input_and_expected = {
@@ -408,16 +377,6 @@ TEST(DatetimeRountTest, test_datetime_round_behaviour_get_field) {
         for (auto itr : scale_with_input_and_expected) {
             for (const auto& [input, expected] : itr.second) {
                 from_thrift_checker(itr.first, input, expected);
-            }
-        }
-    }
-}
-
-TEST(DatetimeRountTest, test_datetime_round_behaviour_serialize) {
-    {
-        for (auto itr : scale_with_input_and_expected) {
-            for (const auto& [input, expected] : itr.second) {
-                serialization_checker(itr.first, input, expected);
             }
         }
     }

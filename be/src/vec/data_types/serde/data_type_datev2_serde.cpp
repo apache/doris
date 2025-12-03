@@ -128,11 +128,10 @@ Status DataTypeDateV2SerDe::read_column_from_arrow(IColumn& column, const arrow:
     return Status::OK();
 }
 
-template <bool is_binary_format>
-Status DataTypeDateV2SerDe::_write_column_to_mysql(const IColumn& column,
-                                                   MysqlRowBuffer<is_binary_format>& result,
-                                                   int64_t row_idx, bool col_const,
-                                                   const FormatOptions& options) const {
+Status DataTypeDateV2SerDe::write_column_to_mysql_binary(const IColumn& column,
+                                                         MysqlRowBinaryBuffer& result,
+                                                         int64_t row_idx, bool col_const,
+                                                         const FormatOptions& options) const {
     const auto& data = assert_cast<const ColumnDateV2&>(column).get_data();
     auto col_index = index_check_const(row_idx, col_const);
     DateV2Value<DateV2ValueType> date_val =
@@ -153,20 +152,6 @@ Status DataTypeDateV2SerDe::_write_column_to_mysql(const IColumn& column,
         }
     }
     return Status::OK();
-}
-
-Status DataTypeDateV2SerDe::write_column_to_mysql_binary(const IColumn& column,
-                                                         MysqlRowBinaryBuffer& row_buffer,
-                                                         int64_t row_idx, bool col_const,
-                                                         const FormatOptions& options) const {
-    return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
-}
-
-Status DataTypeDateV2SerDe::write_column_to_mysql_text(const IColumn& column,
-                                                       MysqlRowTextBuffer& row_buffer,
-                                                       int64_t row_idx, bool col_const,
-                                                       const FormatOptions& options) const {
-    return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
 }
 
 Status DataTypeDateV2SerDe::write_column_to_orc(const std::string& timezone, const IColumn& column,

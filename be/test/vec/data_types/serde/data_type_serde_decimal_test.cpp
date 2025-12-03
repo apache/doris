@@ -263,15 +263,6 @@ TEST_F(DataTypeDecimalSerDeTest, serdes) {
                 EXPECT_EQ(deser_col_with_type->get_element(j), source_column->get_element(j));
             }
         }
-        {
-            // test write_column_to_mysql
-            MysqlRowBuffer<false> mysql_rb;
-            for (int row_idx = 0; row_idx < row_count; ++row_idx) {
-                auto st = serde.write_column_to_mysql(*source_column, mysql_rb, row_idx, false,
-                                                      option);
-                EXPECT_TRUE(st.ok()) << "Failed to write column to mysql: " << st;
-            }
-        }
     };
     test_func(*serde_decimal32_1, column_decimal32_1);
     test_func(*serde_decimal32_2, column_decimal32_2);

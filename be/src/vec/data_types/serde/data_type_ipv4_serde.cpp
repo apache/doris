@@ -27,11 +27,10 @@
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
-template <bool is_binary_format>
-Status DataTypeIPv4SerDe::_write_column_to_mysql(const IColumn& column,
-                                                 MysqlRowBuffer<is_binary_format>& result,
-                                                 int64_t row_idx, bool col_const,
-                                                 const FormatOptions& options) const {
+Status DataTypeIPv4SerDe::write_column_to_mysql_binary(const IColumn& column,
+                                                       MysqlRowBinaryBuffer& result,
+                                                       int64_t row_idx, bool col_const,
+                                                       const FormatOptions& options) const {
     auto& data = assert_cast<const ColumnIPv4&>(column).get_data();
     auto col_index = index_check_const(row_idx, col_const);
     IPv4Value ipv4_val(data[col_index]);
@@ -51,20 +50,6 @@ Status DataTypeIPv4SerDe::_write_column_to_mysql(const IColumn& column,
         }
     }
     return Status::OK();
-}
-
-Status DataTypeIPv4SerDe::write_column_to_mysql_binary(const IColumn& column,
-                                                       MysqlRowBinaryBuffer& row_buffer,
-                                                       int64_t row_idx, bool col_const,
-                                                       const FormatOptions& options) const {
-    return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
-}
-
-Status DataTypeIPv4SerDe::write_column_to_mysql_text(const IColumn& column,
-                                                     MysqlRowTextBuffer& row_buffer,
-                                                     int64_t row_idx, bool col_const,
-                                                     const FormatOptions& options) const {
-    return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
 }
 
 Status DataTypeIPv4SerDe::serialize_one_cell_to_json(const IColumn& column, int64_t row_num,
