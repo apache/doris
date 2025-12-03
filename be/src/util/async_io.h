@@ -21,6 +21,7 @@
 
 #include "io/fs/file_system.h"
 #include "olap/olap_define.h"
+#include "util/cpu_info.h"
 #include "work_thread_pool.hpp"
 
 namespace doris {
