@@ -1128,10 +1128,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
             }
             throw new AnalysisException("No such field '" + fieldName + "' in '" + lastFieldName + "'");
         }
-        List<String> nameParts = unboundSlot.getNameParts();
-        int namePartsNum = nameParts.size();
-        List<String> excludeTableParts = nameParts.subList(namePartsNum - fieldNames.size() - 1, namePartsNum);
-        return Optional.of(new Alias(expression, new UnboundSlot(excludeTableParts).getName(), slot.getQualifier()));
+        return Optional.of(new Alias(expression, unboundSlot.getName(), slot.getQualifier()));
     }
 
     public static boolean sameTableName(String boundSlot, String unboundSlot) {
