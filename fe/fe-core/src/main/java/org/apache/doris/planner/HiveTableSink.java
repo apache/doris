@@ -48,12 +48,10 @@ import org.apache.doris.thrift.THiveSerDeProperties;
 import org.apache.doris.thrift.THiveTableSink;
 
 import com.google.common.base.Strings;
-import com.google.common.collect.Lists;
 import org.apache.hadoop.hive.metastore.api.StorageDescriptor;
 import org.apache.hadoop.hive.metastore.api.Table;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
@@ -203,7 +201,7 @@ public class HiveTableSink extends BaseExternalTableDataSink {
 
         List<THivePartition> partitions = new ArrayList<>();
 
-        List<HivePartition> hivePartitions;
+        List<HivePartition> hivePartitions = new ArrayList<>();
         if (targetTable.isPartitionedTable()) {
             // Get partitions from cache instead of HMS client (similar to HiveScanNode)
             HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
@@ -213,14 +211,6 @@ public class HiveTableSink extends BaseExternalTableDataSink {
             List<List<String>> partitionValuesList =
                     new ArrayList<>(partitionValues.getPartitionValuesMap().values());
             hivePartitions = cache.getAllPartitionsWithCache(targetTable, partitionValuesList);
-        } else {
-            // Non-partitioned table, create dummy partition
-            hivePartitions = Lists.newArrayList();
-            StorageDescriptor sd = targetTable.getRemoteTable().getSd();
-            HivePartition dummyPartition = new HivePartition(targetTable.getOrBuildNameMapping(), true,
-                    sd.getInputFormat(), sd.getLocation(), Lists.newArrayList(),
-                    sd.getParameters() != null ? sd.getParameters() : new HashMap<>());
-            hivePartitions.add(dummyPartition);
         }
 
         // Convert HivePartition to THivePartition (same logic as before)
