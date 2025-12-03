@@ -2864,12 +2864,18 @@ Status SegmentIterator::_prefetch_data_pages_for_row_bitmap() {
         size_t start_offset = first_pp.offset;
         size_t end_offset = last_pp.offset + last_pp.size;
 
+        const size_t block_size = config::file_cache_each_block_size;
+        size_t first_block_start = (start_offset / block_size) * block_size;
+        size_t last_block_start = (end_offset - 1) / block_size * block_size;
+
         LOG_INFO(
                 "SegmentIterator prefetch: Column {} pages [{}, {}] covers ordinals [{}, {}], "
-                "offset range [{}, {}) for tablet={}, rowset={}, segment {}",
+                "offset range [{}, {}), length={}, file_block=[{}, {}] for tablet={}, rowset={}, "
+                "segment {}",
                 cid, first_page_iter.page_index(), last_page_iter.page_index(),
                 first_page_iter.first_ordinal(), last_page_iter.last_ordinal(), start_offset,
-                end_offset, _tablet_id, _segment->rowset_id().to_string(), segment_id());
+                end_offset, end_offset - start_offset, first_block_start, last_block_start,
+                _tablet_id, _segment->rowset_id().to_string(), segment_id());
 
         // Trigger parallel prefetch for all file cache blocks covering [start_offset, end_offset)
         // This will submit concurrent read tasks to s3_parallel_read_thread_pool
