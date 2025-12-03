@@ -114,7 +114,7 @@ public class IcebergExpireSnapshotsAction extends BaseIcebergAction {
     }
 
     @Override
-    protected List<String> executeAction(TableIf table) throws UserException {
+    protected List<List<String>> executeAction(TableIf table) throws UserException {
         throw new DdlException("Iceberg expire_snapshots procedure is not implemented yet");
     }
 

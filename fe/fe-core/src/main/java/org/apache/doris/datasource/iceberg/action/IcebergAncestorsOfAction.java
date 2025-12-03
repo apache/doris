@@ -89,11 +89,9 @@ public class IcebergAncestorsOfAction extends BaseIcebergAction {
 
     /**
      * Execute the ancestors_of action to return multiple rows (one per ancestor snapshot).
-     * This overrides executeActionMultiRows() instead of execute() because the base class
-     * execute() method is final.
      */
     @Override
-    protected List<List<String>> executeActionMultiRows(TableIf table) throws UserException {
+    protected List<List<String>> executeAction(TableIf table) throws UserException {
         Table icebergTable = ((IcebergExternalTable) table).getIcebergTable();
         Long targetSnapshotId = namedArguments.getLong(SNAPSHOT_ID);
 
@@ -141,14 +139,6 @@ public class IcebergAncestorsOfAction extends BaseIcebergAction {
             throw new UserException("Failed to get ancestors of snapshot " + targetSnapshotId
                     + ": " + e.getMessage(), e);
         }
-    }
-
-    @Override
-    protected List<String> executeAction(TableIf table) throws UserException {
-        // This method is not used because we override executeActionMultiRows()
-        // to support returning multiple rows
-        throw new UnsupportedOperationException(
-                "ancestors_of action uses executeActionMultiRows() for multi-row results");
     }
 
     @Override
