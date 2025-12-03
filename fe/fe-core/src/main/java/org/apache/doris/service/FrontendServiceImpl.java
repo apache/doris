@@ -18,7 +18,6 @@
 package org.apache.doris.service;
 
 import org.apache.doris.analysis.AbstractBackupTableRefClause;
-import org.apache.doris.analysis.AddPartitionClause;
 import org.apache.doris.analysis.PartitionExprUtil;
 import org.apache.doris.analysis.SetType;
 import org.apache.doris.analysis.UserIdentity;
@@ -97,6 +96,7 @@ import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanNodeAndHash;
 import org.apache.doris.nereids.trees.plans.commands.RestoreCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.AddPartitionOp;
 import org.apache.doris.nereids.trees.plans.commands.info.LabelNameInfo;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.planner.OlapTableSink;
@@ -3687,7 +3687,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             }
             partitionValues.add(request.partitionValues.get(i));
         }
-        Map<String, AddPartitionClause> addPartitionClauseMap;
+        Map<String, AddPartitionOp> addPartitionClauseMap;
         try {
             addPartitionClauseMap = PartitionExprUtil.getAddPartitionClauseFromPartitionValues(olapTable,
                     partitionValues, partitionInfo);
@@ -3698,10 +3698,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             return result;
         }
 
-        for (AddPartitionClause addPartitionClause : addPartitionClauseMap.values()) {
+        for (AddPartitionOp addPartitionOp : addPartitionClauseMap.values()) {
             try {
                 // here maybe check and limit created partitions num
-                Env.getCurrentEnv().addPartition(db, olapTable.getName(), addPartitionClause, false, 0, true);
+                Env.getCurrentEnv().addPartition(db, olapTable.getName(), addPartitionOp, false, 0, true);
             } catch (DdlException e) {
                 LOG.warn(e);
                 errorStatus.setErrorMsgs(

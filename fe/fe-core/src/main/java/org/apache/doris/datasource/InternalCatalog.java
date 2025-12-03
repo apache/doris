@@ -18,14 +18,8 @@
 package org.apache.doris.datasource;
 
 import org.apache.doris.alter.QuotaType;
-import org.apache.doris.analysis.AddPartitionClause;
-import org.apache.doris.analysis.AddPartitionLikeClause;
-import org.apache.doris.analysis.AddRollupClause;
-import org.apache.doris.analysis.AlterClause;
-import org.apache.doris.analysis.AlterMultiPartitionClause;
 import org.apache.doris.analysis.DataSortInfo;
 import org.apache.doris.analysis.DistributionDesc;
-import org.apache.doris.analysis.DropPartitionClause;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.KeysDesc;
 import org.apache.doris.analysis.MultiPartitionDesc;
@@ -121,7 +115,13 @@ import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.commands.DropCatalogRecycleBinCommand.IdType;
+import org.apache.doris.nereids.trees.plans.commands.info.AddPartitionLikeOp;
+import org.apache.doris.nereids.trees.plans.commands.info.AddPartitionOp;
+import org.apache.doris.nereids.trees.plans.commands.info.AddRollupOp;
+import org.apache.doris.nereids.trees.plans.commands.info.AlterMultiPartitionOp;
+import org.apache.doris.nereids.trees.plans.commands.info.AlterOp;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.DropPartitionOp;
 import org.apache.doris.persist.AlterDatabasePropertyInfo;
 import org.apache.doris.persist.AutoIncrementIdUpdateLog;
 import org.apache.doris.persist.ColocatePersistInfo;
@@ -1309,7 +1309,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
     }
 
-    public void addPartitionLike(Database db, String tableName, AddPartitionLikeClause addPartitionLikeClause)
+    public void addPartitionLike(Database db, String tableName, AddPartitionLikeOp addPartitionLikeOp)
             throws DdlException {
         try {
             Table table = db.getTableOrDdlException(tableName);
@@ -1319,44 +1319,45 @@ public class InternalCatalog implements CatalogIf<Database> {
             }
 
             // Lock the table to prevent other SQL from performing write operation during table structure modification
-            AddPartitionClause clause = null;
+            AddPartitionOp addPartitionOp = null;
             table.readLock();
             try {
-                String partitionName = addPartitionLikeClause.getPartitionName();
-                String existedName = addPartitionLikeClause.getExistedPartitionName();
+                String partitionName = addPartitionLikeOp.getPartitionName();
+                String existedName = addPartitionLikeOp.getExistedPartitionName();
                 OlapTable olapTable = (OlapTable) table;
                 Partition part = olapTable.getPartition(existedName);
                 if (part == null) {
                     throw new DdlException("Failed to ADD PARTITION" + partitionName + " LIKE "
-                            + existedName + ". Reason: " + "partition " + existedName + "not exist");
+                        + existedName + ". Reason: " + "partition " + existedName + "not exist");
                 }
                 PartitionInfo partitionInfo = olapTable.getPartitionInfo();
                 SinglePartitionDesc newPartitionDesc;
                 if (partitionInfo instanceof SinglePartitionInfo) {
                     newPartitionDesc = new SinglePartitionDesc(false, partitionName,
-                            PartitionKeyDesc.DUMMY_KEY_DESC, Maps.newHashMap());
+                        PartitionKeyDesc.DUMMY_KEY_DESC, Maps.newHashMap());
                 } else {
                     PartitionDesc partitionDesc = partitionInfo.toPartitionDesc((OlapTable) table);
                     SinglePartitionDesc oldPartitionDesc = partitionDesc.getSinglePartitionDescByName(existedName);
                     if (oldPartitionDesc == null) {
                         throw new DdlException("Failed to ADD PARTITION" + partitionName + " LIKE "
-                                + existedName + ". Reason: " + "partition " + existedName + "desc not exist");
+                            + existedName + ". Reason: " + "partition " + existedName + "desc not exist");
                     }
                     newPartitionDesc = new SinglePartitionDesc(false, partitionName,
-                            oldPartitionDesc.getPartitionKeyDesc(), oldPartitionDesc.getProperties());
+                        oldPartitionDesc.getPartitionKeyDesc(), oldPartitionDesc.getProperties());
                 }
                 DistributionDesc distributionDesc = part.getDistributionInfo().toDistributionDesc();
                 Map<String, String> properties = newPartitionDesc.getProperties();
-                clause = new AddPartitionClause(newPartitionDesc, distributionDesc,
-                        properties, addPartitionLikeClause.getIsTempPartition());
+                addPartitionOp = new AddPartitionOp(newPartitionDesc,
+                    distributionDesc.toDistributionDescriptor(),
+                    properties, addPartitionLikeOp.getTempPartition());
             } finally {
                 table.readUnlock();
             }
-            addPartition(db, tableName, clause, false, 0, true);
+            addPartition(db, tableName, addPartitionOp, false, 0, true);
 
         } catch (UserException e) {
-            throw new DdlException("Failed to ADD PARTITION " + addPartitionLikeClause.getPartitionName()
-                    + " LIKE " + addPartitionLikeClause.getExistedPartitionName() + ". Reason: " + e.getMessage());
+            throw new DdlException("Failed to ADD PARTITION " + addPartitionLikeOp.getPartitionName()
+                + " LIKE " + addPartitionLikeOp.getExistedPartitionName() + ". Reason: " + e.getMessage());
         }
     }
 
@@ -1441,7 +1442,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
     }
 
-    public PartitionPersistInfo addPartition(Database db, String tableName, AddPartitionClause addPartitionClause,
+    public PartitionPersistInfo addPartition(Database db, String tableName, AddPartitionOp addPartitionOp,
                                              boolean isCreateTable, long generatedPartitionId,
                                              boolean writeEditLog) throws DdlException {
         // in cloud mode, isCreateTable == true, create dynamic partition use, so partitionId must have been generated.
@@ -1450,9 +1451,9 @@ public class InternalCatalog implements CatalogIf<Database> {
                 && (isCreateTable && generatedPartitionId == 0) || (!isCreateTable && generatedPartitionId != 0)) {
             throw new DdlException("not impossible");
         }
-        SinglePartitionDesc singlePartitionDesc = addPartitionClause.getSingeRangePartitionDesc();
-        DistributionDesc distributionDesc = addPartitionClause.getDistributionDesc();
-        boolean isTempPartition = addPartitionClause.isTempPartition();
+        SinglePartitionDesc singlePartitionDesc = addPartitionOp.getSingeRangePartitionDesc();
+        DistributionDesc distributionDesc = addPartitionOp.getDistributionDesc();
+        boolean isTempPartition = addPartitionOp.isTempPartition();
 
         DistributionInfo distributionInfo;
         Map<Long, MaterializedIndexMeta> indexIdToMeta;
@@ -1501,8 +1502,8 @@ public class InternalCatalog implements CatalogIf<Database> {
              * And JCUP choose to bind to AddPartitionClause, so we should add properties of AddPartitionClause to
              * SinglePartitionDesc's properties here.
              */
-            if (null != addPartitionClause.getProperties()) {
-                properties.putAll(addPartitionClause.getProperties());
+            if (null != addPartitionOp.getProperties()) {
+                properties.putAll(addPartitionOp.getProperties());
             }
 
             // partition properties should inherit table properties
@@ -1819,21 +1820,22 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
     }
 
-    public void addMultiPartitions(Database db, String tableName, AlterMultiPartitionClause multiPartitionClause)
+    public void addMultiPartitions(Database db, String tableName, AlterMultiPartitionOp multiPartitionOp)
             throws DdlException {
         List<SinglePartitionDesc> singlePartitionDescs;
         try {
-            MultiPartitionDesc multiPartitionDesc = new MultiPartitionDesc(multiPartitionClause.getPartitionKeyDesc(),
-                    multiPartitionClause.getProperties());
+            MultiPartitionDesc multiPartitionDesc = new MultiPartitionDesc(multiPartitionOp.getPartitionKeyDesc(),
+                    multiPartitionOp.getProperties());
             singlePartitionDescs = multiPartitionDesc.getSinglePartitionDescList();
         } catch (AnalysisException e) {
             throw new DdlException("Failed to analyze multi partition clause: " + e.getMessage());
         }
 
         for (SinglePartitionDesc singlePartitionDesc : singlePartitionDescs) {
-            AddPartitionClause addPartitionClause = new AddPartitionClause(singlePartitionDesc, null,
-                    multiPartitionClause.getProperties(), false);
-            addPartition(db, tableName, addPartitionClause, false, 0, true);
+            AddPartitionOp addPartitionOp = new AddPartitionOp(
+                    singlePartitionDesc.translateToPartitionDefinition(), null,
+                    multiPartitionOp.getProperties(), false);
+            addPartition(db, tableName, addPartitionOp, false, 0, true);
         }
     }
 
@@ -1881,16 +1883,16 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
     }
 
-    public void dropPartition(Database db, OlapTable olapTable, DropPartitionClause clause) throws DdlException {
+    public void dropPartition(Database db, OlapTable olapTable, DropPartitionOp dropPartitionOp) throws DdlException {
         Preconditions.checkArgument(olapTable.isWriteLockHeldByCurrentThread());
 
-        String partitionName = clause.getPartitionName();
-        boolean isTempPartition = clause.isTempPartition();
-        boolean isForceDrop = clause.isForceDrop();
+        String partitionName = dropPartitionOp.getPartitionName();
+        boolean isTempPartition = dropPartitionOp.isTempPartition();
+        boolean isForceDrop = dropPartitionOp.isForceDrop();
 
         olapTable.checkNormalStateForAlter();
         if (!olapTable.checkPartitionNameExist(partitionName, isTempPartition)) {
-            if (clause.isSetIfExists()) {
+            if (dropPartitionOp.isSetIfExists()) {
                 LOG.info("drop partition[{}] which does not exist", partitionName);
                 return;
             } else {
@@ -1907,12 +1909,12 @@ public class InternalCatalog implements CatalogIf<Database> {
         if (!isTempPartition && !isForceDrop) {
             Partition partition = olapTable.getPartition(partitionName);
             if (partition != null && Env.getCurrentGlobalTransactionMgr()
-                        .existCommittedTxns(db.getId(), olapTable.getId(), partition.getId())) {
+                    .existCommittedTxns(db.getId(), olapTable.getId(), partition.getId())) {
                 throw new DdlException(
-                        "There are still some transactions in the COMMITTED state waiting to be completed."
-                                + " The partition [" + partitionName
-                                + "] cannot be dropped. If you want to forcibly drop(cannot be recovered),"
-                                + " please use \"DROP partition FORCE\".");
+                    "There are still some transactions in the COMMITTED state waiting to be completed."
+                        + " The partition [" + partitionName
+                        + "] cannot be dropped. If you want to forcibly drop(cannot be recovered),"
+                        + " please use \"DROP partition FORCE\".");
             }
         }
 
@@ -2814,30 +2816,30 @@ public class InternalCatalog implements CatalogIf<Database> {
         olapTable.setIndexMeta(baseIndexId, tableName, baseSchema, schemaVersion, schemaHash, shortKeyColumnCount,
                 baseIndexStorageType, keysType, olapTable.getIndexes());
 
-        for (AlterClause alterClause : createTableInfo.getRollupAlterClauseList()) {
+        for (AlterOp alterOp : createTableInfo.getAddRollupOps()) {
             if (olapTable.isDuplicateWithoutKey()) {
                 throw new DdlException("Duplicate table without keys do not support add rollup!");
             }
-            AddRollupClause addRollupClause = (AddRollupClause) alterClause;
+            AddRollupOp addRollupOp = (AddRollupOp) alterOp;
 
             Long baseRollupIndex = olapTable.getIndexIdByName(tableName);
 
             // get storage type for rollup index
             TStorageType rollupIndexStorageType = null;
             try {
-                rollupIndexStorageType = PropertyAnalyzer.analyzeStorageType(addRollupClause.getProperties());
+                rollupIndexStorageType = PropertyAnalyzer.analyzeStorageType(addRollupOp.getProperties());
             } catch (AnalysisException e) {
                 throw new DdlException(e.getMessage());
             }
             Preconditions.checkNotNull(rollupIndexStorageType);
             // set rollup index meta to olap table
             List<Column> rollupColumns = Env.getCurrentEnv().getMaterializedViewHandler()
-                    .checkAndPrepareMaterializedView(addRollupClause, olapTable, baseRollupIndex, false);
-            short rollupShortKeyColumnCount = Env.calcShortKeyColumnCount(rollupColumns, alterClause.getProperties(),
+                    .checkAndPrepareMaterializedView(addRollupOp, olapTable, baseRollupIndex, false);
+            short rollupShortKeyColumnCount = Env.calcShortKeyColumnCount(rollupColumns, alterOp.getProperties(),
                     true/*isKeysRequired*/);
             int rollupSchemaHash = Util.generateSchemaHash();
             long rollupIndexId = idGeneratorBuffer.getNextId();
-            olapTable.setIndexMeta(rollupIndexId, addRollupClause.getRollupName(), rollupColumns, schemaVersion,
+            olapTable.setIndexMeta(rollupIndexId, addRollupOp.getRollupName(), rollupColumns, schemaVersion,
                     rollupSchemaHash, rollupShortKeyColumnCount, rollupIndexStorageType, keysType);
         }
 

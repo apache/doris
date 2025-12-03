@@ -17,9 +17,7 @@
 
 package org.apache.doris.clone;
 
-import org.apache.doris.analysis.AddPartitionClause;
 import org.apache.doris.analysis.DistributionDesc;
-import org.apache.doris.analysis.DropPartitionClause;
 import org.apache.doris.analysis.HashDistributionDesc;
 import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.analysis.PartitionValue;
@@ -56,6 +54,8 @@ import org.apache.doris.common.util.RangeUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.meta.MetaContext;
+import org.apache.doris.nereids.trees.plans.commands.info.AddPartitionOp;
+import org.apache.doris.nereids.trees.plans.commands.info.DropPartitionOp;
 import org.apache.doris.nereids.util.DateUtils;
 import org.apache.doris.persist.PartitionPersistInfo;
 import org.apache.doris.thrift.TStorageMedium;
@@ -266,9 +266,10 @@ public class DynamicPartitionScheduler extends MasterDaemon {
         return Pair.of(bucketsNum, previousPartitionBucketsNum);
     }
 
-    private ArrayList<AddPartitionClause> getAddPartitionClause(Database db, OlapTable olapTable,
-            Column partitionColumn, String partitionFormat, boolean executeFirstTime) throws DdlException {
-        ArrayList<AddPartitionClause> addPartitionClauses = new ArrayList<>();
+    private ArrayList<AddPartitionOp> getAddPartitionOp(Database db, OlapTable olapTable,
+                                                            Column partitionColumn, String partitionFormat,
+                                                            boolean executeFirstTime) throws DdlException {
+        ArrayList<AddPartitionOp> addPartitionOps = new ArrayList<>();
         DynamicPartitionProperty dynamicPartitionProperty = olapTable.getTableProperty().getDynamicPartitionProperty();
         RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) olapTable.getPartitionInfo();
         ZonedDateTime now = ZonedDateTime.now(dynamicPartitionProperty.getTimeZone().toZoneId());
@@ -278,7 +279,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
         // When enable create_history_partition, will check the valid value from start and history_partition_num.
         if (createHistoryPartition) {
             idx = DynamicPartitionUtil.getRealStart(dynamicPartitionProperty.getStart(),
-                    dynamicPartitionProperty.getHistoryPartitionNum());
+                dynamicPartitionProperty.getHistoryPartitionNum());
         } else {
             idx = 0;
         }
@@ -314,7 +315,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                         db.getFullName(), olapTable.getName(), idx, e);
                 if (executeFirstTime) {
                     throw new DdlException("maybe dynamic_partition.start is too small, error: "
-                            + e.getMessage());
+                        + e.getMessage());
                 }
                 continue;
             }
@@ -392,9 +393,10 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                 distributionDesc = new RandomDistributionDesc(bucketsNum);
             }
             // add partition according to partition desc and distribution desc
-            addPartitionClauses.add(new AddPartitionClause(rangePartitionDesc, distributionDesc, null, false));
+            addPartitionOps.add(new AddPartitionOp(rangePartitionDesc.translateToPartitionDefinition(),
+                    distributionDesc.toDistributionDescriptor(), null, false));
         }
-        return addPartitionClauses;
+        return addPartitionOps;
     }
 
     public static int checkAndFixAutoBucketCalcNumIsValid(int currentPartitionNumBuckets,
@@ -500,13 +502,14 @@ public class DynamicPartitionScheduler extends MasterDaemon {
      * 1. get the range of [start, 0) as a reserved range.
      * 2. get DropPartitionClause of partitions which range are before this reserved range.
      */
-    private ArrayList<DropPartitionClause> getDropPartitionClauseForDynamic(Database db, OlapTable olapTable,
-            Column partitionColumn, String partitionFormat) throws DdlException {
-        ArrayList<DropPartitionClause> dropPartitionClauses = new ArrayList<>();
+    private ArrayList<DropPartitionOp> getDropPartitionOpForDynamic(Database db, OlapTable olapTable,
+                                                                    Column partitionColumn, String partitionFormat)
+            throws DdlException {
+        ArrayList<DropPartitionOp> dropPartitionOps = new ArrayList<>();
         DynamicPartitionProperty dynamicPartitionProperty = olapTable.getTableProperty().getDynamicPartitionProperty();
         if (dynamicPartitionProperty.getStart() == DynamicPartitionProperty.MIN_START_OFFSET) {
             // not set start offset, so not drop any partition
-            return dropPartitionClauses;
+            return dropPartitionOps;
         }
 
         // drop partition only considering start, not considering history_partition_num.
@@ -529,7 +532,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                     Collections.singletonList(partitionColumn));
             // if start offset very small, then lowerBound may be very large, such as '6031-07-01 00:00:00'
             if (lowerBound.compareTo(limitBound) >= 0) {
-                return dropPartitionClauses;
+                return dropPartitionOps;
             }
             reservePartitionKeyRange = Range.atLeast(lowerBound);
             reservedHistoryPartitionKeyRangeList.add(reservePartitionKeyRange);
@@ -542,7 +545,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                     db.getFullName(), olapTable.getName(), hint, e);
             recordDropPartitionFailedMsg(db.getFullName(), olapTable.getName(), hint + ", error: " + e.getMessage(),
                     olapTable.getId());
-            return dropPartitionClauses;
+            return dropPartitionOps;
         }
 
         String reservedHistoryPeriods = dynamicPartitionProperty.getReservedHistoryPeriods();
@@ -561,9 +564,9 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                             lowerBorderOfReservedHistory, upperBorderOfReservedHistory);
                     reservedHistoryPartitionKeyRangeList.add(reservedHistoryPartitionKeyRange);
                 } catch (IllegalArgumentException e) {
-                    return dropPartitionClauses;
+                    return dropPartitionOps;
                 } catch (org.apache.doris.common.AnalysisException
-                        | org.apache.doris.nereids.exceptions.AnalysisException e) {
+                         | org.apache.doris.nereids.exceptions.AnalysisException e) {
                     throw new DdlException(e.getMessage());
                 }
             }
@@ -589,18 +592,18 @@ public class DynamicPartitionScheduler extends MasterDaemon {
             // catalog recycle bin. This is for safe reason.
             if (!isContaineds.get(dropPartitionId)) {
                 String dropPartitionName = olapTable.getPartition(dropPartitionId).getName();
-                dropPartitionClauses.add(new DropPartitionClause(false, dropPartitionName, false, false));
+                dropPartitionOps.add(new DropPartitionOp(false, dropPartitionName, false, false));
             }
         }
-        return dropPartitionClauses;
+        return dropPartitionOps;
     }
 
     /**
      * Get drop partition clauses for AUTO PARTITION tables based on partition.retention_count
      */
-    private ArrayList<DropPartitionClause> getDropPartitionClauseForAutoPartition(Database db, OlapTable olapTable)
+    private ArrayList<DropPartitionOp> getDropPartitionOpForAutoPartition(Database db, OlapTable olapTable)
             throws DdlException {
-        ArrayList<DropPartitionClause> dropPartitionClauses = new ArrayList<>();
+        ArrayList<DropPartitionOp> dropPartitionOps = new ArrayList<>();
 
         // when create/modify table, we already checked retentionCount validity.
         // only restrict history partitions with this value. not drop any future partition.
@@ -649,10 +652,10 @@ public class DynamicPartitionScheduler extends MasterDaemon {
             String dropPartitionName = olapTable.getPartition(dropPartitionId).getName();
             // Do not drop the partition "by force", or the partition will be dropped directly instead of being in
             // catalog recycle bin. This is for safe reason.
-            dropPartitionClauses.add(new DropPartitionClause(false, dropPartitionName, false, false));
+            dropPartitionOps.add(new DropPartitionOp(false, dropPartitionName, false, false));
         }
 
-        return dropPartitionClauses;
+        return dropPartitionOps;
     }
 
     // make public just for fe ut
@@ -669,8 +672,8 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                 continue;
             }
 
-            ArrayList<AddPartitionClause> addPartitionClauses = new ArrayList<>();
-            ArrayList<DropPartitionClause> dropPartitionClauses = new ArrayList<>();
+            ArrayList<AddPartitionOp> addPartitionOps = new ArrayList<>();
+            ArrayList<DropPartitionOp> dropPartitionOps = new ArrayList<>();
             String tableName = null;
             boolean skipAddPartition = false;
             OlapTable olapTable;
@@ -723,16 +726,16 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                 }
 
                 if (!skipAddPartition) {
-                    addPartitionClauses = getAddPartitionClause(db, olapTable, partitionColumn, partitionFormat,
+                    addPartitionOps = getAddPartitionOp(db, olapTable, partitionColumn, partitionFormat,
                             executeFirstTime);
                 }
                 clearDropPartitionFailedMsg(olapTable.getId());
                 if (olapTable.getPartitionRetentionCount() > 0) {
                     // Handle AUTO PARTITION cleanup based on partition.retention_count
-                    dropPartitionClauses = getDropPartitionClauseForAutoPartition(db, olapTable);
+                    dropPartitionOps = getDropPartitionOpForAutoPartition(db, olapTable);
                 } else {
                     // Handle dynamic partition cleanup
-                    dropPartitionClauses = getDropPartitionClauseForDynamic(db, olapTable, partitionColumn,
+                    dropPartitionOps = getDropPartitionOpForDynamic(db, olapTable, partitionColumn,
                             partitionFormat);
                 }
                 tableName = olapTable.getName();
@@ -746,12 +749,12 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                 olapTable.readUnlock();
             }
 
-            for (DropPartitionClause dropPartitionClause : dropPartitionClauses) {
+            for (DropPartitionOp dropPartitionOp : dropPartitionOps) {
                 if (!olapTable.writeLockIfExist()) {
                     continue;
                 }
                 try {
-                    Env.getCurrentEnv().dropPartition(db, olapTable, dropPartitionClause);
+                    Env.getCurrentEnv().dropPartition(db, olapTable, dropPartitionOp);
                 } catch (Exception e) {
                     recordDropPartitionFailedMsg(db.getFullName(), tableName, e.getMessage(), olapTable.getId());
                     LOG.warn("db [{}-{}], table [{}-{}]'s dynamic partition has error",
@@ -768,11 +771,11 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                 // get partitionIds and indexIds
                 List<Long> indexIds = new ArrayList<>(olapTable.getCopiedIndexIdToMeta().keySet());
                 List<Long> generatedPartitionIds = new ArrayList<>();
-                cloudBatchBeforeCreatePartitions(executeFirstTime, addPartitionClauses, olapTable, indexIds,
+                cloudBatchBeforeCreatePartitions(executeFirstTime, addPartitionOps, olapTable, indexIds,
                         db, tableName, generatedPartitionIds);
 
                 List<PartitionPersistInfo> partsInfo = new ArrayList<>();
-                for (int i = 0; i < addPartitionClauses.size(); i++) {
+                for (int i = 0; i < addPartitionOps.size(); i++) {
                     try {
                         boolean needWriteEditLog = true;
                         // ATTN: !executeFirstTime, needWriteEditLog
@@ -781,7 +784,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                             needWriteEditLog = !executeFirstTime;
                         }
                         PartitionPersistInfo info =
-                                Env.getCurrentEnv().addPartition(db, tableName, addPartitionClauses.get(i),
+                                Env.getCurrentEnv().addPartition(db, tableName, addPartitionOps.get(i),
                                     executeFirstTime,
                                     executeFirstTime && Config.isCloudMode() ? generatedPartitionIds.get(i) : 0,
                                     needWriteEditLog);
@@ -800,10 +803,10 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                     }
                 }
                 cloudBatchAfterCreatePartitions(executeFirstTime, partsInfo,
-                        addPartitionClauses, db, olapTable, indexIds, tableName);
+                        addPartitionOps, db, olapTable, indexIds, tableName);
 
                 // ATTN: Breaking up dynamic partition table scheduling, consuming peak CPU consumption
-                if (!executeFirstTime && !addPartitionClauses.isEmpty()
+                if (!executeFirstTime && !addPartitionOps.isEmpty()
                         && Config.dynamic_partition_step_interval_ms > 0) {
                     long sleep = Config.dynamic_partition_step_interval_ms;
                     if (sleep > 1800 * 1000) {
@@ -820,7 +823,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
     }
 
     private void cloudBatchAfterCreatePartitions(boolean executeFirstTime, List<PartitionPersistInfo> partsInfo,
-                                                       ArrayList<AddPartitionClause> addPartitionClauses, Database db,
+                                                       ArrayList<AddPartitionOp> addPartitionOps, Database db,
                                                        OlapTable olapTable, List<Long> indexIds,
                                                        String tableName) throws DdlException {
         if (Config.isNotCloudMode()) {
@@ -828,8 +831,8 @@ public class DynamicPartitionScheduler extends MasterDaemon {
         }
         List<Long> succeedPartitionIds = partsInfo.stream().map(partitionPersistInfo
                 -> partitionPersistInfo.getPartition().getId()).collect(Collectors.toList());
-        if (!executeFirstTime || addPartitionClauses.isEmpty()) {
-            LOG.info("cloud commit rpc in batch, {}-{}", !executeFirstTime, addPartitionClauses.size());
+        if (!executeFirstTime || addPartitionOps.isEmpty()) {
+            LOG.info("cloud commit rpc in batch, {}-{}", !executeFirstTime, addPartitionOps.size());
             return;
         }
         try {
@@ -875,18 +878,18 @@ public class DynamicPartitionScheduler extends MasterDaemon {
     }
 
     private void cloudBatchBeforeCreatePartitions(boolean executeFirstTime,
-                                                  ArrayList<AddPartitionClause> addPartitionClauses,
+                                                  ArrayList<AddPartitionOp> addPartitionOps,
                                                   OlapTable olapTable, List<Long> indexIds, Database db,
                                                   String tableName, List<Long> generatedPartitionIds)
             throws DdlException {
         if (Config.isNotCloudMode()) {
             return;
         }
-        if (!executeFirstTime || addPartitionClauses.isEmpty()) {
-            LOG.info("cloud prepare rpc in batch, {}-{}", !executeFirstTime, addPartitionClauses.size());
+        if (!executeFirstTime || addPartitionOps.isEmpty()) {
+            LOG.info("cloud prepare rpc in batch, {}-{}", !executeFirstTime, addPartitionOps.size());
             return;
         }
-        AddPartitionClause addPartitionClause = addPartitionClauses.get(0);
+        AddPartitionOp addPartitionClause = addPartitionOps.get(0);
         DistributionDesc distributionDesc = addPartitionClause.getDistributionDesc();
         try {
             DistributionInfo distributionInfo = distributionDesc
@@ -896,7 +899,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                     .toDistributionDesc().toDistributionInfo(olapTable.getBaseSchema());
             }
             long allPartitionBufferSize = 0;
-            for (int i = 0; i < addPartitionClauses.size(); i++) {
+            for (int i = 0; i < addPartitionOps.size(); i++) {
                 long bufferSize = InternalCatalog.checkAndGetBufferSize(indexIds.size(),
                         distributionInfo.getBucketNum(),
                         addPartitionClause.getSingeRangePartitionDesc()
@@ -906,7 +909,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
             }
             MetaIdGenerator.IdGeneratorBuffer idGeneratorBuffer = Env.getCurrentEnv()
                     .getIdGeneratorBuffer(allPartitionBufferSize);
-            addPartitionClauses.forEach(p -> generatedPartitionIds.add(idGeneratorBuffer.getNextId()));
+            addPartitionOps.forEach(p -> generatedPartitionIds.add(idGeneratorBuffer.getNextId()));
             // executeFirstTime true
             Env.getCurrentInternalCatalog().beforeCreatePartitions(db.getId(), olapTable.getId(),
                     generatedPartitionIds, indexIds, true);

@@ -24,19 +24,9 @@ import org.apache.doris.alter.MaterializedViewHandler;
 import org.apache.doris.alter.QuotaType;
 import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.alter.SystemHandler;
-import org.apache.doris.analysis.AddPartitionClause;
-import org.apache.doris.analysis.AddPartitionLikeClause;
-import org.apache.doris.analysis.AlterMultiPartitionClause;
-import org.apache.doris.analysis.ColumnRenameClause;
 import org.apache.doris.analysis.DistributionDesc;
-import org.apache.doris.analysis.DropPartitionClause;
 import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.ModifyDistributionClause;
-import org.apache.doris.analysis.PartitionRenameClause;
-import org.apache.doris.analysis.ReplacePartitionClause;
-import org.apache.doris.analysis.RollupRenameClause;
 import org.apache.doris.analysis.SlotRef;
-import org.apache.doris.analysis.TableRenameClause;
 import org.apache.doris.backup.BackupHandler;
 import org.apache.doris.backup.RestoreJob;
 import org.apache.doris.binlog.BinlogGcer;
@@ -184,13 +174,23 @@ import org.apache.doris.nereids.trees.plans.commands.DropMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropMaterializedViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.TruncateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.UninstallPluginCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.AddPartitionLikeOp;
+import org.apache.doris.nereids.trees.plans.commands.info.AddPartitionOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVPropertyInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVRefreshInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.AlterMultiPartitionOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterViewInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableLikeInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateViewInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.DropMTMVInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.DropPartitionOp;
+import org.apache.doris.nereids.trees.plans.commands.info.ModifyDistributionOp;
+import org.apache.doris.nereids.trees.plans.commands.info.RenameColumnOp;
+import org.apache.doris.nereids.trees.plans.commands.info.RenamePartitionOp;
+import org.apache.doris.nereids.trees.plans.commands.info.RenameRollupOp;
+import org.apache.doris.nereids.trees.plans.commands.info.RenameTableOp;
+import org.apache.doris.nereids.trees.plans.commands.info.ReplacePartitionOp;
 import org.apache.doris.persist.AlterMTMV;
 import org.apache.doris.persist.AutoIncrementIdUpdateLog;
 import org.apache.doris.persist.BackendReplicasInfo;
@@ -3483,36 +3483,36 @@ public class Env {
      *
      * @param db
      * @param tableName
-     * @param addPartitionClause clause in the CreateTableStmt
+     * @param addPartitionOp clause in the CreateTableStmt
      * @param isCreateTable this call is for creating table
      * @param generatedPartitionId the preset partition id for the partition to add
      * @param writeEditLog whether to write an edit log for this addition
      * @return PartitionPersistInfo to be written to editlog. It may be null if no partitions added.
      * @throws DdlException
      */
-    public PartitionPersistInfo addPartition(Database db, String tableName, AddPartitionClause addPartitionClause,
+    public PartitionPersistInfo addPartition(Database db, String tableName, AddPartitionOp addPartitionOp,
                                              boolean isCreateTable, long generatedPartitionId,
                                              boolean writeEditLog) throws DdlException {
-        return getInternalCatalog().addPartition(db, tableName, addPartitionClause,
+        return getInternalCatalog().addPartition(db, tableName, addPartitionOp,
             isCreateTable, generatedPartitionId, writeEditLog);
     }
 
-    public void addMultiPartitions(Database db, String tableName, AlterMultiPartitionClause multiPartitionClause)
+    public void addMultiPartitions(Database db, String tableName, AlterMultiPartitionOp multiPartitionOp)
             throws DdlException {
-        getInternalCatalog().addMultiPartitions(db, tableName, multiPartitionClause);
+        getInternalCatalog().addMultiPartitions(db, tableName, multiPartitionOp);
     }
 
-    public void addPartitionLike(Database db, String tableName, AddPartitionLikeClause addPartitionLikeClause)
+    public void addPartitionLike(Database db, String tableName, AddPartitionLikeOp addPartitionLikeOp)
             throws DdlException {
-        getInternalCatalog().addPartitionLike(db, tableName, addPartitionLikeClause);
+        getInternalCatalog().addPartitionLike(db, tableName, addPartitionLikeOp);
     }
 
     public void replayAddPartition(PartitionPersistInfo info) throws MetaNotFoundException {
         getInternalCatalog().replayAddPartition(info);
     }
 
-    public void dropPartition(Database db, OlapTable olapTable, DropPartitionClause clause) throws DdlException {
-        getInternalCatalog().dropPartition(db, olapTable, clause);
+    public void dropPartition(Database db, OlapTable olapTable, DropPartitionOp dropPartitionOp) throws DdlException {
+        getInternalCatalog().dropPartition(db, olapTable, dropPartitionOp);
     }
 
     public void replayDropPartition(DropPartitionInfo info) throws MetaNotFoundException {
@@ -5398,8 +5398,8 @@ public class Env {
         getBackupHandler().cancel(command);
     }
 
-    public void renameTable(Database db, Table table, TableRenameClause tableRenameClause) throws DdlException {
-        renameTable(db, table, tableRenameClause.getNewTableName());
+    public void renameTable(Database db, Table table, RenameTableOp renameTableOp) throws DdlException {
+        renameTable(db, table, renameTableOp.getNewTableName());
     }
 
     // entry of rename table operation
@@ -5607,17 +5607,17 @@ public class Env {
         }
     }
 
-    public void renameRollup(Database db, OlapTable table, RollupRenameClause renameClause) throws DdlException {
+    public void renameRollup(Database db, OlapTable table, RenameRollupOp renameRollupOp) throws DdlException {
         table.writeLockOrDdlException();
         try {
             table.checkNormalStateForAlter();
-            String rollupName = renameClause.getRollupName();
+            String rollupName = renameRollupOp.getRollupName();
             // check if it is base table name
             if (rollupName.equals(table.getName())) {
                 throw new DdlException("Using ALTER TABLE RENAME to change table name");
             }
 
-            String newRollupName = renameClause.getNewRollupName();
+            String newRollupName = renameRollupOp.getNewRollupName();
             if (rollupName.equals(newRollupName)) {
                 throw new DdlException("Same rollup name");
             }
@@ -5666,18 +5666,18 @@ public class Env {
         }
     }
 
-    public void renamePartition(Database db, OlapTable table, PartitionRenameClause renameClause) throws DdlException {
+    public void renamePartition(Database db, OlapTable table, RenamePartitionOp renamePartitionOp) throws DdlException {
         table.writeLockOrDdlException();
         try {
             table.checkNormalStateForAlter();
             if (table.getPartitionInfo().getType() != PartitionType.RANGE
                     && table.getPartitionInfo().getType() != PartitionType.LIST) {
                 throw new DdlException(
-                        "Table[" + table.getName() + "] is single partitioned. " + "no need to rename partition name.");
+                    "Table[" + table.getName() + "] is single partitioned. " + "no need to rename partition name.");
             }
 
-            String partitionName = renameClause.getPartitionName();
-            String newPartitionName = renameClause.getNewPartitionName();
+            String partitionName = renamePartitionOp.getPartitionName();
+            String newPartitionName = renamePartitionOp.getNewPartitionName();
             if (partitionName.equalsIgnoreCase(newPartitionName)) {
                 throw new DdlException("Same partition name");
             }
@@ -5881,11 +5881,11 @@ public class Env {
         }
     }
 
-    public void renameColumn(Database db, OlapTable table, ColumnRenameClause renameClause) throws DdlException {
+    public void renameColumn(Database db, OlapTable table, RenameColumnOp renameColumnOp) throws DdlException {
         table.writeLockOrDdlException();
         try {
-            String colName = renameClause.getColName();
-            String newColName = renameClause.getNewColName();
+            String colName = renameColumnOp.getColName();
+            String newColName = renameColumnOp.getNewColName();
             Map<Long, Integer> indexIdToSchemaVersion = new HashMap<Long, Integer>();
             renameColumn(db, table, colName, newColName, indexIdToSchemaVersion, false);
         } finally {
@@ -6159,7 +6159,7 @@ public class Env {
     }
 
     public void modifyDefaultDistributionBucketNum(Database db, OlapTable olapTable,
-                                                   ModifyDistributionClause modifyDistributionClause)
+                                                   ModifyDistributionOp modifyDistributionOp)
             throws DdlException {
         olapTable.writeLockOrDdlException();
         try {
@@ -6172,7 +6172,7 @@ public class Env {
                 throw new DdlException("Only support change partitioned table's distribution.");
             }
 
-            DistributionDesc distributionDesc = modifyDistributionClause.getDistributionDesc();
+            DistributionDesc distributionDesc = modifyDistributionOp.getDistributionDesc().translateToCatalogStyle();
             if (distributionDesc != null) {
                 DistributionInfo defaultDistributionInfo = olapTable.getDefaultDistributionInfo();
                 List<Column> baseSchema = olapTable.getBaseSchema();
@@ -6180,14 +6180,14 @@ public class Env {
                 // for now. we only support modify distribution's bucket num
                 if (distributionInfo.getType() != defaultDistributionInfo.getType()) {
                     throw new DdlException(
-                            "Cannot change distribution type when modify" + " default distribution bucket num");
+                        "Cannot change distribution type when modify" + " default distribution bucket num");
                 }
                 if (distributionInfo.getType() == DistributionInfoType.HASH) {
                     HashDistributionInfo hashDistributionInfo = (HashDistributionInfo) distributionInfo;
                     if (!hashDistributionInfo.sameDistributionColumns((HashDistributionInfo) defaultDistributionInfo)) {
                         throw new DdlException("Cannot assign hash distribution with different distribution cols. "
-                                + "new is: " + hashDistributionInfo.getDistributionColumns() + " default is: "
-                                + ((HashDistributionInfo) defaultDistributionInfo).getDistributionColumns());
+                            + "new is: " + hashDistributionInfo.getDistributionColumns() + " default is: "
+                            + ((HashDistributionInfo) defaultDistributionInfo).getDistributionColumns());
                     }
                 }
 
@@ -6200,8 +6200,8 @@ public class Env {
 
                 ModifyTableDefaultDistributionBucketNumOperationLog info
                         = new ModifyTableDefaultDistributionBucketNumOperationLog(db.getId(), olapTable.getId(),
-                                distributionInfo.getType(), distributionInfo.getAutoBucket(), bucketNum,
-                                defaultDistributionInfo.getColumnsName());
+                        distributionInfo.getType(), distributionInfo.getAutoBucket(), bucketNum,
+                        defaultDistributionInfo.getColumnsName());
                 editLog.logModifyDefaultDistributionBucketNum(info);
                 LOG.info("modify table[{}] default bucket num to {}", olapTable.getName(), bucketNum);
             }
@@ -6692,14 +6692,14 @@ public class Env {
     /*
      * The entry of replacing partitions with temp partitions.
      */
-    public void replaceTempPartition(Database db, OlapTable olapTable, ReplacePartitionClause clause)
+    public void replaceTempPartition(Database db, OlapTable olapTable, ReplacePartitionOp replacePartitionOp)
             throws DdlException {
         Preconditions.checkState(olapTable.isWriteLockHeldByCurrentThread());
-        List<String> partitionNames = clause.getPartitionNames();
-        List<String> tempPartitionNames = clause.getTempPartitionNames();
-        boolean isStrictRange = clause.isStrictRange();
-        boolean useTempPartitionName = clause.useTempPartitionName();
-        boolean isForceDropOld = clause.isForceDropOldPartition();
+        List<String> partitionNames = replacePartitionOp.getPartitionNames();
+        List<String> tempPartitionNames = replacePartitionOp.getTempPartitionNames();
+        boolean isStrictRange = replacePartitionOp.isStrictRange();
+        boolean useTempPartitionName = replacePartitionOp.useTempPartitionName();
+        boolean isForceDropOld = replacePartitionOp.isForceDropOldPartition();
         // check partition exist
         for (String partName : partitionNames) {
             if (!olapTable.checkPartitionNameExist(partName, false)) {
@@ -6727,8 +6727,8 @@ public class Env {
         // it does not affect the logic of replace the partition
         try {
             Env.getCurrentEnv().getEventProcessor().processEvent(
-                    new ReplacePartitionEvent(db.getCatalog().getId(), db.getId(),
-                            olapTable.getId()));
+                new ReplacePartitionEvent(db.getCatalog().getId(), db.getId(),
+                    olapTable.getId()));
         } catch (Throwable t) {
             // According to normal logic, no exceptions will be thrown,
             // but in order to avoid bugs affecting the original logic, all exceptions are caught
@@ -6741,8 +6741,9 @@ public class Env {
                 versionTime,
                 isForceDropOld);
         editLog.logReplaceTempPartition(info);
-        LOG.info("finished to replace partitions {} with temp partitions {} from table: {}", clause.getPartitionNames(),
-                clause.getTempPartitionNames(), olapTable.getName());
+        LOG.info("finished to replace partitions {} with temp partitions {} from table: {}",
+                replacePartitionOp.getPartitionNames(),
+                replacePartitionOp.getTempPartitionNames(), olapTable.getName());
     }
 
     public void replayReplaceTempPartition(ReplacePartitionOperationLog replaceTempPartitionLog)

@@ -31,13 +31,13 @@ import java.net.UnknownHostException;
 import java.util.Map;
 
 /**
- * ModifyFrontendOrBackendHostNameOp
+ * ModifyNodeHostNameOp
  */
-public class ModifyFrontendOrBackendHostNameOp extends AlterSystemOp {
-    private String hostPort;
-    private String host;
-    private String newHost;
-    private int port;
+public class ModifyNodeHostNameOp extends AlterSystemOp {
+    protected String hostPort;
+    protected String host;
+    protected String newHost;
+    protected int port;
     private ModifyOpType modifyOpType;
 
     /**
@@ -48,8 +48,8 @@ public class ModifyFrontendOrBackendHostNameOp extends AlterSystemOp {
         Backend
     }
 
-    public ModifyFrontendOrBackendHostNameOp(String hostPort, String newHost,
-            ModifyOpType modifyOpType) {
+    public ModifyNodeHostNameOp(String hostPort, String newHost,
+                                ModifyOpType modifyOpType) {
         super(AlterOpType.ALTER_OTHER);
         this.hostPort = hostPort;
         this.newHost = newHost;
