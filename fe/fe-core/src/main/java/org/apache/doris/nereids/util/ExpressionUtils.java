@@ -913,7 +913,16 @@ public class ExpressionUtils {
             Predicate<TreeNode<Expression>> predicate) {
         ImmutableSet.Builder<E> set = ImmutableSet.builder();
         for (Expression expr : expressions) {
-            set.addAll(expr.collectToList(predicate));
+            set.addAll(expr.collect(predicate));
+        }
+        return set.build();
+    }
+
+    public static <E> Set<E> collectWithTest(Collection<? extends Expression> expressions,
+            Predicate<TreeNode<Expression>> predicate, Predicate<TreeNode<Expression>> test) {
+        ImmutableSet.Builder<E> set = ImmutableSet.builder();
+        for (Expression expr : expressions) {
+            set.addAll(expr.collectWithTest(predicate, test));
         }
         return set.build();
     }

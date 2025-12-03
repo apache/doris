@@ -26,7 +26,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.util.URI;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.Udf;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
@@ -39,7 +39,6 @@ import com.google.common.collect.ImmutableList;
 
 import java.util.Arrays;
 import java.util.List;
-import java.util.Optional;
 import java.util.stream.Collectors;
 
 /**
@@ -142,10 +141,9 @@ public class JavaUdaf extends AggregateFunction implements ExplicitlyCastableSig
                 ? sigBuilder.varArgs(argTypes.toArray(new DataType[0]))
                 : sigBuilder.args(argTypes.toArray(new DataType[0]));
 
-        VirtualSlotReference[] virtualSlots = argTypes.stream()
-                .map(type -> new VirtualSlotReference(type.toString(), type, Optional.empty(),
-                        (shape) -> ImmutableList.of()))
-                .toArray(VirtualSlotReference[]::new);
+        SlotReference[] arguments = argTypes.stream()
+                .map(type -> new SlotReference(type.toString(), type))
+                .toArray(SlotReference[]::new);
 
         DataType intermediateType = null;
         if (aggregate.getIntermediateType() != null) {
@@ -168,7 +166,7 @@ public class JavaUdaf extends AggregateFunction implements ExplicitlyCastableSig
                 aggregate.getChecksum(),
                 aggregate.isStaticLoad(),
                 aggregate.getExpirationTime(),
-                virtualSlots);
+                arguments);
 
         JavaUdafBuilder builder = new JavaUdafBuilder(udaf);
         Env.getCurrentEnv().getFunctionRegistry().addUdf(dbName, fnName, builder);
