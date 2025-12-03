@@ -74,6 +74,21 @@ class StreamLoadAction implements SuiteAction {
     boolean twoPhaseCommit = false
     boolean enableUtf8Encoding = false  // 新增：UTF-8编码支持开关
 
+    boolean enableTLS = false
+    String keyStorePath
+    String keyStorePassword
+    String keyStoreType = "PKCS12"
+    String trustStorePath
+    String trustStorePassword
+    String trustStoreType = "PKCS12"
+    boolean sslHostnameVerify = false
+    String tlsVerifyMode = "strict"
+
+    // HTTP client timeout settings (in milliseconds)
+    int connectTimeout = 0     // 0 means use default (no explicit timeout)
+    int socketTimeout = 0      // 0 means use default (no explicit timeout)
+    int connectionRequestTimeout = 0  // 0 means use default (no explicit timeout)
+
     StreamLoadAction(SuiteContext context) {
         this.address = context.getFeHttpAddress()
         this.user = context.config.feHttpUser
@@ -85,6 +100,17 @@ class StreamLoadAction implements SuiteAction {
         this.context = context
         this.headers = new LinkedHashMap<>()
         this.headers.put('label', UUID.randomUUID().toString())
+
+        def oc = context.config.otherConfigs ?: [:]
+        this.enableTLS = (oc.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false
+        this.keyStorePath = oc.get("keyStorePath")
+        this.keyStorePassword = oc.get("keyStorePassword")
+        this.keyStoreType = oc.get("keyStoreType") ?: 'PKCS12'
+        this.trustStorePath = oc.get("trustStorePath")
+        this.trustStorePassword = oc.get("trustStorePassword")
+        this.trustStoreType = oc.get("trustStoreType") ?: 'PKCS12'
+        this.tlsVerifyMode = oc.get("tlsVerifyMode") ?: 'strict'
+        this.sslHostnameVerify = ('none'.equalsIgnoreCase(this.tlsVerifyMode)) ? false : true
     }
 
     void db(String db) {
@@ -273,16 +299,16 @@ class StreamLoadAction implements SuiteAction {
                 uri = "${httpType}://${address.hostString}:${address.port}/api/${db}/${table}/_stream_load"
             }
 
-            clientbuildHttpClient().createDefault().withCloseable { client ->
+            buildHttpClient().withCloseable { client ->
                 RequestBuilder requestBuilder = prepareRequestHeader(RequestBuilder.put(uri))
-                HttpEntity httpEntity = prepareHttpEntity(httpClient)
+                HttpEntity httpEntity = prepareHttpEntity(client)
                 if (!directToBe) {
-                    String beLocation = streamLoadToFe(httpClient, requestBuilder)
+                    String beLocation = streamLoadToFe(client, requestBuilder)
                     log.info("Redirect stream load to ${beLocation}".toString())
                     requestBuilder.setUri(beLocation)
                 }
                 requestBuilder.setEntity(httpEntity)
-                responseText = streamLoadToBe(httpClient, requestBuilder)
+                responseText = streamLoadToBe(client, requestBuilder)
             }
         } catch (Throwable t) {
             ex = t
@@ -324,24 +350,18 @@ class StreamLoadAction implements SuiteAction {
             log.info("Stream load using UTF-8 encoding for headers")
         }
 
-        if (!enableTLS) {
-            if (requestConfig != null) {
-                if (cm != null) {
-                    return HttpClients.custom()
-                            .setConnectionManager(cm)
-                            .setDefaultRequestConfig(requestConfig)
-                            .build()
-                }
-                return HttpClients.custom()
-                        .setDefaultRequestConfig(requestConfig)
-                        .build()
-            }
-            if (cm != null) {
-                return HttpClients.custom()
-                        .setConnectionManager(cm)
-                        .build()
-            }
-            return HttpClients.createDefault()
+        if (!enableTLS) { 
+            if (cm == null && requestConfig == null) { 
+                return HttpClients.createDefault(); 
+            } 
+            HttpClientBuilder builder = HttpClients.custom(); 
+            if (cm != null) { 
+                builder.setConnectionManager(cm); 
+            } 
+            if (requestConfig != null) { 
+                builder.setDefaultRequestConfig(requestConfig); 
+            } 
+            return builder.build(); 
         }
 
         KeyStore ts = null

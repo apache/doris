@@ -18,7 +18,6 @@
 import groovy.json.JsonSlurper
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import org.apache.doris.regression.action.ProfileAction
 
 suite("test_bloom_filter_hit_with_renamed_column") {
     def tableName = "test_bloom_filter_hit_with_renamed_column"
