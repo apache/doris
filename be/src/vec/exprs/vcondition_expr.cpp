@@ -64,9 +64,10 @@ size_t VConditionExpr::count_true_with_notnull(const ColumnPtr& col) {
     }
 
     if (const auto* const_col = check_and_get_column<ColumnConst>(col.get())) {
-        if (const_col->is_null_at(0)) {
-            return 0;
-        }
+        // if is null , get_bool will return false
+        // bool get_bool(size_t n) const override {
+        //     return is_null_at(n) ? false : _nested_column->get_bool(n);
+        // }
         bool is_true = const_col->get_bool(0);
         return is_true ? col->size() : 0;
     }
