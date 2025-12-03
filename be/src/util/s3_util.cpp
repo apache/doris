@@ -53,6 +53,7 @@
 #ifdef USE_AZURE
 #include "io/fs/azure_obj_storage_client.h"
 #endif
+#include "exec/olap_common.h"
 #include "io/fs/obj_storage_client.h"
 #include "io/fs/s3_obj_storage_client.h"
 #include "runtime/exec_env.h"
