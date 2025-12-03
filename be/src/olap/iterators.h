@@ -134,7 +134,7 @@ public:
 struct CompactionSampleInfo {
     int64_t bytes = 0;
     int64_t rows = 0;
-    int64_t group_data_size;
+    int64_t group_data_size = 0;
 };
 
 struct BlockWithSameBit {
