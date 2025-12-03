@@ -30,10 +30,12 @@ import org.apache.doris.mtmv.BaseColInfo;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVPartitionInfo;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.utframe.TestWithFeService;
 
+import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Multimap;
@@ -215,14 +217,18 @@ public class PartitionCompensatorTest extends TestWithFeService {
                 ImmutableList.of(new BaseColInfo("c", newBaseTableInfo())),
                 ImmutableSet.of(),
                 false);
-        Assertions.assertFalse(PartitionCompensator.needUnionRewrite(ctx1));
+        StatementContext sc1 = Mockito.mock(StatementContext.class);
+        Mockito.when(sc1.getTableUsedPartitionNameMap()).thenReturn(ArrayListMultimap.create());
+        Assertions.assertFalse(PartitionCompensator.needUnionRewrite(ctx1, sc1));
 
         MaterializationContext ctx2 = mockCtx(
                 PartitionType.RANGE,
                 Collections.emptyList(),
                 ImmutableSet.of(Mockito.mock(MTMVRelatedTableIf.class)),
                 false);
-        Assertions.assertFalse(PartitionCompensator.needUnionRewrite(ctx2));
+        StatementContext sc2 = Mockito.mock(StatementContext.class);
+        Mockito.when(sc2.getTableUsedPartitionNameMap()).thenReturn(ArrayListMultimap.create());
+        Assertions.assertFalse(PartitionCompensator.needUnionRewrite(ctx2, sc2));
     }
 
     @Test
@@ -232,7 +238,9 @@ public class PartitionCompensatorTest extends TestWithFeService {
                 ImmutableList.of(),
                 Collections.emptySet(),
                 false);
-        Assertions.assertFalse(PartitionCompensator.needUnionRewrite(ctx));
+        StatementContext sc = Mockito.mock(StatementContext.class);
+        Mockito.when(sc.getTableUsedPartitionNameMap()).thenReturn(ArrayListMultimap.create());
+        Assertions.assertFalse(PartitionCompensator.needUnionRewrite(ctx, sc));
     }
 
     @Test
@@ -242,7 +250,9 @@ public class PartitionCompensatorTest extends TestWithFeService {
                 ImmutableList.of(new BaseColInfo("c", newBaseTableInfo())),
                 ImmutableSet.of(Mockito.mock(MTMVRelatedTableIf.class)),
                 true);
-        Assertions.assertFalse(PartitionCompensator.needUnionRewrite(ctx));
+        StatementContext sc = Mockito.mock(StatementContext.class);
+        Mockito.when(sc.getTableUsedPartitionNameMap()).thenReturn(ArrayListMultimap.create());
+        Assertions.assertFalse(PartitionCompensator.needUnionRewrite(ctx, sc));
     }
 
     @Test
@@ -252,7 +262,25 @@ public class PartitionCompensatorTest extends TestWithFeService {
                 ImmutableList.of(new BaseColInfo("c", newBaseTableInfo())),
                 ImmutableSet.of(Mockito.mock(MTMVRelatedTableIf.class)),
                 false);
-        Assertions.assertTrue(PartitionCompensator.needUnionRewrite(ctx));
+        StatementContext sc = Mockito.mock(StatementContext.class);
+        Mockito.when(sc.getTableUsedPartitionNameMap()).thenReturn(ArrayListMultimap.create());
+        Assertions.assertTrue(PartitionCompensator.needUnionRewrite(ctx, sc));
+    }
+
+    @Test
+    public void testNotNeedUnionRewriteWhenAllPartitions() throws Exception {
+        BaseTableInfo tableInfo = newBaseTableInfo();
+        MaterializationContext ctx = mockCtx(
+                PartitionType.LIST,
+                ImmutableList.of(new BaseColInfo("c", tableInfo)),
+                ImmutableSet.of(Mockito.mock(MTMVRelatedTableIf.class)),
+                false);
+        StatementContext sc = Mockito.mock(StatementContext.class);
+
+        ArrayListMultimap<List<String>, Pair<RelationId, Set<String>>> t = ArrayListMultimap.create();
+        t.put(ImmutableList.of(), PartitionCompensator.ALL_PARTITIONS);
+        Mockito.when(sc.getTableUsedPartitionNameMap()).thenReturn(t);
+        Assertions.assertFalse(PartitionCompensator.needUnionRewrite(ctx, sc));
     }
 
     @Test

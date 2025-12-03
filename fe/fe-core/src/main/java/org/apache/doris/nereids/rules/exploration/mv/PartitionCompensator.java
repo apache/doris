@@ -225,8 +225,11 @@ public class PartitionCompensator {
 
     /**
      * Check if need union compensate or not
+     * If query base table all partitions with ALL_PARTITIONS or ALL_PARTITIONS_LIST, should not do union compensate
+     * because it means query all partitions from base table and prune partition failed
      */
-    public static boolean needUnionRewrite(MaterializationContext materializationContext) throws AnalysisException {
+    public static boolean needUnionRewrite(MaterializationContext materializationContext,
+                                           StatementContext statementContext) throws AnalysisException {
         if (!(materializationContext instanceof AsyncMaterializationContext)) {
             return false;
         }
@@ -235,11 +238,22 @@ public class PartitionCompensator {
         MTMVPartitionInfo mvPartitionInfo = mtmv.getMvPartitionInfo();
         List<BaseColInfo> pctInfos = mvPartitionInfo.getPctInfos();
         Set<MTMVRelatedTableIf> pctTables = mvPartitionInfo.getPctTables();
+        Multimap<List<String>, Pair<RelationId, Set<String>>> tableUsedPartitionNameMap =
+                statementContext.getTableUsedPartitionNameMap();
         for (MTMVRelatedTableIf pctTable : pctTables) {
             if (pctTable instanceof ExternalTable && !((ExternalTable) pctTable).supportInternalPartitionPruned()) {
                 // if pct table is external table and not support internal partition pruned,
                 // we consider query all partitions from pct table, this would cause loop union compensate,
                 // so we skip union compensate in this case
+                return false;
+            }
+            Collection<Pair<RelationId, Set<String>>> tableUsedPartitions
+                    = tableUsedPartitionNameMap.get(pctTable.getFullQualifiers());
+            if (ALL_PARTITIONS_LIST.equals(tableUsedPartitions)
+                    || tableUsedPartitions.stream().anyMatch(ALL_PARTITIONS::equals)) {
+                // If query base table all partitions with ALL_PARTITIONS or ALL_PARTITIONS_LIST,
+                // should not do union compensate, because it means query all partitions from base table
+                // and prune partition failed
                 return false;
             }
         }
