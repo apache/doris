@@ -89,6 +89,7 @@ protected:
 
         // Create tablet index
         _tablet_index = std::make_unique<TabletIndex>();
+        _tablet_index->_index_type = IndexType::ANN;
         _tablet_index->_properties = _properties;
         _tablet_index->_index_id = 1;
         _tablet_index->_index_name = "test_ann_index";
@@ -416,6 +417,7 @@ TEST_F(AnnIndexWriterTest, TestInvalidMetricType) {
     properties["metric_type"] = "invalid_metric";
 
     auto tablet_index = std::make_unique<TabletIndex>();
+    tablet_index->_index_type = IndexType::ANN;
     tablet_index->_properties = properties;
     tablet_index->_index_id = 1;
 

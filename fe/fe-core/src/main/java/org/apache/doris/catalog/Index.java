@@ -189,12 +189,14 @@ public class Index implements Writable {
 
     // Whether the index can be changed in light mode
     public boolean isLightIndexChangeSupported() {
-        return indexType == IndexDef.IndexType.INVERTED || indexType == IndexType.NGRAM_BF;
+        return indexType == IndexDef.IndexType.INVERTED
+                || indexType == IndexDef.IndexType.NGRAM_BF
+                || indexType == IndexDef.IndexType.ANN;
     }
 
     // Whether the index can be added in light mode
     // cloud mode supports light add for ngram_bf index and non-tokenized inverted index (parser="none")
-    // local mode supports light add for both inverted index and ngram_bf index
+    // local mode supports light add for inverted index, ann index and ngram_bf index
     // the rest of the index types do not support light add
     public boolean isLightAddIndexSupported(boolean enableAddIndexForNewData) {
         if (Config.isCloudMode()) {
@@ -206,7 +208,7 @@ public class Index implements Writable {
             return false;
         }
         return (indexType == IndexDef.IndexType.NGRAM_BF && enableAddIndexForNewData)
-                || (indexType == IndexDef.IndexType.INVERTED);
+                || (indexType == IndexDef.IndexType.INVERTED) || (indexType == IndexDef.IndexType.ANN);
     }
 
     public String getInvertedIndexCustomAnalyzer() {
