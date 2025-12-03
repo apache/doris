@@ -40,6 +40,7 @@
 #include "runtime/define_primitive_type.h"
 #include "runtime/primitive_type.h"
 #include "runtime/type_limit.h"
+#include "util/cpu_info.h"
 #include "vec/core/types.h"
 #include "vec/io/io_helper.h"
 #include "vec/runtime/ipv4_value.h"
@@ -47,14 +48,14 @@
 #include "vec/runtime/time_value.h"
 #include "vec/runtime/vdatetime_value.h"
 
-namespace config::dynamic {
+namespace doris::config::dynamic {
 int doris_scanner_thread_pool_thread_num() {
-    if (doris_scanner_thread_pool_thread_num > 0) {
-        return doris_scanner_thread_pool_thread_num;
+    if (doris::config::doris_scanner_thread_pool_thread_num > 0) {
+        return doris::config::doris_scanner_thread_pool_thread_num;
     }
-    return std::max(48, CpuInfo::num_cores() * 2);
+    return std::max(48, doris::CpuInfo::num_cores() * 2);
 }
-} // namespace config::dynamic
+} // namespace doris::config::dynamic
 namespace doris {
 
 template <PrimitiveType primitive_type, class T>
