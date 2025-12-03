@@ -1202,6 +1202,11 @@ suite("doc_date_functions_test") {
     // 79. TO_DAYS function tests
     qt_to_days_1 """select to_days('2007-10-07')"""
     qt_to_days_2 """select to_days('2007-10-07 10:03:09')"""
+    qt_to_days_3 """select to_days('0000-01-01')"""
+    qt_to_days_4 """select to_days('0000-02-28')"""
+    qt_to_days_5 """select to_days('0000-02-29')"""
+    qt_to_days_6 """select to_days('0000-03-01')"""
+
 
     // 80. TO_ISO8601 function tests
     qt_to_iso8601_1 """SELECT TO_ISO8601(CAST('2023-10-05' AS DATE)) AS date_result"""
@@ -1915,6 +1920,10 @@ suite("doc_date_functions_test") {
     // 79. TO_DAYS function constant folding tests
     testFoldConst("SELECT TO_DAYS('2007-10-07')")
     testFoldConst("SELECT TO_DAYS('2007-10-07 10:03:09')")
+    testFoldConst("SELECT TO_DAYS('0000-01-01 00:00:00')")
+    testFoldConst("SELECT TO_DAYS('0000-02-28')")
+    testFoldConst("SELECT TO_DAYS('0000-02-29')")
+    testFoldConst("SELECT TO_DAYS('0000-03-01')")
 
     // 80. TO_ISO8601 function constant folding tests
     testFoldConst("SELECT TO_ISO8601(CAST('2023-10-05' AS DATE)) AS date_result")

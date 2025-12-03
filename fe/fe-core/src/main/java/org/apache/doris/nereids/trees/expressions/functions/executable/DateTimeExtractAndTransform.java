@@ -77,7 +77,6 @@ import java.util.Locale;
 public class DateTimeExtractAndTransform {
 
     private static final HashMap<String, Integer> DAY_OF_WEEK = new HashMap<>();
-    private static final LocalDateTime YEAR_ZERO = LocalDateTime.of(0, 1, 1, 0, 0, 0);
 
     static {
         DAY_OF_WEEK.put("MO", 1);
@@ -573,14 +572,12 @@ public class DateTimeExtractAndTransform {
      */
     @ExecFunction(name = "to_days")
     public static Expression toDays(DateV2Literal date) {
-        return new IntegerLiteral(((int) Duration.between(
-                YEAR_ZERO, date.toJavaDateType()).toDays()));
+        return new IntegerLiteral((int) calcDayNumber(date.getYear(), date.getMonth(), date.getDay()));
     }
 
     @ExecFunction(name = "to_days")
     public static Expression toDays(DateTimeV2Literal date) {
-        return new IntegerLiteral(((int) Duration.between(
-                YEAR_ZERO, date.toJavaDateType()).toDays()));
+        return new IntegerLiteral((int) calcDayNumber(date.getYear(), date.getMonth(), date.getDay()));
     }
 
     /**
@@ -588,14 +585,31 @@ public class DateTimeExtractAndTransform {
      */
     @ExecFunction(name = "to_seconds")
     public static Expression toSeconds(DateV2Literal date) {
-        return new BigIntLiteral(Duration.between(
-                YEAR_ZERO, date.toJavaDateType()).getSeconds());
+        return new BigIntLiteral(calcDayNumber(date.getYear(), date.getMonth(), date.getDay()) * 86400L);
     }
 
     @ExecFunction(name = "to_seconds")
     public static Expression toSeconds(DateTimeV2Literal date) {
-        return new BigIntLiteral(Duration.between(
-                YEAR_ZERO, date.toJavaDateType()).getSeconds());
+        return new BigIntLiteral(calcDayNumber(date.getYear(), date.getMonth(), date.getDay()) * 86400L
+                                    + date.getHour() * 3600L + date.getMinute() * 60L + date.getSecond());
+    }
+
+    private static long calcDayNumber(long year, long month, long day) {
+        if (year == 0 && month == 0) {
+            return 0;
+        }
+        if (year == 0 && month == 1 && day == 1) {
+            return 1;
+        }
+
+        long y = year;
+        long delsum = 365L * y + 31L * (month - 1) + day;
+        if (month <= 2) {
+            y -= 1;
+        } else {
+            delsum -= (month * 4 + 23) / 10;
+        }
+        return delsum + y / 4 - y / 100 + y / 400;
     }
 
     /**
