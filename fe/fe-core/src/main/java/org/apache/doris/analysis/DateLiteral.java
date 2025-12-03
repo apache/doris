@@ -989,7 +989,7 @@ public class DateLiteral extends LiteralExpr {
     public LocalDateTime getTimeFormatter() {
         if (type.equals(Type.DATE) || type.equals(Type.DATEV2)) {
             return LocalDateTime.of((int) this.year, (int) this.month, (int) this.day, 0, 0, 0);
-        } else if (type.isDatetimeV2()) {
+        } else if (type.isDatetimeV2() || type.isTimeStampTz()) {
             return LocalDateTime.of((int) this.year, (int) this.month, (int) this.day, (int) this.hour,
                 (int) this.minute,
                 (int) this.second, (int) this.microsecond * 1000);
@@ -1622,7 +1622,7 @@ public class DateLiteral extends LiteralExpr {
     }
 
     private long getMicroPartWithinScale() {
-        if (type.isDatetimeV2()) {
+        if (type.isDatetimeV2() || type.isTimeStampTz()) {
             int scale = ((ScalarType) type).getScalarScale();
             return (long) (microsecond / SCALE_FACTORS[scale]);
         } else {
