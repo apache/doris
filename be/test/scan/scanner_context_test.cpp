@@ -159,9 +159,9 @@ TEST_F(ScannerContextTest, test_init) {
 
     olap_scan_local_state->_parent = scan_operator.get();
 
-    // User specified num_scanner_threads is less than _max_scan_concurrency that we calculated
+    // User specified max_scanners_concurrency is less than _max_scan_concurrency that we calculated
     TQueryOptions query_options;
-    query_options.__set_num_scanner_threads(2);
+    query_options.__set_max_scanners_concurrency(2);
     query_options.__set_max_column_reader_num(0);
     state->set_query_options(query_options);
     std::unique_ptr<MockSimplifiedScanScheduler> scheduler =
@@ -174,17 +174,14 @@ TEST_F(ScannerContextTest, test_init) {
     scanner_context->_min_scan_concurrency_of_scan_scheduler = 10;
     Status st = scanner_context->init();
     ASSERT_TRUE(st.ok());
-    // actual max_scan_concurrency will be 2 since user specified num_scanner_threads is 2.
-    ASSERT_EQ(scanner_context->_max_scan_concurrency, 2);
+    // actual max_scan_concurrency will be 2 since user specified max_scanners_concurrency is 2.
+    ASSERT_EQ(scanner_context->_max_scan_concurrency, 1);
 
-    query_options.__set_num_scanner_threads(0);
+    query_options.__set_max_scanners_concurrency(0);
     state->set_query_options(query_options);
 
     st = scanner_context->init();
     ASSERT_TRUE(st.ok());
-
-    ASSERT_EQ(scanner_context->_max_scan_concurrency,
-              scanner_context->_min_scan_concurrency_of_scan_scheduler / parallel_tasks);
 }
 
 TEST_F(ScannerContextTest, test_serial_run) {
@@ -223,7 +220,7 @@ TEST_F(ScannerContextTest, test_serial_run) {
     olap_scan_local_state->_parent = scan_operator.get();
 
     TQueryOptions query_options;
-    query_options.__set_num_scanner_threads(2);
+    query_options.__set_max_scanners_concurrency(2);
     query_options.__set_max_column_reader_num(0);
     state->set_query_options(query_options);
     std::unique_ptr<MockSimplifiedScanScheduler> scheduler =
@@ -237,7 +234,7 @@ TEST_F(ScannerContextTest, test_serial_run) {
     ASSERT_TRUE(st.ok());
     ASSERT_EQ(scanner_context->_max_scan_concurrency, 1);
 
-    query_options.__set_num_scanner_threads(0);
+    query_options.__set_max_scanners_concurrency(0);
     state->set_query_options(query_options);
     st = scanner_context->init();
     ASSERT_TRUE(st.ok());
@@ -281,7 +278,7 @@ TEST_F(ScannerContextTest, test_max_column_reader_num) {
     olap_scan_local_state->_parent = scan_operator.get();
 
     TQueryOptions query_options;
-    query_options.__set_num_scanner_threads(20);
+    query_options.__set_max_scanners_concurrency(20);
     query_options.__set_max_column_reader_num(1);
     state->set_query_options(query_options);
     std::unique_ptr<MockSimplifiedScanScheduler> scheduler =
