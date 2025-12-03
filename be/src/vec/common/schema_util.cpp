@@ -614,8 +614,7 @@ bool has_schema_index_diff(const TabletSchema* new_schema, const TabletSchema* o
     const auto& column_new = new_schema->column(new_col_idx);
     const auto& column_old = old_schema->column(old_col_idx);
 
-    if (column_new.is_bf_column() != column_old.is_bf_column() ||
-        column_new.has_bitmap_index() != column_old.has_bitmap_index()) {
+    if (column_new.is_bf_column() != column_old.is_bf_column()) {
         return true;
     }
 

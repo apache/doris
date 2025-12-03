@@ -13,7 +13,7 @@ CREATE TABLE IF NOT EXISTS warehouse (
     w_zip char(10),
     w_country varchar(20),
     w_gmt_offset decimal(5,2),
-    INDEX w_warehouse_sk_idx(w_warehouse_sk) USING BITMAP COMMENT "w_warehouse_sk index",
+    INDEX w_warehouse_sk_idx(w_warehouse_sk) USING INVERTED COMMENT "w_warehouse_sk index",
     INDEX w_warehouse_id_idx(w_warehouse_id) USING INVERTED COMMENT "w_warehouse_id index"
 )
 DUPLICATE KEY(w_warehouse_sk, w_warehouse_id)

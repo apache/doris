@@ -1005,8 +1005,6 @@ TEST_F(VariantColumnWriterReaderTest, test_write_sub_index) {
     EXPECT_TRUE(st.ok()) << st.msg();
     st = vw->write_bloom_filter_index();
     EXPECT_TRUE(st.ok()) << st.msg();
-    st = vw->write_bitmap_index();
-    EXPECT_TRUE(st.ok()) << st.msg();
     EXPECT_TRUE(file_writer->close().ok());
     footer.set_num_rows(10);
 
@@ -1339,8 +1337,6 @@ TEST_F(VariantColumnWriterReaderTest, test_write_bm_with_finalize) {
     st = vw->append_nullable(accessor->get_nullmap(), &ptr, 1000);
     EXPECT_TRUE(st.ok()) << st.msg();
     st = vw->_impl->finalize();
-    EXPECT_TRUE(st.ok()) << st.msg();
-    st = vw->write_bitmap_index();
     EXPECT_TRUE(st.ok()) << st.msg();
     EXPECT_TRUE(file_writer->close().ok());
     footer.set_num_rows(1000);

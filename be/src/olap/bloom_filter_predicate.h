@@ -45,11 +45,6 @@ public:
 
     using ColumnPredicate::evaluate;
 
-    Status evaluate(BitmapIndexIterator* iterators, uint32_t num_rows,
-                    roaring::Roaring* roaring) const override {
-        return Status::OK();
-    }
-
     double get_ignore_threshold() const override { return get_bloom_filter_ignore_thredhold(); }
 
 private:

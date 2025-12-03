@@ -41,7 +41,6 @@
 #include "olap/rowset/segment_v2/ann_index/ann_index_reader.h"
 #include "olap/rowset/segment_v2/binary_dict_page.h" // for BinaryDictPageDecoder
 #include "olap/rowset/segment_v2/binary_plain_page.h"
-#include "olap/rowset/segment_v2/bitmap_index_reader.h"
 #include "olap/rowset/segment_v2/bloom_filter.h"
 #include "olap/rowset/segment_v2/bloom_filter_index_reader.h"
 #include "olap/rowset/segment_v2/encoding_info.h" // for EncodingInfo
@@ -335,6 +334,8 @@ Status ColumnReader::init(const ColumnMetaPB* meta) {
     for (int i = 0; i < meta->indexes_size(); i++) {
         const auto& index_meta = meta->indexes(i);
         switch (index_meta.type()) {
+        case BITMAP_INDEX:
+            break;
         case ORDINAL_INDEX:
             _ordinal_index.reset(
                     new OrdinalIndexReader(_file_reader, _num_rows, index_meta.ordinal_index()));
@@ -344,9 +345,6 @@ Status ColumnReader::init(const ColumnMetaPB* meta) {
                     std::make_unique<ZoneMapPB>(index_meta.zone_map_index().segment_zone_map());
             _zone_map_index.reset(new ZoneMapIndexReader(
                     _file_reader, index_meta.zone_map_index().page_zone_maps()));
-            break;
-        case BITMAP_INDEX:
-            _bitmap_index.reset(new BitmapIndexReader(_file_reader, index_meta.bitmap_index()));
             break;
         case BLOOM_FILTER_INDEX:
             _bloom_filter_index.reset(
@@ -366,12 +364,6 @@ Status ColumnReader::init(const ColumnMetaPB* meta) {
                                   _file_reader->path().native(), meta->column_id());
     }
 
-    return Status::OK();
-}
-
-Status ColumnReader::new_bitmap_index_iterator(BitmapIndexIterator** iterator) {
-    RETURN_IF_ERROR(_load_bitmap_index(_use_index_page_cache, _opts.kept_in_memory));
-    RETURN_IF_ERROR(_bitmap_index->new_iterator(iterator));
     return Status::OK();
 }
 
@@ -692,13 +684,6 @@ Status ColumnReader::_load_zone_map_index(bool use_page_cache, bool kept_in_memo
                                           const ColumnIteratorOptions& iter_opts) {
     if (_zone_map_index != nullptr) {
         return _zone_map_index->load(use_page_cache, kept_in_memory, iter_opts.stats);
-    }
-    return Status::OK();
-}
-
-Status ColumnReader::_load_bitmap_index(bool use_page_cache, bool kept_in_memory) {
-    if (_bitmap_index != nullptr) {
-        return _bitmap_index->load(use_page_cache, kept_in_memory);
     }
     return Status::OK();
 }

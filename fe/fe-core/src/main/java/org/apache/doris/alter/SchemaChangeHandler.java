@@ -2946,7 +2946,7 @@ public class SchemaChangeHandler extends AlterHandler {
         if (LOG.isDebugEnabled()) {
             LOG.debug("indexSchemaMap:{}, indexes:{}", indexSchemaMap, indexes);
         }
-        // for bitmapIndex
+        // for index
         boolean hasIndexChange = false;
         Set<Index> newSet = new HashSet<>(indexes);
         Set<Index> oriSet = new HashSet<>(olapTable.getIndexes());
