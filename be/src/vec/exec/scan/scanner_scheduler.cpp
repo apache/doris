@@ -335,8 +335,9 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
     ctx->push_back_scan_task(scan_task);
 }
 int ScannerScheduler::get_local_scan_thread_num() {
-    return config::doris_scan_thread_pool_thread_num > 0 ? config::doris_scan_thread_pool_thread_num
-                                                         : std::max(48, CpuInfo::num_cores() * 2);
+    return config::doris_scanner_thread_pool_thread_num > 0
+                   ? config::doris_scanner_thread_pool_thread_num
+                   : std::max(48, CpuInfo::num_cores() * 2);
 }
 int ScannerScheduler::get_remote_scan_thread_num() {
     int num = config::doris_max_remote_scanner_thread_pool_thread_num > 0
