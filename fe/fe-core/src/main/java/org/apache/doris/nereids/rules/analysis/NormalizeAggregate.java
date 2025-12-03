@@ -339,7 +339,7 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
             if (expression instanceof Alias && expression.containsType(WindowExpression.class)) {
                 Expression windowExpr = (Expression) ExpressionUtils.collect(
                         ImmutableList.of(expression), WindowExpression.class::isInstance).iterator().next();
-                windowExpressions.put(expression.toSlot(), ((Alias) expression).child());
+                windowExpressions.put(expression.toSlot(), windowExpr);
             }
         }
 
@@ -368,21 +368,31 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
             return (LogicalPlan) having.get().withChildren(project);
         }
 
-        ImmutableList.Builder<NamedExpression> childProjects = ImmutableList.builderWithExpectedSize(
+        ImmutableList.Builder<NamedExpression> bottomProjectsBuilder = ImmutableList.builderWithExpectedSize(
                 project.getProjects().size() - windowExpressions.size());
-        ImmutableList.Builder<NamedExpression> topProjects = ImmutableList.builderWithExpectedSize(
+        ImmutableList.Builder<NamedExpression> topProjectsBuilder = ImmutableList.builderWithExpectedSize(
                 project.getProjects().size());
+        Set<Slot> windowExprInputSlots = Sets.newHashSet();
+        Set<Slot> bottomProjectOutputSlots = Sets.newHashSet();
         for (NamedExpression expression : project.getProjects()) {
             if (expression.containsType(WindowExpression.class)) {
-                topProjects.add(expression);
+                topProjectsBuilder.add(expression);
+                windowExprInputSlots.addAll(expression.getInputSlots());
             } else {
-                childProjects.add(expression);
-                topProjects.add(expression.toSlot());
+                Slot slot = expression.toSlot();
+                bottomProjectsBuilder.add(expression);
+                topProjectsBuilder.add(slot);
+                bottomProjectOutputSlots.add(slot);
+            }
+        }
+        for (Slot slot : windowExprInputSlots) {
+            if (bottomProjectOutputSlots.add(slot)) {
+                bottomProjectsBuilder.add(slot);
             }
         }
 
-        return new LogicalProject<>(topProjects.build(),
-                having.get().withChildren(new LogicalProject<>(childProjects.build(), newAggregate)));
+        return new LogicalProject<>(topProjectsBuilder.build(),
+                having.get().withChildren(new LogicalProject<>(bottomProjectsBuilder.build(), newAggregate)));
     }
 
     private List<NamedExpression> normalizeOutput(List<NamedExpression> aggregateOutput,
