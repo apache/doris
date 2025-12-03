@@ -78,7 +78,7 @@ public:
         omp_set_num_threads(_reserved_threads);
         VLOG_DEBUG << fmt::format(
                 "ScopedOmpThreadBudget reserve threads reserved={}, in_use={}, limit={}",
-                _reserved_threads, g_index_threads_in_use, config::omp_threads_limit);
+                _reserved_threads, g_index_threads_in_use, get_omp_threads_limit());
     }
 
     ~ScopedOmpThreadBudget() {
@@ -90,7 +90,16 @@ public:
         }
         VLOG_DEBUG << fmt::format(
                 "ScopedOmpThreadBudget release threads reserved={}, remaining_in_use={}, limit={}",
-                _reserved_threads, g_index_threads_in_use, config::omp_threads_limit);
+                _reserved_threads, g_index_threads_in_use, get_omp_threads_limit());
+    }
+
+    static int get_omp_threads_limit() {
+        if (config::omp_threads_limit > 0) {
+            return config::omp_threads_limit;
+        }
+        int core_cap = std::max(1, CpuInfo::num_cores());
+        // Use at most 80% of the available CPU cores.
+        return std::max(1, core_cap * 4 / 5);
     }
 
 private:
