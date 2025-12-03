@@ -137,17 +137,27 @@ best_hot_run_sum=0
 # run part of queries, set their index to query_array
 # query_array=(59 17 29 25 47 40 54)
 query_array=$(seq 1 99)
-# shellcheck disable=SC2068
-for i in ${query_array[@]}; do
-    cold=0
-    hot1=0
-    hot2=0
-    echo -ne "query${i}\t" | tee -a result.csv
+
+# Function to run a single query file
+run_query() {
+    local query_file=$1
+    local query_name=$2
+    
+    if [[ ! -f "${query_file}" ]]; then
+        return
+    fi
+    
+    local cold=0
+    local hot1=0
+    local hot2=0
+    
+    echo -ne "${query_name}\t" | tee -a result.csv
     start=$(date +%s%3N)
     if ! output=$(mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" --comments \
-        <"${TPCDS_QUERIES_DIR}/query${i}.sql" 2>&1); then
-        printf "Error: Failed to execute query q%s (cold run). Output:\n%s\n" "${i}" "${output}" >&2
-        continue
+        <"${query_file}" 2>&1); then
+        printf "Error: Failed to execute query %s (cold run). Output:\n%s\n" "${query_name}" "${output}" >&2
+        echo "" | tee -a result.csv
+        return
     fi
     end=$(date +%s%3N)
     cold=$((end - start))
@@ -155,9 +165,10 @@ for i in ${query_array[@]}; do
 
     start=$(date +%s%3N)
     if ! output=$(mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" --comments \
-        <"${TPCDS_QUERIES_DIR}/query${i}.sql" 2>&1); then
-        printf "Error: Failed to execute query q%s (hot run 1). Output:\n%s\n" "${i}" "${output}" >&2
-        continue
+        <"${query_file}" 2>&1); then
+        printf "Error: Failed to execute query %s (hot run 1). Output:\n%s\n" "${query_name}" "${output}" >&2
+        echo "" | tee -a result.csv
+        return
     fi
     end=$(date +%s%3N)
     hot1=$((end - start))
@@ -165,9 +176,10 @@ for i in ${query_array[@]}; do
 
     start=$(date +%s%3N)
     if ! output=$(mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" --comments \
-        <"${TPCDS_QUERIES_DIR}/query${i}.sql" 2>&1); then
-        printf "Error: Failed to execute query q%s (hot run 2). Output:\n%s\n" "${i}" "${output}" >&2
-        continue
+        <"${query_file}" 2>&1); then
+        printf "Error: Failed to execute query %s (hot run 2). Output:\n%s\n" "${query_name}" "${output}" >&2
+        echo "" | tee -a result.csv
+        return
     fi
     end=$(date +%s%3N)
     hot2=$((end - start))
@@ -183,6 +195,15 @@ for i in ${query_array[@]}; do
         echo -ne "${hot2}" | tee -a result.csv
         echo "" | tee -a result.csv
     fi
+}
+
+# shellcheck disable=SC2068
+for i in ${query_array[@]}; do
+    # Run main query file
+    run_query "${TPCDS_QUERIES_DIR}/query${i}.sql" "query${i}"
+    
+    # Run variant query file if exists
+    run_query "${TPCDS_QUERIES_DIR}/query${i}_1.sql" "query${i}_1"
 done
 
 echo "Total cold run time: ${cold_run_sum} ms"
