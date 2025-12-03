@@ -25,9 +25,6 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.qe.CommonResultSet;
-import org.apache.doris.qe.ResultSet;
-import org.apache.doris.qe.ResultSetMetaData;
 
 import com.google.common.collect.Lists;
 import org.apache.iceberg.Snapshot;
@@ -91,11 +88,12 @@ public class IcebergAncestorsOfAction extends BaseIcebergAction {
     }
 
     /**
-     * Override execute to return multiple rows (one per ancestor snapshot).
-     * This is necessary because the base class only supports single-row results.
+     * Execute the ancestors_of action to return multiple rows (one per ancestor snapshot).
+     * This overrides executeActionMultiRows() instead of execute() because the base class
+     * execute() method is final.
      */
     @Override
-    public ResultSet execute(TableIf table) throws UserException {
+    protected List<List<String>> executeActionMultiRows(TableIf table) throws UserException {
         Table icebergTable = ((IcebergExternalTable) table).getIcebergTable();
         Long targetSnapshotId = namedArguments.getLong(SNAPSHOT_ID);
 
@@ -105,7 +103,7 @@ public class IcebergAncestorsOfAction extends BaseIcebergAction {
                 Snapshot currentSnapshot = icebergTable.currentSnapshot();
                 if (currentSnapshot == null) {
                     // Return empty result if no snapshots exist
-                    return createEmptyResultSet();
+                    return new ArrayList<>();
                 }
                 targetSnapshotId = currentSnapshot.snapshotId();
             } else {
@@ -135,9 +133,7 @@ public class IcebergAncestorsOfAction extends BaseIcebergAction {
                 }
             }
 
-            // Create and return ResultSet
-            ResultSetMetaData metaData = new CommonResultSet.CommonResultSetMetaData(getResultSchema());
-            return new CommonResultSet(metaData, resultRows);
+            return resultRows;
 
         } catch (UserException e) {
             throw e;
@@ -147,20 +143,12 @@ public class IcebergAncestorsOfAction extends BaseIcebergAction {
         }
     }
 
-    /**
-     * Create an empty ResultSet for the case where no snapshots exist.
-     */
-    private ResultSet createEmptyResultSet() {
-        ResultSetMetaData metaData = new CommonResultSet.CommonResultSetMetaData(getResultSchema());
-        return new CommonResultSet(metaData, new ArrayList<>());
-    }
-
     @Override
     protected List<String> executeAction(TableIf table) throws UserException {
-        // This method is not used because we override execute() directly
+        // This method is not used because we override executeActionMultiRows()
         // to support returning multiple rows
         throw new UnsupportedOperationException(
-                "ancestors_of action uses execute() directly for multi-row results");
+                "ancestors_of action uses executeActionMultiRows() for multi-row results");
     }
 
     @Override

@@ -99,6 +99,20 @@ public abstract class BaseExecuteAction implements ExecuteAction {
 
     @Override
     public final ResultSet execute(TableIf table) throws UserException {
+        // First try multi-row execution for actions that return multiple rows
+        List<List<String>> multiRows = executeActionMultiRows(table);
+        if (multiRows != null) {
+            if (resultSetMetaData == null) {
+                return null;
+            }
+            for (List<String> row : multiRows) {
+                Preconditions.checkState(resultSetMetaData.getColumnCount() == row.size(),
+                        "Result row size does not match metadata column count");
+            }
+            return new CommonResultSet(resultSetMetaData, multiRows);
+        }
+
+        // Fall back to single-row execution for backward compatibility
         List<String> resultRow = executeAction(table);
         if (resultSetMetaData == null || resultRow == null) {
             return null;
@@ -109,6 +123,20 @@ public abstract class BaseExecuteAction implements ExecuteAction {
         List<List<String>> resultRows = Lists.newArrayList();
         resultRows.add(resultRow);
         return new CommonResultSet(resultSetMetaData, resultRows);
+    }
+
+    /**
+     * Execute the action logic for multi-row results.
+     * Subclasses that need to return multiple rows should override this method.
+     * The default implementation returns null, which causes execute() to fall back
+     * to the single-row executeAction() method.
+     *
+     * @param table the table to operate on
+     * @return list of result rows if the action produces multiple rows, null to use single-row mode
+     * @throws UserException if execution fails
+     */
+    protected List<List<String>> executeActionMultiRows(TableIf table) throws UserException {
+        return null;
     }
 
     /**
