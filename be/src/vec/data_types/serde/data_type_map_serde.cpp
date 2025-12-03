@@ -419,91 +419,11 @@ Status DataTypeMapSerDe::read_column_from_arrow(IColumn& column, const arrow::Ar
     return Status::OK();
 }
 
-template <bool is_binary_format>
-Status DataTypeMapSerDe::_write_column_to_mysql(const IColumn& column,
-                                                MysqlRowBuffer<is_binary_format>& result,
-                                                int64_t row_idx, bool col_const,
-                                                const FormatOptions& options) const {
-    const auto& map_column = assert_cast<const ColumnMap&>(column);
-    const IColumn& nested_keys_column = map_column.get_keys();
-    const IColumn& nested_values_column = map_column.get_values();
-    bool is_key_string = remove_nullable(nested_keys_column.get_ptr())->is_column_string();
-    bool is_val_string = remove_nullable(nested_values_column.get_ptr())->is_column_string();
-
-    const auto col_index = index_check_const(row_idx, col_const);
-    result.open_dynamic_mode();
-    if (0 != result.push_string("{", 1)) {
-        return Status::InternalError("pack mysql buffer failed.");
-    }
-    const auto& offsets = map_column.get_offsets();
-    for (auto j = offsets[col_index - 1]; j < offsets[col_index]; ++j) {
-        if (j != offsets[col_index - 1]) {
-            if (0 != result.push_string(options.mysql_collection_delim.c_str(),
-                                        options.mysql_collection_delim.size())) {
-                return Status::InternalError("pack mysql buffer failed.");
-            }
-        }
-        if (nested_keys_column.is_null_at(j)) {
-            if (0 != result.push_string(options.null_format, options.null_len)) {
-                return Status::InternalError("pack mysql buffer failed.");
-            }
-        } else {
-            if (is_key_string && options.wrapper_len > 0) {
-                if (0 != result.push_string(options.nested_string_wrapper, options.wrapper_len)) {
-                    return Status::InternalError("pack mysql buffer failed.");
-                }
-                RETURN_IF_ERROR(key_serde->write_column_to_mysql(nested_keys_column, result, j,
-                                                                 false, options));
-                if (0 != result.push_string(options.nested_string_wrapper, options.wrapper_len)) {
-                    return Status::InternalError("pack mysql buffer failed.");
-                }
-            } else {
-                RETURN_IF_ERROR(key_serde->write_column_to_mysql(nested_keys_column, result, j,
-                                                                 false, options));
-            }
-        }
-        if (0 != result.push_string(&options.map_key_delim, 1)) {
-            return Status::InternalError("pack mysql buffer failed.");
-        }
-        if (nested_values_column.is_null_at(j)) {
-            if (0 != result.push_string(options.null_format, options.null_len)) {
-                return Status::InternalError("pack mysql buffer failed.");
-            }
-        } else {
-            if (is_val_string && options.wrapper_len > 0) {
-                if (0 != result.push_string(options.nested_string_wrapper, options.wrapper_len)) {
-                    return Status::InternalError("pack mysql buffer failed.");
-                }
-                RETURN_IF_ERROR(value_serde->write_column_to_mysql(nested_values_column, result, j,
-                                                                   false, options));
-                if (0 != result.push_string(options.nested_string_wrapper, options.wrapper_len)) {
-                    return Status::InternalError("pack mysql buffer failed.");
-                }
-            } else {
-                RETURN_IF_ERROR(value_serde->write_column_to_mysql(nested_values_column, result, j,
-                                                                   false, options));
-            }
-        }
-    }
-    if (0 != result.push_string("}", 1)) {
-        return Status::InternalError("pack mysql buffer failed.");
-    }
-    result.close_dynamic_mode();
-    return Status::OK();
-}
-
 Status DataTypeMapSerDe::write_column_to_mysql_binary(const IColumn& column,
-                                                      MysqlRowBinaryBuffer& row_buffer,
-                                                      int64_t row_idx, bool col_const,
+                                                      MysqlRowBinaryBuffer& result, int64_t row_idx,
+                                                      bool col_const,
                                                       const FormatOptions& options) const {
-    return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
-}
-
-Status DataTypeMapSerDe::write_column_to_mysql_text(const IColumn& column,
-                                                    MysqlRowTextBuffer& row_buffer, int64_t row_idx,
-                                                    bool col_const,
-                                                    const FormatOptions& options) const {
-    return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
+    return Status::NotSupported("Map type does not support write to mysql binary format");
 }
 
 Status DataTypeMapSerDe::write_column_to_orc(const std::string& timezone, const IColumn& column,

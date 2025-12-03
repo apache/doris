@@ -254,18 +254,11 @@ TEST_F(DataTypeVarbinaryTest, SerDeWriteColumnToMysql) {
     vb->insert_data(v1.data(), v1.size());
 
     auto serde = dt.get_serde();
-    // text protocol
-    doris::MysqlRowBuffer<false> rb_text;
     DataTypeSerDe::FormatOptions fmt_opts;
-    auto st1 = serde->write_column_to_mysql(*col, rb_text, /*row_idx=*/0, /*col_const=*/false,
-                                            fmt_opts);
-    EXPECT_TRUE(st1.ok());
-    EXPECT_GT(rb_text.length(), 0);
-
     // binary protocol
-    doris::MysqlRowBuffer<true> rb_bin;
-    auto st2 = serde->write_column_to_mysql(*col, rb_bin, /*row_idx=*/0, /*col_const=*/false,
-                                            fmt_opts);
+    doris::MysqlRowBinaryBuffer rb_bin;
+    auto st2 = serde->write_column_to_mysql_binary(*col, rb_bin, /*row_idx=*/0, /*col_const=*/false,
+                                                   fmt_opts);
     EXPECT_TRUE(st2.ok());
     EXPECT_GT(rb_bin.length(), 0);
 }
