@@ -368,7 +368,7 @@ WorkloadGroupInfo WorkloadGroupInfo::parse_topic_info(
     }
 
     // 9 scan thread num
-    int scan_thread_num = config::doris_scanner_thread_pool_thread_num;
+    int scan_thread_num = config::dynamic::doris_scanner_thread_pool_thread_num();
     if (tworkload_group_info.__isset.scan_thread_num && tworkload_group_info.scan_thread_num > 0) {
         scan_thread_num = tworkload_group_info.scan_thread_num;
     }
@@ -478,8 +478,8 @@ void WorkloadGroup::upsert_task_scheduler(WorkloadGroupInfo* tg_info, ExecEnv* e
         std::unique_ptr<vectorized::SimplifiedScanScheduler> scan_scheduler =
                 std::make_unique<vectorized::SimplifiedScanScheduler>("Scan_" + tg_name,
                                                                       cg_cpu_ctl_ptr, tg_name);
-        Status ret = scan_scheduler->start(config::doris_scanner_thread_pool_thread_num,
-                                           config::doris_scanner_thread_pool_thread_num,
+        Status ret = scan_scheduler->start(config::dynamic::doris_scanner_thread_pool_thread_num(),
+                                           config::dynamic::doris_scanner_thread_pool_thread_num(),
                                            config::doris_scanner_thread_pool_queue_size);
         if (ret.ok()) {
             _scan_task_sched = std::move(scan_scheduler);

@@ -47,6 +47,14 @@
 #include "vec/runtime/time_value.h"
 #include "vec/runtime/vdatetime_value.h"
 
+namespace config::dynamic {
+int doris_scanner_thread_pool_thread_num() {
+    if (doris_scanner_thread_pool_thread_num > 0) {
+        return doris_scanner_thread_pool_thread_num;
+    }
+    return std::max(48, CpuInfo::num_cores() * 2);
+}
+} // namespace config::dynamic
 namespace doris {
 
 template <PrimitiveType primitive_type, class T>
