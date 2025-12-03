@@ -22,6 +22,7 @@
 #include "udf/udf.h"
 #include "util/simd/bits.h"
 #include "vec/columns/column.h"
+#include "vec/columns/column_const.h"
 
 namespace doris::vectorized {
 
@@ -62,7 +63,10 @@ size_t VConditionExpr::count_true_with_notnull(const ColumnPtr& col) {
         return 0;
     }
 
-    if (const auto* const_col = check_and_get_column_const<ColumnUInt8>(col.get())) {
+    if (const auto* const_col = check_and_get_column<ColumnConst>(col.get())) {
+        if (const_col->is_null_at(0)) {
+            return 0;
+        }
         bool is_true = const_col->get_bool(0);
         return is_true ? col->size() : 0;
     }
