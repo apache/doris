@@ -158,6 +158,7 @@ public:
     template <class Function>
     void register_function() {
         if constexpr (std::is_base_of_v<IFunction, Function>) {
+            static_assert(sizeof(Function) == sizeof(IFunction), "Function must be no member data");
             register_function(Function::name, &createDefaultFunction<Function>);
         } else {
             register_function(Function::name, &Function::create);
@@ -166,6 +167,7 @@ public:
 
     template <class Function>
     void register_function(std::string name) {
+        static_assert(sizeof(Function) == sizeof(IFunction), "Function must be no member data");
         register_function(name, &createDefaultFunction<Function>);
     }
 
