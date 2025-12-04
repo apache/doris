@@ -247,12 +247,12 @@ TEST_F(DataTypeNumberSerDeTest, serdes) {
             ser_col->reserve(row_count);
             MutableColumnPtr deser_column = source_column->clone_empty();
             const auto* deser_col_with_type = assert_cast<const ColumnType*>(deser_column.get());
-            JsonbDocument* pdoc = nullptr;
+            const JsonbDocument* pdoc = nullptr;
             auto st = JsonbDocument::checkAndCreateDocument(jsonb_writer.getOutput()->getBuffer(),
                                                             jsonb_writer.getOutput()->getSize(),
                                                             &pdoc);
             ASSERT_TRUE(st.ok()) << "checkAndCreateDocument failed: " << st.to_string();
-            JsonbDocument& doc = *pdoc;
+            const JsonbDocument& doc = *pdoc;
             for (auto it = doc->begin(); it != doc->end(); ++it) {
                 serde.read_one_cell_from_jsonb(*deser_column, it->value());
             }

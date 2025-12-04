@@ -44,10 +44,10 @@ TEST(HLLSerdeTest, writeOneCellToJsonb) {
     jsonb_column->insert_data(jsonb_writer.getOutput()->getBuffer(),
                               jsonb_writer.getOutput()->getSize());
     StringRef jsonb_data = jsonb_column->get_data_at(0);
-    JsonbDocument* pdoc = nullptr;
+    const JsonbDocument* pdoc = nullptr;
     auto st = JsonbDocument::checkAndCreateDocument(jsonb_data.data, jsonb_data.size, &pdoc);
     ASSERT_TRUE(st.ok()) << "checkAndCreateDocument failed: " << st.to_string();
-    JsonbDocument& doc = *pdoc;
+    const JsonbDocument& doc = *pdoc;
     for (auto it = doc->begin(); it != doc->end(); ++it) {
         hll_serde->read_one_cell_from_jsonb(*column_hll, it->value());
     }
