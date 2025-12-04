@@ -33,6 +33,7 @@ class RuntimeFilterSelectivity {
 public:
     RuntimeFilterSelectivity() = default;
 
+    RuntimeFilterSelectivity(const RuntimeFilterSelectivity&&) = delete;
     void update_judge_counter() {
         if ((_judge_counter++) >= config::runtime_filter_sampling_frequency) {
             reset_judge_selectivity();
