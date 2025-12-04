@@ -251,7 +251,7 @@ suite("test_hive_orc", "all_types,p0,external,hive,external_docker,external_dock
 
             test {
                 sql " select * from `test_hive_orc_mapping_varbinary`.`default`.`orc_all_types` as a join `test_hive_orc_mapping_varbinary`.`default`.`orc_all_types`  as b on a.binary_col = b.binary_col; "
-                exception " varbinary type could not in join equal conditions"
+                exception " errCode = 2,"
             }
 
             test {

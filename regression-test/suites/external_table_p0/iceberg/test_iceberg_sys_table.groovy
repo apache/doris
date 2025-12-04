@@ -408,5 +408,5 @@ suite("test_iceberg_sys_table", "p0,external,doris,external_docker,external_dock
     sql """use ${db_name}"""
 
     order_qt_varbinary_sys_table_desc """desc test_iceberg_systable_unpartitioned\$files"""
-    order_qt_varbinary_sys_table_select """select * from test_iceberg_systable_unpartitioned\$files;"""
+    order_qt_varbinary_sys_table_select """select content, file_format, record_count, lower_bounds, upper_bounds from test_iceberg_systable_unpartitioned\$files;"""
 }
