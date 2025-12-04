@@ -23,8 +23,10 @@ import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
+import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVPartitionInfo;
+import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -151,14 +153,37 @@ public class PartitionCompensator {
 
     /**
      * Check if need union compensate or not
+     * If query base table all partitions with ALL_PARTITIONS or ALL_PARTITIONS_LIST, should not do union compensate
+     * because it means query all partitions from base table and prune partition failed
      */
-    public static boolean needUnionRewrite(MaterializationContext materializationContext) {
+    public static boolean needUnionRewrite(MaterializationContext materializationContext,
+                                           StatementContext statementContext) throws AnalysisException {
         if (!(materializationContext instanceof AsyncMaterializationContext)) {
             return false;
         }
         MTMV mtmv = ((AsyncMaterializationContext) materializationContext).getMtmv();
-        PartitionType type = mtmv.getPartitionInfo().getType();
         BaseTableInfo relatedTableInfo = mtmv.getMvPartitionInfo().getRelatedTableInfo();
+        PartitionType type = mtmv.getPartitionInfo().getType();
+        MTMVPartitionInfo mvPartitionInfo = mtmv.getMvPartitionInfo();
+        MTMVRelatedTableIf pctTable = mvPartitionInfo.getRelatedTable();
+        Multimap<List<String>, Pair<RelationId, Set<String>>> tableUsedPartitionNameMap =
+                statementContext.getTableUsedPartitionNameMap();
+        if (pctTable instanceof ExternalTable && !((ExternalTable) pctTable).supportInternalPartitionPruned()) {
+            // if pct table is external table and not support internal partition pruned,
+            // we consider query all partitions from pct table, this would cause loop union compensate,
+            // so we skip union compensate in this case
+            return false;
+        }
+        Collection<Pair<RelationId, Set<String>>> tableUsedPartitions
+                = tableUsedPartitionNameMap.get(pctTable.getFullQualifiers());
+        if (ALL_PARTITIONS_LIST.equals(tableUsedPartitions)
+                || tableUsedPartitions.stream().anyMatch(ALL_PARTITIONS::equals)) {
+            // If query base table all partitions with ALL_PARTITIONS or ALL_PARTITIONS_LIST,
+            // should not do union compensate, because it means query all partitions from base table
+            // and prune partition failed
+            return false;
+        }
+
         return !PartitionType.UNPARTITIONED.equals(type) && relatedTableInfo != null;
     }
 
@@ -166,11 +191,11 @@ public class PartitionCompensator {
      * Get query used partitions
      * this is calculated from tableUsedPartitionNameMap and tables in statementContext
      *
-     * @param customRelationIdSet if union compensate occurs, the new query used partitions is changed,
+     * @param currentUsedRelationIdSet if union compensate occurs, the new query used partitions is changed,
      *         so need to get used partitions by relation id set
      */
     public static Map<List<String>, Set<String>> getQueryUsedPartitions(StatementContext statementContext,
-            BitSet customRelationIdSet) {
+            BitSet currentUsedRelationIdSet) {
         // get table used partitions
         // if table is not in statementContext().getTables() which means the table is partition prune as empty relation
         Multimap<List<String>, Pair<RelationId, Set<String>>> tableUsedPartitionNameMap = statementContext
@@ -194,6 +219,13 @@ public class PartitionCompensator {
                     // It means all partitions are used when query
                     queryUsedRelatedTablePartitionsMap.put(queryUsedTable, null);
                     continue tableLoop;
+                }
+                // If currentUsedRelationIdSet is not empty, need check relation id to get concrete used partitions
+                BitSet usedPartitionRelation = new BitSet();
+                usedPartitionRelation.set(tableUsedPartitionPair.key().asInt());
+                if (!currentUsedRelationIdSet.isEmpty()
+                        && !currentUsedRelationIdSet.intersects(usedPartitionRelation)) {
+                    continue;
                 }
                 usedPartitionSet.addAll(tableUsedPartitionPair.value());
             }
