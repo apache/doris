@@ -386,6 +386,9 @@ public class DateLiteral extends LiteralExpr {
                 }
                 ZoneId zone = ZoneId.of(tzString);
                 ZoneId dorisZone = DateUtils.getTimeZone();
+                if (type != null && type.isTimeStampTz()) {
+                    dorisZone = ZoneId.of("UTC");
+                }
                 offset = dorisZone.getRules().getOffset(java.time.Instant.now()).getTotalSeconds()
                     - zone.getRules().getOffset(java.time.Instant.now()).getTotalSeconds();
             }
