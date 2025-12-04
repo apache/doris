@@ -20,6 +20,7 @@
 #include <cstdint>
 
 #include "common/config.h"
+#include "common/logging.h"
 
 namespace doris {
 
@@ -40,7 +41,7 @@ public:
         }
     }
 
-    void update_judge_selectivity(uint64_t filter_rows, uint64_t input_rows,
+    void update_judge_selectivity(int filter_id, uint64_t filter_rows, uint64_t input_rows,
                                   double ignore_thredhold) {
         if (!_always_true) {
             _judge_filter_rows += filter_rows;
@@ -48,6 +49,14 @@ public:
             judge_selectivity(ignore_thredhold, _judge_filter_rows, _judge_input_rows,
                               _always_true);
         }
+
+        VLOG_ROW << fmt::format(
+                "Runtime filter[{}] selectivity update: filter_rows: {}, input_rows: {},  filter "
+                "rate: {}, "
+                "ignore_thredhold: {}, counter: {} , always_true: {}",
+                filter_id, _judge_filter_rows, _judge_input_rows,
+                static_cast<double>(filter_rows) / static_cast<double>(input_rows),
+                ignore_thredhold, _judge_counter, _always_true);
     }
 
     bool maybe_always_true_can_ignore() const {

@@ -43,23 +43,23 @@ TEST_F(RuntimeFilterSelectivityTest, judge_selectivity_high_filter_rate) {
 
 TEST_F(RuntimeFilterSelectivityTest, update_judge_selectivity_not_always_true) {
     RuntimeFilterSelectivity selectivity;
-    selectivity.update_judge_selectivity(50, 100, 0.1);
+    selectivity.update_judge_selectivity(-1, 50, 100, 0.1);
     EXPECT_FALSE(selectivity.maybe_always_true_can_ignore());
 }
 
 TEST_F(RuntimeFilterSelectivityTest, update_judge_selectivity_always_true) {
     RuntimeFilterSelectivity selectivity;
-    selectivity.update_judge_selectivity(5, 100, 0.1);
+    selectivity.update_judge_selectivity(-1, 5, 100, 0.1);
     EXPECT_TRUE(selectivity.maybe_always_true_can_ignore());
 }
 
 TEST_F(RuntimeFilterSelectivityTest, update_judge_selectivity_once_true_always_true) {
     RuntimeFilterSelectivity selectivity;
-    selectivity.update_judge_selectivity(5, 100, 0.1);
+    selectivity.update_judge_selectivity(-1, 5, 100, 0.1);
     EXPECT_TRUE(selectivity.maybe_always_true_can_ignore());
 
     // After marked as always_true, subsequent updates should be ignored
-    selectivity.update_judge_selectivity(90, 100, 0.1);
+    selectivity.update_judge_selectivity(-1, 90, 100, 0.1);
     EXPECT_TRUE(selectivity.maybe_always_true_can_ignore());
 }
 
@@ -69,7 +69,7 @@ TEST_F(RuntimeFilterSelectivityTest, update_judge_counter_reset) {
     // Set sampling frequency to a small value for testing
     config::runtime_filter_sampling_frequency = 2;
 
-    selectivity.update_judge_selectivity(5, 100, 0.1);
+    selectivity.update_judge_selectivity(-1, 5, 100, 0.1);
     EXPECT_TRUE(selectivity.maybe_always_true_can_ignore());
 
     // Trigger reset by calling update_judge_counter multiple times
@@ -81,7 +81,7 @@ TEST_F(RuntimeFilterSelectivityTest, update_judge_counter_reset) {
     EXPECT_FALSE(selectivity.maybe_always_true_can_ignore());
 
     // Now should be able to evaluate again
-    selectivity.update_judge_selectivity(90, 100, 0.1);
+    selectivity.update_judge_selectivity(-1, 90, 100, 0.1);
     EXPECT_FALSE(selectivity.maybe_always_true_can_ignore());
 }
 
@@ -89,11 +89,11 @@ TEST_F(RuntimeFilterSelectivityTest, accumulated_selectivity) {
     RuntimeFilterSelectivity selectivity;
 
     // First update with high filter rate
-    selectivity.update_judge_selectivity(80, 100, 0.1);
+    selectivity.update_judge_selectivity(-1, 80, 100, 0.1);
     EXPECT_FALSE(selectivity.maybe_always_true_can_ignore());
 
     // Second update, accumulated should still have high filter rate
-    selectivity.update_judge_selectivity(70, 100, 0.1);
+    selectivity.update_judge_selectivity(-1, 70, 100, 0.1);
     EXPECT_FALSE(selectivity.maybe_always_true_can_ignore());
 
     // Accumulated: 150 filtered out of 200 total (75% filter rate)

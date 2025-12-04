@@ -162,8 +162,8 @@ Status VRuntimeFilterWrapper::execute_filter(VExprContext* context, const Block*
 
             COUNTER_UPDATE(_rf_filter_rows, input_rows - output_rows);
             COUNTER_UPDATE(_rf_input_rows, input_rows);
-            rf_selectivity.update_judge_selectivity(input_rows - output_rows, input_rows,
-                                                    _ignore_thredhold);
+            rf_selectivity.update_judge_selectivity(_filter_id, input_rows - output_rows,
+                                                    input_rows, _ignore_thredhold);
 
             if (output_rows == 0) {
                 *can_filter_all = true;
@@ -184,7 +184,7 @@ Status VRuntimeFilterWrapper::execute_filter(VExprContext* context, const Block*
 
         COUNTER_UPDATE(_rf_filter_rows, input_rows - output_rows);
         COUNTER_UPDATE(_rf_input_rows, input_rows);
-        rf_selectivity.update_judge_selectivity(input_rows - output_rows, input_rows,
+        rf_selectivity.update_judge_selectivity(_filter_id, input_rows - output_rows, input_rows,
                                                 _ignore_thredhold);
 
         if (output_rows == 0) {
