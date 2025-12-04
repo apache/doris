@@ -139,6 +139,8 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         try {
             return executionAuthenticator.execute(() -> listNestedNamespaces(getNamespace()));
         } catch (Exception e) {
+            LOG.warn("failed to list database names in catalog {}, root cause: {}",
+                    dorisCatalog.getName(), Util.getRootCauseMessage(e), e);
             throw new RuntimeException("Failed to list database names, error message is:" + e.getMessage(), e);
         }
     }
