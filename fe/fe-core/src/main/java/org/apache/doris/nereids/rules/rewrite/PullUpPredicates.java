@@ -53,6 +53,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.IdentityHashMap;
 import java.util.LinkedHashSet;
@@ -246,6 +247,10 @@ public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void
                     break;
                 }
                 case LEFT_OUTER_JOIN:
+                    predicates.addAll(leftPredicates.get());
+                    predicates.addAll(
+                            generateNullTolerantPredicates(rightPredicates.get(), join.right().getOutputSet()));
+                    break;
                 case LEFT_SEMI_JOIN:
                 case LEFT_ANTI_JOIN:
                 case NULL_AWARE_LEFT_ANTI_JOIN: {
@@ -253,6 +258,10 @@ public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void
                     break;
                 }
                 case RIGHT_OUTER_JOIN:
+                    predicates.addAll(rightPredicates.get());
+                    predicates.addAll(
+                            generateNullTolerantPredicates(leftPredicates.get(), join.left().getOutputSet()));
+                    break;
                 case RIGHT_SEMI_JOIN:
                 case RIGHT_ANTI_JOIN: {
                     predicates.addAll(rightPredicates.get());
@@ -344,6 +353,30 @@ public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void
 
     private boolean hasAgg(Expression expression) {
         return expression.anyMatch(AggregateFunction.class::isInstance);
+    }
+
+    private Set<Expression> generateNullTolerantPredicates(Set<Expression> predicates, Set<Slot> nullableSlots) {
+        if (predicates.isEmpty() || nullableSlots.isEmpty()) {
+            return predicates;
+        }
+        Set<Expression> tolerant = Sets.newLinkedHashSetWithExpectedSize(predicates.size());
+        for (Expression predicate : predicates) {
+            Set<Slot> predicateSlots = predicate.getInputSlots();
+            List<Expression> orChildren = new ArrayList<>();
+            if (predicateSlots.size() == 1) {
+                Slot slot = predicateSlots.iterator().next();
+                if (nullableSlots.contains(slot)) {
+                    orChildren.add(new IsNull(slot));
+                }
+            }
+            if (!orChildren.isEmpty()) {
+                List<Expression> expandedOr = new ArrayList<>(2);
+                expandedOr.add(predicate);
+                expandedOr.addAll(orChildren);
+                tolerant.add(ExpressionUtils.or(expandedOr));
+            }
+        }
+        return tolerant;
     }
 
     private ImmutableSet<Expression> getFiltersFromUnionChild(LogicalUnion union, Void context) {
