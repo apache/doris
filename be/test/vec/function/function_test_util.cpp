@@ -213,14 +213,14 @@ static size_t type_index_to_data_type(const std::vector<AnyType>& input_types, s
         ut_type::UTDataTypeDesc value_desc;
         DataTypePtr value_type = nullptr;
         ++index;
-        size_t ret = type_index_to_data_type(input_types, index, key_desc, key_type);
-        if (ret <= 0) {
-            return ret;
+        size_t ret_key = type_index_to_data_type(input_types, index, key_desc, key_type);
+        if (ret_key <= 0) {
+            return ret_key;
         }
         ++index;
-        ret = type_index_to_data_type(input_types, index, value_desc, value_type);
-        if (ret <= 0) {
-            return ret;
+        size_t ret_value = type_index_to_data_type(input_types, index, value_desc, value_type);
+        if (ret_value <= 0) {
+            return ret_value;
         }
         if (key_desc.is_nullable) {
             key_type = make_nullable(key_type);
@@ -230,7 +230,7 @@ static size_t type_index_to_data_type(const std::vector<AnyType>& input_types, s
         }
         type = std::make_shared<DataTypeMap>(key_type, value_type);
         desc = type;
-        return ret + 1;
+        return ret_key + ret_value + 1;
     }
     case PrimitiveType::TYPE_STRUCT: {
         ++index;
@@ -351,6 +351,32 @@ bool insert_array_cell(MutableColumnPtr& column, DataTypePtr type_ptr, const Any
     column->insert(Field::create_field<TYPE_ARRAY>(field_vector));
     return true;
 }
+
+bool insert_map_cell(MutableColumnPtr& column, DataTypePtr type_ptr, const AnyType& cell,
+                       bool datetime_is_string_format) {
+    auto origin_input_array = any_cast<TestArray>(cell);
+    DataTypePtr key_type = assert_cast<const DataTypeMap*>(type_ptr.get())->get_key_type();
+    DataTypePtr value_type = assert_cast<const DataTypeMap*>(type_ptr.get())->get_value_type();
+    MutableColumnPtr key_column = key_type->create_column();
+    MutableColumnPtr value_column = value_type->create_column();
+    for(size_t i=0;i<origin_input_array.size();i+=2){
+        const auto&key = origin_input_array[i];
+        const auto&value = origin_input_array[i+1];
+        insert_cell(key_column, key_type, key, datetime_is_string_format);
+        insert_cell(value_column, value_type, value, datetime_is_string_format);
+    }
+    Array key_array, value_array;
+    for(int i=0; i<origin_input_array.size()/2;i++){
+        key_array.push_back((*key_column)[i]);
+        value_array.push_back((*value_column)[i]);
+    }
+    Map map;
+    map.push_back(Field::create_field<TYPE_ARRAY>(key_array));
+    map.push_back(Field::create_field<TYPE_ARRAY>(value_array));
+    column->insert(Field::create_field<TYPE_MAP>(map));
+    return true;
+}
+
 
 // NOLINTBEGIN(readability-function-size)
 bool insert_cell(MutableColumnPtr& column, DataTypePtr type_ptr, const AnyType& cell,
@@ -534,6 +560,10 @@ bool insert_cell(MutableColumnPtr& column, DataTypePtr type_ptr, const AnyType& 
                 RETURN_IF_FALSE(insert_cell(col, struct_type->get_element(i), field,
                                             datetime_is_string_format));
             }
+            break;
+        }
+        case PrimitiveType::TYPE_MAP:  {
+            RETURN_IF_FALSE((insert_map_cell(column, type_ptr, cell, datetime_is_string_format)));
             break;
         }
         default: {

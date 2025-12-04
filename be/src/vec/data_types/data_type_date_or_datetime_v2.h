@@ -190,5 +190,11 @@ template <typename DataType>
 constexpr bool IsDataTypeDateTimeV2 = false;
 template <>
 inline constexpr bool IsDataTypeDateTimeV2<DataTypeDateTimeV2> = true;
+
+template<typename DataType>
+constexpr bool IsDataTypeMap = false;
+template <>
+inline constexpr bool IsDataTypeMap<DataTypeMap> = true;
+
 #include "common/compile_check_end.h"
 } // namespace doris::vectorized
