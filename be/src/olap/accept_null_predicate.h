@@ -46,7 +46,8 @@ public:
     AcceptNullPredicate(const AcceptNullPredicate& other, uint32_t col_id)
             : ColumnPredicate(other, col_id),
               _nested(assert_cast<const AcceptNullPredicate&>(other)._nested
-                              ? assert_cast<const AcceptNullPredicate&>(other)._nested->clone(col_id)
+                              ? assert_cast<const AcceptNullPredicate&>(other)._nested->clone(
+                                        col_id)
                               : nullptr) {}
     AcceptNullPredicate(const AcceptNullPredicate& other) = delete;
     ~AcceptNullPredicate() override = default;
