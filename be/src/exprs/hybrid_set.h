@@ -259,6 +259,7 @@ public:
                                               const uint8_t* __restrict filter = nullptr) = 0;
 
     virtual void to_pb(PInFilter* filter) = 0;
+    virtual uint64_t get_digest(uint64_t seed) = 0;
 
     class IteratorBase {
     public:
@@ -430,6 +431,21 @@ public:
     }
 
     void to_pb(PInFilter* filter) override { set_pb(filter, get_convertor<ElementType>()); }
+
+    uint64_t get_digest(uint64_t seed) override {
+        std::vector<ElementType> elems(_set.begin(), _set.end());
+        std::sort(elems.begin(), elems.end());
+        if constexpr (std::is_same<ElementType, bool>::value) {
+            for (const auto& v : elems) {
+                seed = HashUtil::crc_hash64(&v, sizeof(v), seed);
+            }
+        } else {
+            seed = HashUtil::crc_hash64(elems.data(),
+                                        (uint32_t)(elems.size() * sizeof(ElementType)), seed);
+        }
+
+        return HashUtil::crc_hash64(&_contain_null, sizeof(_contain_null), seed);
+    }
 
 private:
     ContainerType _set;
@@ -625,6 +641,16 @@ public:
     }
 
     void to_pb(PInFilter* filter) override { set_pb(filter, get_convertor<std::string>()); }
+
+    uint64_t get_digest(uint64_t seed) override {
+        std::vector<StringRef> elems(_set.begin(), _set.end());
+        std::sort(elems.begin(), elems.end());
+
+        for (const auto& v : elems) {
+            seed = HashUtil::crc_hash64(v.data, (uint32_t)v.size, seed);
+        }
+        return HashUtil::crc_hash64(&_contain_null, sizeof(_contain_null), seed);
+    }
 
 private:
     ContainerType _set;
@@ -822,6 +848,17 @@ public:
 
     void to_pb(PInFilter* filter) override {
         throw Exception(ErrorCode::INTERNAL_ERROR, "StringValueSet do not support to_pb");
+    }
+
+    uint64_t get_digest(uint64_t seed) override {
+        std::vector<StringRef> elems(_set.begin(), _set.end());
+        std::sort(elems.begin(), elems.end());
+
+        for (const auto& v : elems) {
+            seed = HashUtil::crc_hash64(v.data, (uint32_t)v.size, seed);
+        }
+
+        return HashUtil::crc_hash64(&_contain_null, sizeof(_contain_null), seed);
     }
 
 private:
