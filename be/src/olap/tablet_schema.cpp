@@ -1290,7 +1290,16 @@ void TabletSchema::build_current_tablet_schema(int64_t index_id, int32_t version
         } else if (UNLIKELY(column->name() == SKIP_BITMAP_COL)) {
             _skip_bitmap_col_idx = _num_columns;
         }
-        _cols.emplace_back(std::make_shared<TabletColumn>(*column));
+        // Reuse TabletColumn object from pool to reduce memory consumption
+        TabletColumnPtr new_column;
+        ColumnPB column_pb;
+        column->to_schema_pb(&column_pb);
+        auto pair = TabletColumnObjectPool::instance()->insert(
+                deterministic_string_serialize(column_pb));
+        new_column = pair.second;
+        // Release the handle quickly, because we use shared ptr to manage column
+        TabletColumnObjectPool::instance()->release(pair.first);
+        _cols.emplace_back(std::move(new_column));
         _field_name_to_index.emplace(StringRef(_cols.back()->name()), _num_columns);
         _field_uniqueid_to_index[_cols.back()->unique_id()] = _num_columns;
         _num_columns++;
@@ -1298,7 +1307,16 @@ void TabletSchema::build_current_tablet_schema(int64_t index_id, int32_t version
 
     for (const auto& i : index->indexes) {
         size_t index_pos = _indexes.size();
-        _indexes.emplace_back(std::make_shared<TabletIndex>(*i));
+        // Reuse TabletIndex object from pool to reduce memory consumption
+        TabletIndexPtr new_index;
+        TabletIndexPB index_pb;
+        i->to_schema_pb(&index_pb);
+        auto pair = TabletColumnObjectPool::instance()->insert_index(
+                deterministic_string_serialize(index_pb));
+        new_index = pair.second;
+        // Release the handle quickly, because we use shared ptr to manage index
+        TabletColumnObjectPool::instance()->release(pair.first);
+        _indexes.emplace_back(std::move(new_index));
         for (int32_t col_uid : _indexes.back()->col_unique_ids()) {
             if (auto field_pattern = _indexes.back()->field_pattern(); !field_pattern.empty()) {
                 auto& pattern_to_index_map = _index_by_unique_id_with_pattern[col_uid];
