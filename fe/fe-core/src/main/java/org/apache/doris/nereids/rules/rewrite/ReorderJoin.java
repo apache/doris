@@ -84,6 +84,13 @@ public class ReorderJoin extends OneRewriteRuleFactory {
                     return null;
                 }
                 LogicalFilter<Plan> filter = ctx.root;
+                for (Expression conjunct : filter.getConjuncts()) {
+                    // after reorder and push down the random() down to lower join,
+                    // the rewritten sql may have less rows() than the origin sql
+                    if (conjunct.containsUniqueFunction()) {
+                        return null;
+                    }
+                }
 
                 Map<Plan, DistributeHint> planToHintType = Maps.newHashMap();
                 Plan plan = joinToMultiJoin(filter, planToHintType);
@@ -118,6 +125,14 @@ public class ReorderJoin extends OneRewriteRuleFactory {
         // Implicit rely on {rule: MergeFilters}, so don't exist filter--filter--join.
         if (plan instanceof LogicalFilter) {
             LogicalFilter<?> filter = (LogicalFilter<?>) plan;
+            for (Expression conjunct : filter.getConjuncts()) {
+                // (t1 join t2) join t3 where t1.a = t3.x + random()
+                // if reorder, then may have ((t1 join t3) on t1.a = t3.x + random()) join t2,
+                // then the reorder result will less rows than origin.
+                if (conjunct.containsUniqueFunction()) {
+                    return plan;
+                }
+            }
             joinFilter.addAll(filter.getConjuncts());
             join = (LogicalJoin<?, ?>) filter.child();
         } else {
