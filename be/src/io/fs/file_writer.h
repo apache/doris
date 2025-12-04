@@ -46,7 +46,7 @@ struct FileWriterOptions {
     bool write_file_cache = false;
     bool is_cold_data = false;
     bool sync_file_data = true;              // Whether flush data into storage system
-    uint64_t file_cache_expiration = 0;      // Absolute time
+    uint64_t file_cache_expiration_time = 0; // Relative time
     uint64_t approximate_bytes_to_write = 0; // Approximate bytes to write, used for file cache
 };
 
@@ -108,7 +108,7 @@ protected:
                    << file_cache_ptr->approximate_available_cache_size();
         if (opts->write_file_cache || has_enough_file_cache_space) {
             _cache_builder = std::make_unique<FileCacheAllocatorBuilder>(FileCacheAllocatorBuilder {
-                    opts ? opts->is_cold_data : false, opts ? opts->file_cache_expiration : 0,
+                    opts ? opts->is_cold_data : false, opts ? opts->file_cache_expiration_time : 0,
                     path_hash, file_cache_ptr});
         }
         return;

@@ -245,10 +245,6 @@ void BlockFileCacheTtlMgr::run_backgroud_expiration_check() {
                             }
                         }
                     }
-
-                    // Remove from TTL map
-                    std::lock_guard<std::mutex> lock(_ttl_info_mutex);
-                    _ttl_info_map.erase(tablet_id);
                 }
             }
 

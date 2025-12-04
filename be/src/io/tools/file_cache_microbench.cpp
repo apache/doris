@@ -1074,7 +1074,7 @@ private:
                     DataGenerator data_generator(config.size_bytes_perfile);
                     doris::io::FileWriterOptions options;
                     if (config.cache_type == "TTL") {
-                        options.file_cache_expiration = config.expiration;
+                        options.file_cache_expiration_time = config.expiration;
                     }
                     options.write_file_cache = config.write_file_cache;
                     auto writer = std::make_unique<MicrobenchS3FileWriter>(

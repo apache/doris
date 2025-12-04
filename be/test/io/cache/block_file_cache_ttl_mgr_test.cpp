@@ -130,6 +130,18 @@ public:
         return it->second;
     }
 
+    Status get_tablet_meta(int64_t tablet_id, TabletMetaSharedPtr* tablet_meta,
+                           bool /*force_use_only_cached*/ = false) override {
+        auto tablet_res = get_tablet(tablet_id);
+        if (!tablet_res.ok()) {
+            return tablet_res.status();
+        }
+        if (tablet_meta != nullptr) {
+            *tablet_meta = tablet_res.value()->tablet_meta();
+        }
+        return Status::OK();
+    }
+
     Status set_cluster_id(int32_t /*cluster_id*/) override { return Status::OK(); }
 
     void add_tablet(int64_t tablet_id, const BaseTabletSPtr& tablet) {

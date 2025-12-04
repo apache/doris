@@ -293,6 +293,7 @@ Status CloudStorageEngine::get_tablet_meta(int64_t tablet_id, TabletMetaSharedPt
         return Status::InvalidArgument("tablet_meta output is null");
     }
 
+#if 0
     if (_tablet_mgr && _tablet_mgr->peek_tablet_meta(tablet_id, tablet_meta)) {
         return Status::OK();
     }
@@ -300,6 +301,7 @@ Status CloudStorageEngine::get_tablet_meta(int64_t tablet_id, TabletMetaSharedPt
     if (force_use_only_cached) {
         return Status::NotFound("tablet meta {} not found in cache", tablet_id);
     }
+#endif
 
     if (_meta_mgr == nullptr) {
         return Status::InternalError("cloud meta manager is not initialized");
