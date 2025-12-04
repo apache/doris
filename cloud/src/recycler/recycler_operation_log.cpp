@@ -600,11 +600,13 @@ static TxnErrorCode get_txn_info(TxnKv* txn_kv, std::string_view instance_id, in
 }
 
 int InstanceRecycler::recycle_operation_logs() {
-    if (!instance_info_.has_multi_version_status() ||
-        (instance_info_.multi_version_status() != MultiVersionStatus::MULTI_VERSION_ENABLED &&
-         instance_info_.multi_version_status() != MultiVersionStatus::MULTI_VERSION_READ_WRITE)) {
+    if (!should_recycle_versioned_keys()) {
         VLOG_DEBUG << "instance " << instance_id_
-                   << " is not multi-version enabled, skip recycling operation logs.";
+                   << " is not need to recycle versioned keys, skip recycling operation logs. "
+                      "multi version status: "
+                   << MultiVersionStatus_Name(instance_info_.multi_version_status())
+                   << " snapshot switch status: "
+                   << SnapshotSwitchStatus_Name(instance_info_.snapshot_switch_status());
         return 0;
     }
 

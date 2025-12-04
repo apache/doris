@@ -430,12 +430,18 @@ private:
 
     // Recycle rowset meta and data, return 0 for success otherwise error
     //
+    // Both recycle_rowset_key and secondary_rowset_key will be removed in the same transaction.
+    //
     // This function will decrease the rowset ref count and remove the rowset meta and data if the ref count is 1.
     int recycle_rowset_meta_and_data(std::string_view recycle_rowset_key,
-                                     const RowsetMetaCloudPB& rowset_meta);
+                                     const RowsetMetaCloudPB& rowset_meta,
+                                     std::string_view secondary_rowset_key = "");
 
     // Whether the instance has any snapshots, return 0 for success otherwise error.
     int has_cluster_snapshots(bool* any);
+
+    // Whether need to recycle versioned keys
+    bool should_recycle_versioned_keys() const;
 
 private:
     std::atomic_bool stopped_ {false};
