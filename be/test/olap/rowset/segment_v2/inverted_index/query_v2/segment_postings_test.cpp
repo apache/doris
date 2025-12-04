@@ -206,13 +206,13 @@ TEST_F(SegmentPostingsTest, test_postings_positions_with_offset) {
 }
 
 TEST_F(SegmentPostingsTest, test_segment_postings_base_default_constructor) {
-    SegmentPostingsBase<TermDocsPtr> base;
+    SegmentPostings base;
     EXPECT_EQ(base.doc(), TERMINATED);
 }
 
 TEST_F(SegmentPostingsTest, test_segment_postings_base_constructor_next_true) {
     TermDocsPtr ptr(new MockTermDocs({1, 3, 5}, {2, 4, 6}, {1, 1, 1}, 3));
-    SegmentPostingsBase<TermDocsPtr> base(std::move(ptr));
+    SegmentPostings base(std::move(ptr), true);
 
     EXPECT_EQ(base.doc(), 1);
     EXPECT_EQ(base.size_hint(), 3);
@@ -222,21 +222,21 @@ TEST_F(SegmentPostingsTest, test_segment_postings_base_constructor_next_true) {
 
 TEST_F(SegmentPostingsTest, test_segment_postings_base_constructor_next_false) {
     TermDocsPtr ptr(new MockTermDocs({}, {}, {}, 0));
-    SegmentPostingsBase<TermDocsPtr> base(std::move(ptr));
+    SegmentPostings base(std::move(ptr));
 
     EXPECT_EQ(base.doc(), TERMINATED);
 }
 
 TEST_F(SegmentPostingsTest, test_segment_postings_base_constructor_doc_int_max) {
     TermDocsPtr ptr(new MockTermDocs({INT_MAX}, {1}, {1}, 1));
-    SegmentPostingsBase<TermDocsPtr> base(std::move(ptr));
+    SegmentPostings base(std::move(ptr));
 
     EXPECT_EQ(base.doc(), TERMINATED);
 }
 
 TEST_F(SegmentPostingsTest, test_segment_postings_base_advance_success) {
     TermDocsPtr ptr(new MockTermDocs({1, 3, 5}, {2, 4, 6}, {1, 1, 1}, 3));
-    SegmentPostingsBase<TermDocsPtr> base(std::move(ptr));
+    SegmentPostings base(std::move(ptr));
 
     EXPECT_EQ(base.doc(), 1);
     EXPECT_EQ(base.advance(), 3);
@@ -245,14 +245,14 @@ TEST_F(SegmentPostingsTest, test_segment_postings_base_advance_success) {
 
 TEST_F(SegmentPostingsTest, test_segment_postings_base_advance_end) {
     TermDocsPtr ptr(new MockTermDocs({1}, {2}, {1}, 1));
-    SegmentPostingsBase<TermDocsPtr> base(std::move(ptr));
+    SegmentPostings base(std::move(ptr));
 
     EXPECT_EQ(base.advance(), TERMINATED);
 }
 
 TEST_F(SegmentPostingsTest, test_segment_postings_base_seek_target_le_doc) {
     TermDocsPtr ptr(new MockTermDocs({1, 3, 5}, {2, 4, 6}, {1, 1, 1}, 3));
-    SegmentPostingsBase<TermDocsPtr> base(std::move(ptr));
+    SegmentPostings base(std::move(ptr));
 
     EXPECT_EQ(base.seek(0), 1);
     EXPECT_EQ(base.seek(1), 1);
@@ -260,21 +260,21 @@ TEST_F(SegmentPostingsTest, test_segment_postings_base_seek_target_le_doc) {
 
 TEST_F(SegmentPostingsTest, test_segment_postings_base_seek_skipTo_success) {
     TermDocsPtr ptr(new MockTermDocs({1, 3, 5, 7}, {2, 4, 6, 8}, {1, 1, 1, 1}, 4));
-    SegmentPostingsBase<TermDocsPtr> base(std::move(ptr));
+    SegmentPostings base(std::move(ptr));
 
     EXPECT_EQ(base.seek(5), 5);
 }
 
 TEST_F(SegmentPostingsTest, test_segment_postings_base_seek_skipTo_fail) {
     TermDocsPtr ptr(new MockTermDocs({1, 3, 5}, {2, 4, 6}, {1, 1, 1}, 3));
-    SegmentPostingsBase<TermDocsPtr> base(std::move(ptr));
+    SegmentPostings base(std::move(ptr));
 
     EXPECT_EQ(base.seek(10), TERMINATED);
 }
 
 TEST_F(SegmentPostingsTest, test_segment_postings_base_append_positions_exception) {
     TermDocsPtr ptr(new MockTermDocs({1}, {2}, {1}, 1));
-    SegmentPostingsBase<TermDocsPtr> base(std::move(ptr));
+    SegmentPostings base(std::move(ptr));
 
     std::vector<uint32_t> output;
     EXPECT_THROW(base.append_positions_with_offset(0, output), Exception);
@@ -282,7 +282,7 @@ TEST_F(SegmentPostingsTest, test_segment_postings_base_append_positions_exceptio
 
 TEST_F(SegmentPostingsTest, test_segment_postings_termdocs) {
     TermDocsPtr ptr(new MockTermDocs({1, 3}, {2, 4}, {1, 1}, 2));
-    SegmentPostings<TermDocsPtr> postings(std::move(ptr));
+    SegmentPostings postings(std::move(ptr));
 
     EXPECT_EQ(postings.doc(), 1);
     EXPECT_EQ(postings.size_hint(), 2);
@@ -291,7 +291,7 @@ TEST_F(SegmentPostingsTest, test_segment_postings_termdocs) {
 TEST_F(SegmentPostingsTest, test_segment_postings_termpositions) {
     TermPositionsPtr ptr(
             new MockTermPositions({1, 3}, {2, 3}, {1, 1}, {{10, 20}, {30, 40, 50}}, 2));
-    SegmentPostings<TermPositionsPtr> postings(std::move(ptr));
+    SegmentPostings postings(std::move(ptr), true);
 
     EXPECT_EQ(postings.doc(), 1);
     EXPECT_EQ(postings.freq(), 2);
@@ -300,7 +300,7 @@ TEST_F(SegmentPostingsTest, test_segment_postings_termpositions) {
 TEST_F(SegmentPostingsTest, test_segment_postings_termpositions_append_positions) {
     TermPositionsPtr ptr(
             new MockTermPositions({1, 3}, {2, 3}, {1, 1}, {{10, 20}, {30, 40, 50}}, 2));
-    SegmentPostings<TermPositionsPtr> postings(std::move(ptr));
+    SegmentPostings postings(std::move(ptr), true);
 
     std::vector<uint32_t> output = {999};
     postings.append_positions_with_offset(100, output);
@@ -313,7 +313,7 @@ TEST_F(SegmentPostingsTest, test_segment_postings_termpositions_append_positions
 
 TEST_F(SegmentPostingsTest, test_no_score_segment_posting) {
     TermDocsPtr ptr(new MockTermDocs({1, 3}, {5, 7}, {10, 20}, 2));
-    NoScoreSegmentPosting<TermDocsPtr> posting(std::move(ptr));
+    SegmentPostings posting(std::move(ptr));
 
     EXPECT_EQ(posting.doc(), 1);
     EXPECT_EQ(posting.freq(), 1);
@@ -321,7 +321,7 @@ TEST_F(SegmentPostingsTest, test_no_score_segment_posting) {
 }
 
 TEST_F(SegmentPostingsTest, test_empty_segment_posting) {
-    EmptySegmentPosting<TermDocsPtr> posting;
+    SegmentPostings posting;
 
     EXPECT_EQ(posting.doc(), TERMINATED);
     EXPECT_EQ(posting.size_hint(), 0);

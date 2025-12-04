@@ -101,8 +101,13 @@ BufferedUnion<ScorerPtrT, ScoreCombinerPtrT>::BufferedUnion(std::vector<ScorerPt
                                                             std::vector<TinySetPtr> bitsets,
                                                             std::vector<ScoreCombinerPtrT> scores,
                                                             size_t cursor, uint32_t offset,
-                                                            uint32_t _doc)
-        : _scorers(std::move(scorers)), _bitsets(std::move(bitsets)), _scores(std::move(scores)) {}
+                                                            uint32_t doc)
+        : _scorers(std::move(scorers)),
+          _bitsets(std::move(bitsets)),
+          _scores(std::move(scores)),
+          _cursor(cursor),
+          _offset(offset),
+          _doc(doc) {}
 
 template <typename ScorerPtrT, typename ScoreCombinerPtrT>
 bool BufferedUnion<ScorerPtrT, ScoreCombinerPtrT>::refill() {
@@ -205,7 +210,7 @@ uint32_t BufferedUnion<ScorerPtrT, ScoreCombinerPtrT>::seek(uint32_t target) {
         return current_doc;
     } else {
         for (auto& tinyset : _bitsets) {
-            tinyset = std::make_shared<TinySet>(0);
+            tinyset->clear();
         }
         for (auto& score_combiner : _scores) {
             score_combiner->clear();

@@ -29,8 +29,15 @@ using OccurBooleanQueryPtr = std::shared_ptr<OccurBooleanQuery>;
 
 class OccurBooleanQuery : public Query {
 public:
-    OccurBooleanQuery(std::vector<std::pair<Occur, QueryPtr>> clauses)
-            : _sub_queries(std::move(clauses)) {}
+    explicit OccurBooleanQuery(std::vector<std::pair<Occur, QueryPtr>> clauses)
+            : _sub_queries(std::move(clauses)),
+              _minimum_number_should_match(compute_default_minimum_should_match(_sub_queries)) {}
+
+    OccurBooleanQuery(std::vector<std::pair<Occur, QueryPtr>> clauses,
+                      size_t minimum_number_should_match)
+            : _sub_queries(std::move(clauses)),
+              _minimum_number_should_match(minimum_number_should_match) {}
+
     ~OccurBooleanQuery() override = default;
 
     WeightPtr weight(bool enable_scoring) override {
@@ -40,15 +47,29 @@ public:
             sub_weights.emplace_back(occur, query->weight(enable_scoring));
         }
         return std::make_shared<OccurBooleanWeight<SumCombinerPtr>>(
-                std::move(sub_weights), minimum_number_should_match, enable_scoring,
+                std::move(sub_weights), _minimum_number_should_match, enable_scoring,
                 std::make_shared<SumCombiner>());
     }
 
     const std::vector<std::pair<Occur, QueryPtr>>& clauses() const { return _sub_queries; }
+    size_t minimum_number_should_match() const { return _minimum_number_should_match; }
 
 private:
+    static size_t compute_default_minimum_should_match(
+            const std::vector<std::pair<Occur, QueryPtr>>& clauses) {
+        size_t minimum_required = 0;
+        for (const auto& [occur, _] : clauses) {
+            if (occur == Occur::SHOULD) {
+                minimum_required = 1;
+            } else if (occur == Occur::MUST || occur == Occur::MUST_NOT) {
+                return 0;
+            }
+        }
+        return minimum_required;
+    }
+
     std::vector<std::pair<Occur, QueryPtr>> _sub_queries;
-    size_t minimum_number_should_match = 1;
+    size_t _minimum_number_should_match = 0;
 };
 
 } // namespace doris::segment_v2::inverted_index::query_v2

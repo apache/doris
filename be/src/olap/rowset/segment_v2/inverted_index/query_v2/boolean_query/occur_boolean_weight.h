@@ -35,6 +35,11 @@ struct Required {
 };
 using CombinationMethod = std::variant<Ignored, Optional, Required>;
 
+struct AllAndEmptyScorerCounts {
+    size_t num_all_scorers = 0;
+    size_t num_empty_scorers = 0;
+};
+
 template <typename ScoreCombinerPtrT>
 class OccurBooleanWeight : public Weight {
 public:
@@ -43,28 +48,28 @@ public:
                        ScoreCombinerPtrT score_combiner);
     ~OccurBooleanWeight() override = default;
 
-    ScorerPtr scorer() override;
+    ScorerPtr scorer(const QueryExecutionContext& context) override;
 
 private:
-    std::unordered_map<Occur, std::vector<ScorerPtr>> per_occur_scorers();
+    std::unordered_map<Occur, std::vector<ScorerPtr>> per_occur_scorers(
+            const QueryExecutionContext& context);
+    AllAndEmptyScorerCounts remove_and_count_all_and_empty_scorers(std::vector<ScorerPtr>& scorers);
 
     template <typename CombinerT>
-    SpecializedScorer complex_scorer(CombinerT combiner);
+    SpecializedScorer complex_scorer(const QueryExecutionContext& context, CombinerT combiner);
 
     template <typename CombinerT>
     std::optional<CombinationMethod> build_should_opt(std::vector<ScorerPtr>& must_scorers,
                                                       std::vector<ScorerPtr> should_scorers,
-                                                      CombinerT combiner);
-
+                                                      CombinerT combiner, size_t num_all_scorers);
     ScorerPtr build_exclude_opt(std::vector<ScorerPtr> must_not_scorers);
-
     template <typename CombinerT>
     SpecializedScorer build_positive_opt(CombinationMethod& should_opt,
-                                         std::vector<ScorerPtr> must_scorers, CombinerT combiner);
+                                         std::vector<ScorerPtr> must_scorers, CombinerT combiner,
+                                         size_t num_all_scorers = 0);
 
     template <typename CombinerT>
     SpecializedScorer scorer_union(std::vector<ScorerPtr> scorers, CombinerT combiner);
-
     template <typename CombinerT>
     SpecializedScorer scorer_disjunction(std::vector<ScorerPtr> scorers, CombinerT combiner,
                                          size_t minimum_match_required);

@@ -17,6 +17,7 @@
 
 #include "olap/rowset/segment_v2/inverted_index/query_v2/boolean_query/occur_boolean_weight.h"
 
+#include "olap/rowset/segment_v2/inverted_index/query_v2/all_query/all_query.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/disjunction_scorer.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/exclude_scorer.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/intersection_scorer.h"
@@ -35,7 +36,7 @@ OccurBooleanWeight<ScoreCombinerPtrT>::OccurBooleanWeight(
           _score_combiner(std::move(score_combiner)) {}
 
 template <typename ScoreCombinerPtrT>
-ScorerPtr OccurBooleanWeight<ScoreCombinerPtrT>::scorer() {
+ScorerPtr OccurBooleanWeight<ScoreCombinerPtrT>::scorer(const QueryExecutionContext& context) {
     if (_sub_weights.empty()) {
         return std::make_shared<EmptyScorer>();
     }
@@ -44,24 +45,24 @@ ScorerPtr OccurBooleanWeight<ScoreCombinerPtrT>::scorer() {
         if (occur == Occur::MUST_NOT) {
             return std::make_shared<EmptyScorer>();
         }
-        return weight->scorer();
+        return weight->scorer(context);
     }
     if (_enable_scoring) {
-        auto specialized = complex_scorer(_score_combiner);
+        auto specialized = complex_scorer(context, _score_combiner);
         return into_box_scorer(std::move(specialized), _score_combiner);
     } else {
         auto combiner = std::make_shared<DoNothingCombiner>();
-        auto specialized = complex_scorer(combiner);
+        auto specialized = complex_scorer(context, combiner);
         return into_box_scorer(std::move(specialized), combiner);
     }
 }
 
 template <typename ScoreCombinerPtrT>
 std::unordered_map<Occur, std::vector<ScorerPtr>>
-OccurBooleanWeight<ScoreCombinerPtrT>::per_occur_scorers() {
+OccurBooleanWeight<ScoreCombinerPtrT>::per_occur_scorers(const QueryExecutionContext& context) {
     std::unordered_map<Occur, std::vector<ScorerPtr>> result;
     for (const auto& [occur, weight] : _sub_weights) {
-        auto sub_scorer = weight->scorer();
+        auto sub_scorer = weight->scorer(context);
         if (sub_scorer) {
             result[occur].push_back(std::move(sub_scorer));
         }
@@ -70,38 +71,52 @@ OccurBooleanWeight<ScoreCombinerPtrT>::per_occur_scorers() {
 }
 
 template <typename ScoreCombinerPtrT>
+AllAndEmptyScorerCounts
+OccurBooleanWeight<ScoreCombinerPtrT>::remove_and_count_all_and_empty_scorers(
+        std::vector<ScorerPtr>& scorers) {
+    AllAndEmptyScorerCounts counts;
+    auto it = scorers.begin();
+    while (it != scorers.end()) {
+        if (dynamic_cast<AllScorer*>(it->get()) != nullptr) {
+            counts.num_all_scorers++;
+            it = scorers.erase(it);
+        } else if (dynamic_cast<EmptyScorer*>(it->get()) != nullptr) {
+            counts.num_empty_scorers++;
+            it = scorers.erase(it);
+        } else {
+            ++it;
+        }
+    }
+    return counts;
+}
+
+template <typename ScoreCombinerPtrT>
 template <typename CombinerT>
 std::optional<CombinationMethod> OccurBooleanWeight<ScoreCombinerPtrT>::build_should_opt(
         std::vector<ScorerPtr>& must_scorers, std::vector<ScorerPtr> should_scorers,
-        CombinerT combiner) {
+        CombinerT combiner, size_t num_all_scorers) {
     if (should_scorers.empty()) {
-        if (_minimum_number_should_match > 0) {
-            return std::nullopt;
-        }
         return Ignored {};
     }
 
+    size_t adjusted_minimum = _minimum_number_should_match > num_all_scorers
+                                      ? _minimum_number_should_match - num_all_scorers
+                                      : 0;
+
     size_t num_of_should_scorers = should_scorers.size();
-    if (_minimum_number_should_match > num_of_should_scorers) {
+    if (adjusted_minimum > num_of_should_scorers) {
         return std::nullopt;
     }
 
-    if (_minimum_number_should_match == 0) {
+    if (adjusted_minimum == 0) {
         return Optional {scorer_union(std::move(should_scorers), combiner)};
-    } else if (_minimum_number_should_match == 1) {
+    } else if (adjusted_minimum == 1) {
         return Required {scorer_union(std::move(should_scorers), combiner)};
-    } else if (_minimum_number_should_match == num_of_should_scorers) {
-        if (!must_scorers.empty()) {
-            for (auto& s : should_scorers) {
-                must_scorers.push_back(std::move(s));
-            }
-        } else {
-            must_scorers.swap(should_scorers);
-        }
+    } else if (adjusted_minimum == num_of_should_scorers) {
+        must_scorers.swap(should_scorers);
         return Ignored {};
     } else {
-        return Required {scorer_disjunction(std::move(should_scorers), combiner,
-                                            _minimum_number_should_match)};
+        return Required {scorer_disjunction(std::move(should_scorers), combiner, adjusted_minimum)};
     }
 }
 
@@ -119,13 +134,18 @@ ScorerPtr OccurBooleanWeight<ScoreCombinerPtrT>::build_exclude_opt(
 template <typename ScoreCombinerPtrT>
 template <typename CombinerT>
 SpecializedScorer OccurBooleanWeight<ScoreCombinerPtrT>::build_positive_opt(
-        CombinationMethod& should_opt, std::vector<ScorerPtr> must_scorers, CombinerT combiner) {
+        CombinationMethod& should_opt, std::vector<ScorerPtr> must_scorers, CombinerT combiner,
+        size_t num_all_scorers) {
     const bool has_must = !must_scorers.empty();
-
     if (std::holds_alternative<Ignored>(should_opt)) {
         if (has_must) {
             return intersection_scorer_build(std::move(must_scorers), _enable_scoring, nullptr);
         }
+        // TODO: When max_doc is available, return AllScorer if num_all_scorers > 0
+        // if (num_all_scorers > 0) {
+        //     return std::make_shared<AllScorer>(_max_doc);
+        // }
+        (void)num_all_scorers;
         return std::make_shared<EmptyScorer>();
     }
 
@@ -158,20 +178,36 @@ SpecializedScorer OccurBooleanWeight<ScoreCombinerPtrT>::build_positive_opt(
 
 template <typename ScoreCombinerPtrT>
 template <typename CombinerT>
-SpecializedScorer OccurBooleanWeight<ScoreCombinerPtrT>::complex_scorer(CombinerT combiner) {
-    auto scorers_by_occur = per_occur_scorers();
+SpecializedScorer OccurBooleanWeight<ScoreCombinerPtrT>::complex_scorer(
+        const QueryExecutionContext& context, CombinerT combiner) {
+    auto scorers_by_occur = per_occur_scorers(context);
     auto must_scorers = std::move(scorers_by_occur[Occur::MUST]);
     auto should_scorers = std::move(scorers_by_occur[Occur::SHOULD]);
     auto must_not_scorers = std::move(scorers_by_occur[Occur::MUST_NOT]);
 
-    auto should_opt = build_should_opt(must_scorers, std::move(should_scorers), combiner);
+    auto must_special_counts = remove_and_count_all_and_empty_scorers(must_scorers);
+    auto should_special_counts = remove_and_count_all_and_empty_scorers(should_scorers);
+    auto exclude_special_counts = remove_and_count_all_and_empty_scorers(must_not_scorers);
+
+    if (must_special_counts.num_empty_scorers > 0) {
+        return std::make_shared<EmptyScorer>();
+    }
+
+    if (exclude_special_counts.num_all_scorers > 0) {
+        return std::make_shared<EmptyScorer>();
+    }
+
+    auto should_opt = build_should_opt(must_scorers, std::move(should_scorers), combiner,
+                                       should_special_counts.num_all_scorers);
     if (!should_opt.has_value()) {
         return std::make_shared<EmptyScorer>();
     }
 
     ScorerPtr exclude_opt = build_exclude_opt(std::move(must_not_scorers));
+    size_t total_all_scorers =
+            must_special_counts.num_all_scorers + should_special_counts.num_all_scorers;
     SpecializedScorer positive_opt =
-            build_positive_opt(*should_opt, std::move(must_scorers), combiner);
+            build_positive_opt(*should_opt, std::move(must_scorers), combiner, total_all_scorers);
     if (exclude_opt) {
         ScorerPtr positive_boxed = into_box_scorer(std::move(positive_opt), combiner);
         return make_exclude(std::move(positive_boxed), std::move(exclude_opt));
@@ -199,7 +235,6 @@ SpecializedScorer OccurBooleanWeight<ScoreCombinerPtrT>::scorer_union(
             break;
         }
     }
-
     if (is_all_term_scorers) {
         std::vector<TermScorerPtr> term_scorers;
         term_scorers.reserve(scorers.size());

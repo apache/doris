@@ -56,6 +56,7 @@ private:
 
     uint32_t _current_doc = TERMINATED;
     float _current_score = 0.0F;
+    uint32_t _size_hint = 0;
 };
 
 template <typename ScoreCombinerPtrT>

@@ -31,6 +31,7 @@ DisjunctionScorer<ScoreCombinerPtrT>::DisjunctionScorer(std::vector<ScorerPtr> s
 
     for (auto& scorer : scorers) {
         if (scorer && scorer->doc() != TERMINATED) {
+            _size_hint = std::max(_size_hint, scorer->size_hint());
             _heap.emplace(std::move(scorer));
         }
     }
@@ -45,13 +46,11 @@ DisjunctionScorer<ScoreCombinerPtrT>::DisjunctionScorer(std::vector<ScorerPtr> s
 template <typename ScoreCombinerPtrT>
 void DisjunctionScorer<ScoreCombinerPtrT>::do_advance() {
     size_t current_num_matches = 0;
-
     while (!_heap.empty()) {
         ScorerWrapper candidate = std::move(const_cast<ScorerWrapper&>(_heap.top()));
         _heap.pop();
 
         uint32_t next = candidate.current_doc;
-
         if (next == TERMINATED) {
             continue;
         }
@@ -102,10 +101,7 @@ uint32_t DisjunctionScorer<ScoreCombinerPtrT>::seek(uint32_t target) {
 
 template <typename ScoreCombinerPtrT>
 uint32_t DisjunctionScorer<ScoreCombinerPtrT>::size_hint() const {
-    uint32_t max_hint = 0;
-    // Note: priority_queue doesn't have iterators, so we return 0 or estimate
-    // If needed, can store size_hint during construction
-    return max_hint;
+    return _size_hint;
 }
 
 template <typename ScoreCombinerPtrT>
