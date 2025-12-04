@@ -813,7 +813,13 @@ public:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         const uint32_t result, size_t input_rows_count) const override {
         auto result_col = block.get_by_position(result).type->create_column();
-        auto* result_map_column = assert_cast<ColumnMap*>(result_col.get());
+        ColumnMap* result_map_column = nullptr;
+        if (result_col->is_nullable()){
+            auto nullable_column = reinterpret_cast<ColumnNullable*>(result_col.get());
+            result_map_column = check_and_get_column<ColumnMap>(nullable_column->get_nested_column());
+        } else {
+            result_map_column = check_and_get_column<ColumnMap>(result_col.get());
+        }
         // map keys column
         auto& result_col_map_keys_data = result_map_column->get_keys();
         // map values column
