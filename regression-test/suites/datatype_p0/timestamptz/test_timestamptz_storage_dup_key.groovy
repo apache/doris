@@ -649,9 +649,10 @@ explain SELECT * FROM timestamptz_storage_dup_key_no_scale where ts_tz = '2023-0
         """
         exception "avg"
     }
-    // qt_count_distinct """
-    //     SELECT ts_tz, count(distinct ts_tz_value) FROM timestamptz_storage_dup_key_no_scale group by ts_tz ORDER BY 1;
-    // """
+    // java.sql.SQLException: errCode = 2, detailMessage = (10.16.10.3)[INVALID_ARGUMENT]CAST AS number not supported TimeStampTz(0)
+    qt_count_distinct """
+        SELECT ts_tz, count(distinct ts_tz_value) FROM timestamptz_storage_dup_key_no_scale group by ts_tz ORDER BY 1;
+    """
 
     // list partition
     sql """

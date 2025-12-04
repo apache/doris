@@ -30,6 +30,7 @@
 #include "vec/functions/cast/cast_to_string.h"
 #include "vec/io/io_helper.h"
 #include "vec/io/var_int.h"
+#include "vec/runtime/timestamptz_value.h"
 #include "vec/runtime/vdatetime_value.h"
 
 namespace doris::vectorized {
@@ -825,6 +826,11 @@ std::string Field::to_string() const {
         const auto& v = binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(
                 (uint64_t)get<typename PrimitiveTypeTraits<TYPE_DATETIMEV2>::NearestFieldType>());
         return CastToString::from_datetimev2(v);
+    }
+    if (type == TYPE_TIMESTAMPTZ) {
+        const auto& v = binary_cast<uint64_t, TimestampTzValue>(
+                (uint64_t)get<typename PrimitiveTypeTraits<TYPE_TIMESTAMPTZ>::NearestFieldType>());
+        return CastToString::from_timestamptz(v, 6);
     }
     MATCH_NUMBER_TYPE(TYPE_BOOLEAN);
     MATCH_NUMBER_TYPE(TYPE_TINYINT);

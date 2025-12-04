@@ -263,6 +263,7 @@ struct ArrayAggregateImpl {
             execute_type<TYPE_DECIMAL256>(res, type, data, offsets) ||
             execute_type<TYPE_DATEV2>(res, type, data, offsets) ||
             execute_type<TYPE_DATETIMEV2>(res, type, data, offsets) ||
+            execute_type<TYPE_TIMESTAMPTZ>(res, type, data, offsets) ||
             execute_type<TYPE_VARCHAR>(res, type, data, offsets)) {
             block.replace_by_position(result, std::move(res));
             return Status::OK();

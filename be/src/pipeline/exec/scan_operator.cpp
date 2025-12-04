@@ -255,7 +255,6 @@ Status ScanLocalState<Derived>::_normalize_conjuncts(RuntimeState* state) {
     for (auto it = _conjuncts.begin(); it != _conjuncts.end();) {
         auto& conjunct = *it;
         if (conjunct->root()) {
-            LOG(INFO) << "conjunct debug string: " << conjunct->root()->debug_string();
             vectorized::VExprSPtr new_root;
             RETURN_IF_ERROR(_normalize_predicate(conjunct->root(), conjunct.get(), new_root));
             if (new_root) {
@@ -280,7 +279,6 @@ Status ScanLocalState<Derived>::_normalize_conjuncts(RuntimeState* state) {
                 [&](auto&& range) {
                     if (range.is_empty_value_range()) {
                         _eos = true;
-                        LOG(INFO) << "xxxx eos";
                         _scan_dependency->set_ready();
                     }
                 },

@@ -17,7 +17,6 @@
 
 #include "exec/tablet_info.h"
 
-#include <thrift/protocol/TDebugProtocol.h>
 #include <butil/logging.h>
 #include <gen_cpp/Descriptors_types.h>
 #include <gen_cpp/Exprs_types.h>
@@ -504,8 +503,6 @@ Status VOlapTablePartitionParam::init() {
     };
 
     // here we find the partition columns. others maybe non-partition columns/special columns.
-    LOG(INFO) << "partition params is "
-               << apache::thrift::ThriftDebugString(_t_param).c_str();
     if (_t_param.__isset.partition_columns) {
         for (auto& part_col : _t_param.partition_columns) {
             RETURN_IF_ERROR(find_slot_locs(part_col, _partition_slot_locs, "partition"));

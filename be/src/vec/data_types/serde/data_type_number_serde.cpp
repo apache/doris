@@ -824,11 +824,8 @@ const uint8_t* DataTypeNumberSerDe<T>::deserialize_binary_to_column(const uint8_
     } else if constexpr (T == TYPE_DATEV2) {
         col.insert_value(unaligned_load<UInt32>(data));
         data += sizeof(UInt32);
-    } else if constexpr (T == TYPE_DATETIMEV2) {
+    } else if constexpr (T == TYPE_DATETIMEV2 || T == TYPE_TIMESTAMPTZ) {
         data += sizeof(uint8_t);
-        col.insert_value(unaligned_load<UInt64>(data));
-        data += sizeof(UInt64);
-    } else if constexpr (T == TYPE_TIMESTAMPTZ) {
         col.insert_value(unaligned_load<UInt64>(data));
         data += sizeof(UInt64);
     } else {
@@ -887,17 +884,13 @@ const uint8_t* DataTypeNumberSerDe<T>::deserialize_binary_to_field(const uint8_t
         UInt32 v = unaligned_load<UInt32>(data);
         field = Field::create_field<TYPE_DATEV2>(v);
         data += sizeof(UInt32);
-    } else if constexpr (T == TYPE_DATETIMEV2) {
+    } else if constexpr (T == TYPE_DATETIMEV2 || T == TYPE_TIMESTAMPTZ) {
         const uint8_t scale = *reinterpret_cast<const uint8_t*>(data);
         data += sizeof(uint8_t);
         UInt64 v = unaligned_load<UInt64>(data);
         info.precision = -1;
         info.scale = static_cast<int>(scale);
-        field = Field::create_field<TYPE_DATETIMEV2>(v);
-        data += sizeof(UInt64);
-    } else if constexpr (T == TYPE_TIMESTAMPTZ) {
-        UInt64 v = unaligned_load<UInt64>(data);
-        field = Field::create_field<TYPE_TIMESTAMPTZ>(v);
+        field = Field::create_field<T>(v);
         data += sizeof(UInt64);
     } else {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
