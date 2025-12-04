@@ -266,3 +266,39 @@
 -- !sql_standard_pinyin4 --
 2	刘德华 张学友
 
+-- !sql_ignore_offset_true_1 --
+[{\n        "token": "liu"\n    }, {\n        "token": "ldh"\n    }, {\n        "token": "de"\n    }, {\n        "token": "hua"\n    }]
+
+-- !sql_ignore_offset_true_2 --
+[{\n        "token": "ni"\n    }, {\n        "token": "nh"\n    }, {\n        "token": "hao"\n    }]
+
+-- !sql_ignore_offset_true_3 --
+[{\n        "token": "yin"\n    }, {\n        "token": "yx"\n    }, {\n        "token": "xing"\n    }]
+
+-- !sql_ignore_offset_false_1 --
+[{\n        "token": "liu"\n    }, {\n        "token": "ldh"\n    }, {\n        "token": "de"\n    }, {\n        "token": "hua"\n    }]
+
+-- !sql_ignore_offset_false_2 --
+[{\n        "token": "ni"\n    }, {\n        "token": "nh"\n    }, {\n        "token": "hao"\n    }]
+
+-- !sql_ignore_offset_false_3 --
+[{\n        "token": "yin"\n    }, {\n        "token": "yx"\n    }, {\n        "token": "xing"\n    }]
+
+-- !sql_ignore_offset_true_mixed --
+[{\n        "token": "liu"\n    }, {\n        "token": "lad"\n    }, {\n        "token": "a"\n    }, {\n        "token": "de"\n    }]
+
+-- !sql_ignore_offset_false_mixed --
+[{\n        "token": "liu"\n    }, {\n        "token": "lad"\n    }, {\n        "token": "a"\n    }, {\n        "token": "de"\n    }]
+
+-- !sql_table_ignore_offset_1 --
+1	刘德华
+
+-- !sql_table_ignore_offset_2 --
+1	刘德华
+
+-- !sql_table_ignore_offset_3 --
+3	银行卡
+
+-- !sql_table_ignore_offset_4 --
+3	银行卡
+
