@@ -75,17 +75,17 @@ doris::Status vectorized::VBitmapPredicate::open(doris::RuntimeState* state,
     return Status::OK();
 }
 
-Status VBitmapPredicate::execute_column(VExprContext* context, const Block* block,
+Status VBitmapPredicate::execute_column(VExprContext* context, const Block* block, size_t count,
                                         ColumnPtr& result_column) const {
     DCHECK(_open_finished || _getting_const_col);
     DCHECK_EQ(_children.size(), 1);
 
     ColumnPtr argument_column;
-    RETURN_IF_ERROR(_children[0]->execute_column(context, block, argument_column));
+    RETURN_IF_ERROR(_children[0]->execute_column(context, block, count, argument_column));
     argument_column = argument_column->convert_to_full_column_if_const();
 
     size_t sz = argument_column->size();
-    auto res_data_column = ColumnUInt8::create(block->rows());
+    auto res_data_column = ColumnUInt8::create(sz);
     res_data_column->resize(sz);
     auto* ptr = res_data_column->get_data().data();
 
@@ -101,6 +101,7 @@ Status VBitmapPredicate::execute_column(VExprContext* context, const Block* bloc
     }
 
     result_column = std::move(res_data_column);
+    DCHECK_EQ(result_column->size(), count);
     return Status::OK();
 }
 

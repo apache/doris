@@ -57,10 +57,11 @@ public:
         return Status::OK();
     }
 
-    Status execute_column(VExprContext* context, const Block* block,
+    Status execute_column(VExprContext* context, const Block* block, size_t count,
                           ColumnPtr& result_column) const override {
         DCHECK(_open_finished || _getting_const_col);
         result_column = block->get_by_position(_column_id + _gap).column;
+        DCHECK_EQ(result_column->size(), count);
         return Status::OK();
     }
 

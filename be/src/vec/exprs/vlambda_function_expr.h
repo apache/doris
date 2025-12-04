@@ -42,10 +42,10 @@ public:
         return Status::OK();
     }
 
-    Status execute_column(VExprContext* context, const Block* block,
+    Status execute_column(VExprContext* context, const Block* block, size_t count,
                           ColumnPtr& result_column) const override {
         DCHECK(_open_finished || _getting_const_col);
-        return get_child(0)->execute_column(context, block, result_column);
+        return get_child(0)->execute_column(context, block, count, result_column);
     }
 
     DataTypePtr execute_type(const Block* block) const override {

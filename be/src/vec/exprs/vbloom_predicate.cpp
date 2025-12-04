@@ -70,23 +70,25 @@ void VBloomPredicate::close(VExprContext* context, FunctionContext::FunctionStat
     VExpr::close(context, scope);
 }
 
-Status VBloomPredicate::execute_column(VExprContext* context, const Block* block,
+Status VBloomPredicate::execute_column(VExprContext* context, const Block* block, size_t count,
                                        ColumnPtr& result_column) const {
     DCHECK(_open_finished || _getting_const_col);
     DCHECK_EQ(_children.size(), 1);
 
     ColumnPtr argument_column;
-    RETURN_IF_ERROR(_children[0]->execute_column(context, block, argument_column));
+    RETURN_IF_ERROR(_children[0]->execute_column(context, block, count, argument_column));
     argument_column = argument_column->convert_to_full_column_if_const();
 
-    auto res_data_column = ColumnUInt8::create(block->rows());
     size_t sz = argument_column->size();
+    auto res_data_column = ColumnUInt8::create(sz);
+
     res_data_column->resize(sz);
     auto* ptr = ((ColumnUInt8*)res_data_column.get())->get_data().data();
 
     _filter->find_fixed_len(argument_column, ptr);
 
     result_column = std::move(res_data_column);
+    DCHECK_EQ(result_column->size(), count);
     return Status::OK();
 }
 

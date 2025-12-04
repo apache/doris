@@ -63,10 +63,11 @@ public:
         return Status::OK();
     }
 
-    Status execute_column(VExprContext* context, const Block* block,
+    Status execute_column(VExprContext* context, const Block* block, size_t count,
                           ColumnPtr& result_column) const override {
         DCHECK(_open_finished || _getting_const_col);
-        return _lambda_function->execute(context, block, result_column, _data_type, _children);
+        return _lambda_function->execute(context, block, count, result_column, _data_type,
+                                         _children);
     }
 
     std::string debug_string() const override {
