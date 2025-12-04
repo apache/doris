@@ -108,9 +108,15 @@ public:
 
     Status submit(std::shared_ptr<ScannerContext> ctx, std::shared_ptr<ScanTask> scan_task);
 
-    static int get_remote_scan_thread_num();
+    static int default_local_scan_thread_num();
+
+    static int default_remote_scan_thread_num();
 
     static int get_remote_scan_thread_queue_size();
+
+    static int default_min_active_scan_threads();
+
+    static int default_min_active_file_scan_threads();
 
     virtual Status start(int max_thread_num, int min_thread_num, int queue_size,
                          int min_active_scan_threads) = 0;
@@ -276,8 +282,10 @@ public:
         thread_config.cgroup_cpu_ctl = _cgroup_cpu_ctl;
         _task_executor = TimeSharingTaskExecutor::create_shared(
                 thread_config, max_thread_num * 2, config::task_executor_min_concurrency_per_task,
-                config::task_executor_max_concurrency_per_task, std::make_shared<SystemTicker>(),
-                nullptr, false);
+                config::task_executor_max_concurrency_per_task > 0
+                        ? config::task_executor_max_concurrency_per_task
+                        : std::numeric_limits<int>::max(),
+                std::make_shared<SystemTicker>(), nullptr, false);
         RETURN_IF_ERROR(_task_executor->init());
         RETURN_IF_ERROR(_task_executor->start());
         return Status::OK();
@@ -321,7 +329,9 @@ public:
             vectorized::TaskId task_id(task_id_string);
             std::shared_ptr<TaskHandle> task_handle = DORIS_TRY(_task_executor->create_task(
                     task_id, []() { return 0.0; },
-                    config::task_executor_initial_max_concurrency_per_task,
+                    config::task_executor_initial_max_concurrency_per_task > 0
+                            ? config::task_executor_initial_max_concurrency_per_task
+                            : std::max(48, CpuInfo::num_cores() * 2),
                     std::chrono::milliseconds(100), std::nullopt));
 
             auto wrapped_scan_func = [this, task_handle, scan_func = scan_task.scan_func]() {
