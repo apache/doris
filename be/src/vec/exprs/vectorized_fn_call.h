@@ -52,9 +52,9 @@ public:
     VectorizedFnCall() = default;
 #endif
     VectorizedFnCall(const TExprNode& node);
-    Status execute_column(VExprContext* context, const Block* block,
+    Status execute_column(VExprContext* context, const Block* block, size_t count,
                           ColumnPtr& result_column) const override;
-    Status execute_runtime_filter(VExprContext* context, const Block* block,
+    Status execute_runtime_filter(VExprContext* context, const Block* block, size_t count,
                                   ColumnPtr& result_column, ColumnPtr* arg_column) const override;
     Status evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) override;
     Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override;
@@ -101,8 +101,8 @@ protected:
     std::string _function_name;
 
 private:
-    Status _do_execute(VExprContext* context, const Block* block, ColumnPtr& result_column,
-                       ColumnPtr* arg_column) const;
+    Status _do_execute(VExprContext* context, const Block* block, size_t count,
+                       ColumnPtr& result_column, ColumnPtr* arg_column) const;
 };
 
 #include "common/compile_check_end.h"

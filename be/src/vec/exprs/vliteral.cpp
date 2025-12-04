@@ -49,10 +49,10 @@ Status VLiteral::prepare(RuntimeState* state, const RowDescriptor& desc, VExprCo
     return Status::OK();
 }
 
-Status VLiteral::execute_column(VExprContext* context, const Block* block,
+Status VLiteral::execute_column(VExprContext* context, const Block* block, size_t count,
                                 ColumnPtr& result_column) const {
-    size_t row_size = std::max(block->rows(), _column_ptr->size());
-    result_column = _column_ptr->clone_resized(row_size);
+    result_column = _column_ptr->clone_resized(count);
+    DCHECK_EQ(result_column->size(), count);
     return Status::OK();
 }
 

@@ -81,10 +81,10 @@ public:
         return Status::OK();
     }
 
-    Status execute_column(VExprContext* context, const Block* block,
+    Status execute_column(VExprContext* context, const Block* block, size_t count,
                           ColumnPtr& result_column) const override {
         if (!_predicate->has_value()) {
-            result_column = create_always_true_column(block->rows(), _data_type->is_nullable());
+            result_column = create_always_true_column(count, _data_type->is_nullable());
             return Status::OK();
         }
 
@@ -92,7 +92,7 @@ public:
 
         // slot
         ColumnPtr slot_column;
-        RETURN_IF_ERROR(_children[0]->execute_column(context, block, slot_column));
+        RETURN_IF_ERROR(_children[0]->execute_column(context, block, count, slot_column));
         auto slot_type = _children[0]->execute_type(block);
         temp_block.insert({slot_column, slot_type, _children[0]->expr_name()});
         int slot_id = 0;
@@ -102,7 +102,7 @@ public:
         auto column_ptr = _children[0]->data_type()->create_column_const(1, field);
         int topn_value_id = VExpr::insert_param(&temp_block,
                                                 {column_ptr, _children[0]->data_type(), _expr_name},
-                                                std::max(block->rows(), column_ptr->size()));
+                                                std::max(count, column_ptr->size()));
 
         // if error(slot_id == -1), will return.
         ColumnNumbers arguments = {static_cast<uint32_t>(slot_id),
@@ -113,12 +113,13 @@ public:
         temp_block.insert({nullptr, _data_type, _expr_name});
 
         RETURN_IF_ERROR(_function->execute(nullptr, temp_block, arguments,
-                                           num_columns_without_result, block->rows()));
+                                           num_columns_without_result, temp_block.rows()));
         result_column = std::move(temp_block.get_by_position(num_columns_without_result).column);
         if (is_nullable() && _predicate->nulls_first()) {
             // null values ​​are always not filtered
             change_null_to_true(result_column->assume_mutable());
         }
+        DCHECK_EQ(result_column->size(), count);
         return Status::OK();
     }
 

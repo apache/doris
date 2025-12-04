@@ -22,6 +22,7 @@
 #include "udf/udf.h"
 #include "util/simd/bits.h"
 #include "vec/columns/column.h"
+#include "vec/columns/column_const.h"
 
 namespace doris::vectorized {
 
@@ -62,7 +63,11 @@ size_t VConditionExpr::count_true_with_notnull(const ColumnPtr& col) {
         return 0;
     }
 
-    if (const auto* const_col = check_and_get_column_const<ColumnUInt8>(col.get())) {
+    if (const auto* const_col = check_and_get_column<ColumnConst>(col.get())) {
+        // if is null , get_bool will return false
+        // bool get_bool(size_t n) const override {
+        //     return is_null_at(n) ? false : _nested_column->get_bool(n);
+        // }
         bool is_true = const_col->get_bool(0);
         return is_true ? col->size() : 0;
     }
@@ -440,13 +445,13 @@ Status VectorizedIfExpr::_execute_impl_internal(Block& block, const ColumnNumber
     }
 }
 
-Status VectorizedIfExpr::execute_column(VExprContext* context, const Block* block,
+Status VectorizedIfExpr::execute_column(VExprContext* context, const Block* block, size_t count,
                                         ColumnPtr& result_column) const {
     DCHECK(_open_finished || _getting_const_col) << debug_string();
     DCHECK_EQ(_children.size(), 3) << "IF expr must have three children";
 
     ColumnPtr cond_column;
-    RETURN_IF_ERROR(_children[0]->execute_column(context, block, cond_column));
+    RETURN_IF_ERROR(_children[0]->execute_column(context, block, count, cond_column));
 
     ColumnPtr then_column;
     ColumnPtr else_column;
@@ -454,17 +459,17 @@ Status VectorizedIfExpr::execute_column(VExprContext* context, const Block* bloc
     auto true_count = count_true_with_notnull(cond_column);
     auto item_count = cond_column->size();
     if (true_count == item_count) {
-        RETURN_IF_ERROR(_children[1]->execute_column(context, block, then_column));
+        RETURN_IF_ERROR(_children[1]->execute_column(context, block, count, then_column));
         result_column = _data_type->is_nullable() ? make_nullable(then_column) : then_column;
         return Status::OK();
     } else if (true_count == 0) {
-        RETURN_IF_ERROR(_children[2]->execute_column(context, block, else_column));
+        RETURN_IF_ERROR(_children[2]->execute_column(context, block, count, else_column));
         result_column = _data_type->is_nullable() ? make_nullable(else_column) : else_column;
         return Status::OK();
     }
 
-    RETURN_IF_ERROR(_children[1]->execute_column(context, block, then_column));
-    RETURN_IF_ERROR(_children[2]->execute_column(context, block, else_column));
+    RETURN_IF_ERROR(_children[1]->execute_column(context, block, count, then_column));
+    RETURN_IF_ERROR(_children[2]->execute_column(context, block, count, else_column));
 
     Block temp_block;
 
@@ -476,17 +481,17 @@ Status VectorizedIfExpr::execute_column(VExprContext* context, const Block* bloc
     temp_block.insert({nullptr, _data_type, IF_NAME});
     RETURN_IF_ERROR(_execute_impl_internal(temp_block, {0, 1, 2}, 3, temp_block.rows()));
     result_column = temp_block.get_by_position(3).column;
-    RETURN_IF_ERROR(block->check_type_and_column());
+    DCHECK_EQ(result_column->size(), count);
     return Status::OK();
 }
 
-Status VectorizedIfNullExpr::execute_column(VExprContext* context, const Block* block,
+Status VectorizedIfNullExpr::execute_column(VExprContext* context, const Block* block, size_t count,
                                             ColumnPtr& result_column) const {
     DCHECK(_open_finished || _getting_const_col) << debug_string();
     DCHECK_EQ(_children.size(), 2) << "IFNULL expr must have two children";
 
     ColumnPtr first_column;
-    RETURN_IF_ERROR(_children[0]->execute_column(context, block, first_column));
+    RETURN_IF_ERROR(_children[0]->execute_column(context, block, count, first_column));
     first_column = first_column->convert_to_full_column_if_const();
 
     if (!first_column->is_nullable()) {
@@ -496,12 +501,12 @@ Status VectorizedIfNullExpr::execute_column(VExprContext* context, const Block* 
     }
 
     if (first_column->only_null()) {
-        RETURN_IF_ERROR(_children[1]->execute_column(context, block, result_column));
+        RETURN_IF_ERROR(_children[1]->execute_column(context, block, count, result_column));
         return Status::OK();
     }
 
     ColumnPtr second_column;
-    RETURN_IF_ERROR(_children[1]->execute_column(context, block, second_column));
+    RETURN_IF_ERROR(_children[1]->execute_column(context, block, count, second_column));
 
     const auto& nullable_first_column = assert_cast<const ColumnNullable&>(*first_column);
 
@@ -529,7 +534,7 @@ Status VectorizedIfNullExpr::execute_column(VExprContext* context, const Block* 
     temp_block.insert({nullptr, _data_type, IF_NULL_NAME});
     RETURN_IF_ERROR(_execute_impl_internal(temp_block, {0, 1, 2}, 3, temp_block.rows()));
     result_column = temp_block.get_by_position(3).column;
-    RETURN_IF_ERROR(block->check_type_and_column());
+    DCHECK_EQ(result_column->size(), count);
     return Status::OK();
 }
 
@@ -607,9 +612,9 @@ Status filled_result_column(const DataTypePtr& data_type, MutableColumnPtr& resu
 }
 
 Status VectorizedCoalesceExpr::execute_column(VExprContext* context, const Block* block,
-                                              ColumnPtr& return_column) const {
+                                              size_t count, ColumnPtr& return_column) const {
     DataTypePtr result_type = _data_type;
-    const auto input_rows_count = block->rows();
+    const auto input_rows_count = count;
 
     size_t remaining_rows = input_rows_count;
     std::vector<uint32_t> record_idx(
@@ -664,7 +669,7 @@ Status VectorizedCoalesceExpr::execute_column(VExprContext* context, const Block
 
     for (size_t i = 0; i < _children.size() && remaining_rows; ++i) {
         // Execute child expression to get the argument column.
-        RETURN_IF_ERROR(_children[i]->execute_column(context, block, original_columns[i]));
+        RETURN_IF_ERROR(_children[i]->execute_column(context, block, count, original_columns[i]));
         original_columns[i] = original_columns[i]->convert_to_full_column_if_const();
         argument_not_null_columns[i] = original_columns[i];
         if (const auto* nullable =
@@ -731,6 +736,7 @@ Status VectorizedCoalesceExpr::execute_column(VExprContext* context, const Block
         return_column = std::move(result_column);
     }
 
+    DCHECK_EQ(return_column->size(), count);
     return Status::OK();
 }
 

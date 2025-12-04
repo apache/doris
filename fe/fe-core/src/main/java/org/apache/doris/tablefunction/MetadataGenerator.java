@@ -150,6 +150,8 @@ public class MetadataGenerator {
 
     private static final ImmutableMap<String, Integer> TABLE_PROPERTIES_COLUMN_TO_INDEX;
 
+    private static final ImmutableMap<String, Integer> DATABASE_PROPERTIES_COLUMN_TO_INDEX;
+
     private static final ImmutableMap<String, Integer> META_CACHE_STATS_COLUMN_TO_INDEX;
 
     private static final ImmutableMap<String, Integer> PARTITIONS_COLUMN_TO_INDEX;
@@ -205,6 +207,13 @@ public class MetadataGenerator {
             propertiesBuilder.put(propertiesColList.get(i).getName().toLowerCase(), i);
         }
         TABLE_PROPERTIES_COLUMN_TO_INDEX = propertiesBuilder.build();
+
+        ImmutableMap.Builder<String, Integer> dbPropertiesBuilder = new ImmutableMap.Builder();
+        List<Column> dbPropertiesColList = SchemaTable.TABLE_MAP.get("database_properties").getFullSchema();
+        for (int i = 0; i < dbPropertiesColList.size(); i++) {
+            dbPropertiesBuilder.put(dbPropertiesColList.get(i).getName().toLowerCase(), i);
+        }
+        DATABASE_PROPERTIES_COLUMN_TO_INDEX = dbPropertiesBuilder.build();
 
         ImmutableMap.Builder<String, Integer> metaCacheBuilder = new ImmutableMap.Builder();
         List<Column> metaCacheColList = SchemaTable.TABLE_MAP.get("catalog_meta_cache_statistics").getFullSchema();
@@ -331,6 +340,10 @@ public class MetadataGenerator {
             case TABLE_PROPERTIES:
                 result = tablePropertiesMetadataResult(schemaTableParams);
                 columnIndex = TABLE_PROPERTIES_COLUMN_TO_INDEX;
+                break;
+            case DATABASE_PROPERTIES:
+                result = databasePropertiesMetadataResult(schemaTableParams);
+                columnIndex = DATABASE_PROPERTIES_COLUMN_TO_INDEX;
                 break;
             case CATALOG_META_CACHE_STATS:
                 result = metaCacheStatsMetadataResult(schemaTableParams);
@@ -1559,6 +1572,66 @@ public class MetadataGenerator {
             tablePropertiesForInternalCatalog(currentUserIdentity, catalog, database, tables, dataBatch);
         } else if (catalog instanceof ExternalCatalog) {
             tablePropertiesForExternalCatalog(currentUserIdentity, catalog, database, tables, dataBatch);
+        }
+        result.setDataBatch(dataBatch);
+        result.setStatus(new TStatus(TStatusCode.OK));
+        return result;
+    }
+
+    private static TFetchSchemaTableDataResult databasePropertiesMetadataResult(TSchemaTableRequestParams params) {
+        if (!params.isSetCurrentUserIdent()) {
+            return errorResult("current user ident is not set.");
+        }
+        if (!params.isSetDbId()) {
+            return errorResult("current db id is not set.");
+        }
+        if (!params.isSetCatalog()) {
+            return errorResult("current catalog is not set.");
+        }
+
+        TUserIdentity tcurrentUserIdentity = params.getCurrentUserIdent();
+        UserIdentity currentUserIdentity = UserIdentity.fromThrift(tcurrentUserIdentity);
+        TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
+        Long dbId = params.getDbId();
+        String clg = params.getCatalog();
+        List<TRow> dataBatch = Lists.newArrayList();
+        CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(clg);
+        if (catalog == null) {
+            result.setDataBatch(dataBatch);
+            result.setStatus(new TStatus(TStatusCode.OK));
+            return result;
+        }
+        DatabaseIf databaseIf = catalog.getDbNullable(dbId);
+        if (databaseIf == null) {
+            result.setDataBatch(dataBatch);
+            result.setStatus(new TStatus(TStatusCode.OK));
+            return result;
+        }
+
+        if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(currentUserIdentity, catalog.getName(),
+                databaseIf.getFullName(), PrivPredicate.SHOW)) {
+            result.setDataBatch(dataBatch);
+            result.setStatus(new TStatus(TStatusCode.OK));
+            return result;
+        }
+        Map<String, String> props = databaseIf.getDbProperties() == null
+                ? null : databaseIf.getDbProperties().getProperties();
+        if (props == null || props.isEmpty()) {
+            TRow trow = new TRow();
+            trow.addToColumnValue(new TCell().setStringVal(catalog.getName()));
+            trow.addToColumnValue(new TCell().setStringVal(databaseIf.getFullName()));
+            trow.addToColumnValue(new TCell().setStringVal(""));
+            trow.addToColumnValue(new TCell().setStringVal(""));
+            dataBatch.add(trow);
+        } else {
+            props.forEach((key, value) -> {
+                TRow trow = new TRow();
+                trow.addToColumnValue(new TCell().setStringVal(catalog.getName()));
+                trow.addToColumnValue(new TCell().setStringVal(databaseIf.getFullName()));
+                trow.addToColumnValue(new TCell().setStringVal(key));
+                trow.addToColumnValue(new TCell().setStringVal(value));
+                dataBatch.add(trow);
+            });
         }
         result.setDataBatch(dataBatch);
         result.setStatus(new TStatus(TStatusCode.OK));

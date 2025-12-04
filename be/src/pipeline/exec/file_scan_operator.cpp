@@ -83,7 +83,7 @@ Status FileScanLocalState::_init_scanners(std::list<vectorized::ScannerSPtr>* sc
     auto& p = _parent->cast<FileScanOperatorX>();
     // There's only one scan range for each backend in batch split mode. Each backend only starts up one ScanNode instance.
     uint32_t shard_num = std::min(
-            vectorized::ScannerScheduler::get_remote_scan_thread_num() / p.parallelism(state()),
+            vectorized::ScannerScheduler::default_remote_scan_thread_num() / p.parallelism(state()),
             _max_scanners);
     shard_num = std::max(shard_num, 1U);
     _kv_cache.reset(new vectorized::ShardedKVCache(shard_num));
@@ -108,8 +108,8 @@ void FileScanLocalState::set_scan_ranges(RuntimeState* state,
     auto& p = _parent->cast<FileScanOperatorX>();
 
     auto calc_max_scanners = [&](int parallel_instance_num) -> int {
-        int max_scanners =
-                vectorized::ScannerScheduler::get_remote_scan_thread_num() / parallel_instance_num;
+        int max_scanners = vectorized::ScannerScheduler::default_remote_scan_thread_num() /
+                           parallel_instance_num;
         if (should_run_serial()) {
             max_scanners = 1;
         }

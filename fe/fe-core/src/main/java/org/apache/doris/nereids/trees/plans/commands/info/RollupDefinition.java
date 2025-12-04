@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.trees.plans.commands.info;
 
-import org.apache.doris.analysis.AddRollupClause;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.util.Utils;
 
@@ -54,10 +53,6 @@ public class RollupDefinition {
                 throw new AnalysisException("rollup has duplicate column name " + col);
             }
         }
-    }
-
-    public AddRollupClause translateToCatalogStyle() {
-        return new AddRollupClause(name, cols, dupKeys, name, properties);
     }
 
     public AddRollupOp translateToAddRollupOp() {
