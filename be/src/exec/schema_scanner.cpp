@@ -37,6 +37,7 @@
 #include "exec/schema_scanner/schema_collations_scanner.h"
 #include "exec/schema_scanner/schema_column_data_sizes_scanner.h"
 #include "exec/schema_scanner/schema_columns_scanner.h"
+#include "exec/schema_scanner/schema_database_properties_scanner.h"
 #include "exec/schema_scanner/schema_dummy_scanner.h"
 #include "exec/schema_scanner/schema_encryption_keys_scanner.h"
 #include "exec/schema_scanner/schema_file_cache_info_scanner.h"
@@ -235,6 +236,8 @@ std::unique_ptr<SchemaScanner> SchemaScanner::create(TSchemaTableType::type type
         return SchemaBackendWorkloadGroupResourceUsage::create_unique();
     case TSchemaTableType::SCH_TABLE_PROPERTIES:
         return SchemaTablePropertiesScanner::create_unique();
+    case TSchemaTableType::SCH_DATABASE_PROPERTIES:
+        return SchemaDatabasePropertiesScanner::create_unique();
     case TSchemaTableType::SCH_FILE_CACHE_STATISTICS:
         return SchemaFileCacheStatisticsScanner::create_unique();
     case TSchemaTableType::SCH_CATALOG_META_CACHE_STATISTICS:
