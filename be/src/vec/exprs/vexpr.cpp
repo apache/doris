@@ -837,8 +837,8 @@ uint64_t VExpr::get_digest(uint64_t seed) const {
     return digest;
 }
 
-ColumnPtr VExpr::get_result_from_const(const Block* block) const {
-    return ColumnConst::create(_constant_col->column_ptr, block->rows());
+ColumnPtr VExpr::get_result_from_const(size_t count) const {
+    return ColumnConst::create(_constant_col->column_ptr, count);
 }
 
 Status VExpr::_evaluate_inverted_index(VExprContext* context, const FunctionBasePtr& function,

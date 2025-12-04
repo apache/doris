@@ -70,7 +70,7 @@ public:
     }
 
     Status execute(VExprContext*, Block*, int*) const override { return Status::OK(); }
-    Status execute_column(VExprContext* context, const Block* block,
+    Status execute_column(VExprContext* context, const Block* block, size_t count,
                           ColumnPtr& result_column) const override {
         return Status::OK();
     }
@@ -846,14 +846,14 @@ TEST_F(VSearchExprTest, TestSingleChildBooleanClause) {
 TEST_F(VSearchExprTest, TestExecuteWithNullBlock) {
     auto vsearch_expr = VSearchExpr::create_shared(test_node);
 
-    int result_column_id = -1;
-
     // Create a basic VExprContext without inverted index context
     auto dummy_expr = VSearchExpr::create_shared(test_node);
     VExprContext context(dummy_expr);
 
     // Test with null block (should not crash)
-    auto status = vsearch_expr->execute(&context, nullptr, &result_column_id);
+
+    ColumnPtr result_column;
+    auto status = vsearch_expr->execute_column(&context, nullptr, 0, result_column);
     EXPECT_FALSE(status.ok());
     EXPECT_TRUE(status.code() == ErrorCode::INTERNAL_ERROR);
 }
