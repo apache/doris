@@ -21,6 +21,8 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.types.coercion.PrimitiveType;
 
+import com.google.common.base.Preconditions;
+
 import java.util.Objects;
 
 /**
@@ -40,6 +42,8 @@ public class VarBinaryType extends PrimitiveType {
     }
 
     public VarBinaryType(int len) {
+        Preconditions.checkArgument(0 <= len && len <= MAX_VARBINARY_LENGTH,
+                "VarBinary length must be between 0 and " + MAX_VARBINARY_LENGTH + ", but got: " + len);
         this.len = len;
     }
 

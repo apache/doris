@@ -390,4 +390,23 @@ suite("test_iceberg_sys_table", "p0,external,doris,external_docker,external_dock
         sql """select committed_at, snapshot_id, parent_id, operation from ${catalog_name}.${db_name}.test_iceberg_systable_tbl1\$snapshots"""
     }
     try_sql("DROP USER ${user}")
+
+    sql """drop catalog if exists test_iceberg_varbinary_sys"""
+    sql """
+    CREATE CATALOG test_iceberg_varbinary_sys PROPERTIES (
+        'type'='iceberg',
+        'iceberg.catalog.type'='rest',
+        'uri' = 'http://${externalEnvIp}:${rest_port}',
+        "s3.access_key" = "admin",
+        "s3.secret_key" = "password",
+        "s3.endpoint" = "http://${externalEnvIp}:${minio_port}",
+        "s3.region" = "us-east-1",
+        'enable.mapping.varbinary' = 'true'
+    );"""
+
+    sql """switch test_iceberg_varbinary_sys """
+    sql """use ${db_name}"""
+
+    order_qt_varbinary_sys_table_desc """desc test_iceberg_systable_unpartitioned\$files"""
+    order_qt_varbinary_sys_table_select """select * from test_iceberg_systable_unpartitioned\$files;"""
 }
