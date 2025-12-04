@@ -110,6 +110,7 @@ public:
     }
 
 private:
+    StringRef _get_string_ref(const Field& field, const PrimitiveType type);
     void check_target_node_id(int32_t target_node_id) const {
         if (!_contexts.contains(target_node_id)) {
             std::string msg = "context target node ids: [";

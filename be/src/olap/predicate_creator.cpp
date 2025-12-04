@@ -22,72 +22,76 @@ namespace doris {
 std::shared_ptr<ColumnPredicate> create_bloom_filter_predicate(
         const uint32_t cid, const vectorized::DataTypePtr& data_type,
         const std::shared_ptr<BloomFilterFuncBase>& filter) {
+    // Do the necessary type conversion, for CAST(STRING AS CHAR), we do nothing here but change the data type to the target type CHAR
+    std::shared_ptr<BloomFilterFuncBase> filter_olap;
+    filter_olap.reset(create_bloom_filter(data_type->get_primitive_type(), false));
+    filter_olap->light_copy(filter.get());
     switch (data_type->get_primitive_type()) {
     case TYPE_TINYINT: {
-        return BloomFilterColumnPredicate<TYPE_TINYINT>::create_shared(cid, filter);
+        return BloomFilterColumnPredicate<TYPE_TINYINT>::create_shared(cid, filter_olap);
     }
     case TYPE_SMALLINT: {
-        return BloomFilterColumnPredicate<TYPE_SMALLINT>::create_shared(cid, filter);
+        return BloomFilterColumnPredicate<TYPE_SMALLINT>::create_shared(cid, filter_olap);
     }
     case TYPE_INT: {
-        return BloomFilterColumnPredicate<TYPE_INT>::create_shared(cid, filter);
+        return BloomFilterColumnPredicate<TYPE_INT>::create_shared(cid, filter_olap);
     }
     case TYPE_BIGINT: {
-        return BloomFilterColumnPredicate<TYPE_BIGINT>::create_shared(cid, filter);
+        return BloomFilterColumnPredicate<TYPE_BIGINT>::create_shared(cid, filter_olap);
     }
     case TYPE_LARGEINT: {
-        return BloomFilterColumnPredicate<TYPE_LARGEINT>::create_shared(cid, filter);
+        return BloomFilterColumnPredicate<TYPE_LARGEINT>::create_shared(cid, filter_olap);
     }
     case TYPE_FLOAT: {
-        return BloomFilterColumnPredicate<TYPE_FLOAT>::create_shared(cid, filter);
+        return BloomFilterColumnPredicate<TYPE_FLOAT>::create_shared(cid, filter_olap);
     }
     case TYPE_DOUBLE: {
-        return BloomFilterColumnPredicate<TYPE_DOUBLE>::create_shared(cid, filter);
+        return BloomFilterColumnPredicate<TYPE_DOUBLE>::create_shared(cid, filter_olap);
     }
     case TYPE_DECIMALV2: {
-        return BloomFilterColumnPredicate<TYPE_DECIMALV2>::create_shared(cid, filter);
+        return BloomFilterColumnPredicate<TYPE_DECIMALV2>::create_shared(cid, filter_olap);
     }
     case TYPE_DECIMAL32: {
-        return BloomFilterColumnPredicate<TYPE_DECIMAL32>::create_shared(cid, filter);
+        return BloomFilterColumnPredicate<TYPE_DECIMAL32>::create_shared(cid, filter_olap);
     }
     case TYPE_DECIMAL64: {
-        return BloomFilterColumnPredicate<TYPE_DECIMAL64>::create_shared(cid, filter);
+        return BloomFilterColumnPredicate<TYPE_DECIMAL64>::create_shared(cid, filter_olap);
     }
     case TYPE_DECIMAL128I: {
-        return BloomFilterColumnPredicate<TYPE_DECIMAL128I>::create_shared(cid, filter);
+        return BloomFilterColumnPredicate<TYPE_DECIMAL128I>::create_shared(cid, filter_olap);
     }
     case TYPE_DECIMAL256: {
-        return BloomFilterColumnPredicate<TYPE_DECIMAL256>::create_shared(cid, filter);
+        return BloomFilterColumnPredicate<TYPE_DECIMAL256>::create_shared(cid, filter_olap);
     }
     case TYPE_CHAR: {
-        return BloomFilterColumnPredicate<TYPE_CHAR>::create_shared(cid, filter);
+        return BloomFilterColumnPredicate<TYPE_CHAR>::create_shared(cid, filter_olap);
     }
     case TYPE_VARCHAR: {
-        return BloomFilterColumnPredicate<TYPE_VARCHAR>::create_shared(cid, filter);
+        return BloomFilterColumnPredicate<TYPE_VARCHAR>::create_shared(cid, filter_olap);
     }
     case TYPE_STRING: {
-        return BloomFilterColumnPredicate<TYPE_STRING>::create_shared(cid, filter);
+        return BloomFilterColumnPredicate<TYPE_STRING>::create_shared(cid, filter_olap);
     }
     case TYPE_DATE: {
-        return BloomFilterColumnPredicate<TYPE_DATE>::create_shared(cid, filter);
+        return BloomFilterColumnPredicate<TYPE_DATE>::create_shared(cid, filter_olap);
     }
     case TYPE_DATEV2: {
-        return BloomFilterColumnPredicate<TYPE_DATEV2>::create_shared(cid, filter);
+        return BloomFilterColumnPredicate<TYPE_DATEV2>::create_shared(cid, filter_olap);
     }
     case TYPE_DATETIME: {
-        return BloomFilterColumnPredicate<TYPE_DATETIME>::create_shared(cid, filter);
+        return BloomFilterColumnPredicate<TYPE_DATETIME>::create_shared(cid, filter_olap);
     }
     case TYPE_DATETIMEV2: {
-        return BloomFilterColumnPredicate<TYPE_DATETIMEV2>::create_shared(cid, filter);
+        return BloomFilterColumnPredicate<TYPE_DATETIMEV2>::create_shared(cid, filter_olap);
     }
     case TYPE_BOOLEAN: {
-        return BloomFilterColumnPredicate<TYPE_BOOLEAN>::create_shared(cid, filter);
+        return BloomFilterColumnPredicate<TYPE_BOOLEAN>::create_shared(cid, filter_olap);
     }
     case TYPE_IPV4: {
-        return BloomFilterColumnPredicate<TYPE_IPV4>::create_shared(cid, filter);
+        return BloomFilterColumnPredicate<TYPE_IPV4>::create_shared(cid, filter_olap);
     }
     case TYPE_IPV6: {
-        return BloomFilterColumnPredicate<TYPE_IPV6>::create_shared(cid, filter);
+        return BloomFilterColumnPredicate<TYPE_IPV6>::create_shared(cid, filter_olap);
     }
     default:
         return nullptr;

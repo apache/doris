@@ -867,7 +867,7 @@ Status ScanLocalState<Derived>::_normalize_not_in_and_not_eq_predicate(
                 slot->id(),
                 slot->type()->get_primitive_type() == TYPE_VARIANT ? expr->get_child(0)->data_type()
                                                                    : slot->type(),
-                state->hybrid_set, true));
+                state->hybrid_set, false));
         while (iter->has_next()) {
             // column not in (nullptr) is always true
             DCHECK(iter->get_value() != nullptr);
@@ -908,7 +908,7 @@ Status ScanLocalState<Derived>::_normalize_not_in_and_not_eq_predicate(
                     slot->type()->get_primitive_type() == TYPE_VARIANT
                             ? expr->get_child(0)->data_type()
                             : slot->type(),
-                    value, true));
+                    value, false));
             auto fn_name = std::string("");
             if constexpr (T == TYPE_CHAR || T == TYPE_VARCHAR || T == TYPE_STRING ||
                           T == TYPE_HLL) {

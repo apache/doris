@@ -66,7 +66,7 @@ void RuntimePredicate::init_target(
     _detected_target = true;
 }
 
-StringRef get_string_ref(const Field& field, const PrimitiveType type) {
+StringRef RuntimePredicate::_get_string_ref(const Field& field, const PrimitiveType type) {
     switch (type) {
     case PrimitiveType::TYPE_BOOLEAN: {
         const auto& v = field.get<typename PrimitiveTypeTraits<TYPE_BOOLEAN>::CppType>();
@@ -96,7 +96,12 @@ StringRef get_string_ref(const Field& field, const PrimitiveType type) {
     case PrimitiveType::TYPE_VARCHAR:
     case PrimitiveType::TYPE_STRING: {
         const auto& v = field.get<String>();
-        return StringRef(v.data(), v.size());
+        auto length = v.size();
+        char* buffer = _predicate_arena.alloc(length);
+        memset(buffer, 0, length);
+        memcpy(buffer, v.data(), v.length());
+
+        return {buffer, length};
     }
     case PrimitiveType::TYPE_DATEV2: {
         const auto& v = field.get<typename PrimitiveTypeTraits<TYPE_DATEV2>::CppType>();
@@ -189,7 +194,7 @@ Status RuntimePredicate::update(const Field& value) {
             continue;
         }
         const auto& column = *DORIS_TRY(ctx.tablet_schema->column(ctx.col_name));
-        auto str_ref = get_string_ref(_orderby_extrem, _type);
+        auto str_ref = _get_string_ref(_orderby_extrem, _type);
         std::shared_ptr<ColumnPredicate> pred = _pred_constructor(
                 ctx.predicate->column_id(), column.get_vec_type(), str_ref, false);
 

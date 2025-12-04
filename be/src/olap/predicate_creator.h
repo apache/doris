@@ -145,6 +145,7 @@ public:
     }
 
 private:
+    // TODO(gabriel): remove conversion
     static StringRef convert(const vectorized::DataTypePtr& data_type, const std::string& condition,
                              vectorized::Arena& arena) {
         size_t length = condition.length();
