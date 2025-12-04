@@ -183,7 +183,6 @@ public class PartitionCompensator {
             // and prune partition failed
             return false;
         }
-
         return !PartitionType.UNPARTITIONED.equals(type) && relatedTableInfo != null;
     }
 

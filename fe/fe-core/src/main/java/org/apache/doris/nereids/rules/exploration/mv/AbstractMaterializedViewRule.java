@@ -198,7 +198,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
      * only one materialization every time. Different query pattern should override the sub logic.
      */
     protected List<Plan> doRewrite(StructInfo queryStructInfo, CascadesContext cascadesContext,
-            MaterializationContext materializationContext) {
+            MaterializationContext materializationContext) throws AnalysisException {
         List<Plan> rewriteResults = new ArrayList<>();
         StructInfo viewStructInfo = materializationContext.getStructInfo();
         MatchMode matchMode = decideMatchMode(queryStructInfo.getRelations(), viewStructInfo.getRelations());
