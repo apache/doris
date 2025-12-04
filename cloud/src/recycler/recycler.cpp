@@ -2577,8 +2577,17 @@ int InstanceRecycler::delete_rowset_data(const RowsetMetaCloudPB& rs_meta_pb) {
 
 int InstanceRecycler::process_merged_file_segment_index(
         const doris::RowsetMetaCloudPB& rs_meta_pb) {
+    LOG_INFO("begin process_merged_file_segment_index")
+            .tag("instance_id", instance_id_)
+            .tag("tablet_id", rs_meta_pb.tablet_id())
+            .tag("rowset_id", rs_meta_pb.rowset_id_v2())
+            .tag("index_map_size", rs_meta_pb.merge_file_segment_index_size());
     const auto& index_map = rs_meta_pb.merge_file_segment_index();
     if (index_map.empty()) {
+        LOG_INFO("skip merge file update: empty merge_file_segment_index")
+                .tag("instance_id", instance_id_)
+                .tag("tablet_id", rs_meta_pb.tablet_id())
+                .tag("rowset_id", rs_meta_pb.rowset_id_v2());
         return 0;
     }
     struct MergeSmallFileInfo {
@@ -2593,6 +2602,11 @@ int InstanceRecycler::process_merged_file_segment_index(
         merged_file_updates[index_pb.merge_file_path()].push_back(MergeSmallFileInfo {small_path});
     }
     if (merged_file_updates.empty()) {
+        LOG_INFO("skip merge file update: no valid merge_file_path in merge_file_segment_index")
+                .tag("instance_id", instance_id_)
+                .tag("tablet_id", rs_meta_pb.tablet_id())
+                .tag("rowset_id", rs_meta_pb.rowset_id_v2())
+                .tag("index_map_size", index_map.size());
         return 0;
     }
 
@@ -2654,8 +2668,18 @@ int InstanceRecycler::process_merged_file_segment_index(
                 break;
             }
 
+            LOG_INFO("merge file update check")
+                    .tag("instance_id", instance_id_)
+                    .tag("rowset_id", rs_meta_pb.rowset_id_v2())
+                    .tag("tablet_id", rs_meta_pb.tablet_id())
+                    .tag("merged_file_path", merged_file_path)
+                    .tag("requested_small_files", small_files.size())
+                    .tag("merge_entries", merge_info.small_files_size());
+
             auto* small_file_entries = merge_info.mutable_small_files();
             int64_t changed_files = 0;
+            int64_t missing_entries = 0;
+            int64_t already_deleted = 0;
             for (const auto& small_file_info : small_files) {
                 bool found = false;
                 for (auto& small_file_entry : *small_file_entries) {
@@ -2666,12 +2690,15 @@ int InstanceRecycler::process_merged_file_segment_index(
                                 small_file_entry.set_corrected(true);
                             }
                             ++changed_files;
+                        } else {
+                            ++already_deleted;
                         }
                         found = true;
                         break;
                     }
                 }
                 if (!found) {
+                    ++missing_entries;
                     LOG_WARNING("merged file info missing small file entry")
                             .tag("instance_id", instance_id_)
                             .tag("merged_file_path", merged_file_path)
@@ -2682,6 +2709,15 @@ int InstanceRecycler::process_merged_file_segment_index(
             }
 
             if (changed_files == 0) {
+                LOG_INFO("skip merge file update: no merge entries changed")
+                        .tag("instance_id", instance_id_)
+                        .tag("rowset_id", rs_meta_pb.rowset_id_v2())
+                        .tag("tablet_id", rs_meta_pb.tablet_id())
+                        .tag("merged_file_path", merged_file_path)
+                        .tag("missing_entries", missing_entries)
+                        .tag("already_deleted", already_deleted)
+                        .tag("requested_small_files", small_files.size())
+                        .tag("merge_entries", merge_info.small_files_size());
                 success = true;
                 break;
             }
@@ -2738,7 +2774,8 @@ int InstanceRecycler::process_merged_file_segment_index(
                         .tag("instance_id", instance_id_)
                         .tag("merged_file_path", merged_file_path)
                         .tag("rowset_id", rs_meta_pb.rowset_id_v2())
-                        .tag("tablet_id", rs_meta_pb.tablet_id());
+                        .tag("tablet_id", rs_meta_pb.tablet_id())
+                        .tag("changed_files", changed_files);
                 ret = -1;
                 break;
             }
@@ -2748,7 +2785,8 @@ int InstanceRecycler::process_merged_file_segment_index(
                     .tag("merged_file_path", merged_file_path)
                     .tag("rowset_id", rs_meta_pb.rowset_id_v2())
                     .tag("tablet_id", rs_meta_pb.tablet_id())
-                    .tag("err", err);
+                    .tag("err", err)
+                    .tag("changed_files", changed_files);
             ret = -1;
             break;
         } while (false);
@@ -2894,6 +2932,11 @@ int InstanceRecycler::delete_rowset_data(
         auto& file_paths = resource_file_paths[rs.resource_id()];
         const auto& rowset_id = rs.rowset_id_v2();
         int64_t tablet_id = rs.tablet_id();
+        LOG_INFO("recycle rowset merge index size")
+                .tag("instance_id", instance_id_)
+                .tag("tablet_id", tablet_id)
+                .tag("rowset_id", rowset_id)
+                .tag("merge_index_size", rs.merge_file_segment_index_size());
         if (process_merged_file_segment_index(rs) != 0) {
             ret = -1;
             continue;
