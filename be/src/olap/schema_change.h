@@ -43,13 +43,13 @@
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_reader.h"
 #include "olap/rowset/rowset_writer.h"
-#include "olap/rowset/segment_v2/inverted_index_writer.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet.h"
 #include "olap/tablet_fwd.h"
 #include "olap/tablet_schema.h"
 #include "runtime/descriptors.h"
 #include "runtime/memory/mem_tracker.h"
+#include "runtime/runtime_state.h"
 #include "vec/data_types/data_type.h"
 
 namespace doris {
@@ -69,7 +69,8 @@ class OlapBlockDataConvertor;
 
 class BlockChanger {
 public:
-    BlockChanger(TabletSchemaSPtr tablet_schema, DescriptorTbl desc_tbl);
+    BlockChanger(TabletSchemaSPtr tablet_schema, DescriptorTbl desc_tbl,
+                 std::shared_ptr<RuntimeState> state);
 
     ~BlockChanger();
 
@@ -99,6 +100,8 @@ private:
     AlterTabletType _type;
 
     int32_t _fe_compatible_version = -1;
+
+    std::shared_ptr<RuntimeState> _state;
 };
 
 class SchemaChange {
@@ -281,6 +284,7 @@ struct SchemaChangeParams {
     int32_t be_exec_version;
     std::string vault_id;
     bool output_to_file_cache;
+    std::shared_ptr<RuntimeState> runtime_state;
 };
 
 class SchemaChangeJob {

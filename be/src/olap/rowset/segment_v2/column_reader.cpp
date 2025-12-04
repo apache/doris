@@ -20,6 +20,7 @@
 #include <assert.h>
 #include <gen_cpp/Descriptors_types.h>
 #include <gen_cpp/segment_v2.pb.h>
+#include <glog/logging.h>
 
 #include <algorithm>
 #include <memory>
@@ -873,6 +874,7 @@ Status ColumnReader::new_struct_iterator(ColumnIteratorUPtr* iterator,
         TabletColumn column = tablet_column->get_sub_column(i);
         ColumnIteratorUPtr it;
         RETURN_IF_ERROR(Segment::new_default_iterator(column, &it));
+        it->set_column_name(column.name());
         sub_column_iterators.emplace_back(std::move(it));
     }
 
@@ -963,7 +965,7 @@ Status MapFileColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr
                                          bool* has_null) {
     if (_reading_flag == ReadingFlag::SKIP_READING) {
         DLOG(INFO) << "Map column iterator column " << _column_name << " skip reading.";
-        dst->resize(*n);
+        dst->resize(dst->size() + *n);
         return Status::OK();
     }
 
@@ -1257,7 +1259,7 @@ Status StructFileColumnIterator::next_batch(size_t* n, vectorized::MutableColumn
                                             bool* has_null) {
     if (_reading_flag == ReadingFlag::SKIP_READING) {
         DLOG(INFO) << "Struct column iterator column " << _column_name << " skip reading.";
-        dst->resize(*n);
+        dst->resize(dst->size() + *n);
         return Status::OK();
     }
 
@@ -1517,7 +1519,7 @@ Status ArrayFileColumnIterator::next_batch(size_t* n, vectorized::MutableColumnP
                                            bool* has_null) {
     if (_reading_flag == ReadingFlag::SKIP_READING) {
         DLOG(INFO) << "Array column iterator column " << _column_name << " skip reading.";
-        dst->resize(*n);
+        dst->resize(dst->size() + *n);
         return Status::OK();
     }
 
@@ -1734,7 +1736,7 @@ Status FileColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr& d
                                       bool* has_null) {
     if (_reading_flag == ReadingFlag::SKIP_READING) {
         DLOG(INFO) << "File column iterator column " << _column_name << " skip reading.";
-        dst->resize(*n);
+        dst->resize(dst->size() + *n);
         return Status::OK();
     }
 

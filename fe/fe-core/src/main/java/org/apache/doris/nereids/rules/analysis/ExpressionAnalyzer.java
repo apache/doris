@@ -312,6 +312,8 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
                 }
                 if (firstBound.getDataType() instanceof NestedColumnPrunable) {
                     context.cascadesContext.getStatementContext().setHasNestedColumns(true);
+                } else if (firstBound.containsType(ElementAt.class, StructElement.class)) {
+                    context.cascadesContext.getStatementContext().setHasNestedColumns(true);
                 }
                 return firstBound;
             default:
@@ -1126,7 +1128,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
             }
             throw new AnalysisException("No such field '" + fieldName + "' in '" + lastFieldName + "'");
         }
-        return Optional.of(new Alias(expression));
+        return Optional.of(new Alias(expression, unboundSlot.getName(), slot.getQualifier()));
     }
 
     public static boolean sameTableName(String boundSlot, String unboundSlot) {

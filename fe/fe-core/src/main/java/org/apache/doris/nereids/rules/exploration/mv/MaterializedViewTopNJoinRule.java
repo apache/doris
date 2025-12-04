@@ -68,6 +68,7 @@ public class MaterializedViewTopNJoinRule extends AbstractMaterializedViewJoinRu
         return accept
                 && !checkContext.isContainsTopAggregate()
                 && !checkContext.isContainsTopLimit()
+                && !checkContext.isContainsTopWindow()
                 && checkContext.isContainsTopTopN() && checkContext.getTopTopNNum() == 1;
     }
 

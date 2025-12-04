@@ -125,7 +125,7 @@ const std::string& VSearchExpr::expr_name() const {
     return name;
 }
 
-Status VSearchExpr::execute_column(VExprContext* context, const Block* block,
+Status VSearchExpr::execute_column(VExprContext* context, const Block* block, size_t count,
                                    ColumnPtr& result_column) const {
     if (fast_execute(context, result_column)) {
         return Status::OK();

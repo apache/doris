@@ -54,14 +54,14 @@ public:
         return Status::OK();
     }
 
-    Status execute_column(VExprContext* context, const Block* block,
+    Status execute_column(VExprContext* context, const Block* block, size_t count,
                           ColumnPtr& result_column) const override {
-        return _do_execute(context, block, result_column, nullptr);
+        return _do_execute(context, block, count, result_column, nullptr);
     }
 
-    Status execute_runtime_filter(VExprContext* context, const Block* block,
+    Status execute_runtime_filter(VExprContext* context, const Block* block, size_t count,
                                   ColumnPtr& result_column, ColumnPtr* arg_column) const override {
-        return _do_execute(context, block, result_column, arg_column);
+        return _do_execute(context, block, count, result_column, arg_column);
     }
 
     const std::string& expr_name() const override { return _expr_name; }
@@ -106,15 +106,15 @@ public:
         return true;
     }
 
-    uint64_t get_digest(uint64_t seed) const override { return 0; }
+    uint64_t get_digest(uint64_t seed) const override { return _filter->get_digest(seed); }
 
 private:
-    Status _do_execute(VExprContext* context, const Block* block, ColumnPtr& result_column,
-                       ColumnPtr* arg_column) const {
+    Status _do_execute(VExprContext* context, const Block* block, size_t count,
+                       ColumnPtr& result_column, ColumnPtr* arg_column) const {
         DCHECK(_open_finished || _getting_const_col);
 
         ColumnPtr argument_column;
-        RETURN_IF_ERROR(_children[0]->execute_column(context, block, argument_column));
+        RETURN_IF_ERROR(_children[0]->execute_column(context, block, count, argument_column));
         argument_column = argument_column->convert_to_full_column_if_const();
 
         if (arg_column != nullptr) {
@@ -122,7 +122,7 @@ private:
         }
 
         size_t sz = argument_column->size();
-        auto res_data_column = ColumnUInt8::create(block->rows());
+        auto res_data_column = ColumnUInt8::create(sz);
         res_data_column->resize(sz);
 
         if (argument_column->is_nullable()) {

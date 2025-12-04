@@ -30,7 +30,6 @@ public class CloudPropertyAnalyzer extends PropertyAnalyzer {
         forceProperties = ImmutableList.of(
                 RewriteProperty.delete(PropertyAnalyzer.PROPERTIES_INMEMORY),
                 RewriteProperty.delete(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM),
-                RewriteProperty.replace(PropertyAnalyzer.PROPERTIES_STORAGE_FORMAT, "V2"),
                 RewriteProperty.delete(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY),
                 RewriteProperty.delete(PropertyAnalyzer.PROPERTIES_STORAGE_COOLDOWN_TIME),
                 RewriteProperty.delete(PropertyAnalyzer.PROPERTIES_MIN_LOAD_REPLICA_NUM),

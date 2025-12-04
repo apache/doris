@@ -171,12 +171,12 @@ TEST_F(DataTypeJsonbSerDeTest, serdes) {
             ser_col->reserve(row_count);
             MutableColumnPtr deser_column = source_column->clone_empty();
             const auto* deser_col_with_type = assert_cast<const ColumnType*>(deser_column.get());
-            JsonbDocument* pdoc = nullptr;
+            const JsonbDocument* pdoc = nullptr;
             auto st = JsonbDocument::checkAndCreateDocument(jsonb_writer.getOutput()->getBuffer(),
                                                             jsonb_writer.getOutput()->getSize(),
                                                             &pdoc);
             EXPECT_TRUE(st.ok()) << "Failed to check and create jsonb document: " << st;
-            JsonbDocument& doc = *pdoc;
+            const JsonbDocument& doc = *pdoc;
             for (auto it = doc->begin(); it != doc->end(); ++it) {
                 serde.read_one_cell_from_jsonb(*deser_column, it->value());
             }
@@ -185,20 +185,11 @@ TEST_F(DataTypeJsonbSerDeTest, serdes) {
             }
         }
         {
-            // test write_column_to_mysql
-            MysqlRowBuffer<false> mysql_rb;
-            for (int row_idx = 0; row_idx < row_count; ++row_idx) {
-                auto st = serde.write_column_to_mysql(*source_column, mysql_rb, row_idx, false,
-                                                      option);
-                EXPECT_TRUE(st.ok()) << "Failed to write column to mysql: " << st;
-            }
-        }
-        {
             // test write_column_to_mysql with binary format
-            MysqlRowBuffer<true> mysql_rb;
+            MysqlRowBinaryBuffer mysql_rb;
             for (int row_idx = 0; row_idx < row_count; ++row_idx) {
-                auto st = serde.write_column_to_mysql(*source_column, mysql_rb, row_idx, false,
-                                                      option);
+                auto st = serde.write_column_to_mysql_binary(*source_column, mysql_rb, row_idx,
+                                                             false, option);
                 EXPECT_TRUE(st.ok())
                         << "Failed to write column to mysql with binary format: " << st;
             }

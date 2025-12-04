@@ -259,10 +259,7 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
         List<Range<ColumnBound>> result = Lists.newArrayList();
         if (expr instanceof BinaryPredicate) {
             BinaryPredicate binPred = (BinaryPredicate) expr;
-            ArrayList<Expr> partitionExprs = (partitionsInfo != null && partitionsInfo.enableAutomaticPartition())
-                    ? partitionsInfo.getPartitionExprs()
-                    : null;
-            Expr slotBinding = binPred.getSlotBinding(desc.getId(), partitionExprs);
+            Expr slotBinding = binPred.getSlotBinding(desc.getId());
             if (slotBinding == null || !slotBinding.isConstant() || !(slotBinding instanceof LiteralExpr)) {
                 return ColumnRanges.createFailure();
             }
@@ -352,10 +349,7 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
                     continue;
                 }
 
-                ArrayList<Expr> partitionExprs = (partitionsInfo != null && partitionsInfo.enableAutomaticPartition())
-                        ? partitionsInfo.getPartitionExprs()
-                        : null;
-                Expr slotBinding = binPredicate.getSlotBinding(desc.getId(), partitionExprs);
+                Expr slotBinding = binPredicate.getSlotBinding(desc.getId());
 
                 if (slotBinding == null || !slotBinding.isConstant() || !(slotBinding instanceof LiteralExpr)) {
                     continue;

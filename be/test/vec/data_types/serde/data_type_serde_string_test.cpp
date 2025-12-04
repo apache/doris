@@ -173,26 +173,17 @@ TEST_F(DataTypeStringSerDeTest, serdes) {
             ser_col->reserve(row_count);
             MutableColumnPtr deser_column = source_column->clone_empty();
             const auto* deser_col_with_type = assert_cast<const ColumnType*>(deser_column.get());
-            JsonbDocument* pdoc = nullptr;
+            const JsonbDocument* pdoc = nullptr;
             auto st = JsonbDocument::checkAndCreateDocument(jsonb_writer.getOutput()->getBuffer(),
                                                             jsonb_writer.getOutput()->getSize(),
                                                             &pdoc);
             ASSERT_TRUE(st.ok()) << "checkAndCreateDocument failed: " << st.to_string();
-            JsonbDocument& doc = *pdoc;
+            const JsonbDocument& doc = *pdoc;
             for (auto it = doc->begin(); it != doc->end(); ++it) {
                 serde.read_one_cell_from_jsonb(*deser_column, it->value());
             }
             for (size_t j = 0; j != row_count; ++j) {
                 EXPECT_EQ(deser_col_with_type->get_data_at(j), source_column->get_data_at(j));
-            }
-        }
-        {
-            // test write_column_to_mysql
-            MysqlRowBuffer<false> mysql_rb;
-            for (int row_idx = 0; row_idx < row_count; ++row_idx) {
-                auto st = serde.write_column_to_mysql(*source_column, mysql_rb, row_idx, false,
-                                                      option);
-                EXPECT_TRUE(st.ok()) << "Failed to write column to mysql: " << st;
             }
         }
     };

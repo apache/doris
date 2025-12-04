@@ -40,32 +40,16 @@ namespace doris {
 namespace vectorized {
 #include "common/compile_check_begin.h"
 
-template <bool is_binary_format>
-
-Status DataTypeVariantSerDe::_write_column_to_mysql(const IColumn& column,
-                                                    MysqlRowBuffer<is_binary_format>& row_buffer,
-                                                    int64_t row_idx, bool col_const,
-                                                    const FormatOptions& options) const {
+Status DataTypeVariantSerDe::write_column_to_mysql_binary(const IColumn& column,
+                                                          MysqlRowBinaryBuffer& row_buffer,
+                                                          int64_t row_idx, bool col_const,
+                                                          const FormatOptions& options) const {
     const auto& variant = assert_cast<const ColumnVariant&>(column);
     // Serialize hierarchy types to json format
     std::string buffer;
     variant.serialize_one_row_to_string(row_idx, &buffer);
     row_buffer.push_string(buffer.data(), buffer.size());
     return Status::OK();
-}
-
-Status DataTypeVariantSerDe::write_column_to_mysql_binary(const IColumn& column,
-                                                          MysqlRowBinaryBuffer& row_buffer,
-                                                          int64_t row_idx, bool col_const,
-                                                          const FormatOptions& options) const {
-    return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
-}
-
-Status DataTypeVariantSerDe::write_column_to_mysql_text(const IColumn& column,
-                                                        MysqlRowTextBuffer& row_buffer,
-                                                        int64_t row_idx, bool col_const,
-                                                        const FormatOptions& options) const {
-    return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
 }
 
 Status DataTypeVariantSerDe::serialize_column_to_json(const IColumn& column, int64_t start_idx,

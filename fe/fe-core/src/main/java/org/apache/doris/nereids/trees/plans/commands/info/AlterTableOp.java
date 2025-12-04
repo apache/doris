@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.alter.AlterOpType;
-import org.apache.doris.analysis.AlterTableClause;
 import org.apache.doris.common.UserException;
 import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.qe.ConnectContext;
@@ -28,7 +27,7 @@ import java.util.Map;
 /**
  * AlterTableOp
  */
-public abstract class AlterTableOp {
+public abstract class AlterTableOp extends AlterOp {
     // if set to true, the corresponding table should be stable before processing this operation on it.
     protected boolean needTableStable = true;
 
@@ -37,6 +36,7 @@ public abstract class AlterTableOp {
     protected TableNameInfo tableName;
 
     public AlterTableOp(AlterOpType opType) {
+        super(opType);
         this.opType = opType;
     }
 
@@ -58,6 +58,4 @@ public abstract class AlterTableOp {
 
     public void validate(ConnectContext ctx) throws UserException {
     }
-
-    public abstract AlterTableClause translateToLegacyAlterClause();
 }

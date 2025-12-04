@@ -18,12 +18,7 @@
 package org.apache.doris.alter;
 
 import org.apache.doris.alter.AlterJobV2.JobState;
-import org.apache.doris.analysis.AddColumnClause;
-import org.apache.doris.analysis.AlterClause;
-import org.apache.doris.analysis.ColumnDef;
-import org.apache.doris.analysis.ColumnDef.DefaultValue;
 import org.apache.doris.analysis.ColumnPosition;
-import org.apache.doris.analysis.ModifyTablePropertiesClause;
 import org.apache.doris.backup.CatalogMocker;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.CatalogTestUtil;
@@ -47,7 +42,6 @@ import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
@@ -55,6 +49,13 @@ import org.apache.doris.common.SchemaVersionAndHash;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.meta.MetaContext;
+import org.apache.doris.nereids.trees.plans.commands.info.AddColumnOp;
+import org.apache.doris.nereids.trees.plans.commands.info.AlterOp;
+import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
+import org.apache.doris.nereids.trees.plans.commands.info.DefaultValue;
+import org.apache.doris.nereids.trees.plans.commands.info.ModifyTablePropertiesOp;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.thrift.TStorageFormat;
@@ -83,6 +84,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 public class SchemaChangeJobV2Test {
 
@@ -95,10 +97,9 @@ public class SchemaChangeJobV2Test {
     private static GlobalTransactionMgr slaveTransMgr;
     private static Env masterEnv;
     private static Env slaveEnv;
-
-    private static ColumnDef newCol = new ColumnDef("add_v", ScalarType.createType(PrimitiveType.INT),
-            false, AggregateType.MAX, false, new DefaultValue(true, "1"), "");
-    private static AddColumnClause addColumnClause = new AddColumnClause(newCol, new ColumnPosition("v"), null, null);
+    private static ColumnDefinition newCol = new ColumnDefinition("add_v", DataType.fromCatalogType(ScalarType.createType(PrimitiveType.INT)),
+            false, AggregateType.MAX, false, Optional.of(new DefaultValue("1")), "");
+    private static AddColumnOp addColumnOp = new AddColumnOp(newCol, new ColumnPosition("v"), null, null);
 
     @Rule
     public ExpectedException expectedEx = ExpectedException.none();
@@ -106,7 +107,7 @@ public class SchemaChangeJobV2Test {
     @Before
     public void setUp()
             throws InstantiationException, IllegalAccessException, IllegalArgumentException, InvocationTargetException,
-            NoSuchMethodException, SecurityException, AnalysisException, DdlException {
+            NoSuchMethodException, SecurityException, UserException {
         FakeEnv.setMetaVersion(FeMetaVersion.VERSION_CURRENT);
         fakeEditLog = new FakeEditLog();
         fakeEnv = new FakeEnv();
@@ -117,7 +118,7 @@ public class SchemaChangeJobV2Test {
         masterTransMgr.setEditLog(masterEnv.getEditLog());
         slaveTransMgr = (GlobalTransactionMgr) slaveEnv.getGlobalTransactionMgr();
         slaveTransMgr.setEditLog(slaveEnv.getEditLog());
-        addColumnClause.analyze();
+        addColumnOp.validate(new ConnectContext());
 
         FeConstants.runningUnitTest = true;
         AgentTaskQueue.clearAllTasks();
@@ -129,11 +130,11 @@ public class SchemaChangeJobV2Test {
         fakeEditLog = new FakeEditLog();
         FakeEnv.setEnv(masterEnv);
         SchemaChangeHandler schemaChangeHandler = Env.getCurrentEnv().getSchemaChangeHandler();
-        ArrayList<AlterClause> alterClauses = new ArrayList<>();
-        alterClauses.add(addColumnClause);
+        ArrayList<AlterOp> alterOps = new ArrayList<>();
+        alterOps.add(addColumnOp);
         Database db = masterEnv.getInternalCatalog().getDbOrDdlException(CatalogTestUtil.testDbId1);
         OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId1);
-        schemaChangeHandler.process(alterClauses, db, olapTable);
+        schemaChangeHandler.process(alterOps, db, olapTable);
         Map<Long, AlterJobV2> alterJobsV2 = schemaChangeHandler.getAlterJobsV2();
         Assert.assertEquals(1, alterJobsV2.size());
         Assert.assertEquals(OlapTableState.SCHEMA_CHANGE, olapTable.getState());
@@ -148,12 +149,12 @@ public class SchemaChangeJobV2Test {
         SchemaChangeHandler schemaChangeHandler = Env.getCurrentEnv().getSchemaChangeHandler();
 
         // add a schema change job
-        ArrayList<AlterClause> alterClauses = new ArrayList<>();
-        alterClauses.add(addColumnClause);
+        ArrayList<AlterOp> alterOps = new ArrayList<>();
+        alterOps.add(addColumnOp);
         Database db = masterEnv.getInternalCatalog().getDbOrDdlException(CatalogTestUtil.testDbId1);
         OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId1);
         Partition testPartition = olapTable.getPartition(CatalogTestUtil.testPartitionId1);
-        schemaChangeHandler.process(alterClauses,  db, olapTable);
+        schemaChangeHandler.process(alterOps,  db, olapTable);
         Map<Long, AlterJobV2> alterJobsV2 = schemaChangeHandler.getAlterJobsV2();
         Assert.assertEquals(1, alterJobsV2.size());
         SchemaChangeJobV2 schemaChangeJob = (SchemaChangeJobV2) alterJobsV2.values().stream().findAny().get();
@@ -224,12 +225,12 @@ public class SchemaChangeJobV2Test {
         SchemaChangeHandler schemaChangeHandler = Env.getCurrentEnv().getSchemaChangeHandler();
 
         // add a schema change job
-        ArrayList<AlterClause> alterClauses = new ArrayList<>();
-        alterClauses.add(addColumnClause);
+        ArrayList<AlterOp> alterOps = new ArrayList<>();
+        alterOps.add(addColumnOp);
         Database db = masterEnv.getInternalCatalog().getDbOrDdlException(CatalogTestUtil.testDbId1);
         OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId1);
         Partition testPartition = olapTable.getPartition(CatalogTestUtil.testPartitionId1);
-        schemaChangeHandler.process(alterClauses,  db, olapTable);
+        schemaChangeHandler.process(alterOps,  db, olapTable);
         Map<Long, AlterJobV2> alterJobsV2 = schemaChangeHandler.getAlterJobsV2();
         Assert.assertEquals(1, alterJobsV2.size());
         SchemaChangeJobV2 schemaChangeJob = (SchemaChangeJobV2) alterJobsV2.values().stream().findAny().get();
@@ -304,17 +305,17 @@ public class SchemaChangeJobV2Test {
         fakeEditLog = new FakeEditLog();
         FakeEnv.setEnv(masterEnv);
         SchemaChangeHandler schemaChangeHandler = Env.getCurrentEnv().getSchemaChangeHandler();
-        ArrayList<AlterClause> alterClauses = new ArrayList<>();
+        ArrayList<AlterOp> alterOps = new ArrayList<>();
         Map<String, String> properties = new HashMap<>();
         properties.put(DynamicPartitionProperty.ENABLE, "true");
         properties.put(DynamicPartitionProperty.TIME_UNIT, "day");
         properties.put(DynamicPartitionProperty.END, "3");
         properties.put(DynamicPartitionProperty.PREFIX, "p");
         properties.put(DynamicPartitionProperty.BUCKETS, "30");
-        alterClauses.add(new ModifyTablePropertiesClause(properties));
+        alterOps.add(new ModifyTablePropertiesOp(properties));
         Database db = CatalogMocker.mockDb();
         OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogMocker.TEST_TBL2_ID);
-        schemaChangeHandler.process(alterClauses,  db, olapTable);
+        schemaChangeHandler.process(alterOps,  db, olapTable);
         Assert.assertTrue(olapTable.getTableProperty().getDynamicPartitionProperty().isExist());
         Assert.assertTrue(olapTable.getTableProperty().getDynamicPartitionProperty().getEnable());
         Assert.assertEquals("day", olapTable.getTableProperty().getDynamicPartitionProperty().getTimeUnit());
@@ -324,34 +325,34 @@ public class SchemaChangeJobV2Test {
 
 
         // set dynamic_partition.enable = false
-        ArrayList<AlterClause> tmpAlterClauses = new ArrayList<>();
+        ArrayList<AlterOp> tmpAlterOps = new ArrayList<>();
         properties.put(DynamicPartitionProperty.ENABLE, "false");
-        tmpAlterClauses.add(new ModifyTablePropertiesClause(properties));
-        schemaChangeHandler.process(tmpAlterClauses,  db, olapTable);
+        tmpAlterOps.add(new ModifyTablePropertiesOp(properties));
+        schemaChangeHandler.process(tmpAlterOps,  db, olapTable);
         Assert.assertFalse(olapTable.getTableProperty().getDynamicPartitionProperty().getEnable());
         // set dynamic_partition.time_unit = week
-        tmpAlterClauses = new ArrayList<>();
+        tmpAlterOps = new ArrayList<>();
         properties.put(DynamicPartitionProperty.TIME_UNIT, "week");
-        tmpAlterClauses.add(new ModifyTablePropertiesClause(properties));
-        schemaChangeHandler.process(tmpAlterClauses,  db, olapTable);
+        tmpAlterOps.add(new ModifyTablePropertiesOp(properties));
+        schemaChangeHandler.process(tmpAlterOps,  db, olapTable);
         Assert.assertEquals("week", olapTable.getTableProperty().getDynamicPartitionProperty().getTimeUnit());
         // set dynamic_partition.end = 10
-        tmpAlterClauses = new ArrayList<>();
+        tmpAlterOps = new ArrayList<>();
         properties.put(DynamicPartitionProperty.END, "10");
-        tmpAlterClauses.add(new ModifyTablePropertiesClause(properties));
-        schemaChangeHandler.process(tmpAlterClauses,  db, olapTable);
+        tmpAlterOps.add(new ModifyTablePropertiesOp(properties));
+        schemaChangeHandler.process(tmpAlterOps,  db, olapTable);
         Assert.assertEquals(10, olapTable.getTableProperty().getDynamicPartitionProperty().getEnd());
         // set dynamic_partition.prefix = p1
-        tmpAlterClauses = new ArrayList<>();
+        tmpAlterOps = new ArrayList<>();
         properties.put(DynamicPartitionProperty.PREFIX, "p1");
-        tmpAlterClauses.add(new ModifyTablePropertiesClause(properties));
-        schemaChangeHandler.process(tmpAlterClauses,  db, olapTable);
+        tmpAlterOps.add(new ModifyTablePropertiesOp(properties));
+        schemaChangeHandler.process(tmpAlterOps,  db, olapTable);
         Assert.assertEquals("p1", olapTable.getTableProperty().getDynamicPartitionProperty().getPrefix());
         // set dynamic_partition.buckets = 3
-        tmpAlterClauses = new ArrayList<>();
+        tmpAlterOps = new ArrayList<>();
         properties.put(DynamicPartitionProperty.BUCKETS, "3");
-        tmpAlterClauses.add(new ModifyTablePropertiesClause(properties));
-        schemaChangeHandler.process(tmpAlterClauses,  db, olapTable);
+        tmpAlterOps.add(new ModifyTablePropertiesOp(properties));
+        schemaChangeHandler.process(tmpAlterOps,  db, olapTable);
         Assert.assertEquals(3, olapTable.getTableProperty().getDynamicPartitionProperty().getBuckets());
     }
 
@@ -360,10 +361,10 @@ public class SchemaChangeJobV2Test {
         fakeEnv = new FakeEnv();
         FakeEnv.setEnv(masterEnv);
         SchemaChangeHandler schemaChangeHandler = Env.getCurrentEnv().getSchemaChangeHandler();
-        ArrayList<AlterClause> alterClauses = new ArrayList<>();
+        ArrayList<AlterOp> alterOps = new ArrayList<>();
         Map<String, String> properties = new HashMap<>();
         properties.put(propertyKey, propertyValue);
-        alterClauses.add(new ModifyTablePropertiesClause(properties));
+        alterOps.add(new ModifyTablePropertiesOp(properties));
 
         Database db = CatalogMocker.mockDb();
         OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogMocker.TEST_TBL2_ID);
@@ -372,7 +373,7 @@ public class SchemaChangeJobV2Test {
         expectedEx.expectMessage("errCode = 2,"
                 + " detailMessage = Table test_db.test_tbl2 is not a dynamic partition table. "
                 + "Use command `HELP ALTER TABLE` to see how to change a normal table to a dynamic partition table.");
-        schemaChangeHandler.process(alterClauses,  db, olapTable);
+        schemaChangeHandler.process(alterOps,  db, olapTable);
     }
 
     @Test
@@ -390,7 +391,7 @@ public class SchemaChangeJobV2Test {
         fakeEditLog = new FakeEditLog();
         FakeEnv.setEnv(masterEnv);
         SchemaChangeHandler schemaChangeHandler = Env.getCurrentEnv().getSchemaChangeHandler();
-        ArrayList<AlterClause> alterClauses = new ArrayList<>();
+        ArrayList<AlterOp> alterOps = new ArrayList<>();
         Map<String, String> properties = new HashMap<>();
         properties.put(DynamicPartitionProperty.ENABLE, "true");
         properties.put(DynamicPartitionProperty.DYNAMIC_PARTITION_PROPERTY_PREFIX + "time_uint", "day");
@@ -398,14 +399,14 @@ public class SchemaChangeJobV2Test {
         properties.put(DynamicPartitionProperty.PREFIX, "p");
         properties.put(DynamicPartitionProperty.BUCKETS, "30");
         properties.put("invalid_property", "invalid_value");
-        alterClauses.add(new ModifyTablePropertiesClause(properties));
+        alterOps.add(new ModifyTablePropertiesOp(properties));
 
         Database db = CatalogMocker.mockDb();
         OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogMocker.TEST_TBL2_ID);
         expectedEx.expect(DdlException.class);
         expectedEx.expectMessage("errCode = 2,"
                 + " detailMessage = Invalid dynamic partition properties: dynamic_partition.time_uint, dynamic_partition.edn");
-        schemaChangeHandler.process(alterClauses, db, olapTable);
+        schemaChangeHandler.process(alterOps, db, olapTable);
     }
 
     @Test
