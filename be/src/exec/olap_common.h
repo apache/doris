@@ -51,12 +51,7 @@
 namespace doris {
 namespace config {
 namespace dynamic {
-int doris_scanner_thread_pool_thread_num() {
-    if (::doris::config::doris_scanner_thread_pool_thread_num > 0) {
-        return ::doris::config::doris_scanner_thread_pool_thread_num;
-    }
-    return std::max(48, ::doris::CpuInfo::num_cores() * 2);
-}
+int doris_scanner_thread_pool_thread_num();
 } // namespace dynamic
 } // namespace config
 
