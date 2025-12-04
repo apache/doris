@@ -1321,6 +1321,12 @@ public class TypeCoercionUtils {
         Expression left = comparisonPredicate.left();
         Expression right = comparisonPredicate.right();
 
+        // TODO: remove this restriction after supporting varbinary comparison in BE
+        if (left.getDataType().isVarBinaryType() || right.getDataType().isVarBinaryType()) {
+            throw new AnalysisException("data type varbinary "
+                    + " could not used in ComparisonPredicate now " + comparisonPredicate.toSql());
+        }
+
         // same type
         if (left.getDataType().equals(right.getDataType())) {
             if (!supportCompare(left.getDataType(), false)) {

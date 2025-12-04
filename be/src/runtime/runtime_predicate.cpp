@@ -157,6 +157,12 @@ StringRef RuntimePredicate::_get_string_ref(const Field& field, const PrimitiveT
         const auto& v = field.get<typename PrimitiveTypeTraits<TYPE_IPV6>::CppType>();
         return StringRef((char*)&v, sizeof(v));
     }
+    case doris::PrimitiveType::TYPE_VARBINARY: {
+        _get_value_fn = [](const Field& field) {
+            return field.get<StringViewField>().get_string();
+        };
+        break;
+    }
     default:
         break;
     }
