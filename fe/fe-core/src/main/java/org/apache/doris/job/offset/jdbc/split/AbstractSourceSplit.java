@@ -17,16 +17,22 @@
 
 package org.apache.doris.job.offset.jdbc.split;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
+import java.io.Serializable;
 
 @Getter
 @Setter
 @AllArgsConstructor
 @NoArgsConstructor
-public abstract class AbstractSourceSplit implements SourceSplit {
+public abstract class AbstractSourceSplit implements SourceSplit, Serializable {
     private static final long serialVersionUID = 1L;
     protected String splitId;
+
+    public boolean snapshotSplit() {
+        return this instanceof SnapshotSplit;
+    }
 }

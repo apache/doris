@@ -17,20 +17,21 @@
 
 package org.apache.doris.cdcclient.source.split;
 
+import java.util.List;
 import java.util.Map;
 import lombok.EqualsAndHashCode;
 import lombok.Getter;
+import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 @Getter
 @Setter
 @EqualsAndHashCode(callSuper = true)
+@NoArgsConstructor
 public class BinlogSplit extends AbstractSourceSplit {
     private static final long serialVersionUID = 1L;
-    private Map<String, String> offset;
-
-    public BinlogSplit(String splitId, Map<String, String> offset) {
-        super(splitId);
-        this.offset = offset;
-    }
+    private Map<String, String> startingOffset;
+    private Map<String, String> endingOffset;
+    // binlog split meta, first binlog split requires
+    private List<SnapshotSplit> finishedSplits;
 }

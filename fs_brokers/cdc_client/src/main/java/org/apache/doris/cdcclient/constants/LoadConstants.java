@@ -30,4 +30,6 @@ public class LoadConstants {
     public static final String STARTUP_MODE = "startup_mode";
     public static final String SPLIT_SIZE = "split_size";
     public static final String TABLE_PROPS_PREFIX = "table.create.properties.";
+
+    public static final String DELETE_SIGN_KEY = "__DORIS_DELETE_SIGN__";
 }

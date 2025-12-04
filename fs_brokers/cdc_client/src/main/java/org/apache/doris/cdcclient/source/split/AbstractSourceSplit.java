@@ -17,6 +17,7 @@
 
 package org.apache.doris.cdcclient.source.split;
 
+import java.io.Serializable;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -26,7 +27,11 @@ import lombok.Setter;
 @Setter
 @AllArgsConstructor
 @NoArgsConstructor
-public abstract class AbstractSourceSplit implements SourceSplit {
+public abstract class AbstractSourceSplit implements SourceSplit, Serializable {
     private static final long serialVersionUID = 1L;
     protected String splitId;
+
+    public boolean snapshotSplit() {
+        return this instanceof SnapshotSplit;
+    }
 }

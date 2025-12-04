@@ -17,6 +17,8 @@
 
 package org.apache.doris.cdcclient.source.deserialize;
 
+import static org.apache.doris.cdcclient.constants.LoadConstants.DELETE_SIGN_KEY;
+
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.debezium.data.Envelope;
@@ -52,7 +54,6 @@ public class DebeziumJsonDeserializer
         implements SourceRecordDeserializer<SourceRecord, List<String>> {
     private static final long serialVersionUID = 1L;
     private static final Logger LOG = LoggerFactory.getLogger(DebeziumJsonDeserializer.class);
-    private static final String DELETE_SIGN_KEY = "__DORIS_DELETE_SIGN__";
     private static ObjectMapper objectMapper = new ObjectMapper();
 
     public DebeziumJsonDeserializer() {}
@@ -110,7 +111,6 @@ public class DebeziumJsonDeserializer
                             record.put(field.name(), valueConverted);
                         });
         record.put(DELETE_SIGN_KEY, 0);
-        System.out.println(record);
         return objectMapper.writeValueAsString(record);
     }
 

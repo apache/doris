@@ -10,7 +10,7 @@ import java.util.Map;
 @Setter
 public class JdbcOffset implements Offset {
 
-    private Map<String, String> meta;
+    private AbstractSourceSplit split;
 
     @Override
     public String toSerializedJson() {

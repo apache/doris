@@ -27,7 +27,7 @@ import org.apache.doris.cdcclient.model.JobConfig;
 @Setter
 @EqualsAndHashCode(callSuper = true)
 public abstract class JobBaseRecordReq extends JobConfig {
-    protected Map<String, String> meta;
+    protected Map<String, Object> meta;
 
     public abstract boolean isReload();
 

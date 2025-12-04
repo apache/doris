@@ -19,6 +19,7 @@ package org.apache.doris.cdcclient.source.reader;
 
 import java.util.List;
 import java.util.Map;
+import org.apache.doris.cdcclient.model.JobConfig;
 import org.apache.doris.cdcclient.model.request.FetchRecordReq;
 import org.apache.doris.cdcclient.model.request.FetchTableSplitsReq;
 import org.apache.doris.cdcclient.model.request.JobBaseRecordReq;
@@ -67,4 +68,6 @@ public interface SourceReader<Split, SplitState> {
     void close(Long jobId);
 
     void finishSplitRecords();
+
+    Map<String, String> getEndOffset(JobConfig jobConfig);
 }

@@ -7,6 +7,7 @@ import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.extensions.insert.streaming.StreamingJobProperties;
 import org.apache.doris.job.offset.Offset;
 import org.apache.doris.job.offset.SourceOffsetProvider;
+import org.apache.doris.job.offset.jdbc.split.BinlogSplit;
 import org.apache.doris.job.offset.jdbc.split.SnapshotSplit;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -37,13 +38,14 @@ import java.util.stream.Collectors;
 @Setter
 @Log4j2
 public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
+    public static final String BINLOG_SPLIT_ID = "binlog-split";
     private static final ObjectMapper objectMapper = new ObjectMapper();
     private Long jobId;
     private DataSourceType sourceType;
     private Map<String, String> sourceProperties = new HashMap<>();
 
     List<SnapshotSplit> remainingSplits;
-    List<SnapshotSplit> assignedSplits;
+    List<SnapshotSplit> finishedSplits;
 
     JdbcOffset currentOffset;
     Map<String, String> endBinlogOffset;
@@ -55,10 +57,23 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
 
     @Override
     public Offset getNextOffset(StreamingJobProperties jobProps, Map<String, String> properties) {
-        // 全量从系统表中获取
-
-        // 增量直接就是上一次的offset
-        return null;
+        JdbcOffset nextOffset = new JdbcOffset();
+        if (!remainingSplits.isEmpty()) {
+            // snapshot read
+            SnapshotSplit snapshotSplit = remainingSplits.get(0);
+            nextOffset.setSplit(snapshotSplit);
+            return nextOffset;
+        }else if (currentOffset.getSplit().snapshotSplit()){
+            // snapshot to binlog
+            BinlogSplit binlogSplit = new BinlogSplit();
+            binlogSplit.setSplitId(BINLOG_SPLIT_ID);
+            binlogSplit.setFinishedSplits(finishedSplits);
+            nextOffset.setSplit(binlogSplit);
+            return nextOffset;
+        } else {
+            // only binlog
+            return currentOffset;
+        }
     }
 
     @Override
@@ -84,12 +99,53 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
 
     @Override
     public void fetchRemoteMeta(Map<String, String> properties) throws Exception {
-        // todo: request cdc client api
+        // todo: change to request be
+        Map<String, Object> params = buildBaseParams();
+        String url = "http://127.0.0.1:9096/api/fetchEndOffset";
+        // Prepare request body
+        String requestBody = GsonUtils.GSON.toJson(params);
+
+        // Create HTTP POST request
+        HttpPost httpPost = new HttpPost(url);
+        StringEntity stringEntity = new StringEntity(requestBody, "UTF-8");
+        stringEntity.setContentType("application/json");
+        httpPost.setEntity(stringEntity);
+        // Set request headers
+        httpPost.setHeader("Content-Type", "application/json");
+
+        // Execute request
+        try (CloseableHttpClient client = HttpClientBuilder.create().build()) {
+            String response = client.execute(httpPost, httpResponse -> {
+                int statusCode = httpResponse.getStatusLine().getStatusCode();
+                String responseBody = EntityUtils.toString(httpResponse.getEntity(), "UTF-8");
+                if (statusCode != 200) {
+                    throw new RuntimeException("Failed to get remote offset from CDC client, HTTP status code: " + statusCode);
+                }
+                return responseBody;
+            });
+
+            ResponseBody<Map<String, String>> responseObj = objectMapper.readValue(
+                    response,
+                    new TypeReference<ResponseBody<Map<String, String>>>() {}
+            );
+            endBinlogOffset = responseObj.getData();
+        } catch (Exception ex) {
+            log.error("Get splits error: ", ex);
+            throw new JobException("Failed to request CDC client: " + ex.getMessage(), ex);
+        }
     }
 
     @Override
     public boolean hasMoreDataToConsume() {
-        return false;
+        if(!remainingSplits.isEmpty()) {
+            return true;
+        }
+        if (currentOffset != null && !currentOffset.getSplit().snapshotSplit()) {
+            BinlogSplit binlogSplit = (BinlogSplit) currentOffset.getSplit();
+            Map<String, String> startingOffset = binlogSplit.getStartingOffset();
+            // todo: should compare offset
+        }
+        return true;
     }
 
     @Override
@@ -191,12 +247,17 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
          **/
     }
 
-    private Map<String, Object> buildSplitParams(String table) {
+    private Map<String, Object> buildBaseParams() {
         Map<String, Object> params = new HashMap<>();
         params.put("jobId", getJobId());
         params.put("dataSource", sourceType);
-        params.put("snapshotTable", table);
         params.put("config", sourceProperties);
+        return params;
+    }
+
+    private Map<String, Object> buildSplitParams(String table) {
+        Map<String, Object> params = buildBaseParams();
+        params.put("snapshotTable", table);
         return params;
     }
 

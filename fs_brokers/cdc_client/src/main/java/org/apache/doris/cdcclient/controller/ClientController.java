@@ -18,12 +18,14 @@
 package org.apache.doris.cdcclient.controller;
 
 import org.apache.doris.cdcclient.common.Env;
+import org.apache.doris.cdcclient.model.JobConfig;
 import org.apache.doris.cdcclient.model.request.FetchRecordReq;
 import org.apache.doris.cdcclient.model.request.FetchTableSplitsReq;
 import org.apache.doris.cdcclient.model.request.WriteRecordReq;
 import org.apache.doris.cdcclient.model.rest.ResponseEntityBuilder;
 import org.apache.doris.cdcclient.service.PipelineCoordinator;
 import org.apache.doris.cdcclient.source.reader.SourceReader;
+import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -67,16 +69,20 @@ public class ClientController {
 
     /** Fetch records from source reader and Write records to backend */
     @RequestMapping(path = "/api/writeRecords", method = RequestMethod.POST)
-    public Object writeRecord(@RequestBody WriteRecordReq recordReq) {
-        pipelineCoordinator.writeRecordsAsync(recordReq);
+    public Object writeRecord(@RequestBody WriteRecordReq recordReq, HttpServletRequest request) {
+        pipelineCoordinator.writeRecordsAsync(recordReq, parseToken(request));
         return ResponseEntityBuilder.ok("Request accepted, processing asynchronously");
+    }
+
+    private String parseToken(HttpServletRequest request) {
+        return request.getHeader("token");
     }
 
     /** Fetch lastest end meta */
     @RequestMapping(path = "/api/fetchEndOffset", method = RequestMethod.POST)
-    public Object fetchEndOffset(@RequestBody WriteRecordReq recordReq) {
-        pipelineCoordinator.writeRecordsAsync(recordReq);
-        return ResponseEntityBuilder.ok("Request accepted, processing asynchronously");
+    public Object fetchEndOffset(@RequestBody JobConfig jobConfig) {
+        SourceReader<?, ?> reader = Env.getCurrentEnv().getReader(jobConfig);
+        return ResponseEntityBuilder.ok(reader.getEndOffset(jobConfig));
     }
 
     @RequestMapping(path = "/api/close/{jobId}", method = RequestMethod.POST)

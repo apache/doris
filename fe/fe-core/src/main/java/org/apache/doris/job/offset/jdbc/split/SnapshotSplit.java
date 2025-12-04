@@ -17,14 +17,17 @@
 
 package org.apache.doris.job.offset.jdbc.split;
 
+import org.apache.doris.persist.gson.GsonUtils;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Preconditions;
+import com.google.gson.Gson;
 import lombok.EqualsAndHashCode;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -99,5 +102,10 @@ public class SnapshotSplit extends AbstractSourceSplit {
 
     public static String getOrEmptyArray(Map<String, String> map, String key) {
         return Optional.ofNullable(map.get(key)).orElse("[]");
+    }
+
+    @Override
+    public String toString() {
+        return new Gson().toJson(this);
     }
 }

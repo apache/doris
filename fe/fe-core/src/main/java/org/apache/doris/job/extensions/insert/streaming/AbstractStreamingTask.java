@@ -3,13 +3,16 @@ package org.apache.doris.job.extensions.insert.streaming;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.Status;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.job.base.Job;
 import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.offset.Offset;
 import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.thrift.TCell;
 import org.apache.doris.thrift.TRow;
+import org.apache.doris.thrift.TStatusCode;
 
 import lombok.Getter;
 import lombok.Setter;
@@ -24,12 +27,14 @@ import java.util.concurrent.atomic.AtomicBoolean;
 @Getter
 public abstract class AbstractStreamingTask {
     private static final int MAX_RETRY = 3;
+    private static final String LABEL_SPLITTER = "_";
     private int retryCount = 0;
     protected String labelName;
     protected Offset runningOffset;
     protected UserIdentity userIdentity;
     @Setter
     protected volatile TaskStatus status;
+    @Setter
     protected String errMsg;
     protected long jobId;
     protected long taskId;
@@ -39,13 +44,17 @@ public abstract class AbstractStreamingTask {
     @Getter
     private AtomicBoolean isCanceled = new AtomicBoolean(false);
 
+    public AbstractStreamingTask(long jobId, long taskId) {
+        this.jobId = jobId;
+        this.taskId = taskId;
+        this.labelName = getJobId() + LABEL_SPLITTER + getTaskId();
+        this.createTimeMs = System.currentTimeMillis();
+    }
+
     public abstract void before() throws Exception;
     public abstract void run() throws JobException ;
     public abstract boolean onSuccess() throws JobException;
-    public abstract void onFail(String errMsg)  throws JobException;
-    public abstract void cancel(boolean needWaitCancelComplete);
     public abstract void closeOrReleaseResources();
-
 
     public void execute() throws JobException {
         while (retryCount <= MAX_RETRY) {
@@ -76,6 +85,44 @@ public abstract class AbstractStreamingTask {
                 }
             }
         }
+    }
+
+    protected void onFail(String errMsg) throws JobException {
+        if (getIsCanceled().get()) {
+            return;
+        }
+        this.errMsg = errMsg;
+        this.status = TaskStatus.FAILED;
+        this.finishTimeMs = System.currentTimeMillis();
+        if (!isCallable()) {
+            return;
+        }
+        Job job = Env.getCurrentEnv().getJobManager().getJob(getJobId());
+        StreamingInsertJob streamingInsertJob = (StreamingInsertJob) job;
+        streamingInsertJob.onStreamTaskFail(this);
+    }
+
+    protected boolean isCallable() {
+        if (status.equals(TaskStatus.CANCELED)) {
+            return false;
+        }
+        if (null != Env.getCurrentEnv().getJobManager().getJob(jobId)) {
+            return true;
+        }
+        return false;
+    }
+
+    public void cancel(boolean needWaitCancelComplete) {
+        if (TaskStatus.SUCCESS.equals(status) || TaskStatus.FAILED.equals(status)
+                || TaskStatus.CANCELED.equals(status)) {
+            return;
+        }
+        status = TaskStatus.CANCELED;
+        if (getIsCanceled().get()) {
+            return;
+        }
+        getIsCanceled().getAndSet(true);
+        this.errMsg = "task cancelled";
     }
 
     /**

@@ -17,11 +17,9 @@
 
 package org.apache.doris.cdcclient.service;
 
-import static org.apache.flink.cdc.connectors.mysql.source.assigners.MySqlBinlogSplitAssigner.BINLOG_SPLIT_ID;
-
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.base.Preconditions;
 import io.debezium.data.Envelope;
-import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
@@ -33,21 +31,14 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.doris.cdcclient.common.Env;
+import org.apache.doris.cdcclient.exception.StreamLoadException;
 import org.apache.doris.cdcclient.model.request.WriteRecordReq;
-import org.apache.doris.cdcclient.model.response.WriteMetaResp;
 import org.apache.doris.cdcclient.sink.DorisBatchStreamLoad;
 import org.apache.doris.cdcclient.source.deserialize.DebeziumJsonDeserializer;
 import org.apache.doris.cdcclient.source.deserialize.SourceRecordDeserializer;
 import org.apache.doris.cdcclient.source.reader.SourceReader;
 import org.apache.doris.cdcclient.source.reader.SplitReadResult;
-import org.apache.doris.cdcclient.utils.HttpUtil;
 import org.apache.flink.cdc.connectors.mysql.source.utils.RecordUtils;
-import org.apache.http.HttpHeaders;
-import org.apache.http.client.methods.CloseableHttpResponse;
-import org.apache.http.client.methods.HttpPost;
-import org.apache.http.entity.StringEntity;
-import org.apache.http.impl.client.CloseableHttpClient;
-import org.apache.http.util.EntityUtils;
 import org.apache.kafka.connect.data.Struct;
 import org.apache.kafka.connect.source.SourceRecord;
 import org.slf4j.Logger;
@@ -87,164 +78,117 @@ public class PipelineCoordinator {
                         new ThreadPoolExecutor.AbortPolicy());
     }
 
-    public CompletableFuture<Void> writeRecordsAsync(WriteRecordReq writeRecordReq) {
+    public CompletableFuture<Void> writeRecordsAsync(WriteRecordReq writeRecordReq, String token) {
+        Preconditions.checkNotNull(token, "doris token must not be null");
+        Preconditions.checkNotNull(writeRecordReq.getLabelName(), "labelName must not be null");
+        Preconditions.checkNotNull(writeRecordReq.getTargetDb(), "targetDb must not be null");
         return CompletableFuture.runAsync(
                 () -> {
-                    WriteMetaResp response = null;
-                    Exception error = null;
-
                     try {
                         LOG.info(
-                                "Start processing async write record, jobId={}",
-                                writeRecordReq.getJobId());
-                        response = writeRecords(writeRecordReq);
+                                "Start processing async write record, labelName={}",
+                                writeRecordReq.getLabelName());
+                        writeRecords(writeRecordReq, token);
                         LOG.info(
-                                "Successfully processed async write record, jobId={}",
-                                writeRecordReq.getJobId());
-
+                                "Successfully processed async write record, labelName={}",
+                                writeRecordReq.getLabelName());
                     } catch (Exception ex) {
                         LOG.error(
-                                "Failed to process async write record, jobId={}",
-                                writeRecordReq.getJobId(),
+                                "Failed to process async write record, labelName={}",
+                                writeRecordReq.getLabelName(),
                                 ex);
-                        error = ex;
-                    } finally {
-                        // commitTransaction(writeRecordReq.getJobId(), response, error);
                     }
                 },
                 executor);
     }
 
-    /** commit transaction. */
-    private void commitTransaction(Long jobId, WriteMetaResp response, Exception error) {
-        try {
-            // 序列化为JSON
-            String jsonBody = OBJECT_MAPPER.writeValueAsString("");
-            HttpPost httpPost = new HttpPost("url");
-            httpPost.setHeader(HttpHeaders.CONTENT_TYPE, "application/json; charset=UTF-8");
-            httpPost.setEntity(new StringEntity(jsonBody, StandardCharsets.UTF_8));
-
-            LOG.info("Calling callback URL: {}, jobId={}", "url", jobId);
-
-            try (CloseableHttpClient httpClient = HttpUtil.getHttpClient()) {
-                try (CloseableHttpResponse httpResponse = httpClient.execute(httpPost)) {
-                    int statusCode = httpResponse.getStatusLine().getStatusCode();
-                    String responseBody =
-                            httpResponse.getEntity() != null
-                                    ? EntityUtils.toString(httpResponse.getEntity())
-                                    : "";
-
-                    LOG.info(
-                            "Callback completed, jobId={}, statusCode={}, response={}",
-                            jobId,
-                            statusCode,
-                            responseBody);
-
-                    if (statusCode < 200 || statusCode >= 300) {
-                        LOG.warn(
-                                "Callback returned non-2xx status, jobId={}, statusCode={}",
-                                jobId,
-                                statusCode);
-                    }
-                }
-            }
-
-        } catch (Exception ex) {
-            LOG.error("Failed to call callback URL: {}, jobId={}", "", jobId, ex);
-        }
-    }
-
     /** Read data from SourceReader and write it to Doris, while returning meta information. */
-    public WriteMetaResp writeRecords(WriteRecordReq writeRecordReq) throws Exception {
+    public void writeRecords(WriteRecordReq writeRecordReq, String token) throws Exception {
         SourceReader<?, ?> sourceReader = Env.getCurrentEnv().getReader(writeRecordReq);
-        WriteMetaResp recordResponse = new WriteMetaResp();
-        SplitReadResult<?, ?> readResult = sourceReader.readSplitRecords(writeRecordReq);
+        DorisBatchStreamLoad batchStreamLoad = null;
+        Map<String, String> metaResponse = new HashMap<>();
+        try {
+            SplitReadResult<?, ?> readResult = sourceReader.readSplitRecords(writeRecordReq);
+            batchStreamLoad =
+                    getOrCreateBatchStreamLoad(
+                            writeRecordReq.getJobId(), writeRecordReq.getTargetDb());
+            batchStreamLoad.setCurrentLabel(writeRecordReq.getLabelName());
+            batchStreamLoad.setToken(token);
+            boolean readBinlog = readResult.isReadBinlog();
+            boolean pureBinlogPhase = readResult.isPureBinlogPhase();
 
-        DorisBatchStreamLoad batchStreamLoad =
-                getOrCreateBatchStreamLoad(writeRecordReq.getJobId());
-        boolean readBinlog = readResult.isReadBinlog();
-        boolean pureBinlogPhase = readResult.isPureBinlogPhase();
+            boolean hasData = false;
+            // Record start time for maxInterval check
+            long startTime = System.currentTimeMillis();
+            long maxIntervalMillis = writeRecordReq.getMaxInterval() * 1000;
 
-        boolean hasData = false;
-        // Record start time for maxInterval check
-        long startTime = System.currentTimeMillis();
-        long maxIntervalMillis = writeRecordReq.getMaxInterval() * 1000;
+            // Use iterators to read and write.
+            Iterator<SourceRecord> iterator = readResult.getRecordIterator();
+            while (iterator != null && iterator.hasNext()) {
+                SourceRecord element = iterator.next();
+                if (RecordUtils.isDataChangeRecord(element)) {
+                    List<String> serializedRecords =
+                            serializer.deserialize(writeRecordReq.getConfig(), element);
+                    if (!CollectionUtils.isEmpty(serializedRecords)) {
+                        String database = writeRecordReq.getTargetDb();
+                        String table = extractTable(element);
+                        hasData = true;
+                        for (String record : serializedRecords) {
+                            batchStreamLoad.writeRecord(database, table, record.getBytes());
+                        }
 
-        // Use iterators to read and write.
-        Iterator<SourceRecord> iterator = readResult.getRecordIterator();
-        while (iterator != null && iterator.hasNext()) {
-            SourceRecord element = iterator.next();
-            if (RecordUtils.isDataChangeRecord(element)) {
-                List<String> serializedRecords =
-                        serializer.deserialize(writeRecordReq.getConfig(), element);
-                if (!CollectionUtils.isEmpty(serializedRecords)) {
-                    String database = writeRecordReq.getTargetDatabase();
-                    String table = extractTable(element);
-                    hasData = true;
-                    for (String record : serializedRecords) {
-                        batchStreamLoad.writeRecord(database, table, record.getBytes());
+                        Map<String, String> lastMeta =
+                                RecordUtils.getBinlogPosition(element).getOffset();
+                        if (readBinlog && sourceReader.getSplitId(readResult.getSplit()) != null) {
+                            lastMeta.put(SPLIT_ID, sourceReader.getSplitId(readResult.getSplit()));
+                            lastMeta.put(PURE_BINLOG_PHASE, String.valueOf(pureBinlogPhase));
+                        }
+                        metaResponse = lastMeta;
                     }
-
-                    Map<String, String> lastMeta =
-                            RecordUtils.getBinlogPosition(element).getOffset();
-                    if (readBinlog && sourceReader.getSplitId(readResult.getSplit()) != null) {
-                        lastMeta.put(SPLIT_ID, sourceReader.getSplitId(readResult.getSplit()));
-                        lastMeta.put(PURE_BINLOG_PHASE, String.valueOf(pureBinlogPhase));
-                    }
-                    recordResponse.setMeta(lastMeta);
+                }
+                // Check if maxInterval has been exceeded
+                long elapsedTime = System.currentTimeMillis() - startTime;
+                if (maxIntervalMillis > 0 && elapsedTime >= maxIntervalMillis) {
+                    LOG.info(
+                            "Max interval {} seconds reached, stopping data reading",
+                            writeRecordReq.getMaxInterval());
+                    break;
                 }
             }
-            // Check if maxInterval has been exceeded
-            long elapsedTime = System.currentTimeMillis() - startTime;
-            if (maxIntervalMillis > 0 && elapsedTime >= maxIntervalMillis) {
-                LOG.info(
-                        "Max interval {} seconds reached, stopping data reading",
-                        writeRecordReq.getMaxInterval());
-                break;
+            if (!hasData) {
+                // should not happen, No data will be distributed task
+                throw new StreamLoadException("No data to write");
             }
-        }
-        if (hasData) {
+
             // wait all stream load finish
             batchStreamLoad.forceFlush();
-        }
-
-        sourceReader.finishSplitRecords();
-        // update offset meta
-        if (!readBinlog) {
-            Map<String, String> offsetRes =
-                    sourceReader.extractSnapshotOffset(
-                            readResult.getSplitState(), readResult.getSplit());
-            if (offsetRes != null) {
-                recordResponse.setMeta(offsetRes);
-            }
-        }
-
-        if (!hasData) {
-            if (readBinlog) {
+            // update offset meta
+            if (!readBinlog) {
                 Map<String, String> offsetRes =
-                        sourceReader.extractBinlogOffset(readResult.getSplit(), pureBinlogPhase);
-                if (offsetRes != null) {
-                    recordResponse.setMeta(offsetRes);
-                } else {
-                    // Fallback to request meta if extraction fails
-                    Map<String, String> fallbackOffset = new HashMap<>(writeRecordReq.getMeta());
-                    fallbackOffset.put(SPLIT_ID, BINLOG_SPLIT_ID);
-                    fallbackOffset.put(PURE_BINLOG_PHASE, String.valueOf(pureBinlogPhase));
-                    recordResponse.setMeta(fallbackOffset);
+                        sourceReader.extractSnapshotOffset(
+                                readResult.getSplitState(), readResult.getSplit());
+                if (offsetRes == null) {
+                    // should not happen
+                    throw new StreamLoadException(
+                            "Chunk data cannot be obtained from highWatermark.");
                 }
-            } else {
-                recordResponse.setMeta(writeRecordReq.getMeta());
+                metaResponse = offsetRes;
+            }
+            batchStreamLoad.commitTransaction(metaResponse);
+        } finally {
+            sourceReader.finishSplitRecords();
+            if (batchStreamLoad != null) {
+                batchStreamLoad.resetLabel();
             }
         }
-        return recordResponse;
     }
 
-    private DorisBatchStreamLoad getOrCreateBatchStreamLoad(Long jobId) {
+    private DorisBatchStreamLoad getOrCreateBatchStreamLoad(Long jobId, String targetDb) {
         return batchStreamLoadMap.computeIfAbsent(
                 jobId,
                 k -> {
                     LOG.info("Create DorisBatchStreamLoad for jobId={}", jobId);
-                    return new DorisBatchStreamLoad(jobId);
+                    return new DorisBatchStreamLoad(jobId, targetDb);
                 });
     }
 

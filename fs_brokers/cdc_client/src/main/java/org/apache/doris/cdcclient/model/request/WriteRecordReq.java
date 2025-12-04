@@ -24,7 +24,8 @@ import lombok.EqualsAndHashCode;
 @EqualsAndHashCode(callSuper = true)
 public class WriteRecordReq extends JobBaseRecordReq {
     private long maxInterval;
-    private String targetDatabase;
+    private String targetDb;
+    private String labelName;
 
     @Override
     public boolean isReload() {

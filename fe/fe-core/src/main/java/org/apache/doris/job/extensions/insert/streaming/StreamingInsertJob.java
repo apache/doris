@@ -52,6 +52,7 @@ import org.apache.doris.job.offset.jdbc.JdbcSourceOffsetProvider;
 import org.apache.doris.job.util.StreamingJobUtils;
 import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.load.loadv2.LoadStatistic;
+import org.apache.doris.load.routineload.RoutineLoadTaskInfo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundTVFRelation;
@@ -417,11 +418,10 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     }
 
     protected AbstractStreamingTask createStreamingTask() {
-        AbstractStreamingTask task = null;
         if (tvfType != null) {
-            task = createStreamingInsertTask();
+            this.runningStreamTask = createStreamingInsertTask();
         }else {
-            task = createStreamingMultiTblTask();
+            this.runningStreamTask = createStreamingMultiTblTask();
         }
         Env.getCurrentEnv().getJobManager().getStreamingTaskManager().registerTask(runningStreamTask);
         this.runningStreamTask.setStatus(TaskStatus.PENDING);
@@ -436,17 +436,16 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
      * @return
      */
     private AbstractStreamingTask createStreamingMultiTblTask() {
-        this.runningStreamTask = new StreamingMultiTblTask(getJobId(), Env.getCurrentEnv().getNextId(), offsetProvider, sourceProperties, targetProperties);
-        return runningStreamTask;
+        return new StreamingMultiTblTask(getJobId(), Env.getCurrentEnv().getNextId(), dataSourceType, offsetProvider, sourceProperties, targetDb, targetProperties);
     }
 
     protected AbstractStreamingTask createStreamingInsertTask() {
         if (originTvfProps == null) {
             this.originTvfProps = getCurrentTvf().getProperties().getMap();
         }
-        this.runningStreamTask = new StreamingInsertTask(getJobId(), Env.getCurrentEnv().getNextId(), getExecuteSql(),
+        return new StreamingInsertTask(getJobId(), Env.getCurrentEnv().getNextId(),
+                getExecuteSql(),
                 offsetProvider, getCurrentDbName(), jobProperties, originTvfProps, getCreateUser());
-        return runningStreamTask;
     }
 
     public void recordTasks(AbstractStreamingTask task) {
@@ -527,7 +526,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         getRunningTasks().remove(task);
     }
 
-    public void onStreamTaskFail(StreamingInsertTask task) throws JobException {
+    public void onStreamTaskFail(AbstractStreamingTask task) throws JobException {
         try {
             failedTaskCount.incrementAndGet();
             Env.getCurrentEnv().getJobManager().getStreamingTaskManager().removeRunningTask(task);
@@ -945,7 +944,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
 
     @Override
     public void afterVisible(TransactionState txnState, boolean txnOperated) {
-
+        // todo: multi task ，需要创建一个新的task。
     }
 
     @Override
@@ -982,6 +981,34 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
 
         if (null == lock) {
             this.lock = new ReentrantReadWriteLock(true);
+        }
+    }
+
+    /**
+     * The current streamingTask times out; create a new streamingTask.
+     * Only applies to StreamingMultiTask.
+     */
+    public void processTimeoutTasks() {
+        if (!(runningStreamTask instanceof StreamingMultiTblTask)) {
+            return;
+        }
+        writeLock();
+        try {
+            StreamingMultiTblTask runningMultiTask = (StreamingMultiTblTask) this.runningStreamTask;
+            if (runningMultiTask.isTimeout()) {
+                runningMultiTask.cancel(false);
+                runningMultiTask.setErrMsg("task cancelled cause timeout");
+
+                // renew streaming multi task
+                this.runningStreamTask = createStreamingMultiTblTask();
+                Env.getCurrentEnv().getJobManager().getStreamingTaskManager().registerTask(runningStreamTask);
+                this.runningStreamTask.setStatus(TaskStatus.PENDING);
+                log.info("create new streaming multi tasks due to timeout, for job {}, task {} ",
+                        getJobId(), runningStreamTask.getTaskId());
+                recordTasks(runningStreamTask);
+            }
+        } finally {
+            writeUnlock();
         }
     }
 }

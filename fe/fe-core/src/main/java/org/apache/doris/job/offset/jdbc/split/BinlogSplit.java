@@ -17,20 +17,29 @@
 
 package org.apache.doris.job.offset.jdbc.split;
 
+import org.apache.doris.persist.gson.GsonUtils;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.gson.Gson;
 import lombok.EqualsAndHashCode;
 import lombok.Getter;
+import lombok.NoArgsConstructor;
 import lombok.Setter;
+import java.util.List;
 import java.util.Map;
 
 @Getter
 @Setter
 @EqualsAndHashCode(callSuper = true)
+@NoArgsConstructor
 public class BinlogSplit extends AbstractSourceSplit {
     private static final long serialVersionUID = 1L;
-    private Map<String, String> offset;
+    private Map<String, String> startingOffset;
+    private Map<String, String> endingOffset;
+    // binlog split meta, first binlog split requires
+    private List<SnapshotSplit> finishedSplits;
 
-    public BinlogSplit(String splitId, Map<String, String> offset) {
-        super(splitId);
-        this.offset = offset;
+    @Override
+    public String toString() {
+        return new Gson().toJson(this);
     }
 }

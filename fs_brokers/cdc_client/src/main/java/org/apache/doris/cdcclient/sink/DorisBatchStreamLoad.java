@@ -20,9 +20,9 @@ package org.apache.doris.cdcclient.sink;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.io.Serializable;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -43,15 +43,14 @@ import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
-import org.apache.commons.codec.binary.Base64;
+import lombok.Setter;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.doris.cdcclient.common.Env;
 import org.apache.doris.cdcclient.exception.StreamLoadException;
 import org.apache.doris.cdcclient.utils.HttpUtil;
 import org.apache.flink.annotation.VisibleForTesting;
-import org.apache.http.HttpHeaders;
 import org.apache.http.client.methods.CloseableHttpResponse;
-import org.apache.http.client.methods.HttpPut;
+import org.apache.http.entity.StringEntity;
 import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.util.EntityUtils;
 import org.slf4j.Logger;
@@ -69,6 +68,7 @@ public class DorisBatchStreamLoad implements Serializable {
     private final int RETRY = 3;
     private final byte[] lineDelimiter = "\n".getBytes();
     private static final String LOAD_URL_PATTERN = "http://%s/api/%s/%s/_stream_load";
+    private static final String COMMIT_URL_PATTERN = "http://%s/api/%s/_stream_load_2pc";
     private String hostPort;
     private Map<String, BatchRecordBuffer> bufferMap = new ConcurrentHashMap<>();
     private ExecutorService loadExecutorService;
@@ -82,8 +82,13 @@ public class DorisBatchStreamLoad implements Serializable {
     private final Lock lock = new ReentrantLock();
     private final Condition block = lock.newCondition();
     private final Map<String, ReadWriteLock> bufferMapLock = new ConcurrentHashMap<>();
+    @Setter private String currentLabel;
+    private List<String> successSubLabels = new ArrayList<>();
+    private String targetDb;
+    private long jobId;
+    @Setter private String token;
 
-    public DorisBatchStreamLoad(long jobId) {
+    public DorisBatchStreamLoad(long jobId, String targetDb) {
         this.hostPort = Env.getCurrentEnv().getBackendHostPort();
         this.flushQueue = new LinkedBlockingDeque<>(1);
         // maxBlockedBytes is two times of FLUSH_MAX_BYTE_SIZE
@@ -100,6 +105,8 @@ public class DorisBatchStreamLoad implements Serializable {
                         new ThreadPoolExecutor.AbortPolicy());
         this.started = new AtomicBoolean(true);
         this.loadExecutorService.execute(loadAsyncExecutor);
+        this.targetDb = targetDb;
+        this.jobId = jobId;
     }
 
     /**
@@ -345,28 +352,25 @@ public class DorisBatchStreamLoad implements Serializable {
         /** execute stream load. */
         public void load(String label, BatchRecordBuffer buffer) throws IOException {
             BatchBufferHttpEntity entity = new BatchBufferHttpEntity(buffer);
-            HttpPut put =
-                    new HttpPut(
-                            String.format(
-                                    LOAD_URL_PATTERN,
-                                    hostPort,
-                                    buffer.getDatabase(),
-                                    buffer.getTable()));
-            put.addHeader(HttpHeaders.EXPECT, "100-continue");
-            put.addHeader("read_json_by_line", "true");
-            put.addHeader("format", "json");
-            put.addHeader(
-                    HttpHeaders.AUTHORIZATION,
-                    "Basic "
-                            + new String(
-                                    Base64.encodeBase64("root:".getBytes(StandardCharsets.UTF_8))));
-            put.setEntity(entity);
+            HttpPutBuilder putBuilder = new HttpPutBuilder();
+            String loadUrl = String.format(LOAD_URL_PATTERN, hostPort, targetDb, buffer.getTable());
+            putBuilder
+                    .setUrl(loadUrl)
+                    .addTokenAuth(token)
+                    .setLabel(currentLabel)
+                    .setSubLabel(label)
+                    .formatJson()
+                    .enable2PC()
+                    .addCommonHeader()
+                    .setEntity(entity)
+                    .addHiddenColumns(true)
+                    .setEntity(entity);
 
             Throwable resEx = new Throwable();
             int retry = 0;
             while (retry <= RETRY) {
                 try (CloseableHttpClient httpClient = HttpUtil.getHttpClient()) {
-                    try (CloseableHttpResponse response = httpClient.execute(put)) {
+                    try (CloseableHttpResponse response = httpClient.execute(putBuilder.build())) {
                         int statusCode = response.getStatusLine().getStatusCode();
                         String reason = response.getStatusLine().toString();
                         if (statusCode == 200 && response.getEntity() != null) {
@@ -375,6 +379,7 @@ public class DorisBatchStreamLoad implements Serializable {
                             RespContent respContent =
                                     OBJECT_MAPPER.readValue(loadResult, RespContent.class);
                             if (DORIS_SUCCESS_STATUS.contains(respContent.getStatus())) {
+                                successSubLabels.add(label);
                                 long cacheByteBeforeFlush =
                                         currentCacheBytes.getAndAdd(-respContent.getLoadBytes());
                                 LOG.info(
@@ -453,13 +458,86 @@ public class DorisBatchStreamLoad implements Serializable {
         }
     }
 
-    @VisibleForTesting
-    public AtomicReference<Throwable> getException() {
-        return exception;
+    public void resetLabel() {
+        this.currentLabel = null;
+        this.successSubLabels.clear();
     }
 
-    @VisibleForTesting
-    public boolean isLoadThreadAlive() {
-        return loadThreadAlive;
+    /** commit transaction. */
+    public void commitTransaction(Map<String, String> meta) {
+        try {
+            String url = String.format(COMMIT_URL_PATTERN, hostPort, targetDb);
+
+            Map<String, String> attachment = new HashMap<>();
+            attachment.put("offset", OBJECT_MAPPER.writeValueAsString(meta));
+            Map<String, Object> commitParams = new HashMap<>();
+            commitParams.put("attachment", attachment);
+            commitParams.put("sub_labels", successSubLabels);
+            HttpPutBuilder builder =
+                    new HttpPutBuilder()
+                            .addCommonHeader()
+                            .addTokenAuth(token)
+                            .setLabel(currentLabel)
+                            .setUrl(url)
+                            .commit()
+                            .setEntity(
+                                    new StringEntity(
+                                            OBJECT_MAPPER.writeValueAsString(commitParams)));
+
+            LOG.info("commit transaction with label: {}", currentLabel);
+            Throwable resEx = null;
+            int retry = 0;
+            while (retry <= RETRY) {
+                try (CloseableHttpClient httpClient = HttpUtil.getHttpClient()) {
+                    try (CloseableHttpResponse httpResponse = httpClient.execute(builder.build())) {
+                        int statusCode = httpResponse.getStatusLine().getStatusCode();
+                        String reason = httpResponse.getStatusLine().toString();
+                        String responseBody =
+                                httpResponse.getEntity() != null
+                                        ? EntityUtils.toString(httpResponse.getEntity())
+                                        : "";
+                        LOG.info("commit result {}", responseBody);
+                        if (statusCode == 200) {
+                            LOG.info("commit transaction success, label: {}", currentLabel);
+                            return;
+                        }
+                        LOG.error(
+                                "commit transaction failed with {}, reason {}, to retry",
+                                hostPort,
+                                reason);
+                        if (retry == RETRY) {
+                            resEx =
+                                    new StreamLoadException(
+                                            "commit transaction failed with: " + reason);
+                        }
+                    } catch (Exception ex) {
+                        resEx = ex;
+                        LOG.error(
+                                "commit transaction error with {}, to retry, cause by",
+                                hostPort,
+                                ex);
+                    }
+                }
+                retry++;
+                if (retry <= RETRY) {
+                    try {
+                        Thread.sleep(retry * 1000);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        throw new RuntimeException(e);
+                    }
+                }
+            }
+
+            if (retry > RETRY) {
+                throw new StreamLoadException(
+                        "commit transaction error: "
+                                + (resEx != null ? resEx.getMessage() : "unknown error"),
+                        resEx);
+            }
+        } catch (Exception ex) {
+            LOG.error("Failed to commit transaction, jobId={}", jobId, ex);
+            throw new StreamLoadException("Failed to commit transaction", ex);
+        }
     }
 }

@@ -55,7 +55,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 @Log4j2
 @Getter
 public class StreamingInsertTask extends AbstractStreamingTask {
-    private static final String LABEL_SPLITTER = "_";
     private String sql;
     private StmtExecutor stmtExecutor;
     private InsertIntoTableCommand taskCommand;
@@ -73,16 +72,13 @@ public class StreamingInsertTask extends AbstractStreamingTask {
                                StreamingJobProperties jobProperties,
                                Map<String, String> originTvfProps,
                                UserIdentity userIdentity) {
-        this.jobId = jobId;
-        this.taskId = taskId;
+        super(jobId, taskId);
         this.sql = sql;
         this.userIdentity = userIdentity;
         this.currentDb = currentDb;
         this.offsetProvider = offsetProvider;
         this.jobProperties = jobProperties;
         this.originTvfProps = originTvfProps;
-        this.labelName = getJobId() + LABEL_SPLITTER + getTaskId();
-        this.createTimeMs = System.currentTimeMillis();
     }
 
     @Override
@@ -158,33 +154,13 @@ public class StreamingInsertTask extends AbstractStreamingTask {
     }
 
     @Override
-    public void onFail(String errMsg) throws JobException {
-        if (getIsCanceled().get()) {
-            return;
-        }
-        this.errMsg = errMsg;
-        this.status = TaskStatus.FAILED;
-        this.finishTimeMs = System.currentTimeMillis();
-        if (!isCallable()) {
-            return;
-        }
-        Job job = Env.getCurrentEnv().getJobManager().getJob(getJobId());
-        StreamingInsertJob streamingInsertJob = (StreamingInsertJob) job;
-        streamingInsertJob.onStreamTaskFail(this);
+    protected void onFail(String errMsg) throws JobException {
+        super.onFail(errMsg);
     }
 
     @Override
     public void cancel(boolean needWaitCancelComplete) {
-        if (TaskStatus.SUCCESS.equals(status) || TaskStatus.FAILED.equals(status)
-                || TaskStatus.CANCELED.equals(status)) {
-            return;
-        }
-        status = TaskStatus.CANCELED;
-        if (getIsCanceled().get()) {
-            return;
-        }
-        getIsCanceled().getAndSet(true);
-        this.errMsg = "task cancelled";
+        super.cancel(needWaitCancelComplete);
         if (null != stmtExecutor) {
             log.info("cancelling streaming insert task, job id is {}, task id is {}",
                     getJobId(), getTaskId());
@@ -204,15 +180,5 @@ public class StreamingInsertTask extends AbstractStreamingTask {
         if (null != ctx) {
             ctx = null;
         }
-    }
-
-    private boolean isCallable() {
-        if (status.equals(TaskStatus.CANCELED)) {
-            return false;
-        }
-        if (null != Env.getCurrentEnv().getJobManager().getJob(jobId)) {
-            return true;
-        }
-        return false;
     }
 }
