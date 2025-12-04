@@ -393,7 +393,7 @@ public:
     // if jsonb is invalid, return nullptr
     // if josnb is null json , return nullptr
     // else return jsonb_value
-    static JsonbValue* handle_jsonb_value(const StringRef& val);
+    static const JsonbValue* handle_jsonb_value(const StringRef& val);
 
     virtual Status deserialize_column_from_jsonb_vector(ColumnNullable& column_to,
                                                         const ColumnString& from_column,
@@ -500,8 +500,8 @@ inline Status checkArrowStatus(const arrow::Status& status, const std::string& c
     return Status::OK();
 }
 
-inline JsonbValue* DataTypeSerDe::handle_jsonb_value(const StringRef& val) {
-    JsonbDocument* doc = nullptr;
+inline const JsonbValue* DataTypeSerDe::handle_jsonb_value(const StringRef& val) {
+    const JsonbDocument* doc = nullptr;
     if (val.size == 0) {
         return nullptr;
     }
@@ -509,7 +509,7 @@ inline JsonbValue* DataTypeSerDe::handle_jsonb_value(const StringRef& val) {
     if (!st.ok() || !doc || !doc->getValue()) [[unlikely]] {
         return nullptr;
     }
-    JsonbValue* value = doc->getValue();
+    const JsonbValue* value = doc->getValue();
     if (UNLIKELY(!value)) {
         return nullptr;
     }

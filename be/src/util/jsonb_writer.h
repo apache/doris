@@ -550,16 +550,19 @@ public:
     }
 
     OS_TYPE* getOutput() { return os_; }
-    JsonbDocument* getDocument() {
-        JsonbDocument* doc = nullptr;
+
+#ifdef BE_TEST
+    const JsonbDocument* getDocument() {
+        const JsonbDocument* doc = nullptr;
         THROW_IF_ERROR(JsonbDocument::checkAndCreateDocument(getOutput()->getBuffer(),
                                                              getOutput()->getSize(), &doc));
         return doc;
     }
 
-    JsonbValue* getValue() {
+    const JsonbValue* getValue() {
         return JsonbDocument::createValue(getOutput()->getBuffer(), getOutput()->getSize());
     }
+#endif
 
     bool writeEnd() {
         while (!stack_.empty()) {

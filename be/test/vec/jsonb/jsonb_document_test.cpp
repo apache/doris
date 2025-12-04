@@ -93,8 +93,8 @@ TEST_F(JsonbDocumentTest, writer) {
 
     writer.writeEndObject();
 
-    JsonbDocument* doc = writer.getDocument();
-    auto* root = doc->getValue();
+    const JsonbDocument* doc = writer.getDocument();
+    const auto* root = doc->getValue();
     ASSERT_TRUE(root->type == JsonbType::T_Object)
             << "invalid root type:" << static_cast<JsonbTypeUnder>(root->type);
 
@@ -242,8 +242,8 @@ TEST_F(JsonbDocumentTest, forobject) {
 
     writer.writeEndObject();
 
-    JsonbDocument* doc = writer.getDocument();
-    auto* root = doc->getValue();
+    const JsonbDocument* doc = writer.getDocument();
+    const auto* root = doc->getValue();
     std::cout << JsonbToJson {}.to_json_string(root) << std::endl;
     EXPECT_EQ(
             JsonbToJson {}.to_json_string(root),

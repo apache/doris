@@ -77,7 +77,7 @@ public:
 
         for (size_t i = 0; i < size; ++i) {
             StringRef val = input_jsonb_column.get_data_at(i);
-            JsonbDocument* doc = nullptr;
+            const JsonbDocument* doc = nullptr;
             auto st = JsonbDocument::checkAndCreateDocument(val.data, val.size, &doc);
             if (!st.ok() || !doc || !doc->getValue()) [[unlikely]] {
                 // mayby be invalid jsonb, just insert default
