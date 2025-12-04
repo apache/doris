@@ -29,6 +29,7 @@ import org.apache.doris.catalog.FunctionGenTable;
 import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.BrokerUtil;
@@ -355,6 +356,24 @@ public abstract class FileQueryScanNode extends FileScanNode {
             }
         } else {
             List<Split> inputSplits = getSplits(numBackends);
+
+            Boolean fileCacheAdmission = true;
+            if (Config.enable_file_cache_admission_control) {
+                String userIdentity = ConnectContext.get().getUserIdentity();
+                String catalog = ConnectContext.get().getCurrentCatalog().getName();
+                String database = ConnectContext.get().getDatabase();
+                String table = desc.getTable().getName();
+
+                String reason = "";
+
+                LOG.info("  当前用户: {}", userIdentity);
+                LOG.info("  当前Catalog: {}", catalog);
+                LOG.info("  当前Database: {}", database);
+                LOG.info("  当前Table: {}", table);
+
+                addFileCacheAdmissionLog(userIdentity, catalog, database, table, fileCacheAdmission, reason);
+            }
+
             if (ConnectContext.get().getExecutor() != null) {
                 ConnectContext.get().getExecutor().getSummaryProfile().setGetSplitsFinishTime();
             }
@@ -366,7 +385,8 @@ public abstract class FileQueryScanNode extends FileScanNode {
             for (Backend backend : assignment.keySet()) {
                 Collection<Split> splits = assignment.get(backend);
                 for (Split split : splits) {
-                    scanRangeLocations.add(splitToScanRange(backend, locationProperties, split, pathPartitionKeys));
+                    scanRangeLocations.add(splitToScanRange(backend, locationProperties, split, pathPartitionKeys,
+                            fileCacheAdmission));
                     totalFileSize += split.getLength();
                 }
                 scanBackendIds.add(backend.getId());
@@ -392,6 +412,15 @@ public abstract class FileQueryScanNode extends FileScanNode {
             Map<String, String> locationProperties,
             Split split,
             List<String> pathPartitionKeys) throws UserException {
+        return splitToScanRange(backend, locationProperties, split, pathPartitionKeys, true);
+    }
+
+    private TScanRangeLocations splitToScanRange(
+            Backend backend,
+            Map<String, String> locationProperties,
+            Split split,
+            List<String> pathPartitionKeys,
+            Boolean fileCacheAdmission) throws UserException {
         FileSplit fileSplit = (FileSplit) split;
         TScanRangeLocations curLocations = newLocations();
         // If fileSplit has partition values, use the values collected from hive partitions.
@@ -411,6 +440,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
         // set file format type, and the type might fall back to native format in setScanParams
         rangeDesc.setFormatType(getFileFormatType());
         setScanParams(rangeDesc, fileSplit);
+        rangeDesc.setFileCacheAdmission(fileCacheAdmission);
 
         curLocations.getScanRange().getExtScanRange().getFileScanRange().addToRanges(rangeDesc);
         TScanRangeLocation location = new TScanRangeLocation();

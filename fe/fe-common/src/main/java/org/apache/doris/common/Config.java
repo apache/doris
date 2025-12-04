@@ -3698,6 +3698,55 @@ public class Config extends ConfigBase {
     })
     public static int first_error_msg_max_length = 256;
 
+    @ConfField(mutable = false, description = {
+        "",
+        ""
+    })
+    public static boolean enable_file_cache_admission_control = false;
+
+    @ConfField(mutable = false, description = {
+        "",
+        ""
+    })
+    public static String file_cache_admission_control_mysql_host = "localhost";
+
+    @ConfField(mutable = false, description = {
+        "",
+        ""
+    })
+    public static int file_cache_admission_control_mysql_port = 3306;
+
+    @ConfField(mutable = false, description = {
+        "",
+        ""
+    })
+    public static String file_cache_admission_control_mysql_user = "root";
+
+    @ConfField(mutable = false, description = {
+        "",
+        ""
+    })
+    public static String file_cache_admission_control_mysql_password = "";
+
+    @ConfField(mutable = false, description = {
+        "",
+        ""
+    })
+    public static String file_cache_admission_control_mysql_database = "file_cache_admission_control";
+
+    @ConfField(mutable = true, description = {
+        "",
+        ""
+    })
+    public static int file_cache_admission_control_fresh_interval_s = 300;
+
+
+    @ConfField(mutable = true, description = {
+        "",
+        ""
+    })
+    public static boolean file_cache_admission_control_default_allow = false;
+
     @ConfField
     public static String cloud_snapshot_handler_class = "org.apache.doris.cloud.snapshot.CloudSnapshotHandler";
     @ConfField
