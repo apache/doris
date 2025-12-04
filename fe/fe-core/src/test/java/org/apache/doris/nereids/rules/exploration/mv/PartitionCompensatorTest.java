@@ -26,7 +26,6 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.hive.HMSExternalTable;
-import org.apache.doris.mtmv.BaseColInfo;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVPartitionInfo;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
@@ -44,12 +43,9 @@ import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 import java.util.BitSet;
-import java.util.Collections;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 public class PartitionCompensatorTest extends TestWithFeService {
 
@@ -210,44 +206,11 @@ public class PartitionCompensatorTest extends TestWithFeService {
     }
 
     @Test
-    public void testNeedUnionRewriteUnpartitionedOrNoPctInfos() throws Exception {
-        MaterializationContext ctx1 = mockCtx(
-                PartitionType.UNPARTITIONED,
-                ImmutableList.of(new BaseColInfo("c", newBaseTableInfo())),
-                ImmutableSet.of(),
-                false);
-        StatementContext sc1 = Mockito.mock(StatementContext.class);
-        Mockito.when(sc1.getTableUsedPartitionNameMap()).thenReturn(ArrayListMultimap.create());
-        Assertions.assertFalse(PartitionCompensator.needUnionRewrite(ctx1, sc1));
-
-        MaterializationContext ctx2 = mockCtx(
-                PartitionType.RANGE,
-                Collections.emptyList(),
-                ImmutableSet.of(Mockito.mock(MTMVRelatedTableIf.class)),
-                false);
-        StatementContext sc2 = Mockito.mock(StatementContext.class);
-        Mockito.when(sc2.getTableUsedPartitionNameMap()).thenReturn(ArrayListMultimap.create());
-        Assertions.assertFalse(PartitionCompensator.needUnionRewrite(ctx2, sc2));
-    }
-
-    @Test
-    public void testNeedUnionRewriteEmptyPctTables() throws Exception {
-        MaterializationContext ctx = mockCtx(
-                PartitionType.RANGE,
-                ImmutableList.of(),
-                Collections.emptySet(),
-                false);
-        StatementContext sc = Mockito.mock(StatementContext.class);
-        Mockito.when(sc.getTableUsedPartitionNameMap()).thenReturn(ArrayListMultimap.create());
-        Assertions.assertFalse(PartitionCompensator.needUnionRewrite(ctx, sc));
-    }
-
-    @Test
     public void testNeedUnionRewriteExternalNoPrune() throws Exception {
         MaterializationContext ctx = mockCtx(
                 PartitionType.LIST,
-                ImmutableList.of(new BaseColInfo("c", newBaseTableInfo())),
-                ImmutableSet.of(Mockito.mock(MTMVRelatedTableIf.class)),
+                newBaseTableInfo(),
+                Mockito.mock(MTMVRelatedTableIf.class),
                 true);
         StatementContext sc = Mockito.mock(StatementContext.class);
         Mockito.when(sc.getTableUsedPartitionNameMap()).thenReturn(ArrayListMultimap.create());
@@ -258,8 +221,8 @@ public class PartitionCompensatorTest extends TestWithFeService {
     public void testNeedUnionRewritePositive() throws Exception {
         MaterializationContext ctx = mockCtx(
                 PartitionType.LIST,
-                ImmutableList.of(new BaseColInfo("c", newBaseTableInfo())),
-                ImmutableSet.of(Mockito.mock(MTMVRelatedTableIf.class)),
+                newBaseTableInfo(),
+                Mockito.mock(MTMVRelatedTableIf.class),
                 false);
         StatementContext sc = Mockito.mock(StatementContext.class);
         Mockito.when(sc.getTableUsedPartitionNameMap()).thenReturn(ArrayListMultimap.create());
@@ -271,8 +234,8 @@ public class PartitionCompensatorTest extends TestWithFeService {
         BaseTableInfo tableInfo = newBaseTableInfo();
         MaterializationContext ctx = mockCtx(
                 PartitionType.LIST,
-                ImmutableList.of(new BaseColInfo("c", tableInfo)),
-                ImmutableSet.of(Mockito.mock(MTMVRelatedTableIf.class)),
+                tableInfo,
+                Mockito.mock(MTMVRelatedTableIf.class),
                 false);
         StatementContext sc = Mockito.mock(StatementContext.class);
 
@@ -344,8 +307,8 @@ public class PartitionCompensatorTest extends TestWithFeService {
 
     private static MaterializationContext mockCtx(
             PartitionType type,
-            List<BaseColInfo> pctInfos,
-            Set<MTMVRelatedTableIf> pctTables,
+            BaseTableInfo pctInfo,
+            MTMVRelatedTableIf pctTable,
             boolean externalNoPrune) throws AnalysisException {
 
         MTMV mtmv = Mockito.mock(MTMV.class);
@@ -355,16 +318,13 @@ public class PartitionCompensatorTest extends TestWithFeService {
 
         MTMVPartitionInfo mpi = Mockito.mock(MTMVPartitionInfo.class);
         Mockito.when(mtmv.getMvPartitionInfo()).thenReturn(mpi);
-        Mockito.when(mpi.getPctInfos()).thenReturn(pctInfos);
-        Mockito.when(mpi.getPctTables()).thenReturn(pctTables);
+        Mockito.when(mpi.getRelatedTableInfo()).thenReturn(pctInfo);
+        Mockito.when(mpi.getRelatedTable()).thenReturn(pctTable);
 
         if (externalNoPrune) {
             HMSExternalTable ext = Mockito.mock(HMSExternalTable.class);
             Mockito.when(ext.supportInternalPartitionPruned()).thenReturn(false);
-            Set<TableIf> tbls = new HashSet<>(pctTables);
-            tbls.add(ext);
-            Mockito.when(mpi.getPctTables()).thenReturn(
-                    tbls.stream().map(MTMVRelatedTableIf.class::cast).collect(Collectors.toSet()));
+            Mockito.when(mpi.getRelatedTable()).thenReturn(ext);
         }
 
         AsyncMaterializationContext ctx = Mockito.mock(AsyncMaterializationContext.class);
