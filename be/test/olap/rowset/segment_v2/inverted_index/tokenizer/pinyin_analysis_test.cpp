@@ -1439,3 +1439,371 @@ TEST_F(PinyinAnalysisTest, TestTokenizer_UnicodeSymbolsDropped) {
     // Unicode symbols like circled numbers should be dropped
     verifyTokens("①②③中国", config, {"zhong", "zg", "guo"});
 }
+
+TEST_F(PinyinAnalysisTest, TestIgnorePinyinOffset_True_SingleChinese) {
+    PinyinConfig config;
+    config.keepFirstLetter = true;
+    config.keepFullPinyin = true;
+    config.keepOriginal = false;
+    config.keepJoinedFullPinyin = false;
+    config.keepSeparateFirstLetter = false;
+    config.ignorePinyinOffset = true;
+
+    std::string text = "刘德华";
+    auto result = getStringArrayListHashMap({text}, config);
+    auto& tokens = result[text];
+
+    ASSERT_GT(tokens.size(), 0);
+
+    int total_bytes = 9;
+    std::vector<std::string> expected_terms = {"liu", "ldh", "de", "hua"};
+    EXPECT_EQ(tokens.size(), expected_terms.size());
+    for (size_t i = 0; i < tokens.size(); ++i) {
+        EXPECT_EQ(tokens[i].term, expected_terms[i]) << "Token mismatch at position " << i;
+        EXPECT_EQ(tokens[i].startOffset, 0) << "Token: " << tokens[i].term;
+        EXPECT_EQ(tokens[i].endOffset, total_bytes) << "Token: " << tokens[i].term;
+    }
+}
+
+TEST_F(PinyinAnalysisTest, TestIgnorePinyinOffset_True_KeepOriginal) {
+    PinyinConfig config;
+    config.keepFirstLetter = true;
+    config.keepFullPinyin = true;
+    config.keepOriginal = true;
+    config.ignorePinyinOffset = true;
+
+    std::string text = "你好";
+    auto result = getStringArrayListHashMap({text}, config);
+    auto& tokens = result[text];
+
+    ASSERT_GT(tokens.size(), 0);
+
+    int total_bytes = 6;
+    for (const auto& token : tokens) {
+        EXPECT_EQ(token.startOffset, 0) << "Token: " << token.term;
+        EXPECT_EQ(token.endOffset, total_bytes) << "Token: " << token.term;
+    }
+}
+
+TEST_F(PinyinAnalysisTest, TestIgnorePinyinOffset_True_JoinedFullPinyin) {
+    PinyinConfig config;
+    config.keepFirstLetter = true;
+    config.keepFullPinyin = true;
+    config.keepJoinedFullPinyin = true;
+    config.keepOriginal = false;
+    config.ignorePinyinOffset = true;
+
+    std::string text = "中国";
+    auto result = getStringArrayListHashMap({text}, config);
+    auto& tokens = result[text];
+
+    ASSERT_GT(tokens.size(), 0);
+
+    int total_bytes = 6;
+    for (const auto& token : tokens) {
+        EXPECT_EQ(token.startOffset, 0) << "Token: " << token.term;
+        EXPECT_EQ(token.endOffset, total_bytes) << "Token: " << token.term;
+    }
+}
+
+TEST_F(PinyinAnalysisTest, TestIgnorePinyinOffset_True_AsciiOnly) {
+    PinyinConfig config;
+    config.keepFirstLetter = true;
+    config.keepFullPinyin = true;
+    config.keepNoneChinese = true;
+    config.ignorePinyinOffset = true;
+
+    std::string text = "hello";
+    auto result = getStringArrayListHashMap({text}, config);
+    auto& tokens = result[text];
+
+    ASSERT_GT(tokens.size(), 0);
+
+    int total_bytes = 5;
+    for (const auto& token : tokens) {
+        EXPECT_EQ(token.startOffset, 0) << "Token: " << token.term;
+        EXPECT_EQ(token.endOffset, total_bytes) << "Token: " << token.term;
+    }
+}
+
+TEST_F(PinyinAnalysisTest, TestIgnorePinyinOffset_True_WithNumbers) {
+    PinyinConfig config;
+    config.keepFirstLetter = true;
+    config.keepFullPinyin = true;
+    config.keepNoneChinese = true;
+    config.ignorePinyinOffset = true;
+
+    std::string text = "北京2008";
+    auto result = getStringArrayListHashMap({text}, config);
+    auto& tokens = result[text];
+
+    ASSERT_GT(tokens.size(), 0);
+
+    int total_bytes = 10;
+    for (const auto& token : tokens) {
+        EXPECT_EQ(token.startOffset, 0) << "Token: " << token.term;
+        EXPECT_EQ(token.endOffset, total_bytes) << "Token: " << token.term;
+    }
+}
+
+TEST_F(PinyinAnalysisTest, TestIgnorePinyinOffset_True_SpecialChars) {
+    PinyinConfig config;
+    config.keepFirstLetter = true;
+    config.keepFullPinyin = true;
+    config.keepNoneChinese = true;
+    config.ignorePinyinOffset = true;
+
+    std::string text = "A股B股";
+    auto result = getStringArrayListHashMap({text}, config);
+    auto& tokens = result[text];
+
+    ASSERT_GT(tokens.size(), 0);
+
+    int total_bytes = 8;
+    for (const auto& token : tokens) {
+        EXPECT_EQ(token.startOffset, 0) << "Token: " << token.term;
+        EXPECT_EQ(token.endOffset, total_bytes) << "Token: " << token.term;
+    }
+}
+
+TEST_F(PinyinAnalysisTest, TestIgnorePinyinOffset_True_Polyphone) {
+    PinyinConfig config;
+    config.keepFirstLetter = true;
+    config.keepFullPinyin = true;
+    config.ignorePinyinOffset = true;
+
+    std::string text = "银行";
+    auto result = getStringArrayListHashMap({text}, config);
+    auto& tokens = result[text];
+
+    ASSERT_GT(tokens.size(), 0);
+
+    int total_bytes = 6;
+    for (const auto& token : tokens) {
+        EXPECT_EQ(token.startOffset, 0) << "Token: " << token.term;
+        EXPECT_EQ(token.endOffset, total_bytes) << "Token: " << token.term;
+    }
+}
+
+TEST_F(PinyinAnalysisTest, TestIgnorePinyinOffset_True_LongText) {
+    PinyinConfig config;
+    config.keepFirstLetter = true;
+    config.keepFullPinyin = true;
+    config.ignorePinyinOffset = true;
+
+    std::string text = "我爱北京天安门";
+    auto result = getStringArrayListHashMap({text}, config);
+    auto& tokens = result[text];
+
+    ASSERT_GT(tokens.size(), 0);
+
+    int total_bytes = 21;
+    for (const auto& token : tokens) {
+        EXPECT_EQ(token.startOffset, 0) << "Token: " << token.term;
+        EXPECT_EQ(token.endOffset, total_bytes) << "Token: " << token.term;
+    }
+}
+
+TEST_F(PinyinAnalysisTest, TestIgnorePinyinOffset_False_SingleChinese) {
+    PinyinConfig config;
+    config.keepFirstLetter = true;
+    config.keepFullPinyin = true;
+    config.keepOriginal = false;
+    config.keepJoinedFullPinyin = false;
+    config.keepSeparateFirstLetter = false;
+    config.ignorePinyinOffset = false;
+
+    std::string text = "刘德华";
+    auto result = getStringArrayListHashMap({text}, config);
+    auto& tokens = result[text];
+
+    ASSERT_GT(tokens.size(), 0);
+
+    for (const auto& token : tokens) {
+        if (token.term == "liu") {
+            EXPECT_EQ(token.startOffset, 0);
+            EXPECT_EQ(token.endOffset, 3);
+        } else if (token.term == "de") {
+            EXPECT_EQ(token.startOffset, 3);
+            EXPECT_EQ(token.endOffset, 6);
+        } else if (token.term == "hua") {
+            EXPECT_EQ(token.startOffset, 6);
+            EXPECT_EQ(token.endOffset, 9);
+        } else if (token.term == "ldh") {
+            EXPECT_EQ(token.startOffset, 0);
+            EXPECT_EQ(token.endOffset, 9);
+        }
+    }
+}
+
+TEST_F(PinyinAnalysisTest, TestIgnorePinyinOffset_False_MultiByteCharacters) {
+    PinyinConfig config;
+    config.keepFirstLetter = true;
+    config.keepFullPinyin = true;
+    config.keepOriginal = false;
+    config.ignorePinyinOffset = false;
+
+    std::string text = "你好";
+    auto result = getStringArrayListHashMap({text}, config);
+    auto& tokens = result[text];
+
+    ASSERT_GT(tokens.size(), 0);
+
+    bool found_ni = false;
+    bool found_hao = false;
+    bool found_nh = false;
+
+    for (const auto& token : tokens) {
+        if (token.term == "ni") {
+            EXPECT_EQ(token.startOffset, 0);
+            EXPECT_EQ(token.endOffset, 3);
+            found_ni = true;
+        } else if (token.term == "hao") {
+            EXPECT_EQ(token.startOffset, 3);
+            EXPECT_EQ(token.endOffset, 6);
+            found_hao = true;
+        } else if (token.term == "nh") {
+            EXPECT_EQ(token.startOffset, 0);
+            EXPECT_EQ(token.endOffset, 6);
+            found_nh = true;
+        }
+    }
+
+    EXPECT_TRUE(found_ni) << "Token 'ni' not found";
+    EXPECT_TRUE(found_hao) << "Token 'hao' not found";
+    EXPECT_TRUE(found_nh) << "Token 'nh' not found";
+}
+
+TEST_F(PinyinAnalysisTest, TestIgnorePinyinOffset_True_MixedContent) {
+    PinyinConfig config;
+    config.keepFirstLetter = true;
+    config.keepFullPinyin = true;
+    config.keepOriginal = false;
+    config.ignorePinyinOffset = true;
+
+    std::string text = "刘a德";
+    auto result = getStringArrayListHashMap({text}, config);
+    auto& tokens = result[text];
+
+    ASSERT_GT(tokens.size(), 0);
+
+    int total_bytes = 7;
+    std::vector<std::string> expected_terms = {"liu", "lad", "a", "de"};
+    EXPECT_EQ(tokens.size(), expected_terms.size());
+    for (size_t i = 0; i < tokens.size(); ++i) {
+        EXPECT_EQ(tokens[i].term, expected_terms[i]) << "Token mismatch at position " << i;
+        EXPECT_EQ(tokens[i].startOffset, 0) << "Token: " << tokens[i].term;
+        EXPECT_EQ(tokens[i].endOffset, total_bytes) << "Token: " << tokens[i].term;
+    }
+}
+
+TEST_F(PinyinAnalysisTest, TestIgnorePinyinOffset_False_MixedContent) {
+    PinyinConfig config;
+    config.keepFirstLetter = true;
+    config.keepFullPinyin = true;
+    config.keepOriginal = false;
+    config.ignorePinyinOffset = false;
+
+    std::string text = "刘a德";
+    auto result = getStringArrayListHashMap({text}, config);
+    auto& tokens = result[text];
+
+    ASSERT_GT(tokens.size(), 0);
+
+    bool found_liu = false;
+    bool found_a = false;
+    bool found_de = false;
+
+    for (const auto& token : tokens) {
+        if (token.term == "liu") {
+            EXPECT_EQ(token.startOffset, 0);
+            EXPECT_EQ(token.endOffset, 3);
+            found_liu = true;
+        } else if (token.term == "a") {
+            EXPECT_EQ(token.startOffset, 3);
+            EXPECT_EQ(token.endOffset, 4);
+            found_a = true;
+        } else if (token.term == "de") {
+            EXPECT_EQ(token.startOffset, 4);
+            EXPECT_EQ(token.endOffset, 7);
+            found_de = true;
+        } else if (token.term == "lad") {
+            EXPECT_EQ(token.startOffset, 0);
+            EXPECT_EQ(token.endOffset, 7);
+        }
+    }
+
+    EXPECT_TRUE(found_liu) << "Token 'liu' not found";
+    EXPECT_TRUE(found_a) << "Token 'a' not found";
+    EXPECT_TRUE(found_de) << "Token 'de' not found";
+}
+
+TEST_F(PinyinAnalysisTest, TestIgnorePinyinOffset_False_PolyphoneWords) {
+    PinyinConfig config;
+    config.keepFirstLetter = true;
+    config.keepFullPinyin = true;
+    config.keepOriginal = false;
+    config.ignorePinyinOffset = false;
+
+    std::string text = "银行";
+    auto result = getStringArrayListHashMap({text}, config);
+    auto& tokens = result[text];
+
+    ASSERT_GT(tokens.size(), 0);
+
+    bool found_yin = false;
+    bool found_xing_or_hang = false;
+
+    for (const auto& token : tokens) {
+        if (token.term == "yin") {
+            EXPECT_EQ(token.startOffset, 0);
+            EXPECT_EQ(token.endOffset, 3);
+            found_yin = true;
+        } else if (token.term == "xing" || token.term == "hang") {
+            EXPECT_EQ(token.startOffset, 3);
+            EXPECT_EQ(token.endOffset, 6);
+            found_xing_or_hang = true;
+        } else if (token.term == "yx" || token.term == "yh") {
+            EXPECT_EQ(token.startOffset, 0);
+            EXPECT_EQ(token.endOffset, 6);
+        }
+    }
+
+    EXPECT_TRUE(found_yin) << "Token 'yin' not found";
+    EXPECT_TRUE(found_xing_or_hang) << "Token 'xing' or 'hang' not found";
+}
+
+TEST_F(PinyinAnalysisTest, TestIgnorePinyinOffset_False_JoinedFullPinyin) {
+    PinyinConfig config;
+    config.keepFirstLetter = false;
+    config.keepFullPinyin = false;
+    config.keepJoinedFullPinyin = true;
+    config.keepOriginal = false;
+    config.ignorePinyinOffset = false;
+
+    std::string text = "刘德华";
+    auto result = getStringArrayListHashMap({text}, config);
+    auto& tokens = result[text];
+
+    ASSERT_EQ(tokens.size(), 1);
+    EXPECT_EQ(tokens[0].term, "liudehua");
+    EXPECT_EQ(tokens[0].startOffset, 0);
+    EXPECT_EQ(tokens[0].endOffset, 9);
+}
+
+TEST_F(PinyinAnalysisTest, TestIgnorePinyinOffset_False_KeepOriginal) {
+    PinyinConfig config;
+    config.keepFirstLetter = false;
+    config.keepFullPinyin = false;
+    config.keepOriginal = true;
+    config.ignorePinyinOffset = false;
+
+    std::string text = "刘德华";
+    auto result = getStringArrayListHashMap({text}, config);
+    auto& tokens = result[text];
+
+    ASSERT_EQ(tokens.size(), 1);
+    EXPECT_EQ(tokens[0].term, "刘德华");
+    EXPECT_EQ(tokens[0].startOffset, 0);
+    EXPECT_EQ(tokens[0].endOffset, 9);
+}
