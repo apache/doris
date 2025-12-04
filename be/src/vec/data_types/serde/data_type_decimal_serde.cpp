@@ -358,8 +358,7 @@ Status DataTypeDecimalSerDe<T>::read_column_from_arrow(IColumn& column,
 template <PrimitiveType T>
 Status DataTypeDecimalSerDe<T>::write_column_to_mysql_binary(const IColumn& column,
                                                              MysqlRowBinaryBuffer& result,
-                                                             int64_t row_idx, bool col_const,
-                                                             const FormatOptions& options) const {
+                                                             int64_t row_idx, bool col_const) const {
     auto& data = assert_cast<const ColumnDecimal<T>&>(column).get_data();
     const auto col_index = index_check_const(row_idx, col_const);
     if constexpr (T == TYPE_DECIMALV2) {

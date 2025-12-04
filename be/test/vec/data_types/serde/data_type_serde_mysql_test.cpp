@@ -328,7 +328,7 @@ void serialize_and_deserialize_mysql_test() {
     // mysql_writer init
     MockRuntimeState state;
     auto serializer = std::make_shared<TestBlockSerializer>(&state);
-    vectorized::VMysqlResultWriter<false> mysql_writer(serializer, _output_vexpr_ctxs, nullptr);
+    vectorized::VMysqlResultWriter mysql_writer(serializer, _output_vexpr_ctxs, nullptr);
 
     Status st = mysql_writer.write(&runtime_stat, block);
     EXPECT_TRUE(st.ok());
