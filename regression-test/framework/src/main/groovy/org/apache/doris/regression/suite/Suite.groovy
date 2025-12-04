@@ -1069,7 +1069,7 @@ class Suite implements GroovyInterceptable {
                 throw e
             }
         }
-        throw new RuntimeException("Should throw: " + errorMessage);
+        throw new RuntimeException("Should throw: " + errorMessage)
     }
 
     void checkTableData(String tbName1 = null, String tbName2 = null, String fieldName = null, String orderByFieldName = null) {
@@ -1113,7 +1113,7 @@ class Suite implements GroovyInterceptable {
                 throw e
             }
         }
-        throw new RuntimeException("Should throw: " + errorMessage);
+        throw new RuntimeException("Should throw: " + errMsg)
     }
 
     String getBrokerName() {
