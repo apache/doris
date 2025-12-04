@@ -822,6 +822,7 @@ enum TSchemaTableName {
   METADATA_TABLE = 1, // tvf
   ACTIVE_QUERIES = 2, // db information_schema's table
   WORKLOAD_GROUPS = 3, // db information_schema's table
+  // Deprecated
   ROUTINES_INFO = 4, // db information_schema's table
   WORKLOAD_SCHEDULE_POLICY = 5,
   TABLE_OPTIONS = 6,
@@ -1238,58 +1239,6 @@ struct TRestoreSnapshotRequest {
 struct TRestoreSnapshotResult {
     1: optional Status.TStatus status
     2: optional Types.TNetworkAddress master_address
-}
-
-struct TPlsqlStoredProcedure {
-    1: optional string name
-    2: optional i64 catalogId
-    3: optional i64 dbId
-    4: optional string packageName
-    5: optional string ownerName
-    6: optional string source
-    7: optional string createTime
-    8: optional string modifyTime
-}
-
-struct TPlsqlPackage {
-    1: optional string name
-    2: optional i64 catalogId
-    3: optional i64 dbId
-    4: optional string ownerName
-    5: optional string header
-    6: optional string body
-}
-
-struct TPlsqlProcedureKey {
-    1: optional string name
-    2: optional i64 catalogId
-    3: optional i64 dbId
-}
-
-struct TAddPlsqlStoredProcedureRequest {
-    1: optional TPlsqlStoredProcedure plsqlStoredProcedure
-    2: optional bool isForce
-}
-
-struct TDropPlsqlStoredProcedureRequest {
-    1: optional TPlsqlProcedureKey plsqlProcedureKey
-}
-
-struct TPlsqlStoredProcedureResult {
-    1: optional Status.TStatus status
-}
-
-struct TAddPlsqlPackageRequest {
-    1: optional TPlsqlPackage plsqlPackage
-    2: optional bool isForce
-}
-
-struct TDropPlsqlPackageRequest {
-    1: optional TPlsqlProcedureKey plsqlProcedureKey
-}
-
-struct TPlsqlPackageResult {
-    1: optional Status.TStatus status
 }
 
 struct TGetMasterTokenRequest {
@@ -1765,11 +1714,6 @@ service FrontendService {
     TQueryStatsResult getQueryStats(1: TGetQueryStatsRequest request)
 
     TGetTabletReplicaInfosResult getTabletReplicaInfos(1: TGetTabletReplicaInfosRequest request)
-
-    TPlsqlStoredProcedureResult addPlsqlStoredProcedure(1: TAddPlsqlStoredProcedureRequest request)
-    TPlsqlStoredProcedureResult dropPlsqlStoredProcedure(1: TDropPlsqlStoredProcedureRequest request)
-    TPlsqlPackageResult addPlsqlPackage(1: TAddPlsqlPackageRequest request)
-    TPlsqlPackageResult dropPlsqlPackage(1: TDropPlsqlPackageRequest request)
 
     TGetMasterTokenResult getMasterToken(1: TGetMasterTokenRequest request)
 

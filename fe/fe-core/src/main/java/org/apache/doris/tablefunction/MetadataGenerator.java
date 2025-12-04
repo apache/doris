@@ -78,9 +78,6 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.util.FrontendConjunctsUtils;
 import org.apache.doris.nereids.util.PlanUtils;
-import org.apache.doris.plsql.metastore.PlsqlManager;
-import org.apache.doris.plsql.metastore.PlsqlProcedureKey;
-import org.apache.doris.plsql.metastore.PlsqlStoredProcedure;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.QeProcessorImpl.QueryInfo;
@@ -140,8 +137,6 @@ public class MetadataGenerator {
 
     private static final ImmutableMap<String, Integer> WORKLOAD_GROUPS_COLUMN_TO_INDEX;
 
-    private static final ImmutableMap<String, Integer> ROUTINE_INFO_COLUMN_TO_INDEX;
-
     private static final ImmutableMap<String, Integer> WORKLOAD_SCHED_POLICY_COLUMN_TO_INDEX;
 
     private static final ImmutableMap<String, Integer> TABLE_OPTIONS_COLUMN_TO_INDEX;
@@ -173,12 +168,6 @@ public class MetadataGenerator {
             workloadGroupBuilder.put(WorkloadGroupMgr.WORKLOAD_GROUP_PROC_NODE_TITLE_NAMES.get(i).toLowerCase(), i);
         }
         WORKLOAD_GROUPS_COLUMN_TO_INDEX = workloadGroupBuilder.build();
-
-        ImmutableMap.Builder<String, Integer> routineInfoBuilder = new ImmutableMap.Builder();
-        for (int i = 0; i < PlsqlManager.ROUTINE_INFO_TITLE_NAMES.size(); i++) {
-            routineInfoBuilder.put(PlsqlManager.ROUTINE_INFO_TITLE_NAMES.get(i).toLowerCase(), i);
-        }
-        ROUTINE_INFO_COLUMN_TO_INDEX = routineInfoBuilder.build();
 
         ImmutableMap.Builder<String, Integer> policyBuilder = new ImmutableMap.Builder();
         List<Column> policyColList = SchemaTable.TABLE_MAP.get("workload_policy").getFullSchema();
@@ -320,10 +309,6 @@ public class MetadataGenerator {
             case WORKLOAD_GROUPS:
                 result = workloadGroupsMetadataResult(schemaTableParams);
                 columnIndex = WORKLOAD_GROUPS_COLUMN_TO_INDEX;
-                break;
-            case ROUTINES_INFO:
-                result = routineInfoMetadataResult(schemaTableParams);
-                columnIndex = ROUTINE_INFO_COLUMN_TO_INDEX;
                 break;
             case WORKLOAD_SCHEDULE_POLICY:
                 result = workloadSchedPolicyMetadataResult(schemaTableParams);
@@ -1260,60 +1245,6 @@ public class MetadataGenerator {
                     }
                 }
             }
-        }
-        result.setDataBatch(dataBatch);
-        result.setStatus(new TStatus(TStatusCode.OK));
-        return result;
-    }
-
-    private static TFetchSchemaTableDataResult routineInfoMetadataResult(TSchemaTableRequestParams params) {
-        if (!params.isSetCurrentUserIdent()) {
-            return errorResult("current user ident is not set.");
-        }
-
-        PlsqlManager plSqlClient = Env.getCurrentEnv().getPlsqlManager();
-
-        TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
-        List<TRow> dataBatch = Lists.newArrayList();
-
-        Map<PlsqlProcedureKey, PlsqlStoredProcedure> allProc = plSqlClient.getAllPlsqlStoredProcedures();
-        for (Map.Entry<PlsqlProcedureKey, PlsqlStoredProcedure> entry : allProc.entrySet()) {
-            PlsqlStoredProcedure proc = entry.getValue();
-            TRow trow = new TRow();
-            trow.addToColumnValue(new TCell().setStringVal(proc.getName())); // SPECIFIC_NAME
-            trow.addToColumnValue(new TCell().setStringVal(Long.toString(proc.getCatalogId()))); // ROUTINE_CATALOG
-            CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(proc.getCatalogId());
-            if (catalog != null) {
-                DatabaseIf db = catalog.getDbNullable(proc.getDbId());
-                if (db != null) {
-                    trow.addToColumnValue(new TCell().setStringVal(db.getFullName())); // ROUTINE_SCHEMA
-                } else {
-                    trow.addToColumnValue(new TCell().setStringVal("")); // ROUTINE_SCHEMA
-                }
-            } else {
-                trow.addToColumnValue(new TCell().setStringVal("")); // ROUTINE_SCHEMA
-            }
-            trow.addToColumnValue(new TCell().setStringVal(proc.getName())); // ROUTINE_NAME
-            trow.addToColumnValue(new TCell().setStringVal("PROCEDURE")); // ROUTINE_TYPE
-            trow.addToColumnValue(new TCell().setStringVal("")); // DTD_IDENTIFIER
-            trow.addToColumnValue(new TCell().setStringVal(proc.getSource())); // ROUTINE_BODY
-            trow.addToColumnValue(new TCell().setStringVal("")); // ROUTINE_DEFINITION
-            trow.addToColumnValue(new TCell().setStringVal("NULL")); // EXTERNAL_NAME
-            trow.addToColumnValue(new TCell().setStringVal("")); // EXTERNAL_LANGUAGE
-            trow.addToColumnValue(new TCell().setStringVal("SQL")); // PARAMETER_STYLE
-            trow.addToColumnValue(new TCell().setStringVal("")); // IS_DETERMINISTIC
-            trow.addToColumnValue(new TCell().setStringVal("")); // SQL_DATA_ACCESS
-            trow.addToColumnValue(new TCell().setStringVal("NULL")); // SQL_PATH
-            trow.addToColumnValue(new TCell().setStringVal("DEFINER")); // SECURITY_TYPE
-            trow.addToColumnValue(new TCell().setStringVal(proc.getCreateTime())); // CREATED
-            trow.addToColumnValue(new TCell().setStringVal(proc.getModifyTime())); // LAST_ALTERED
-            trow.addToColumnValue(new TCell().setStringVal("")); // SQ_MODE
-            trow.addToColumnValue(new TCell().setStringVal("")); // ROUTINE_COMMENT
-            trow.addToColumnValue(new TCell().setStringVal(proc.getOwnerName())); // DEFINER
-            trow.addToColumnValue(new TCell().setStringVal("")); // CHARACTER_SET_CLIENT
-            trow.addToColumnValue(new TCell().setStringVal("")); // COLLATION_CONNECTION
-            trow.addToColumnValue(new TCell().setStringVal("")); // DATABASE_COLLATION
-            dataBatch.add(trow);
         }
         result.setDataBatch(dataBatch);
         result.setStatus(new TStatus(TStatusCode.OK));
