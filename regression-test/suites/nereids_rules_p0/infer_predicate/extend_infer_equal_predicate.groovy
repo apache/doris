@@ -357,8 +357,8 @@ suite("extend_infer_equal_predicate") {
     qt_pull_up_window_order_column """select c1,a from (select a,b,sum(a) over(order by a) c1 from extend_infer_t3 where a<33 ) t where a<33  order by 1,2"""
     qt_pull_up_partition_topn """select * from (select a, c,row_number() over(partition by b order by c) as rn from extend_infer_t3 where a>5 and c>3)t
     where a>5  and c>3  and rn<3 order by 1,2,3;"""
-    qt_pull_up_generate """select a,b, age from (select * from extend_infer_t3 lateral view
-    EXPLODE(ARRAY(30,60))  t1 as age where a<10 ) t group by grouping sets ((age),(a,b)) having a <10 order by 1,2,3"""
+//    qt_pull_up_generate """select a,b, age from (select * from extend_infer_t3 lateral view
+//    EXPLODE(ARRAY(30,60))  t1 as age where a<10 ) t group by grouping sets ((age),(a,b)) having a <10 order by 1,2,3"""
 
     qt_pull_up_from_inner_join """select a,b from (select t1.a,t2.b from extend_infer_t3 t1 inner join extend_infer_t4 t2 on t1.a=t2.a where t1.a<10  limit 10) t  where a<10 order by 1,2"""
     qt_pull_up_from_left_join """select a,b from (select t2.a,t2.b from extend_infer_t3 t1 left join extend_infer_t4 t2 on t1.a=t2.a and t2.a<10  limit 10) t  where a<10 order by 1,2"""

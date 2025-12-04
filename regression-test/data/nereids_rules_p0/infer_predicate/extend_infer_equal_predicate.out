@@ -849,8 +849,8 @@ PhysicalResultSink
 
 -- !qt_left_join_inner_shape --
 PhysicalResultSink
---NestedLoopJoin[INNER_JOIN]
-----NestedLoopJoin[INNER_JOIN]
+--hashJoin[INNER_JOIN] hashCondition=((t2.a = t3.a)) otherCondition=()
+----hashJoin[INNER_JOIN] hashCondition=((t1.a = t2.a)) otherCondition=()
 ------filter((t1.a = 1))
 --------PhysicalOlapScan[extend_infer_t3]
 ------filter((t2.a = 1))
@@ -862,8 +862,8 @@ PhysicalResultSink
 
 -- !qt_left_join_semi_shape --
 PhysicalResultSink
---NestedLoopJoin[LEFT_SEMI_JOIN]
-----NestedLoopJoin[INNER_JOIN]
+--hashJoin[LEFT_SEMI_JOIN] hashCondition=((t2.a = t3.a)) otherCondition=()
+----hashJoin[INNER_JOIN] hashCondition=((t1.a = t2.a)) otherCondition=()
 ------filter((t1.a = 1))
 --------PhysicalOlapScan[extend_infer_t3]
 ------filter((t2.a = 1))
