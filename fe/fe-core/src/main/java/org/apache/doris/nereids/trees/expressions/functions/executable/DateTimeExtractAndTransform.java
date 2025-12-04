@@ -594,6 +594,14 @@ public class DateTimeExtractAndTransform {
                                     + date.getHour() * 3600L + date.getMinute() * 60L + date.getSecond());
     }
 
+    // Java Duration cannot represent days before 0000-01-01, so using it would turn
+    // TO_DAYS('0000-01-01') into the diff between that date and itself (0).
+    // We use BE's arithmetic instead so 0000-01-01 returns 1 as expected.
+    // Previous FE logic often matched BE only because Java treats year 0 as leap
+    // making TO_DAYS('0000-02-29') fold to 59.
+    // While BE/MySQL consider year 0 common, so:
+    // TO_DAYS('0000-02-28') == 59 and TO_DAYS('0000-02-29') == NULL. After
+    // 0000-03-01 the two implementations naturally align again.
     private static long calcDayNumber(long year, long month, long day) {
         if (year == 0 && month == 0) {
             return 0;
