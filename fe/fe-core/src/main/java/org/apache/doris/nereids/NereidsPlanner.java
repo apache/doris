@@ -703,9 +703,9 @@ public class NereidsPlanner extends Planner {
 
         boolean notNeedBackend = false;
         // if the query can compute without backend, we can skip check cluster privileges
-        if (Config.isCloudMode()
-                && cascadesContext.getConnectContext().supportHandleByFe()
-                && physicalPlan instanceof ComputeResultSet) {
+        if (cascadesContext.getConnectContext().supportHandleByFe()
+                && physicalPlan instanceof ComputeResultSet
+                && !cascadesContext.getConnectContext().getState().isInternal()) {
             Optional<ResultSet> resultSet = ((ComputeResultSet) physicalPlan).computeResultInFe(
                     cascadesContext, Optional.empty(), physicalPlan.getOutput());
             if (resultSet.isPresent()) {
