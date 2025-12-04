@@ -47,7 +47,6 @@ private:
     int64_t _sorted_partition_input_rows = 0;
     std::vector<PartitionDataPtr> _value_places;
     int _num_partition = 0;
-    std::vector<const vectorized::IColumn*> _partition_columns;
     std::unique_ptr<PartitionedHashMapVariants> _partitioned_data;
     std::unique_ptr<vectorized::Arena> _agg_arena_pool;
     int _partition_exprs_num = 0;
