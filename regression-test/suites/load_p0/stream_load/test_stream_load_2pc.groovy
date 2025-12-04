@@ -88,8 +88,8 @@ suite("test_stream_load_2pc", "p0") {
                 INDEX idx_ngrambf_k116 (`k16`) USING NGRAM_BF PROPERTIES("gram_size"="3", "bf_size"="256"),
                 INDEX idx_ngrambf_k117 (`k17`) USING NGRAM_BF PROPERTIES("gram_size"="3", "bf_size"="256"),
 
-                INDEX idx_bitmap_k104 (`k02`) USING BITMAP,
-                INDEX idx_bitmap_k110 (`kd01`) USING BITMAP
+                INDEX idx_bitmap_k104 (`k02`) USING INVERTED,
+                INDEX idx_bitmap_k110 (`kd01`) USING INVERTED
 
         )
         DUPLICATE KEY(k00)""",
@@ -188,11 +188,11 @@ suite("test_stream_load_2pc", "p0") {
                 kd17 STRING          NOT NULL DEFAULT "我能吞下玻璃而不伤身体",
                 kd18 JSON            NULL,
 
-                INDEX idx_bitmap_k104 (`k02`) USING BITMAP,
-                INDEX idx_bitmap_k110 (`kd01`) USING BITMAP,
-                INDEX idx_bitmap_k113 (`k13`) USING BITMAP,
-                INDEX idx_bitmap_k114 (`k14`) USING BITMAP,
-                INDEX idx_bitmap_k117 (`k17`) USING BITMAP
+                INDEX idx_bitmap_k104 (`k02`) USING INVERTED,
+                INDEX idx_bitmap_k110 (`kd01`) USING INVERTED,
+                INDEX idx_bitmap_k113 (`k13`) USING INVERTED,
+                INDEX idx_bitmap_k114 (`k14`) USING INVERTED,
+                INDEX idx_bitmap_k117 (`k17`) USING INVERTED
             )
             UNIQUE KEY(k00,k01)
         """,
@@ -244,7 +244,7 @@ suite("test_stream_load_2pc", "p0") {
                 kd20 HLL             HLL_UNION ,
                 kd21 QUANTILE_STATE  QUANTILE_UNION ,
 
-                INDEX idx_bitmap_k104 (`k01`) USING BITMAP
+                INDEX idx_bitmap_k104 (`k01`) USING INVERTED
             )
             AGGREGATE KEY(k00,k01)
         """

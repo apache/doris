@@ -65,7 +65,6 @@ struct RowLocation;
 
 namespace segment_v2 {
 
-class BitmapIndexIterator;
 class Segment;
 class InvertedIndexIterator;
 class IndexFileReader;
@@ -116,10 +115,6 @@ public:
                                std::unique_ptr<ColumnIterator>* iter, const StorageReadOptions* opt,
                                const std::unordered_map<int32_t, PathToSparseColumnCacheUPtr>*
                                        variant_sparse_column_cache = nullptr);
-
-    Status new_bitmap_index_iterator(const TabletColumn& tablet_column,
-                                     const StorageReadOptions& read_options,
-                                     std::unique_ptr<BitmapIndexIterator>* iter);
 
     Status new_index_iterator(const TabletColumn& tablet_column, const TabletIndex* index_meta,
                               const StorageReadOptions& read_options,

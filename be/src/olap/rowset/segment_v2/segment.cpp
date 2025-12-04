@@ -814,26 +814,6 @@ Status Segment::get_column_reader(const TabletColumn& col,
     return _column_reader_cache->get_column_reader(col_uid, column_reader, stats);
 }
 
-Status Segment::new_bitmap_index_iterator(const TabletColumn& tablet_column,
-                                          const StorageReadOptions& read_options,
-                                          std::unique_ptr<BitmapIndexIterator>* iter) {
-    RETURN_IF_ERROR(_create_column_meta_once(read_options.stats));
-    std::shared_ptr<ColumnReader> reader;
-    auto st = get_column_reader(tablet_column, &reader, read_options.stats);
-    if (st.is<ErrorCode::NOT_FOUND>()) {
-        return Status::OK();
-    }
-    RETURN_IF_ERROR(st);
-    DCHECK(reader != nullptr);
-    if (reader->has_bitmap_index()) {
-        BitmapIndexIterator* it;
-        RETURN_IF_ERROR(reader->new_bitmap_index_iterator(&it));
-        iter->reset(it);
-        return Status::OK();
-    }
-    return Status::OK();
-}
-
 Status Segment::new_index_iterator(const TabletColumn& tablet_column, const TabletIndex* index_meta,
                                    const StorageReadOptions& read_options,
                                    std::unique_ptr<IndexIterator>* iter) {

@@ -45,11 +45,6 @@ public:
 
     PredicateType type() const override { return _nested->type(); }
 
-    Status evaluate(BitmapIndexIterator* iterator, uint32_t num_rows,
-                    roaring::Roaring* roaring) const override {
-        return _nested->evaluate(iterator, num_rows, roaring);
-    }
-
     Status evaluate(const vectorized::IndexFieldNameAndTypePair& name_with_type,
                     IndexIterator* iterator, uint32_t num_rows,
                     roaring::Roaring* bitmap) const override {

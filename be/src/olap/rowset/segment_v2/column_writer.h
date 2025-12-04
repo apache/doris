@@ -61,7 +61,6 @@ struct ColumnWriterOptions {
     // space saving = 1 - compressed_size / uncompressed_size
     double compression_min_space_saving = 0.1;
     bool need_zone_map = false;
-    bool need_bitmap_index = false;
     bool need_bloom_filter = false;
     bool is_ngram_bf_index = false;
     bool need_inverted_index = false;
@@ -84,13 +83,11 @@ struct ColumnWriterOptions {
         ss << std::boolalpha << "meta=" << meta->DebugString()
            << ", data_page_size=" << data_page_size << ", dict_page_size=" << dict_page_size
            << ", compression_min_space_saving = " << compression_min_space_saving
-           << ", need_zone_map=" << need_zone_map << ", need_bitmap_index=" << need_bitmap_index
-           << ", need_bloom_filter" << need_bloom_filter;
+           << ", need_zone_map=" << need_zone_map << ", need_bloom_filter" << need_bloom_filter;
         return ss.str();
     }
 };
 
-class BitmapIndexWriter;
 class EncodingInfo;
 class NullBitmapBuilder;
 class OrdinalIndexWriter;
@@ -171,8 +168,6 @@ public:
 
     virtual Status write_zone_map() = 0;
 
-    virtual Status write_bitmap_index() = 0;
-
     virtual Status write_inverted_index() = 0;
 
     virtual Status write_ann_index() { return Status::OK(); }
@@ -225,7 +220,6 @@ public:
     Status write_data() override;
     Status write_ordinal_index() override;
     Status write_zone_map() override;
-    Status write_bitmap_index() override;
     Status write_inverted_index() override;
     Status write_bloom_filter_index() override;
     ordinal_t get_next_rowid() const override { return _next_rowid; }
@@ -295,7 +289,6 @@ private:
 
     std::unique_ptr<OrdinalIndexWriter> _ordinal_index_builder;
     std::unique_ptr<ZoneMapIndexWriter> _zone_map_index_builder;
-    std::unique_ptr<BitmapIndexWriter> _bitmap_index_builder;
     std::vector<std::unique_ptr<IndexColumnWriter>> _inverted_index_builders;
     std::unique_ptr<BloomFilterIndexWriter> _bloom_filter_index_builder;
 
@@ -351,12 +344,6 @@ public:
         return Status::OK();
     }
 
-    Status write_bitmap_index() override {
-        if (_opts.need_bitmap_index) {
-            return Status::NotSupported("struct not support bitmap index");
-        }
-        return Status::OK();
-    }
     Status write_inverted_index() override;
     Status write_bloom_filter_index() override {
         if (_opts.need_bloom_filter) {
@@ -402,12 +389,6 @@ public:
         return Status::OK();
     }
 
-    Status write_bitmap_index() override {
-        if (_opts.need_bitmap_index) {
-            return Status::NotSupported("array not support bitmap index");
-        }
-        return Status::OK();
-    }
     Status write_inverted_index() override;
     Status write_ann_index() override;
     Status write_bloom_filter_index() override {
@@ -460,12 +441,6 @@ public:
         return Status::OK();
     }
 
-    Status write_bitmap_index() override {
-        if (_opts.need_bitmap_index) {
-            return Status::NotSupported("map not support bitmap index");
-        }
-        return Status::OK();
-    }
     Status write_bloom_filter_index() override {
         if (_opts.need_bloom_filter) {
             return Status::NotSupported("map not support bloom filter index");
@@ -505,7 +480,6 @@ public:
 
     Status write_zone_map() override;
 
-    Status write_bitmap_index() override;
     Status write_inverted_index() override;
     Status write_bloom_filter_index() override;
     ordinal_t get_next_rowid() const override { return _next_rowid; }
@@ -554,7 +528,6 @@ public:
 
     Status write_zone_map() override;
 
-    Status write_bitmap_index() override;
     Status write_inverted_index() override;
     Status write_bloom_filter_index() override;
     ordinal_t get_next_rowid() const override { return _next_rowid; }

@@ -21,7 +21,6 @@
 
 #include <roaring/roaring.hh>
 
-#include "olap/rowset/segment_v2/bitmap_index_reader.h"
 #include "olap/rowset/segment_v2/inverted_index_cache.h"
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
 #include "vec/columns/column.h"
@@ -37,20 +36,6 @@ NullPredicate::NullPredicate(uint32_t column_id, bool is_null, bool opposite)
 
 PredicateType NullPredicate::type() const {
     return _is_null ? PredicateType::IS_NULL : PredicateType::IS_NOT_NULL;
-}
-
-Status NullPredicate::evaluate(BitmapIndexIterator* iterator, uint32_t num_rows,
-                               roaring::Roaring* roaring) const {
-    if (iterator != nullptr) {
-        roaring::Roaring null_bitmap;
-        RETURN_IF_ERROR(iterator->read_null_bitmap(&null_bitmap));
-        if (_is_null) {
-            *roaring &= null_bitmap;
-        } else {
-            *roaring -= null_bitmap;
-        }
-    }
-    return Status::OK();
 }
 
 Status NullPredicate::evaluate(const vectorized::IndexFieldNameAndTypePair& name_with_type,

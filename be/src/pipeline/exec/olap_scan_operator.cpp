@@ -196,10 +196,6 @@ Status OlapScanLocalState::_init_profile() {
     _total_pages_num_counter = ADD_COUNTER(_segment_profile, "TotalPagesNum", TUnit::UNIT);
     _cached_pages_num_counter = ADD_COUNTER(_segment_profile, "CachedPagesNum", TUnit::UNIT);
 
-    _bitmap_index_filter_counter =
-            ADD_COUNTER(_segment_profile, "RowsBitmapIndexFiltered", TUnit::UNIT);
-    _bitmap_index_filter_timer = ADD_TIMER(_segment_profile, "BitmapIndexFilterTimer");
-
     _inverted_index_filter_counter =
             ADD_COUNTER(_segment_profile, "RowsInvertedIndexFiltered", TUnit::UNIT);
     _inverted_index_filter_timer = ADD_TIMER(_segment_profile, "InvertedIndexFilterTime");
@@ -266,8 +262,6 @@ Status OlapScanLocalState::_init_profile() {
     _segment_iterator_init_timer = ADD_TIMER(_scanner_profile, "SegmentIteratorInitTimer");
     _segment_iterator_init_return_column_iterators_timer =
             ADD_TIMER(_scanner_profile, "SegmentIteratorInitReturnColumnIteratorsTimer");
-    _segment_iterator_init_bitmap_index_iterators_timer =
-            ADD_TIMER(_scanner_profile, "SegmentIteratorInitBitmapIndexIteratorsTimer");
     _segment_iterator_init_index_iterators_timer =
             ADD_TIMER(_scanner_profile, "SegmentIteratorInitIndexIteratorsTimer");
 

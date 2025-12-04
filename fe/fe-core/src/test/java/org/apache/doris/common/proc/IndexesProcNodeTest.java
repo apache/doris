@@ -41,8 +41,6 @@ public class IndexesProcNodeTest {
     @Test
     public void testFetchResult() throws AnalysisException {
         List<Index> indexes = new ArrayList<>();
-        Index indexBitmap = new Index(1, "bitmap_index", Lists.newArrayList("col_1"),
-                IndexType.BITMAP, null, "bitmap index on col_1");
         Map<String, String> invertedProperties = new HashMap<>();
         invertedProperties.put("parser", "unicode");
         Index indexInverted = new Index(2, "inverted_index", Lists.newArrayList("col_2"),
@@ -54,7 +52,6 @@ public class IndexesProcNodeTest {
         ngramProperties.put("bf_size", "256");
         Index indexNgramBf = new Index(4, "ngram_bf_index", Lists.newArrayList("col_4"),
                         IndexType.NGRAM_BF, ngramProperties, "ngram_bf index on col_4");
-        indexes.add(indexBitmap);
         indexes.add(indexInverted);
         indexes.add(indexBf);
         indexes.add(indexNgramBf);
@@ -65,38 +62,31 @@ public class IndexesProcNodeTest {
         IndexesProcNode indexesProcNode = new IndexesProcNode(table);
         ProcResult procResult = indexesProcNode.fetchResult();
 
-        Assert.assertEquals(4, procResult.getRows().size());
+        Assert.assertEquals(3, procResult.getRows().size());
+
         Assert.assertEquals(procResult.getRows().get(0).get(0), "tbl_test_indexes_proc");
-        Assert.assertEquals(procResult.getRows().get(0).get(1), "1");
-        Assert.assertEquals(procResult.getRows().get(0).get(3), "bitmap_index");
-        Assert.assertEquals(procResult.getRows().get(0).get(5), "col_1");
-        Assert.assertEquals(procResult.getRows().get(0).get(11), "BITMAP");
-        Assert.assertEquals(procResult.getRows().get(0).get(12), "bitmap index on col_1");
-        Assert.assertEquals(procResult.getRows().get(0).get(13), "");
+        Assert.assertEquals(procResult.getRows().get(0).get(1), "2");
+        Assert.assertEquals(procResult.getRows().get(0).get(3), "inverted_index");
+        Assert.assertEquals(procResult.getRows().get(0).get(5), "col_2");
+        Assert.assertEquals(procResult.getRows().get(0).get(11), "INVERTED");
+        Assert.assertEquals(procResult.getRows().get(0).get(12), "inverted index on col_2");
+        Assert.assertEquals(procResult.getRows().get(0).get(13), "(\"lower_case\" = \"true\", \"parser\" = \"unicode\", \"support_phrase\" = \"true\")");
 
         Assert.assertEquals(procResult.getRows().get(1).get(0), "tbl_test_indexes_proc");
-        Assert.assertEquals(procResult.getRows().get(1).get(1), "2");
-        Assert.assertEquals(procResult.getRows().get(1).get(3), "inverted_index");
-        Assert.assertEquals(procResult.getRows().get(1).get(5), "col_2");
-        Assert.assertEquals(procResult.getRows().get(1).get(11), "INVERTED");
-        Assert.assertEquals(procResult.getRows().get(1).get(12), "inverted index on col_2");
-        Assert.assertEquals(procResult.getRows().get(1).get(13), "(\"lower_case\" = \"true\", \"parser\" = \"unicode\", \"support_phrase\" = \"true\")");
+        Assert.assertEquals(procResult.getRows().get(1).get(1), "3");
+        Assert.assertEquals(procResult.getRows().get(1).get(3), "bloomfilter_index");
+        Assert.assertEquals(procResult.getRows().get(1).get(5), "col_3");
+        Assert.assertEquals(procResult.getRows().get(1).get(11), "BLOOMFILTER");
+        Assert.assertEquals(procResult.getRows().get(1).get(12), "bloomfilter index on col_3");
+        Assert.assertEquals(procResult.getRows().get(1).get(13), "");
 
         Assert.assertEquals(procResult.getRows().get(2).get(0), "tbl_test_indexes_proc");
-        Assert.assertEquals(procResult.getRows().get(2).get(1), "3");
-        Assert.assertEquals(procResult.getRows().get(2).get(3), "bloomfilter_index");
-        Assert.assertEquals(procResult.getRows().get(2).get(5), "col_3");
-        Assert.assertEquals(procResult.getRows().get(2).get(11), "BLOOMFILTER");
-        Assert.assertEquals(procResult.getRows().get(2).get(12), "bloomfilter index on col_3");
-        Assert.assertEquals(procResult.getRows().get(2).get(13), "");
-
-        Assert.assertEquals(procResult.getRows().get(3).get(0), "tbl_test_indexes_proc");
-        Assert.assertEquals(procResult.getRows().get(3).get(1), "4");
-        Assert.assertEquals(procResult.getRows().get(3).get(3), "ngram_bf_index");
-        Assert.assertEquals(procResult.getRows().get(3).get(5), "col_4");
-        Assert.assertEquals(procResult.getRows().get(3).get(11), "NGRAM_BF");
-        Assert.assertEquals(procResult.getRows().get(3).get(12), "ngram_bf index on col_4");
-        Assert.assertEquals(procResult.getRows().get(3).get(13), "(\"bf_size\" = \"256\", \"gram_size\" = \"3\")");
+        Assert.assertEquals(procResult.getRows().get(2).get(1), "4");
+        Assert.assertEquals(procResult.getRows().get(2).get(3), "ngram_bf_index");
+        Assert.assertEquals(procResult.getRows().get(2).get(5), "col_4");
+        Assert.assertEquals(procResult.getRows().get(2).get(11), "NGRAM_BF");
+        Assert.assertEquals(procResult.getRows().get(2).get(12), "ngram_bf index on col_4");
+        Assert.assertEquals(procResult.getRows().get(2).get(13), "(\"bf_size\" = \"256\", \"gram_size\" = \"3\")");
 
     }
 }
