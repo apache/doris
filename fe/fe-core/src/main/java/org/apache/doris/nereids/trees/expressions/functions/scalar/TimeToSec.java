@@ -38,7 +38,7 @@ public class TimeToSec extends ScalarFunction
         implements UnaryExpression, ExplicitlyCastableSignature, PropagateNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(IntegerType.INSTANCE).args(TimeV2Type.INSTANCE));
+            FunctionSignature.ret(IntegerType.INSTANCE).args(TimeV2Type.WILDCARD));
 
     /**
      * constructor with 1 argument.
@@ -47,13 +47,18 @@ public class TimeToSec extends ScalarFunction
         super("time_to_sec", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private TimeToSec(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public TimeToSec withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new TimeToSec(children.get(0));
+        return new TimeToSec(getFunctionParams(children));
     }
 
     @Override

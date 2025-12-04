@@ -50,7 +50,7 @@ suite("create_view_use_mv") {
 
     create_sync_mv(context.dbName, "orders", "t_mv_mv", """
     select
-    o_orderkey,
+    o_orderkey as a1,
     sum(o_totalprice) as sum_total,
     max(o_totalprice) as max_total,
     min(o_totalprice) as min_total,
@@ -62,34 +62,34 @@ suite("create_view_use_mv") {
 
     sql "drop view if exists t_mv_v_view"
     sql """CREATE VIEW t_mv_v_view (k1, k2, k3, k4, k5, k6, v1, v2, v3, v4, v5, v6) as
-            select `mv_o_orderkey` as k1, `mva_SUM__CAST(``o_totalprice`` AS decimalv3(38,2))` as k2, `mva_MAX__``o_totalprice``` as k3,
-    `mva_MIN__``o_totalprice``` as k4, `mva_SUM__CASE WHEN 1 IS NULL THEN 0 ELSE 1 END` as k5, l_orderkey,
-    sum(`mv_o_orderkey`) as sum_total,
-    max(`mv_o_orderkey`) as max_total,
-    min(`mv_o_orderkey`) as min_total,
-    count(`mva_SUM__CAST(``o_totalprice`` AS decimalv3(38,2))`) as count_all,
-    bitmap_union(to_bitmap(case when mv_o_orderkey > 1 then `mva_SUM__CAST(``o_totalprice`` AS decimalv3(38,2))` else null end)) cnt_1,
-    bitmap_union(to_bitmap(case when mv_o_orderkey > 2 then `mva_MAX__``o_totalprice``` else null end)) as cnt_2
+            select `a1` as k1, `sum_total` as k2, `max_total` as k3,
+    `min_total` as k4, `count_all` as k5, l_orderkey,
+    sum(`a1`) as sum_total,
+    max(`a1`) as max_total,
+    min(`a1`) as min_total,
+    count(`sum_total`) as count_all,
+    bitmap_union(to_bitmap(case when a1 > 1 then `sum_total` else null end)) cnt_1,
+    bitmap_union(to_bitmap(case when a1 > 2 then `max_total` else null end)) as cnt_2
     from orders index t_mv_mv
-    left join lineitem on lineitem.l_orderkey = orders.mv_o_orderkey
+    left join lineitem on lineitem.l_orderkey = orders.a1
     group by
-    k1, k2, k3, k4, k5, l_orderkey, mv_o_orderkey"""
+    k1, k2, k3, k4, k5, l_orderkey, a1"""
     qt_create_view_from_mv "select * from t_mv_v_view order by 1"
 
     sql "drop view if exists v_for_alter"
     sql "CREATE VIEW v_for_alter AS SELECT * FROM orders"
     sql """ALTER VIEW v_for_alter as
-            select `mv_o_orderkey` as k1, `mva_SUM__CAST(``o_totalprice`` AS decimalv3(38,2))` as k2, `mva_MAX__``o_totalprice``` as k3,
-    `mva_MIN__``o_totalprice``` as k4, `mva_SUM__CASE WHEN 1 IS NULL THEN 0 ELSE 1 END` as k5, l_orderkey,
-    sum(`mv_o_orderkey`) as sum_total,
-    max(`mv_o_orderkey`) as max_total,
-    min(`mv_o_orderkey`) as min_total,
-    count(`mva_SUM__CAST(``o_totalprice`` AS decimalv3(38,2))`) as count_all,
-    bitmap_union(to_bitmap(case when mv_o_orderkey > 1 then `mva_SUM__CAST(``o_totalprice`` AS decimalv3(38,2))` else null end)) cnt_1,
-    bitmap_union(to_bitmap(case when mv_o_orderkey > 2 then `mva_MAX__``o_totalprice``` else null end)) as cnt_2
+            select `a1` as k1, `sum_total` as k2, `max_total` as k3,
+    `min_total` as k4, `count_all` as k5, l_orderkey,
+    sum(`a1`) as sum_total,
+    max(`a1`) as max_total,
+    min(`a1`) as min_total,
+    count(`sum_total`) as count_all,
+    bitmap_union(to_bitmap(case when a1 > 1 then `sum_total` else null end)) cnt_1,
+    bitmap_union(to_bitmap(case when a1 > 2 then `max_total` else null end)) as cnt_2
     from orders index t_mv_mv
-    left join lineitem on lineitem.l_orderkey = orders.mv_o_orderkey
+    left join lineitem on lineitem.l_orderkey = orders.a1
     group by
-    k1, k2, k3, k4, k5, l_orderkey, mv_o_orderkey"""
+    k1, k2, k3, k4, k5, l_orderkey, a1"""
     qt_alter_view_from_mv "select * from v_for_alter order by 1"
 }

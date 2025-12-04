@@ -38,19 +38,39 @@ template <PrimitiveType T>
 struct AggregateFunctionProductData {
     typename PrimitiveTypeTraits<T>::ColumnItemType product {};
 
+    void add_impl(typename PrimitiveTypeTraits<T>::ColumnItemType value,
+                  typename PrimitiveTypeTraits<T>::ColumnItemType& product_ref) {
+        if constexpr (std::is_integral_v<typename PrimitiveTypeTraits<T>::ColumnItemType>) {
+            typename PrimitiveTypeTraits<T>::ColumnItemType new_product;
+            if (__builtin_expect(common::mul_overflow(product_ref, value, new_product), false)) {
+                // if overflow, set product to infinity to keep the same behavior with double type
+                throw Exception(ErrorCode::INTERNAL_ERROR,
+                                "Product overflow for type {} and value {} * {}", T, value,
+                                product_ref);
+            } else {
+                product_ref = new_product;
+            }
+        } else {
+            // which type is float or double
+            product_ref *= value;
+        }
+    }
+
     void add(typename PrimitiveTypeTraits<T>::ColumnItemType value,
              typename PrimitiveTypeTraits<T>::ColumnItemType) {
-        product *= value;
+        add_impl(value, product);
+        VLOG_DEBUG << "product: " << product;
     }
 
     void merge(const AggregateFunctionProductData& other,
                typename PrimitiveTypeTraits<T>::ColumnItemType) {
-        product *= other.product;
+        add_impl(other.product, product);
+        VLOG_DEBUG << "product: " << product;
     }
 
-    void write(BufferWritable& buffer) const { write_binary(product, buffer); }
+    void write(BufferWritable& buffer) const { buffer.write_binary(product); }
 
-    void read(BufferReadable& buffer) { read_binary(product, buffer); }
+    void read(BufferReadable& buffer) { buffer.read_binary(product); }
 
     typename PrimitiveTypeTraits<T>::ColumnItemType get() const { return product; }
 
@@ -77,9 +97,9 @@ struct AggregateFunctionProductData<TYPE_DECIMALV2> {
         memcpy(&product, &ret, sizeof(Decimal128V2));
     }
 
-    void write(BufferWritable& buffer) const { write_binary(product, buffer); }
+    void write(BufferWritable& buffer) const { buffer.write_binary(product); }
 
-    void read(BufferReadable& buffer) { read_binary(product, buffer); }
+    void read(BufferReadable& buffer) { buffer.read_binary(product); }
 
     Decimal128V2 get() const { return product; }
 
@@ -104,9 +124,9 @@ struct AggregateFunctionProductData<T> {
         product /= multiplier;
     }
 
-    void write(BufferWritable& buffer) const { write_binary(product, buffer); }
+    void write(BufferWritable& buffer) const { buffer.write_binary(product); }
 
-    void read(BufferReadable& buffer) { read_binary(product, buffer); }
+    void read(BufferReadable& buffer) { buffer.read_binary(product); }
 
     typename PrimitiveTypeTraits<T>::ColumnItemType get() const { return product; }
 
@@ -117,7 +137,9 @@ struct AggregateFunctionProductData<T> {
 
 template <PrimitiveType T, PrimitiveType TResult, typename Data>
 class AggregateFunctionProduct final
-        : public IAggregateFunctionDataHelper<Data, AggregateFunctionProduct<T, TResult, Data>> {
+        : public IAggregateFunctionDataHelper<Data, AggregateFunctionProduct<T, TResult, Data>>,
+          UnaryExpression,
+          NullableAggregateFunction {
 public:
     using ResultDataType = typename PrimitiveTypeTraits<TResult>::DataType;
     using ColVecType = typename PrimitiveTypeTraits<T>::ColumnType;
@@ -130,7 +152,7 @@ public:
                       argument_types_),
               scale(get_decimal_scale(*argument_types_[0])) {
         if constexpr (is_decimal(T)) {
-            multiplier =
+            multiplier.value =
                     ResultDataType::get_scale_multiplier(get_decimal_scale(*argument_types_[0]));
         }
     }
@@ -144,7 +166,7 @@ public:
     }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
-             Arena*) const override {
+             Arena&) const override {
         const auto& column =
                 assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(*columns[0]);
         this->data(place).add(
@@ -161,7 +183,7 @@ public:
     }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
-               Arena*) const override {
+               Arena&) const override {
         this->data(place).merge(this->data(rhs), multiplier);
     }
 
@@ -170,7 +192,7 @@ public:
     }
 
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
-                     Arena*) const override {
+                     Arena&) const override {
         this->data(place).read(buf);
     }
 

@@ -125,13 +125,13 @@ suite("test_stream_load_properties", "p0") {
                  "basic_array_data_by_line.json",
                 ]
 
-    def loadedRows = [12,12,12,12,15,15,15]
+    def loadedRows = [0,0,0,0,17,17,17]
 
     def jsonLoadedRows = [20,20,20,20,18,18,18]
 
-    def filteredRows = [8,8,8,8,5,5,5]
+    def filteredRows = [20,20,20,20,3,3,3]
 
-    def maxFilterRatio = [0.4,0.4,0.4,0.4,0.6,0.6,0.6]
+    def maxFilterRatio = [1,1,1,1,0.6,0.6,0.6]
 
     InetSocketAddress address = context.config.feHttpInetSocketAddress
     String user = context.config.feHttpUser

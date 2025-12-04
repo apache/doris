@@ -81,14 +81,14 @@ suite ("multiple_ssb") {
 
     test {
         sql """create materialized view lineorder_q_1_1 as 
-                SELECT LO_ORDERKEY, SUM(LO_EXTENDEDPRICE * LO_DISCOUNT)
+                SELECT LO_ORDERKEY as b1, SUM(LO_EXTENDEDPRICE * LO_DISCOUNT) as b2
                 FROM lineorder_flat GROUP BY
                     LO_ORDERKEY, LO_ORDERDATE, LO_DISCOUNT, LO_QUANTITY;"""
         exception "not in select list"
     }
 
     createMV ("""create materialized view lineorder_q_1_1 as 
-                SELECT LO_ORDERKEY, SUM(LO_EXTENDEDPRICE * LO_DISCOUNT) AS revenue
+                SELECT LO_ORDERKEY as a1, SUM(LO_EXTENDEDPRICE * LO_DISCOUNT) AS revenuea2
                 FROM lineorder_flat
                 WHERE
                     LO_ORDERDATE >= 19930101
@@ -100,41 +100,41 @@ suite ("multiple_ssb") {
 
     createMV ("""create materialized view lineorder_q_2_1 as 
                 SELECT
-                    (LO_ORDERDATE DIV 10000) AS YEAR,
-                    P_BRAND,
-                    SUM(LO_REVENUE)
+                    (LO_ORDERDATE DIV 10000) AS YEARa3,
+                    P_BRAND as a4,
+                    SUM(LO_REVENUE) as a5
                 FROM lineorder_flat
                 WHERE P_CATEGORY = 'MFGR#12' AND S_REGION = 'AMERICA'
-                GROUP BY YEAR, P_BRAND
-                ORDER BY YEAR, P_BRAND;""")
+                GROUP BY YEARa3, P_BRAND
+                ORDER BY YEARa3, P_BRAND;""")
 
     createMV ("""create materialized view lineorder_q_3_1 as 
                 SELECT
-                    C_NATION,
-                    S_NATION, (LO_ORDERDATE DIV 10000) AS YEAR,
-                    SUM(LO_REVENUE) AS revenue
+                    C_NATION as a6,
+                    S_NATION as xx, (LO_ORDERDATE DIV 10000) AS YEARa7,
+                    SUM(LO_REVENUE) AS revenuea8
                 FROM lineorder_flat
                 WHERE
                     C_REGION = 'ASIA'
                     AND S_REGION = 'ASIA'
                     AND LO_ORDERDATE >= 19920101
                     AND LO_ORDERDATE <= 19971231
-                GROUP BY C_NATION, S_NATION, YEAR;""")
+                GROUP BY C_NATION, S_NATION, YEARa7;""")
 
     createMV ("""create materialized view lineorder_q_4_1 as 
-                SELECT (LO_ORDERDATE DIV 10000) AS YEAR,
-                C_NATION,
-                SUM(LO_REVENUE - LO_SUPPLYCOST) AS profit
+                SELECT (LO_ORDERDATE DIV 10000) AS YEARx1,
+                C_NATION as x2,
+                SUM(LO_REVENUE - LO_SUPPLYCOST) AS profitx3
                 FROM lineorder_flat
                 WHERE
                 C_REGION = 'AMERICA'
                 AND S_REGION = 'AMERICA'
                 AND P_MFGR IN ('MFGR#1', 'MFGR#2')
-                GROUP BY YEAR, C_NATION
-                ORDER BY YEAR ASC, C_NATION ASC;""")
+                GROUP BY YEARx1, C_NATION
+                ORDER BY YEARx1 ASC, C_NATION ASC;""")
     
-    createMV("CREATE MATERIALIZED VIEW count_LO_ORDERPRIORITY_1 as select LO_ORDERDATE, sum(LO_ORDERDATE) from lineorder_flat where LO_ORDERDATE in (1,2,3) group by LO_ORDERDATE;");
-    createMV("CREATE MATERIALIZED VIEW count_LO_ORDERPRIORITY_3 as select LO_ORDERPRIORITY, count(1) from lineorder_flat where LO_ORDERPRIORITY in ('1','2','3') group by LO_ORDERPRIORITY;");
+    createMV("CREATE MATERIALIZED VIEW count_LO_ORDERPRIORITY_1 as select LO_ORDERDATE as x4, sum(LO_ORDERDATE) as x5 from lineorder_flat where LO_ORDERDATE in (1,2,3) group by LO_ORDERDATE;");
+    createMV("CREATE MATERIALIZED VIEW count_LO_ORDERPRIORITY_3 as select LO_ORDERPRIORITY as x6, count(1) as x7 from lineorder_flat where LO_ORDERPRIORITY in ('1','2','3') group by LO_ORDERPRIORITY;");
 
     sql """INSERT INTO lineorder_flat (LO_ORDERDATE, LO_ORDERKEY, LO_LINENUMBER, LO_CUSTKEY, LO_PARTKEY, LO_SUPPKEY, LO_ORDERPRIORITY, LO_SHIPPRIORITY, LO_QUANTITY, LO_EXTENDEDPRICE, LO_ORDTOTALPRICE, LO_DISCOUNT, LO_REVENUE, LO_SUPPLYCOST, LO_TAX, LO_COMMITDATE, LO_SHIPMODE,C_NAME,C_ADDRESS,C_CITY,C_NATION,C_REGION,C_PHONE,C_MKTSEGMENT,S_NAME,S_ADDRESS,S_CITY,S_NATION,S_REGION,S_PHONE,P_NAME,P_MFGR,P_CATEGORY,P_BRAND,P_COLOR,P_TYPE,P_SIZE,P_CONTAINER) VALUES (19930101 , 2 , 2 , 2 , 2 , 2 ,'2',2 ,2 ,2 ,2 ,2 ,2 ,2 ,2 ,'2023-06-09','shipmode','name','address','city','nation','region','phone','mktsegment','name','address','city','nation','region','phone','name','mfgr','category','brand','color','type',4,'container');"""
 

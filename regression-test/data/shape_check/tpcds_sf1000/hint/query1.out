@@ -22,7 +22,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --------------PhysicalProject
 ----------------PhysicalOlapScan[customer] apply RFs: RF3
 --------------PhysicalProject
-----------------hashJoin[INNER_JOIN broadcast] hashCondition=((ctr1.ctr_store_sk = ctr2.ctr_store_sk)) otherCondition=((cast(ctr_total_return as DOUBLE) > cast((avg(cast(ctr_total_return as DECIMALV3(38, 4))) * 1.2) as DOUBLE))) build RFs:RF2 ctr_store_sk->[ctr_store_sk,s_store_sk]
+----------------hashJoin[INNER_JOIN broadcast] hashCondition=((ctr1.ctr_store_sk = ctr2.ctr_store_sk)) otherCondition=((cast(ctr_total_return as DECIMALV3(38, 5)) > (avg(cast(ctr_total_return as DECIMALV3(38, 4))) * 1.2))) build RFs:RF2 ctr_store_sk->[ctr_store_sk,s_store_sk]
 ------------------PhysicalProject
 --------------------hashJoin[INNER_JOIN shuffle] hashCondition=((store.s_store_sk = ctr1.ctr_store_sk)) otherCondition=() build RFs:RF1 s_store_sk->[ctr_store_sk]
 ----------------------PhysicalCteConsumer ( cteId=CTEId#0 ) apply RFs: RF1 RF2
@@ -36,7 +36,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
 
 Hint log:
-Used: leading(store_returns broadcast date_dim ) 
+Used: leading(store_returns broadcast date_dim )
 UnUsed:
 SyntaxError:
 

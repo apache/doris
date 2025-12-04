@@ -20,12 +20,12 @@
 #include <gtest/gtest.h>
 
 #include "vec/columns/column.h"
-#include "vec/columns/column_array.h"
 #include "vec/columns/common_column_test.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_nullable.h"
+#include "vec/functions/function_ip.h"
 
 // this test is gonna to make a template ColumnTest
 // for example column_ip should test these functions
@@ -245,16 +245,6 @@ TEST_F(ColumnIPTest, ReserveTest) {
     check_data(ip_cols, serde, ';', {1, 2}, data_files[0], assert_reserve_callback);
 }
 
-TEST_F(ColumnIPTest, ReplicateTest) {
-    // insert from data csv and assert insert result
-    MutableColumns ip_cols;
-    ip_cols.push_back(column_ipv4->get_ptr());
-    ip_cols.push_back(column_ipv6->get_ptr());
-
-    load_data_from_csv(serde, ip_cols, data_files[0], ';', {1, 2});
-    check_data(ip_cols, serde, ';', {1, 2}, data_files[0], assert_replicate_callback);
-}
-
 TEST_F(ColumnIPTest, ReplaceColumnTest) {
     // insert from data csv and assert insert result
     MutableColumns ip_cols;
@@ -310,6 +300,27 @@ TEST_F(ColumnIPTest, HashTest) {
     // CrcHash
     std::vector<PrimitiveType> pts = {PrimitiveType::TYPE_IPV4, PrimitiveType::TYPE_IPV6};
     assert_update_crc_hashes_callback(ip_cols, serde, pts);
+};
+
+TEST_F(ColumnIPTest, IPv6ValueFromStringTest) {
+    std::string ipv6_str = "1111:2222:3333:4444:5555:6666:123.123.123.123";
+    IPv6 ipv6_val = 0;
+    ASSERT_EQ(IPv6Value::from_string(ipv6_val, ipv6_str.data(), ipv6_str.size()), true);
+    ASSERT_EQ("1111:2222:3333:4444:5555:6666:7b7b:7b7b", IPv6Value(ipv6_val).to_string());
+};
+
+TEST_F(ColumnIPTest, IPv4ValueFromStringTest) {
+    std::string ipv4_str = "127.0.0.1";
+    IPv4 ipv4_val = 0;
+    ASSERT_EQ(IPv4Value::from_string(ipv4_val, ipv4_str.data(), ipv4_str.size()), true);
+    ASSERT_EQ("127.0.0.1", IPv4Value(ipv4_val).to_string());
+};
+
+TEST_F(ColumnIPTest, IPv4Parse) {
+    std::string ipv4_str = "127.0.0.1";
+    Int64 result_value = 0;
+    ASSERT_EQ(try_parse_ipv4(ipv4_str.data(), result_value), true);
+    ASSERT_EQ(2130706433, result_value);
 };
 
 } // namespace doris::vectorized

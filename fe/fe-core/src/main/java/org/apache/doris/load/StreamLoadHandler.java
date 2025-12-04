@@ -92,7 +92,7 @@ public class StreamLoadHandler {
     public static Backend selectBackend(String clusterName) throws LoadException {
         List<Backend> backends = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
                 .getBackendsByClusterName(clusterName)
-                .stream().filter(Backend::isAlive)
+                .stream().filter(Backend::isLoadAvailable)
                 .collect(Collectors.toList());
 
         if (backends.isEmpty()) {
@@ -119,7 +119,6 @@ public class StreamLoadHandler {
         ctx.setEnv(Env.getCurrentEnv());
         ctx.setQueryId(request.getLoadId());
         ctx.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp(request.getUser(), "%"));
-        ctx.setQualifiedUser(request.getUser());
         ctx.setBackendId(request.getBackendId());
         ctx.setThreadLocalInfo();
 

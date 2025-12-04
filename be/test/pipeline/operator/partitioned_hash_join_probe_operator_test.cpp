@@ -57,11 +57,12 @@ TEST_F(PartitionedHashJoinProbeOperatorTest, debug_string) {
     auto debug_string = local_state->debug_string(0);
     std::cout << "debug string: " << debug_string << std::endl;
 
-    shared_state->need_to_spill = false;
+    shared_state->is_spilled = false;
     debug_string = local_state->debug_string(0);
     std::cout << "debug string: " << debug_string << std::endl;
 
-    ASSERT_TRUE(local_state->profile()->pretty_print().find("ExecTime") != std::string::npos);
+    ASSERT_TRUE(local_state->operator_profile()->pretty_print().find("ExecTime") !=
+                std::string::npos);
 }
 
 TEST_F(PartitionedHashJoinProbeOperatorTest, InitAndOpen) {
@@ -71,7 +72,7 @@ TEST_F(PartitionedHashJoinProbeOperatorTest, InitAndOpen) {
             _helper.runtime_state.get(), probe_operator.get());
 
     auto shared_state = std::make_shared<PartitionedHashJoinSharedState>();
-    LocalStateInfo info {.parent_profile = _helper.runtime_profile.get(),
+    LocalStateInfo info {.parent_profile = _helper.operator_profile.get(),
                          .scan_ranges = {},
                          .shared_state = shared_state.get(),
                          .shared_state_map = {},
@@ -124,7 +125,7 @@ TEST_F(PartitionedHashJoinProbeOperatorTest, InitAndOpen) {
     auto inner_sink_state = std::make_unique<HashJoinBuildSinkLocalState>(
             probe_operator->_inner_sink_operator.get(), _helper.runtime_state.get());
 
-    LocalSinkStateInfo sink_info {0,  _helper.runtime_profile.get(),
+    LocalSinkStateInfo sink_info {0,  _helper.operator_profile.get(),
                                   -1, local_state->_shared_state->inner_shared_state.get(),
                                   {}, {}};
     st = probe_operator->_inner_sink_operator->prepare(
@@ -137,10 +138,10 @@ TEST_F(PartitionedHashJoinProbeOperatorTest, InitAndOpen) {
     local_state->_shared_state->inner_runtime_state->emplace_sink_local_state(
             0, std::move(inner_sink_state));
 
-    local_state->_shared_state->need_to_spill = false;
+    local_state->_shared_state->is_spilled = false;
     local_state->update_profile_from_inner();
 
-    local_state->_shared_state->need_to_spill = true;
+    local_state->_shared_state->is_spilled = true;
     local_state->update_profile_from_inner();
 
     st = local_state->close(_helper.runtime_state.get());
@@ -199,22 +200,16 @@ TEST_F(PartitionedHashJoinProbeOperatorTest, spill_probe_blocks) {
     local_state->_partitioned_blocks[0] =
             vectorized::MutableBlock::create_unique(std::move(small_block));
 
-    local_state->_shared_state->need_to_spill = false;
+    local_state->_shared_state->is_spilled = false;
     local_state->update_profile_from_inner();
 
-    local_state->_shared_state->need_to_spill = true;
+    local_state->_shared_state->is_spilled = true;
     auto st = local_state->spill_probe_blocks(_helper.runtime_state.get());
     ASSERT_TRUE(st.ok()) << "spill probe blocks failed: " << st.to_string();
 
-    std::cout << "wait for spill dependency ready" << std::endl;
-    while (local_state->_spill_dependency->_ready.load() == false) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    }
-    std::cout << "spill dependency ready" << std::endl;
-
     local_state->update_profile_from_inner();
 
-    std::cout << "profile: " << local_state->profile()->pretty_print() << std::endl;
+    std::cout << "profile: " << local_state->custom_profile()->pretty_print() << std::endl;
 
     for (int32_t i = 0; i != PartitionedHashJoinTestHelper::TEST_PARTITION_COUNT; ++i) {
         if (!local_state->_probe_spilling_streams[i]) {
@@ -225,7 +220,7 @@ TEST_F(PartitionedHashJoinProbeOperatorTest, spill_probe_blocks) {
         local_state->_probe_spilling_streams[i].reset();
     }
 
-    auto* write_rows_counter = local_state->profile()->get_counter("SpillWriteRows");
+    auto* write_rows_counter = local_state->custom_profile()->get_counter("SpillWriteRows");
     ASSERT_EQ(write_rows_counter->value(),
               (PartitionedHashJoinTestHelper::TEST_PARTITION_COUNT / 2) * 3 + 3 * 1024 * 1024);
 }
@@ -246,7 +241,7 @@ TEST_F(PartitionedHashJoinProbeOperatorTest, RecoverProbeBlocksFromDisk) {
                                 _helper.runtime_state.get(), spill_stream,
                                 print_id(_helper.runtime_state->query_id()), "hash_probe",
                                 probe_operator->node_id(), std::numeric_limits<int32_t>::max(),
-                                std::numeric_limits<size_t>::max(), local_state->profile())
+                                std::numeric_limits<size_t>::max(), local_state->operator_profile())
                         .ok());
 
     // Write some test data to spill stream
@@ -265,12 +260,7 @@ TEST_F(PartitionedHashJoinProbeOperatorTest, RecoverProbeBlocksFromDisk) {
                         .ok());
     ASSERT_TRUE(has_data);
 
-    // Wait for async recovery to complete
-    while (local_state->_spill_dependency->_ready.load() == false) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    }
-
-    std::cout << "profile: " << local_state->profile()->pretty_print() << std::endl;
+    std::cout << "profile: " << local_state->custom_profile()->pretty_print() << std::endl;
 
     // Verify recovered data
     auto& probe_blocks = local_state->_probe_blocks[test_partition];
@@ -278,9 +268,11 @@ TEST_F(PartitionedHashJoinProbeOperatorTest, RecoverProbeBlocksFromDisk) {
     ASSERT_EQ(probe_blocks[0].rows(), 3);
 
     // Verify counters
-    auto* recovery_rows_counter = local_state->profile()->get_counter("SpillRecoveryProbeRows");
+    auto* recovery_rows_counter =
+            local_state->custom_profile()->get_counter("SpillRecoveryProbeRows");
     ASSERT_EQ(recovery_rows_counter->value(), 3);
-    auto* recovery_blocks_counter = local_state->profile()->get_counter("SpillReadBlockCount");
+    auto* recovery_blocks_counter =
+            local_state->custom_profile()->get_counter("SpillReadBlockCount");
     ASSERT_EQ(recovery_blocks_counter->value(), 1);
 
     // Verify stream cleanup
@@ -303,7 +295,7 @@ TEST_F(PartitionedHashJoinProbeOperatorTest, RecoverProbeBlocksFromDiskLargeData
                                 _helper.runtime_state.get(), spill_stream,
                                 print_id(_helper.runtime_state->query_id()), "hash_probe",
                                 probe_operator->node_id(), std::numeric_limits<int32_t>::max(),
-                                std::numeric_limits<size_t>::max(), local_state->profile())
+                                std::numeric_limits<size_t>::max(), local_state->operator_profile())
                         .ok());
 
     // Write some test data to spill stream
@@ -330,14 +322,9 @@ TEST_F(PartitionedHashJoinProbeOperatorTest, RecoverProbeBlocksFromDiskLargeData
                             ->recover_probe_blocks_from_disk(_helper.runtime_state.get(),
                                                              test_partition, has_data)
                             .ok());
-
-        // Wait for async recovery to complete
-        while (local_state->_spill_dependency->_ready.load() == false) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
-        }
     }
 
-    std::cout << "profile: " << local_state->profile()->pretty_print() << std::endl;
+    std::cout << "profile: " << local_state->custom_profile()->pretty_print() << std::endl;
 
     // Verify recovered data
     auto& probe_blocks = local_state->_probe_blocks[test_partition];
@@ -346,9 +333,11 @@ TEST_F(PartitionedHashJoinProbeOperatorTest, RecoverProbeBlocksFromDiskLargeData
     ASSERT_EQ(probe_blocks[1].rows(), 3);
 
     // Verify counters
-    auto* recovery_rows_counter = local_state->profile()->get_counter("SpillRecoveryProbeRows");
+    auto* recovery_rows_counter =
+            local_state->custom_profile()->get_counter("SpillRecoveryProbeRows");
     ASSERT_EQ(recovery_rows_counter->value(), 3 + 8 * 1024 * 1024 + 10);
-    auto* recovery_blocks_counter = local_state->profile()->get_counter("SpillReadBlockCount");
+    auto* recovery_blocks_counter =
+            local_state->custom_profile()->get_counter("SpillReadBlockCount");
     ASSERT_EQ(recovery_blocks_counter->value(), 2);
 
     // Verify stream cleanup
@@ -372,7 +361,7 @@ TEST_F(PartitionedHashJoinProbeOperatorTest, RecoverProbeBlocksFromDiskEmpty) {
                                 _helper.runtime_state.get(), spilled_stream,
                                 print_id(_helper.runtime_state->query_id()), "hash_probe",
                                 probe_operator->node_id(), std::numeric_limits<int32_t>::max(),
-                                std::numeric_limits<size_t>::max(), local_state->profile())
+                                std::numeric_limits<size_t>::max(), local_state->operator_profile())
                         .ok());
     ASSERT_TRUE(spilled_stream->spill_eof().ok());
 
@@ -382,9 +371,6 @@ TEST_F(PartitionedHashJoinProbeOperatorTest, RecoverProbeBlocksFromDiskEmpty) {
                                                          test_partition, has_data)
                         .ok());
     ASSERT_TRUE(has_data);
-    while (local_state->_spill_dependency->_ready.load() == false) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    }
 
     ASSERT_TRUE(local_state->_probe_blocks[test_partition].empty())
             << "probe blocks not empty: " << local_state->_probe_blocks[test_partition].size();
@@ -409,7 +395,7 @@ TEST_F(PartitionedHashJoinProbeOperatorTest, RecoverProbeBlocksFromDiskError) {
                                 _helper.runtime_state.get(), spilling_stream,
                                 print_id(_helper.runtime_state->query_id()), "hash_probe",
                                 probe_operator->node_id(), std::numeric_limits<int32_t>::max(),
-                                std::numeric_limits<size_t>::max(), local_state->profile())
+                                std::numeric_limits<size_t>::max(), local_state->operator_profile())
                         .ok());
 
     // Write some test data to spill stream
@@ -422,22 +408,16 @@ TEST_F(PartitionedHashJoinProbeOperatorTest, RecoverProbeBlocksFromDiskError) {
 
     SpillableDebugPointHelper dp_helper("fault_inject::spill_stream::read_next_block");
     bool has_data = false;
-    ASSERT_TRUE(local_state
-                        ->recover_probe_blocks_from_disk(_helper.runtime_state.get(),
-                                                         test_partition, has_data)
-                        .ok());
-    ASSERT_TRUE(has_data);
-    while (local_state->_spill_dependency->_ready.load() == false) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    }
+    auto status = local_state->recover_probe_blocks_from_disk(_helper.runtime_state.get(),
+                                                              test_partition, has_data);
 
     ExecEnv::GetInstance()->spill_stream_mgr()->delete_spill_stream(spilling_stream);
     spilling_stream.reset();
 
-    ASSERT_FALSE(dp_helper.get_spill_status().ok());
-    ASSERT_TRUE(dp_helper.get_spill_status().to_string().find(
-                        "fault_inject spill_stream read_next_block") != std::string::npos)
-            << "unexpected error: " << dp_helper.get_spill_status().to_string();
+    ASSERT_FALSE(status.ok());
+    ASSERT_TRUE(status.to_string().find("fault_inject spill_stream read_next_block") !=
+                std::string::npos)
+            << "unexpected error: " << status.to_string();
 }
 
 TEST_F(PartitionedHashJoinProbeOperatorTest, RecoverBuildBlocksFromDisk) {
@@ -458,7 +438,7 @@ TEST_F(PartitionedHashJoinProbeOperatorTest, RecoverBuildBlocksFromDisk) {
                                 _helper.runtime_state.get(), spilled_stream,
                                 print_id(_helper.runtime_state->query_id()), "hash_build",
                                 probe_operator->node_id(), std::numeric_limits<int32_t>::max(),
-                                std::numeric_limits<size_t>::max(), local_state->profile())
+                                std::numeric_limits<size_t>::max(), local_state->operator_profile())
                         .ok());
 
     // Write test data
@@ -476,70 +456,21 @@ TEST_F(PartitionedHashJoinProbeOperatorTest, RecoverBuildBlocksFromDisk) {
                                                          test_partition, has_data)
                         .ok());
     ASSERT_TRUE(has_data);
-
-    // Wait for async recovery
-    while (local_state->_spill_dependency->_ready.load() == false) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    }
 
     // Verify recovered data
     ASSERT_TRUE(local_state->_recovered_build_block != nullptr);
     ASSERT_EQ(local_state->_recovered_build_block->rows(), 3);
 
     // Verify counters
-    auto* recovery_rows_counter = local_state->profile()->get_counter("SpillRecoveryBuildRows");
+    auto* recovery_rows_counter =
+            local_state->custom_profile()->get_counter("SpillRecoveryBuildRows");
     ASSERT_EQ(recovery_rows_counter->value(), 3);
-    auto* recovery_blocks_counter = local_state->profile()->get_counter("SpillReadBlockCount");
+    auto* recovery_blocks_counter =
+            local_state->custom_profile()->get_counter("SpillReadBlockCount");
     ASSERT_EQ(recovery_blocks_counter->value(), 1);
 
     // Verify stream cleanup
     ASSERT_EQ(local_state->_shared_state->spilled_streams[test_partition], nullptr);
-}
-
-TEST_F(PartitionedHashJoinProbeOperatorTest, RecoverBuildBlocksFromDiskCanceled) {
-    // Setup test environment
-    auto [probe_operator, sink_operator] = _helper.create_operators();
-
-    // Initialize local state
-    std::shared_ptr<MockPartitionedHashJoinSharedState> shared_state;
-    auto local_state = _helper.create_probe_local_state(_helper.runtime_state.get(),
-                                                        probe_operator.get(), shared_state);
-
-    // Create and register spill stream with test data
-    const uint32_t test_partition = 0;
-    auto& spilled_stream = local_state->_shared_state->spilled_streams[test_partition];
-    ASSERT_TRUE(ExecEnv::GetInstance()
-                        ->spill_stream_mgr()
-                        ->register_spill_stream(
-                                _helper.runtime_state.get(), spilled_stream,
-                                print_id(_helper.runtime_state->query_id()), "hash_build",
-                                probe_operator->node_id(), std::numeric_limits<int32_t>::max(),
-                                std::numeric_limits<size_t>::max(), local_state->profile())
-                        .ok());
-
-    // Write test data
-    {
-        vectorized::Block block =
-                vectorized::ColumnHelper::create_block<vectorized::DataTypeInt32>({1, 2, 3});
-        ASSERT_TRUE(spilled_stream->spill_block(_helper.runtime_state.get(), block, false).ok());
-        ASSERT_TRUE(spilled_stream->spill_eof().ok());
-    }
-
-    // Test recovery
-    bool has_data = false;
-    ASSERT_TRUE(local_state
-                        ->recover_build_blocks_from_disk(_helper.runtime_state.get(),
-                                                         test_partition, has_data)
-                        .ok());
-    ASSERT_TRUE(has_data);
-
-    // Wait for async recovery
-    while (local_state->_spill_dependency->_ready.load() == false) {
-        _helper.runtime_state->_query_ctx->_exec_status.update(Status::Cancelled("test canceled"));
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    }
-
-    ASSERT_TRUE(_helper.runtime_state->is_cancelled());
 }
 
 TEST_F(PartitionedHashJoinProbeOperatorTest, need_more_input_data) {
@@ -551,7 +482,7 @@ TEST_F(PartitionedHashJoinProbeOperatorTest, need_more_input_data) {
     auto local_state = _helper.create_probe_local_state(_helper.runtime_state.get(),
                                                         probe_operator.get(), shared_state);
 
-    local_state->_shared_state->need_to_spill = true;
+    local_state->_shared_state->is_spilled = true;
     local_state->_child_eos = false;
     ASSERT_EQ(probe_operator->need_more_input_data(_helper.runtime_state.get()),
               !local_state->_child_eos);
@@ -560,7 +491,7 @@ TEST_F(PartitionedHashJoinProbeOperatorTest, need_more_input_data) {
     ASSERT_EQ(probe_operator->need_more_input_data(_helper.runtime_state.get()),
               !local_state->_child_eos);
 
-    local_state->_shared_state->need_to_spill = false;
+    local_state->_shared_state->is_spilled = false;
     auto inner_operator = std::dynamic_pointer_cast<MockHashJoinProbeOperator>(
             probe_operator->_inner_probe_operator);
 
@@ -621,7 +552,7 @@ TEST_F(PartitionedHashJoinProbeOperatorTest, get_reserve_mem_size) {
     auto local_state = _helper.create_probe_local_state(_helper.runtime_state.get(),
                                                         probe_operator.get(), shared_state);
 
-    local_state->_shared_state->need_to_spill = true;
+    local_state->_shared_state->is_spilled = true;
     local_state->_child_eos = false;
 
     local_state->_need_to_setup_internal_operators = false;
@@ -635,11 +566,11 @@ TEST_F(PartitionedHashJoinProbeOperatorTest, get_reserve_mem_size) {
     const auto default_reserve_size =
             _helper.runtime_state->minimum_operator_memory_required_bytes() +
             probe_operator->get_child()->get_reserve_mem_size(_helper.runtime_state.get());
-    local_state->_shared_state->need_to_spill = false;
+    local_state->_shared_state->is_spilled = false;
     ASSERT_EQ(probe_operator->get_reserve_mem_size(_helper.runtime_state.get()),
               default_reserve_size);
 
-    local_state->_shared_state->need_to_spill = true;
+    local_state->_shared_state->is_spilled = true;
     local_state->_child_eos = true;
     ASSERT_EQ(probe_operator->get_reserve_mem_size(_helper.runtime_state.get()),
               default_reserve_size);
@@ -662,7 +593,7 @@ TEST_F(PartitionedHashJoinProbeOperatorTest, RecoverBuildBlocksFromDiskEmpty) {
                                 _helper.runtime_state.get(), spilled_stream,
                                 print_id(_helper.runtime_state->query_id()), "hash_build",
                                 probe_operator->node_id(), std::numeric_limits<int32_t>::max(),
-                                std::numeric_limits<size_t>::max(), local_state->profile())
+                                std::numeric_limits<size_t>::max(), local_state->operator_profile())
                         .ok());
 
     ASSERT_TRUE(spilled_stream->spill_eof().ok());
@@ -673,10 +604,6 @@ TEST_F(PartitionedHashJoinProbeOperatorTest, RecoverBuildBlocksFromDiskEmpty) {
                                                          test_partition, has_data)
                         .ok());
     ASSERT_TRUE(has_data);
-
-    while (local_state->_spill_dependency->_ready.load() == false) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    }
 
     ASSERT_EQ(spilled_stream, nullptr);
     ASSERT_TRUE(local_state->_recovered_build_block == nullptr);
@@ -699,7 +626,7 @@ TEST_F(PartitionedHashJoinProbeOperatorTest, RecoverBuildBlocksFromDiskLargeData
                                 _helper.runtime_state.get(), spilled_stream,
                                 print_id(_helper.runtime_state->query_id()), "hash_build",
                                 probe_operator->node_id(), std::numeric_limits<int32_t>::max(),
-                                std::numeric_limits<size_t>::max(), local_state->profile())
+                                std::numeric_limits<size_t>::max(), local_state->operator_profile())
                         .ok());
 
     // Write some test data to spill stream
@@ -726,10 +653,6 @@ TEST_F(PartitionedHashJoinProbeOperatorTest, RecoverBuildBlocksFromDiskLargeData
                                                              test_partition, has_data)
                             .ok());
 
-        while (local_state->_spill_dependency->_ready.load() == false) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
-        }
-
         ASSERT_TRUE(local_state->_recovered_build_block);
     } while (has_data);
 
@@ -739,9 +662,11 @@ TEST_F(PartitionedHashJoinProbeOperatorTest, RecoverBuildBlocksFromDiskLargeData
     ASSERT_EQ(local_state->_recovered_build_block->rows(), 8 * 1024 * 1024 + 10 + 3);
 
     // Verify counters
-    auto* recovery_rows_counter = local_state->profile()->get_counter("SpillRecoveryBuildRows");
+    auto* recovery_rows_counter =
+            local_state->custom_profile()->get_counter("SpillRecoveryBuildRows");
     ASSERT_EQ(recovery_rows_counter->value(), 8 * 1024 * 1024 + 10 + 3);
-    auto* recovery_blocks_counter = local_state->profile()->get_counter("SpillReadBlockCount");
+    auto* recovery_blocks_counter =
+            local_state->custom_profile()->get_counter("SpillReadBlockCount");
     ASSERT_EQ(recovery_blocks_counter->value(), 2);
 }
 
@@ -763,7 +688,7 @@ TEST_F(PartitionedHashJoinProbeOperatorTest, RecoverBuildBlocksFromDiskError) {
                                 _helper.runtime_state.get(), spilled_stream,
                                 print_id(_helper.runtime_state->query_id()), "hash_build",
                                 probe_operator->node_id(), std::numeric_limits<int32_t>::max(),
-                                std::numeric_limits<size_t>::max(), local_state->profile())
+                                std::numeric_limits<size_t>::max(), local_state->operator_profile())
                         .ok());
 
     ASSERT_TRUE(spilled_stream->spill_eof().ok());
@@ -777,16 +702,10 @@ TEST_F(PartitionedHashJoinProbeOperatorTest, RecoverBuildBlocksFromDiskError) {
     auto status = local_state->recover_build_blocks_from_disk(_helper.runtime_state.get(),
                                                               test_partition, has_data);
 
-    ASSERT_TRUE(status.ok()) << "recover build blocks failed: " << status.to_string();
-    while (local_state->_spill_dependency->_ready.load() == false) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    }
-
-    auto spill_status = dp_helper.get_spill_status();
-    ASSERT_FALSE(spill_status.ok());
-    ASSERT_TRUE(spill_status.to_string().find("fault_inject partitioned_hash_join_probe "
-                                              "recover_build_blocks failed") != std::string::npos)
-            << "incorrect recover build blocks status: " << spill_status.to_string();
+    ASSERT_FALSE(status.ok());
+    ASSERT_TRUE(status.to_string().find("fault_inject partitioned_hash_join_probe "
+                                        "recover_build_blocks failed") != std::string::npos)
+            << "incorrect recover build blocks status: " << status.to_string();
 }
 
 TEST_F(PartitionedHashJoinProbeOperatorTest, GetBlockTestNonSpill) {
@@ -806,7 +725,7 @@ TEST_F(PartitionedHashJoinProbeOperatorTest, GetBlockTestNonSpill) {
             std::dynamic_pointer_cast<MockChildOperator>(probe_operator->get_child());
     probe_side_source_operator->set_block(std::move(*input_block));
 
-    local_state->_shared_state->need_to_spill = false;
+    local_state->_shared_state->is_spilled = false;
 
     // Test non empty input block path
     {
@@ -989,7 +908,7 @@ TEST_F(PartitionedHashJoinProbeOperatorTest, PushLargeBlock) {
     ASSERT_TRUE(found_probe_blocks);
 
     // Verify bytes counter
-    auto* probe_blocks_bytes = local_state->profile()->get_counter("ProbeBloksBytesInMem");
+    auto* probe_blocks_bytes = local_state->custom_profile()->get_counter("ProbeBloksBytesInMem");
     ASSERT_GT(probe_blocks_bytes->value(), 0);
 }
 
@@ -1049,7 +968,7 @@ TEST_F(PartitionedHashJoinProbeOperatorTest, PullWithDiskRecovery) {
     auto local_state = _helper.create_probe_local_state(_helper.runtime_state.get(),
                                                         probe_operator.get(), shared_state);
 
-    local_state->_shared_state->need_to_spill = true;
+    local_state->_shared_state->is_spilled = true;
 
     const uint32_t test_partition = 0;
     auto& spilled_stream = local_state->_shared_state->spilled_streams[test_partition];
@@ -1061,14 +980,14 @@ TEST_F(PartitionedHashJoinProbeOperatorTest, PullWithDiskRecovery) {
             _helper.runtime_state.get(), spilled_stream,
             print_id(_helper.runtime_state->query_id()), "hash_probe_spilled",
             probe_operator->node_id(), std::numeric_limits<int32_t>::max(),
-            std::numeric_limits<size_t>::max(), local_state->profile());
+            std::numeric_limits<size_t>::max(), local_state->operator_profile());
 
     ASSERT_TRUE(st) << "Register spill stream failed: " << st.to_string();
     st = ExecEnv::GetInstance()->spill_stream_mgr()->register_spill_stream(
             _helper.runtime_state.get(), spilling_stream,
             print_id(_helper.runtime_state->query_id()), "hash_probe", probe_operator->node_id(),
             std::numeric_limits<int32_t>::max(), std::numeric_limits<size_t>::max(),
-            local_state->profile());
+            local_state->operator_profile());
 
     ASSERT_TRUE(st) << "Register spill stream failed: " << st.to_string();
 
@@ -1084,14 +1003,8 @@ TEST_F(PartitionedHashJoinProbeOperatorTest, PullWithDiskRecovery) {
 
     st = probe_operator->pull(_helper.runtime_state.get(), &output_block, &eos);
     ASSERT_TRUE(st.ok()) << "Pull failed: " << st.to_string();
-    while (local_state->_spill_dependency->_ready.load() == false) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    }
 
     st = probe_operator->pull(_helper.runtime_state.get(), &output_block, &eos);
-    while (local_state->_spill_dependency->_ready.load() == false) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    }
 
     ASSERT_TRUE(st.ok()) << "Pull failed: " << st.to_string();
     ASSERT_FALSE(eos) << "Should not be eos during disk recovery";
@@ -1129,7 +1042,7 @@ TEST_F(PartitionedHashJoinProbeOperatorTest, Other) {
     auto local_state = _helper.create_probe_local_state(_helper.runtime_state.get(),
                                                         probe_operator.get(), shared_state);
 
-    local_state->_shared_state->need_to_spill = true;
+    local_state->_shared_state->is_spilled = true;
     ASSERT_FALSE(probe_operator->_should_revoke_memory(_helper.runtime_state.get()));
 
     auto st = probe_operator->_revoke_memory(_helper.runtime_state.get());

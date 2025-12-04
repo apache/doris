@@ -24,6 +24,7 @@
 #include "common/status.h"
 #include "exec/line_reader.h"
 #include "io/fs/file_reader_writer_fwd.h"
+#include "vec/common/custom_allocator.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
@@ -51,7 +52,7 @@ public:
 private:
     io::FileReaderSPtr _file_reader;
 
-    std::unique_ptr<uint8_t[]> _file_buf;
+    DorisUniqueBufferPtr<uint8_t> _file_buf;
     std::unique_ptr<PDataRow> _cur_row;
 };
 

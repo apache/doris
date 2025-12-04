@@ -49,10 +49,15 @@ public class BitCount extends ScalarFunction
         super("bit_count", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private BitCount(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public BitCount withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new BitCount(children.get(0));
+        return new BitCount(getFunctionParams(children));
     }
 
     @Override

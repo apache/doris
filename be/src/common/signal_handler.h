@@ -439,6 +439,16 @@ inline void set_signal_task_id(TUniqueId tid) {
     query_id_lo = tid.lo;
 }
 
+// this struct is used to set signal task id in the constructor and reset it in the destructor
+// thread pool will reuse pthread, so we need to clean thread local data
+struct SignalTaskIdKeeper {
+    template <typename T>
+    SignalTaskIdKeeper(const T& id) {
+        set_signal_task_id(id);
+    }
+    ~SignalTaskIdKeeper() { set_signal_task_id(PUniqueId {}); }
+};
+
 inline void set_signal_is_nereids(bool is_nereids_arg) {
     is_nereids = is_nereids_arg;
 }

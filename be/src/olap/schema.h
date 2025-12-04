@@ -38,6 +38,8 @@
 
 namespace doris {
 
+#include "common/compile_check_begin.h"
+
 // The class is used to represent row's format in memory.  Each row contains
 // multiple columns, some of which are key-columns (the rest are value-columns).
 // NOTE: If both key-columns and value-columns exist, then the key-columns
@@ -88,7 +90,7 @@ public:
     Schema(const std::vector<TabletColumnPtr>& columns, const std::vector<ColumnId>& col_ids) {
         size_t num_key_columns = 0;
         _unique_ids.resize(columns.size());
-        for (size_t i = 0; i < columns.size(); ++i) {
+        for (int i = 0; i < columns.size(); ++i) {
             if (columns[i]->is_key()) {
                 ++num_key_columns;
             }
@@ -119,7 +121,7 @@ public:
         _init(columns, col_ids, num_key_columns);
     }
 
-    Schema(const std::vector<const Field*>& cols, size_t num_key_columns) {
+    Schema(const std::vector<const doris::Field*>& cols, size_t num_key_columns) {
         std::vector<ColumnId> col_ids(cols.size());
         _unique_ids.resize(cols.size());
         for (uint32_t cid = 0; cid < cols.size(); ++cid) {
@@ -141,19 +143,19 @@ public:
 
     ~Schema();
 
-    static vectorized::DataTypePtr get_data_type_ptr(const Field& field);
+    static vectorized::DataTypePtr get_data_type_ptr(const doris::Field& field);
 
-    static vectorized::IColumn::MutablePtr get_column_by_field(const Field& field);
+    static vectorized::IColumn::MutablePtr get_column_by_field(const doris::Field& field);
 
     static vectorized::IColumn::MutablePtr get_predicate_column_ptr(const FieldType& type,
                                                                     bool is_nullable,
                                                                     const ReaderType reader_type);
 
-    const std::vector<Field*>& columns() const { return _cols; }
+    const std::vector<doris::Field*>& columns() const { return _cols; }
 
-    const Field* column(ColumnId cid) const { return _cols[cid]; }
+    const doris::Field* column(ColumnId cid) const { return _cols[cid]; }
 
-    Field* mutable_column(ColumnId cid) const { return _cols[cid]; }
+    doris::Field* mutable_column(ColumnId cid) const { return _cols[cid]; }
 
     size_t num_key_columns() const { return _num_key_columns; }
     size_t schema_size() const { return _schema_size; }
@@ -187,7 +189,7 @@ public:
 private:
     void _init(const std::vector<TabletColumnPtr>& cols, const std::vector<ColumnId>& col_ids,
                size_t num_key_columns);
-    void _init(const std::vector<const Field*>& cols, const std::vector<ColumnId>& col_ids,
+    void _init(const std::vector<const doris::Field*>& cols, const std::vector<ColumnId>& col_ids,
                size_t num_key_columns);
 
     void _copy_from(const Schema& other);
@@ -198,7 +200,7 @@ private:
     std::vector<int32_t> _unique_ids;
     // NOTE: Both _cols[cid] and _col_offsets[cid] can only be accessed when the cid is
     // contained in _col_ids
-    std::vector<Field*> _cols;
+    std::vector<doris::Field*> _cols;
     // The value of each item indicates the starting offset of the corresponding column in
     // current row. e.g. _col_offsets[idx] is the offset of _cols[idx] (idx must in _col_ids)
     std::vector<size_t> _col_offsets;
@@ -211,5 +213,7 @@ private:
     int32_t _version_col_idx = -1;
     int64_t _mem_size = 0;
 };
+
+#include "common/compile_check_end.h"
 
 } // namespace doris

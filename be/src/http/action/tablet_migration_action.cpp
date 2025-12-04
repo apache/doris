@@ -34,7 +34,7 @@
 #include "olap/task/engine_storage_migration_task.h"
 
 namespace doris {
-
+#include "common/compile_check_begin.h"
 const static std::string HEADER_JSON = "application/json";
 
 void TabletMigrationAction::_init_migration_action() {
@@ -48,7 +48,7 @@ void TabletMigrationAction::_init_migration_action() {
 
 void TabletMigrationAction::handle(HttpRequest* req) {
     int64_t tablet_id = 0;
-    int32_t schema_hash = 0;
+    unsigned long schema_hash = 0;
     std::string dest_disk = "";
     std::string goal = "";
     Status status = _check_param(req, tablet_id, schema_hash, dest_disk, goal);
@@ -57,8 +57,7 @@ void TabletMigrationAction::handle(HttpRequest* req) {
             MigrationTask current_task(tablet_id, schema_hash, dest_disk);
             TabletSharedPtr tablet;
             DataDir* dest_store;
-            Status status =
-                    _check_migrate_request(tablet_id, schema_hash, dest_disk, tablet, &dest_store);
+            status = _check_migrate_request(tablet_id, schema_hash, dest_disk, tablet, &dest_store);
             if (status.ok()) {
                 do {
                     {
@@ -133,7 +132,7 @@ void TabletMigrationAction::handle(HttpRequest* req) {
                     break;
                 }
 
-                int i = _finished_migration_tasks.size() - 1;
+                int i = cast_set<int>(_finished_migration_tasks.size()) - 1;
                 for (; i >= 0; i--) {
                     MigrationTask finished_task = _finished_migration_tasks[i].first;
                     if (finished_task._tablet_id == tablet_id &&
@@ -166,7 +165,7 @@ void TabletMigrationAction::handle(HttpRequest* req) {
 }
 
 Status TabletMigrationAction::_check_param(HttpRequest* req, int64_t& tablet_id,
-                                           int32_t& schema_hash, std::string& dest_disk,
+                                           unsigned long& schema_hash, std::string& dest_disk,
                                            std::string& goal) {
     const std::string& req_tablet_id = req->param("tablet_id");
     const std::string& req_schema_hash = req->param("schema_hash");
@@ -186,7 +185,7 @@ Status TabletMigrationAction::_check_param(HttpRequest* req, int64_t& tablet_id,
     return Status::OK();
 }
 
-Status TabletMigrationAction::_check_migrate_request(int64_t tablet_id, int32_t schema_hash,
+Status TabletMigrationAction::_check_migrate_request(int64_t tablet_id, unsigned long schema_hash,
                                                      std::string dest_disk, TabletSharedPtr& tablet,
                                                      DataDir** dest_store) {
     tablet = _engine.tablet_manager()->get_tablet(tablet_id);
@@ -238,5 +237,5 @@ Status TabletMigrationAction::_execute_tablet_migration(TabletSharedPtr tablet,
     }
     return res;
 }
-
+#include "common/compile_check_end.h"
 } // namespace doris

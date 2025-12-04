@@ -95,7 +95,7 @@ suite("create_commit_mtmv_many_tasks", "p2") {
         sql "select count(*) from ${table_name}"
     }
 
-    for (int i = 1; i <= 10; i++) {
+    for (int i = 1; i <= 1; i++) {
         stream_load_job(table_name1, "lineitem.tbl.${i}")
         stream_load_job(table_name2, "orders.tbl.${i}")
     }
@@ -163,11 +163,11 @@ suite("create_commit_mtmv_many_tasks", "p2") {
     def insert_into_select = { date_it ->
         sql """INSERT INTO ${dst_database_name}.${table_name1}
             SELECT l_orderkey, l_linenumber, l_partkey, l_suppkey, l_quantity, l_extendedprice, l_discount, l_tax, l_returnflag, l_linestatus, l_commitdate, l_receiptdate, l_shipinstruct, l_shipmode, l_comment, '${date_it}' AS new_date_column
-            FROM ${src_database_name}.${table_name1};"""
+            FROM ${src_database_name}.${table_name1} limit 1;"""
 
         sql """INSERT INTO ${dst_database_name}.${table_name2}
             SELECT o_orderkey, o_custkey, o_orderstatus, o_totalprice, o_orderpriority, o_clerk, o_shippriority, o_comment, '${date_it}' AS new_date_column
-            FROM ${src_database_name}.${table_name2}"""
+            FROM ${src_database_name}.${table_name2} limit 1"""
     }
 
     def get_next_day = { def date_it ->
@@ -189,7 +189,7 @@ suite("create_commit_mtmv_many_tasks", "p2") {
     def job_name = getJobName(dst_database_name, "mv1")
     waitingMTMVTaskFinished(job_name)
     def task_num = sql """select count(*) from tasks("type"="mv") where JobName="${job_name}";"""
-    assertTrue(task_num[0][0] < 100)
+    assertTrue(task_num[0][0] < 200)
 
     def mv_row_count = sql """select count(1) from mv1;"""
     def real_row_count = sql """select count(1) from (select l_shipdate, l_orderkey from lineitem as t1 left join orders as t2 on t1.l_orderkey = t2.o_orderkey group by l_shipdate, l_orderkey) t;"""

@@ -36,12 +36,12 @@ char* DataTypeFixedLengthObject::serialize(const IColumn& column, char* buf,
     if (be_exec_version >= USE_CONST_SERDE) {
         // const flag
         bool is_const_column = is_column_const(column);
-        *reinterpret_cast<bool*>(buf) = is_const_column;
+        unaligned_store<bool>(buf, is_const_column);
         buf += sizeof(bool);
 
         // row num
         const auto row_num = column.size();
-        *reinterpret_cast<size_t*>(buf) = row_num;
+        unaligned_store<size_t>(buf, row_num);
         buf += sizeof(size_t);
         auto real_need_copy_num = is_const_column ? 1 : row_num;
 
@@ -55,7 +55,7 @@ char* DataTypeFixedLengthObject::serialize(const IColumn& column, char* buf,
                 << "[serialize]item size of DataTypeFixedLengthObject should be greater than 0";
 
         // item size
-        *reinterpret_cast<size_t*>(buf) = src_col.item_size();
+        unaligned_store<size_t>(buf, src_col.item_size());
         buf += sizeof(size_t);
         // column data
         const auto* origin_data = src_col.get_data().data();
@@ -66,14 +66,14 @@ char* DataTypeFixedLengthObject::serialize(const IColumn& column, char* buf,
     } else {
         // row num
         const UInt32 row_num = cast_set<UInt32>(column.size());
-        *reinterpret_cast<uint32_t*>(buf) = row_num;
+        unaligned_store<uint32_t>(buf, row_num);
         buf += sizeof(uint32_t);
         // column data
         auto ptr = column.convert_to_full_column_if_const();
         const auto& src_col = assert_cast<const ColumnType&>(*ptr.get());
         DCHECK(src_col.item_size() > 0)
                 << "[serialize]item size of DataTypeFixedLengthObject should be greater than 0";
-        *reinterpret_cast<size_t*>(buf) = src_col.item_size();
+        unaligned_store<size_t>(buf, src_col.item_size());
         buf += sizeof(size_t);
         const auto* origin_data = src_col.get_data().data();
         memcpy(buf, origin_data, row_num * src_col.item_size());
@@ -87,13 +87,13 @@ const char* DataTypeFixedLengthObject::deserialize(const char* buf, MutableColum
                                                    int be_exec_version) const {
     if (be_exec_version >= USE_CONST_SERDE) {
         //const flag
-        bool is_const_column = *reinterpret_cast<const bool*>(buf);
+        bool is_const_column = unaligned_load<bool>(buf);
         buf += sizeof(bool);
         //row num
-        size_t row_num = *reinterpret_cast<const size_t*>(buf);
+        size_t row_num = unaligned_load<size_t>(buf);
         buf += sizeof(size_t);
         //item size
-        size_t item_size = *reinterpret_cast<const size_t*>(buf);
+        size_t item_size = unaligned_load<size_t>(buf);
         buf += sizeof(size_t);
 
         DCHECK(item_size > 0)
@@ -113,9 +113,9 @@ const char* DataTypeFixedLengthObject::deserialize(const char* buf, MutableColum
         return buf;
     } else {
         // row num
-        uint32_t row_num = *reinterpret_cast<const uint32_t*>(buf);
+        uint32_t row_num = unaligned_load<uint32_t>(buf);
         buf += sizeof(uint32_t);
-        size_t item_size = *reinterpret_cast<const size_t*>(buf);
+        size_t item_size = unaligned_load<size_t>(buf);
         buf += sizeof(size_t);
 
         DCHECK(item_size > 0)
@@ -154,6 +154,10 @@ int64_t DataTypeFixedLengthObject::get_uncompressed_serialized_bytes(const IColu
 
 MutableColumnPtr DataTypeFixedLengthObject::create_column() const {
     return ColumnType::create(0);
+}
+
+Status DataTypeFixedLengthObject::check_column(const IColumn& column) const {
+    return check_column_non_nested_type<ColumnType>(column);
 }
 
 } // namespace doris::vectorized

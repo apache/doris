@@ -23,6 +23,9 @@ suite("sql_drop_partition_from_index") {
     def testTable = "test_table"
     def testMv = "test_mv"
 
+    // this mv rewrite would not be rewritten in RBO phase, so set TRY_IN_RBO explicitly to make case stable
+    sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
+
     try {
     sql """DROP DATABASE IF EXISTS ${testDb}"""
     sql """CREATE DATABASE IF NOT EXISTS ${testDb}"""
@@ -48,7 +51,7 @@ suite("sql_drop_partition_from_index") {
    sql"""
        INSERT INTO ${testTable} PARTITION(p1) VALUES(1,1,1),(2,2,2),(3,3,3)
        """
-     createMV ("create materialized view ${testMv} as select k1,k2+k3 from ${testTable}")
+     createMV ("create materialized view ${testMv} as select k1 as a1,k2+k3 from ${testTable}")
 
      qt_select """ SELECT k1,k2+k3 FROM ${testTable} PARTITION(p1) """
      // index is empty

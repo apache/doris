@@ -111,14 +111,18 @@ static void read_orc_line(int64_t line, std::string block_dump) {
     range.path = "./be/test/exec/test_data/orc_scanner/my-file.orc";
     range.start_offset = 0;
     range.size = 2024;
+    range.table_format_params.table_format_type = "hive";
+    range.__isset.table_format_params = true;
 
     io::IOContext io_ctx;
+    io::FileReaderStats file_reader_stats;
+    io_ctx.file_reader_stats = &file_reader_stats;
     std::string time_zone = "CST";
     auto reader = OrcReader::create_unique(nullptr, runtime_state.get(), params, range, 100,
-                                           time_zone, &io_ctx, true);
+                                           time_zone, &io_ctx, nullptr, true);
     auto local_fs = io::global_local_filesystem();
     io::FileReaderSPtr file_reader;
-    static_cast<void>(reader->set_read_lines_mode({line}));
+    static_cast<void>(reader->read_by_rows({line}));
 
     static_cast<void>(local_fs->open_file(range.path, &file_reader));
 
@@ -129,8 +133,8 @@ static void read_orc_line(int64_t line, std::string block_dump) {
                            tuple_desc->slots().size());
     reader->set_row_id_column_iterator(iterator_pair);
 
-    auto status = reader->init_reader(&column_names, {}, nullptr, {}, false, tuple_desc, &row_desc,
-                                      nullptr, nullptr);
+    auto status =
+            reader->init_reader(&column_names, {}, false, tuple_desc, &row_desc, nullptr, nullptr);
 
     EXPECT_TRUE(status.ok());
 
@@ -153,8 +157,8 @@ static void read_orc_line(int64_t line, std::string block_dump) {
     bool eof = false;
     size_t read_row = 0;
     static_cast<void>(reader->get_next_block(block.get(), &read_row, &eof));
-    auto row_id_string_column =
-            static_cast<const ColumnString&>(*block->get_by_name("row_id").column.get());
+    auto row_id_string_column = static_cast<const ColumnString&>(
+            *block->get_by_position(block->get_position_by_name("row_id")).column.get());
     for (auto i = 0; i < row_id_string_column.size(); i++) {
         GlobalRowLoacationV2 info =
                 *((GlobalRowLoacationV2*)row_id_string_column.get_data_at(i).data);
@@ -163,13 +167,15 @@ static void read_orc_line(int64_t line, std::string block_dump) {
         EXPECT_EQ(info.backend_id, BackendOptions::get_backend_id());
         EXPECT_EQ(info.version, IdManager::ID_VERSION);
     }
-    block->erase("row_id");
+    block->erase(block->get_position_by_name("row_id"));
 
     std::cout << block->dump_data();
     EXPECT_EQ(block->dump_data(), block_dump);
 
     range.format_type = TFileFormatType::FORMAT_ORC;
     range.__isset.format_type = true;
+    range.table_format_params.table_format_type = "hive";
+    range.__isset.table_format_params = true;
     std::unordered_map<std::string, int> colname_to_slot_id;
     for (auto slot : tuple_desc->slots()) {
         TFileScanSlotInfo slot_info;
@@ -184,12 +190,12 @@ static void read_orc_line(int64_t line, std::string block_dump) {
 
     auto vf = FileScanner::create_unique(runtime_state.get(), runtime_profile.get(), &params,
                                          &colname_to_slot_id, tuple_desc);
-    EXPECT_TRUE(vf->prepare_for_read_one_line(range).ok());
+    EXPECT_TRUE(vf->prepare_for_read_lines(range).ok());
     ExternalFileMappingInfo external_info(0, range, false);
     int64_t init_reader_ms = 0;
     int64_t get_block_ms = 0;
-    auto st = vf->read_one_line_from_range(range, line, block.get(), external_info, &init_reader_ms,
-                                           &get_block_ms);
+    auto st = vf->read_lines_from_range(range, {line}, block.get(), external_info, &init_reader_ms,
+                                        &get_block_ms);
     EXPECT_TRUE(st.ok());
     EXPECT_EQ(block->dump_data(1), block_dump);
 }

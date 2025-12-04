@@ -773,10 +773,6 @@ The Apache Software License, Version 2.0
         - commons-digester:commons-digester:1.8 (http://jakarta.apache.org/commons/digester/)
     * EL:
         - commons-el:commons-el:1.0 (http://jakarta.apache.org/commons/el/)
-    * Fabric8 :: Kubernetes :: Java Client:
-        - io.fabric8:kubernetes-client:5.12.2 (http://fabric8.io/kubernetes-client/)
-    * Fabric8 :: Kubernetes Model:
-        - io.fabric8:kubernetes-model:5.12.2 (http://fabric8.io/kubernetes-model/)
     * FindBugs-jsr305:
         - com.google.code.findbugs:jsr305:3.0.0 (http://findbugs.sourceforge.net/)
         - com.google.code.findbugs:jsr305:3.0.2 (http://findbugs.sourceforge.net/)
@@ -1235,6 +1231,8 @@ The Apache Software License, Version 2.0
         - oro:oro:2.0.8 (no url defined)
     * je:
         - com.sleepycat:je:18.3.12 (no url defined)
+    * arthas-packaging:
+        - com.taobao.arthas:arthas-packaging:4.0.5 (https://github.com/alibaba/arthas)
     ### The following components use multiple licenses and we choose APLv2
     * JAX-RS provider for JSON content type:
         - org.codehaus.jackson:jackson-jaxrs:1.8.3 (http://jackson.codehaus.org)
@@ -1510,7 +1508,7 @@ Other dependencies:
     * unixodbc: 2.3.7 -- licenses/LICENSE-unixodbc.txt
     * leveldb: 1.23 -- licenses/LICENSE-leveldb.txt
     * cyrus-sasl: 2.1.27 -- licenses/LICENSE-cyrus-sasl.txt
-    * librdkafka: 1.8.2 -- licenses/LICENSE-librdkafka.txt
+    * librdkafka: 2.11.0 -- licenses/LICENSE-librdkafka.txt
     * zstd: 1.5.2 -- licenses/LICENSE-zstd.txt
     * brotli: 1.0.9 -- licenses/LICENSE-brotli.txt
     * bitshuffle: 0.5.1 -- licenses/LICENSE-bigshuffle.txt

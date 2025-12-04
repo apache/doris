@@ -17,7 +17,6 @@
 
 package org.apache.doris.common.util;
 
-import org.apache.doris.analysis.DropFileStmt;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cloud.security.SecurityChecker;
@@ -155,12 +154,6 @@ public class SmallFileMgr {
                             boolean saveContent) throws DdlException {
         Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
         downloadAndAddFile(db.getId(), catalog, fileName, downloadUrl, md5sum, saveContent);
-    }
-
-    public void dropFile(DropFileStmt stmt) throws DdlException {
-        String dbName = stmt.getDbName();
-        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
-        removeFile(db.getId(), stmt.getCatalogName(), stmt.getFileName(), false);
     }
 
     private void downloadAndAddFile(long dbId, String catalog, String fileName, String downloadUrl, String md5sum,

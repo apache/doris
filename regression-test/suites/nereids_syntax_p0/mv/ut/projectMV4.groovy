@@ -18,9 +18,13 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("projectMV4") {
+    String db = context.config.getDbNameByFile(context.file)
+    sql "use ${db}"
     sql "SET experimental_enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
     sql """ DROP TABLE IF EXISTS projectMV4; """
+    // this mv rewrite would not be rewritten in RBO, so set NOT_IN_RBO explicitly
+    sql "set pre_materialized_view_rewrite_strategy = NOT_IN_RBO"
 
     sql """
             create table projectMV4 (
@@ -39,9 +43,7 @@ suite ("projectMV4") {
 
     def result = "null"
 
-    createMV("create materialized view projectMV4_mv as select name, deptno, salary from projectMV4;")
-
-    sleep(3000)
+    create_sync_mv(db, "projectMV4", "projectMV4_mv", "select name as a1, deptno as a2, salary as a3 from projectMV4;")
 
     sql """insert into projectMV4 values("2020-01-01",1,"a",1,1,1);"""
 

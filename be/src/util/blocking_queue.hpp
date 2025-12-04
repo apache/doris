@@ -31,13 +31,13 @@
 #include "util/stopwatch.hpp"
 
 namespace doris {
-
+#include "common/compile_check_begin.h"
 // Fixed capacity FIFO queue, where both BlockingGet and BlockingPut operations block
 // if the queue is empty or full, respectively.
 template <typename T>
 class BlockingQueue {
 public:
-    BlockingQueue(size_t max_elements)
+    BlockingQueue(uint32_t max_elements)
             : _shutdown(false),
               _max_elements(max_elements),
               _total_get_wait_time(0),
@@ -151,7 +151,7 @@ public:
 
     uint32_t get_size() const {
         std::lock_guard<std::mutex> l(_lock);
-        return _list.size();
+        return static_cast<uint32_t>(_list.size());
     }
 
     uint32_t get_capacity() const { return _max_elements; }
@@ -176,5 +176,5 @@ private:
     size_t _get_waiting;
     size_t _put_waiting;
 };
-
+#include "common/compile_check_end.h"
 } // namespace doris

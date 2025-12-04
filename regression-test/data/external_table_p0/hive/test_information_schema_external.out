@@ -127,7 +127,7 @@ test_information_schema_external_hive2	tpch1_parquet	orders	BASE TABLE	hms	0	\N
 test_information_schema_external_hive2	tpch1_parquet	partsupp	BASE TABLE	hms	0	\N	
 
 -- !views_1 --
-\N	info_schema_ext_db	test_view		NONE	NO	root@%	DEFINER	utf8	\N
+internal	info_schema_ext_db	test_view	SELECT `internal`.`info_schema_ext_db`.`ab`.`id` AS `a` FROM `internal`.`info_schema_ext_db`.`ab`	NONE	NO	root@%	DEFINER	utf8	\N
 
 -- !views_2 --
 
@@ -259,7 +259,7 @@ test_information_schema_external_hive3	tpch1_parquet	orders	BASE TABLE	hms	0	\N
 test_information_schema_external_hive3	tpch1_parquet	partsupp	BASE TABLE	hms	0	\N	
 
 -- !views_1 --
-\N	info_schema_ext_db	test_view		NONE	NO	root@%	DEFINER	utf8	\N
+internal	info_schema_ext_db	test_view	SELECT `internal`.`info_schema_ext_db`.`ab`.`id` AS `a` FROM `internal`.`info_schema_ext_db`.`ab`	NONE	NO	root@%	DEFINER	utf8	\N
 
 -- !views_2 --
 

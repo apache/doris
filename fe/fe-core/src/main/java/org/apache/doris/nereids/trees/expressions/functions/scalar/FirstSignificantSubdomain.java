@@ -47,13 +47,18 @@ public class FirstSignificantSubdomain extends ScalarFunction
         super("first_significant_subdomain", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private FirstSignificantSubdomain(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public FirstSignificantSubdomain withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new FirstSignificantSubdomain(children.get(0));
+        return new FirstSignificantSubdomain(getFunctionParams(children));
     }
 
     @Override

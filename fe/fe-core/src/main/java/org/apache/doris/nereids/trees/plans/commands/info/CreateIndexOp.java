@@ -18,11 +18,10 @@
 package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.alter.AlterOpType;
-import org.apache.doris.analysis.AlterTableClause;
-import org.apache.doris.analysis.CreateIndexClause;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Maps;
@@ -33,8 +32,6 @@ import java.util.Map;
  * CreateIndexOp
  */
 public class CreateIndexOp extends AlterTableOp {
-    // in which table the index on, only used when alter = false
-    private TableNameInfo tableName;
     // index definition class
     private IndexDefinition indexDef;
     // when alter = true, clause like: alter table add index xxxx
@@ -43,10 +40,10 @@ public class CreateIndexOp extends AlterTableOp {
     // index internal class
     private Index index;
 
-    public CreateIndexOp(TableNameInfo tableName, IndexDefinition indexDef, boolean alter) {
+    public CreateIndexOp(TableNameInfo tableName, IndexDefinition indexDefinition, boolean alter) {
         super(AlterOpType.SCHEMA_CHANGE);
         this.tableName = tableName;
-        this.indexDef = indexDef;
+        this.indexDef = indexDefinition;
         this.alter = alter;
     }
 
@@ -79,14 +76,9 @@ public class CreateIndexOp extends AlterTableOp {
         if (tableName != null) {
             tableName.analyze(ctx);
         }
+
         indexDef.validate();
         index = indexDef.translateToCatalogStyle();
-    }
-
-    @Override
-    public AlterTableClause translateToLegacyAlterClause() {
-        return new CreateIndexClause(tableName != null ? tableName.transferToTableName() : null,
-                indexDef.translateToLegacyIndexDef(), index, alter);
     }
 
     @Override

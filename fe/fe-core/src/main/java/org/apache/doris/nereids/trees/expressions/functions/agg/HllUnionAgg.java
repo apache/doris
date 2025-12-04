@@ -57,6 +57,11 @@ public class HllUnionAgg extends NotNullableAggregateFunction
         this(arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    protected HllUnionAgg(AggregateFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     protected List<DataType> intermediateTypes() {
         return ImmutableList.of(HllType.INSTANCE);
@@ -68,7 +73,7 @@ public class HllUnionAgg extends NotNullableAggregateFunction
     @Override
     public HllUnionAgg withDistinctAndChildren(boolean distinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new HllUnionAgg(children.get(0));
+        return new HllUnionAgg(getFunctionParams(distinct, children));
     }
 
     @Override
@@ -83,7 +88,7 @@ public class HllUnionAgg extends NotNullableAggregateFunction
 
     @Override
     public Function constructRollUp(Expression param, Expression... varParams) {
-        return new HllUnionAgg(param);
+        return new HllUnionAgg(getFunctionParams(ImmutableList.of(param)));
     }
 
     @Override

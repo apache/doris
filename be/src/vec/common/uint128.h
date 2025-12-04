@@ -25,10 +25,10 @@
 #include <sstream>
 #include <tuple>
 
-#include "gutil/hash/city.h"
+#include "util/hash/city.h"
 #include "util/sse_util.hpp"
+#include "vec/core/extended_types.h"
 #include "vec/core/types.h"
-#include "vec/core/wide_integer.h"
 
 namespace doris::vectorized {
 
@@ -62,6 +62,15 @@ struct UInt128TrivialHash {
 using UInt256 = wide::UInt256;
 
 #pragma pack(1)
+struct UInt72 {
+    UInt8 a;
+    UInt64 b;
+
+    bool operator==(const UInt72& rhs) const { return a == rhs.a && b == rhs.b; }
+};
+#pragma pack()
+
+#pragma pack(1)
 struct UInt136 {
     UInt8 a;
     UInt64 b;
@@ -77,27 +86,6 @@ struct UInt136 {
 template <>
 struct std::hash<doris::vectorized::UInt128> {
     size_t operator()(const doris::vectorized::UInt128& u) const {
-        return util_hash::HashLen16(u.low(), u.high());
+        return doris::util_hash::HashLen16(u.low(), u.high());
     }
-};
-
-template <>
-struct std::is_signed<doris::vectorized::UInt128> {
-    static constexpr bool value = false;
-};
-
-template <>
-struct std::is_unsigned<doris::vectorized::UInt128> {
-    static constexpr bool value = true;
-};
-
-template <>
-struct std::is_integral<doris::vectorized::UInt128> {
-    static constexpr bool value = true;
-};
-
-// Operator +, -, /, *, % aren't implemented, so it's not an arithmetic type
-template <>
-struct std::is_arithmetic<doris::vectorized::UInt128> {
-    static constexpr bool value = false;
 };

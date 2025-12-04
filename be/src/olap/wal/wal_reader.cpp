@@ -17,12 +17,16 @@
 
 #include "olap/wal/wal_reader.h"
 
+#include <string_view>
+#include <utility>
+
 #include "common/status.h"
 #include "io/fs/file_reader.h"
-#include "io/fs/local_file_system.h"
+#include "io/fs/file_system.h"
 #include "io/fs/path.h"
 #include "util/coding.h"
 #include "util/crc32c.h"
+#include "util/string_util.h"
 #include "wal_writer.h"
 
 namespace doris {
@@ -30,7 +34,6 @@ namespace doris {
 WalReader::WalReader(const std::string& file_name) : _file_name(file_name), _offset(0) {}
 
 WalReader::~WalReader() = default;
-
 Status WalReader::_deserialize(PBlock& block, const std::string& buf, size_t block_len,
                                size_t bytes_read) {
     if (UNLIKELY(!block.ParseFromString(buf))) {
@@ -42,14 +45,29 @@ Status WalReader::_deserialize(PBlock& block, const std::string& buf, size_t blo
     return Status::OK();
 }
 
+std::pair<int64_t, int64_t> parse_db_tb_from_wal_path(const std::string& wal_path) {
+    auto ret = split(wal_path, "/");
+    DCHECK_GT(ret.size(), 3);
+    auto db_id_pos = ret.size() - 1 - 2;
+    auto tb_id_pos = ret.size() - 1 - 1;
+    auto db_id = std::stoll(ret[db_id_pos]);
+    auto tb_id = std::stoll(ret[tb_id_pos]);
+
+    return {db_id, tb_id};
+}
+
 Status WalReader::init() {
+    auto [db_id, tb_id] = parse_db_tb_from_wal_path(_file_name);
+    io::FileSystemSPtr fs;
+    RETURN_IF_ERROR(determine_wal_fs(db_id, tb_id, fs));
     bool exists = false;
-    RETURN_IF_ERROR(io::global_local_filesystem()->exists(_file_name, &exists));
+    RETURN_IF_ERROR(fs->exists(_file_name, &exists));
     if (!exists) {
         LOG(WARNING) << "not exist wal= " << _file_name;
         return Status::NotFound("wal {} doesn't exist", _file_name);
     }
-    RETURN_IF_ERROR(io::global_local_filesystem()->open_file(_file_name, &file_reader));
+    RETURN_IF_ERROR(fs->open_file(_file_name, &file_reader));
+
     return Status::OK();
 }
 

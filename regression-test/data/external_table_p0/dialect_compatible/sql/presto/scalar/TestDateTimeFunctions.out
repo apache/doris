@@ -198,13 +198,13 @@ Jan
 9
 
 -- !TestDateTimeFunctions_67 --
-13
+14
 
 -- !TestDateTimeFunctions_68 --
-01
+02
 
 -- !TestDateTimeFunctions_69 --
-01
+02
 
 -- !TestDateTimeFunctions_70 --
 04
@@ -213,10 +213,10 @@ Jan
 009
 
 -- !TestDateTimeFunctions_72 --
-13
+14
 
 -- !TestDateTimeFunctions_73 --
-1
+2
 
 -- !TestDateTimeFunctions_74 --
 01
@@ -225,7 +225,7 @@ Jan
 PM
 
 -- !TestDateTimeFunctions_76 --
-01:04:05 PM
+02:04:05 PM
 
 -- !TestDateTimeFunctions_77 --
 05
@@ -234,7 +234,7 @@ PM
 05
 
 -- !TestDateTimeFunctions_79 --
-13:04:05
+14:04:05
 
 -- !TestDateTimeFunctions_80 --
 02

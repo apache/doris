@@ -36,6 +36,7 @@ import org.apache.doris.tablefunction.TableValuedFunctionIf;
 
 import com.google.common.collect.ImmutableList;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -45,34 +46,59 @@ public class LogicalTVFRelation extends LogicalRelation implements TVFRelation, 
 
     private final TableValuedFunction function;
     private final ImmutableList<String> qualifier;
+    private final ImmutableList<Slot> operativeSlots;
+    private final Optional<List<Slot>> cachedOutputs;
 
-    public LogicalTVFRelation(RelationId id, TableValuedFunction function) {
+    public LogicalTVFRelation(RelationId id, TableValuedFunction function, ImmutableList<Slot> operativeSlots) {
         super(id, PlanType.LOGICAL_TVF_RELATION);
+        this.operativeSlots = operativeSlots;
         this.function = function;
-        qualifier = ImmutableList.of(TableValuedFunctionIf.TVF_TABLE_PREFIX + function.getName());
+        this.qualifier = ImmutableList.of(TableValuedFunctionIf.TVF_TABLE_PREFIX + function.getName());
+        this.cachedOutputs = Optional.empty();
     }
 
-    public LogicalTVFRelation(RelationId id, TableValuedFunction function, Optional<GroupExpression> groupExpression,
+    public LogicalTVFRelation(RelationId id, TableValuedFunction function, ImmutableList<Slot> operativeSlots,
+            Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties) {
+        this(id, function, operativeSlots, Optional.empty(), groupExpression, logicalProperties);
+    }
+
+    public LogicalTVFRelation(RelationId id, TableValuedFunction function,
+            ImmutableList<Slot> operativeSlots,
+            Optional<List<Slot>> cachedOutputs,
+            Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties) {
         super(id, PlanType.LOGICAL_TVF_RELATION, groupExpression, logicalProperties);
+        this.operativeSlots = operativeSlots;
         this.function = function;
-        qualifier = ImmutableList.of(TableValuedFunctionIf.TVF_TABLE_PREFIX + function.getName());
+        this.cachedOutputs = Objects.requireNonNull(cachedOutputs, "cachedOutputs can not be null");
+        this.qualifier = ImmutableList.of(TableValuedFunctionIf.TVF_TABLE_PREFIX + function.getName());
     }
 
     @Override
     public LogicalTVFRelation withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalTVFRelation(relationId, function, groupExpression, Optional.of(getLogicalProperties()));
+        return new LogicalTVFRelation(relationId, function, operativeSlots,
+                groupExpression, Optional.of(getLogicalProperties()));
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new LogicalTVFRelation(relationId, function, groupExpression, logicalProperties);
+        return new LogicalTVFRelation(relationId, function, operativeSlots, groupExpression, logicalProperties);
     }
 
     @Override
     public LogicalTVFRelation withRelationId(RelationId relationId) {
-        return new LogicalTVFRelation(relationId, function, Optional.empty(), Optional.empty());
+        return new LogicalTVFRelation(relationId, function, operativeSlots, Optional.empty(),
+                Optional.of(getLogicalProperties()));
+    }
+
+    public LogicalTVFRelation withOperativeSlots(Collection<Slot> operativeSlots) {
+        return new LogicalTVFRelation(relationId, function, Utils.fastToImmutableList(operativeSlots),
+                Optional.empty(), Optional.of(getLogicalProperties()));
+    }
+
+    public List<Slot> getOperativeSlots() {
+        return operativeSlots;
     }
 
     @Override
@@ -87,7 +113,7 @@ public class LogicalTVFRelation extends LogicalRelation implements TVFRelation, 
             return false;
         }
         LogicalTVFRelation that = (LogicalTVFRelation) o;
-        return Objects.equals(function, that.function);
+        return Objects.equals(function, that.function) && Objects.equals(operativeSlots, that.operativeSlots);
     }
 
     @Override
@@ -105,6 +131,9 @@ public class LogicalTVFRelation extends LogicalRelation implements TVFRelation, 
 
     @Override
     public List<Slot> computeOutput() {
+        if (cachedOutputs.isPresent()) {
+            return cachedOutputs.get();
+        }
         IdGenerator<ExprId> exprIdGenerator = StatementScopeIdGenerator.getExprIdGenerator();
         return function.getTable().getBaseSchema()
                 .stream()
@@ -122,5 +151,10 @@ public class LogicalTVFRelation extends LogicalRelation implements TVFRelation, 
     @Override
     public TableValuedFunction getFunction() {
         return function;
+    }
+
+    public LogicalTVFRelation withCachedOutputs(List<Slot> replaceSlots) {
+        return new LogicalTVFRelation(relationId, function, Utils.fastToImmutableList(operativeSlots),
+                Optional.of(replaceSlots), Optional.empty(), Optional.empty());
     }
 }

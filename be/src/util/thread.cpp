@@ -54,12 +54,10 @@
 #include "absl/strings/substitute.h"
 #include "common/config.h"
 #include "common/logging.h"
-#include "gutil/atomicops.h"
 #include "http/web_page_handler.h"
 #include "runtime/thread_context.h"
 #include "util/easy_json.h"
 #include "util/os_util.h"
-#include "util/scoped_cleanup.h"
 #include "util/url_coding.h"
 
 namespace doris {
@@ -315,9 +313,9 @@ void Thread::join() {
 }
 
 int64_t Thread::tid() const {
-    int64_t t = base::subtle::Acquire_Load(&_tid);
+    int64_t t = _tid.load();
     if (t != PARENT_WAITING_TID) {
-        return _tid;
+        return t;
     }
     return wait_for_tid();
 }
@@ -365,7 +363,7 @@ int64_t Thread::current_thread_id() {
 int64_t Thread::wait_for_tid() const {
     int loop_count = 0;
     while (true) {
-        int64_t t = Acquire_Load(&_tid);
+        int64_t t = _tid.load();
         if (t != PARENT_WAITING_TID) {
             return t;
         }
@@ -389,12 +387,11 @@ int64_t Thread::wait_for_tid() const {
 }
 
 Status Thread::start_thread(const std::string& category, const std::string& name,
-                            const ThreadFunctor& functor, uint64_t flags,
-                            scoped_refptr<Thread>* holder) {
+                            const ThreadFunctor& functor, std::shared_ptr<Thread>* holder) {
     std::call_once(once, init_threadmgr);
 
     // Temporary reference for the duration of this function.
-    scoped_refptr<Thread> t(new Thread(category, name, functor));
+    auto t = std::make_shared<Thread>(category, name, functor);
 
     // Optional, and only set if the thread was successfully created.
     //
@@ -410,16 +407,13 @@ Status Thread::start_thread(const std::string& category, const std::string& name
     // access the thread object, and we have no guarantee that our caller
     // won't drop the reference as soon as we return. This is dereferenced
     // in FinishThread().
-    t->AddRef();
-
-    auto cleanup = MakeScopedCleanup([&]() {
-        // If we failed to create the thread, we need to undo all of our prep work.
-        t->_tid = INVALID_TID;
-        t->Release();
-    });
+    t->_shared_self = t;
 
     int ret = pthread_create(&t->_thread, nullptr, &Thread::supervise_thread, t.get());
     if (ret) {
+        // If we failed to create the thread, we need to undo all of our prep work.
+        t->_tid = INVALID_TID;
+        t->_shared_self.reset();
         return Status::RuntimeError("Could not create thread. (error {}) {}", ret, strerror(ret));
     }
 
@@ -429,8 +423,6 @@ Status Thread::start_thread(const std::string& category, const std::string& name
     // (or someone communicating with the parent) can join, so joinable must
     // be set before the parent returns.
     t->_joinable = true;
-    cleanup.cancel();
-
     VLOG_NOTICE << "Started thread " << t->tid() << " - " << category << ":" << name;
     return Status::OK();
 }
@@ -445,7 +437,7 @@ void* Thread::supervise_thread(void* arg) {
 
     // Set up the TLS.
     //
-    // We could store a scoped_refptr in the TLS itself, but as its
+    // We could store a ptr in the TLS itself, but as its
     // lifecycle is poorly defined, we'll use a bare pointer. We
     // already incremented the reference count in StartThread.
     Thread::_tls = t;
@@ -455,10 +447,10 @@ void* Thread::supervise_thread(void* arg) {
 
     // Publish our tid to '_tid', which unblocks any callers waiting in
     // WaitForTid().
-    Release_Store(&t->_tid, system_tid);
+    t->_tid.store(system_tid);
 
     std::string name = absl::Substitute("$0-$1", t->name(), system_tid);
-    thread_manager->set_thread_name(name, t->_tid);
+    ThreadMgr::set_thread_name(name, t->_tid);
     thread_manager->add_thread(pthread_self(), name, t->category(), t->_tid);
 
     // FinishThread() is guaranteed to run (even if functor_ throws an
@@ -484,7 +476,7 @@ void Thread::finish_thread(void* arg) {
     t->_done.count_down();
 
     VLOG_CRITICAL << "Ended thread " << t->_tid << " - " << t->category() << ":" << t->name();
-    t->Release();
+    t->_shared_self.reset();
     // NOTE: the above 'Release' call could be the last reference to 'this',
     // so 'this' could be destructed at this point. Do not add any code
     // following here!
@@ -533,7 +525,7 @@ Status ThreadJoiner::join() {
     while (keep_trying) {
         if (waited_ms >= _warn_after_ms) {
             LOG(WARNING) << absl::Substitute("Waited for $0ms trying to join with $1 (tid $2)",
-                                             waited_ms, _thread->_name, _thread->_tid);
+                                             waited_ms, _thread->_name, _thread->_tid.load());
         }
 
         int remaining_before_giveup = std::numeric_limits<int>::max();

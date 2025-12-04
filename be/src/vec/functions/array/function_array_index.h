@@ -26,6 +26,7 @@
 
 #include "common/status.h"
 #include "olap/column_predicate.h"
+#include "olap/rowset/segment_v2/index_reader_helper.h"
 #include "olap/rowset/segment_v2/inverted_index_query_type.h"
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
 #include "runtime/define_primitive_type.h"
@@ -38,6 +39,7 @@
 #include "vec/common/assert_cast.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/block.h"
+#include "vec/core/call_on_type_index.h"
 #include "vec/core/column_numbers.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/types.h"
@@ -127,7 +129,7 @@ public:
     Status evaluate_inverted_index(
             const ColumnsWithTypeAndName& arguments,
             const std::vector<vectorized::IndexFieldNameAndTypePair>& data_type_with_names,
-            std::vector<segment_v2::InvertedIndexIterator*> iterators, uint32_t num_rows,
+            std::vector<segment_v2::IndexIterator*> iterators, uint32_t num_rows,
             segment_v2::InvertedIndexResultBitmap& bitmap_result) const override {
         DCHECK(arguments.size() == 1);
         DCHECK(data_type_with_names.size() == 1);
@@ -137,8 +139,7 @@ public:
         if (iter == nullptr) {
             return Status::OK();
         }
-        if (iter->get_inverted_index_reader_type() ==
-            segment_v2::InvertedIndexReaderType::FULLTEXT) {
+        if (!segment_v2::IndexReaderHelper::has_string_or_bkd_index(iter)) {
             // parser is not none we can not make sure the result is correct in expr combination
             // for example, filter: !array_index(array, 'tall:120cm, weight: 35kg')
             // here we have rows [tall:120cm, weight: 35kg, hobbies: reading book] which be tokenized
@@ -156,7 +157,6 @@ public:
             return Status::OK();
         }
 
-        std::shared_ptr<roaring::Roaring> roaring = std::make_shared<roaring::Roaring>();
         std::shared_ptr<roaring::Roaring> null_bitmap = std::make_shared<roaring::Roaring>();
         if (iter->has_null()) {
             segment_v2::InvertedIndexQueryCacheHandle null_bitmap_cache_handle;
@@ -166,9 +166,14 @@ public:
         std::unique_ptr<InvertedIndexQueryParamFactory> query_param = nullptr;
         RETURN_IF_ERROR(InvertedIndexQueryParamFactory::create_query_value(param_type, &param_value,
                                                                            query_param));
-        RETURN_IF_ERROR(iter->read_from_inverted_index(
-                data_type_with_name.first, query_param->get_value(),
-                segment_v2::InvertedIndexQueryType::EQUAL_QUERY, num_rows, roaring));
+        InvertedIndexParam param;
+        param.column_name = data_type_with_name.first;
+        param.column_type = data_type_with_name.second;
+        param.query_value = query_param->get_value();
+        param.query_type = segment_v2::InvertedIndexQueryType::EQUAL_QUERY;
+        param.num_rows = num_rows;
+        param.roaring = std::make_shared<roaring::Roaring>();
+        RETURN_IF_ERROR(iter->read_from_index(&param));
         // here debug for check array_contains function really filter rows by inverted index correctly
         DBUG_EXECUTE_IF("array_func.array_contains", {
             auto result_bitmap = DebugPoints::instance()->get_debug_param_or_default<int32_t>(
@@ -177,14 +182,14 @@ public:
                 return Status::Error<ErrorCode::INTERNAL_ERROR>(
                         "result_bitmap count cannot be negative");
             }
-            if (roaring->cardinality() != result_bitmap) {
+            if (param.roaring->cardinality() != result_bitmap) {
                 return Status::Error<ErrorCode::INTERNAL_ERROR>(
                         "array_contains really filtered {} by inverted index not equal to expected "
                         "{}",
-                        roaring->cardinality(), result_bitmap);
+                        param.roaring->cardinality(), result_bitmap);
             }
         })
-        segment_v2::InvertedIndexResultBitmap result(roaring, null_bitmap);
+        segment_v2::InvertedIndexResultBitmap result(param.roaring, null_bitmap);
         bitmap_result = result;
         bitmap_result.mask_out_null();
 
@@ -412,90 +417,23 @@ private:
                                             right_nested_null_map, array_null_map);
         } else if (is_number(right_type->get_primitive_type()) &&
                    is_number(left_element_type->get_primitive_type())) {
-            switch (left_element_type->get_primitive_type()) {
-            case TYPE_BOOLEAN:
-                return_column = _execute_number_expanded<ColumnUInt8>(
+            auto call = [&](const auto& type) -> bool {
+                using DispatchType = std::decay_t<decltype(type)>;
+                return_column = _execute_number<typename DispatchType::ColumnType,
+                                                typename DispatchType::ColumnType>(
                         offsets, nested_null_map, *nested_column, *right_column,
                         right_nested_null_map, array_null_map);
-                break;
-            case TYPE_TINYINT:
-                return_column = _execute_number_expanded<ColumnInt8>(
-                        offsets, nested_null_map, *nested_column, *right_column,
-                        right_nested_null_map, array_null_map);
-                break;
-            case TYPE_SMALLINT:
-                return_column = _execute_number_expanded<ColumnInt16>(
-                        offsets, nested_null_map, *nested_column, *right_column,
-                        right_nested_null_map, array_null_map);
-                break;
-            case TYPE_INT:
-                return_column = _execute_number_expanded<ColumnInt32>(
-                        offsets, nested_null_map, *nested_column, *right_column,
-                        right_nested_null_map, array_null_map);
-                break;
-            case TYPE_BIGINT:
-                return_column = _execute_number_expanded<ColumnInt64>(
-                        offsets, nested_null_map, *nested_column, *right_column,
-                        right_nested_null_map, array_null_map);
-                break;
-            case TYPE_LARGEINT:
-                return_column = _execute_number_expanded<ColumnInt128>(
-                        offsets, nested_null_map, *nested_column, *right_column,
-                        right_nested_null_map, array_null_map);
-                break;
-            case TYPE_FLOAT:
-                return_column = _execute_number_expanded<ColumnFloat32>(
-                        offsets, nested_null_map, *nested_column, *right_column,
-                        right_nested_null_map, array_null_map);
-                break;
-            case TYPE_DOUBLE:
-                return_column = _execute_number_expanded<ColumnFloat64>(
-                        offsets, nested_null_map, *nested_column, *right_column,
-                        right_nested_null_map, array_null_map);
-                break;
-            case TYPE_DECIMAL32:
-                return_column = _execute_number_expanded<ColumnDecimal32>(
-                        offsets, nested_null_map, *nested_column, *right_column,
-                        right_nested_null_map, array_null_map);
-                break;
-            case TYPE_DECIMAL64:
-                return_column = _execute_number_expanded<ColumnDecimal64>(
-                        offsets, nested_null_map, *nested_column, *right_column,
-                        right_nested_null_map, array_null_map);
-                break;
-            case TYPE_DECIMAL128I:
-                return_column = _execute_number_expanded<ColumnDecimal128V3>(
-                        offsets, nested_null_map, *nested_column, *right_column,
-                        right_nested_null_map, array_null_map);
-                break;
-            case TYPE_DECIMALV2:
-                return_column = _execute_number_expanded<ColumnDecimal128V2>(
-                        offsets, nested_null_map, *nested_column, *right_column,
-                        right_nested_null_map, array_null_map);
-                break;
-            case TYPE_DECIMAL256:
-                return_column = _execute_number_expanded<ColumnDecimal256>(
-                        offsets, nested_null_map, *nested_column, *right_column,
-                        right_nested_null_map, array_null_map);
-                break;
-            default:
-                break;
+                return true;
+            };
+            if (!dispatch_switch_number(right_type->get_primitive_type(), call)) {
+                return Status::InternalError(get_name() + " not support right type " +
+                                             right_type->get_name());
             }
-        } else if ((is_date_or_datetime(right_type->get_primitive_type()) ||
-                    is_date_v2_or_datetime_v2(right_type->get_primitive_type()) ||
+        } else if ((is_date_v2_or_datetime_v2(right_type->get_primitive_type()) ||
                     right_type->get_primitive_type() == TYPE_TIMEV2) &&
-                   (is_date_or_datetime(left_element_type->get_primitive_type()) ||
-                    is_date_v2_or_datetime_v2(left_element_type->get_primitive_type()) ||
+                   (is_date_v2_or_datetime_v2(left_element_type->get_primitive_type()) ||
                     left_element_type->get_primitive_type() == TYPE_TIMEV2)) {
-            if (left_element_type->get_primitive_type() == TYPE_DATE) {
-                return_column = _execute_number_expanded<ColumnDate>(
-                        offsets, nested_null_map, *nested_column, *right_column,
-                        right_nested_null_map, array_null_map);
-            } else if (left_element_type->get_primitive_type() == TYPE_DATETIME) {
-                return_column = _execute_number_expanded<ColumnDateTime>(
-                        offsets, nested_null_map, *nested_column, *right_column,
-                        right_nested_null_map, array_null_map);
-            } else if (left_element_type->get_primitive_type() == TYPE_DATEV2) {
+            if (left_element_type->get_primitive_type() == TYPE_DATEV2) {
                 return_column = _execute_number_expanded<ColumnDateV2>(
                         offsets, nested_null_map, *nested_column, *right_column,
                         right_nested_null_map, array_null_map);
@@ -505,6 +443,17 @@ private:
                         right_nested_null_map, array_null_map);
             } else if (left_element_type->get_primitive_type() == TYPE_TIMEV2) {
                 return_column = _execute_number_expanded<ColumnTimeV2>(
+                        offsets, nested_null_map, *nested_column, *right_column,
+                        right_nested_null_map, array_null_map);
+            }
+        } else if (is_ip(right_type->get_primitive_type()) &&
+                   is_ip(left_element_type->get_primitive_type())) {
+            if (left_element_type->get_primitive_type() == TYPE_IPV4) {
+                return_column = _execute_number_expanded<ColumnIPv4>(
+                        offsets, nested_null_map, *nested_column, *right_column,
+                        right_nested_null_map, array_null_map);
+            } else if (left_element_type->get_primitive_type() == TYPE_IPV6) {
+                return_column = _execute_number_expanded<ColumnIPv6>(
                         offsets, nested_null_map, *nested_column, *right_column,
                         right_nested_null_map, array_null_map);
             }

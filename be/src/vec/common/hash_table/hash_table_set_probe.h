@@ -16,15 +16,14 @@
 // under the License.
 
 #include "pipeline/exec/set_probe_sink_operator.h"
-#include "runtime/runtime_state.h"
 #include "vec/columns/column.h"
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 template <class HashTableContext, bool is_intersected>
 struct HashTableProbe {
     template <typename Parent>
-    HashTableProbe(Parent* parent, int probe_rows)
+    HashTableProbe(Parent* parent, uint32_t probe_rows)
             : _valid_element_in_hash_tbl(parent->valid_element_in_hash_tbl()),
               _probe_rows(probe_rows),
               _probe_raw_ptrs(parent->_probe_columns) {}
@@ -54,9 +53,9 @@ struct HashTableProbe {
 
 private:
     int64_t* _valid_element_in_hash_tbl = nullptr;
-    const size_t _probe_rows;
+    const uint32_t _probe_rows;
     ColumnRawPtrs& _probe_raw_ptrs;
     std::vector<StringRef> _probe_keys;
 };
-
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

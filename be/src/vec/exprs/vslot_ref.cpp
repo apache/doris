@@ -21,7 +21,6 @@
 #include <glog/logging.h>
 
 #include <ostream>
-#include <vector>
 
 #include "common/status.h"
 #include "runtime/descriptors.h"
@@ -29,13 +28,8 @@
 #include "vec/core/block.h"
 #include "vec/exprs/vexpr_context.h"
 
-namespace doris {
-namespace vectorized {
-class VExprContext;
-} // namespace vectorized
-} // namespace doris
-
 namespace doris::vectorized {
+class VExprContext;
 
 VSlotRef::VSlotRef(const doris::TExprNode& node)
         : VExpr(node),
@@ -62,13 +56,8 @@ Status VSlotRef::prepare(doris::RuntimeState* state, const doris::RowDescriptor&
                 state->desc_tbl().debug_string());
     }
     _column_name = &slot_desc->col_name();
-    if (!context->force_materialize_slot() && !slot_desc->is_materialized()) {
-        // slot should be ignored manually
-        _column_id = -1;
-        _prepare_finished = true;
-        return Status::OK();
-    }
-    _column_id = desc.get_column_id(_slot_id, context->force_materialize_slot());
+    _column_uniq_id = slot_desc->col_unique_id();
+    _column_id = desc.get_column_id(_slot_id);
     if (_column_id < 0) {
         return Status::Error<ErrorCode::INTERNAL_ERROR>(
                 "VSlotRef {} have invalid slot id: {}, desc: {}, slot_desc: {}, desc_tbl: {}",
@@ -87,7 +76,7 @@ Status VSlotRef::open(RuntimeState* state, VExprContext* context,
     return Status::OK();
 }
 
-Status VSlotRef::execute(VExprContext* context, Block* block, int* result_column_id) {
+Status VSlotRef::execute(VExprContext* context, Block* block, int* result_column_id) const {
     if (_column_id >= 0 && _column_id >= block->columns()) {
         return Status::Error<ErrorCode::INTERNAL_ERROR>(
                 "input block not contain slot column {}, column_id={}, block={}", *_column_name,
@@ -95,6 +84,27 @@ Status VSlotRef::execute(VExprContext* context, Block* block, int* result_column
     }
     *result_column_id = _column_id;
     return Status::OK();
+}
+
+Status VSlotRef::execute_column(VExprContext* context, const Block* block, size_t count,
+                                ColumnPtr& result_column) const {
+    if (_column_id >= 0 && _column_id >= block->columns()) {
+        return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                "input block not contain slot column {}, column_id={}, block={}", *_column_name,
+                _column_id, block->dump_structure());
+    }
+    result_column = block->get_by_position(_column_id).column;
+    DCHECK_EQ(result_column->size(), count);
+    return Status::OK();
+}
+
+DataTypePtr VSlotRef::execute_type(const Block* block) const {
+    if (_column_id >= 0 && _column_id >= block->columns()) {
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "input block not contain slot column {}, column_id={}, block={}",
+                               *_column_name, _column_id, block->dump_structure());
+    }
+    return block->get_by_position(_column_id).type;
 }
 
 const std::string& VSlotRef::expr_name() const {
@@ -124,6 +134,14 @@ bool VSlotRef::equals(const VExpr& other) {
         return false;
     }
     return true;
+}
+
+uint64_t VSlotRef::get_digest(uint64_t seed) const {
+    if (_data_type->get_primitive_type() == TYPE_VARIANT) {
+        return 0;
+    }
+    seed = HashUtil::hash64(&_column_uniq_id, sizeof(int), seed);
+    return HashUtil::hash64(_column_name->c_str(), _column_name->size(), seed);
 }
 
 } // namespace doris::vectorized

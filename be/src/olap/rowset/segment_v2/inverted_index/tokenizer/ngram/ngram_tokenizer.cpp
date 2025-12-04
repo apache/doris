@@ -20,6 +20,7 @@
 #include "common/exception.h"
 
 namespace doris::segment_v2::inverted_index {
+#include "common/compile_check_begin.h"
 
 NGramTokenizer::NGramTokenizer(int32_t min_gram, int32_t max_gram, bool edges_only) {
     init(min_gram, max_gram, edges_only);
@@ -82,7 +83,7 @@ Token* NGramTokenizer::next(Token* token) {
 
 void NGramTokenizer::reset() {
     DorisTokenizer::reset();
-    _buffer_start = _buffer_end = _buffer.size();
+    _buffer_start = _buffer_end = static_cast<int32_t>(_buffer.size());
     _last_non_token_char = _last_checked_char = _buffer_start - 1;
     _offset = 0;
     _gram_size = _min_gram;
@@ -90,7 +91,7 @@ void NGramTokenizer::reset() {
 
     _char_buffer = nullptr;
     _char_offset = 0;
-    _char_length = _in->read((const void**)&_char_buffer, 0, _in->size());
+    _char_length = _in->read((const void**)&_char_buffer, 0, static_cast<int32_t>(_in->size()));
 }
 
 void NGramTokenizer::init(int32_t min_gram, int32_t max_gram, bool edges_only) {
@@ -145,4 +146,5 @@ void NGramTokenizer::to_chars(const std::vector<UChar32>& buffer, int32_t start,
     unistr.toUTF8String(_utf8_buffer);
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2::inverted_index

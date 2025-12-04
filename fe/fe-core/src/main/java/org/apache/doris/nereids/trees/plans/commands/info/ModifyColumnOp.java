@@ -18,15 +18,13 @@
 package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.alter.AlterOpType;
-import org.apache.doris.analysis.AlterTableClause;
 import org.apache.doris.analysis.ColumnPosition;
-import org.apache.doris.analysis.ModifyColumnClause;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.util.RelationUtil;
@@ -75,6 +73,10 @@ public class ModifyColumnOp extends AlterTableOp {
         return rollupName;
     }
 
+    public void setColumn(Column column) {
+        this.column = column;
+    }
+
     @Override
     public void validate(ConnectContext ctx) throws UserException {
         if (columnDef == null) {
@@ -87,7 +89,9 @@ public class ModifyColumnOp extends AlterTableOp {
         KeysType keysType = KeysType.DUP_KEYS;
         Set<String> clusterKeySet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
         Column originalColumn = null;
-        Table table = Env.getCurrentInternalCatalog().getDbOrDdlException(tableName.getDb())
+        TableIf table = Env.getCurrentEnv().getCatalogMgr()
+                .getCatalogOrDdlException(tableName.getCtl())
+                .getDbOrDdlException(tableName.getDb())
                 .getTableOrDdlException(tableName.getTbl());
         OlapTable olapTable = null;
         List<Column> schemaColumns = null;
@@ -104,10 +108,6 @@ public class ModifyColumnOp extends AlterTableOp {
                     columnDef.setIsKey(originalColumn.isKey());
                 }
                 schemaColumns = olapTable.getFullSchema();
-                if (olapTable.getPartitionColumnNames().contains(colName.toLowerCase())
-                        || olapTable.getDistributionColumnNames().contains(colName.toLowerCase())) {
-                    throw new AnalysisException("Can not modify partition or distribution column : " + colName);
-                }
                 long baseIndexId = olapTable.getBaseIndexId();
                 for (Map.Entry<Long, MaterializedIndexMeta> entry : olapTable.getVisibleIndexIdToMeta().entrySet()) {
                     long indexId = entry.getKey();
@@ -165,9 +165,8 @@ public class ModifyColumnOp extends AlterTableOp {
         }
     }
 
-    @Override
-    public AlterTableClause translateToLegacyAlterClause() {
-        return new ModifyColumnClause(toSql(), column, colPos, rollupName, properties);
+    public ColumnDefinition getColumnDef() {
+        return columnDef;
     }
 
     @Override

@@ -13,7 +13,7 @@ PhysicalResultSink
 --------------------PhysicalProject
 ----------------------PhysicalOlapScan[lineitem] apply RFs: RF0
 --------------PhysicalDistribute[DistributionSpecHash]
-----------------hashAgg[LOCAL]
+----------------hashAgg[GLOBAL]
 ------------------PhysicalProject
 --------------------PhysicalOlapScan[orders] apply RFs: RF0 RFV2: RF1
 ------------PhysicalProject
@@ -34,7 +34,7 @@ PhysicalResultSink
 ----------------------PhysicalProject
 ------------------------PhysicalOlapScan[lineitem] apply RFs: RF0
 ----------------PhysicalDistribute[DistributionSpecHash]
-------------------hashAgg[LOCAL]
+------------------hashAgg[GLOBAL]
 --------------------PhysicalProject
 ----------------------PhysicalOlapScan[orders] apply RFs: RF0 RFV2: RF1
 ------------PhysicalProject

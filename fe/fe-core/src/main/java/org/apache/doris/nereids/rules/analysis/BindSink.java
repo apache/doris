@@ -28,6 +28,7 @@ import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.hive.HMSExternalDatabase;
@@ -40,6 +41,7 @@ import org.apache.doris.dictionary.Dictionary;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.Scope;
+import org.apache.doris.nereids.analyzer.UnboundBlackholeSink;
 import org.apache.doris.nereids.analyzer.UnboundDictionarySink;
 import org.apache.doris.nereids.analyzer.UnboundHiveTableSink;
 import org.apache.doris.nereids.analyzer.UnboundIcebergTableSink;
@@ -62,16 +64,19 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Substring;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
+import org.apache.doris.nereids.trees.plans.logical.LogicalBlackholeSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalDictionarySink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHiveTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalIcebergTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJdbcTableSink;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -87,6 +92,7 @@ import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
 
 import com.google.common.base.Preconditions;
@@ -106,6 +112,15 @@ import java.util.stream.Collectors;
  * bind an unbound logicalTableSink represent the target table of an insert command
  */
 public class BindSink implements AnalysisRuleFactory {
+    public boolean needTruncateStringWhenInsert;
+
+    public BindSink() {
+        this(true);
+    }
+
+    public BindSink(boolean needTruncateStringWhenInsert) {
+        this.needTruncateStringWhenInsert = needTruncateStringWhenInsert;
+    }
 
     @Override
     public List<Rule> buildRules() {
@@ -131,8 +146,9 @@ public class BindSink implements AnalysisRuleFactory {
                     unboundIcebergTableSink().thenApply(this::bindIcebergTableSink)),
                 RuleType.BINDING_INSERT_JDBC_TABLE.build(unboundJdbcTableSink().thenApply(this::bindJdbcTableSink)),
                 RuleType.BINDING_INSERT_DICTIONARY_TABLE
-                        .build(unboundDictionarySink().thenApply(this::bindDictionarySink))
-        );
+                        .build(unboundDictionarySink().thenApply(this::bindDictionarySink)),
+                RuleType.BINDING_INSERT_BLACKHOLE_SINK.build(unboundBlackholeSink().thenApply(this::bindBlackHoleSink))
+                );
     }
 
     private Plan bindOlapTableSink(MatchingContext<UnboundTableSink<Plan>> ctx) {
@@ -226,8 +242,7 @@ public class BindSink implements AnalysisRuleFactory {
                         boundSink.getDmlCommandType() != DMLCommandType.INSERT
                                 || ConnectContext.get().getSessionVariable().isRequireSequenceInInsert())) {
                     if (!seqColInTable.isPresent() || seqColInTable.get().getDefaultValue() == null
-                            || !seqColInTable.get().getDefaultValue()
-                            .equalsIgnoreCase(DefaultValue.CURRENT_TIMESTAMP)) {
+                            || !DefaultValue.isCurrentTimeStampDefaultValue(seqColInTable.get().getDefaultValue())) {
                         throw new org.apache.doris.common.AnalysisException("Table " + table.getName()
                                 + " has sequence column, need to specify the sequence column");
                     }
@@ -279,6 +294,10 @@ public class BindSink implements AnalysisRuleFactory {
 
         // add cast project
         List<NamedExpression> castExprs = Lists.newArrayList();
+        ConnectContext connCtx = ConnectContext.get();
+        final boolean truncateString = needTruncateStringWhenInsert
+                && (connCtx == null || connCtx.getSessionVariable().enableInsertValueAutoCast)
+                && !SessionVariable.enableStrictCast();
         for (int i = 0; i < tableSchema.size(); ++i) {
             Column col = tableSchema.get(i);
             NamedExpression expr = columnToOutput.get(col.getName()); // relative outputExpr
@@ -298,6 +317,8 @@ public class BindSink implements AnalysisRuleFactory {
                 int targetLength = ((CharacterType) targetType).getLen();
                 if (sourceLength == targetLength) {
                     castExpr = TypeCoercionUtils.castIfNotSameType(castExpr, targetType);
+                } else if (truncateString && sourceLength > targetLength && targetLength >= 0) {
+                    castExpr = new Substring(castExpr, Literal.of(1), Literal.of(targetLength));
                 } else if (targetType.isStringType()) {
                     castExpr = new Cast(castExpr, StringType.INSTANCE);
                 }
@@ -307,7 +328,9 @@ public class BindSink implements AnalysisRuleFactory {
             if (castExpr instanceof NamedExpression) {
                 castExprs.add(((NamedExpression) castExpr));
             } else {
-                castExprs.add(new Alias(castExpr));
+                // use expr's original name as alias name
+                // so that the LogicalPostFilter node in stream load can bind its slot successfully
+                castExprs.add(new Alias(castExpr, expr.getName()));
             }
         }
         if (!castExprs.equals(fullOutputExprs)) {
@@ -335,7 +358,7 @@ public class BindSink implements AnalysisRuleFactory {
         List<Column> shadowColumns = Lists.newArrayList();
         // generate slots not mentioned in sql, mv slots and shaded slots.
         for (Column column : boundSink.getTargetTable().getFullSchema()) {
-            if (column.getGeneratedColumnInfo() != null) {
+            if (column.isGeneratedColumn()) {
                 generatedColumns.add(column);
                 continue;
             } else if (column.isMaterializedViewColumn()) {
@@ -388,7 +411,7 @@ public class BindSink implements AnalysisRuleFactory {
                     // is an update on the row
                     if (column.hasOnUpdateDefaultValue()) {
                         Expression unboundFunctionDefaultValue = new NereidsParser().parseExpression(
-                                column.getOnUpdateDefaultValueExpr().toSqlWithoutTbl()
+                                column.getOnUpdateDefaultValueSql()
                         );
                         Expression defualtValueExpression = ExpressionAnalyzer.analyzeFunction(
                                 boundSink, ctx.cascadesContext, unboundFunctionDefaultValue
@@ -418,29 +441,19 @@ public class BindSink implements AnalysisRuleFactory {
                     replaceMap.put(output.toSlot(), output.child());
                 } else {
                     try {
-                        // it comes from the original planner, if default value expression is
-                        // null, we use the literal string of the default value, or it may be
-                        // default value function, like CURRENT_TIMESTAMP.
-                        if (column.getDefaultValueExpr() == null) {
-                            columnToOutput.put(column.getName(),
-                                    new Alias(Literal.of(column.getDefaultValue())
-                                            .checkedCastTo(DataType.fromCatalogType(column.getType())),
-                                            column.getName()));
-                        } else {
-                            Expression unboundDefaultValue = new NereidsParser().parseExpression(
-                                    column.getDefaultValueExpr().toSqlWithoutTbl());
-                            Expression defualtValueExpression = ExpressionAnalyzer.analyzeFunction(
-                                    boundSink, ctx.cascadesContext, unboundDefaultValue);
-                            if (defualtValueExpression instanceof Alias) {
-                                defualtValueExpression = ((Alias) defualtValueExpression).child();
-                            }
-                            Alias output = new Alias((TypeCoercionUtils.castIfNotSameType(
-                                    defualtValueExpression, DataType.fromCatalogType(column.getType()))),
-                                    column.getName());
-                            columnToOutput.put(column.getName(), output);
-                            columnToReplaced.put(column.getName(), output.toSlot());
-                            replaceMap.put(output.toSlot(), output.child());
+                        Expression unboundDefaultValue = new NereidsParser().parseExpression(
+                                column.getDefaultValueSql());
+                        Expression defualtValueExpression = ExpressionAnalyzer.analyzeFunction(
+                                boundSink, ctx.cascadesContext, unboundDefaultValue);
+                        if (defualtValueExpression instanceof Alias) {
+                            defualtValueExpression = ((Alias) defualtValueExpression).child();
                         }
+                        Alias output = new Alias((TypeCoercionUtils.castIfNotSameType(
+                                defualtValueExpression, DataType.fromCatalogType(column.getType()))),
+                                column.getName());
+                        columnToOutput.put(column.getName(), output);
+                        columnToReplaced.put(column.getName(), output.toSlot());
+                        replaceMap.put(output.toSlot(), output.child());
                     } catch (Exception e) {
                         throw new AnalysisException(e.getMessage(), e.getCause());
                     }
@@ -497,6 +510,22 @@ public class BindSink implements AnalysisRuleFactory {
             }
         }
         return columnToOutput;
+    }
+
+    private Plan bindBlackHoleSink(MatchingContext<UnboundBlackholeSink<Plan>> ctx) {
+        UnboundBlackholeSink<?> sink = ctx.root;
+        LogicalPlan child = ((LogicalPlan) sink.child());
+        if (sink.getContext().isForWarmUp() && Config.isNotCloudMode() && child.containsType(LogicalOlapScan.class)) {
+            throw new AnalysisException("WARM UP SELECT doesn't support olap table in non-cloud mode.");
+        }
+        LogicalBlackholeSink<?> boundSink = new LogicalBlackholeSink<>(
+                child.getOutput().stream()
+                        .map(NamedExpression.class::cast)
+                        .collect(ImmutableList.toImmutableList()),
+                Optional.empty(),
+                Optional.empty(),
+                child);
+        return boundSink;
     }
 
     private Plan bindHiveTableSink(MatchingContext<UnboundHiveTableSink<Plan>> ctx) {
@@ -805,7 +834,7 @@ public class BindSink implements AnalysisRuleFactory {
                         ++extraColumnsNum;
                         processedColsName.add(col.getName());
                     }
-                } else if (col.getGeneratedColumnInfo() != null) {
+                } else if (col.isGeneratedColumn()) {
                     ++extraColumnsNum;
                     processedColsName.add(col.getName());
                 }

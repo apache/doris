@@ -55,6 +55,11 @@ public class Ndv extends NotNullableAggregateFunction
         this(arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Ndv(AggregateFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public void checkLegalityBeforeTypeCoercion() {
         if (getArgumentType(0).isOnlyMetricType()) {
@@ -68,7 +73,7 @@ public class Ndv extends NotNullableAggregateFunction
     @Override
     public Ndv withDistinctAndChildren(boolean distinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Ndv(children.get(0));
+        return new Ndv(getFunctionParams(distinct, children));
     }
 
     @Override

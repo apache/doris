@@ -92,7 +92,7 @@ struct AnalyticSinkOperatorTest : public ::testing::Test {
         sink->_num_agg_input.resize(agg_functions_size);
         sink->_offsets_of_aggregate_states.resize(agg_functions_size);
         sink->_change_to_nullable_flags.resize(agg_functions_size);
-        sink->_agg_functions[0] = create_agg_fn(pool, function_name, args_types, false);
+        sink->_agg_functions[0] = create_agg_fn(pool, function_name, args_types, false, true);
         sink->_num_agg_input[0] = 1;
         sink->_offsets_of_aggregate_states[0] = 0;
         sink->_total_size_of_aggregate_states = 100;

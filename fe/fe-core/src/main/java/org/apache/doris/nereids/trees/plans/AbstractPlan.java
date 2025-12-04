@@ -64,11 +64,11 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
     public final int depth;
 
     protected final ObjectId id;
-    protected final Statistics statistics;
     protected final PlanType type;
     protected final Optional<GroupExpression> groupExpression;
     protected final Supplier<LogicalProperties> logicalPropertiesSupplier;
     protected final Supplier<Boolean> hasUnboundChild;
+    protected Statistics statistics;
 
     /**
      * all parameter constructor.
@@ -162,8 +162,13 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
         return groupExpression;
     }
 
+    @Override
     public Statistics getStats() {
         return statistics;
+    }
+
+    public void setStatistics(Statistics statistics) {
+        this.statistics = statistics;
     }
 
     @Override
@@ -246,19 +251,25 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
         return !hasUnboundChild.get();
     }
 
+    @Override
+    public String treeString(boolean printStates) {
+        return treeString(printStates, null);
+    }
+
     /**
      * Get tree like string describing query plan.
      *
      * @return tree like string describing query plan
      */
     @Override
-    public String treeString(boolean printStates) {
+    public String treeString(boolean printStates, Object specialPlan) {
         return TreeStringUtils.treeString(this,
                 plan -> {
+                    String specialPrefix = specialPlan == plan ? "**" : "";
                     if (printStates && plan instanceof Plan) {
-                        return plan + ", states: " + ((Plan) plan).getMutableStates();
+                        return specialPrefix + plan + ", states: " + ((Plan) plan).getMutableStates();
                     }
-                    return plan.toString();
+                    return specialPrefix + plan.toString();
                 },
                 plan -> {
                     if (plan instanceof TreeStringPlan) {

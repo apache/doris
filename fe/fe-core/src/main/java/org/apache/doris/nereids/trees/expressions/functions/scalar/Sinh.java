@@ -47,13 +47,18 @@ public class Sinh extends ScalarFunction
         super("sinh", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Sinh(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public Sinh withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Sinh(children.get(0));
+        return new Sinh(getFunctionParams(children));
     }
 
     @Override

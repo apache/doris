@@ -18,7 +18,6 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.alter.AlterCancelException;
-import org.apache.doris.analysis.TableValuedFunctionRef;
 import org.apache.doris.catalog.constraint.Constraint;
 import org.apache.doris.catalog.constraint.ForeignKeyConstraint;
 import org.apache.doris.catalog.constraint.PrimaryKeyConstraint;
@@ -28,6 +27,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.systable.SysTable;
+import org.apache.doris.info.TableValuedFunctionRefInfo;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
 import org.apache.doris.persist.AlterConstraintLog;
@@ -398,7 +398,7 @@ public interface TableIf {
         @Deprecated ICEBERG, @Deprecated HUDI, JDBC,
         TABLE_VALUED_FUNCTION, HMS_EXTERNAL_TABLE, ES_EXTERNAL_TABLE, MATERIALIZED_VIEW, JDBC_EXTERNAL_TABLE,
         ICEBERG_EXTERNAL_TABLE, TEST_EXTERNAL_TABLE, PAIMON_EXTERNAL_TABLE, MAX_COMPUTE_EXTERNAL_TABLE,
-        HUDI_EXTERNAL_TABLE, TRINO_CONNECTOR_EXTERNAL_TABLE, LAKESOUl_EXTERNAL_TABLE, DICTIONARY;
+        HUDI_EXTERNAL_TABLE, TRINO_CONNECTOR_EXTERNAL_TABLE, LAKESOUl_EXTERNAL_TABLE, DICTIONARY, DORIS_EXTERNAL_TABLE;
 
         public String toEngineName() {
             switch (this) {
@@ -437,6 +437,8 @@ public interface TableIf {
                     return "iceberg";
                 case DICTIONARY:
                     return "dictionary";
+                case DORIS_EXTERNAL_TABLE:
+                    return "External_Doris";
                 default:
                     return null;
             }
@@ -475,6 +477,7 @@ public interface TableIf {
                 case PAIMON_EXTERNAL_TABLE:
                 case MATERIALIZED_VIEW:
                 case TRINO_CONNECTOR_EXTERNAL_TABLE:
+                case DORIS_EXTERNAL_TABLE:
                     return "BASE TABLE";
                 default:
                     return null;
@@ -525,7 +528,7 @@ public interface TableIf {
         return false;
     }
 
-    default boolean isPartitionColumn(String columnName) {
+    default boolean isPartitionColumn(Column column) {
         return false;
     }
 
@@ -576,7 +579,7 @@ public interface TableIf {
      * @param tableNameWithSysTableName: eg: table$partitions
      * @return
      */
-    default Optional<TableValuedFunctionRef> getSysTableFunctionRef(
+    default Optional<TableValuedFunctionRefInfo> getSysTableFunctionRef(
             String ctlName, String dbName, String tableNameWithSysTableName) {
         for (SysTable sysTable : getSupportedSysTables()) {
             if (sysTable.containsMetaTable(tableNameWithSysTableName)) {

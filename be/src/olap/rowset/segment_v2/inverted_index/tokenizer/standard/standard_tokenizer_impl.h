@@ -24,10 +24,10 @@
 #include <string_view>
 #include <vector>
 
-#include "CLucene.h"
-#include "CLucene/analysis/AnalysisHeader.h"
+#include "olap/rowset/segment_v2/inverted_index/util/reader.h"
 
 namespace doris::segment_v2::inverted_index {
+#include "common/compile_check_begin.h"
 
 class StandardTokenizerImpl {
 public:
@@ -167,7 +167,7 @@ public:
         return {_zz_buffer.data() + _zz_start_read, (size_t)(_zz_marked_pos - _zz_start_read)};
     }
 
-    inline void yyreset(CL_NS(util)::Reader* reader) {
+    inline void yyreset(const ReaderPtr& reader) {
         _zz_reader = reader;
         _zz_at_eof = false;
         _zz_current_pos = 0;
@@ -203,7 +203,8 @@ private:
             _zz_start_read = 0;
         }
 
-        int32_t requested = _zz_buffer.size() - _zz_end_read - _zz_final_partial_char;
+        int32_t requested =
+                static_cast<int32_t>(_zz_buffer.size()) - _zz_end_read - _zz_final_partial_char;
         if (requested == 0) {
             return true;
         }
@@ -281,7 +282,7 @@ private:
 
     static const int32_t ZZ_BUFFERSIZE = 255;
 
-    CL_NS(util)::Reader* _zz_reader = nullptr;
+    ReaderPtr _zz_reader;
     std::string _zz_buffer;
 
     int32_t _zz_state = 0;
@@ -296,4 +297,5 @@ private:
 };
 using StandardTokenizerImplPtr = std::unique_ptr<StandardTokenizerImpl>;
 
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2::inverted_index

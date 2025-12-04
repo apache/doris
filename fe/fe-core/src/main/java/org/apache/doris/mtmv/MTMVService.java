@@ -17,7 +17,6 @@
 
 package org.apache.doris.mtmv;
 
-import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.Table;
@@ -30,6 +29,7 @@ import org.apache.doris.event.Event;
 import org.apache.doris.event.EventException;
 import org.apache.doris.event.EventListener;
 import org.apache.doris.event.TableEvent;
+import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.extensions.mtmv.MTMVTask;
 import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshTrigger;
@@ -86,8 +86,13 @@ public class MTMVService implements EventListener {
     public void unregisterMTMV(MTMV mtmv) {
         Objects.requireNonNull(mtmv, "mtmv can not be null");
         LOG.info("deregisterMTMV: " + mtmv.getName());
-        for (MTMVHookService mtmvHookService : hooks.values()) {
-            mtmvHookService.unregisterMTMV(mtmv);
+        mtmv.writeMvLock();
+        try {
+            for (MTMVHookService mtmvHookService : hooks.values()) {
+                mtmvHookService.unregisterMTMV(mtmv);
+            }
+        } finally {
+            mtmv.writeMvUnlock();
         }
     }
 
@@ -117,12 +122,33 @@ public class MTMVService implements EventListener {
         }
     }
 
+    public void dropView(BaseTableInfo baseViewInfo) {
+        Objects.requireNonNull(baseViewInfo, "baseViewInfo can not be null");
+        LOG.info("dropView, view: {}", baseViewInfo);
+        for (MTMVHookService mtmvHookService : hooks.values()) {
+            mtmvHookService.dropView(baseViewInfo);
+        }
+    }
+
+    public void alterView(BaseTableInfo baseViewInfo) {
+        Objects.requireNonNull(baseViewInfo, "baseViewInfo can not be null");
+        LOG.info("alterView, view: {}", baseViewInfo);
+        for (MTMVHookService mtmvHookService : hooks.values()) {
+            mtmvHookService.alterView(baseViewInfo);
+        }
+    }
+
     public void refreshComplete(MTMV mtmv, MTMVRelation cache, MTMVTask task) {
         Objects.requireNonNull(mtmv, "mtmv can not be null");
         Objects.requireNonNull(task, "task can not be null");
         LOG.info("refreshComplete: " + mtmv.getName());
-        for (MTMVHookService mtmvHookService : hooks.values()) {
-            mtmvHookService.refreshComplete(mtmv, cache, task);
+        mtmv.writeMvLock();
+        try {
+            for (MTMVHookService mtmvHookService : hooks.values()) {
+                mtmvHookService.refreshComplete(mtmv, cache, task);
+            }
+        } finally {
+            mtmv.writeMvUnlock();
         }
     }
 
@@ -170,7 +196,7 @@ public class MTMVService implements EventListener {
         } catch (AnalysisException e) {
             throw new EventException(e);
         }
-        Set<BaseTableInfo> mtmvs = relationManager.getMtmvsByBaseTableOneLevel(
+        Set<BaseTableInfo> mtmvs = relationManager.getMtmvsByBaseTableOneLevelAndFromView(
                 new BaseTableInfo(table));
         for (BaseTableInfo baseTableInfo : mtmvs) {
             try {
@@ -186,10 +212,10 @@ public class MTMVService implements EventListener {
     }
 
     private boolean shouldRefreshOnBaseTableDataChange(MTMV mtmv, TableIf table) {
-        TableName tableName = null;
+        TableNameInfo tableName = null;
         try {
-            tableName = new TableName(table);
-        } catch (AnalysisException e) {
+            tableName = new TableNameInfo(table);
+        } catch (org.apache.doris.nereids.exceptions.AnalysisException e) {
             LOG.warn("skip refresh mtmv: {}, because get TableName failed: {}",
                     mtmv.getName(), table.getName());
             return false;

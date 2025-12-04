@@ -27,6 +27,7 @@
 #include <algorithm>
 #include <boost/algorithm/string/join.hpp>
 
+#include "common/cast_set.h"      // IWYU pragma: keep
 #include "common/compiler_util.h" // IWYU pragma: keep
 // IWYU pragma: no_include <bits/chrono.h>
 #include <chrono> // IWYU pragma: keep
@@ -43,6 +44,9 @@
 #include "util/thread.h"
 
 namespace doris {
+
+#include "common/compile_check_begin.h"
+
 using namespace ErrorCode;
 
 static const uint32_t MAX_SHARD_NUM = 1024;
@@ -86,7 +90,7 @@ Status LoadPathMgr::init() {
 }
 
 Status LoadPathMgr::allocate_dir(const std::string& db, const std::string& label,
-                                 std::string* prefix) {
+                                 std::string* prefix, int64_t file_bytes) {
     Status status = _init_once.call([this] {
         for (auto& store_path : _exec_env->store_paths()) {
             _path_vec.push_back(store_path.path + "/" + MINI_PREFIX);
@@ -96,22 +100,51 @@ Status LoadPathMgr::allocate_dir(const std::string& db, const std::string& label
     std::string path;
     auto size = _path_vec.size();
     auto retry = size;
+    auto exceed_capacity_path_num = 0;
+    size_t disk_capacity_bytes = 0;
+    size_t available_bytes = 0;
     while (retry--) {
-        {
-            // add SHARD_PREFIX for compatible purpose
-            std::lock_guard<std::mutex> l(_lock);
-            std::string shard = SHARD_PREFIX + std::to_string(_next_shard++ % MAX_SHARD_NUM);
-            path = _path_vec[_idx] + "/" + db + "/" + shard + "/" + label;
-            _idx = (_idx + 1) % size;
+        // Call get_space_info to get disk space information.
+        // If the call fails or the disk space is insufficient,
+        // increment the count of paths exceeding capacity and proceed to the next loop iteration.
+        std::string base_path = _path_vec[_idx].substr(0, _path_vec[_idx].find("/" + MINI_PREFIX));
+        if (!io::global_local_filesystem()
+                     ->get_space_info(base_path, &disk_capacity_bytes, &available_bytes)
+                     .ok() ||
+            !check_disk_space(disk_capacity_bytes, available_bytes, file_bytes)) {
+            ++exceed_capacity_path_num;
+            continue;
         }
+        // add SHARD_PREFIX for compatible purpose
+        std::lock_guard<std::mutex> l(_lock);
+        std::string shard = SHARD_PREFIX + std::to_string(_next_shard++ % MAX_SHARD_NUM);
+        path = _path_vec[_idx] + "/" + db + "/" + shard + "/" + label;
+        _idx = (_idx + 1) % size;
         status = io::global_local_filesystem()->create_directory(path);
         if (LIKELY(status.ok())) {
             *prefix = path;
             return Status::OK();
         }
     }
-
+    if (exceed_capacity_path_num == size) {
+        return Status::Error<DISK_REACH_CAPACITY_LIMIT, false>("exceed capacity limit.");
+    }
     return status;
+}
+
+bool LoadPathMgr::check_disk_space(size_t disk_capacity_bytes, size_t available_bytes,
+                                   int64_t file_bytes) {
+    bool is_available = false;
+    int64_t remaining_bytes = available_bytes - file_bytes;
+    double used_ratio =
+            1.0 - cast_set<double>(remaining_bytes) / cast_set<double>(disk_capacity_bytes);
+    is_available = !(used_ratio >= config::storage_flood_stage_usage_percent / 100.0 &&
+                     remaining_bytes <= config::storage_flood_stage_left_capacity_bytes);
+    if (!is_available) {
+        LOG(WARNING) << "Exceed capacity limit. disk_capacity: " << disk_capacity_bytes
+                     << ", available: " << available_bytes << ", file_bytes: " << file_bytes;
+    }
+    return is_available;
 }
 
 bool LoadPathMgr::is_too_old(time_t cur_time, const std::string& label_dir, int64_t reserve_hours) {
@@ -178,6 +211,30 @@ void LoadPathMgr::process_path(time_t now, const std::string& path, int64_t rese
     }
 }
 
+void LoadPathMgr::clean_files_in_path_vec(const std::string& path) {
+    // Check if the path contains "/"+MINI_PREFIX. If not, return directly.
+    if (path.find("/" + MINI_PREFIX) == std::string::npos) {
+        return;
+    }
+
+    bool exists = false;
+    // Check if the path exists
+    Status status = io::global_local_filesystem()->exists(path, &exists);
+    if (!status.ok()) {
+        LOG(WARNING) << "Failed to check if path exists: " << path << ", error: " << status;
+        return;
+    }
+    if (exists) {
+        // If the path exists, delete the file or directory corresponding to that path
+        status = io::global_local_filesystem()->delete_directory_or_file(path);
+        if (status.ok()) {
+            LOG(INFO) << "Delete path success: " << path;
+        } else {
+            LOG(WARNING) << "Delete path failed: " << path << ", error: " << status;
+        }
+    }
+}
+
 void LoadPathMgr::clean_one_path(const std::string& path) {
     bool exists = true;
     std::vector<io::FileInfo> dbs;
@@ -238,10 +295,13 @@ void LoadPathMgr::clean_error_log() {
     time_t now = time(nullptr);
     bool exists = true;
     std::vector<io::FileInfo> sub_dirs;
-    Status status = io::global_local_filesystem()->list(_error_log_dir, false, &sub_dirs, &exists);
-    if (!status.ok()) {
-        LOG(WARNING) << "scan error_log dir failed: " << status;
-        return;
+    {
+        Status status =
+                io::global_local_filesystem()->list(_error_log_dir, false, &sub_dirs, &exists);
+        if (!status.ok()) {
+            LOG(WARNING) << "scan error_log dir failed: " << status;
+            return;
+        }
     }
 
     for (auto& sub_dir : sub_dirs) {
@@ -270,5 +330,7 @@ void LoadPathMgr::clean_error_log() {
         }
     }
 }
+
+#include "common/compile_check_end.h"
 
 } // namespace doris

@@ -39,6 +39,7 @@
 #include "vec/data_types/data_type.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 namespace vectorized {
@@ -132,8 +133,8 @@ bool RowSourcesBuffer::get_agg_flag(uint64_t index) {
 
 size_t RowSourcesBuffer::continuous_agg_count(uint64_t index) {
     size_t result = 1;
-    int start = index + 1;
-    int end = _buffer.size();
+    int64_t start = index + 1;
+    int64_t end = _buffer.size();
     while (start < end) {
         RowSource next(_buffer[start++]);
         if (next.agg_flag()) {
@@ -147,8 +148,8 @@ size_t RowSourcesBuffer::continuous_agg_count(uint64_t index) {
 
 size_t RowSourcesBuffer::same_source_count(uint16_t source, size_t limit) {
     int result = 1;
-    int start = _buf_idx + 1;
-    int end = _buffer.size();
+    int64_t start = _buf_idx + 1;
+    int64_t end = _buffer.size();
     while (result < limit && start < end) {
         RowSource next(_buffer[start++]);
         if (source != next.get_source_num()) {
@@ -170,7 +171,7 @@ Status RowSourcesBuffer::_create_buffer_file() {
             return Status::InternalError("fail to create write buffer due to missing cache path");
         }
         std::size_t hash_val = std::hash<int64_t> {}(_tablet_id);
-        int idx = hash_val % paths.size();
+        int64_t idx = hash_val % paths.size();
         file_path_ss << paths[idx] << "/compaction_row_source_" << _tablet_id;
     } else {
         file_path_ss << _tablet_path << "/compaction_row_source_" << _tablet_id;
@@ -822,4 +823,5 @@ std::shared_ptr<RowwiseIterator> new_vertical_mask_merge_iterator(
 }
 
 } // namespace vectorized
+#include "common/compile_check_end.h"
 } // namespace doris

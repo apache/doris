@@ -17,7 +17,6 @@
 
 package org.apache.doris.load.loadv2;
 
-import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.AuthorizationInfo;
 import org.apache.doris.catalog.Database;
@@ -47,6 +46,7 @@ import org.apache.doris.load.FailMsg;
 import org.apache.doris.load.FailMsg.CancelType;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.mysql.privilege.Privilege;
+import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
@@ -70,6 +70,7 @@ import com.google.common.collect.Sets;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.annotations.SerializedName;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -247,6 +248,11 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback
         this.loadStatistic.totalFileSizeB = fileSize;
     }
 
+    public void addLoadFileInfo(int fileNum, long fileSize) {
+        this.loadStatistic.fileNum += fileNum;
+        this.loadStatistic.totalFileSizeB += fileSize;
+    }
+
     /**
      * Show table names for frontend
      * If table name could not be found by id, the table id will be used instead.
@@ -281,9 +287,10 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback
 
         // set property from session variables
         if (ConnectContext.get() != null) {
-            jobProperties.put(LoadStmt.EXEC_MEM_LIMIT, ConnectContext.get().getSessionVariable().getMaxExecMemByte());
-            jobProperties.put(LoadStmt.TIMEZONE, ConnectContext.get().getSessionVariable().getTimeZone());
-            jobProperties.put(LoadStmt.SEND_BATCH_PARALLELISM,
+            jobProperties.put(LoadCommand.EXEC_MEM_LIMIT,
+                    ConnectContext.get().getSessionVariable().getMaxExecMemByte());
+            jobProperties.put(LoadCommand.TIMEZONE, ConnectContext.get().getSessionVariable().getTimeZone());
+            jobProperties.put(LoadCommand.SEND_BATCH_PARALLELISM,
                     ConnectContext.get().getSessionVariable().getSendBatchParallelism());
         }
 
@@ -292,12 +299,12 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback
         }
 
         // set property from specified job properties
-        for (String key : LoadStmt.PROPERTIES_MAP.keySet()) {
+        for (String key : LoadCommand.PROPERTIES_MAP.keySet()) {
             if (!properties.containsKey(key)) {
                 continue;
             }
             try {
-                jobProperties.put(key, LoadStmt.PROPERTIES_MAP.get(key).apply(properties.get(key)));
+                jobProperties.put(key, LoadCommand.PROPERTIES_MAP.get(key).apply(properties.get(key)));
             } catch (Exception e) {
                 throw new DdlException("Failed to set property " + key + ". Error: " + e.getMessage());
             }
@@ -324,23 +331,20 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback
                                     .map(ConnectContext::getExecTimeoutS)
                                     .orElse(Config.insert_load_default_timeout_second);
                 break;
-            case INGESTION:
-                timeout = Config.ingestion_load_default_timeout_second;
-                break;
             default:
                 break;
         }
-        jobProperties.put(LoadStmt.TIMEOUT_PROPERTY, timeout);
-        jobProperties.put(LoadStmt.EXEC_MEM_LIMIT, 2 * 1024 * 1024 * 1024L);
-        jobProperties.put(LoadStmt.MAX_FILTER_RATIO_PROPERTY, 0.0);
-        jobProperties.put(LoadStmt.STRICT_MODE, false);
-        jobProperties.put(LoadStmt.PARTIAL_COLUMNS, false);
-        jobProperties.put(LoadStmt.PARTIAL_UPDATE_NEW_KEY_POLICY, TPartialUpdateNewRowPolicy.APPEND);
-        jobProperties.put(LoadStmt.TIMEZONE, TimeUtils.DEFAULT_TIME_ZONE);
-        jobProperties.put(LoadStmt.LOAD_PARALLELISM, Config.default_load_parallelism);
-        jobProperties.put(LoadStmt.SEND_BATCH_PARALLELISM, 1);
-        jobProperties.put(LoadStmt.LOAD_TO_SINGLE_TABLET, false);
-        jobProperties.put(LoadStmt.PRIORITY, LoadTask.Priority.NORMAL);
+        jobProperties.put(LoadCommand.TIMEOUT_PROPERTY, timeout);
+        jobProperties.put(LoadCommand.EXEC_MEM_LIMIT, 2 * 1024 * 1024 * 1024L);
+        jobProperties.put(LoadCommand.MAX_FILTER_RATIO_PROPERTY, 0.0);
+        jobProperties.put(LoadCommand.STRICT_MODE, false);
+        jobProperties.put(LoadCommand.PARTIAL_COLUMNS, false);
+        jobProperties.put(LoadCommand.PARTIAL_UPDATE_NEW_KEY_POLICY, TPartialUpdateNewRowPolicy.APPEND);
+        jobProperties.put(LoadCommand.TIMEZONE, TimeUtils.DEFAULT_TIME_ZONE);
+        jobProperties.put(LoadCommand.LOAD_PARALLELISM, Config.default_load_parallelism);
+        jobProperties.put(LoadCommand.SEND_BATCH_PARALLELISM, 1);
+        jobProperties.put(LoadCommand.LOAD_TO_SINGLE_TABLET, false);
+        jobProperties.put(LoadCommand.PRIORITY, LoadTask.Priority.NORMAL);
     }
 
     public void beginTxn() throws LabelAlreadyUsedException, BeginTransactionException,
@@ -799,6 +803,8 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback
         }
         // comment
         jobInfo.add(comment);
+        // first error message
+        jobInfo.add(StringUtils.abbreviate(loadingStatus.getFirstErrorMsg(), Config.first_error_msg_max_length));
         return jobInfo;
     }
 
@@ -1064,63 +1070,63 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback
 
     // unit: second
     public long getTimeout() {
-        return (long) jobProperties.get(LoadStmt.TIMEOUT_PROPERTY);
+        return (long) jobProperties.get(LoadCommand.TIMEOUT_PROPERTY);
     }
 
     public void setTimeout(long timeout) {
-        jobProperties.put(LoadStmt.TIMEOUT_PROPERTY, timeout);
+        jobProperties.put(LoadCommand.TIMEOUT_PROPERTY, timeout);
     }
 
     protected long getExecMemLimit() {
-        return (long) jobProperties.get(LoadStmt.EXEC_MEM_LIMIT);
+        return (long) jobProperties.get(LoadCommand.EXEC_MEM_LIMIT);
     }
 
     public double getMaxFilterRatio() {
-        return (double) jobProperties.get(LoadStmt.MAX_FILTER_RATIO_PROPERTY);
+        return (double) jobProperties.get(LoadCommand.MAX_FILTER_RATIO_PROPERTY);
     }
 
     protected void setMaxFilterRatio(double maxFilterRatio) {
-        jobProperties.put(LoadStmt.MAX_FILTER_RATIO_PROPERTY, maxFilterRatio);
+        jobProperties.put(LoadCommand.MAX_FILTER_RATIO_PROPERTY, maxFilterRatio);
     }
 
     protected boolean isStrictMode() {
-        return (boolean) jobProperties.get(LoadStmt.STRICT_MODE);
+        return (boolean) jobProperties.get(LoadCommand.STRICT_MODE);
     }
 
     protected boolean isPartialUpdate() {
-        return (boolean) jobProperties.get(LoadStmt.PARTIAL_COLUMNS);
+        return (boolean) jobProperties.get(LoadCommand.PARTIAL_COLUMNS);
     }
 
     protected TPartialUpdateNewRowPolicy getPartialUpdateNewKeyPolicy() {
-        return (TPartialUpdateNewRowPolicy) jobProperties.get(LoadStmt.PARTIAL_UPDATE_NEW_KEY_POLICY);
+        return (TPartialUpdateNewRowPolicy) jobProperties.get(LoadCommand.PARTIAL_UPDATE_NEW_KEY_POLICY);
     }
 
     protected String getTimeZone() {
-        return (String) jobProperties.get(LoadStmt.TIMEZONE);
+        return (String) jobProperties.get(LoadCommand.TIMEZONE);
     }
 
     public int getLoadParallelism() {
-        if (jobProperties.get(LoadStmt.LOAD_PARALLELISM).getClass() == Integer.class) {
-            return (int) jobProperties.get(LoadStmt.LOAD_PARALLELISM);
+        if (jobProperties.get(LoadCommand.LOAD_PARALLELISM).getClass() == Integer.class) {
+            return (int) jobProperties.get(LoadCommand.LOAD_PARALLELISM);
         } else {
-            return ((Long) jobProperties.get(LoadStmt.LOAD_PARALLELISM)).intValue();
+            return ((Long) jobProperties.get(LoadCommand.LOAD_PARALLELISM)).intValue();
         }
     }
 
     public int getSendBatchParallelism() {
-        if (jobProperties.get(LoadStmt.SEND_BATCH_PARALLELISM).getClass() == Integer.class) {
-            return (int) jobProperties.get(LoadStmt.SEND_BATCH_PARALLELISM);
+        if (jobProperties.get(LoadCommand.SEND_BATCH_PARALLELISM).getClass() == Integer.class) {
+            return (int) jobProperties.get(LoadCommand.SEND_BATCH_PARALLELISM);
         } else {
-            return ((Long) jobProperties.get(LoadStmt.SEND_BATCH_PARALLELISM)).intValue();
+            return ((Long) jobProperties.get(LoadCommand.SEND_BATCH_PARALLELISM)).intValue();
         }
     }
 
     public LoadTask.Priority getPriority() {
-        return (LoadTask.Priority) jobProperties.get(LoadStmt.PRIORITY);
+        return (LoadTask.Priority) jobProperties.get(LoadCommand.PRIORITY);
     }
 
     public boolean isSingleTabletLoadPerSink() {
-        return (boolean) jobProperties.get(LoadStmt.LOAD_TO_SINGLE_TABLET);
+        return (boolean) jobProperties.get(LoadCommand.LOAD_TO_SINGLE_TABLET);
     }
 
     // Return true if this job is finished for a long time

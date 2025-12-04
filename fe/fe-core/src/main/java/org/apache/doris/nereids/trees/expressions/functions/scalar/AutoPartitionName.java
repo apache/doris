@@ -52,14 +52,18 @@ public class AutoPartitionName extends ScalarFunction
         super("auto_partition_name", ExpressionUtils.mergeArguments(arg, varArgs));
     }
 
+    /** constructor for withChildren and reuse signature */
+    private AutoPartitionName(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public AutoPartitionName withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() >= 2);
-        return new AutoPartitionName(children.get(0),
-                children.subList(1, children.size()).toArray(new Expression[0]));
+        return new AutoPartitionName(getFunctionParams(children));
     }
 
     @Override

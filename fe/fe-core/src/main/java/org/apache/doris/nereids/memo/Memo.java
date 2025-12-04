@@ -29,7 +29,6 @@ import org.apache.doris.nereids.metrics.event.GroupMergeEvent;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.properties.RequestPropertyDeriver;
-import org.apache.doris.nereids.properties.RequirePropertiesSupplier;
 import org.apache.doris.nereids.rules.exploration.mv.AbstractMaterializedViewRule;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
@@ -40,6 +39,7 @@ import org.apache.doris.nereids.trees.plans.algebra.SetOperation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.qe.ConnectContext;
 
@@ -132,6 +132,10 @@ public class Memo {
         return refreshVersion.get();
     }
 
+    public long incrementAndGetRefreshVersion() {
+        return refreshVersion.incrementAndGet();
+    }
+
     /**
      * Record materialization check result for performance
      */
@@ -176,12 +180,15 @@ public class Memo {
         return countGroupJoin(root).second;
     }
 
+    public static int countMaxContinuousJoin(Plan plan) {
+        return countLogicalJoin(plan).second;
+    }
+
     /**
      * return the max continuous join operator
      */
-
     public Pair<Integer, Integer> countGroupJoin(Group group) {
-        GroupExpression logicalExpr = group.getLogicalExpression();
+        GroupExpression logicalExpr = group.getFirstLogicalExpression();
         List<Pair<Integer, Integer>> children = new ArrayList<>();
         for (Group child : logicalExpr.children()) {
             children.add(countGroupJoin(child));
@@ -196,13 +203,35 @@ public class Memo {
         for (Pair<Integer, Integer> child : children) {
             maxJoinCount = Math.max(maxJoinCount, child.second);
         }
-        if (group.getLogicalExpression().getPlan() instanceof LogicalJoin) {
+        if (group.getFirstLogicalExpression().getPlan() instanceof LogicalJoin) {
             for (Pair<Integer, Integer> child : children) {
                 continuousJoinCount += child.first;
             }
             continuousJoinCount += 1;
         } else if (group.isProjectGroup()) {
             return children.get(0);
+        }
+        return Pair.of(continuousJoinCount, Math.max(continuousJoinCount, maxJoinCount));
+    }
+
+    private static Pair<Integer, Integer> countLogicalJoin(Plan plan) {
+        List<Pair<Integer, Integer>> children = new ArrayList<>();
+        for (Plan child : plan.children()) {
+            children.add(countLogicalJoin(child));
+        }
+        if (plan instanceof LogicalProject) {
+            return children.get(0);
+        }
+        int maxJoinCount = 0;
+        int continuousJoinCount = 0;
+        for (Pair<Integer, Integer> child : children) {
+            maxJoinCount = Math.max(maxJoinCount, child.second);
+        }
+        if (plan instanceof LogicalJoin) {
+            for (Pair<Integer, Integer> child : children) {
+                continuousJoinCount += child.first;
+            }
+            continuousJoinCount += 1;
         }
         return Pair.of(continuousJoinCount, Math.max(continuousJoinCount, maxJoinCount));
     }
@@ -299,7 +328,7 @@ public class Memo {
      * @return plan
      */
     public Plan copyOut(Group group, boolean includeGroupExpression) {
-        GroupExpression logicalExpression = group.getLogicalExpression();
+        GroupExpression logicalExpression = group.getFirstLogicalExpression();
         return copyOut(logicalExpression, includeGroupExpression);
     }
 
@@ -438,7 +467,7 @@ public class Memo {
                 && plan instanceof LogicalCatalogRelation
                 && ((CatalogRelation) plan).getTable() instanceof MTMV
                 && !plan.getGroupExpression().isPresent()) {
-            refreshVersion.incrementAndGet();
+            incrementAndGetRefreshVersion();
         }
         Optional<GroupExpression> groupExpr = plan.getGroupExpression();
         if (groupExpr.isPresent()) {
@@ -983,7 +1012,6 @@ public class Memo {
                 .filter(e -> e.stream().allMatch(PhysicalProperties.ANY::equals))
                 .findAny();
         if (any.isPresent()
-                && !(groupExpression.getPlan() instanceof RequirePropertiesSupplier)
                 && !(groupExpression.getPlan() instanceof SetOperation)) {
             res.clear();
             res.add(any.get());

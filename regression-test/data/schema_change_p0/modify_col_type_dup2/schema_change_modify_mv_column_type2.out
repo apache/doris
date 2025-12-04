@@ -9,20 +9,20 @@ tbl_scalar_types_dup	DUP_KEYS	k1	bigint	bigint	Yes	true	\N		true
 		c_largeint	largeint	largeint	Yes	false	\N	NONE	true		
 		c_float	float	float	Yes	false	\N	NONE	true		
 		c_double	double	double	Yes	false	\N	NONE	true		
-		c_decimal	DECIMAL(20, 3)	decimalv3(20,3)	Yes	false	\N	NONE	true		
-		c_decimalv3	DECIMAL(20, 3)	decimalv3(20,3)	Yes	false	\N	NONE	true		
-		c_date	DATE	datev2	Yes	false	\N	NONE	true		
-		c_datetime	DATETIME	datetimev2(0)	Yes	false	\N	NONE	true		
-		c_datev2	DATE	datev2	Yes	false	\N	NONE	true		
-		c_datetimev2	DATETIME	datetimev2(0)	Yes	false	\N	NONE	true		
+		c_decimal	decimal(20,3)	decimalv3(20,3)	Yes	false	\N	NONE	true		
+		c_decimalv3	decimal(20,3)	decimalv3(20,3)	Yes	false	\N	NONE	true		
+		c_date	date	datev2	Yes	false	\N	NONE	true		
+		c_datetime	datetime	datetimev2(0)	Yes	false	\N	NONE	true		
+		c_datev2	date	datev2	Yes	false	\N	NONE	true		
+		c_datetimev2	datetime	datetimev2(0)	Yes	false	\N	NONE	true		
 		c_char	char(15)	char(15)	Yes	false	\N	NONE	true		
 		c_varchar	varchar(100)	varchar(100)	Yes	false	\N	NONE	true		
 		c_string	text	text	Yes	false	\N	NONE	true		
 											
-mv_tbl_scalar_types_dup_2	AGG_KEYS	mv_k1	bigint	bigint	Yes	true	\N		true	`k1`	
-		mva_SUM__CAST(`c_int` AS bigint)	bigint	bigint	Yes	false	\N	SUM	true	CAST(`c_int` AS bigint)	
-		mva_MAX__`c_int`	int	int	Yes	false	\N	MAX	true	`c_int`	
-		mva_MIN__`c_int`	int	int	Yes	false	\N	MIN	true	`c_int`	
+mv_tbl_scalar_types_dup_2	AGG_KEYS	a1	bigint	bigint	Yes	true	\N		true	`k1`	
+		__sum_1	bigint	bigint	Yes	false	\N	SUM	true	CAST(`c_int` AS bigint)	
+		__max_2	int	int	Yes	false	\N	MAX	true	`c_int`	
+		__min_3	int	int	Yes	false	\N	MIN	true	`c_int`	
 
 -- !sql --
 -2147475406	true	45	23794	-11023	915989078	2115356192	15927.068	1.392557423391501E9	45951348783208518.810	8340516346665031.310	2022-01-26	2022-04-13T11:13:48	2022-01-31	2022-02-16T06:07:21	130.50.6.0	DeniseMatthews@Yozio.mil	Londonderry Alley 61

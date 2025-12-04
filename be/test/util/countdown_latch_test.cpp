@@ -26,7 +26,6 @@
 
 #include "common/status.h"
 #include "gtest/gtest_pred_impl.h"
-#include "gutil/ref_counted.h"
 #include "util/thread.h"
 #include "util/threadpool.h"
 
@@ -66,7 +65,7 @@ TEST(TestCountDownLatch, TestLatch) {
 // continue.
 TEST(TestCountDownLatch, TestResetToZero) {
     CountDownLatch cdl(100);
-    scoped_refptr<Thread> t;
+    std::shared_ptr<Thread> t;
     EXPECT_TRUE(Thread::create("test", "cdl-test", &CountDownLatch::wait, &cdl, &t).ok());
 
     // Sleep for a bit until it's likely the other thread is waiting on the latch.

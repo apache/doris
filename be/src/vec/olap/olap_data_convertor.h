@@ -56,6 +56,8 @@ class TabletColumn;
 
 namespace vectorized {
 
+#include "common/compile_check_begin.h"
+
 class Block;
 class ColumnArray;
 class ColumnMap;
@@ -71,6 +73,11 @@ public:
     virtual ~IOlapColumnDataAccessor() = default;
 };
 
+struct VariantColumnData {
+    const void* column_data;
+    size_t row_pos;
+};
+
 class OlapBlockDataConvertor {
 public:
     OlapBlockDataConvertor() = default;
@@ -83,6 +90,7 @@ public:
                                                    size_t row_pos, size_t num_rows, uint32_t cid);
 
     void clear_source_content();
+    void clear_source_content(size_t cid);
     std::pair<Status, IOlapColumnDataAccessor*> convert_column_data(size_t cid);
     void add_column_data_convertor(const TabletColumn& column);
 
@@ -131,7 +139,10 @@ private:
         void set_source_column(const ColumnWithTypeAndName& typed_column, size_t row_pos,
                                size_t num_rows) override;
         const void* get_data() const override;
-        const void* get_data_at(size_t offset) const override;
+        const void* get_data_at(size_t offset) const override {
+            throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                                   "OlapColumnDataConvertorObject not support get_data_at");
+        }
 
     protected:
         PaddedPODArray<Slice> _slice;
@@ -180,7 +191,7 @@ private:
             memset(padded_column->chars.data(), 0, input->size() * padding_length);
 
             for (size_t i = 0; i < input->size(); i++) {
-                column->offsets[i] = (i + 1) * padding_length;
+                column->offsets[i] = cast_set<uint32_t, size_t, false>((i + 1) * padding_length);
 
                 auto str = input->get_data_at(i);
 
@@ -217,7 +228,7 @@ private:
         bool _check_length;
         bool _is_jsonb =
                 false; // Make sure that the json binary data written in is the correct jsonb value.
-        PaddedPODArray<Slice> _slice;
+        PaddedPODArray<StringRef> _slice;
     };
 
     class OlapColumnDataConvertorAggState : public OlapColumnDataConvertorBase {
@@ -225,7 +236,10 @@ private:
         void set_source_column(const ColumnWithTypeAndName& typed_column, size_t row_pos,
                                size_t num_rows) override;
         const void* get_data() const override;
-        const void* get_data_at(size_t offset) const override;
+        const void* get_data_at(size_t offset) const override {
+            throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                                   "OlapColumnDataConvertorAggState not support get_data_at");
+        }
         Status convert_to_olap() override;
 
     private:
@@ -292,27 +306,37 @@ private:
         }
 
         Status convert_to_olap() override {
-            const typename PrimitiveTypeTraits<T>::ColumnType* column_data = nullptr;
+            typename PrimitiveTypeTraits<T>::ColumnType* column_data = nullptr;
             if (_nullmap) {
                 auto nullable_column =
                         assert_cast<const vectorized::ColumnNullable*>(_typed_column.column.get());
-                column_data = assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType*>(
-                        nullable_column->get_nested_column_ptr().get());
+                _mutable_column = std::move(nullable_column->get_nested_column()).mutate();
+                column_data = assert_cast<typename PrimitiveTypeTraits<T>::ColumnType*>(
+                        _mutable_column.get());
             } else {
-                column_data = assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType*>(
-                        _typed_column.column.get());
+                _mutable_column = std::move(*_typed_column.column).mutate();
+                column_data = assert_cast<typename PrimitiveTypeTraits<T>::ColumnType*>(
+                        _mutable_column.get());
             }
 
             assert(column_data);
-            _values =
-                    (const typename PrimitiveTypeTraits<T>::ColumnItemType*)(column_data->get_data()
-                                                                                     .data()) +
-                    _row_pos;
+            _values = (typename PrimitiveTypeTraits<T>::ColumnItemType*)(column_data->get_data()
+                                                                                 .data()) +
+                      _row_pos;
+            if constexpr (T == TYPE_FLOAT || T == TYPE_DOUBLE) {
+                for (size_t i = 0; i < _num_rows; ++i) {
+                    if (std::isnan(_values[i])) {
+                        _values[i] = std::numeric_limits<
+                                typename PrimitiveTypeTraits<T>::ColumnItemType>::quiet_NaN();
+                    }
+                }
+            }
             return Status::OK();
         }
 
     protected:
-        const typename PrimitiveTypeTraits<T>::ColumnItemType* _values = nullptr;
+        typename PrimitiveTypeTraits<T>::ColumnItemType* _values = nullptr;
+        MutableColumnPtr _mutable_column = nullptr;
     };
 
     class OlapColumnDataConvertorDateV2 : public OlapColumnDataConvertorBase {
@@ -420,8 +444,8 @@ private:
 
             assert(column_data);
             this->_values =
-                    (const typename PrimitiveTypeTraits<T>::ColumnItemType*)(column_data->get_data()
-                                                                                     .data()) +
+                    (typename PrimitiveTypeTraits<T>::ColumnItemType*)(column_data->get_data()
+                                                                               .data()) +
                     this->_row_pos;
             return Status::OK();
         }
@@ -440,7 +464,10 @@ private:
         void set_source_column(const ColumnWithTypeAndName& typed_column, size_t row_pos,
                                size_t num_rows) override;
         const void* get_data() const override;
-        const void* get_data_at(size_t offset) const override;
+        const void* get_data_at(size_t offset) const override {
+            throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                                   "OlapColumnDataConvertorStruct not support get_data_at");
+        }
         Status convert_to_olap() override;
 
     private:
@@ -461,9 +488,8 @@ private:
         const void* get_data() const override { return _results.data(); };
         const void* get_data_at(size_t offset) const override {
             throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                                   "now not support get_data_at for OlapColumnDataConvertorArray");
-            __builtin_unreachable();
-        };
+                                   "OlapColumnDataConvertorArray not support get_data_at");
+        }
         Status convert_to_olap() override;
 
     private:
@@ -491,8 +517,8 @@ private:
         const void* get_data() const override { return _results.data(); };
         const void* get_data_at(size_t offset) const override {
             throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                                   "now not support get_data_at for OlapColumnDataConvertorMap");
-        };
+                                   "OlapColumnDataConvertorMap not support get_data_at");
+        }
 
     private:
         Status convert_to_olap(const ColumnMap* column_map);
@@ -516,16 +542,16 @@ private:
         const void* get_data_at(size_t offset) const override;
 
     private:
-        // // encodes sparsed columns
-        // const ColumnString* _root_data_column;
-        // // _nullmap contains null info for this variant
+        const void* _value_ptr;
         std::unique_ptr<OlapColumnDataConvertorVarChar> _root_data_convertor;
-        ColumnVariant* _source_column_ptr;
+        std::unique_ptr<VariantColumnData> _variant_column_data;
     };
 
 private:
     std::vector<OlapColumnDataConvertorBaseUPtr> _convertors;
 };
+
+#include "common/compile_check_end.h"
 
 } // namespace vectorized
 } // namespace doris

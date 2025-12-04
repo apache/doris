@@ -73,6 +73,11 @@ public abstract class AesCryptoFunction extends CryptoFunction {
         super(name, arguments);
     }
 
+    /** constructor for withChildren and reuse signature */
+    protected AesCryptoFunction(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /** getDefaultBlockEncryptionMode */
     public static StringLiteral getDefaultBlockEncryptionMode() {
         StringLiteral encryptionMode = CryptoFunction.getDefaultBlockEncryptionMode("AES_128_ECB");
@@ -81,6 +86,11 @@ public abstract class AesCryptoFunction extends CryptoFunction {
                     "session variable block_encryption_mode is invalid with aes");
         }
         return encryptionMode;
+    }
+
+    @Override
+    public void checkLegalityBeforeTypeCoercion() {
+        checkLegalityAfterRewrite();
     }
 
     @Override

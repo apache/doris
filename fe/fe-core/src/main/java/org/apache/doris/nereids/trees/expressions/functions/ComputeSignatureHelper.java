@@ -26,12 +26,14 @@ import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.NullType;
 import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.types.TimeV2Type;
+import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
 import org.apache.doris.nereids.types.coercion.ComplexDataType;
 import org.apache.doris.nereids.types.coercion.FollowToAnyDataType;
@@ -39,6 +41,7 @@ import org.apache.doris.nereids.types.coercion.FollowToArgumentType;
 import org.apache.doris.nereids.types.coercion.ScaleTimeType;
 import org.apache.doris.nereids.util.ResponsibilityChain;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
+import org.apache.doris.qe.GlobalVariable;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -247,6 +250,35 @@ public class ComputeSignatureHelper {
                 sigType = signature.argumentsTypes.get(i);
             }
             DataType expressionType = arguments.get(i).getDataType();
+            // Convert legacy datetime/date types to v2 types, keep v2 types as is
+            if (sigType.isDateType()) {
+                // Legacy DateType -> DateV2Type
+                sigType = DateV2Type.INSTANCE;
+            } else if (sigType.isDateTimeType()) {
+                // Legacy DateTimeType -> DateTimeV2Type
+                sigType = DateTimeV2Type.SYSTEM_DEFAULT;
+            }
+            newArgTypes.add(replaceAnyDataTypeWithOutIndex(sigType, expressionType));
+        }
+        signature = signature.withArgumentTypes(signature.hasVarArgs, newArgTypes);
+        return signature;
+    }
+
+    /** implementFollowToAnyDataType without legacy date/datetime V2 promotion */
+    public static FunctionSignature implementAnyDataTypeWithOutIndexNoLegacyDateUpgrade(
+            FunctionSignature signature, List<Expression> arguments) {
+        // collect all any data type with index
+        List<DataType> newArgTypes = Lists.newArrayListWithCapacity(arguments.size());
+        for (int i = 0; i < arguments.size(); i++) {
+            DataType sigType;
+            if (i >= signature.argumentsTypes.size()) {
+                sigType = signature.getVarArgType().orElseThrow(
+                        () -> new AnalysisException("function arity not match with signature"));
+            } else {
+                sigType = signature.argumentsTypes.get(i);
+            }
+            DataType expressionType = arguments.get(i).getDataType();
+            // SKIP: legacy Date/DateTime type promotion to V2
             newArgTypes.add(replaceAnyDataTypeWithOutIndex(sigType, expressionType));
         }
         signature = signature.withArgumentTypes(signature.hasVarArgs, newArgTypes);
@@ -300,8 +332,12 @@ public class ComputeSignatureHelper {
 
         // get all common type for any data type
         for (Map.Entry<Integer, List<DataType>> dataTypes : indexToArgumentTypes.entrySet()) {
-            // TODO: should use the same common type method of implicitCast
-            Optional<DataType> dataType = TypeCoercionUtils.findWiderCommonTypeForComparison(dataTypes.getValue());
+            Optional<DataType> dataType;
+            if (GlobalVariable.enableNewTypeCoercionBehavior) {
+                dataType = TypeCoercionUtils.findWiderCommonType(dataTypes.getValue(), false, true);
+            } else {
+                dataType = TypeCoercionUtils.findWiderCommonTypeForComparison(dataTypes.getValue());
+            }
             // TODO: should we use tinyint when all any data type's expression is null type?
             // if (dataType.isPresent() && dataType.get() instanceof NullType) {
             //     dataType = Optional.of(TinyIntType.INSTANCE);
@@ -312,6 +348,87 @@ public class ComputeSignatureHelper {
         // replace any data type and follow to any data type with real data type
         List<DataType> newArgTypes = Lists.newArrayListWithCapacity(signature.argumentsTypes.size());
         for (DataType sigType : signature.argumentsTypes) {
+            // Convert legacy datetime/date types to v2 types, keep v2 types as is
+            if (sigType.isDateType()) {
+                // Legacy DateType -> DateV2Type
+                sigType = DateV2Type.INSTANCE;
+            } else if (sigType.isDateTimeType()) {
+                // Legacy DateTimeType -> DateTimeV2Type
+                sigType = DateTimeV2Type.SYSTEM_DEFAULT;
+            }
+            newArgTypes.add(replaceAnyDataType(sigType, indexToCommonTypes));
+        }
+        signature = signature.withArgumentTypes(signature.hasVarArgs, newArgTypes);
+        DataType returnType = replaceAnyDataType(signature.returnType, indexToCommonTypes);
+        signature = signature.withReturnType(returnType);
+        return signature;
+    }
+
+    /** implementFollowToAnyDataType without legacy date/datetime V2 promotion */
+    public static FunctionSignature implementAnyDataTypeWithIndexNoLegacyDateUpgrade(
+            FunctionSignature signature, List<Expression> arguments) {
+        // collect all any data type with index
+        Map<Integer, List<DataType>> indexToArgumentTypes = Maps.newHashMap();
+        Map<Integer, Optional<DataType>> indexToCommonTypes = Maps.newHashMap();
+        for (int i = 0; i < arguments.size(); i++) {
+            DataType sigType;
+            if (i >= signature.argumentsTypes.size()) {
+                sigType = signature.getVarArgType().orElseThrow(
+                        () -> new AnalysisException("function arity not match with signature"));
+            } else {
+                sigType = signature.argumentsTypes.get(i);
+            }
+            DataType expressionType = arguments.get(i).getDataType();
+            collectAnyDataType(sigType, expressionType, indexToArgumentTypes);
+        }
+        // if all any data type's expression is NULL, we should use follow to any data
+        // type to do type coercion
+        Set<Integer> allNullTypeIndex = Sets.newHashSetWithExpectedSize(indexToArgumentTypes.size());
+        for (Entry<Integer, List<DataType>> entry : indexToArgumentTypes.entrySet()) {
+            boolean allIsNullType = true;
+            for (DataType dataType : entry.getValue()) {
+                if (!(dataType instanceof NullType)) {
+                    allIsNullType = false;
+                    break;
+                }
+            }
+            if (allIsNullType) {
+                allNullTypeIndex.add(entry.getKey());
+            }
+        }
+        if (!allNullTypeIndex.isEmpty()) {
+            for (int i = 0; i < arguments.size(); i++) {
+                DataType sigType;
+                if (i >= signature.argumentsTypes.size()) {
+                    sigType = signature.getVarArgType().orElseThrow(
+                            () -> new IllegalStateException("function arity not match with signature"));
+                } else {
+                    sigType = signature.argumentsTypes.get(i);
+                }
+                DataType expressionType = arguments.get(i).getDataType();
+                collectFollowToAnyDataType(sigType, expressionType, indexToArgumentTypes, allNullTypeIndex);
+            }
+        }
+
+        // get all common type for any data type
+        for (Map.Entry<Integer, List<DataType>> dataTypes : indexToArgumentTypes.entrySet()) {
+            Optional<DataType> dataType;
+            if (GlobalVariable.enableNewTypeCoercionBehavior) {
+                dataType = TypeCoercionUtils.findWiderCommonType(dataTypes.getValue(), false, true);
+            } else {
+                dataType = TypeCoercionUtils.findWiderCommonTypeForComparison(dataTypes.getValue());
+            }
+            // TODO: should we use tinyint when all any data type's expression is null type?
+            // if (dataType.isPresent() && dataType.get() instanceof NullType) {
+            // dataType = Optional.of(TinyIntType.INSTANCE);
+            // }
+            indexToCommonTypes.put(dataTypes.getKey(), dataType);
+        }
+
+        // replace any data type and follow to any data type with real data type
+        List<DataType> newArgTypes = Lists.newArrayListWithCapacity(signature.argumentsTypes.size());
+        for (DataType sigType : signature.argumentsTypes) {
+            // SKIP: legacy Date/DateTime type promotion to V2
             newArgTypes.add(replaceAnyDataType(sigType, indexToCommonTypes));
         }
         signature = signature.withArgumentTypes(signature.hasVarArgs, newArgTypes);
@@ -357,28 +474,14 @@ public class ComputeSignatureHelper {
         return signature;
     }
 
-    /** dynamicComputePropertiesOfArray */
-    public static FunctionSignature dynamicComputePropertiesOfArray(
-            FunctionSignature signature, List<Expression> arguments) {
+    /** ensureNestedNullableOfArray */
+    public static FunctionSignature ensureNestedNullableOfArray(FunctionSignature signature,
+            List<Expression> arguments) {
         if (!(signature.returnType instanceof ArrayType)) {
             return signature;
         }
-
-        // fill item type by the type of first item
         ArrayType arrayType = (ArrayType) signature.returnType;
-
-        // Now Array type do not support ARRAY<NOT_NULL>, set it to true temporarily
-        boolean containsNull = true;
-
-        // fill containsNull if any array argument contains null
-        /* boolean containsNull = arguments
-                .stream()
-                .map(Expression::getDataType)
-                .filter(argType -> argType instanceof ArrayType)
-                .map(ArrayType.class::cast)
-                .anyMatch(ArrayType::containsNull);*/
-        return signature.withReturnType(
-                ArrayType.of(arrayType.getItemType(), arrayType.containsNull() || containsNull));
+        return signature.withReturnType(ArrayType.of(arrayType.getItemType(), true));
     }
 
     // for time type with precision(now are DateTimeV2Type and TimeV2Type),
@@ -434,9 +537,6 @@ public class ComputeSignatureHelper {
                 }
 
                 finalTypeScale = Math.max(finalTypeScale, targetScale); // init value -1 always promotes
-                System.out.println("finalTypeScale: " + finalTypeScale
-                        + ", targetScale: " + targetScale + ", inputType: " + inputType
-                        + ", nestedTargetType: " + nestedTargetType);
             }
         }
 
@@ -448,9 +548,6 @@ public class ComputeSignatureHelper {
         ImmutableList.Builder<DataType> newArgTypesBuilder = ImmutableList.builderWithExpectedSize(signature.arity);
         for (DataType signatureArgType : signature.argumentsTypes) {
             newArgTypesBuilder.add(TypeCoercionUtils.replaceTimesWithTargetPrecision(signatureArgType, finalTypeScale));
-            System.out.println("signatureArgType: " + signatureArgType
-                    + ", newArgType: " + TypeCoercionUtils.replaceTimesWithTargetPrecision(signatureArgType,
-                    finalTypeScale));
         }
         List<DataType> newArgTypes = newArgTypesBuilder.build();
         signature = signature.withArgumentTypes(signature.hasVarArgs, newArgTypes);
@@ -459,6 +556,58 @@ public class ComputeSignatureHelper {
             signature = signature.withReturnType(
                     TypeCoercionUtils.replaceTimesWithTargetPrecision(signature.returnType, finalTypeScale));
         }
+        return signature;
+    }
+
+    /**
+     * Dynamically compute function signature for variant type arguments.
+     * This method handles cases where the function signature contains variant types
+     * and needs to be adjusted based on the actual argument types.
+     *
+     * @param signature Original function signature
+     * @param arguments List of actual arguments passed to the function
+     * @return Updated function signature with resolved variant types
+     */
+    public static FunctionSignature dynamicComputeVariantArgs(
+            FunctionSignature signature, List<Expression> arguments) {
+
+        List<DataType> newArgTypes = Lists.newArrayListWithCapacity(arguments.size());
+        boolean findVariantType = false;
+
+        for (int i = 0; i < arguments.size(); i++) {
+            // Get signature type for current argument position
+            DataType sigType;
+            if (i >= signature.argumentsTypes.size()) {
+                sigType = signature.getVarArgType().orElseThrow(
+                        () -> new AnalysisException("function arity not match with signature"));
+            } else {
+                sigType = signature.argumentsTypes.get(i);
+            }
+
+            // Get actual type of the argument expression
+            DataType expressionType = arguments.get(i).getDataType();
+
+            // If both signature type and expression type are variant,
+            // use expression type and update return type
+            if (sigType instanceof VariantType && expressionType instanceof VariantType) {
+                // return type is variant, update return type to expression type
+                if (signature.returnType instanceof VariantType) {
+                    signature = signature.withReturnType(expressionType);
+                    if (findVariantType) {
+                        throw new AnalysisException("variant type is not supported in multiple arguments");
+                    } else {
+                        findVariantType = true;
+                    }
+                }
+                newArgTypes.add(expressionType);
+            } else {
+                // Otherwise keep original signature type
+                newArgTypes.add(sigType);
+            }
+        }
+
+        // Update signature with new argument types
+        signature = signature.withArgumentTypes(signature.hasVarArgs, newArgTypes);
         return signature;
     }
 

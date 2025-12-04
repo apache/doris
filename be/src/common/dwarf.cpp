@@ -152,6 +152,7 @@
 #define DW_RLE_start_length 0x7
 
 namespace doris {
+#include "common/compile_check_avoid_begin.h"
 
 Dwarf::Dwarf(const std::shared_ptr<Elf>& elf)
         : elf_(elf),
@@ -2028,6 +2029,7 @@ bool Dwarf::LineNumberVM::findAddress(uintptr_t target, Path& file, uint64_t& li
     return false;
 }
 
+#include "common/compile_check_avoid_end.h"
 } // namespace doris
 
 #endif

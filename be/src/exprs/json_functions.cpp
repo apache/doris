@@ -45,10 +45,9 @@ namespace doris {
 // json path cannot contains: ", [, ]
 static const re2::RE2 JSON_PATTERN("^([^\\\"\\[\\]]*)(?:\\[([0-9]+|\\*)\\])?");
 
-rapidjson::Value* JsonFunctions::match_value(const std::vector<JsonPath>& parsed_paths,
-                                             rapidjson::Value* document,
-                                             rapidjson::Document::AllocatorType& mem_allocator,
-                                             bool is_insert_null) {
+rapidjson::Value* NO_SANITIZE_UNDEFINED
+JsonFunctions::match_value(const std::vector<JsonPath>& parsed_paths, rapidjson::Value* document,
+                           rapidjson::Document::AllocatorType& mem_allocator, bool is_insert_null) {
     rapidjson::Value* root = document;
     rapidjson::Value* array_obj = nullptr;
     for (int i = 1; i < parsed_paths.size(); i++) {
@@ -154,7 +153,7 @@ rapidjson::Value* JsonFunctions::get_json_array_from_parsed_json(
     return get_json_array_from_parsed_json(vec, document, mem_allocator, wrap_explicitly);
 }
 
-rapidjson::Value* JsonFunctions::get_json_array_from_parsed_json(
+rapidjson::Value* NO_SANITIZE_UNDEFINED JsonFunctions::get_json_array_from_parsed_json(
         const std::vector<JsonPath>& parsed_paths, rapidjson::Value* document,
         rapidjson::Document::AllocatorType& mem_allocator, bool* wrap_explicitly) {
     *wrap_explicitly = false;

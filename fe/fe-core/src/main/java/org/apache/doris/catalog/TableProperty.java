@@ -22,7 +22,9 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.persist.OperationType;
 import org.apache.doris.persist.gson.GsonPostProcessable;
+import org.apache.doris.proto.OlapFile.EncryptionAlgorithmPB;
 import org.apache.doris.thrift.TCompressionType;
+import org.apache.doris.thrift.TEncryptionAlgorithm;
 import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
@@ -62,6 +64,7 @@ public class TableProperty implements GsonPostProcessable {
     private boolean isInMemory = false;
     private short minLoadReplicaNum = -1;
     private long ttlSeconds = 0L;
+    private int partitionRetentionCount = -1;
     private boolean isInAtomicRestore = false;
 
     private String storagePolicy = "";
@@ -103,6 +106,8 @@ public class TableProperty implements GsonPostProcessable {
 
     private long storagePageSize = PropertyAnalyzer.STORAGE_PAGE_SIZE_DEFAULT_VALUE;
 
+    private long storageDictPageSize = PropertyAnalyzer.STORAGE_DICT_PAGE_SIZE_DEFAULT_VALUE;
+
     private String compactionPolicy = PropertyAnalyzer.SIZE_BASED_COMPACTION_POLICY;
 
     private long timeSeriesCompactionGoalSizeMbytes
@@ -122,6 +127,7 @@ public class TableProperty implements GsonPostProcessable {
 
     private String autoAnalyzePolicy = PropertyAnalyzer.ENABLE_AUTO_ANALYZE_POLICY;
 
+    private TEncryptionAlgorithm encryptionAlgorithm = TEncryptionAlgorithm.PLAINTEXT;
 
     private DataSortInfo dataSortInfo = new DataSortInfo();
 
@@ -163,6 +169,7 @@ public class TableProperty implements GsonPostProcessable {
                 buildTimeSeriesCompactionLevelThreshold();
                 buildTTLSeconds();
                 buildAutoAnalyzeProperty();
+                buildPartitionRetentionCount();
                 break;
             default:
                 break;
@@ -187,6 +194,8 @@ public class TableProperty implements GsonPostProcessable {
         if (!reserveReplica) {
             setReplicaAlloc(replicaAlloc);
         }
+        // reset storage vault
+        clearStorageVault();
         return this;
     }
 
@@ -235,13 +244,36 @@ public class TableProperty implements GsonPostProcessable {
         return this;
     }
 
+    public TableProperty clearStorageVault() {
+        properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_VAULT_ID, "");
+        properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_VAULT_NAME, "");
+        return this;
+    }
+
     public TableProperty buildTTLSeconds() {
         ttlSeconds = Long.parseLong(properties.getOrDefault(PropertyAnalyzer.PROPERTIES_FILE_CACHE_TTL_SECONDS, "0"));
         return this;
     }
 
+    public TableProperty buildPartitionRetentionCount() {
+        String value = properties.get(PropertyAnalyzer.PROPERTIES_PARTITION_RETENTION_COUNT);
+        if (value != null) {
+            try {
+                int n = Integer.parseInt(value);
+                partitionRetentionCount = n > 0 ? n : -1;
+            } catch (NumberFormatException e) {
+                partitionRetentionCount = -1;
+            }
+        }
+        return this;
+    }
+
     public long getTTLSeconds() {
         return ttlSeconds;
+    }
+
+    public int getPartitionRetentionCount() {
+        return partitionRetentionCount;
     }
 
     public TableProperty buildEnableLightSchemaChange() {
@@ -262,10 +294,30 @@ public class TableProperty implements GsonPostProcessable {
         return this;
     }
 
+    public void buildTDEAlgorithm() {
+        String tdeAlgorithmName = properties.getOrDefault(PropertyAnalyzer.PROPERTIES_TDE_ALGORITHM,
+                TEncryptionAlgorithm.PLAINTEXT.name());
+        encryptionAlgorithm = TEncryptionAlgorithm.valueOf(tdeAlgorithmName);
+    }
+
+    public TEncryptionAlgorithm getTDEAlgorithm() {
+        return encryptionAlgorithm;
+    }
+
+    public EncryptionAlgorithmPB getTDEAlgorithmPB() {
+        switch (encryptionAlgorithm) {
+            case AES256:
+                return EncryptionAlgorithmPB.AES_256_CTR;
+            case SM4:
+                return EncryptionAlgorithmPB.SM4_128_CTR;
+            default:
+                return EncryptionAlgorithmPB.PLAINTEXT;
+        }
+    }
+
     public boolean disableAutoCompaction() {
         return disableAutoCompaction;
     }
-
 
     public TableProperty buildVariantEnableFlattenNested() {
         variantEnableFlattenNested = Boolean.parseBoolean(
@@ -329,6 +381,17 @@ public class TableProperty implements GsonPostProcessable {
 
     public long storagePageSize() {
         return storagePageSize;
+    }
+
+    public TableProperty buildStorageDictPageSize() {
+        storageDictPageSize = Long.parseLong(
+            properties.getOrDefault(PropertyAnalyzer.PROPERTIES_STORAGE_DICT_PAGE_SIZE,
+                Long.toString(PropertyAnalyzer.STORAGE_DICT_PAGE_SIZE_DEFAULT_VALUE)));
+        return this;
+    }
+
+    public long storageDictPageSize() {
+        return storageDictPageSize;
     }
 
     public TableProperty buildSkipWriteIndexOnLoad() {
@@ -526,8 +589,12 @@ public class TableProperty implements GsonPostProcessable {
     }
 
     public TableProperty buildCompressionType() {
-        compressionType = TCompressionType.valueOf(properties.getOrDefault(PropertyAnalyzer.PROPERTIES_COMPRESSION,
-                TCompressionType.LZ4F.name()));
+        try {
+            compressionType = PropertyAnalyzer.getCompressionTypeFromProperties(properties);
+        } catch (AnalysisException e) {
+            LOG.error("failed to analyze compression type", e);
+            compressionType = TCompressionType.ZSTD;
+        }
         return this;
     }
 
@@ -724,6 +791,7 @@ public class TableProperty implements GsonPostProcessable {
         buildRowStoreColumns();
         buildRowStorePageSize();
         buildStoragePageSize();
+        buildStorageDictPageSize();
         buildSkipWriteIndexOnLoad();
         buildCompactionPolicy();
         buildTimeSeriesCompactionGoalSizeMbytes();
@@ -736,8 +804,10 @@ public class TableProperty implements GsonPostProcessable {
         buildTTLSeconds();
         buildVariantEnableFlattenNested();
         buildInAtomicRestore();
+        buildPartitionRetentionCount();
         removeDuplicateReplicaNumProperty();
         buildReplicaAllocation();
+        buildTDEAlgorithm();
     }
 
     // For some historical reason,

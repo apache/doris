@@ -57,6 +57,11 @@ public class Ntile extends WindowFunction implements LeafExpression, AlwaysNotNu
         this.buckets = buckets;
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Ntile(WindowFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     public Expression getBuckets() {
         return buckets;
     }
@@ -64,7 +69,7 @@ public class Ntile extends WindowFunction implements LeafExpression, AlwaysNotNu
     @Override
     public Ntile withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Ntile(children.get(0));
+        return new Ntile(getFunctionParams(children));
     }
 
     @Override

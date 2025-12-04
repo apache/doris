@@ -34,11 +34,13 @@
     "classnames": "^2.2.6",
     "i18next": "^19.7.0",
     "i18next-browser-languagedetector": "^6.0.1",
+    "json-bigint": "^1.0.0",
     "lodash-decorators": "^6.0.1",
     "path-to-regexp": "^2.2.0",
     "react": "^16.13.1",
     "react-codemirror2": "^7.1.0",
     "react-dom": "^16.13.1",
+    "react-draggable": "4.4.6",
     "react-i18next": "^11.7.2",
     "react-resizable": "^1.10.1",
     "react-router": "^5.2.0",
@@ -46,8 +48,7 @@
     "react-router-dom": "^5.2.0",
     "react-syntax-highlighter": "^12.2.1",
     "rxjs": "^7.0.0-beta.0",
-    "sql-formatter": "^2.3.3",
-    "json-bigint": "^1.0.0"
+    "sql-formatter": "^2.3.3"
   },
   "devDependencies": {
     "@typescript-eslint/eslint-plugin": "^2.24.0",
@@ -78,5 +79,8 @@
     "webpack-cli": "^3.3.3",
     "webpack-dev-server": "^3.7.1",
     "webpack-merge": "^4.2.1"
+  },
+  "resolutions": {
+    "react-draggable": "4.4.6"
   }
 }

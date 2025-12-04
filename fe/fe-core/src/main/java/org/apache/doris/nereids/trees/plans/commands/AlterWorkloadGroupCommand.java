@@ -34,6 +34,7 @@ import org.apache.doris.resource.workloadgroup.WorkloadGroup;
 
 import org.apache.commons.lang3.StringUtils;
 
+import java.util.HashMap;
 import java.util.Map;
 
 /**
@@ -48,11 +49,14 @@ public class AlterWorkloadGroupCommand extends AlterCommand {
      * constructor
      */
     public AlterWorkloadGroupCommand(String computeGroupName, String workloadGroupName,
-            Map<String, String> properties) {
+            Map<String, String> inputProperties) {
         super(PlanType.ALTER_WORKLOAD_GROUP_COMMAND);
 
         this.workloadGroupName = workloadGroupName;
-        this.properties = properties;
+        this.properties = new HashMap<>();
+        for (String key : inputProperties.keySet()) {
+            properties.put(key.toLowerCase(), inputProperties.get(key));
+        }
         this.computeGroup = computeGroupName;
     }
 

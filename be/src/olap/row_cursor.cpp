@@ -25,6 +25,7 @@
 #include <numeric>
 #include <ostream>
 
+#include "common/cast_set.h"
 #include "olap/field.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
@@ -36,6 +37,7 @@ using std::string;
 using std::vector;
 
 namespace doris {
+#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 RowCursor::RowCursor()
         : _fixed_len(0), _variable_len(0), _string_field_count(0), _long_text_buf(nullptr) {}
@@ -97,7 +99,8 @@ Status RowCursor::_init_scan_key(TabletSchemaSPtr schema,
             _variable_len += scan_keys[cid].length();
         } else if (type == FieldType::OLAP_FIELD_TYPE_CHAR ||
                    type == FieldType::OLAP_FIELD_TYPE_ARRAY) {
-            _variable_len += std::max(scan_keys[cid].length(), column.length());
+            _variable_len +=
+                    std::max(scan_keys[cid].length(), static_cast<size_t>(column.length()));
         } else if (type == FieldType::OLAP_FIELD_TYPE_STRING) {
             ++_string_field_count;
         }
@@ -120,7 +123,7 @@ Status RowCursor::_init_scan_key(TabletSchemaSPtr schema,
         } else if (type == FieldType::OLAP_FIELD_TYPE_CHAR) {
             Slice* slice = reinterpret_cast<Slice*>(fixed_ptr + 1);
             slice->data = variable_ptr;
-            slice->size = std::max(scan_keys[cid].length(), column.length());
+            slice->size = std::max(scan_keys[cid].length(), static_cast<size_t>(column.length()));
             variable_ptr += slice->size;
         } else if (type == FieldType::OLAP_FIELD_TYPE_STRING) {
             _schema->mutable_column(cid)->set_long_text_buf(long_text_ptr);
@@ -135,14 +138,14 @@ Status RowCursor::_init_scan_key(TabletSchemaSPtr schema,
 }
 
 Status RowCursor::init(TabletSchemaSPtr schema) {
-    return init(schema->columns(), schema->num_columns());
+    return init(schema->columns(), cast_set<uint32_t>(schema->num_columns()));
 }
 
 Status RowCursor::init(const std::vector<TabletColumnPtr>& schema) {
-    return init(schema, schema.size());
+    return init(schema, cast_set<uint32_t>(schema.size()));
 }
 
-Status RowCursor::init(TabletSchemaSPtr schema, size_t column_count) {
+Status RowCursor::init(TabletSchemaSPtr schema, uint32_t column_count) {
     if (column_count > schema->num_columns()) {
         return Status::Error<INVALID_ARGUMENT>(
                 "Input param are invalid. Column count is bigger than num_columns of schema. "
@@ -151,14 +154,14 @@ Status RowCursor::init(TabletSchemaSPtr schema, size_t column_count) {
     }
 
     std::vector<uint32_t> columns;
-    for (size_t i = 0; i < column_count; ++i) {
+    for (auto i = 0; i < column_count; ++i) {
         columns.push_back(i);
     }
     RETURN_IF_ERROR(_init(schema->columns(), columns));
     return Status::OK();
 }
 
-Status RowCursor::init(const std::vector<TabletColumnPtr>& schema, size_t column_count) {
+Status RowCursor::init(const std::vector<TabletColumnPtr>& schema, uint32_t column_count) {
     if (column_count > schema.size()) {
         return Status::Error<INVALID_ARGUMENT>(
                 "Input param are invalid. Column count is bigger than num_columns of schema. "
@@ -167,7 +170,7 @@ Status RowCursor::init(const std::vector<TabletColumnPtr>& schema, size_t column
     }
 
     std::vector<uint32_t> columns;
-    for (size_t i = 0; i < column_count; ++i) {
+    for (auto i = 0; i < column_count; ++i) {
         columns.push_back(i);
     }
     RETURN_IF_ERROR(_init(schema, columns));
@@ -202,7 +205,7 @@ Status RowCursor::init_scan_key(TabletSchemaSPtr schema, const std::vector<std::
     size_t scan_key_size = scan_keys.size();
 
     std::vector<uint32_t> columns;
-    for (size_t i = 0; i < scan_key_size; ++i) {
+    for (uint32_t i = 0; i < scan_key_size; ++i) {
         columns.push_back(i);
     }
 
@@ -322,4 +325,5 @@ Status RowCursor::_alloc_buf() {
     return Status::OK();
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris

@@ -31,6 +31,8 @@ suite("nereids_scalar_fn_E") {
 	qt_sql_ends_with_Varchar_Varchar_notnull "select ends_with(kvchrs1, kvchrs1) from fn_test_not_nullable order by kvchrs1, kvchrs1"
 	qt_sql_ends_with_String_String "select ends_with(kstr, kstr) from fn_test order by kstr, kstr"
 	qt_sql_ends_with_String_String_notnull "select ends_with(kstr, kstr) from fn_test_not_nullable order by kstr, kstr"
+	qt_sql_even_Double "select even(kdbl) from fn_test order by kdbl"
+	qt_sql_even_Double_notnull "select even(kdbl) from fn_test_not_nullable order by kdbl"
 	qt_sql_exp_Double "select exp(kdbl) from fn_test order by kdbl"
 	qt_sql_exp_Double_notnull "select exp(kdbl) from fn_test_not_nullable order by kdbl"
 	qt_sql_extract_url_parameter_Varchar_Varchar "select extract_url_parameter(kvchrs1, kvchrs1) from fn_test order by kvchrs1, kvchrs1"

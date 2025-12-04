@@ -23,6 +23,8 @@ import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TResultFileSinkOptions;
 
+import com.google.common.base.Strings;
+
 import java.util.Map;
 
 public abstract class FileFormatProperties {
@@ -43,6 +45,9 @@ public abstract class FileFormatProperties {
     protected TFileFormatType fileFormatType;
 
     protected TFileCompressType compressionType;
+    // Default: false, mapping BINARY types to STRING for compatibility
+    // When enabled, BINARY types map to VARBINARY
+    public boolean enableMappingVarbinary = false;
 
     public FileFormatProperties(TFileFormatType fileFormatType, String formatName) {
         this.fileFormatType = fileFormatType;
@@ -101,10 +106,17 @@ public abstract class FileFormatProperties {
         }
     }
 
-    public static FileFormatProperties createFileFormatProperties(Map<String, String> formatProperties)
+    /**
+     * Create a FileFormatProperties
+     * If the format property is not specified, return a DeferredFileFormatProperties
+     */
+    public static FileFormatProperties createFileFormatPropertiesOrDeferred(String formatString)
             throws AnalysisException {
-        String formatString = formatProperties.getOrDefault(PROP_FORMAT, "csv");
-        return createFileFormatProperties(formatString);
+        if (Strings.isNullOrEmpty(formatString)) {
+            return new DeferredFileFormatProperties();
+        } else {
+            return createFileFormatProperties(formatString);
+        }
     }
 
     protected String getOrDefault(Map<String, String> props, String key, String defaultValue,

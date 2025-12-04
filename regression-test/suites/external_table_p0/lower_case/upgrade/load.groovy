@@ -26,7 +26,7 @@ suite("test_upgrade_lower_case_catalog_prepare", "p0,external,doris,external_doc
     String jdbcPassword = "C123_567p"
     String s3_endpoint = getS3Endpoint()
     String bucket = getS3BucketName()
-    String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-j-8.3.0.jar"
+    String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-j-8.4.0.jar"
 
     def wait_table_sync = { String db ->
         Awaitility.await().atMost(10, TimeUnit.SECONDS).pollInterval(1, TimeUnit.SECONDS).until{
@@ -85,7 +85,11 @@ suite("test_upgrade_lower_case_catalog_prepare", "p0,external,doris,external_doc
             "use_meta_cache" = "false",
             "lower_case_meta_names" = "true",
             "only_specified_database" = "true",
-            "include_database_list" = "upgrade_lower_case_catalog_lower,upgrade_lower_case_catalog_UPPER"
+            "include_database_list" = "upgrade_lower_case_catalog_lower,upgrade_lower_case_catalog_UPPER",
+            "connection_pool_min_size" = "2",
+            "connection_pool_max_size" = "20",
+            "connection_pool_max_wait_time" = "30000",
+            "connection_pool_max_life_time" = "600000"
         )"""
 
     wait_table_sync("test_upgrade_lower_case_catalog.upgrade_lower_case_catalog_lower")

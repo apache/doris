@@ -49,14 +49,18 @@ public class Concat extends ScalarFunction
         super("concat", ExpressionUtils.mergeArguments(arg, varArgs));
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Concat(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public Concat withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() >= 1);
-        return new Concat(children.get(0),
-                children.subList(1, children.size()).toArray(new Expression[0]));
+        Preconditions.checkArgument(!children.isEmpty());
+        return new Concat(getFunctionParams(children));
     }
 
     @Override

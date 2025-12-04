@@ -50,10 +50,15 @@ public class ArrayAgg extends NotNullableAggregateFunction
         super("array_agg", distinct, arg0);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ArrayAgg(AggregateFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public AggregateFunction withDistinctAndChildren(boolean distinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new ArrayAgg(distinct, children.get(0));
+        return new ArrayAgg(getFunctionParams(distinct, children));
     }
 
     @Override

@@ -27,6 +27,7 @@ import org.apache.doris.nereids.types.coercion.IntegralType;
 public class TinyIntType extends IntegralType implements Int16OrLessType {
     public static final TinyIntType INSTANCE = new TinyIntType();
 
+    public static final int RANGE = 3; // The maximum number of digits that TinyIntType can represent.
     private static final int WIDTH = 1;
 
     private TinyIntType() {
@@ -60,5 +61,10 @@ public class TinyIntType extends IntegralType implements Int16OrLessType {
     @Override
     public int width() {
         return WIDTH;
+    }
+
+    @Override
+    public int range() {
+        return RANGE;
     }
 }

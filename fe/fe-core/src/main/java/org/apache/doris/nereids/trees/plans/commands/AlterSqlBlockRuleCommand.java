@@ -37,6 +37,8 @@ import java.util.Map;
  */
 public class AlterSqlBlockRuleCommand extends SqlBlockRuleCommand {
 
+    public static final Long LONG_NOT_SET = SqlBlockUtil.LONG_MINUS_ONE;
+
     /**
     * constructor
     */

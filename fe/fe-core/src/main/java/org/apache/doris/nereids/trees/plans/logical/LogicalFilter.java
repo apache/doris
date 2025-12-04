@@ -21,7 +21,6 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DataTrait.Builder;
 import org.apache.doris.nereids.properties.LogicalProperties;
-import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
@@ -69,13 +68,6 @@ public class LogicalFilter<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
         super(PlanType.LOGICAL_FILTER, groupExpression, logicalProperties, child);
         this.conjuncts = Utils.fastToImmutableSet(Objects.requireNonNull(conjuncts, "conjuncts can not be null"));
         this.predicate = predicate == null ? Suppliers.memoize(Filter.super::getPredicate) : predicate;
-        if (Utils.enableAssert) {
-            for (Expression conjunct : conjuncts) {
-                if (conjunct instanceof And) {
-                    throw new IllegalStateException("Filter conjuncts can not contain and: " + conjunct.toSql());
-                }
-            }
-        }
     }
 
     @Override
@@ -121,9 +113,22 @@ public class LogicalFilter<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
 
     @Override
     public String toString() {
-        return Utils.toSqlString("LogicalFilter[" + id.asInt() + "]",
-                "predicates", getPredicate()
+        return Utils.toSqlStringSkipNull("LogicalFilter[" + id.asInt() + "]",
+                "predicates", getPredicate(),
+                "stats", statistics
         );
+    }
+
+    @Override
+    public String toDigest() {
+        StringBuilder sb = new StringBuilder();
+        sb.append(child().toDigest());
+        sb.append(" WHERE ");
+        sb.append(
+                conjuncts.stream().map(Expression::toDigest)
+                        .collect(Collectors.joining(" AND "))
+        );
+        return sb.toString();
     }
 
     @Override

@@ -24,10 +24,14 @@
 
 #include <string_view>
 
+#include "common/cast_set.h"
 #include "vec/common/sip_hash.h"
 
 namespace doris::vectorized {
-PathInData::PathInData(std::string_view path_) : path(path_) {
+
+#include "common/compile_check_begin.h"
+
+PathInData::PathInData(std::string_view path_, bool is_typed_) : path(path_), is_typed(is_typed_) {
     const char* begin = path.data();
     const char* end = path.data() + path.size();
     for (const char* it = path.data(); it != end; ++it) {
@@ -40,19 +44,29 @@ PathInData::PathInData(std::string_view path_) : path(path_) {
     size_t size = static_cast<size_t>(end - begin);
     parts.emplace_back(std::string_view {begin, size}, false, 0.);
 }
+
+PathInData::PathInData(std::string_view path_, const Parts& parts_, bool is_typed_) {
+    path = path_;
+    is_typed = is_typed_;
+    for (const auto& part : parts_) {
+        has_nested |= part.is_nested;
+        parts.emplace_back(part);
+    }
+}
+
 PathInData::PathInData(const Parts& parts_) {
     build_path(parts_);
     build_parts(parts_);
 }
-PathInData::PathInData(const PathInData& other) : path(other.path) {
+PathInData::PathInData(const PathInData& other) : path(other.path), is_typed(other.is_typed) {
     build_parts(other.get_parts());
 }
 
 PathInData::PathInData(const std::string& root, const std::vector<std::string>& paths) {
     PathInDataBuilder path_builder;
     path_builder.append(root, false);
-    for (const std::string& path : paths) {
-        path_builder.append(path, false);
+    for (const std::string& p : paths) {
+        path_builder.append(p, false);
     }
     build_path(path_builder.get_parts());
     build_parts(path_builder.get_parts());
@@ -70,11 +84,13 @@ PathInData::PathInData(const std::vector<std::string>& paths) {
 PathInData& PathInData::operator=(const PathInData& other) {
     if (this != &other) {
         path = other.path;
+        is_typed = other.is_typed;
         build_parts(other.parts);
     }
     return *this;
 }
-UInt128 PathInData::get_parts_hash(const Parts& parts_) {
+
+UInt128 PathInData::get_parts_hash(const Parts& parts_, bool is_typed_) {
     SipHash hash;
     hash.update(parts_.size());
     for (const auto& part : parts_) {
@@ -82,16 +98,10 @@ UInt128 PathInData::get_parts_hash(const Parts& parts_) {
         hash.update(part.is_nested);
         hash.update(part.anonymous_array_level);
     }
+    hash.update(is_typed_);
     UInt128 res;
     hash.get128(res);
     return res;
-}
-
-void PathInData::unset_nested() {
-    for (Part& part : parts) {
-        part.is_nested = false;
-    }
-    has_nested = false;
 }
 
 void PathInData::build_path(const Parts& other_parts) {
@@ -126,13 +136,15 @@ void PathInData::from_protobuf(const segment_v2::ColumnPathInfo& pb) {
     parts.clear();
     path = pb.path();
     has_nested = false;
+    is_typed = pb.is_typed();
     parts.reserve(pb.path_part_infos().size());
     const char* begin = path.data();
     for (const segment_v2::ColumnPathPartInfo& part_info : pb.path_part_infos()) {
         Part part;
         part.is_nested = part_info.is_nested();
         has_nested |= part.is_nested;
-        part.anonymous_array_level = part_info.anonymous_array_level();
+        part.anonymous_array_level =
+                cast_set<uint8_t, uint32_t, false>(part_info.anonymous_array_level());
         // use string_view to ref data in path
         part.key = std::string_view {begin, part_info.key().length()};
         parts.push_back(part);
@@ -159,6 +171,7 @@ void PathInData::to_protobuf(segment_v2::ColumnPathInfo* pb, int32_t parent_col_
     pb->set_path(path);
     pb->set_has_nested(has_nested);
     pb->set_parrent_column_unique_id(parent_col_unique_id);
+    pb->set_is_typed(is_typed);
 
     // set parts info
     for (const Part& part : parts) {
@@ -170,7 +183,7 @@ void PathInData::to_protobuf(segment_v2::ColumnPathInfo* pb, int32_t parent_col_
 }
 
 size_t PathInData::Hash::operator()(const PathInData& value) const {
-    auto hash = get_parts_hash(value.parts);
+    auto hash = get_parts_hash(value.parts, value.is_typed);
     return hash.low() ^ hash.high();
 }
 
@@ -190,6 +203,7 @@ PathInData PathInData::get_nested_prefix_path() const {
     }
     new_path.build_path(new_parts);
     new_path.build_parts(new_parts);
+    new_path.is_typed = is_typed;
     return new_path;
 }
 
@@ -202,6 +216,7 @@ PathInData PathInData::copy_pop_back() const {
     new_parts.pop_back();
     new_path.build_path(new_parts);
     new_path.build_parts(new_parts);
+    new_path.is_typed = is_typed;
     return new_path;
 }
 
@@ -216,6 +231,7 @@ PathInData PathInData::copy_pop_nfront(size_t n) const {
     }
     new_path.build_path(new_parts);
     new_path.build_parts(new_parts);
+    new_path.is_typed = is_typed;
     return new_path;
 }
 
@@ -257,4 +273,7 @@ void PathInDataBuilder::pop_back(size_t n) {
     assert(n <= parts.size());
     parts.resize(parts.size() - n);
 }
+
+#include "common/compile_check_end.h"
+
 } // namespace doris::vectorized

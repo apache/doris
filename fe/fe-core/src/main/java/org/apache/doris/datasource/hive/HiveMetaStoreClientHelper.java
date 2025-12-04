@@ -40,6 +40,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.security.authentication.AuthenticationConfig;
 import org.apache.doris.common.security.authentication.HadoopAuthenticator;
+import org.apache.doris.nereids.types.VarBinaryType;
 import org.apache.doris.thrift.TExprOpcode;
 
 import com.google.common.base.Strings;
@@ -97,7 +98,8 @@ public class HiveMetaStoreClientHelper {
     public static final String LEGACY_HIVE_JSON_SERDE = "org.apache.hadoop.hive.serde2.JsonSerDe";
     public static final String OPENX_JSON_SERDE = "org.openx.data.jsonserde.JsonSerDe";
     public static final String HIVE_TEXT_SERDE = "org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe";
-    public static final String HIVE_CSV_SERDE = "org.apache.hadoop.hive.serde2.OpenCSVSerde";
+    public static final String HIVE_OPEN_CSV_SERDE = "org.apache.hadoop.hive.serde2.OpenCSVSerde";
+    public static final String HIVE_MULTI_DELIMIT_SERDE = "org.apache.hadoop.hive.serde2.MultiDelimitSerDe";
 
     public enum HiveFileFormat {
         TEXT_FILE(0, "text"),
@@ -612,15 +614,15 @@ public class HiveMetaStoreClientHelper {
     /**
      * Convert hive type to doris type.
      */
-    public static Type hiveTypeToDorisType(String hiveType) {
+    public static Type hiveTypeToDorisType(String hiveType, boolean enableMappingVarbinary) {
         // use the largest scale as default time scale.
-        return hiveTypeToDorisType(hiveType, 6);
+        return hiveTypeToDorisType(hiveType, 6, enableMappingVarbinary);
     }
 
     /**
      * Convert hive type to doris type with timescale.
      */
-    public static Type hiveTypeToDorisType(String hiveType, int timeScale) {
+    public static Type hiveTypeToDorisType(String hiveType, int timeScale, boolean enableMappingVarbinary) {
         String lowerCaseType = hiveType.toLowerCase();
         switch (lowerCaseType) {
             case "boolean":
@@ -642,15 +644,18 @@ public class HiveMetaStoreClientHelper {
             case "double":
                 return Type.DOUBLE;
             case "string":
-            case "binary":
                 return ScalarType.createStringType();
+            case "binary":
+                return enableMappingVarbinary ? ScalarType.createVarbinaryType(VarBinaryType.MAX_VARBINARY_LENGTH)
+                        : ScalarType.createStringType();
             default:
                 break;
         }
         // resolve schema like array<int>
         if (lowerCaseType.startsWith("array")) {
             if (lowerCaseType.indexOf("<") == 5 && lowerCaseType.lastIndexOf(">") == lowerCaseType.length() - 1) {
-                Type innerType = hiveTypeToDorisType(lowerCaseType.substring(6, lowerCaseType.length() - 1));
+                Type innerType = hiveTypeToDorisType(lowerCaseType.substring(6, lowerCaseType.length() - 1),
+                        enableMappingVarbinary);
                 return ArrayType.create(innerType, true);
             }
         }
@@ -660,8 +665,8 @@ public class HiveMetaStoreClientHelper {
                 String keyValue = lowerCaseType.substring(4, lowerCaseType.length() - 1);
                 int index = findNextNestedField(keyValue);
                 if (index != keyValue.length() && index != 0) {
-                    return new MapType(hiveTypeToDorisType(keyValue.substring(0, index)),
-                            hiveTypeToDorisType(keyValue.substring(index + 1)));
+                    return new MapType(hiveTypeToDorisType(keyValue.substring(0, index), enableMappingVarbinary),
+                            hiveTypeToDorisType(keyValue.substring(index + 1), enableMappingVarbinary));
                 }
             }
         }
@@ -675,7 +680,7 @@ public class HiveMetaStoreClientHelper {
                     int pivot = listFields.indexOf(':');
                     if (pivot > 0 && pivot < listFields.length() - 1) {
                         fields.add(new StructField(listFields.substring(0, pivot),
-                                hiveTypeToDorisType(listFields.substring(pivot + 1, index))));
+                                hiveTypeToDorisType(listFields.substring(pivot + 1, index), enableMappingVarbinary)));
                         listFields = listFields.substring(Math.min(index + 1, listFields.length()));
                     } else {
                         break;
@@ -718,7 +723,7 @@ public class HiveMetaStoreClientHelper {
     public static String showCreateTable(HMSExternalTable hmsTable) {
         // Always use the latest schema
         HMSExternalCatalog catalog = (HMSExternalCatalog) hmsTable.getCatalog();
-        Table remoteTable = catalog.getClient().getTable(hmsTable.getDbName(), hmsTable.getRemoteName());
+        Table remoteTable = catalog.getClient().getTable(hmsTable.getRemoteDbName(), hmsTable.getRemoteName());
         StringBuilder output = new StringBuilder();
         if (remoteTable.isSetViewOriginalText() || remoteTable.isSetViewExpandedText()) {
             output.append(String.format("CREATE VIEW `%s` AS ", remoteTable.getTableName()));
@@ -862,7 +867,7 @@ public class HiveMetaStoreClientHelper {
 
     private static Optional<String> firstNonNullable(String... values) {
         for (String value : values) {
-            if (!Strings.isNullOrEmpty(value)) {
+            if (value != null) {
                 return Optional.of(value);
             }
         }
@@ -883,8 +888,10 @@ public class HiveMetaStoreClientHelper {
      *
      * @param altValue
      *                 The string containing a number.
+     * @param defValue
+     *                 The default value to return if altValue is invalid.
      */
-    public static String getByte(String altValue) {
+    public static String getByte(String altValue, String defValue) {
         if (altValue != null && altValue.length() > 0) {
             try {
                 return Character.toString((char) ((Byte.parseByte(altValue) + 256) % 256));
@@ -892,6 +899,6 @@ public class HiveMetaStoreClientHelper {
                 return altValue.substring(0, 1);
             }
         }
-        return null;
+        return defValue;
     }
 }

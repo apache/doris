@@ -27,6 +27,7 @@ import org.apache.doris.nereids.types.coercion.IntegralType;
 public class IntegerType extends IntegralType implements Int32OrLessType {
     public static final IntegerType INSTANCE = new IntegerType();
 
+    public static final int RANGE = 10; // The maximum number of digits that Integer can represent.
     private static final int WIDTH = 4;
 
     private IntegerType() {
@@ -60,5 +61,10 @@ public class IntegerType extends IntegralType implements Int32OrLessType {
     @Override
     public int width() {
         return WIDTH;
+    }
+
+    @Override
+    public int range() {
+        return RANGE;
     }
 }

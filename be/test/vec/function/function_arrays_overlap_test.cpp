@@ -71,37 +71,6 @@ TEST(function_arrays_overlap_test, arrays_overlap) {
         static_cast<void>(check_function<DataTypeUInt8, true>(func_name, input_types, data_set));
     }
 
-    // arrays_overlap(Array<Date>, Array<Date>)
-    {
-        InputTypeSet input_types = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_DATE,
-                                    PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_DATE};
-
-        TestArray vec1 = {std::string("2022-01-02"), std::string("2022-01-02"),
-                          std::string("2022-07-08")};
-        TestArray vec2 = {std::string("2022-01-02")};
-        DataSet data_set = {
-                {{vec1, vec2}, UInt8(1)}, {{Null(), vec1}, Null()}, {{empty_arr, vec1}, UInt8(0)}};
-
-        static_cast<void>(check_function<DataTypeUInt8, true>(func_name, input_types, data_set));
-    }
-
-    // arrays_overlap(Array<DateTime>, Array<DateTime>)
-    {
-        InputTypeSet input_types = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_DATETIME,
-                                    PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_DATETIME};
-
-        TestArray vec1 = {std::string("2022-01-02 00:00:00"), std::string("2022-01-02 00:00:00"),
-                          std::string("2022-07-08 00:00:00")};
-        TestArray vec2 = {std::string("2022-01-02 00:00:00")};
-        TestArray vec3 = {std::string("")};
-        DataSet data_set = {{{vec1, vec2}, UInt8(1)},
-                            {{vec1, vec3}, Null()},
-                            {{Null(), vec1}, Null()},
-                            {{empty_arr, vec1}, UInt8(0)}};
-
-        static_cast<void>(check_function<DataTypeUInt8, true>(func_name, input_types, data_set));
-    }
-
     // arrays_overlap(Array<Decimal128V2>, Array<Decimal128V2>)
     {
         InputTypeSet input_types = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_DECIMALV2,
@@ -117,8 +86,8 @@ TEST(function_arrays_overlap_test, arrays_overlap) {
         TestArray vec5 = {ut_type::DECIMALV2(-17014116.68)};
         DataSet data_set = {{{vec1, vec2}, UInt8(1)}, {{Null(), vec1}, Null()},
                             {{vec1, Null()}, Null()}, {{empty_arr, vec1}, UInt8(0)},
-                            {{vec3, vec4}, UInt8(1)}, {{vec3, vec5}, Null()},
-                            {{vec4, vec3}, UInt8(1)}, {{vec5, vec3}, Null()}};
+                            {{vec3, vec4}, UInt8(1)}, {{vec3, vec5}, UInt8(0)},
+                            {{vec4, vec3}, UInt8(1)}, {{vec5, vec3}, UInt8(0)}};
 
         static_cast<void>(check_function<DataTypeUInt8, true>(func_name, input_types, data_set));
     }
@@ -135,8 +104,8 @@ TEST(function_arrays_overlap_test, arrays_overlap) {
         TestArray vec5 = {std::string("abcd"), Null()};
         DataSet data_set = {{{vec1, vec2}, UInt8(1)}, {{vec1, vec3}, UInt8(1)},
                             {{Null(), vec1}, Null()}, {{empty_arr, vec1}, UInt8(0)},
-                            {{vec4, vec1}, UInt8(1)}, {{vec1, vec5}, Null()},
-                            {{vec1, vec4}, UInt8(1)}, {{vec5, vec1}, Null()}};
+                            {{vec4, vec1}, UInt8(1)}, {{vec1, vec5}, UInt8(0)},
+                            {{vec1, vec4}, UInt8(1)}, {{vec5, vec1}, UInt8(0)}};
 
         static_cast<void>(check_function<DataTypeUInt8, true>(func_name, input_types, data_set));
     }
@@ -170,10 +139,11 @@ TEST(function_arrays_overlap_test, arrays_overlap) {
         TestArray vec3 = {std::string("")};
         TestArray vec4 = {std::string("abc")};
         TestArray vec5 = {std::string("abcd")};
+        TestArray vec6 = {std::string("abc"), Null()};
         DataSet data_set = {{{vec1, vec2}, UInt8(1)},      {{vec1, vec3}, UInt8(1)},
                             {{empty_arr, vec1}, UInt8(0)}, {{vec4, vec1}, UInt8(1)},
                             {{vec1, vec5}, UInt8(0)},      {{vec1, vec4}, UInt8(1)},
-                            {{vec5, vec1}, UInt8(0)}};
+                            {{vec5, vec1}, UInt8(0)},      {{vec1, vec6}, UInt8(1)}};
 
         static_cast<void>(check_function<DataTypeUInt8, true>(func_name, input_types, data_set));
     }

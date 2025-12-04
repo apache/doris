@@ -40,7 +40,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 
 import java.lang.reflect.Constructor;
@@ -212,7 +212,7 @@ public class FunctionRegistry {
         return candidateBuilders.get(0);
     }
 
-    private List<FunctionBuilder> findBuiltinFunctionBuilder(String name, List<?> arguments) {
+    public List<FunctionBuilder> findBuiltinFunctionBuilder(String name, List<?> arguments) {
         List<FunctionBuilder> functionBuilders;
         // search internal function only if dbName is empty
         functionBuilders = name2BuiltinBuilders.get(name.toLowerCase());

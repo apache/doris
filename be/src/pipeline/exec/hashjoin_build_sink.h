@@ -50,7 +50,7 @@ public:
     [[nodiscard]] MOCK_FUNCTION size_t get_reserve_mem_size(RuntimeState* state, bool eos);
 
 protected:
-    Status _hash_table_init(RuntimeState* state);
+    Status _hash_table_init(RuntimeState* state, const vectorized::ColumnRawPtrs& raw_ptrs);
     void _set_build_side_has_external_nullmap(vectorized::Block& block,
                                               const std::vector<int>& res_col_ids);
     Status _do_evaluate(vectorized::Block& block, vectorized::VExprContextSPtrs& exprs,
@@ -126,7 +126,7 @@ public:
                                               ._should_build_hash_table;
     }
 
-    DataDistribution required_data_distribution() const override {
+    DataDistribution required_data_distribution(RuntimeState* /*state*/) const override {
         if (_join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
             return {ExchangeType::NOOP};
         } else if (_is_broadcast_join) {
@@ -179,7 +179,7 @@ private:
 
 template <class HashTableContext>
 struct ProcessHashTableBuild {
-    ProcessHashTableBuild(size_t rows, vectorized::ColumnRawPtrs& build_raw_ptrs,
+    ProcessHashTableBuild(uint32_t rows, vectorized::ColumnRawPtrs& build_raw_ptrs,
                           HashJoinBuildSinkLocalState* parent, int batch_size, RuntimeState* state)
             : _rows(rows),
               _build_raw_ptrs(build_raw_ptrs),
@@ -204,8 +204,8 @@ struct ProcessHashTableBuild {
         }
 
         SCOPED_TIMER(_parent->_build_table_insert_timer);
-        hash_table_ctx.hash_table->template prepare_build<JoinOpType>(_rows, _batch_size,
-                                                                      *has_null_key);
+        hash_table_ctx.hash_table->template prepare_build<JoinOpType>(
+                _rows, _batch_size, *has_null_key, hash_table_ctx.direct_mapping_range());
 
         // In order to make the null keys equal when using single null eq, all null keys need to be set to default value.
         if (_build_raw_ptrs.size() == 1 && null_map) {
@@ -246,7 +246,7 @@ struct ProcessHashTableBuild {
     }
 
 private:
-    const size_t _rows;
+    const uint32_t _rows;
     vectorized::ColumnRawPtrs& _build_raw_ptrs;
     HashJoinBuildSinkLocalState* _parent = nullptr;
     int _batch_size;

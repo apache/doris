@@ -27,7 +27,10 @@
 #include "pipeline/exec/union_sink_operator.h"
 #include "runtime/descriptors.h"
 #include "util/defer_op.h"
+#include "vec/columns/column.h"
 #include "vec/core/block.h"
+#include "vec/core/columns_with_type_and_name.h"
+#include "vec/data_types/data_type_number.h" // IWYU pragma: keep
 
 namespace doris {
 #include "common/compile_check_begin.h"
@@ -48,7 +51,7 @@ Status UnionSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
                 _parent->operator_id(), _parent->node_id(), _parent->get_name() + "_DEPENDENCY");
         _dependency = _only_const_dependency.get();
         _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(
-                _runtime_profile, "WaitForDependency[" + _dependency->name() + "]Time", 1);
+                common_profile(), "WaitForDependency[" + _dependency->name() + "]Time", 1);
         _dependency->set_ready();
     }
 
@@ -151,24 +154,23 @@ Status UnionSourceOperatorX::get_next_const(RuntimeState* state, vectorized::Blo
     auto& _const_expr_list_idx = local_state._const_expr_list_idx;
     vectorized::MutableBlock mblock =
             vectorized::VectorizedUtils::build_mutable_mem_reuse_block(block, row_descriptor());
+
+    vectorized::ColumnsWithTypeAndName tmp_block_columns;
     for (; _const_expr_list_idx < _const_expr_lists.size() && mblock.rows() < state->batch_size();
          ++_const_expr_list_idx) {
-        vectorized::Block tmp_block;
-        tmp_block.insert({vectorized::ColumnUInt8::create(1),
-                          std::make_shared<vectorized::DataTypeUInt8>(), ""});
         int const_expr_lists_size = cast_set<int>(_const_expr_lists[_const_expr_list_idx].size());
         if (_const_expr_list_idx && const_expr_lists_size != _const_expr_lists[0].size()) {
             return Status::InternalError(
                     "[UnionNode]const expr at {}'s count({}) not matched({} expected)",
                     _const_expr_list_idx, const_expr_lists_size, _const_expr_lists[0].size());
         }
-
         std::vector<int> result_list(const_expr_lists_size);
+        tmp_block_columns.resize(const_expr_lists_size);
         for (size_t i = 0; i < const_expr_lists_size; ++i) {
-            RETURN_IF_ERROR(_const_expr_lists[_const_expr_list_idx][i]->execute(&tmp_block,
-                                                                                &result_list[i]));
+            RETURN_IF_ERROR(_const_expr_lists[_const_expr_list_idx][i]->execute_const_expr(
+                    tmp_block_columns[i]));
         }
-        tmp_block.erase_not_in(result_list);
+        vectorized::Block tmp_block(tmp_block_columns);
         if (tmp_block.columns() != mblock.columns()) {
             return Status::InternalError(
                     "[UnionNode]columns count of const expr block not matched ({} vs {})",
@@ -188,6 +190,18 @@ Status UnionSourceOperatorX::get_next_const(RuntimeState* state, vectorized::Blo
                        std::make_shared<vectorized::DataTypeUInt8>(), ""});
     }
     return Status::OK();
+}
+
+Status UnionSourceLocalState::close(RuntimeState* state) {
+    SCOPED_TIMER(exec_time_counter());
+    SCOPED_TIMER(_close_timer);
+    if (_closed) {
+        return Status::OK();
+    }
+    if (_shared_state) {
+        _shared_state->data_queue.terminate();
+    }
+    return Base::close(state);
 }
 
 } // namespace pipeline

@@ -16,6 +16,7 @@
 // under the License.
 
 suite("materialized_view_grouping_sets") {
+    sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
     String db = context.config.getDbNameByFile(context.file)
     sql "use ${db}"
     sql "set runtime_filter_mode=OFF";
@@ -472,6 +473,43 @@ suite("materialized_view_grouping_sets") {
     async_mv_rewrite_success(db, mv10_0, query10_0, "mv10_0")
     order_qt_query10_0_after "${query10_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv10_0"""
+
+
+    // single table rollup with grouping scalar function and filter
+    def mv10_1 =
+            """
+            select o_orderstatus, o_orderdate, o_orderpriority,
+            sum(o_totalprice) as sum_total,
+            max(o_totalprice) as max_total,
+            min(o_totalprice) as min_total,
+            count(*) as count_all,
+            bitmap_union(to_bitmap(case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end)) as bitmap_union_basic
+            from orders
+            where o_custkey > 1
+            group by
+            o_orderstatus, o_orderdate, o_orderpriority;
+            """
+    def query10_1 =
+            """
+            select o_orderstatus, o_orderpriority,
+            grouping_id(o_orderstatus, o_orderpriority),
+            grouping_id(o_orderstatus),
+            grouping(o_orderstatus),
+            sum(o_totalprice),
+            max(o_totalprice),
+            min(o_totalprice),
+            count(*),
+            count(distinct case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end)
+            from orders
+            where o_custkey > 1
+            group by
+            ROLLUP (o_orderstatus, o_orderpriority);
+            """
+    order_qt_query10_1_before "${query10_1}"
+    async_mv_rewrite_success(db, mv10_1, query10_1, "mv10_1")
+    order_qt_query10_1_after "${query10_1}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv10_1"""
+
 
     // multi table rollup without grouping scalar function
     def mv11_0 =

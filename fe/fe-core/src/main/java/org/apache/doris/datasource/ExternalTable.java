@@ -46,7 +46,7 @@ import com.google.common.base.Objects;
 import com.google.common.base.Strings;
 import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
-import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.NotImplementedException;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -90,6 +90,9 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
     protected boolean objectCreated;
     protected ExternalCatalog catalog;
     protected ExternalDatabase db;
+    // Used to save the mapping between local and remote names.
+    // prebuild it for performance.
+    protected NameMapping nameMapping;
 
     /**
      * No args constructor for persist.
@@ -118,6 +121,7 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
         this.dbName = db.getFullName();
         this.type = type;
         this.objectCreated = false;
+        this.nameMapping = new NameMapping(catalog.getId(), dbName, name, db.getRemoteName(), getRemoteName());
     }
 
     public void setCatalog(ExternalCatalog catalog) {
@@ -169,7 +173,7 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
     @Override
     public List<Column> getFullSchema() {
         ExternalSchemaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr().getSchemaCache(catalog);
-        Optional<SchemaCacheValue> schemaCacheValue = cache.getSchemaValue(dbName, name);
+        Optional<SchemaCacheValue> schemaCacheValue = cache.getSchemaValue(new SchemaCacheKey(getOrBuildNameMapping()));
         return schemaCacheValue.map(SchemaCacheValue::getSchema).orElse(null);
     }
 
@@ -392,7 +396,7 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
 
     public Optional<SchemaCacheValue> getSchemaCacheValue() {
         ExternalSchemaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr().getSchemaCache(catalog);
-        return cache.getSchemaValue(dbName, name);
+        return cache.getSchemaValue(new SchemaCacheKey(getOrBuildNameMapping()));
     }
 
     @Override
@@ -498,8 +502,11 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
         return db.getRemoteName();
     }
 
-
     public TableAttributes getTableAttributes() {
         return tableAttributes;
+    }
+
+    public NameMapping getOrBuildNameMapping() {
+        return nameMapping;
     }
 }

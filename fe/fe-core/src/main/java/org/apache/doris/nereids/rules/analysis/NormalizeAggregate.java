@@ -30,6 +30,7 @@ import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.OrderExpression;
+import org.apache.doris.nereids.trees.expressions.PreferPushDownProject;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotNotFromChildren;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -37,7 +38,6 @@ import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AnyValue;
-import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinction;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -176,7 +176,7 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
                     if (arg instanceof Literal) {
                         continue;
                     }
-                    if (arg.containsType(SubqueryExpr.class, WindowExpression.class)) {
+                    if (arg.containsType(SubqueryExpr.class, WindowExpression.class, PreferPushDownProject.class)) {
                         needPushDownSelfExprs.add(arg);
                     } else {
                         needPushDownInputs.add(arg);
@@ -270,15 +270,7 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
                 normalizedAggFuncsToSlotContext.pushDownToNamedExpression(normalizedAggFuncs)
         );
         // create new agg node
-        ImmutableList<NamedExpression> aggOutput = normalizedAggOutputBuilder.build();
-        ImmutableList.Builder<NamedExpression> newAggOutputBuilder
-                = ImmutableList.builderWithExpectedSize(aggOutput.size());
-        for (NamedExpression output : aggOutput) {
-            Expression rewrittenExpr = output.rewriteDownShortCircuit(
-                    e -> e instanceof MultiDistinction ? ((MultiDistinction) e).withMustUseMultiDistinctAgg(true) : e);
-            newAggOutputBuilder.add((NamedExpression) rewrittenExpr);
-        }
-        ImmutableList<NamedExpression> normalizedAggOutput = newAggOutputBuilder.build();
+        ImmutableList<NamedExpression> normalizedAggOutput = normalizedAggOutputBuilder.build();
 
         // create upper projects by normalize all output exprs in old LogicalAggregate
         // In aggregateOutput, the expressions inside the agg function can be rewritten
@@ -313,7 +305,7 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
                     for (Slot slot : missingSlotsInAggregate) {
                         Alias anyValue = new Alias(new AnyValue(slot), slot.getName());
                         replaceMap.put(slot, anyValue.toSlot());
-                        newAggOutputBuilder.add(anyValue);
+                        normalizedAggOutputBuilder.add(anyValue);
                     }
                     upperProjects = upperProjects.stream()
                             .map(e -> (NamedExpression) ExpressionUtils.replace(e, replaceMap))
@@ -328,10 +320,10 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
         } else {
             bottomPlan = aggregate.child();
         }
-        // NOTICE: we must call newAggOutputBuilder.build() here, newAggOutputBuilder could be updated if we need
-        //  to process non-standard aggregate: SELECT c1, c2 FROM t GROUP BY c1
+        // NOTICE: we must call normalizedAggOutputBuilder.build() here, normalizedAggOutputBuilder could be updated
+        // if we need to process non-standard aggregate: SELECT c1, c2 FROM t GROUP BY c1
         LogicalAggregate<?> newAggregate =
-                aggregate.withNormalized(normalizedGroupExprs, newAggOutputBuilder.build(), bottomPlan);
+                aggregate.withNormalized(normalizedGroupExprs, normalizedAggOutputBuilder.build(), bottomPlan);
         ExpressionRewriteContext rewriteContext = new ExpressionRewriteContext(ctx);
         LogicalProject<Plan> project = eliminateGroupByConstant(groupByExprContext, rewriteContext,
                 normalizedGroupExprs, normalizedAggOutput, bottomProjects, aggregate, upperProjects, newAggregate);

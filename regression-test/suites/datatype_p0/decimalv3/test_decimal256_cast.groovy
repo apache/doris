@@ -74,18 +74,7 @@ suite("test_decimal256_cast") {
         select k1, cast(v1 as decimalv3(76, 0)) from cast_to_dec256 order by k1, v1;
     """
 
-    test {
-        sql """
-            select /*+SET_VAR(enable_fold_constant_by_be = true) */cast(cast("12345678.000000000000000000000000000000001" as decimalv3(76, 60)) as float);
-        """
-        exception "Arithmetic overflow"
-    }
-    test {
-        sql """
-            select /*+SET_VAR(enable_fold_constant_by_be = false) */cast(cast("12345678.000000000000000000000000000000001" as decimalv3(76, 60)) as float);
-        """
-        exception "Arithmetic overflow"
-    }
+    testFoldConst("""select cast(cast("12345678.000000000000000000000000000000001" as decimalv3(76, 60)) as float);""");
 
     sql """
         drop table  if exists dec256cast_to_float;
@@ -102,12 +91,9 @@ suite("test_decimal256_cast") {
     sql """
         insert into dec256cast_to_float values  (1, "12345678.000000000000000000000000000000001");
     """
-    test {
-        sql """
-            select cast(v1 as float) from dec256cast_to_float;
-        """
-        exception "Arithmetic overflow"
-    }
+    qt_decimal256_cast_to_float_1 """
+        select cast(v1 as float) from dec256cast_to_float;
+    """
     qt_decimal256_cast_to_double_1 """
         select cast(v1 as double) from dec256cast_to_float;
     """

@@ -18,6 +18,9 @@
 package org.apache.doris.nereids.trees.expressions.functions;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
+import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
@@ -36,6 +39,12 @@ public interface ComputePrecisionForRound extends ComputePrecision {
             DecimalV3Type decimalV3Type = DecimalV3Type.forType(getArgumentType(0));
             Expression floatLength = getArgument(1);
             int scale;
+
+            if (!floatLength.isLiteral() && !floatLength.isSlot()) {
+                ExpressionRewriteContext rewriteContext = new ExpressionRewriteContext(
+                        CascadesContext.initTempContext());
+                floatLength = FoldConstantRuleOnFE.evaluate(floatLength, rewriteContext);
+            }
 
             // If scale arg is an integer literal, or it is a cast(Integer as Integer)
             // then we will try to use its value as result scale

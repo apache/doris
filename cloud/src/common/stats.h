@@ -23,6 +23,10 @@
 
 namespace doris::cloud {
 struct KVStats {
+    int64_t get_bytes {};
+    int64_t put_bytes {};
+    int64_t del_bytes {};
+
     int64_t get_counter {};
     int64_t put_counter {};
     int64_t del_counter {};

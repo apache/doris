@@ -51,7 +51,7 @@ public:
                     assert_cast<const DataTypeArray&>(*(remove_nullable(arguments[i])))
                             .get_nested_type());
             // do check array nested data type, now we just support same nested data type
-            CHECK(nested_type->equals(*right_nested_type))
+            CHECK(nested_type->equals_ignore_precision(*right_nested_type))
                     << "data type " << arguments[i]->get_name() << " not equal with "
                     << arguments[0]->get_name();
         }

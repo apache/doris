@@ -22,6 +22,7 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.IPv6Type;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.googlecode.ipv6.IPv6Address;
 
 import java.util.regex.Pattern;
@@ -35,6 +36,9 @@ public class IPv6Literal extends Literal implements ComparableLiteral {
             Pattern.compile("^([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}$");
     private static final Pattern IPV6_COMPRESS_REGEX =
             Pattern.compile("^(([0-9A-Fa-f]{1,4}(:[0-9A-Fa-f]{1,4})*)?)::((([0-9A-Fa-f]{1,4}:)*[0-9A-Fa-f]{1,4})?)$");
+    private static final String IPV4_PART = "(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)";
+    private static final Pattern IPV6_MAPPED_REGEX =
+            Pattern.compile("^::[fF]{4}:(" + IPV4_PART + "\\.){3}" + IPV4_PART + "$");
 
     private final IPv6Address value;
 
@@ -83,11 +87,23 @@ public class IPv6Literal extends Literal implements ComparableLiteral {
                 + this + " (" + dataType + ") vs " + other + " (" + ((Literal) other).dataType + ")");
     }
 
+    /**
+     * check IPv6 is valid
+     */
     public void checkValueValid(String ipv6) throws AnalysisException {
         if (ipv6.length() > 39) {
-            throw new AnalysisException("The length of IPv6 must not exceed 39.");
-        } else if (!IPV6_STD_REGEX.matcher(ipv6).matches() && !IPV6_COMPRESS_REGEX.matcher(ipv6).matches()) {
-            throw new AnalysisException("Invalid IPv6 format.");
+            throw new AnalysisException("The length of IPv6 must not exceed 39: " + ipv6);
+        } else if (!isValidIPv6(ipv6)) {
+            throw new AnalysisException("Invalid IPv6 format: " + ipv6);
         }
+    }
+
+    @VisibleForTesting
+    public static boolean isValidIPv6(String ipv6) {
+        if (IPV6_STD_REGEX.matcher(ipv6).matches() || IPV6_COMPRESS_REGEX.matcher(ipv6).matches()
+                || IPV6_MAPPED_REGEX.matcher(ipv6).matches()) {
+            return true;
+        }
+        return false;
     }
 }

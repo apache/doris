@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_array_load", "load_p0") {
+suite("test_array_load", "load_p0,external") {
     // define a sql table
     def testTable = "tbl_test_array_load"
     def testTable01 = "tbl_test_array_load01"
@@ -137,9 +137,10 @@ suite("test_array_load", "load_p0") {
                             DATA INFILE("${hdfsFilePath}")
                             INTO TABLE ${testTablex}
                             FORMAT as "${format}")
-                        with BROKER "${brokerName}" (
+                        with HDFS (
                         "username"="${hdfsUser}",
-                        "password"="${hdfsPasswd}")
+                        "password"="${hdfsPasswd}",
+                        "fs.defaultFS"="${context.config.otherConfigs.get('hdfsFs')}")
                         PROPERTIES  (
                         "timeout"="1200",
                         "max_filter_ratio"="0.1");
@@ -157,9 +158,10 @@ suite("test_array_load", "load_p0") {
                             INTO TABLE ${testTablex}
                             COLUMNS TERMINATED BY "/"
                             FORMAT as "${format}")
-                        with BROKER "${brokerName}" (
+                        with HDFS (
                         "username"="${hdfsUser}",
-                        "password"="${hdfsPasswd}")
+                        "password"="${hdfsPasswd}",
+                        "fs.defaultFS"="${context.config.otherConfigs.get('hdfsFs')}")
                         PROPERTIES  (
                         "timeout"="1200",
                         "max_filter_ratio"="0.1");
@@ -170,15 +172,30 @@ suite("test_array_load", "load_p0") {
         assertTrue(result1[0][0] == 0, "Query OK, 0 rows affected")
     }
     
+    def load_from_tvf = { testTablex, label, hdfsFilePath, format, brokerName, hdfsUser, hdfsPasswd ->
+        def result1= sql """
+            insert into ${testTablex} select * from 
+            hdfs(
+              "uri" = "${hdfsFilePath}",
+              "fs.defaultFS" = "${context.config.otherConfigs.get('hdfsFs')}",
+              "hadoop.username" = "${hdfsUser}",
+              "password"="${hdfsPasswd}",
+              "column_separator" = "/",
+              "format" = "${format}"); """
+
+        logger.info("result1: ${result1}")
+    }
+    
     def check_load_result = {checklabel, testTablex ->
-        max_try_milli_secs = 10000
+        def max_try_milli_secs = 10000
         while(max_try_milli_secs) {
-            result = sql "show load where label = '${checklabel}'"
+            def result = sql "show load where label = '${checklabel}'"
             if(result[0][2] == "FINISHED") {
                 sql "sync"
                 qt_select "select * from ${testTablex} order by k1"
                 break
             } else {
+                logger.info("${result}")
                 sleep(1000) // wait 1 second every time
                 max_try_milli_secs -= 1000
                 if(max_try_milli_secs <= 0) {
@@ -246,9 +263,9 @@ suite("test_array_load", "load_p0") {
     // if 'enableHdfs' in regression-conf.groovy has been set to true,
     // the test will run these case as below.
     if (enableHdfs()) {
-        brokerName =getBrokerName()
-        hdfsUser = getHdfsUser()
-        hdfsPasswd = getHdfsPasswd()
+        def brokerName =getBrokerName()
+        def hdfsUser = getHdfsUser()
+        def hdfsPasswd = getHdfsPasswd()
         def hdfs_json_file_path = uploadToHdfs "load_p0/broker_load/simple_object_array.json"
         def hdfs_csv_file_path = uploadToHdfs "load_p0/broker_load/simple_array.csv"
         def hdfs_orc_file_path = uploadToHdfs "load_p0/broker_load/simple_array.orc"
@@ -317,7 +334,8 @@ suite("test_array_load", "load_p0") {
         } finally {
             try_sql("DROP TABLE IF EXISTS ${testTable}")
         }
-
+        
+        logger.info("case 9")
         // case9: import array data by hdfs in orc format and enable vectorized
         try {
             sql "DROP TABLE IF EXISTS ${testTable}"
@@ -325,25 +343,28 @@ suite("test_array_load", "load_p0") {
             create_test_table.call(testTable)
 
             def test_load_label = UUID.randomUUID().toString().replaceAll("-", "")
-            load_from_hdfs1.call(testTable, test_load_label, hdfs_orc_file_path, "orc",
-                                brokerName, hdfsUser, hdfsPasswd)
-            
-            check_load_result.call(test_load_label, testTable)
+            //load_from_hdfs1.call(testTable, test_load_label, hdfs_orc_file_path, "orc",
+            //                    brokerName, hdfsUser, hdfsPasswd)
+            load_from_tvf(testTable, test_load_label, hdfs_orc_file_path, "orc", brokerName, hdfsUser, hdfsPasswd)
+            qt_select "select * from ${testTable} order by k1"
+            //check_load_result.call(test_load_label, testTable)
 
         } finally {
             try_sql("DROP TABLE IF EXISTS ${testTable}")
         }
+        
         // test unified load
+        logger.info("case 10")
         try {
             sql "DROP TABLE IF EXISTS ${testTable}"
 
             create_test_table.call(testTable)
 
             def test_load_label = UUID.randomUUID().toString().replaceAll("-", "")
-            load_from_hdfs1.call(testTable, test_load_label, hdfs_orc_file_path, "orc",
+            load_from_tvf(testTable, test_load_label, hdfs_orc_file_path, "orc",
                     brokerName, hdfsUser, hdfsPasswd)
-
-            check_load_result.call(test_load_label, testTable)
+            qt_select "select * from ${testTable} order by k1"
+            //check_load_result.call(test_load_label, testTable)
 
         } finally {
             try_sql("DROP TABLE IF EXISTS ${testTable}")
@@ -356,10 +377,10 @@ suite("test_array_load", "load_p0") {
             create_test_table.call(testTable)
 
             def test_load_label = UUID.randomUUID().toString().replaceAll("-", "")
-            load_from_hdfs1.call(testTable, test_load_label, hdfs_parquet_file_path, "parquet",
+            load_from_tvf(testTable, test_load_label, hdfs_parquet_file_path, "parquet",
                                 brokerName, hdfsUser, hdfsPasswd)
-            
-            check_load_result.call(test_load_label, testTable)
+            qt_select "select * from ${testTable} order by k1"
+            //check_load_result.call(test_load_label, testTable)
 
         } finally {
             try_sql("DROP TABLE IF EXISTS ${testTable}")
@@ -371,10 +392,10 @@ suite("test_array_load", "load_p0") {
             create_test_table.call(testTable)
 
             def test_load_label = UUID.randomUUID().toString().replaceAll("-", "")
-            load_from_hdfs1.call(testTable, test_load_label, hdfs_parquet_file_path, "parquet",
+            load_from_tvf(testTable, test_load_label, hdfs_parquet_file_path, "parquet",
                     brokerName, hdfsUser, hdfsPasswd)
-
-            check_load_result.call(test_load_label, testTable)
+            qt_select "select * from ${testTable} order by k1"
+            //check_load_result.call(test_load_label, testTable)
 
         } finally {
             try_sql("DROP TABLE IF EXISTS ${testTable}")
@@ -387,10 +408,10 @@ suite("test_array_load", "load_p0") {
             create_test_table.call(testTable)
 
             def test_load_label = UUID.randomUUID().toString().replaceAll("-", "")
-            load_from_hdfs1.call(testTable, test_load_label, hdfs_orc_file_path2, "orc",
+            load_from_tvf(testTable, test_load_label, hdfs_orc_file_path2, "orc",
                                 brokerName, hdfsUser, hdfsPasswd)
-            
-            check_load_result.call(test_load_label, testTable)
+            qt_select "select * from ${testTable} order by k1"
+            //check_load_result.call(test_load_label, testTable)
 
         } finally {
             try_sql("DROP TABLE IF EXISTS ${testTable}")
@@ -402,13 +423,12 @@ suite("test_array_load", "load_p0") {
             create_test_table.call(testTable)
 
             def test_load_label = UUID.randomUUID().toString().replaceAll("-", "")
-            load_from_hdfs1.call(testTable, test_load_label, hdfs_orc_file_path2, "orc",
+            load_from_tvf(testTable, test_load_label, hdfs_orc_file_path2, "orc",
                     brokerName, hdfsUser, hdfsPasswd)
-
-            check_load_result.call(test_load_label, testTable)
+            qt_select "select * from ${testTable} order by k1"
+            //check_load_result.call(test_load_label, testTable)
 
         } finally {
-            try_sql("DROP TABLE IF EXISTS ${testTable}")
         }
     }
 }

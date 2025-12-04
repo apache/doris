@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.expressions.functions.agg;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 
+import java.util.Arrays;
 import java.util.List;
 
 /**
@@ -27,19 +28,33 @@ import java.util.List;
  */
 public abstract class NotNullableAggregateFunction extends AggregateFunction implements AlwaysNotNullable {
     protected NotNullableAggregateFunction(String name, Expression ...expressions) {
-        super(name, false, expressions);
+        this(name, false, false, Arrays.asList(expressions));
     }
 
     protected NotNullableAggregateFunction(String name, List<Expression> expressions) {
-        super(name, false, expressions);
+        this(name, false, false, expressions);
     }
 
     protected NotNullableAggregateFunction(String name, boolean distinct, Expression ...expressions) {
-        super(name, distinct, expressions);
+        this(name, distinct, false, Arrays.asList(expressions));
     }
 
     protected NotNullableAggregateFunction(String name, boolean distinct, List<Expression> expressions) {
-        super(name, distinct, expressions);
+        this(name, distinct, false, expressions);
+    }
+
+    protected NotNullableAggregateFunction(String name, boolean distinct, boolean isSkew, Expression ...expressions) {
+        this(name, distinct, isSkew, Arrays.asList(expressions));
+    }
+
+    protected NotNullableAggregateFunction(String name, boolean distinct, boolean isSkew,
+            List<Expression> expressions) {
+        super(name, distinct, isSkew, expressions);
+    }
+
+    /** constructor for withChildren and reuse signature */
+    protected NotNullableAggregateFunction(AggregateFunctionParams functionParams) {
+        super(functionParams);
     }
 
     // return value of this function if the input data is empty.

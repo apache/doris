@@ -49,13 +49,18 @@ public class MultiMatchAny extends ScalarFunction
         super("multi_match_any", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private MultiMatchAny(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public MultiMatchAny withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new MultiMatchAny(children.get(0), children.get(1));
+        return new MultiMatchAny(getFunctionParams(children));
     }
 
     @Override

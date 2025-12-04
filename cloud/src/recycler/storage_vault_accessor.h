@@ -94,6 +94,8 @@ public:
     // return 0 if file exists, 1 if file is not found, negative for error
     virtual int exists(const std::string& path) = 0;
 
+    virtual int abort_multipart_upload(const std::string& path, const std::string& upload_id) = 0;
+
 private:
     const AccessorType type_;
 

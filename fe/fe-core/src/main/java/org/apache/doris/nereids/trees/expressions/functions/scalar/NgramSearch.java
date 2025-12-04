@@ -57,13 +57,18 @@ public class NgramSearch extends ScalarFunction
         }
     }
 
+    /** constructor for withChildren and reuse signature */
+    private NgramSearch(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public NgramSearch withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 3);
-        return new NgramSearch(children.get(0), children.get(1), children.get(2));
+        return new NgramSearch(getFunctionParams(children));
     }
 
     @Override

@@ -236,6 +236,22 @@ public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void
                     () -> join.right().accept(this, context));
             switch (join.getJoinType()) {
                 case CROSS_JOIN:
+                    /*
+                     * select * from t1 where exsits (select * from t2) or t1.a=t1.b
+                     * The above SQL will generate a mark join, with the join type being CROSS_JOIN.
+                     * In this case,
+                     * it is equivalent to simulating a left semi join using a cross join, and
+                     * predicates cannot be pulled up from the right child.
+                     */
+                    if (join.isMarkJoin()) {
+                        predicates.addAll(leftPredicates.get());
+                    } else {
+                        predicates.addAll(leftPredicates.get());
+                        predicates.addAll(rightPredicates.get());
+                        predicates.addAll(join.getHashJoinConjuncts());
+                        predicates.addAll(join.getOtherJoinConjuncts());
+                    }
+                    break;
                 case INNER_JOIN: {
                     predicates.addAll(leftPredicates.get());
                     predicates.addAll(rightPredicates.get());
@@ -244,6 +260,10 @@ public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void
                     break;
                 }
                 case LEFT_OUTER_JOIN:
+                    predicates.addAll(leftPredicates.get());
+                    predicates.addAll(
+                            generateNullTolerantPredicates(rightPredicates.get(), join.right().getOutputSet()));
+                    break;
                 case LEFT_SEMI_JOIN:
                 case LEFT_ANTI_JOIN:
                 case NULL_AWARE_LEFT_ANTI_JOIN: {
@@ -251,6 +271,10 @@ public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void
                     break;
                 }
                 case RIGHT_OUTER_JOIN:
+                    predicates.addAll(rightPredicates.get());
+                    predicates.addAll(
+                            generateNullTolerantPredicates(leftPredicates.get(), join.left().getOutputSet()));
+                    break;
                 case RIGHT_SEMI_JOIN:
                 case RIGHT_ANTI_JOIN: {
                     predicates.addAll(rightPredicates.get());
@@ -320,7 +344,8 @@ public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void
                             genPredicates = FoldConstantRuleOnFE.evaluate(genPredicates, rewriteContext);
                             if (isScalar) {
                                 // Aggregation will return null if there are no matching rows
-                                pullPredicates.add(new Or(new IsNull(slot), genPredicates));
+                                // SimplifyRange will put IsNull at the back
+                                pullPredicates.add(new Or(genPredicates, new IsNull(slot)));
                             } else {
                                 pullPredicates.add(genPredicates);
                             }
@@ -365,6 +390,30 @@ public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void
 
     private boolean supportPullUpAgg(Expression expr) {
         return supportAggFunctions.contains(expr.getClass());
+    }
+
+    private Set<Expression> generateNullTolerantPredicates(Set<Expression> predicates, Set<Slot> nullableSlots) {
+        if (predicates.isEmpty() || nullableSlots.isEmpty()) {
+            return predicates;
+        }
+        Set<Expression> tolerant = Sets.newLinkedHashSetWithExpectedSize(predicates.size());
+        for (Expression predicate : predicates) {
+            Set<Slot> predicateSlots = predicate.getInputSlots();
+            List<Expression> orChildren = new ArrayList<>();
+            if (predicateSlots.size() == 1) {
+                Slot slot = predicateSlots.iterator().next();
+                if (nullableSlots.contains(slot)) {
+                    orChildren.add(new IsNull(slot));
+                }
+            }
+            if (!orChildren.isEmpty()) {
+                List<Expression> expandedOr = new ArrayList<>(2);
+                expandedOr.add(predicate);
+                expandedOr.addAll(orChildren);
+                tolerant.add(ExpressionUtils.or(expandedOr));
+            }
+        }
+        return tolerant;
     }
 
     private ImmutableSet<Expression> getFiltersFromUnionChild(LogicalUnion union, Void context) {

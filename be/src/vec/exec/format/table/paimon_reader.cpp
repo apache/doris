@@ -28,30 +28,15 @@ namespace doris::vectorized {
 PaimonReader::PaimonReader(std::unique_ptr<GenericReader> file_format_reader,
                            RuntimeProfile* profile, RuntimeState* state,
                            const TFileScanRangeParams& params, const TFileRangeDesc& range,
-                           io::IOContext* io_ctx)
-        : TableFormatReader(std::move(file_format_reader), state, profile, params, range, io_ctx) {
+                           io::IOContext* io_ctx, FileMetaCache* meta_cache)
+        : TableFormatReader(std::move(file_format_reader), state, profile, params, range, io_ctx,
+                            meta_cache) {
     static const char* paimon_profile = "PaimonProfile";
     ADD_TIMER(_profile, paimon_profile);
     _paimon_profile.num_delete_rows =
             ADD_CHILD_COUNTER(_profile, "NumDeleteRows", TUnit::UNIT, paimon_profile);
     _paimon_profile.delete_files_read_time =
             ADD_CHILD_TIMER(_profile, "DeleteFileReadTime", paimon_profile);
-}
-
-Status PaimonReader::get_file_col_id_to_name(bool& exist_schema,
-                                             std::map<int, std::string>& file_col_id_to_name) {
-    if (!_params.__isset.history_schema_info) [[unlikely]] {
-        return Status::RuntimeError("miss paimon schema info.");
-    }
-
-    if (!_params.history_schema_info.contains(_range.table_format_params.paimon_params.schema_id))
-            [[unlikely]] {
-        return Status::InternalError("miss paimon schema info.");
-    }
-
-    file_col_id_to_name =
-            _params.history_schema_info.at(_range.table_format_params.paimon_params.schema_id);
-    return Status::OK();
 }
 
 Status PaimonReader::init_row_filters() {
@@ -123,9 +108,7 @@ Status PaimonReader::init_row_filters() {
 }
 
 Status PaimonReader::get_next_block_inner(Block* block, size_t* read_rows, bool* eof) {
-    RETURN_IF_ERROR(TableSchemaChangeHelper::get_next_block_before(block));
     RETURN_IF_ERROR(_file_format_reader->get_next_block(block, read_rows, eof));
-    RETURN_IF_ERROR(TableSchemaChangeHelper::get_next_block_after(block));
     return Status::OK();
 }
 #include "common/compile_check_end.h"

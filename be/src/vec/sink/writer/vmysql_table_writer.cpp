@@ -215,9 +215,7 @@ Status VMysqlTableWriter::_insert_row(vectorized::Block& block, size_t row) {
             int64_t int_val = assert_cast<const vectorized::ColumnDate&>(*column).get_data()[row];
             VecDateTimeValue value = binary_cast<int64_t, doris::VecDateTimeValue>(int_val);
 
-            char buf[64];
-            char* pos = value.to_string(buf);
-            std::string str(buf, pos - buf - 1);
+            std::string str = vectorized::CastToString::from_date_or_datetime(value);
             fmt::format_to(_insert_stmt_buffer, "'{}'", str);
             break;
         }
@@ -226,9 +224,7 @@ Status VMysqlTableWriter::_insert_row(vectorized::Block& block, size_t row) {
                     assert_cast<const vectorized::ColumnDateTime&>(*column).get_data()[row];
             VecDateTimeValue value = binary_cast<int64_t, doris::VecDateTimeValue>(int_val);
 
-            char buf[64];
-            char* pos = value.to_string(buf);
-            std::string str(buf, pos - buf - 1);
+            std::string str = vectorized::CastToString::from_date_or_datetime(value);
             fmt::format_to(_insert_stmt_buffer, "'{}'", str);
             break;
         }
@@ -238,9 +234,7 @@ Status VMysqlTableWriter::_insert_row(vectorized::Block& block, size_t row) {
             DateV2Value<DateV2ValueType> value =
                     binary_cast<uint32_t, DateV2Value<DateV2ValueType>>(int_val);
 
-            char buf[64];
-            char* pos = value.to_string(buf);
-            std::string str(buf, pos - buf - 1);
+            std::string str = vectorized::CastToString::from_datev2(value);
             fmt::format_to(_insert_stmt_buffer, "'{}'", str);
             break;
         }
@@ -250,13 +244,8 @@ Status VMysqlTableWriter::_insert_row(vectorized::Block& block, size_t row) {
             DateV2Value<DateTimeV2ValueType> value =
                     binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(int_val);
 
-            char buf[64];
-            char* pos = value.to_string(
-                    buf,
-                    assert_cast<const DataTypeDateTimeV2*>(
-                            remove_nullable(_vec_output_expr_ctxs[i]->root()->data_type()).get())
-                            ->get_scale());
-            std::string str(buf, pos - buf - 1);
+            std::string str =
+                    vectorized::CastToString::from_datetimev2(value, type_ptr->get_scale());
             fmt::format_to(_insert_stmt_buffer, "'{}'", str);
             break;
         }

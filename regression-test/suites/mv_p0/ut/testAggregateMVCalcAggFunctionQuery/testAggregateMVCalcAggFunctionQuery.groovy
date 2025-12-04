@@ -18,6 +18,8 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("testAggregateMVCalcAggFunctionQuery") {
+    // this mv rewrite would not be rewritten in RBO phase, so set TRY_IN_RBO explicitly to make case stable
+    sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
     sql """ DROP TABLE IF EXISTS emps; """
 
     sql """
@@ -39,7 +41,7 @@ suite ("testAggregateMVCalcAggFunctionQuery") {
     sql """insert into emps values("2020-01-03",3,"c",3,3,3);"""
 
 
-    createMV("create materialized view emps_mv as select deptno, empid, sum(salary) from emps group by empid, deptno;")
+    createMV("create materialized view emps_mv as select deptno as a1, empid as a2, sum(salary) from emps group by empid, deptno;")
 
     sql """insert into emps values("2020-01-01",1,"a",1,1,1);"""
     sql """insert into emps values("2020-01-01",1,"a",1,1,1);"""

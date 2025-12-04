@@ -46,7 +46,7 @@ int64_t DataTypeQuantileState::get_uncompressed_serialized_bytes(const IColumn& 
         auto allocate_len_size = sizeof(size_t) * real_need_copy_num;
         size_t allocate_content_size = 0;
         for (size_t i = 0; i < real_need_copy_num; ++i) {
-            auto& quantile_state = const_cast<QuantileState&>(data_column.get_element(i));
+            auto& quantile_state = data_column.get_element(i);
             allocate_content_size += quantile_state.get_serialized_size();
         }
         return size + allocate_len_size + allocate_content_size;
@@ -57,7 +57,7 @@ int64_t DataTypeQuantileState::get_uncompressed_serialized_bytes(const IColumn& 
         auto allocate_len_size = sizeof(size_t) * (column.size() + 1);
         size_t allocate_content_size = 0;
         for (size_t i = 0; i < column.size(); ++i) {
-            auto& quantile_state = const_cast<QuantileState&>(data_column.get_element(i));
+            auto& quantile_state = data_column.get_element(i);
             allocate_content_size += quantile_state.get_serialized_size();
         }
 
@@ -76,16 +76,16 @@ char* DataTypeQuantileState::serialize(const IColumn& column, char* buf,
         // serialize the quantile_state size array, row num saves at index 0
         auto* meta_ptr = (size_t*)buf;
         for (size_t i = 0; i < real_need_copy_num; ++i) {
-            auto& quantile_state = const_cast<QuantileState&>(data_column.get_element(i));
-            meta_ptr[i] = quantile_state.get_serialized_size();
+            auto& quantile_state = data_column.get_element(i);
+            unaligned_store<size_t>(&meta_ptr[i], quantile_state.get_serialized_size());
         }
 
         // serialize each quantile_state
         char* data_ptr = buf + sizeof(size_t) * real_need_copy_num;
         for (size_t i = 0; i < real_need_copy_num; ++i) {
-            auto& quantile_state = const_cast<QuantileState&>(data_column.get_element(i));
+            auto& quantile_state = data_column.get_element(i);
             quantile_state.serialize((uint8_t*)data_ptr);
-            data_ptr += meta_ptr[i];
+            data_ptr += unaligned_load<size_t>(&meta_ptr[i]);
         }
         return data_ptr;
     } else {
@@ -96,16 +96,16 @@ char* DataTypeQuantileState::serialize(const IColumn& column, char* buf,
         size_t* meta_ptr = (size_t*)buf;
         meta_ptr[0] = column.size();
         for (size_t i = 0; i < meta_ptr[0]; ++i) {
-            auto& quantile_state = const_cast<QuantileState&>(data_column.get_element(i));
-            meta_ptr[i + 1] = quantile_state.get_serialized_size();
+            auto& quantile_state = data_column.get_element(i);
+            unaligned_store<size_t>(&meta_ptr[i + 1], quantile_state.get_serialized_size());
         }
 
         // serialize each quantile_state
         char* data_ptr = buf + sizeof(size_t) * (meta_ptr[0] + 1);
         for (size_t i = 0; i < meta_ptr[0]; ++i) {
-            auto& quantile_state = const_cast<QuantileState&>(data_column.get_element(i));
+            auto& quantile_state = data_column.get_element(i);
             quantile_state.serialize((uint8_t*)data_ptr);
-            data_ptr += meta_ptr[i + 1];
+            data_ptr += unaligned_load<size_t>(&meta_ptr[i + 1]);
         }
 
         return data_ptr;
@@ -127,9 +127,10 @@ const char* DataTypeQuantileState::deserialize(const char* buf, MutableColumnPtr
         const auto* meta_ptr = reinterpret_cast<const size_t*>(buf);
         const char* data_ptr = buf + sizeof(size_t) * real_have_saved_num;
         for (size_t i = 0; i < real_have_saved_num; ++i) {
-            Slice slice(data_ptr, meta_ptr[i]);
+            const size_t size = unaligned_load<size_t>(&meta_ptr[i]);
+            Slice slice(data_ptr, size);
             data[i].deserialize(slice);
-            data_ptr += meta_ptr[i];
+            data_ptr += size;
         }
         return data_ptr;
     } else {
@@ -143,9 +144,10 @@ const char* DataTypeQuantileState::deserialize(const char* buf, MutableColumnPtr
         data.resize(meta_ptr[0]);
         const char* data_ptr = buf + sizeof(size_t) * (meta_ptr[0] + 1);
         for (size_t i = 0; i < meta_ptr[0]; ++i) {
-            Slice slice(data_ptr, meta_ptr[i + 1]);
+            const size_t size = unaligned_load<size_t>(&meta_ptr[i + 1]);
+            Slice slice(data_ptr, size);
             data[i].deserialize(slice);
-            data_ptr += meta_ptr[i + 1];
+            data_ptr += size;
         }
 
         return data_ptr;
@@ -156,28 +158,21 @@ MutableColumnPtr DataTypeQuantileState::create_column() const {
     return ColumnQuantileState::create();
 }
 
+Status DataTypeQuantileState::check_column(const IColumn& column) const {
+    return check_column_non_nested_type<ColumnQuantileState>(column);
+}
+
 void DataTypeQuantileState::serialize_as_stream(const QuantileState& cvalue, BufferWritable& buf) {
-    auto& value = const_cast<QuantileState&>(cvalue);
     std::string memory_buffer;
-    memory_buffer.resize(value.get_serialized_size());
-    value.serialize(const_cast<uint8_t*>(reinterpret_cast<uint8_t*>(memory_buffer.data())));
-    write_string_binary(memory_buffer, buf);
+    memory_buffer.resize(cvalue.get_serialized_size());
+    cvalue.serialize(reinterpret_cast<uint8_t*>(memory_buffer.data()));
+    buf.write_binary(memory_buffer);
 }
 
 void DataTypeQuantileState::deserialize_as_stream(QuantileState& value, BufferReadable& buf) {
     StringRef ref;
-    read_string_binary(ref, buf);
+    buf.read_binary(ref);
     value.deserialize(ref.to_slice());
-}
-
-void DataTypeQuantileState::to_string(const class doris::vectorized::IColumn& column,
-                                      size_t row_num,
-                                      doris::vectorized::BufferWritable& ostr) const {
-    auto& data = const_cast<QuantileState&>(
-            assert_cast<const ColumnQuantileState&>(column).get_element(row_num));
-    std::string result(data.get_serialized_size(), '0');
-    data.serialize((uint8_t*)result.data());
-    ostr.write(result.data(), result.size());
 }
 
 } // namespace doris::vectorized

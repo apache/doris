@@ -45,13 +45,18 @@ public class ExplodeNumbers extends TableGeneratingFunction implements UnaryExpr
         super("explode_numbers", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ExplodeNumbers(GeneratorFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public ExplodeNumbers withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new ExplodeNumbers(children.get(0));
+        return new ExplodeNumbers(getFunctionParams(children));
     }
 
     @Override

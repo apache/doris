@@ -53,13 +53,18 @@ public class Rpad extends ScalarFunction
         super("rpad", arg0, arg1, arg2);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Rpad(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public Rpad withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 3);
-        return new Rpad(children.get(0), children.get(1), children.get(2));
+        return new Rpad(getFunctionParams(children));
     }
 
     @Override

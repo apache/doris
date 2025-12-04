@@ -50,13 +50,18 @@ public class StAstext extends ScalarFunction
         super("st_astext", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private StAstext(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public StAstext withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new StAstext(children.get(0));
+        return new StAstext(getFunctionParams(children));
     }
 
     @Override

@@ -29,6 +29,7 @@ import java.io.InputStream;
 
 /**
  * It is just used for reading remote object storage on cloud.
+ *
  * @param <C> cloud SDK Client
  */
 public interface ObjStorage<C> extends AutoCloseable {

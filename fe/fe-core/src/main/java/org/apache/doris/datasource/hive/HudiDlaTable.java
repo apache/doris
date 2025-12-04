@@ -123,7 +123,7 @@ public class HudiDlaTable extends HMSDlaTable {
     private HMSSchemaCacheValue getHudiSchemaCacheValue(long timestamp) {
         ExternalSchemaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr().getSchemaCache(hmsTable.getCatalog());
         Optional<SchemaCacheValue> schemaCacheValue = cache.getSchemaValue(
-                new HudiSchemaCacheKey(hmsTable.getDbName(), hmsTable.getName(), timestamp));
+                new HudiSchemaCacheKey(hmsTable.getOrBuildNameMapping(), timestamp));
         if (!schemaCacheValue.isPresent()) {
             throw new CacheException("failed to getSchema for: %s.%s.%s.%s",
                     null, hmsTable.getCatalog().getName(), hmsTable.getDbName(), hmsTable.getName(), timestamp);

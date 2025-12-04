@@ -64,20 +64,14 @@ public class ShowCreateUserCommandTest extends TestWithFeService {
 
     @Test
     void testHandleShowCreateUser() throws Exception {
-        ShowCreateUserCommand sc = new ShowCreateUserCommand(null);
-        sc.handleShowCreateUser(connectContext, null);
-
         UserIdentity user = new UserIdentity("test", "127.0.0.1");
-        sc = new ShowCreateUserCommand(user);
+        ShowCreateUserCommand sc = new ShowCreateUserCommand(user);
         ShowCreateUserCommand finalSc = sc;
         Assertions.assertThrows(AnalysisException.class, () -> finalSc.handleShowCreateUser(connectContext, null));
 
         sc = new ShowCreateUserCommand(user);
         ShowCreateUserCommand finalSc1 = sc;
         Assertions.assertThrows(AnalysisException.class, () -> finalSc1.handleShowCreateUser(connectContext, null));
-
-        sc = new ShowCreateUserCommand(null);
-        sc.handleShowCreateUser(connectContext, null);
 
         // test domain user
         UserIdentity userIdentity = new UserIdentity("zhangsan", "palo.domain1", true);

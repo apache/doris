@@ -38,14 +38,15 @@ FileMetaData::~FileMetaData() {
     ExecEnv::GetInstance()->parquet_meta_tracker()->release(_mem_size);
 }
 
-Status FileMetaData::init_schema() {
+Status FileMetaData::init_schema(const bool enable_mapping_varbinary) {
     if (_metadata.schema[0].num_children <= 0) {
         return Status::Corruption("Invalid parquet schema");
     }
+    _schema.set_enable_mapping_varbinary(enable_mapping_varbinary);
     return _schema.parse_from_thrift(_metadata.schema);
 }
 
-const tparquet::FileMetaData& FileMetaData::to_thrift() {
+const tparquet::FileMetaData& FileMetaData::to_thrift() const {
     return _metadata;
 }
 

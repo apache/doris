@@ -100,7 +100,7 @@ public class LoadBalanceScanWorkerSelector implements ScanWorkerSelector {
             long bytes = getScanRangeSize(scanNode, onePartitionOneScanRangeLocation);
 
             WorkerScanRanges assigned = selectScanReplicaAndMinWorkloadWorker(
-                    onePartitionOneScanRangeLocation, bytes, orderedScanRangeLocations);
+                    onePartitionOneScanRangeLocation, bytes, orderedScanRangeLocations, scanNode.getCatalogId());
             UninstancedScanSource scanRanges = workerScanRanges.computeIfAbsent(
                     assigned.worker,
                     w -> new UninstancedScanSource(
@@ -202,7 +202,8 @@ public class LoadBalanceScanWorkerSelector implements ScanWorkerSelector {
                     WorkerScanRanges replicaAndWorker = selectScanReplicaAndMinWorkloadWorker(
                             allPartitionTabletsInOneBucketInOneTable.get(0),
                             allScanNodeScanBytesInOneBucket,
-                            orderedScanRangeLocations
+                            orderedScanRangeLocations,
+                            scanNode.getCatalogId()
                     );
                     selectedWorker = replicaAndWorker.worker;
                     break;
@@ -240,11 +241,11 @@ public class LoadBalanceScanWorkerSelector implements ScanWorkerSelector {
     }
 
     private WorkerScanRanges selectScanReplicaAndMinWorkloadWorker(
-            TScanRangeLocations tabletLocation, long tabletBytes, boolean orderedScanRangeLocations) {
+            TScanRangeLocations tabletLocation, long tabletBytes, boolean orderedScanRangeLocations, long catalogId) {
         List<TScanRangeLocation> replicaLocations = tabletLocation.getLocations();
         if (replicaLocations.size() == 1) {
             TScanRangeLocation replicaLocation = replicaLocations.get(0);
-            DistributedPlanWorker worker = workerManager.getWorker(replicaLocation.getBackendId());
+            DistributedPlanWorker worker = workerManager.getWorker(catalogId, replicaLocation.getBackendId());
             ScanRanges scanRanges = new ScanRanges();
             TScanRangeParams scanReplicaParams =
                     ScanWorkerSelector.buildScanReplicaParams(tabletLocation, replicaLocation);
@@ -265,7 +266,7 @@ public class LoadBalanceScanWorkerSelector implements ScanWorkerSelector {
 
         for (int i = 0; i < replicaNum; i++) {
             TScanRangeLocation replicaLocation = replicaLocations.get(i);
-            DistributedPlanWorker worker = workerManager.getWorker(replicaLocation.getBackendId());
+            DistributedPlanWorker worker = workerManager.getWorker(catalogId, replicaLocation.getBackendId());
             if (!worker.available()) {
                 continue;
             }

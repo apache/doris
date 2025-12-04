@@ -47,7 +47,6 @@ suite("test_csv_with_enclose_and_escape", "p0") {
         streamLoad {
             table "${tableName}"
             set 'column_separator', ','
-            set 'trim_double_quotes', 'true'
             set 'enclose', "\""
             set 'escape', '\\'
 
@@ -58,7 +57,6 @@ suite("test_csv_with_enclose_and_escape", "p0") {
     streamLoad {
         table "${tableName}"
         set 'column_separator', ','
-        set 'trim_double_quotes', 'true'
         set 'enclose', "\""
         set 'escape', '\\'
         set 'max_filter_ratio', '0.5'
@@ -76,7 +74,6 @@ suite("test_csv_with_enclose_and_escape", "p0") {
     streamLoad {
         table "${tableName}"
         set 'column_separator', ','
-        set 'trim_double_quotes', 'true'
         set 'enclose', "\""
         set 'escape', '\\'
 
@@ -94,7 +91,6 @@ suite("test_csv_with_enclose_and_escape", "p0") {
         table "${tableName}"
         set 'column_separator', '@@'
         set 'line_delimiter', '$$$'
-        set 'trim_double_quotes', 'true'
         set 'enclose', "\""
         set 'escape', '\\'
 
@@ -104,11 +100,19 @@ suite("test_csv_with_enclose_and_escape", "p0") {
     streamLoad {
         table "${tableName}"
         set 'column_separator', ','
-        set 'trim_double_quotes', 'false'
         set 'enclose', "\""
         set 'escape', '\\'
 
         file "enclose_not_trim_quotes.csv"
+    }
+
+    streamLoad {
+        table "${tableName}"
+        set 'column_separator', ','
+        set 'enclose', "\""
+        set 'escape', '\"'
+
+        file "enclose_with_same_escape.csv"
     }
 
     sql "sync"

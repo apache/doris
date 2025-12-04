@@ -49,13 +49,18 @@ public class Ipv6FromUInt128StringOrNull extends ScalarFunction
         super("ipv6_from_uint128_string_or_null", arg0);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Ipv6FromUInt128StringOrNull(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public Ipv6FromUInt128StringOrNull withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1,
                 "ipv6_from_uint128_string_or_null accept 1 args, but got %s (%s)",
                 children.size(),
                 children);
-        return new Ipv6FromUInt128StringOrNull(children.get(0));
+        return new Ipv6FromUInt128StringOrNull(getFunctionParams(children));
     }
 
     @Override

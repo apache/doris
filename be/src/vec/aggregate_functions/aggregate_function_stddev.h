@@ -31,7 +31,6 @@
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_number.h"
-#include "vec/io/io_helper.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
@@ -49,15 +48,15 @@ struct BaseData {
     virtual ~BaseData() = default;
 
     void write(BufferWritable& buf) const {
-        write_binary(mean, buf);
-        write_binary(m2, buf);
-        write_binary(count, buf);
+        buf.write_binary(mean);
+        buf.write_binary(m2);
+        buf.write_binary(count);
     }
 
     void read(BufferReadable& buf) {
-        read_binary(mean, buf);
-        read_binary(m2, buf);
-        read_binary(count, buf);
+        buf.read_binary(mean);
+        buf.read_binary(m2);
+        buf.read_binary(count);
     }
 
     void reset() {
@@ -178,7 +177,9 @@ struct StddevSampName {
 
 template <typename Data>
 class AggregateFunctionSampVariance
-        : public IAggregateFunctionDataHelper<Data, AggregateFunctionSampVariance<Data>> {
+        : public IAggregateFunctionDataHelper<Data, AggregateFunctionSampVariance<Data>>,
+          UnaryExpression,
+          NullableAggregateFunction {
 public:
     AggregateFunctionSampVariance(const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper<Data, AggregateFunctionSampVariance<Data>>(
@@ -189,14 +190,14 @@ public:
     DataTypePtr get_return_type() const override { return Data::get_return_type(); }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
-             Arena*) const override {
+             Arena&) const override {
         this->data(place).add(columns[0], row_num);
     }
 
     void reset(AggregateDataPtr __restrict place) const override { this->data(place).reset(); }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
-               Arena*) const override {
+               Arena&) const override {
         this->data(place).merge(this->data(rhs));
     }
 
@@ -205,7 +206,7 @@ public:
     }
 
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
-                     Arena*) const override {
+                     Arena&) const override {
         this->data(place).read(buf);
     }
 

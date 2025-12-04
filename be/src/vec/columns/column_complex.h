@@ -80,14 +80,14 @@ public:
         }
     }
 
-    void insert_many_continuous_binary_data(const char* data, const uint32_t* offsets,
+    void insert_many_continuous_binary_data(const char* input_data, const uint32_t* offsets,
                                             const size_t num) override {
         if (UNLIKELY(num == 0)) {
             return;
         }
         // the offsets size should be num + 1
         for (size_t i = 0; i != num; ++i) {
-            insert_binary_data(data + offsets[i], offsets[i + 1] - offsets[i]);
+            insert_binary_data(input_data + offsets[i], offsets[i + 1] - offsets[i]);
         }
     }
 
@@ -232,8 +232,6 @@ public:
     }
 #endif
 
-    ColumnPtr replicate(const IColumn::Offsets& replicate_offsets) const override;
-
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
         DCHECK(size() > self_row);
         data[self_row] = assert_cast<const Self&, TypeCheckOnRelease::DISABLE>(rhs).data[row];
@@ -248,6 +246,8 @@ public:
         std::move(data.begin() + start + length, data.end(), data.begin() + start);
         data.resize(remain_size);
     }
+
+    size_t serialize_size_at(size_t row) const override { return sizeof(data[row]); }
 
 private:
     Container data;
@@ -348,32 +348,6 @@ MutableColumnPtr ColumnComplexType<T>::permute(const IColumn::Permutation& perm,
     typename Self::Container& res_data = res->get_data();
     for (size_t i = 0; i < limit; ++i) {
         res_data[i] = data[perm[i]];
-    }
-
-    return res;
-}
-
-template <PrimitiveType T>
-ColumnPtr ColumnComplexType<T>::replicate(const IColumn::Offsets& offsets) const {
-    size_t size = data.size();
-    column_match_offsets_size(size, offsets.size());
-
-    if (0 == size) {
-        return this->create();
-    }
-
-    auto res = this->create();
-    typename Self::Container& res_data = res->get_data();
-    res_data.reserve(offsets.back());
-
-    IColumn::Offset prev_offset = 0;
-    for (size_t i = 0; i < size; ++i) {
-        size_t size_to_replicate = offsets[i] - prev_offset;
-        prev_offset = offsets[i];
-
-        for (size_t j = 0; j < size_to_replicate; ++j) {
-            res_data.push_back(data[i]);
-        }
     }
 
     return res;

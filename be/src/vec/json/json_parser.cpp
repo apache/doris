@@ -27,12 +27,14 @@
 #include <algorithm>
 #include <string_view>
 
+#include "common/cast_set.h"
 #include "common/config.h"
 #include "common/status.h"
 #include "vec/json/path_in_data.h"
 #include "vec/json/simd_json_parser.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 template <typename ParserImpl>
 std::optional<ParseResult> JSONDataParser<ParserImpl>::parse(const char* begin, size_t length,
@@ -43,6 +45,7 @@ std::optional<ParseResult> JSONDataParser<ParserImpl>::parse(const char* begin, 
     }
     ParseContext context;
     context.enable_flatten_nested = config.enable_flatten_nested;
+    context.is_top_array = document.isArray();
     traverse(document, context);
     ParseResult result;
     result.values = std::move(context.values);
@@ -59,8 +62,14 @@ void JSONDataParser<ParserImpl>::traverse(const Element& element, ParseContext& 
     if (element.isObject()) {
         traverseObject(element.getObject(), ctx);
     } else if (element.isArray()) {
+        if (ctx.has_nested_in_flatten) {
+            throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
+                                   "Nesting of array in Nested array within variant subcolumns is "
+                                   "currently not supported.");
+        }
         has_nested = false;
         check_has_nested_object(element);
+        ctx.has_nested_in_flatten = has_nested && ctx.enable_flatten_nested;
         if (has_nested && !ctx.enable_flatten_nested) {
             // Parse nested arrays to JsonbField
             JsonbWriter writer;
@@ -71,6 +80,8 @@ void JSONDataParser<ParserImpl>::traverse(const Element& element, ParseContext& 
         } else {
             traverseArray(element.getArray(), ctx);
         }
+        // we should set has_nested_in_flatten to false when traverse array finished for next array otherwise it will be true for next array
+        ctx.has_nested_in_flatten = false;
     } else {
         ctx.paths.push_back(ctx.builder.get_parts());
         ctx.values.push_back(getValueAsField(element));
@@ -82,6 +93,10 @@ void JSONDataParser<ParserImpl>::traverseObject(const JSONObject& object, ParseC
     ctx.values.reserve(ctx.values.size() + object.size());
     for (auto it = object.begin(); it != object.end(); ++it) {
         const auto& [key, value] = *it;
+        if (key.size() >= std::numeric_limits<uint8_t>::max()) {
+            throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
+                                   "Key length exceeds maximum allowed size of 255 bytes.");
+        }
         ctx.builder.append(key, false);
         traverse(value, ctx);
         ctx.builder.pop_back();
@@ -118,7 +133,11 @@ void JSONDataParser<ParserImpl>::traverseObjectAsJsonb(const JSONObject& object,
     writer.writeStartObject();
     for (auto it = object.begin(); it != object.end(); ++it) {
         const auto& [key, value] = *it;
-        writer.writeKey(key.data(), key.size());
+        if (key.size() >= std::numeric_limits<uint8_t>::max()) {
+            throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
+                                   "Key length exceeds maximum allowed size of 255 bytes.");
+        }
+        writer.writeKey(key.data(), cast_set<uint8_t>(key.size()));
         traverseAsJsonb(value, writer);
     }
     writer.writeEndObject();
@@ -133,10 +152,26 @@ void JSONDataParser<ParserImpl>::traverseArrayAsJsonb(const JSONArray& array, Js
     writer.writeEndArray();
 }
 
+// check isPrefix in PathInData::Parts. like : [{"a": {"c": {"b": 1}}}, {"a": {"c": 2.2}}], "a.c" is prefix of "a.c.b"
+// return true if prefix is a prefix of parts
+static bool is_prefix(const PathInData::Parts& prefix, const PathInData::Parts& parts) {
+    if (prefix.size() >= parts.size()) {
+        return false;
+    }
+    for (size_t i = 0; i < prefix.size(); ++i) {
+        if (prefix[i].key != parts[i].key) {
+            return false;
+        }
+    }
+    return true;
+}
+
 template <typename ParserImpl>
 void JSONDataParser<ParserImpl>::traverseArray(const JSONArray& array, ParseContext& ctx) {
     /// Traverse elements of array and collect an array of fields by each path.
     ParseArrayContext array_ctx;
+    array_ctx.has_nested_in_flatten = ctx.has_nested_in_flatten;
+    array_ctx.is_top_array = ctx.is_top_array;
     array_ctx.total_size = array.size();
     for (auto it = array.begin(); it != array.end(); ++it) {
         traverseArrayElement(*it, array_ctx);
@@ -158,78 +193,130 @@ void JSONDataParser<ParserImpl>::traverseArray(const JSONArray& array, ParseCont
         }
     }
 }
+
 template <typename ParserImpl>
 void JSONDataParser<ParserImpl>::traverseArrayElement(const Element& element,
                                                       ParseArrayContext& ctx) {
     ParseContext element_ctx;
+    element_ctx.has_nested_in_flatten = ctx.has_nested_in_flatten;
+    element_ctx.is_top_array = ctx.is_top_array;
     traverse(element, element_ctx);
-    auto& [_, paths, values, flatten_nested] = element_ctx;
+    auto& [_, paths, values, flatten_nested, __, is_top_array] = element_ctx;
+
+    if (element_ctx.has_nested_in_flatten && is_top_array) {
+        checkAmbiguousStructure(ctx, paths);
+    }
+
     size_t size = paths.size();
     size_t keys_to_update = ctx.arrays_by_path.size();
+
     for (size_t i = 0; i < size; ++i) {
         if (values[i].is_null()) {
             continue;
         }
+
         UInt128 hash = PathInData::get_parts_hash(paths[i]);
         auto found = ctx.arrays_by_path.find(hash);
+
         if (found != ctx.arrays_by_path.end()) {
-            auto& path_array = found->second.second;
-            assert(path_array.size() == ctx.current_size);
-            /// If current element of array is part of Nested,
-            /// collect its size or check it if the size of
-            /// the Nested has been already collected.
-            auto nested_key = getNameOfNested(paths[i], values[i]);
-            if (!nested_key.empty()) {
-                size_t array_size = get<const Array&>(values[i]).size();
-                auto& current_nested_sizes = ctx.nested_sizes_by_key[nested_key];
-                if (current_nested_sizes.size() == ctx.current_size) {
-                    current_nested_sizes.push_back(array_size);
-                } else if (array_size != current_nested_sizes.back()) {
-                    throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
-                                           "Array sizes mismatched ({} and {})", array_size,
-                                           current_nested_sizes.back());
-                }
-            }
-            path_array.push_back(std::move(values[i]));
-            --keys_to_update;
+            handleExistingPath(found->second, paths[i], values[i], ctx, keys_to_update);
         } else {
-            /// We found a new key. Add and empty array with current size.
-            Array path_array;
-            path_array.reserve(ctx.total_size);
-            path_array.resize(ctx.current_size);
-            auto nested_key = getNameOfNested(paths[i], values[i]);
-            if (!nested_key.empty()) {
-                size_t array_size = get<const Array&>(values[i]).size();
-                auto& current_nested_sizes = ctx.nested_sizes_by_key[nested_key];
-                if (current_nested_sizes.empty()) {
-                    current_nested_sizes.resize(ctx.current_size);
-                } else {
-                    /// If newly added element is part of the Nested then
-                    /// resize its elements to keep correct sizes of Nested arrays.
-                    for (size_t j = 0; j < ctx.current_size; ++j) {
-                        path_array[j] =
-                                Field::create_field<TYPE_ARRAY>(Array(current_nested_sizes[j]));
-                    }
-                }
-                if (current_nested_sizes.size() == ctx.current_size) {
-                    current_nested_sizes.push_back(array_size);
-                } else if (array_size != current_nested_sizes.back()) {
-                    throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                                           "Array sizes mismatched ({} and {})", array_size,
-                                           current_nested_sizes.back());
-                }
-            }
-            path_array.push_back(std::move(values[i]));
-            auto& elem = ctx.arrays_by_path[hash];
-            elem.first = std::move(paths[i]);
-            elem.second = std::move(path_array);
+            handleNewPath(hash, paths[i], values[i], ctx);
         }
     }
-    /// If some of the keys are missed in current element,
-    /// add default values for them.
-    if (keys_to_update) {
+
+    if (keys_to_update && !(is_top_array && ctx.has_nested_in_flatten)) {
         fillMissedValuesInArrays(ctx);
     }
+}
+
+// check if the structure of top_array is ambiguous like:
+// [{"a": {"b": {"c": 1}}}, {"a": {"b": 1}}] a.b is ambiguous
+template <typename ParserImpl>
+void JSONDataParser<ParserImpl>::checkAmbiguousStructure(
+        const ParseArrayContext& ctx, const std::vector<PathInData::Parts>& paths) {
+    for (auto&& current_path : paths) {
+        for (auto it = ctx.arrays_by_path.begin(); it != ctx.arrays_by_path.end(); ++it) {
+            auto&& [p, _] = it->second;
+            if (is_prefix(p, current_path) || is_prefix(current_path, p)) {
+                throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
+                                       "Ambiguous structure of top_array nested subcolumns: {}, {}",
+                                       PathInData(p).to_jsonpath(),
+                                       PathInData(current_path).to_jsonpath());
+            }
+        }
+    }
+}
+
+template <typename ParserImpl>
+void JSONDataParser<ParserImpl>::handleExistingPath(std::pair<PathInData::Parts, Array>& path_data,
+                                                    const PathInData::Parts& path, Field& value,
+                                                    ParseArrayContext& ctx,
+                                                    size_t& keys_to_update) {
+    auto& path_array = path_data.second;
+    // For top_array structure we no need to check cur array size equals ctx.current_size
+    // because we do not need to maintain the association information between Nested in array
+    if (!(ctx.is_top_array && ctx.has_nested_in_flatten)) {
+        assert(path_array.size() == ctx.current_size);
+    }
+    // If current element of array is part of Nested,
+    // collect its size or check it if the size of
+    // the Nested has been already collected.
+    auto nested_key = getNameOfNested(path, value);
+    if (!nested_key.empty()) {
+        size_t array_size = get<const Array&>(value).size();
+        auto& current_nested_sizes = ctx.nested_sizes_by_key[nested_key];
+        if (current_nested_sizes.size() == ctx.current_size) {
+            current_nested_sizes.push_back(array_size);
+        } else if (array_size != current_nested_sizes.back()) {
+            throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
+                                   "Array sizes mismatched ({} and {})", array_size,
+                                   current_nested_sizes.back());
+        }
+    }
+
+    path_array.push_back(std::move(value));
+    --keys_to_update;
+}
+
+template <typename ParserImpl>
+void JSONDataParser<ParserImpl>::handleNewPath(UInt128 hash, const PathInData::Parts& path,
+                                               Field& value, ParseArrayContext& ctx) {
+    Array path_array;
+    path_array.reserve(ctx.total_size);
+
+    // For top_array structure we no need to resize array
+    // because we no need to fill default values for maintaining the association information between Nested in array
+    if (!(ctx.is_top_array && ctx.has_nested_in_flatten)) {
+        path_array.resize(ctx.current_size);
+    }
+
+    auto nested_key = getNameOfNested(path, value);
+    if (!nested_key.empty()) {
+        size_t array_size = get<const Array&>(value).size();
+        auto& current_nested_sizes = ctx.nested_sizes_by_key[nested_key];
+        if (current_nested_sizes.empty()) {
+            current_nested_sizes.resize(ctx.current_size);
+        } else {
+            // If newly added element is part of the Nested then
+            // resize its elements to keep correct sizes of Nested arrays.
+            for (size_t j = 0; j < ctx.current_size; ++j) {
+                path_array[j] = Field::create_field<TYPE_ARRAY>(Array(current_nested_sizes[j]));
+            }
+        }
+        if (current_nested_sizes.size() == ctx.current_size) {
+            current_nested_sizes.push_back(array_size);
+        } else if (array_size != current_nested_sizes.back()) {
+            throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
+                                   "Array sizes mismatched ({} and {})", array_size,
+                                   current_nested_sizes.back());
+        }
+    }
+
+    path_array.push_back(std::move(value));
+    auto& elem = ctx.arrays_by_path[hash];
+    elem.first = std::move(path);
+    elem.second = std::move(path_array);
 }
 
 template <typename ParserImpl>
@@ -290,11 +377,13 @@ StringRef JSONDataParser<ParserImpl>::getNameOfNested(const PathInData::Parts& p
     /// `k3` and `k5` keys instead of `k2`.
     for (const auto& part : path) {
         if (part.is_nested) {
-            return StringRef(part.key.data(), part.key.size());
+            return {part.key.data(), part.key.size()};
         }
     }
     return {};
 }
+
+#include "common/compile_check_end.h"
 
 template class JSONDataParser<SimdJSONParser>;
 } // namespace doris::vectorized

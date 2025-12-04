@@ -31,14 +31,15 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.analysis.FunctionParams;
-import org.apache.doris.analysis.IndexDef;
 import org.apache.doris.analysis.IsNullPredicate;
 import org.apache.doris.analysis.LambdaFunctionCallExpr;
 import org.apache.doris.analysis.LambdaFunctionExpr;
 import org.apache.doris.analysis.MatchPredicate;
 import org.apache.doris.analysis.OrderByElement;
+import org.apache.doris.analysis.SearchPredicate;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TimestampArithmeticExpr;
+import org.apache.doris.analysis.TryCastExpr;
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Function;
@@ -74,10 +75,11 @@ import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.OrderExpression;
+import org.apache.doris.nereids.trees.expressions.SearchExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
+import org.apache.doris.nereids.trees.expressions.TryCast;
 import org.apache.doris.nereids.trees.expressions.UnaryArithmetic;
-import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
@@ -85,12 +87,14 @@ import org.apache.doris.nereids.trees.expressions.functions.PropagateNullLiteral
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
+import org.apache.doris.nereids.trees.expressions.functions.agg.NotNullableAggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.ForEachCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.MergeCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.StateCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.UnionCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayMap;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySort;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DictGet;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DictGetMany;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
@@ -211,7 +215,6 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
 
     @Override
     public Expr visitMatch(Match match, PlanTranslatorContext context) {
-        Index invertedIndex = null;
         // Get the first slot from match's left expr
         SlotReference slot = match.getInputSlots().stream()
                         .findFirst()
@@ -229,18 +232,7 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
             throw new AnalysisException("SlotReference in Match failed to get OlapTable, SQL is " + match.toSql());
         }
 
-        List<Index> indexes = olapTbl.getIndexes();
-        if (indexes != null) {
-            for (Index index : indexes) {
-                if (index.getIndexType() == IndexDef.IndexType.INVERTED) {
-                    List<String> columns = index.getColumns();
-                    if (columns != null && !columns.isEmpty() && column.getName().equals(columns.get(0))) {
-                        invertedIndex = index;
-                        break;
-                    }
-                }
-            }
-        }
+        Index invertedIndex = olapTbl.getInvertedIndex(column, slot.getSubPath());
 
         MatchPredicate.Operator op = match.op();
         MatchPredicate matchPredicate = new MatchPredicate(op, match.left().accept(this, context),
@@ -345,6 +337,15 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
         }
     }
 
+    private boolean computeCompoundPredicateNullable(CompoundPredicate cp) {
+        Expr left = cp.getChild(0);
+        Expr right = cp.getChild(1);
+        return left.getNullableFromNereids().isPresent() && left.getNullableFromNereids().get()
+                || !left.getNullableFromNereids().isPresent() && left.isNullable()
+                || right.getNullableFromNereids().isPresent() && right.getNullableFromNereids().get()
+                || !right.getNullableFromNereids().isPresent() && right.isNullable();
+    }
+
     private Expr toBalancedTree(int low, int high, List<Expr> children,
             CompoundPredicate.Operator op) {
         Deque<Frame> stack = new ArrayDeque<>();
@@ -367,6 +368,7 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                     Expr left = children.get(l);
                     Expr right = children.get(h);
                     CompoundPredicate cp = new CompoundPredicate(op, left, right);
+                    cp.setNullableFromNereids(computeCompoundPredicateNullable(cp));
                     results.push(cp);
                     stack.pop();
                 } else {
@@ -383,6 +385,7 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                     Expr right = results.pop();
                     Expr left = results.pop();
                     CompoundPredicate cp = new CompoundPredicate(currentFrame.op, left, right);
+                    cp.setNullableFromNereids(computeCompoundPredicateNullable(cp));
                     results.push(cp);
                 }
             }
@@ -438,8 +441,19 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
         // left child of cast is expression, right child of cast is target type
         CastExpr castExpr = new CastExpr(cast.getDataType().toCatalogDataType(),
                 cast.child().accept(this, context), null);
+        castExpr.setImplicit(!cast.isExplicitType());
         castExpr.setNullableFromNereids(cast.nullable());
         return castExpr;
+    }
+
+    @Override
+    public Expr visitTryCast(TryCast cast, PlanTranslatorContext context) {
+        // left child of cast is expression, right child of cast is target type
+        TryCastExpr tryCastExpr = new TryCastExpr(cast.getDataType().toCatalogDataType(),
+                cast.child().accept(this, context), null);
+        tryCastExpr.setNullableFromNereids(cast.nullable());
+        tryCastExpr.setOriginCastNullable(cast.parentNullable());
+        return tryCastExpr;
     }
 
     @Override
@@ -558,6 +572,61 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
     }
 
     @Override
+    public Expr visitArraySort(ArraySort arraySort, PlanTranslatorContext context) {
+        if (!(arraySort.child(0) instanceof Lambda)) {
+            return visitScalarFunction(arraySort, context);
+        }
+        Lambda lambda = (Lambda) arraySort.child(0);
+        List<Expr> arguments = new ArrayList<>(arraySort.children().size());
+        arguments.add(null);
+
+        // Construct the first column
+        ArrayItemReference arrayItemReference = lambda.getLambdaArgument(0);
+        String argName = arrayItemReference.getName();
+        Expr expr = arrayItemReference.getArrayExpression().accept(this, context);
+        arguments.add(expr);
+        ColumnRefExpr column = new ColumnRefExpr();
+        column.setName(argName);
+        column.setColumnId(0);
+        column.setNullable(true);
+        column.setType(((ArrayType) expr.getType()).getItemType());
+        context.addExprIdColumnRefPair(arrayItemReference.getExprId(), column);
+
+        // the second column here will not be used; it's just a placeholder.
+        arrayItemReference = lambda.getLambdaArgument(1);
+        ColumnRefExpr column2 = new ColumnRefExpr(column);
+        column2.setColumnId(1);
+        context.addExprIdColumnRefPair(arrayItemReference.getExprId(), column2);
+
+        List<Type> argTypes = arraySort.getArguments().stream()
+                .map(Expression::getDataType)
+                .map(DataType::toCatalogDataType)
+                .collect(Collectors.toList());
+        // two slots are same, we only need one
+        lambda.getLambdaArguments().stream().skip(1)
+                .map(ArrayItemReference::getArrayExpression)
+                .map(Expression::getDataType)
+                .map(DataType::toCatalogDataType)
+                .forEach(argTypes::add);
+        NullableMode nullableMode = arraySort.nullable()
+                ? NullableMode.ALWAYS_NULLABLE
+                : NullableMode.ALWAYS_NOT_NULLABLE;
+        Type itemType = ((ArrayType) arguments.get(1).getType()).getItemType();
+        org.apache.doris.catalog.Function catalogFunction = new Function(
+                new FunctionName(arraySort.getName()), argTypes,
+                ArrayType.create(itemType, true),
+                true, true, nullableMode);
+
+        // create catalog FunctionCallExpr without analyze again
+        Expr lambdaBody = visitLambda(lambda, context);
+        arguments.set(0, lambdaBody);
+        LambdaFunctionCallExpr functionCallExpr = new LambdaFunctionCallExpr(catalogFunction,
+                new FunctionParams(false, arguments));
+        functionCallExpr.setNullableFromNereids(arraySort.nullable());
+        return functionCallExpr;
+    }
+
+    @Override
     public Expr visitDictGet(DictGet dictGet, PlanTranslatorContext context) {
         List<Expr> arguments = dictGet.getArguments().stream()
                 .map(arg -> arg.accept(this, context))
@@ -618,6 +687,28 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
         functionCallExpr = new FunctionCallExpr(catalogFunction, new FunctionParams(false, arguments));
         functionCallExpr.setNullableFromNereids(dictGetMany.nullable());
         return functionCallExpr;
+    }
+
+    @Override
+    public Expr visitSearchExpression(SearchExpression searchExpression,
+            PlanTranslatorContext context) {
+        List<Expr> slotChildren = new ArrayList<>();
+
+        // Convert slot reference children from Nereids to Analysis
+        for (Expression slotExpr : searchExpression.getSlotChildren()) {
+            Expr translatedSlot = slotExpr.accept(this, context);
+            slotChildren.add(translatedSlot);
+        }
+
+        // Create SearchPredicate with proper slot children for BE "action on slot" detection
+        SearchPredicate searchPredicate =
+                new SearchPredicate(
+                        searchExpression.getDslString(),
+                        searchExpression.getQsPlan(),
+                        slotChildren);
+
+        searchPredicate.setNullableFromNereids(searchExpression.nullable());
+        return searchPredicate;
     }
 
     @Override
@@ -719,22 +810,13 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
     public Expr visitTimestampArithmetic(TimestampArithmetic arithmetic, PlanTranslatorContext context) {
         Preconditions.checkNotNull(arithmetic.getFuncName(),
                 "funcName in TimestampArithmetic should not be null");
-        NullableMode nullableMode = NullableMode.ALWAYS_NULLABLE;
-        if (arithmetic.children().stream().anyMatch(e -> e.getDataType().isDateV2LikeType())) {
-            nullableMode = NullableMode.DEPEND_ON_ARGUMENT;
-        }
         TimestampArithmeticExpr timestampArithmeticExpr = new TimestampArithmeticExpr(
                 arithmetic.getFuncName(), arithmetic.getOp(),
                 arithmetic.left().accept(this, context), arithmetic.right().accept(this, context),
                 arithmetic.getTimeUnit().toString(), arithmetic.getDataType().toCatalogDataType(),
-                nullableMode);
+                NullableMode.DEPEND_ON_ARGUMENT);
         timestampArithmeticExpr.setNullableFromNereids(arithmetic.nullable());
         return timestampArithmeticExpr;
-    }
-
-    @Override
-    public Expr visitVirtualReference(VirtualSlotReference virtualSlotReference, PlanTranslatorContext context) {
-        return context.findSlotRef(virtualSlotReference.getExprId());
     }
 
     @Override
@@ -750,9 +832,10 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                         ? translateOrderExpression((OrderExpression) arg, context).getExpr()
                         : arg.accept(this, context))
                 .collect(Collectors.toList());
+        boolean isReturnNullable = !(combinator.getNestedFunction() instanceof NotNullableAggregateFunction);
         return Function.convertToStateCombinator(
                 new FunctionCallExpr(visitAggregateFunction(combinator.getNestedFunction(), context).getFn(),
-                        new FunctionParams(false, arguments)));
+                        new FunctionParams(false, arguments)), isReturnNullable);
     }
 
     @Override

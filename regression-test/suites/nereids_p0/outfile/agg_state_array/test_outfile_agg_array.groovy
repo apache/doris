@@ -16,16 +16,19 @@
 // under the License.
 
 import org.codehaus.groovy.runtime.IOGroovyMethods
+import org.apache.doris.regression.util.ExportTestHelper
 
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Paths
 
 suite("test_outfile_agg_state_array") {
-    def outFilePath = """./tmp/test_outfile_agg_state_array"""
-    File path = new File(outFilePath)
-    path.deleteDir()
-    path.mkdirs()
+    def hosts = []
+    List<List<Object>> backends = sql("show backends");
+    for (def b : backends) {
+        hosts.add(b[1])
+    }
+    ExportTestHelper testHelper = new ExportTestHelper(hosts)
 
     sql "set enable_agg_state=true"
     sql "DROP TABLE IF EXISTS a_table"
@@ -44,7 +47,8 @@ suite("test_outfile_agg_state_array") {
 
     qt_test "select k1,array_agg_merge(k2) from a_table group by k1 order by k1;"
 
-    sql """select * from a_table into outfile "file://${path.getAbsolutePath()}/tmp" FORMAT AS PARQUET;"""
+    sql """select * from a_table into outfile "file://${testHelper.remoteDir}/tmp_" FORMAT AS PARQUET;"""
+    testHelper.collect()
 
     sql "DROP TABLE IF EXISTS a_table2"
     sql """
@@ -58,10 +62,11 @@ suite("test_outfile_agg_state_array") {
     properties("replication_num" = "1");
     """
 
-    def filePath=path.getAbsolutePath()+"/tmp*"
+    def filePath=testHelper.localDir+"/tmp_*"
     cmd """
     curl --location-trusted -u ${context.config.jdbcUser}:${context.config.jdbcPassword} -H "format:PARQUET" -H "Expect:100-continue" -T ${filePath} http://${context.config.feHttpAddress}/api/regression_test_nereids_p0_outfile_agg_state_array/a_table2/_stream_load
     """
     Thread.sleep(10000)
     qt_test "select k1,max_by_merge(k2),group_concat_merge(k3) from a_table2 group by k1 order by k1;"
+    testHelper.close()
 }

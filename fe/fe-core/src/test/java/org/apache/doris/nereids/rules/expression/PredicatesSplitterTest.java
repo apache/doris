@@ -17,25 +17,17 @@
 
 package org.apache.doris.nereids.rules.expression;
 
-import org.apache.doris.catalog.Column;
-import org.apache.doris.common.IdGenerator;
-import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.rules.exploration.mv.Predicates;
 import org.apache.doris.nereids.rules.exploration.mv.Predicates.SplitPredicate;
-import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
-import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.commons.lang3.StringUtils;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-import java.util.List;
 import java.util.Map;
 
 /**
@@ -93,27 +85,5 @@ public class PredicatesSplitterTest extends ExpressionRewriteTestHelper {
             Assertions.assertTrue(splitPredicate.getResidualPredicateMap().isEmpty());
         }
     }
-
-    @Override
-    public Expression replaceUnboundSlot(Expression expression, Map<String, Slot> mem) {
-        List<Expression> children = Lists.newArrayList();
-        boolean hasNewChildren = false;
-        for (Expression child : expression.children()) {
-            Expression newChild = replaceUnboundSlot(child, mem);
-            if (newChild != child) {
-                hasNewChildren = true;
-            }
-            children.add(newChild);
-        }
-        if (expression instanceof UnboundSlot) {
-            String name = ((UnboundSlot) expression).getName();
-            IdGenerator<ExprId> exprIdGenerator = StatementScopeIdGenerator.getExprIdGenerator();
-            mem.putIfAbsent(name, SlotReference.fromColumn(
-                    exprIdGenerator.getNextId(), null,
-                    new Column(name, getType(name.charAt(0)).toCatalogDataType()),
-                    Lists.newArrayList("table")));
-            return mem.get(name);
-        }
-        return hasNewChildren ? expression.withChildren(children) : expression;
-    }
 }
+

@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include <type_traits>
 #include <utility>
 
@@ -32,7 +33,7 @@
 #include "vec/core/types.h"
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 constexpr auto BITSIZE = 8;
 
 template <typename Base>
@@ -56,11 +57,11 @@ struct MethodBaseInner {
     MethodBaseInner() { hash_table.reset(new HashMap()); }
     virtual ~MethodBaseInner() = default;
 
-    virtual void init_serialized_keys(const ColumnRawPtrs& key_columns, size_t num_rows,
+    virtual void init_serialized_keys(const ColumnRawPtrs& key_columns, uint32_t num_rows,
                                       const uint8_t* null_map = nullptr, bool is_join = false,
                                       bool is_build = false, uint32_t bucket_size = 0) = 0;
 
-    [[nodiscard]] virtual size_t estimated_size(const ColumnRawPtrs& key_columns, size_t num_rows,
+    [[nodiscard]] virtual size_t estimated_size(const ColumnRawPtrs& key_columns, uint32_t num_rows,
                                                 bool is_join = false, bool is_build = false,
                                                 uint32_t bucket_size = 0) = 0;
 
@@ -85,7 +86,7 @@ struct MethodBaseInner {
         }
     }
 
-    void init_hash_values(size_t num_rows, const uint8_t* null_map) {
+    void init_hash_values(uint32_t num_rows, const uint8_t* null_map) {
         if (null_map == nullptr) {
             init_hash_values(num_rows);
             return;
@@ -100,7 +101,7 @@ struct MethodBaseInner {
         }
     }
 
-    void init_hash_values(size_t num_rows) {
+    void init_hash_values(uint32_t num_rows) {
         hash_values.resize(num_rows);
         for (size_t k = 0; k < num_rows; ++k) {
             hash_values[k] = hash_table->hash(keys[k]);
@@ -156,7 +157,9 @@ struct MethodBaseInner {
     }
 
     virtual void insert_keys_into_columns(std::vector<Key>& keys, MutableColumns& key_columns,
-                                          size_t num_rows) = 0;
+                                          uint32_t num_rows) = 0;
+
+    virtual uint32_t direct_mapping_range() { return 0; }
 };
 
 template <typename T>
@@ -208,7 +211,7 @@ struct MethodSerialized : public MethodBase<TData> {
         return {begin, sum_size};
     }
 
-    size_t estimated_size(const ColumnRawPtrs& key_columns, size_t num_rows, bool is_join,
+    size_t estimated_size(const ColumnRawPtrs& key_columns, uint32_t num_rows, bool is_join,
                           bool is_build, uint32_t bucket_size) override {
         size_t size = 0;
         for (const auto& column : key_columns) {
@@ -224,7 +227,7 @@ struct MethodSerialized : public MethodBase<TData> {
         return size;
     }
 
-    void init_serialized_keys_impl(const ColumnRawPtrs& key_columns, size_t num_rows,
+    void init_serialized_keys_impl(const ColumnRawPtrs& key_columns, uint32_t num_rows,
                                    DorisVector<StringRef>& input_keys, Arena& input_arena) {
         input_arena.clear();
         input_keys.resize(num_rows);
@@ -252,7 +255,7 @@ struct MethodSerialized : public MethodBase<TData> {
             }
 
             for (const auto& column : key_columns) {
-                column->serialize_vec(input_keys.data(), num_rows, max_one_row_byte_size);
+                column->serialize(input_keys.data(), num_rows);
             }
         }
         Base::keys = input_keys.data();
@@ -266,7 +269,7 @@ struct MethodSerialized : public MethodBase<TData> {
         }
     }
 
-    void init_serialized_keys(const ColumnRawPtrs& key_columns, size_t num_rows,
+    void init_serialized_keys(const ColumnRawPtrs& key_columns, uint32_t num_rows,
                               const uint8_t* null_map = nullptr, bool is_join = false,
                               bool is_build = false, uint32_t bucket_size = 0) override {
         init_serialized_keys_impl(key_columns, num_rows, is_build ? build_stored_keys : stored_keys,
@@ -279,9 +282,9 @@ struct MethodSerialized : public MethodBase<TData> {
     }
 
     void insert_keys_into_columns(std::vector<StringRef>& input_keys, MutableColumns& key_columns,
-                                  const size_t num_rows) override {
+                                  const uint32_t num_rows) override {
         for (auto& column : key_columns) {
-            column->deserialize_vec(input_keys.data(), num_rows);
+            column->deserialize(input_keys.data(), num_rows);
         }
     }
 };
@@ -308,7 +311,7 @@ struct MethodStringNoCache : public MethodBase<TData> {
                         : (_stored_keys.size() * sizeof(StringRef));
     }
 
-    size_t estimated_size(const ColumnRawPtrs& key_columns, size_t num_rows, bool is_join,
+    size_t estimated_size(const ColumnRawPtrs& key_columns, uint32_t num_rows, bool is_join,
                           bool is_build, uint32_t bucket_size) override {
         size_t size = 0;
         size += sizeof(StringRef) * num_rows; // stored_keys
@@ -320,7 +323,7 @@ struct MethodStringNoCache : public MethodBase<TData> {
         return size;
     }
 
-    void init_serialized_keys_impl(const ColumnRawPtrs& key_columns, size_t num_rows,
+    void init_serialized_keys_impl(const ColumnRawPtrs& key_columns, uint32_t num_rows,
                                    DorisVector<StringRef>& stored_keys) {
         const IColumn& column = *key_columns[0];
         const auto& nested_column =
@@ -346,7 +349,7 @@ struct MethodStringNoCache : public MethodBase<TData> {
         Base::keys = stored_keys.data();
     }
 
-    void init_serialized_keys(const ColumnRawPtrs& key_columns, size_t num_rows,
+    void init_serialized_keys(const ColumnRawPtrs& key_columns, uint32_t num_rows,
                               const uint8_t* null_map = nullptr, bool is_join = false,
                               bool is_build = false, uint32_t bucket_size = 0) override {
         init_serialized_keys_impl(key_columns, num_rows,
@@ -359,7 +362,7 @@ struct MethodStringNoCache : public MethodBase<TData> {
     }
 
     void insert_keys_into_columns(std::vector<StringRef>& input_keys, MutableColumns& key_columns,
-                                  const size_t num_rows) override {
+                                  const uint32_t num_rows) override {
         key_columns[0]->reserve(num_rows);
         key_columns[0]->insert_many_strings(input_keys.data(), num_rows);
     }
@@ -375,7 +378,7 @@ struct MethodOneNumber : public MethodBase<TData> {
     using State = ColumnsHashing::HashMethodOneNumber<typename Base::Value, typename Base::Mapped,
                                                       FieldType>;
 
-    size_t estimated_size(const ColumnRawPtrs& key_columns, size_t num_rows, bool is_join,
+    size_t estimated_size(const ColumnRawPtrs& key_columns, uint32_t num_rows, bool is_join,
                           bool is_build, uint32_t bucket_size) override {
         size_t size = 0;
         if (is_join) {
@@ -386,7 +389,7 @@ struct MethodOneNumber : public MethodBase<TData> {
         return size;
     }
 
-    void init_serialized_keys(const ColumnRawPtrs& key_columns, size_t num_rows,
+    void init_serialized_keys(const ColumnRawPtrs& key_columns, uint32_t num_rows,
                               const uint8_t* null_map = nullptr, bool is_join = false,
                               bool is_build = false, uint32_t bucket_size = 0) override {
         Base::keys = (FieldType*)(key_columns[0]->is_nullable()
@@ -403,11 +406,73 @@ struct MethodOneNumber : public MethodBase<TData> {
     }
 
     void insert_keys_into_columns(std::vector<typename Base::Key>& input_keys,
-                                  MutableColumns& key_columns, const size_t num_rows) override {
+                                  MutableColumns& key_columns, const uint32_t num_rows) override {
         if (!input_keys.empty()) {
             // If size() is ​0​, data() may or may not return a null pointer.
             key_columns[0]->insert_many_raw_data((char*)input_keys.data(), num_rows);
         }
+    }
+};
+
+template <typename FieldType, typename TData>
+struct MethodOneNumberDirect : public MethodOneNumber<FieldType, TData> {
+    using Base = MethodOneNumber<FieldType, TData>;
+    using Base::init_iterator;
+    using Base::hash_table;
+    using State = ColumnsHashing::HashMethodOneNumber<typename Base::Value, typename Base::Mapped,
+                                                      FieldType>;
+    FieldType _max_key;
+    FieldType _min_key;
+
+    MethodOneNumberDirect(FieldType max_key, FieldType min_key)
+            : _max_key(max_key), _min_key(min_key) {}
+
+    void init_serialized_keys(const ColumnRawPtrs& key_columns, uint32_t num_rows,
+                              const uint8_t* null_map = nullptr, bool is_join = false,
+                              bool is_build = false, uint32_t bucket_size = 0) override {
+        Base::keys = (FieldType*)(key_columns[0]->is_nullable()
+                                          ? assert_cast<const ColumnNullable*>(key_columns[0])
+                                                    ->get_nested_column_ptr()
+                                                    ->get_raw_data()
+                                                    .data
+                                          : key_columns[0]->get_raw_data().data);
+        CHECK(is_join);
+        CHECK_EQ(bucket_size, direct_mapping_range());
+        Base::bucket_nums.resize(num_rows);
+
+        if (null_map == nullptr) {
+            if (is_build) {
+                for (uint32_t k = 1; k < num_rows; ++k) {
+                    Base::bucket_nums[k] = uint32_t(Base::keys[k] - _min_key + 1);
+                }
+            } else {
+                for (uint32_t k = 0; k < num_rows; ++k) {
+                    Base::bucket_nums[k] = (Base::keys[k] >= _min_key && Base::keys[k] <= _max_key)
+                                                   ? uint32_t(Base::keys[k] - _min_key + 1)
+                                                   : 0;
+                }
+            }
+        } else {
+            if (is_build) {
+                for (uint32_t k = 1; k < num_rows; ++k) {
+                    Base::bucket_nums[k] =
+                            null_map[k] ? bucket_size : uint32_t(Base::keys[k] - _min_key + 1);
+                }
+            } else {
+                for (uint32_t k = 0; k < num_rows; ++k) {
+                    Base::bucket_nums[k] =
+                            null_map[k] ? bucket_size
+                            : (Base::keys[k] >= _min_key && Base::keys[k] <= _max_key)
+                                    ? uint32_t(Base::keys[k] - _min_key + 1)
+                                    : 0;
+                }
+            }
+        }
+    }
+
+    uint32_t direct_mapping_range() override {
+        // +2 to include max_key and one slot for out of range value
+        return static_cast<uint32_t>(_max_key - _min_key + 2);
     }
 };
 
@@ -444,11 +509,11 @@ struct MethodKeysFixed : public MethodBase<TData> {
                     continue;
                 }
                 size_t bucket = j / BITSIZE;
-                size_t offset = j % BITSIZE;
+                size_t local_offset = j % BITSIZE;
                 const auto& data =
                         assert_cast<const ColumnUInt8&>(*nullmap_columns[j]).get_data().data();
                 for (size_t i = 0; i < row_numbers; ++i) {
-                    *((char*)(&result[i]) + bucket) |= data[i] << offset;
+                    *((char*)(&result[i]) + bucket) |= data[i] << local_offset;
                 }
             }
             offset += bitmap_size;
@@ -499,7 +564,7 @@ struct MethodKeysFixed : public MethodBase<TData> {
                sizeof(typename Base::Key);
     }
 
-    size_t estimated_size(const ColumnRawPtrs& key_columns, size_t num_rows, bool is_join,
+    size_t estimated_size(const ColumnRawPtrs& key_columns, uint32_t num_rows, bool is_join,
                           bool is_build, uint32_t bucket_size) override {
         size_t size = 0;
         size += sizeof(StringRef) * num_rows; // stored_keys
@@ -511,7 +576,7 @@ struct MethodKeysFixed : public MethodBase<TData> {
         return size;
     }
 
-    void init_serialized_keys(const ColumnRawPtrs& key_columns, size_t num_rows,
+    void init_serialized_keys(const ColumnRawPtrs& key_columns, uint32_t num_rows,
                               const uint8_t* null_map = nullptr, bool is_join = false,
                               bool is_build = false, uint32_t bucket_size = 0) override {
         ColumnRawPtrs actual_columns;
@@ -550,7 +615,7 @@ struct MethodKeysFixed : public MethodBase<TData> {
     }
 
     void insert_keys_into_columns(std::vector<typename Base::Key>& input_keys,
-                                  MutableColumns& key_columns, const size_t num_rows) override {
+                                  MutableColumns& key_columns, const uint32_t num_rows) override {
         // In any hash key value, column values to be read start just after the bitmap, if it exists.
         size_t pos = 0;
         for (size_t i = 0; i < key_columns.size(); ++i) {
@@ -568,6 +633,8 @@ struct MethodKeysFixed : public MethodBase<TData> {
             if (is_column_nullable(*key_columns[i])) {
                 auto& nullable_col = assert_cast<ColumnNullable&>(*key_columns[i]);
 
+                // nullable_col is obtained via key_columns and is itself a mutable element. However, when accessed
+                // through get_raw_data().data, it yields a const char*, necessitating the use of const_cast.
                 data = const_cast<char*>(nullable_col.get_nested_column().get_raw_data().data);
                 UInt8* nullmap = assert_cast<ColumnUInt8*>(&nullable_col.get_null_map_column())
                                          ->get_data()
@@ -582,6 +649,8 @@ struct MethodKeysFixed : public MethodBase<TData> {
                             (reinterpret_cast<const UInt8*>(&input_keys[j])[bucket] >> offset) & 1;
                 }
             } else {
+                // key_columns is a mutable element. However, when accessed through get_raw_data().data,
+                // it yields a const char*, necessitating the use of const_cast.
                 data = const_cast<char*>(key_columns[i]->get_raw_data().data);
             }
 
@@ -702,7 +771,7 @@ struct MethodSingleNullableColumn : public SingleColumnMethod {
     using State = ColumnsHashing::HashMethodSingleLowNullableColumn<typename Base::State,
                                                                     typename Base::Mapped>;
     void insert_keys_into_columns(std::vector<typename Base::Key>& input_keys,
-                                  MutableColumns& key_columns, const size_t num_rows) override {
+                                  MutableColumns& key_columns, const uint32_t num_rows) override {
         auto* col = key_columns[0].get();
         col->reserve(num_rows);
         if (input_keys.empty()) {
@@ -716,5 +785,5 @@ struct MethodSingleNullableColumn : public SingleColumnMethod {
         }
     }
 };
-
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

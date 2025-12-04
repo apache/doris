@@ -22,6 +22,54 @@ include "Types.thrift"
 include "Exprs.thrift"
 include "Partitions.thrift"
 
+enum TPatternType {
+  MATCH_NAME = 1,
+  MATCH_NAME_GLOB = 2
+}
+
+enum TAccessPathType {
+  DATA = 1,
+  META = 2 // use to prune `where s.data is not null` by only scan the meta of s.data
+}
+
+struct TDataAccessPath {
+   // the specification of special path:
+   //   <empty>: access the whole complex column
+   //   *:
+   //     1. access every items when the type is array
+   //     2. access key and value when the type is map
+   //   KEYS: only access the keys of map
+   //   VALUES: only access the keys of map
+   //
+   // example:
+   //  s: struct<
+   //    data: array<
+   //      map<
+   //        int,
+   //        struct<
+   //          a: id
+   //          b: double
+   //        >
+   //      >
+   //    >
+   //  >
+   // if we want to access `map_keys(s.data[0])`, the path will be: ['s', 'data', '*', 'KEYS'],
+   // if we want to access `map_values(s.data[0])[0].b`, the path will be: ['s', 'data', '*', 'VALUES', 'b'],
+   // if we want to access `s.data[0]['k'].b`, the path will be ['s', 'data', '*', '*', 'b']
+   // if we want to access the whole struct of s, the path will be: ['s'],
+   1: required list<string> path
+}
+
+struct TMetaAccessPath {
+  1: required list<string> path
+}
+
+struct TColumnAccessPath {
+  1: required TAccessPathType type
+  2: optional TDataAccessPath data_access_path
+  3: optional TMetaAccessPath meta_access_path
+}
+
 struct TColumn {
     1: required string column_name
     2: required Types.TColumnType column_type
@@ -34,7 +82,7 @@ struct TColumn {
     9: optional bool visible = true
     10: optional list<TColumn> children_column
     11: optional i32 col_unique_id  = -1
-    12: optional bool has_bitmap_index = false
+    12: optional bool has_bitmap_index = false // deprecated
     13: optional bool has_ngram_bf_index = false
     14: optional i32 gram_size
     15: optional i32 gram_bf_size
@@ -43,6 +91,11 @@ struct TColumn {
     18: optional bool is_auto_increment = false;
     19: optional i32 cluster_key_id = -1
     20: optional i32 be_exec_version = -1
+    21: optional TPatternType pattern_type
+    22: optional bool variant_enable_typed_paths_to_sparse = false
+    23: optional bool is_on_update_current_timestamp = false
+    24: optional i32 variant_max_sparse_column_statistics_size = 10000
+    25: optional i32 variant_sparse_hash_shard_count
 }
 
 struct TSlotDescriptor {
@@ -55,17 +108,21 @@ struct TSlotDescriptor {
   7: required i32 nullIndicatorBit
   8: required string colName;
   9: required i32 slotIdx
-  10: required bool isMaterialized
+  10: required bool isMaterialized // deprecated
   11: optional i32 col_unique_id = -1
   12: optional bool is_key = false
   // If set to false, then such slots will be ignored during
-  // materialize them.Used to optmize to read less data and less memory usage
-  13: optional bool need_materialize = true
+  // materialize them.Used to optimize to read less data and less memory usage
+  13: optional bool need_materialize = true // deprecated
   14: optional bool is_auto_increment = false;
   // subcolumn path info list for semi structure column(variant)
+  // deprecated: will be replaced to column_access_paths
   15: optional list<string> column_paths
   16: optional string col_default_value
   17: optional Types.TPrimitiveType primitive_type = Types.TPrimitiveType.INVALID_TYPE
+  18: optional Exprs.TExpr virtual_column_expr
+  19: optional list<TColumnAccessPath> all_access_paths
+  20: optional list<TColumnAccessPath> predicate_access_paths
 }
 
 struct TTupleDescriptor {
@@ -143,7 +200,16 @@ enum TSchemaTableType {
     SCH_ROUTINE_LOAD_JOBS = 54,
     SCH_BACKEND_CONFIGURATION=55,
     SCH_BACKEND_TABLETS = 56,
-    SCH_VIEW_DEPENDENCY = 57;
+    SCH_VIEW_DEPENDENCY = 57,
+    SCH_ENCRYPTION_KEYS = 58,
+    SCH_SQL_BLOCK_RULE_STATUS = 59;
+    SCH_CLUSTER_SNAPSHOTS = 60;
+    SCH_CLUSTER_SNAPSHOT_PROPERTIES = 61;
+    SCH_BLACKHOLE = 62;
+    SCH_COLUMN_DATA_SIZES = 63;
+    SCH_LOAD_JOBS = 64;
+    SCH_FILE_CACHE_INFO = 65;
+    SCH_DATABASE_PROPERTIES = 66;
 }
 
 enum THdfsCompression {
@@ -160,7 +226,8 @@ enum TIndexType {
   BITMAP = 0,
   INVERTED = 1,
   BLOOMFILTER = 2,
-  NGRAM_BF = 3
+  NGRAM_BF = 3,
+  ANN = 4
 }
 
 enum TPartialUpdateNewRowPolicy {
@@ -204,6 +271,8 @@ struct TOlapTablePartition {
     10: optional bool is_default_partition;
     // only used in random distribution scenario to make data distributed even 
     11: optional i64 load_tablet_idx
+    12: optional i32 total_replica_num
+    13: optional i32 load_required_replica_num
 }
 
 struct TOlapTablePartitionParam {
@@ -394,6 +463,12 @@ struct TLakeSoulTable {
 struct TDictionaryTable {
 }
 
+struct TRemoteDorisTable {
+  1: optional string db_name
+  2: optional string table_name
+  3: optional map<string, string> properties
+}
+
 // "Union" of all table types.
 struct TTableDescriptor {
   1: required Types.TTableId id
@@ -420,6 +495,7 @@ struct TTableDescriptor {
   22: optional TTrinoConnectorTable trinoConnectorTable
   23: optional TLakeSoulTable lakesoulTable
   24: optional TDictionaryTable dictionaryTable
+  25: optional TRemoteDorisTable remoteDorisTable
 }
 
 struct TDescriptorTable {

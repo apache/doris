@@ -51,12 +51,17 @@
 namespace doris::vectorized {
 
 using namespace std::chrono_literals;
-
+#include "common/compile_check_begin.h"
 ScannerContext::ScannerContext(
         RuntimeState* state, pipeline::ScanLocalStateBase* local_state,
         const TupleDescriptor* output_tuple_desc, const RowDescriptor* output_row_descriptor,
         const std::list<std::shared_ptr<vectorized::ScannerDelegate>>& scanners, int64_t limit_,
-        std::shared_ptr<pipeline::Dependency> dependency, int parallism_of_scan_operator)
+        std::shared_ptr<pipeline::Dependency> dependency
+#ifdef BE_TEST
+        ,
+        int num_parallel_instances
+#endif
+        )
         : HasTaskExecutionCtx(state),
           _state(state),
           _local_state(local_state),
@@ -66,11 +71,19 @@ ScannerContext::ScannerContext(
           _output_row_descriptor(output_row_descriptor),
           _batch_size(state->batch_size()),
           limit(limit_),
-          _scanner_scheduler_global(state->exec_env()->scanner_scheduler()),
           _all_scanners(scanners.begin(), scanners.end()),
-          _parallism_of_scan_operator(parallism_of_scan_operator),
-          _min_scan_concurrency_of_scan_scheduler(_state->min_scan_concurrency_of_scan_scheduler()),
-          _min_scan_concurrency(_state->min_scan_concurrency_of_scanner()) {
+#ifndef BE_TEST
+          _scanner_scheduler(local_state->scan_scheduler(state)),
+          _min_scan_concurrency_of_scan_scheduler(
+                  _scanner_scheduler->get_min_active_scan_threads()),
+          _max_scan_concurrency(std::min(local_state->max_scanners_concurrency(state),
+                                         cast_set<int>(scanners.size()))),
+#else
+          _scanner_scheduler(state->get_query_ctx()->get_scan_scheduler()),
+          _min_scan_concurrency_of_scan_scheduler(0),
+          _max_scan_concurrency(num_parallel_instances),
+#endif
+          _min_scan_concurrency(local_state->min_scanners_concurrency(state)) {
     DCHECK(_state != nullptr);
     DCHECK(_output_row_descriptor == nullptr ||
            _output_row_descriptor->tuple_descriptors().size() == 1);
@@ -78,7 +91,7 @@ ScannerContext::ScannerContext(
     _resource_ctx = _state->get_query_ctx()->resource_ctx();
     ctx_id = UniqueId::gen_uid().to_string();
     for (auto& scanner : _all_scanners) {
-        _pending_scanners.push(scanner);
+        _pending_scanners.push(std::make_shared<ScanTask>(scanner));
     };
     if (limit < 0) {
         limit = -1;
@@ -100,25 +113,23 @@ Status ScannerContext::init() {
                                      print_id(_state->query_id()));
     }
 
-    thread_token = _state->get_query_ctx()->get_token();
-
     if (_state->get_query_ctx()->get_scan_scheduler()) {
         _should_reset_thread_name = false;
     }
 
-    _local_state->_runtime_profile->add_info_string("UseSpecificThreadToken",
-                                                    thread_token == nullptr ? "False" : "True");
-
     auto scanner = _all_scanners.front().lock();
     DCHECK(scanner != nullptr);
 
-    // TODO: Maybe need refactor.
-    // A query could have remote scan task and local scan task at the same time.
-    // So we need to compute the _scanner_scheduler in each scan operator instead of query context.
-    if (scanner->_scanner->get_storage_type() == TabletStorageType::STORAGE_TYPE_LOCAL) {
-        _scanner_scheduler = _state->get_query_ctx()->get_scan_scheduler();
-    } else {
-        _scanner_scheduler = _state->get_query_ctx()->get_remote_scan_scheduler();
+    if (auto* task_executor_scheduler =
+                dynamic_cast<TaskExecutorSimplifiedScanScheduler*>(_scanner_scheduler)) {
+        std::shared_ptr<TaskExecutor> task_executor = task_executor_scheduler->task_executor();
+        vectorized::TaskId task_id(fmt::format("{}-{}", print_id(_state->query_id()), ctx_id));
+        _task_handle = DORIS_TRY(task_executor->create_task(
+                task_id, []() { return 0.0; },
+                config::task_executor_initial_max_concurrency_per_task > 0
+                        ? config::task_executor_initial_max_concurrency_per_task
+                        : std::max(48, CpuInfo::num_cores() * 2),
+                std::chrono::milliseconds(100), std::nullopt));
     }
 #endif
     // _max_bytes_in_queue controls the maximum memory that can be used by a single scan operator.
@@ -129,42 +140,10 @@ Status ScannerContext::init() {
     // Provide more memory for wide tables, increase proportionally by multiples of 300
     _max_bytes_in_queue *= _output_tuple_desc->slots().size() / 300 + 1;
 
-    if (_min_scan_concurrency_of_scan_scheduler == 0) {
-        // _scanner_scheduler->get_max_threads() is setted by workload group.
-        _min_scan_concurrency_of_scan_scheduler = 2 * _scanner_scheduler->get_max_threads();
-    }
-
     if (_all_scanners.empty()) {
         _is_finished = true;
         _set_scanner_done();
     }
-
-    // The overall target of our system is to make full utilization of the resources.
-    // At the same time, we dont want too many tasks are queued by scheduler, that is not necessary.
-    // Each scan operator can submit _max_scan_concurrency scanner to scheduelr if scheduler has enough resource.
-    // So that for a single query, we can make sure it could make full utilization of the resource.
-    _max_scan_concurrency = _state->num_scanner_threads();
-    if (_max_scan_concurrency == 0) {
-        // Why this is safe:
-        /*
-            1. If num cpu cores is less than or equal to 24:
-                _max_concurrency_of_scan_scheduler will be 96. _parallism_of_scan_operator will be 1 or C/2.
-                so _max_scan_concurrency will be 96 or (96 * 2 / C).
-                For a single scan node, most scanner it can submit will be 96 or (96 * 2 / C) * (C / 2) which is 96 too.
-                So a single scan node could make full utilization of the resource without sumbiting all its tasks.
-            2. If num cpu cores greater than 24:
-                _max_concurrency_of_scan_scheduler will be 4 * C. _parallism_of_scan_operator will be 1 or C/2.
-                so _max_scan_concurrency will be 4 * C or (4 * C * 2 / C).
-                For a single scan node, most scanner it can submit will be 4 * C or (4 * C * 2 / C) * (C / 2) which is 4 * C too.
-
-            So, in all situations, when there is only one scan node, it could make full utilization of the resource.
-        */
-        _max_scan_concurrency =
-                _min_scan_concurrency_of_scan_scheduler / _parallism_of_scan_operator;
-        _max_scan_concurrency = _max_scan_concurrency == 0 ? 1 : _max_scan_concurrency;
-    }
-
-    _max_scan_concurrency = std::min(_max_scan_concurrency, (int32_t)_pending_scanners.size());
 
     // when user not specify scan_thread_num, so we can try downgrade _max_thread_num.
     // becaue we found in a table with 5k columns, column reader may ocuppy too much memory.
@@ -172,7 +151,7 @@ Status ScannerContext::init() {
     const int32_t max_column_reader_num = _state->max_column_reader_num();
 
     if (_max_scan_concurrency != 1 && max_column_reader_num > 0) {
-        int32_t scan_column_num = _output_tuple_desc->slots().size();
+        int32_t scan_column_num = cast_set<int32_t>(_output_tuple_desc->slots().size());
         int32_t current_column_num = scan_column_num * _max_scan_concurrency;
         if (current_column_num > max_column_reader_num) {
             int32_t new_max_thread_num = max_column_reader_num / scan_column_num;
@@ -188,15 +167,6 @@ Status ScannerContext::init() {
         }
     }
 
-    // For select * from table limit 10; should just use one thread.
-    if (_local_state->should_run_serial()) {
-        _max_scan_concurrency = 1;
-        _min_scan_concurrency = 1;
-    }
-
-    // Avoid corner case.
-    _min_scan_concurrency = std::min(_min_scan_concurrency, _max_scan_concurrency);
-
     COUNTER_SET(_local_state->_max_scan_concurrency, (int64_t)_max_scan_concurrency);
     COUNTER_SET(_local_state->_min_scan_concurrency, (int64_t)_min_scan_concurrency);
 
@@ -204,6 +174,24 @@ Status ScannerContext::init() {
     RETURN_IF_ERROR(_scanner_scheduler->schedule_scan_task(shared_from_this(), nullptr, l));
 
     return Status::OK();
+}
+
+ScannerContext::~ScannerContext() {
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_resource_ctx->memory_context()->mem_tracker());
+    _tasks_queue.clear();
+    vectorized::BlockUPtr block;
+    while (_free_blocks.try_dequeue(block)) {
+        // do nothing
+    }
+    block.reset();
+    DorisMetrics::instance()->scanner_ctx_cnt->increment(-1);
+    if (_task_handle) {
+        if (auto* task_executor_scheduler =
+                    dynamic_cast<TaskExecutorSimplifiedScanScheduler*>(_scanner_scheduler)) {
+            static_cast<void>(task_executor_scheduler->task_executor()->remove_task(_task_handle));
+        }
+        _task_handle = nullptr;
+    }
 }
 
 vectorized::BlockUPtr ScannerContext::get_free_block(bool force) {
@@ -216,8 +204,7 @@ vectorized::BlockUPtr ScannerContext::get_free_block(bool force) {
         // The caller of get_free_block will increase the memory usage
     } else if (_block_memory_usage < _max_bytes_in_queue || force) {
         _newly_create_free_blocks_num->update(1);
-        block = vectorized::Block::create_unique(_output_tuple_desc->slots(), 0,
-                                                 true /*ignore invalid slots*/);
+        block = vectorized::Block::create_unique(_output_tuple_desc->slots(), 0);
     }
     return block;
 }
@@ -244,7 +231,7 @@ Status ScannerContext::submit_scan_task(std::shared_ptr<ScanTask> scan_task,
     // if submit succeed, it will be also added back by ScannerContext::push_back_scan_task
     // see ScannerScheduler::_scanner_scan.
     _num_scheduled_scanners++;
-    return _scanner_scheduler_global->submit(shared_from_this(), scan_task);
+    return _scanner_scheduler->submit(shared_from_this(), scan_task);
 }
 
 void ScannerContext::clear_free_blocks() {
@@ -356,13 +343,11 @@ Status ScannerContext::get_block_from_queue(RuntimeState* state, vectorized::Blo
 Status ScannerContext::validate_block_schema(Block* block) {
     size_t index = 0;
     for (auto& slot : _output_tuple_desc->slots()) {
-        if (!slot->is_materialized()) {
-            continue;
-        }
         auto& data = block->get_by_position(index++);
         if (data.column->is_nullable() != data.type->is_nullable()) {
             return Status::Error<ErrorCode::INVALID_SCHEMA>(
-                    "column(name: {}) nullable({}) does not match type nullable({}), slot(id: {}, "
+                    "column(name: {}) nullable({}) does not match type nullable({}), slot(id: "
+                    "{}, "
                     "name:{})",
                     data.name, data.column->is_nullable(), data.type->is_nullable(), slot->id(),
                     slot->col_name());
@@ -392,6 +377,13 @@ void ScannerContext::stop_scanners(RuntimeState* state) {
         }
     }
     _tasks_queue.clear();
+    if (_task_handle) {
+        if (auto* task_executor_scheduler =
+                    dynamic_cast<TaskExecutorSimplifiedScanScheduler*>(_scanner_scheduler)) {
+            static_cast<void>(task_executor_scheduler->task_executor()->remove_task(_task_handle));
+        }
+        _task_handle = nullptr;
+    }
     // TODO yiguolei, call mark close to scanners
     if (state->enable_profile()) {
         std::stringstream scanner_statistics;
@@ -461,7 +453,8 @@ void ScannerContext::update_peak_running_scanner(int num) {
 int32_t ScannerContext::_get_margin(std::unique_lock<std::mutex>& transfer_lock,
                                     std::unique_lock<std::shared_mutex>& scheduler_lock) {
     // margin_1 is used to ensure each scan operator could have at least _min_scan_concurrency scan tasks.
-    int32_t margin_1 = _min_scan_concurrency - (_tasks_queue.size() + _num_scheduled_scanners);
+    int32_t margin_1 = _min_scan_concurrency -
+                       (cast_set<int32_t>(_tasks_queue.size()) + _num_scheduled_scanners);
 
     // margin_2 is used to ensure the scan scheduler could have at least _min_scan_concurrency_of_scan_scheduler scan tasks.
     int32_t margin_2 =
@@ -492,10 +485,10 @@ int32_t ScannerContext::_get_margin(std::unique_lock<std::mutex>& transfer_lock,
 
 // This function must be called with:
 // 1. _transfer_lock held.
-// 2. SimplifiedScanScheduler::_lock held.
-Status ScannerContext::_schedule_scan_task(std::shared_ptr<ScanTask> current_scan_task,
-                                           std::unique_lock<std::mutex>& transfer_lock,
-                                           std::unique_lock<std::shared_mutex>& scheduler_lock) {
+// 2. ScannerScheduler::_lock held.
+Status ScannerContext::schedule_scan_task(std::shared_ptr<ScanTask> current_scan_task,
+                                          std::unique_lock<std::mutex>& transfer_lock,
+                                          std::unique_lock<std::shared_mutex>& scheduler_lock) {
     if (current_scan_task &&
         (!current_scan_task->cached_blocks.empty() || current_scan_task->is_eos())) {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Scanner scheduler logical error.");
@@ -511,7 +504,7 @@ Status ScannerContext::_schedule_scan_task(std::shared_ptr<ScanTask> current_sca
         // We need to add it back to task queue to make sure it could be resubmitted.
         if (current_scan_task) {
             // This usually happens when we should downgrade the concurrency.
-            _pending_scanners.push(current_scan_task->scanner);
+            _pending_scanners.push(current_scan_task);
             VLOG_DEBUG << fmt::format(
                     "{} push back scanner to task queue, because diff <= 0, task_queue size "
                     "{}, _num_scheduled_scanners {}",
@@ -534,8 +527,8 @@ Status ScannerContext::_schedule_scan_task(std::shared_ptr<ScanTask> current_sca
 
     while (margin-- > 0) {
         std::shared_ptr<ScanTask> task_to_run;
-        const int32_t current_concurrency =
-                _tasks_queue.size() + _num_scheduled_scanners + tasks_to_submit.size();
+        const int32_t current_concurrency = cast_set<int32_t>(
+                _tasks_queue.size() + _num_scheduled_scanners + tasks_to_submit.size());
         VLOG_DEBUG << fmt::format("{} currenct concurrency: {} = {} + {} + {}", ctx_id,
                                   current_concurrency, _tasks_queue.size(), _num_scheduled_scanners,
                                   tasks_to_submit.size());
@@ -555,7 +548,7 @@ Status ScannerContext::_schedule_scan_task(std::shared_ptr<ScanTask> current_sca
                     }
                     // Current scan task is not eos, but we can not resubmit it.
                     // Add current_scan_task back to task queue, so that we have chance to resubmit it in the future.
-                    _pending_scanners.push(current_scan_task->scanner);
+                    _pending_scanners.push(current_scan_task);
                 }
             }
             first_pull = false;
@@ -594,7 +587,8 @@ std::shared_ptr<ScanTask> ScannerContext::_pull_next_scan_task(
         std::shared_ptr<ScanTask> current_scan_task, int32_t current_concurrency) {
     if (current_concurrency >= _max_scan_concurrency) {
         VLOG_DEBUG << fmt::format(
-                "ScannerContext {} current concurrency {} >= _max_scan_concurrency {}, skip pull",
+                "ScannerContext {} current concurrency {} >= _max_scan_concurrency {}, skip "
+                "pull",
                 ctx_id, current_concurrency, _max_scan_concurrency);
         return nullptr;
     }
@@ -608,10 +602,10 @@ std::shared_ptr<ScanTask> ScannerContext::_pull_next_scan_task(
     }
 
     if (!_pending_scanners.empty()) {
-        std::weak_ptr<ScannerDelegate> next_scan_task;
+        std::shared_ptr<ScanTask> next_scan_task;
         next_scan_task = _pending_scanners.top();
         _pending_scanners.pop();
-        return std::make_shared<ScanTask>(next_scan_task);
+        return next_scan_task;
     } else {
         return nullptr;
     }
@@ -620,5 +614,5 @@ std::shared_ptr<ScanTask> ScannerContext::_pull_next_scan_task(
 bool ScannerContext::low_memory_mode() const {
     return _local_state->low_memory_mode();
 }
-
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

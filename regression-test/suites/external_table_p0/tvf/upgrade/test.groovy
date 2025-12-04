@@ -27,8 +27,8 @@ suite("test_tvf_upgrade_test", "p0,external,hive,external_docker,external_docker
 
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
-        order_qt_create_view """ select * from test_hdfs_tvf_create_view order by c1 limit 20; """
+        order_qt_create_view """ select * from test_tvf_upgrade_load_create_view order by c1 limit 20; """
 
-        order_qt_alter_view """ select * from test_hdfs_tvf_create_view order by c1 limit 20; """
+        order_qt_alter_view """ select * from test_tvf_upgrade_load_create_view order by c1 limit 20; """
     }
 }

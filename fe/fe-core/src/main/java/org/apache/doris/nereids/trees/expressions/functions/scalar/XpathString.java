@@ -51,13 +51,18 @@ public class XpathString extends ScalarFunction
         super("xpath_string", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private XpathString(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public XpathString withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new XpathString(children.get(0), children.get(1));
+        return new XpathString(getFunctionParams(children));
     }
 
     @Override

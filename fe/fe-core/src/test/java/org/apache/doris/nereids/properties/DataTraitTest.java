@@ -275,19 +275,17 @@ class DataTraitTest extends TestWithFeService {
                 .getTrait().isUniqueAndNotNull(plan.getOutput().get(0)));
 
         plan = PlanChecker.from(connectContext)
-                .analyze("select row_number() over(partition by name) from agg where name = '1' limit 1")
+                .analyze("select name, row_number() over(partition by name) from agg where name = '1' limit 1")
                 .rewrite()
                 .getPlan();
-        LogicalPartitionTopN<?> ptopn = (LogicalPartitionTopN<?>) plan.child(0).child(0).child(0).child(0).child(0);
-        System.out.println(ptopn.getLogicalProperties().getTrait());
-        Assertions.assertTrue(ptopn.getLogicalProperties()
-                .getTrait().isUniformAndNotNull(ImmutableSet.copyOf(ptopn.getOutputSet())));
+        Assertions.assertTrue(plan.getLogicalProperties()
+                .getTrait().isUniformAndNotNull(plan.getOutput().get(0)));
 
         plan = PlanChecker.from(connectContext)
                 .analyze("select row_number() over(partition by name) from agg limit 1")
                 .rewrite()
                 .getPlan();
-        ptopn = (LogicalPartitionTopN<?>) plan.child(0).child(0).child(0).child(0).child(0);
+        LogicalPartitionTopN<?> ptopn = (LogicalPartitionTopN<?>) plan.child(0).child(0).child(0).child(0).child(0);
 
         Assertions.assertFalse(ptopn.getLogicalProperties()
                 .getTrait().isUnique(plan.getOutputSet()));

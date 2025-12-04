@@ -124,7 +124,7 @@ public class CacheFactoryTest {
                 false,
                 ticker::read);
         LoadingCache<Integer, CacheValue> loadingCache = cacheFactory.buildCache(
-                key -> CacheValue.createValue("value" + key, counter), null, executor);
+                key -> CacheValue.createValue("value" + key, counter), executor);
         CacheValue value = loadingCache.get(1);
         Assertions.assertEquals("value1", value.getValue());
         Assertions.assertEquals(1, counter.get());
@@ -155,7 +155,7 @@ public class CacheFactoryTest {
                 false,
                 ticker::read);
         LoadingCache<Integer, CacheValue> loadingCache = cacheFactory.buildCache(
-                key -> CacheValue.createValue("value" + key, counter), null, executor);
+                key -> CacheValue.createValue("value" + key, counter), executor);
         CacheValue value = loadingCache.get(1);
         Assertions.assertEquals("value1", value.getValue());
         Assertions.assertEquals(1, counter.get());
@@ -193,7 +193,7 @@ public class CacheFactoryTest {
                 false,
                 ticker::read);
         LoadingCache<Integer, CacheValue> loadingCache = cacheFactory.buildCache(
-                key -> CacheValue.createValue("value" + key, counter), null, executor);
+                key -> CacheValue.createValue("value" + key, counter), executor);
         CacheValue value = loadingCache.get(1);
         Assertions.assertEquals("value1", value.getValue());
         Assertions.assertEquals(1, counter.get());
@@ -287,5 +287,37 @@ public class CacheFactoryTest {
         // So there will be 11 threads executed, and 1 thread will be rejected.
         Assertions.assertTrue(counter.get() < 12);
         Assertions.assertTrue(rejectCounter.get() >= 1);
+    }
+
+    @Test
+    public void testZeroExpireAfterWrite() throws InterruptedException {
+        CacheFactory cacheFactory = new CacheFactory(
+                // if expireAfterWrite is zero, the cache is disabled.
+                OptionalLong.of(0L),
+                OptionalLong.of(10),
+                1000,
+                false,
+                null);
+
+        LoadingCache<Integer, Long> cache = cacheFactory.buildCache(this::loader);
+        Long value1 = cache.get(1);
+        Thread.sleep(100);
+        Assertions.assertNotEquals(value1, cache.get(1));
+
+        cacheFactory = new CacheFactory(
+                // if expireAfterWrite > 0, the cache is enabled
+                OptionalLong.of(10L),
+                OptionalLong.of(10),
+                1000,
+                false,
+                null);
+        cache = cacheFactory.buildCache(this::loader);
+        value1 = cache.get(1);
+        Thread.sleep(100);
+        Assertions.assertEquals(value1, cache.get(1));
+    }
+
+    private Long loader(Integer key) {
+        return System.currentTimeMillis();
     }
 }

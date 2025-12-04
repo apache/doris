@@ -32,20 +32,25 @@ import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.common.util.FileFormatConstants;
 import org.apache.doris.common.util.FileFormatUtils;
 import org.apache.doris.common.util.NetUtils;
+import org.apache.doris.common.util.S3Util;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.TextFileFormatProperties;
+import org.apache.doris.datasource.property.storage.ObjectStorageProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.datasource.tvf.source.TVFScanNode;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.proto.InternalService;
@@ -56,6 +61,7 @@ import org.apache.doris.proto.Types.PTypeDesc;
 import org.apache.doris.proto.Types.PTypeNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.resource.computegroup.ComputeGroupMgr;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.system.Backend;
@@ -84,9 +90,11 @@ import org.apache.thrift.TSerializer;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.stream.Collectors;
@@ -143,16 +151,28 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
     }
 
     protected void parseFile() throws AnalysisException {
+        long startAt = System.currentTimeMillis();
         String path = getFilePath();
         BrokerDesc brokerDesc = getBrokerDesc();
         try {
+            if (brokerDesc.getFileType() != null && brokerDesc.getFileType().equals(TFileType.FILE_S3)
+                    && brokerDesc.getStorageProperties() instanceof ObjectStorageProperties) {
+                ObjectStorageProperties storageProperties = (ObjectStorageProperties) brokerDesc.getStorageProperties();
+                String endpoint = storageProperties.getEndpoint();
+                S3Util.validateAndTestEndpoint(endpoint);
+            }
             BrokerUtil.parseFile(path, brokerDesc, fileStatuses);
         } catch (UserException e) {
             throw new AnalysisException("parse file failed, err: " + e.getMessage(), e);
+        } finally {
+            SummaryProfile profile = SummaryProfile.getSummaryProfile(ConnectContext.get());
+            if (profile != null) {
+                profile.addExternalTvfInitTime(System.currentTimeMillis() - startAt);
+            }
         }
     }
 
-    //The keys in properties map need to be lowercase.
+    // The keys in properties map need to be lowercase.
     protected Map<String, String> parseCommonProperties(Map<String, String> properties) throws AnalysisException {
         Map<String, String> mergedProperties = Maps.newHashMap();
         if (properties.containsKey("resource")) {
@@ -172,6 +192,12 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
 
         String formatString = getOrDefaultAndRemove(copiedProps, FileFormatConstants.PROP_FORMAT, "").toLowerCase();
         fileFormatProperties = FileFormatProperties.createFileFormatProperties(formatString);
+
+        // Parse enable_mapping_varbinary property
+        String enableMappingVarbinaryStr = getOrDefaultAndRemove(copiedProps,
+                FileFormatConstants.PROP_ENABLE_MAPPING_VARBINARY, "false");
+        fileFormatProperties.enableMappingVarbinary = Boolean.parseBoolean(enableMappingVarbinaryStr);
+
         fileFormatProperties.analyzeFileFormatProperties(copiedProps, true);
 
         if (fileFormatProperties instanceof CsvFileFormatProperties
@@ -184,7 +210,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         }
 
         pathPartitionKeys = Optional.ofNullable(
-                getOrDefaultAndRemove(copiedProps, FileFormatConstants.PROP_PATH_PARTITION_KEYS, null))
+                        getOrDefaultAndRemove(copiedProps, FileFormatConstants.PROP_PATH_PARTITION_KEYS, null))
                 .map(str -> Arrays.stream(str.split(","))
                         .map(String::trim)
                         .collect(Collectors.toList()))
@@ -231,7 +257,12 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         columns = Lists.newArrayList();
         Backend be = getBackend();
         if (be == null) {
-            throw new AnalysisException("No Alive backends");
+            String computeGroupHints = "";
+            if (Config.isCloudMode()) {
+                // null: computeGroupNotFoundPromptMsg select cluster for hint msg
+                computeGroupHints = ComputeGroupMgr.computeGroupNotFoundPromptMsg(null);
+            }
+            throw new AnalysisException("No Alive backends" + computeGroupHints);
         }
 
         if (fileFormatProperties.getFileFormatType() == TFileFormatType.FORMAT_WAL) {
@@ -337,11 +368,19 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         } else if (tPrimitiveType == TPrimitiveType.STRUCT) {
             parsedNodes = 1;
             ArrayList<StructField> fields = new ArrayList<>();
+            Set<String> fieldLowerNames = new HashSet<>();
+
             for (int i = 0; i < typeNodes.get(start).getStructFieldsCount(); ++i) {
                 Pair<Type, Integer> fieldType = getColumnType(typeNodes, start + parsedNodes);
                 PStructField structField = typeNodes.get(start).getStructFields(i);
-                fields.add(new StructField(structField.getName(), fieldType.key(), structField.getComment(),
-                        structField.getContainsNull()));
+                String fieldName = structField.getName().toLowerCase();
+                if (fieldLowerNames.contains(fieldName)) {
+                    throw new NotSupportedException("Repeated lowercase field names: " + fieldName);
+                } else {
+                    fieldLowerNames.add(fieldName);
+                    fields.add(new StructField(fieldName, fieldType.key(), structField.getComment(),
+                            structField.getContainsNull()));
+                }
                 parsedNodes += fieldType.value();
             }
             type = new StructType(fields);
@@ -361,10 +400,18 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
             return;
         }
         // add fetched file columns
+        Set<String> columnLowerNames = new HashSet<>();
         for (int idx = 0; idx < result.getColumnNums(); ++idx) {
             PTypeDesc type = result.getColumnTypes(idx);
-            String colName = result.getColumnNames(idx);
-            columns.add(new Column(colName, getColumnType(type.getTypesList(), 0).key(), true));
+            String colName = result.getColumnNames(idx).toLowerCase();
+            // Since doris does not distinguish between upper and lower case columns when querying, in order to avoid
+            // query ambiguity, two columns with the same name but different capitalization are not allowed.
+            if (columnLowerNames.contains(colName)) {
+                throw new NotSupportedException("Repeated lowercase column names: " + colName);
+            } else {
+                columnLowerNames.add(colName);
+                columns.add(new Column(colName, getColumnType(type.getTypesList(), 0).key(), true));
+            }
         }
         // add path columns
         // HACK(tsy): path columns are all treated as STRING type now, after BE supports reading all columns
@@ -384,6 +431,8 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         fileScanRangeParams.setFileAttributes(getFileAttributes());
         ConnectContext ctx = ConnectContext.get();
         fileScanRangeParams.setLoadId(ctx.queryId());
+        // table function fetch schema, whether to enable mapping varbinary
+        fileScanRangeParams.setEnableMappingVarbinary(fileFormatProperties.enableMappingVarbinary);
 
         if (getTFileType() == TFileType.FILE_STREAM) {
             fileStatuses.add(new TBrokerFileStatus("", false, -1, true));
@@ -391,7 +440,8 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         }
 
         if (getTFileType() == TFileType.FILE_HDFS) {
-            THdfsParams tHdfsParams = HdfsResource.generateHdfsParam(storageProperties.getBackendConfigProperties());
+            THdfsParams tHdfsParams = HdfsResource.generateHdfsParam(
+                    storageProperties.getBackendConfigProperties());
             String fsName = storageProperties.getBackendConfigProperties().get(HdfsResource.HADOOP_FS_NAME);
             tHdfsParams.setFsName(fsName);
             fileScanRangeParams.setHdfsParams(tHdfsParams);

@@ -47,13 +47,18 @@ public class PosExplode extends TableGeneratingFunction implements UnaryExpressi
         super("posexplode", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private PosExplode(GeneratorFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public PosExplode withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new PosExplode(children.get(0));
+        return new PosExplode(getFunctionParams(children));
     }
 
     @Override
@@ -68,7 +73,7 @@ public class PosExplode extends TableGeneratingFunction implements UnaryExpressi
     public List<FunctionSignature> getSignatures() {
         return ImmutableList.of(
                 FunctionSignature.ret(new StructType(ImmutableList.of(
-                        new StructField("pos", IntegerType.INSTANCE, true, ""),
+                        new StructField("pos", IntegerType.INSTANCE, false, ""),
                         new StructField("col", ((ArrayType) child().getDataType()).getItemType(), true, ""))))
                         .args(child().getDataType()));
     }

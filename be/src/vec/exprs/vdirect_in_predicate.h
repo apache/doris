@@ -20,6 +20,9 @@
 #include "common/status.h"
 #include "exprs/hybrid_set.h"
 #include "vec/exprs/vexpr.h"
+#include "vec/exprs/vin_predicate.h"
+#include "vec/exprs/vliteral.h"
+#include "vec/exprs/vslot_ref.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
@@ -31,6 +34,10 @@ public:
     VDirectInPredicate(const TExprNode& node, const std::shared_ptr<HybridSetBase>& filter)
             : VExpr(node), _filter(filter), _expr_name("direct_in_predicate") {}
     ~VDirectInPredicate() override = default;
+
+#ifdef BE_TEST
+    VDirectInPredicate() = default;
+#endif
 
     Status prepare(RuntimeState* state, const RowDescriptor& row_desc,
                    VExprContext* context) override {
@@ -47,37 +54,75 @@ public:
         return Status::OK();
     }
 
-    Status execute(VExprContext* context, Block* block, int* result_column_id) override {
-        ColumnNumbers arguments;
-        return _do_execute(context, block, result_column_id, arguments);
+    Status execute_column(VExprContext* context, const Block* block, size_t count,
+                          ColumnPtr& result_column) const override {
+        return _do_execute(context, block, count, result_column, nullptr);
     }
 
-    Status execute_runtime_fitler(doris::vectorized::VExprContext* context,
-                                  doris::vectorized::Block* block, int* result_column_id,
-                                  ColumnNumbers& args) override {
-        return _do_execute(context, block, result_column_id, args);
+    Status execute_runtime_filter(VExprContext* context, const Block* block, size_t count,
+                                  ColumnPtr& result_column, ColumnPtr* arg_column) const override {
+        return _do_execute(context, block, count, result_column, arg_column);
     }
 
     const std::string& expr_name() const override { return _expr_name; }
 
     std::shared_ptr<HybridSetBase> get_set_func() const override { return _filter; }
 
-private:
-    Status _do_execute(VExprContext* context, Block* block, int* result_column_id,
-                       ColumnNumbers& arguments) {
-        DCHECK(_open_finished || _getting_const_col);
-        arguments.resize(_children.size());
-        for (int i = 0; i < _children.size(); ++i) {
-            int column_id = -1;
-            RETURN_IF_ERROR(_children[i]->execute(context, block, &column_id));
-            arguments[i] = column_id;
+    bool get_slot_in_expr(VExprSPtr& new_root) const {
+        if (!get_child(0)->is_slot_ref()) {
+            return false;
         }
 
-        uint32_t num_columns_without_result = block->columns();
-        auto res_data_column = ColumnUInt8::create(block->rows());
-        ColumnPtr argument_column =
-                block->get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        auto* slot_ref = assert_cast<VSlotRef*>(get_child(0).get());
+        auto slot_data_type = remove_nullable(slot_ref->data_type());
+        {
+            TTypeDesc type_desc = create_type_desc(PrimitiveType::TYPE_BOOLEAN);
+            TExprNode node;
+            node.__set_type(type_desc);
+            node.__set_node_type(TExprNodeType::IN_PRED);
+            node.in_predicate.__set_is_not_in(false);
+            node.__set_opcode(TExprOpcode::FILTER_IN);
+            // VdirectInPredicate assume is_nullable = false.
+            node.__set_is_nullable(false);
+            new_root = VInPredicate::create_shared(node);
+        }
+        {
+            // add slot
+            new_root->add_child(children().at(0));
+        }
+        {
+            auto iter = get_set_func()->begin();
+            while (iter->has_next()) {
+                DCHECK(iter->get_value() != nullptr);
+                const void* value = iter->get_value();
+
+                TExprNode node = create_texpr_node_from(value, slot_data_type->get_primitive_type(),
+                                                        slot_data_type->get_precision(),
+                                                        slot_data_type->get_scale());
+                new_root->add_child(VLiteral::create_shared(node));
+                iter->next();
+            }
+        }
+        return true;
+    }
+
+    uint64_t get_digest(uint64_t seed) const override { return _filter->get_digest(seed); }
+
+private:
+    Status _do_execute(VExprContext* context, const Block* block, size_t count,
+                       ColumnPtr& result_column, ColumnPtr* arg_column) const {
+        DCHECK(_open_finished || _getting_const_col);
+
+        ColumnPtr argument_column;
+        RETURN_IF_ERROR(_children[0]->execute_column(context, block, count, argument_column));
+        argument_column = argument_column->convert_to_full_column_if_const();
+
+        if (arg_column != nullptr) {
+            *arg_column = argument_column;
+        }
+
         size_t sz = argument_column->size();
+        auto res_data_column = ColumnUInt8::create(sz);
         res_data_column->resize(sz);
 
         if (argument_column->is_nullable()) {
@@ -91,10 +136,7 @@ private:
         }
 
         DCHECK(!_data_type->is_nullable());
-
-        block->insert({std::move(res_data_column), _data_type, _expr_name});
-
-        *result_column_id = num_columns_without_result;
+        result_column = std::move(res_data_column);
         return Status::OK();
     }
 

@@ -62,15 +62,13 @@ suite("test_hudi_rewrite_mtmv", "p2,external,hudi,external_remote,external_remot
     waitingMTMVTaskFinishedByMvName(mvName)
     order_qt_refresh_one_partition "SELECT * FROM ${mvName} "
 
-    def explainOnePartition = sql """ explain  ${mvSql} """
-    logger.info("explainOnePartition: " + explainOnePartition.toString())
-    assertTrue(explainOnePartition.toString().contains("VUNION"))
+    mv_rewrite_success(mvSql, mvName)
     order_qt_refresh_one_partition_rewrite "${mvSql}"
 
     mv_rewrite_success("${mvSql}", "${mvName}")
 
     // select p_b should not rewrite
-    mv_rewrite_fail("SELECT par,count(*) as num FROM ${catalogName}.`hudi_mtmv_regression_test`.hudi_table_1 where par='b' group by par;", "${mvName}")
+    mv_not_part_in("SELECT par,count(*) as num FROM ${catalogName}.`hudi_mtmv_regression_test`.hudi_table_1 where par='b' group by par;", "${mvName}")
 
     //refresh auto
     sql """
@@ -79,9 +77,7 @@ suite("test_hudi_rewrite_mtmv", "p2,external,hudi,external_remote,external_remot
     waitingMTMVTaskFinishedByMvName(mvName)
     order_qt_refresh_auto "SELECT * FROM ${mvName} "
 
-    def explainAllPartition = sql """ explain  ${mvSql}; """
-    logger.info("explainAllPartition: " + explainAllPartition.toString())
-    assertTrue(explainAllPartition.toString().contains("VOlapScanNode"))
+    mv_rewrite_success(mvSql, mvName)
     order_qt_refresh_all_partition_rewrite "${mvSql}"
 
     mv_rewrite_success("${mvSql}", "${mvName}")

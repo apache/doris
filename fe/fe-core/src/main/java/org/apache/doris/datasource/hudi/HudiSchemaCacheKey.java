@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.hudi;
 
 import org.apache.doris.datasource.ExternalSchemaCache.SchemaCacheKey;
+import org.apache.doris.datasource.NameMapping;
 
 import com.google.common.base.Objects;
 
@@ -31,13 +32,12 @@ public class HudiSchemaCacheKey extends SchemaCacheKey {
     /**
      * Creates a new cache key for Hudi table schemas.
      *
-     * @param dbName The database name
-     * @param tableName The table name
+     * @param nameMapping
      * @param timestamp The timestamp for schema version
      * @throws IllegalArgumentException if dbName or tableName is null or empty
      */
-    public HudiSchemaCacheKey(String dbName, String tableName, long timestamp) {
-        super(dbName, tableName);
+    public HudiSchemaCacheKey(NameMapping nameMapping, long timestamp) {
+        super(nameMapping);
         if (timestamp < 0) {
             throw new IllegalArgumentException("Timestamp cannot be negative");
         }
@@ -77,6 +77,6 @@ public class HudiSchemaCacheKey extends SchemaCacheKey {
     @Override
     public String toString() {
         return String.format("HudiSchemaCacheKey{dbName='%s', tableName='%s', timestamp=%d}",
-                getDbName(), getTblName(), timestamp);
+                getNameMapping().getLocalDbName(), getNameMapping().getLocalTblName(), timestamp);
     }
 }

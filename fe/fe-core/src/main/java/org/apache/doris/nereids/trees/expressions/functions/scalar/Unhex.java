@@ -49,13 +49,18 @@ public class Unhex extends ScalarFunction
         super("unhex", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Unhex(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public Unhex withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Unhex(children.get(0));
+        return new Unhex(getFunctionParams(children));
     }
 
     @Override

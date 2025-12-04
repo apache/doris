@@ -11,7 +11,7 @@ PhysicalResultSink
 ----------------PhysicalProject
 ------------------PhysicalOlapScan[customer] apply RFs: RF4 RF5
 ----------------PhysicalProject
-------------------hashAgg[LOCAL]
+------------------hashAgg[GLOBAL]
 --------------------PhysicalProject
 ----------------------hashJoin[INNER_JOIN shuffle] hashCondition=((store_sales.ss_addr_sk = customer_address.ca_address_sk)) otherCondition=() build RFs:RF3 ca_address_sk->[ss_addr_sk]
 ------------------------PhysicalProject
@@ -34,10 +34,10 @@ PhysicalResultSink
 ------------------------PhysicalProject
 --------------------------PhysicalOlapScan[customer_address]
 ------------PhysicalProject
---------------PhysicalOlapScan[customer_address]
+--------------PhysicalOlapScan[customer_address(current_addr)]
 
 Hint log:
 Used: leading(store_sales store date_dim household_demographics customer_address ) leading(customer dn current_addr )
-UnUsed: 
+UnUsed:
 SyntaxError:
 

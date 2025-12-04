@@ -98,8 +98,6 @@ Status RuntimeFilter::_init_with_desc(const TRuntimeFilterDesc* desc,
         params.bloom_filter_size = desc->bloom_filter_size_bytes;
     }
     params.null_aware = desc->__isset.null_aware && desc->null_aware;
-    params.enable_fixed_len_to_uint32_v2 = options->__isset.enable_fixed_len_to_uint32_v2 &&
-                                           options->enable_fixed_len_to_uint32_v2;
     if (_runtime_filter_type == RuntimeFilterType::BITMAP_FILTER) {
         if (_has_remote_target) {
             return Status::InternalError("bitmap filter do not support remote target");

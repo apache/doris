@@ -80,8 +80,8 @@ suite ("mv_ssb_q_3_1") {
 
     createMV ("""create materialized view lineorder_q_3_1 as 
                 SELECT
-                    C_NATION,
-                    S_NATION, (LO_ORDERDATE DIV 10000) AS YEAR,
+                    C_NATION as a1,
+                    S_NATION as a2, (LO_ORDERDATE DIV 10000) AS YEAR,
                     SUM(LO_REVENUE) AS revenue
                 FROM lineorder_flat
                 WHERE

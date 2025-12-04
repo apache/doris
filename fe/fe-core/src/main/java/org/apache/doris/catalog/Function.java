@@ -26,7 +26,6 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.URI;
 import org.apache.doris.persist.gson.GsonUtils;
-import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TFunction;
 import org.apache.doris.thrift.TFunctionBinaryType;
 
@@ -45,7 +44,6 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
 import java.util.stream.Collectors;
 
@@ -351,103 +349,7 @@ public class Function implements Writable {
         return sb.toString();
     }
 
-    // Compares this to 'other' for mode.
-    public boolean compare(Function other, CompareMode mode) {
-        switch (mode) {
-            case IS_IDENTICAL:
-                return isIdentical(other);
-            case IS_INDISTINGUISHABLE:
-                return isIndistinguishable(other);
-            case IS_SUPERTYPE_OF:
-                return isSubtype(other);
-            case IS_NONSTRICT_SUPERTYPE_OF:
-                return isAssignCompatible(other);
-            case IS_MATCHABLE:
-                return isMatchable(other);
-            default:
-                Preconditions.checkState(false);
-                return false;
-        }
-    }
-
-    /**
-     * Returns true if 'this' is a supertype of 'other'. Each argument in other must
-     * be implicitly castable to the matching argument in this.
-     * TODO: look into how we resolve implicitly castable functions. Is there a rule
-     * for "most" compatible or maybe return an error if it is ambiguous?
-     */
-    private boolean isSubtype(Function other) {
-        if (!this.hasVarArgs && other.argTypes.length != this.argTypes.length) {
-            return false;
-        }
-        if (this.hasVarArgs && other.argTypes.length < this.argTypes.length) {
-            return false;
-        }
-        for (int i = 0; i < this.argTypes.length; ++i) {
-            if (!Type.isImplicitlyCastable(other.argTypes[i], this.argTypes[i], true,
-                    SessionVariable.getEnableDecimal256())) {
-                return false;
-            }
-        }
-        // Check trailing varargs.
-        if (this.hasVarArgs) {
-            for (int i = this.argTypes.length; i < other.argTypes.length; ++i) {
-                if (!Type.isImplicitlyCastable(other.argTypes[i], getVarArgsType(), true,
-                        SessionVariable.getEnableDecimal256())) {
-                    return false;
-                }
-            }
-        }
-        return true;
-    }
-
-    // return true if 'this' is assign-compatible from 'other'.
-    // Each argument in 'other' must be assign-compatible to the matching argument in 'this'.
-    private boolean isAssignCompatible(Function other) {
-        if (!this.hasVarArgs && other.argTypes.length != this.argTypes.length) {
-            return false;
-        }
-        if (this.hasVarArgs && other.argTypes.length < this.argTypes.length) {
-            return false;
-        }
-        for (int i = 0; i < this.argTypes.length; ++i) {
-            if (!Type.canCastTo(other.argTypes[i], argTypes[i])) {
-                return false;
-            }
-        }
-        // Check trailing varargs.
-        if (this.hasVarArgs) {
-            for (int i = this.argTypes.length; i < other.argTypes.length; ++i) {
-                if (!Type.canCastTo(other.argTypes[i], getVarArgsType())) {
-                    return false;
-                }
-            }
-        }
-        return true;
-    }
-
-    private boolean isMatchable(Function o) {
-        if (!o.name.equals(name)) {
-            return false;
-        }
-        if (argTypes != null) {
-            if (o.argTypes.length != this.argTypes.length) {
-                return false;
-            }
-            if (o.hasVarArgs != this.hasVarArgs) {
-                return false;
-            }
-            for (int i = 0; i < this.argTypes.length; ++i) {
-                if (!o.argTypes[i].matchesType(this.argTypes[i])) {
-                    return false;
-                }
-            }
-        }
-        return true;
-
-    }
-
-    private boolean isIdentical(Function o) {
+    public boolean isIdentical(Function o) {
         if (!o.name.equals(name)) {
             return false;
         }
@@ -463,91 +365,6 @@ public class Function implements Writable {
             }
         }
         return true;
-    }
-
-    private boolean isIndistinguishable(Function o) {
-        if (!o.name.equals(name)) {
-            return false;
-        }
-        int minArgs = Math.min(o.argTypes.length, this.argTypes.length);
-        // The first fully specified args must be identical.
-        for (int i = 0; i < minArgs; ++i) {
-            if (o.argTypes[i].isNull() || this.argTypes[i].isNull()) {
-                continue;
-            }
-            if (!o.argTypes[i].matchesType(this.argTypes[i])) {
-                return false;
-            }
-        }
-        if (o.argTypes.length == this.argTypes.length) {
-            return true;
-        }
-
-        if (o.hasVarArgs && this.hasVarArgs) {
-            if (!o.getVarArgsType().matchesType(this.getVarArgsType())) {
-                return false;
-            }
-            if (this.getNumArgs() > o.getNumArgs()) {
-                for (int i = minArgs; i < this.getNumArgs(); ++i) {
-                    if (this.argTypes[i].isNull()) {
-                        continue;
-                    }
-                    if (!this.argTypes[i].matchesType(o.getVarArgsType())) {
-                        return false;
-                    }
-                }
-            } else {
-                for (int i = minArgs; i < o.getNumArgs(); ++i) {
-                    if (o.argTypes[i].isNull()) {
-                        continue;
-                    }
-                    if (!o.argTypes[i].matchesType(this.getVarArgsType())) {
-                        return false;
-                    }
-                }
-            }
-            return true;
-        } else if (o.hasVarArgs) {
-            // o has var args so check the remaining arguments from this
-            if (o.getNumArgs() > minArgs) {
-                return false;
-            }
-            for (int i = minArgs; i < this.getNumArgs(); ++i) {
-                if (this.argTypes[i].isNull()) {
-                    continue;
-                }
-                if (!this.argTypes[i].matchesType(o.getVarArgsType())) {
-                    return false;
-                }
-            }
-            return true;
-        } else if (this.hasVarArgs) {
-            // this has var args so check the remaining arguments from s
-            if (this.getNumArgs() > minArgs) {
-                return false;
-            }
-            for (int i = minArgs; i < o.getNumArgs(); ++i) {
-                if (o.argTypes[i].isNull()) {
-                    continue;
-                }
-                if (!o.argTypes[i].matchesType(this.getVarArgsType())) {
-                    return false;
-                }
-            }
-            return true;
-        } else {
-            // Neither has var args and the lengths don't match
-            return false;
-        }
-    }
-
-    public boolean isInferenceFunction() {
-        for (Type arg : argTypes) {
-            if (arg instanceof AnyType) {
-                return true;
-            }
-        }
-        return retType instanceof AnyType;
     }
 
     public TFunction toThrift(Type realReturnType, Type[] realArgTypes, Boolean[] realArgTypeNullables) {
@@ -593,48 +410,6 @@ public class Function implements Writable {
     // Child classes must override this function.
     public String toSql(boolean ifNotExists) {
         return "";
-    }
-
-    public static Function getFunction(List<Function> fns, Function desc, CompareMode mode) {
-        if (fns == null) {
-            return null;
-        }
-        // First check for identical
-        for (Function f : fns) {
-            if (f.compare(desc, Function.CompareMode.IS_IDENTICAL)) {
-                return f;
-            }
-        }
-        if (mode == Function.CompareMode.IS_IDENTICAL) {
-            return null;
-        }
-
-        // Next check for indistinguishable
-        for (Function f : fns) {
-            if (f.compare(desc, Function.CompareMode.IS_INDISTINGUISHABLE)) {
-                return f;
-            }
-        }
-        if (mode == Function.CompareMode.IS_INDISTINGUISHABLE) {
-            return null;
-        }
-
-        // Next check for strict supertypes
-        for (Function f : fns) {
-            if (f.compare(desc, Function.CompareMode.IS_SUPERTYPE_OF)) {
-                return f;
-            }
-        }
-        if (mode == Function.CompareMode.IS_SUPERTYPE_OF) {
-            return null;
-        }
-        // Finally check for non-strict supertypes
-        for (Function f : fns) {
-            if (f.compare(desc, Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF)) {
-                return f;
-            }
-        }
-        return null;
     }
 
     @Override
@@ -731,38 +506,6 @@ public class Function implements Writable {
         }
     }
 
-    public boolean hasTemplateArg() {
-        for (Type t : getArgs()) {
-            if (t.hasTemplateType()) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    public boolean hasVariadicTemplateArg() {
-        for (Type t : getArgs()) {
-            if (t.needExpandTemplateType()) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    // collect expand size of variadic template
-    public void collectTemplateExpandSize(Type[] args, Map<String, Integer> expandSizeMap) throws TypeException {
-        for (int i = argTypes.length - 1; i >= 0; i--) {
-            if (argTypes[i].hasTemplateType()) {
-                if (argTypes[i].needExpandTemplateType()) {
-                    argTypes[i].collectTemplateExpandSize(
-                            Arrays.copyOfRange(args, i, args.length), expandSizeMap);
-                }
-            }
-        }
-    }
-
     @Override
     public boolean equals(Object o) {
         if (this == o) {
@@ -788,7 +531,7 @@ public class Function implements Writable {
         return result;
     }
 
-    public static FunctionCallExpr convertToStateCombinator(FunctionCallExpr fnCall) {
+    public static FunctionCallExpr convertToStateCombinator(FunctionCallExpr fnCall, boolean returnNullable) {
         Function aggFunction = fnCall.getFn();
         List<Type> arguments = Arrays.asList(aggFunction.getArgs());
         ScalarFunction fn = new ScalarFunction(
@@ -798,7 +541,7 @@ public class Function implements Writable {
                             return expr.getType();
                         }).collect(Collectors.toList()), fnCall.getChildren().stream().map(expr -> {
                             return expr.isNullable();
-                        }).collect(Collectors.toList())),
+                        }).collect(Collectors.toList()), returnNullable),
                 aggFunction.hasVarArgs(), aggFunction.isUserVisible());
         fn.setNullableMode(NullableMode.ALWAYS_NOT_NULLABLE);
         fn.setBinaryType(TFunctionBinaryType.AGG_STATE);
@@ -826,13 +569,14 @@ public class Function implements Writable {
 
     public static FunctionCallExpr convertForEachCombinator(FunctionCallExpr fnCall) {
         Function aggFunction = fnCall.getFn();
-        aggFunction.setName(new FunctionName(aggFunction.getFunctionName().getFunction() + Expr.AGG_FOREACH_SUFFIX));
+        aggFunction.setName(new FunctionName(aggFunction.getFunctionName().getFunction()
+                + Expr.AGG_FOREACH_SUFFIX + "v2"));
         List<Type> argTypes = new ArrayList();
         for (Type type : aggFunction.argTypes) {
             argTypes.add(new ArrayType(type));
         }
         aggFunction.setArgs(argTypes);
-        aggFunction.setReturnType(new ArrayType(aggFunction.getReturnType(), fnCall.isNullable()));
+        aggFunction.setReturnType(new ArrayType(aggFunction.getReturnType(), true));
         aggFunction.setNullableMode(NullableMode.ALWAYS_NULLABLE);
         return fnCall;
     }

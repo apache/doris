@@ -81,11 +81,11 @@ suite("test_cloud_disable_compaction_show_data","p2, nonConcurrent") {
         // expect mysqlSize == apiSize == storageSize
         assertEquals(sizeRecords["mysqlSize"][0], sizeRecords["apiSize"][0])
         assertEquals(sizeRecords["mysqlSize"][0], sizeRecords["cbsSize"][0])
-        // expect load 1 times ==  load 10 times
+        // expect load 10 times >=  10 x load 1 times
         logger.info("after 1 time stream load, size is ${sizeRecords["mysqlSize"][0]}, after 10 times stream load, size is ${sizeRecords["mysqlSize"][1]}")
-        assertEquals(sizeRecords["mysqlSize"][0], sizeRecords["mysqlSize"][1])
-        assertEquals(sizeRecords["apiSize"][0], sizeRecords["apiSize"][1])
-        assertEquals(sizeRecords["cbsSize"][0], sizeRecords["cbsSize"][1])
+        assertTrue(sizeRecords["mysqlSize"][1] >= 10 * sizeRecords["mysqlSize"][0])
+        assertTrue(sizeRecords["apiSize"][1] >= 10 * sizeRecords["apiSize"][0])
+        assertTrue(sizeRecords["cbsSize"][1] >= 10 * sizeRecords["cbsSize"][0])
     }
 
     set_config_before_show_data_test()

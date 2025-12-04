@@ -344,6 +344,8 @@ suite("test_es_query", "p0,external,es,external_docker,external_docker_es") {
             order_qt_sql_7_36 """select test1, test2 from test1 where test2 like 'text%';"""
             order_qt_sql_7_37 """select test9 from test1;"""
             order_qt_sql_7_38 """select test9 from test2;"""
+            order_qt_sql_7_39 """desc test_object;"""
+            order_qt_sql_7_40 """select * from test_object;"""
 
             List<List<String>> tables7N = sql """show tables"""
             boolean notContainHide7 = true

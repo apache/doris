@@ -37,9 +37,12 @@
 #include "olap/olap_define.h"
 #include "util/runtime_profile.h"
 #include "util/slice.h"
+#include "vec/common/custom_allocator.h"
 #include "vec/common/typeid_cast.h"
-
 namespace doris {
+
+#include "common/compile_check_begin.h"
+
 namespace io {
 
 class FileSystem;
@@ -275,7 +278,8 @@ public:
     static constexpr size_t NUM_BOX = TOTAL_BUFFER_SIZE / BOX_SIZE; // 128
 
     MergeRangeFileReader(RuntimeProfile* profile, io::FileReaderSPtr reader,
-                         const std::vector<PrefetchRange>& random_access_ranges)
+                         const std::vector<PrefetchRange>& random_access_ranges,
+                         int64_t merge_read_slice_size = READ_SLICE_SIZE)
             : _profile(profile),
               _reader(std::move(reader)),
               _random_access_ranges(random_access_ranges) {
@@ -288,6 +292,13 @@ public:
         // 1MB for oss, 8KB for hdfs
         _equivalent_io_size =
                 _is_oss ? config::merged_oss_min_io_size : config::merged_hdfs_min_io_size;
+
+        _merged_read_slice_size = merge_read_slice_size;
+
+        if (_merged_read_slice_size < 0) {
+            _merged_read_slice_size = READ_SLICE_SIZE;
+        }
+
         for (const PrefetchRange& range : _random_access_ranges) {
             _statistics.apply_bytes += range.end_offset - range.start_offset;
         }
@@ -388,6 +399,7 @@ private:
     bool _is_oss;
     double _max_amplified_ratio;
     size_t _equivalent_io_size;
+    int64_t _merged_read_slice_size;
 
     Statistics _statistics;
 };
@@ -552,7 +564,7 @@ private:
     void reset_all_buffer(size_t position) {
         for (int64_t i = 0; i < _pre_buffers.size(); i++) {
             int64_t cur_pos = position + i * s_max_pre_buffer_size;
-            int cur_buf_pos = get_buffer_pos(cur_pos);
+            size_t cur_buf_pos = get_buffer_pos(cur_pos);
             // reset would do all the prefetch work
             _pre_buffers[cur_buf_pos]->reset_offset(get_buffer_offset(cur_pos));
         }
@@ -653,7 +665,7 @@ protected:
     }
 
 private:
-    std::unique_ptr<uint8_t[]> _buf;
+    DorisUniqueBufferPtr<uint8_t> _buf;
     io::FileReaderSPtr _file;
     uint64_t _file_start_offset;
     uint64_t _file_end_offset;
@@ -665,4 +677,7 @@ private:
 };
 
 } // namespace io
+
+#include "common/compile_check_end.h"
+
 } // namespace doris

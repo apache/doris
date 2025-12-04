@@ -31,7 +31,6 @@ import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
-import org.apache.doris.analysis.Subquery;
 import org.apache.doris.planner.ColumnBound;
 import org.apache.doris.planner.ColumnRange;
 import org.apache.doris.thrift.TExprOpcode;
@@ -63,6 +62,10 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+/**
+ * @deprecated LakeSoul catalog support has been deprecated and will be removed in a future version.
+ */
+@Deprecated
 public class LakeSoulUtils {
 
     public static final String FILE_NAMES = "file_paths";
@@ -313,9 +316,6 @@ public class LakeSoulUtils {
             }
         } else if (predicate instanceof InPredicate) {
             InPredicate inExpr = (InPredicate) predicate;
-            if (inExpr.contains(Subquery.class)) {
-                return null;
-            }
             SlotRef slotRef = convertDorisExprToSlotRef(inExpr.getChild(0));
             if (slotRef == null) {
                 return null;

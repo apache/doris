@@ -71,7 +71,7 @@ suite("test_fix_tablet_stat_fault_injection", "nonConcurrent") {
                 int rowsetCount = 0
                 for (def tablet in tablets) {
                     String tablet_id = tablet.TabletId
-                    (code, out, err) = curl("GET", tablet.CompactionStatus)
+                    def (code, out, err) = curl("GET", tablet.CompactionStatus)
                     logger.info("Show tablets status after insert data: code=" + code + ", out=" + out + ", err=" + err)
                     assertEquals(code, 0)
                     def tabletJson = parseJson(out.trim())
@@ -88,7 +88,7 @@ suite("test_fix_tablet_stat_fault_injection", "nonConcurrent") {
                 rowsetCount = 0
                 for (def tablet in tablets) {
                     String tablet_id = tablet.TabletId
-                    (code, out, err) = curl("GET", tablet.CompactionStatus)
+                    def (code, out, err) = curl("GET", tablet.CompactionStatus)
                     logger.info("Show tablets status after full compaction: code=" + code + ", out=" + out + ", err=" + err)
                     assertEquals(code, 0)
                     def tabletJson = parseJson(out.trim())
@@ -109,7 +109,7 @@ suite("test_fix_tablet_stat_fault_injection", "nonConcurrent") {
                 rowsetCount = 0
                 for (def tablet in tablets) {
                     String tablet_id = tablet.TabletId
-                    (code, out, err) = curl("GET", tablet.CompactionStatus)
+                    def (code, out, err) = curl("GET", tablet.CompactionStatus)
                     //logger.info("Show tablets status after fix stats: code=" + code + ", out=" + out + ", err=" + err)
                     assertEquals(code, 0)
                     def tabletJson = parseJson(out.trim())

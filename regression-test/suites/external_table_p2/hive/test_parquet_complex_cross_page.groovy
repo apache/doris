@@ -43,6 +43,8 @@ suite("test_parquet_complex_cross_page", "p2,external,hive,external_remote,exter
 
     sql """ set dry_run_query=true; """ 
 
+    sql """ set net_read_timeout = 1800; """
+
     qt_1 """  SELECT *  FROM test_parquet_complex_cross_page WHERE device_id='DZ692'  and format_time between 1737693770300 and 1737693770500 
     and date between '20250124' and '20250124'  and project='GA20230001' ; """ 
     qt_2 """ SELECT functions_pnc_ssm_road_di_objects from test_parquet_complex_cross_page ; """ 

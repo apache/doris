@@ -50,7 +50,7 @@ need_collect_log=false
 # monitoring the log files in "${DORIS_HOME}"/regression-test/log/ for keyword 'Reach limit of connections'
 _monitor_regression_log &
 
-# shellcheck disable=SC2317
+# shellcheck disable=SC2329
 run() {
     set -e
     shopt -s inherit_errexit
@@ -64,11 +64,14 @@ run() {
         echo "hwYunSk='${hwYunSk:-}'"
         echo "txYunAk='${txYunAk:-}'"
         echo "txYunSk='${txYunSk:-}'"
+        echo "regressionAliyunStsRegion='${regressionAliyunStsRegion:-cn-hongkong}'"
+        echo "regressionAliyunStsRoleArn='${regressionAliyunStsRoleArn:-}'"
     } >>"${teamcity_build_checkoutDir}"/regression-test/pipeline/cloud_p0/conf/regression-conf-custom.groovy
     cp -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/cloud_p0/conf/regression-conf-custom.groovy \
         "${teamcity_build_checkoutDir}"/regression-test/conf/
     # start kafka docker to run case test_rountine_load
     sed -i "s/^CONTAINER_UID=\"doris--\"/CONTAINER_UID=\"doris-external--\"/" "${teamcity_build_checkoutDir}"/docker/thirdparties/custom_settings.env
+    sed -i "s/oss-cn-hongkong.aliyuncs.com/oss-cn-hongkong-internal.aliyuncs.com/" "${teamcity_build_checkoutDir}"/docker/thirdparties/custom_settings.env
     if bash "${teamcity_build_checkoutDir}"/docker/thirdparties/run-thirdparties-docker.sh --stop; then echo; fi
     if bash "${teamcity_build_checkoutDir}"/docker/thirdparties/run-thirdparties-docker.sh -c kafka; then echo; else echo "ERROR: start kafka docker failed"; fi
     JAVA_HOME="$(find /usr/lib/jvm -maxdepth 1 -type d -name 'java-8-*' | sed -n '1p')"
@@ -111,15 +114,19 @@ if print_running_pipeline_tasks; then :; fi
 # shellcheck source=/dev/null
 source "$(cd "${teamcity_build_checkoutDir}" && bash "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/get-or-set-tmp-env.sh 'get')"
 
-echo "#### 5. check if need backup doris logs"
+check_if_need_gcore "${exit_flag}"
+if stop_doris_grace; then
+    echo "INFO: stop doris grace success."
+else
+    echo "ERROR: stop grace failed." && exit_flag=2
+fi
+if core_file_name=$(archive_doris_coredump "${pr_num_from_trigger}_${commit_id_from_trigger}_$(date +%Y%m%d%H%M%S)_doris_coredump.tar.gz"); then
+    reporting_build_problem "coredump"
+    print_doris_fe_log
+    print_doris_be_log
+fi
+echo "#### check if need backup doris logs ####"
 if [[ ${exit_flag} != "0" ]] || ${need_collect_log}; then
-    check_if_need_gcore "${exit_flag}"
-    if core_file_name=$(archive_doris_coredump "${pr_num_from_trigger}_${commit_id_from_trigger}_$(date +%Y%m%d%H%M%S)_doris_coredump.tar.gz"); then
-        reporting_build_problem "coredump"
-        print_doris_fe_log
-        print_doris_be_log
-    fi
-    export -f stop_doris_grace && timeout -v 10m bash -cx stop_doris_grace
     if log_file_name=$(archive_doris_logs "${pr_num_from_trigger}_${commit_id_from_trigger}_$(date +%Y%m%d%H%M%S)_doris_logs.tar.gz"); then
         if log_info="$(upload_doris_log_to_oss "${log_file_name}")"; then
             reporting_messages_error "${log_info##*logs.tar.gz to }"

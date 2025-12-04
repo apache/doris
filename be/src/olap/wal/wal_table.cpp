@@ -243,6 +243,8 @@ Status WalTable::_handle_stream_load(int64_t wal_id, const std::string& wal,
     RETURN_IF_ERROR(_construct_sql_str(wal, label, sql_str));
     std::shared_ptr<StreamLoadContext> ctx = std::make_shared<StreamLoadContext>(_exec_env);
     ctx->sql_str = sql_str;
+    ctx->db_id = _db_id;
+    ctx->table_id = _table_id;
     ctx->wal_id = wal_id;
     ctx->label = label;
     ctx->need_commit_self = false;
@@ -253,6 +255,8 @@ Status WalTable::_handle_stream_load(int64_t wal_id, const std::string& wal,
     ctx->load_src_type = TLoadSourceType::RAW;
     ctx->max_filter_ratio = 1;
     auto st = _http_stream_action->process_put(nullptr, ctx);
+    DBUG_EXECUTE_IF("WalTable::_handle_stream_load.fail",
+                    { st = Status::InternalError("WalTable::_handle_stream_load.fail"); });
     if (st.ok()) {
         // wait stream load finish
         RETURN_IF_ERROR(ctx->future.get());

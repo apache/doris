@@ -72,7 +72,6 @@ public class CloudRollupJobV2 extends RollupJobV2 {
                 field.set(ret, field.get(job));
             }
         }
-        ret.initAnalyzer();
         return ret;
     }
 
@@ -129,7 +128,7 @@ public class CloudRollupJobV2 extends RollupJobV2 {
         while (true) {
             try {
                 ((CloudInternalCatalog) Env.getCurrentInternalCatalog())
-                    .dropMaterializedIndex(tableId, rollupIndexList, false);
+                    .dropMaterializedIndex(dbId, tableId, rollupIndexList, false);
                 for (Map.Entry<Long, Map<Long, Long>> partitionEntry : partitionIdToBaseRollupTabletIdMap.entrySet()) {
                     Long partitionId = partitionEntry.getKey();
                     Map<Long, Long> rollupTabletIdToBaseTabletId = partitionEntry.getValue();
@@ -218,8 +217,8 @@ public class CloudRollupJobV2 extends RollupJobV2 {
                             partitionId, rollupTablet, tabletType, rollupSchemaHash,
                                     rollupKeysType, rollupShortKeyColumnCount, tbl.getCopiedBfColumns(),
                                     tbl.getBfFpp(), null, rollupSchema,
-                                    tbl.getDataSortInfo(), tbl.getCompressionType(), tbl.getStoragePolicy(),
-                                    tbl.isInMemory(), true,
+                                    tbl.getDataSortInfo(), tbl.getCompressionType(), tbl.getStorageFormat(),
+                                    tbl.getStoragePolicy(), tbl.isInMemory(), true,
                                     tbl.getName(), tbl.getTTLSeconds(),
                                     tbl.getEnableUniqueKeyMergeOnWrite(), tbl.storeRowColumn(),
                                     tbl.getBaseSchemaVersion(), tbl.getCompactionPolicy(),
@@ -233,7 +232,8 @@ public class CloudRollupJobV2 extends RollupJobV2 {
                                     null,
                                     tbl.rowStorePageSize(),
                                     tbl.variantEnableFlattenNested(), null,
-                                    tbl.storagePageSize());
+                                    tbl.storagePageSize(), tbl.getTDEAlgorithmPB(),
+                                    tbl.storageDictPageSize(), true);
                 requestBuilder.addTabletMetas(builder);
             } // end for rollupTablets
             requestBuilder.setDbId(dbId);

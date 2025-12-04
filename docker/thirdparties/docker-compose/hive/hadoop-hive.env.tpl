@@ -29,6 +29,7 @@ HIVE_SITE_CONF_hive_compactor_initiator_on=true
 HIVE_SITE_CONF_hive_compactor_worker_threads=2
 HIVE_SITE_CONF_metastore_storage_schema_reader_impl=org.apache.hadoop.hive.metastore.SerDeStorageSchemaReader
 HIVE_SITE_CONF_hive_stats_column_autogather=false
+HIVE_SITE_CONF_hive_exec_parallel=true
 
 CORE_CONF_fs_defaultFS=hdfs://${IP_HOST}:${FS_PORT}
 CORE_CONF_hadoop_http_staticuser_user=root
@@ -54,5 +55,11 @@ YARN_CONF_yarn_resourcemanager_address=resourcemanager:8032
 YARN_CONF_yarn_resourcemanager_scheduler_address=resourcemanager:8030
 YARN_CONF_yarn_resourcemanager_resource__tracker_address=resourcemanager:8031
 
+MAPRED_CONF_mapreduce_map_maxattempts=6
+MAPRED_CONF_mapreduce_reduce_maxattempts=6
+HADOOP_HEAPSIZE=4096
+
+
 NEED_LOAD_DATA=${NEED_LOAD_DATA}
+LOAD_PARALLEL=${LOAD_PARALLEL}
 

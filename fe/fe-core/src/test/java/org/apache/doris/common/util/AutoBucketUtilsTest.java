@@ -134,6 +134,7 @@ public class AutoBucketUtilsTest {
         Config.tablet_checker_interval_ms = 1000;
         Config.tablet_repair_delay_factor_second = 1;
         connectContext = UtFrameUtils.createDefaultCtx();
+        Config.autobucket_partition_size_per_bucket_gb = 1;
     }
 
     @After
@@ -164,16 +165,6 @@ public class AutoBucketUtilsTest {
                 + "\"estimate_partition_size\" = \"" + estimatePartitionSize + "\",\n"
                 + "\"replication_num\" = \"1\"\n"
                 + ")";
-    }
-
-    private void createTable(String sql) throws Exception {
-        // create database first
-        UtFrameUtils.createDatabase(connectContext, databaseName);
-        UtFrameUtils.createTable(connectContext, sql);
-    }
-
-    private void createTableBySize(String estimatePartitionSize) throws Exception {
-        createTable(genCreateTableSql(estimatePartitionSize));
     }
 
     // Some of these tests will report

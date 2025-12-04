@@ -17,13 +17,11 @@
 
 package org.apache.doris.datasource.tvf.source;
 
-import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.ExternalScanNode;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.system.Backend;
 import org.apache.doris.tablefunction.MetadataTableValuedFunction;
 import org.apache.doris.thrift.TMetaScanNode;
@@ -47,7 +45,7 @@ public class MetadataScanNode extends ExternalScanNode {
     private final List<TScanRangeLocations> scanRangeLocations = Lists.newArrayList();
 
     public MetadataScanNode(PlanNodeId id, TupleDescriptor desc, MetadataTableValuedFunction tvf) {
-        super(id, desc, "METADATA_SCAN_NODE", StatisticalType.METADATA_SCAN_NODE, false);
+        super(id, desc, "METADATA_SCAN_NODE", false);
         this.tvf = tvf;
     }
 
@@ -70,24 +68,57 @@ public class MetadataScanNode extends ExternalScanNode {
 
     @Override
     protected void createScanRangeLocations() {
-        List<String> requiredFileds = desc.getSlots().stream()
-                .filter(slot -> slot.isMaterialized())
+        List<String> requiredFields = desc.getSlots().stream()
                 .map(slot -> slot.getColumn().getName())
                 .collect(java.util.stream.Collectors.toList());
-        for (TMetaScanRange metaScanRange : tvf.getMetaScanRanges(requiredFileds)) {
-            TScanRange scanRange = new TScanRange();
-            scanRange.setMetaScanRange(metaScanRange);
+        TMetaScanRange metaScanRange = tvf.getMetaScanRange(requiredFields);
 
+        if (!metaScanRange.isSetSerializedSplits()) {
+            // no need to split ranges to send to backends
             TScanRangeLocation location = new TScanRangeLocation();
             Backend backend = backendPolicy.getNextBe();
             location.setBackendId(backend.getId());
             location.setServer(new TNetworkAddress(backend.getHost(), backend.getBePort()));
+
+            TScanRange scanRange = new TScanRange();
+            scanRange.setMetaScanRange(metaScanRange);
 
             TScanRangeLocations locations = new TScanRangeLocations();
             locations.addToLocations(location);
             locations.setScanRange(scanRange);
 
             scanRangeLocations.add(locations);
+        } else {
+            // need to split ranges to send to backends
+            List<Backend> backends = Lists.newArrayList(backendPolicy.getBackends());
+            List<String> splits = metaScanRange.getSerializedSplits();
+            int numSplitsPerBE = Math.max(1, splits.size() / backends.size());
+
+            for (int i = 0; i < backends.size(); i++) {
+                int from = i * numSplitsPerBE;
+                if (from >= splits.size()) {
+                    continue; // no splits for this backend
+                }
+                int to = Math.min((i + 1) * numSplitsPerBE, splits.size());
+
+                // set splited task to TMetaScanRange
+                TMetaScanRange subRange = metaScanRange.deepCopy();
+                subRange.setSerializedSplits(splits.subList(from, to));
+
+                TScanRangeLocation location = new TScanRangeLocation();
+                Backend backend = backends.get(i);
+                location.setBackendId(backend.getId());
+                location.setServer(new TNetworkAddress(backend.getHost(), backend.getBePort()));
+
+                TScanRange scanRange = new TScanRange();
+                scanRange.setMetaScanRange(subRange);
+
+                TScanRangeLocations locations = new TScanRangeLocations();
+                locations.addToLocations(location);
+                locations.setScanRange(scanRange);
+
+                scanRangeLocations.add(locations);
+            }
         }
     }
 
@@ -97,17 +128,8 @@ public class MetadataScanNode extends ExternalScanNode {
             // delay createScanRangeLocations in getScanRangeLocations to keep desc has been
             // projected
             createScanRangeLocations();
+            initedScanRangeLocations = true;
         }
         return scanRangeLocations;
-    }
-
-    @Override
-    public void finalize(Analyzer analyzer) throws UserException {
-        createScanRangeLocations();
-    }
-
-    @Override
-    public boolean needToCheckColumnPriv() {
-        return false;
     }
 }

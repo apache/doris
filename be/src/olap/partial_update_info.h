@@ -37,10 +37,18 @@ class BitmapValue;
 struct RowLocation;
 namespace vectorized {
 class Block;
-}
+class MutableBlock;
+class IOlapColumnDataAccessor;
+
+} // namespace vectorized
 struct RowsetWriterContext;
 struct RowsetId;
 class BitmapValue;
+namespace segment_v2 {
+class VerticalSegmentWriter;
+}
+
+class SegmentCacheHandle;
 
 struct PartialUpdateInfo {
     Status init(int64_t tablet_id, int64_t txn_id, const TabletSchema& tablet_schema,
@@ -112,6 +120,7 @@ struct RidAndPos {
 
 class FixedReadPlan {
 public:
+    bool empty() const;
     void prepare_to_read(const RowLocation& row_location, size_t pos);
     Status read_columns_by_plan(const TabletSchema& tablet_schema,
                                 std::vector<uint32_t> cids_to_read,
@@ -123,7 +132,7 @@ public:
                                 const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
                                 const TabletSchema& tablet_schema, vectorized::Block& full_block,
                                 const std::vector<bool>& use_default_or_null_flag,
-                                bool has_default_or_nullable, const size_t& segment_start_pos,
+                                bool has_default_or_nullable, uint32_t segment_start_pos,
                                 const vectorized::Block* block) const;
 
 private:
@@ -147,13 +156,14 @@ public:
                                 const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
                                 vectorized::Block& old_value_block,
                                 std::map<uint32_t, uint32_t>* read_index) const;
-    Status fill_non_primary_key_columns(
-            RowsetWriterContext* rowset_ctx,
-            const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
-            const TabletSchema& tablet_schema, vectorized::Block& full_block,
-            const std::vector<bool>& use_default_or_null_flag, bool has_default_or_nullable,
-            const std::size_t segment_start_pos, const std::size_t block_start_pos,
-            const vectorized::Block* block, std::vector<BitmapValue>* skip_bitmaps) const;
+    Status fill_non_primary_key_columns(RowsetWriterContext* rowset_ctx,
+                                        const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
+                                        const TabletSchema& tablet_schema,
+                                        vectorized::Block& full_block,
+                                        const std::vector<bool>& use_default_or_null_flag,
+                                        bool has_default_or_nullable, uint32_t segment_start_pos,
+                                        uint32_t block_start_pos, const vectorized::Block* block,
+                                        std::vector<BitmapValue>* skip_bitmaps) const;
 
     Status fill_non_primary_key_columns_for_column_store(
             RowsetWriterContext* rowset_ctx,
@@ -161,22 +171,94 @@ public:
             const TabletSchema& tablet_schema, const std::vector<uint32_t>& non_sort_key_cids,
             vectorized::Block& old_value_block, vectorized::MutableColumns& mutable_full_columns,
             const std::vector<bool>& use_default_or_null_flag, bool has_default_or_nullable,
-            const std::size_t segment_start_pos, const std::size_t block_start_pos,
-            const vectorized::Block* block, std::vector<BitmapValue>* skip_bitmaps) const;
+            uint32_t segment_start_pos, uint32_t block_start_pos, const vectorized::Block* block,
+            std::vector<BitmapValue>* skip_bitmaps) const;
     Status fill_non_primary_key_columns_for_row_store(
             RowsetWriterContext* rowset_ctx,
             const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
             const TabletSchema& tablet_schema, const std::vector<uint32_t>& non_sort_key_cids,
             vectorized::Block& old_value_block, vectorized::MutableColumns& mutable_full_columns,
             const std::vector<bool>& use_default_or_null_flag, bool has_default_or_nullable,
-            const std::size_t segment_start_pos, const std::size_t block_start_pos,
-            const vectorized::Block* block, std::vector<BitmapValue>* skip_bitmaps) const;
+            uint32_t segment_start_pos, uint32_t block_start_pos, const vectorized::Block* block,
+            std::vector<BitmapValue>* skip_bitmaps) const;
 
 private:
     bool use_row_store {false};
     // rowset_id -> segment_id -> column unique id -> mappings
     std::map<RowsetId, std::map<uint32_t, std::map<uint32_t, std::vector<RidAndPos>>>> plan;
     std::map<RowsetId, std::map<uint32_t /* segment_id */, std::vector<RidAndPos>>> row_store_plan;
+};
+
+class BlockAggregator {
+public:
+    ~BlockAggregator() = default;
+    BlockAggregator(segment_v2::VerticalSegmentWriter& vertical_segment_writer);
+
+    Status convert_pk_columns(vectorized::Block* block, size_t row_pos, size_t num_rows,
+                              std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns);
+    Status convert_seq_column(vectorized::Block* block, size_t row_pos, size_t num_rows,
+                              vectorized::IOlapColumnDataAccessor*& seq_column);
+    Status aggregate_for_flexible_partial_update(
+            vectorized::Block* block, size_t num_rows,
+            const std::vector<RowsetSharedPtr>& specified_rowsets,
+            std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches);
+
+private:
+    Status aggregate_for_sequence_column(
+            vectorized::Block* block, int num_rows,
+            const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns,
+            vectorized::IOlapColumnDataAccessor* seq_column,
+            const std::vector<RowsetSharedPtr>& specified_rowsets,
+            std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches);
+    Status aggregate_for_insert_after_delete(
+            vectorized::Block* block, size_t num_rows,
+            const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns,
+            const std::vector<RowsetSharedPtr>& specified_rowsets,
+            std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches);
+    Status filter_block(vectorized::Block* block, size_t num_rows,
+                        vectorized::MutableColumnPtr filter_column, int duplicate_rows,
+                        std::string col_name);
+
+    Status fill_sequence_column(vectorized::Block* block, size_t num_rows,
+                                const FixedReadPlan& read_plan,
+                                std::vector<BitmapValue>& skip_bitmaps);
+
+    void append_or_merge_row(vectorized::MutableBlock& dst_block, vectorized::Block* src_block,
+                             int rid, BitmapValue& skip_bitmap, bool have_delete_sign);
+    void merge_one_row(vectorized::MutableBlock& dst_block, vectorized::Block* src_block, int rid,
+                       BitmapValue& skip_bitmap);
+    void append_one_row(vectorized::MutableBlock& dst_block, vectorized::Block* src_block, int rid);
+    void remove_last_n_rows(vectorized::MutableBlock& dst_block, int n);
+
+    // aggregate rows with same keys in range [start, end) from block to output_block
+    Status aggregate_rows(vectorized::MutableBlock& output_block, vectorized::Block* block,
+                          int start, int end, std::string key,
+                          std::vector<BitmapValue>* skip_bitmaps, const signed char* delete_signs,
+                          vectorized::IOlapColumnDataAccessor* seq_column,
+                          const std::vector<RowsetSharedPtr>& specified_rowsets,
+                          std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches);
+
+    segment_v2::VerticalSegmentWriter& _writer;
+    TabletSchema& _tablet_schema;
+
+    // used to store state when aggregating rows in block
+    struct AggregateState {
+        int rows {0};
+        bool has_row_with_delete_sign {false};
+
+        bool should_merge() const {
+            return ((rows == 1 && !has_row_with_delete_sign) || rows == 2);
+        }
+
+        void reset() {
+            rows = 0;
+            has_row_with_delete_sign = false;
+        }
+
+        std::string to_string() const {
+            return fmt::format("rows={}, have_delete_row={}", rows, has_row_with_delete_sign);
+        }
+    } _state {};
 };
 
 struct PartialUpdateStats {

@@ -28,7 +28,6 @@
 #include "vec/common/assert_cast.h"
 #include "vec/core/field.h"
 #include "vec/data_types/data_type_map.h"
-#include "vec/io/io_helper.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
@@ -131,7 +130,7 @@ struct AggregateFunctionMapAggDataV2 {
         DCHECK_LE(written_bytes, serialized_bytes);
 
         serialized_buffer.resize(serialized_bytes);
-        write_string_binary(serialized_buffer, buf);
+        buf.write_binary(serialized_buffer);
 
         serialized_bytes =
                 _value_type->get_uncompressed_serialized_bytes(*_value_column, _be_version);
@@ -143,20 +142,20 @@ struct AggregateFunctionMapAggDataV2 {
         DCHECK_LE(written_bytes, serialized_bytes);
 
         serialized_buffer.resize(written_bytes);
-        write_string_binary(serialized_buffer, buf);
+        buf.write_binary(serialized_buffer);
     }
 
     void read(BufferReadable& buf) {
         std::string deserialized_buffer;
 
-        read_string_binary(deserialized_buffer, buf);
+        buf.read_binary(deserialized_buffer);
 
         const auto* ptr =
                 _key_type->deserialize(deserialized_buffer.data(), &_key_column, _be_version);
         auto read_bytes = ptr - deserialized_buffer.data();
         DCHECK_EQ(read_bytes, deserialized_buffer.size());
 
-        read_string_binary(deserialized_buffer, buf);
+        buf.read_binary(deserialized_buffer);
 
         ptr = _value_type->deserialize(deserialized_buffer.data(), &_value_column, _be_version);
         read_bytes = ptr - deserialized_buffer.data();
@@ -176,7 +175,9 @@ private:
 
 template <typename Data>
 class AggregateFunctionMapAggV2 final
-        : public IAggregateFunctionDataHelper<Data, AggregateFunctionMapAggV2<Data>> {
+        : public IAggregateFunctionDataHelper<Data, AggregateFunctionMapAggV2<Data>>,
+          MultiExpression,
+          NotNullableAggregateFunction {
 public:
     AggregateFunctionMapAggV2() = default;
     AggregateFunctionMapAggV2(const DataTypes& argument_types_)
@@ -194,7 +195,7 @@ public:
     }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
-             Arena*) const override {
+             Arena&) const override {
         Field key, value;
         columns[0]->get(row_num, key);
         columns[1]->get(row_num, value);
@@ -208,7 +209,7 @@ public:
     void reset(AggregateDataPtr place) const override { this->data(place).reset(); }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
-               Arena*) const override {
+               Arena&) const override {
         this->data(place).merge(this->data(rhs));
     }
 
@@ -217,12 +218,12 @@ public:
     }
 
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
-                     Arena*) const override {
+                     Arena&) const override {
         this->data(place).read(buf);
     }
 
     void streaming_agg_serialize_to_column(const IColumn** columns, MutableColumnPtr& dst,
-                                           const size_t num_rows, Arena*) const override {
+                                           const size_t num_rows, Arena&) const override {
         auto& col = assert_cast<ColumnMap&>(*dst);
         for (size_t i = 0; i != num_rows; ++i) {
             Field key, value;
@@ -234,7 +235,7 @@ public:
         }
     }
 
-    void deserialize_from_column(AggregateDataPtr places, const IColumn& column, Arena*,
+    void deserialize_from_column(AggregateDataPtr places, const IColumn& column, Arena&,
                                  size_t num_rows) const override {
         const auto& col = assert_cast<const ColumnMap&>(column);
         auto* data = &(this->data(places));
@@ -253,7 +254,7 @@ public:
     }
 
     void deserialize_and_merge_from_column(AggregateDataPtr __restrict place, const IColumn& column,
-                                           Arena*) const override {
+                                           Arena&) const override {
         const auto& col = assert_cast<const ColumnMap&>(column);
         const size_t num_rows = column.size();
         for (size_t i = 0; i != num_rows; ++i) {
@@ -264,7 +265,7 @@ public:
 
     void deserialize_and_merge_from_column_range(AggregateDataPtr __restrict place,
                                                  const IColumn& column, size_t begin, size_t end,
-                                                 Arena*) const override {
+                                                 Arena&) const override {
         DCHECK(end <= column.size() && begin <= end)
                 << ", begin:" << begin << ", end:" << end << ", column.size():" << column.size();
         const auto& col = assert_cast<const ColumnMap&>(column);
@@ -275,7 +276,7 @@ public:
     }
 
     void deserialize_and_merge_vec(const AggregateDataPtr* places, size_t offset,
-                                   AggregateDataPtr rhs, const IColumn* column, Arena*,
+                                   AggregateDataPtr rhs, const IColumn* column, Arena&,
                                    const size_t num_rows) const override {
         const auto& col = assert_cast<const ColumnMap&>(*column);
         for (size_t i = 0; i != num_rows; ++i) {
@@ -285,7 +286,7 @@ public:
     }
 
     void deserialize_and_merge_vec_selected(const AggregateDataPtr* places, size_t offset,
-                                            AggregateDataPtr rhs, const IColumn* column, Arena*,
+                                            AggregateDataPtr rhs, const IColumn* column, Arena&,
                                             const size_t num_rows) const override {
         const auto& col = assert_cast<const ColumnMap&>(*column);
         for (size_t i = 0; i != num_rows; ++i) {

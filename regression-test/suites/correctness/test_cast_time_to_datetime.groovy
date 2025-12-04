@@ -16,6 +16,7 @@
 // under the License.
 
 suite("test_cast_time_to_datetime") {
+    waitUntilSafeExecutionTime("NOT_CROSS_DAY_BOUNDARY", 2)
     def result1 = sql """ select datediff(now(), from_unixtime(cast(1742194502 as bigint),'yyyy-MM-dd HH:mm:ss')); """
     def result2 = sql """ select datediff(current_time(), from_unixtime(cast(1742194502 as bigint),'yyyy-MM-dd HH:mm:ss')); """
     assertEquals(result1[0][0], result2[0][0], "The results of the two SQL queries should be the same.")

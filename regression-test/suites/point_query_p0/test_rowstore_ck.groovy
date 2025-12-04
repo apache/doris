@@ -296,7 +296,7 @@ suite("test_rowstore_ck", "p0,nonConcurrent") {
               CREATE TABLE IF NOT EXISTS rs_query_ck (
                 `k1` int(11) NULL COMMENT "",
                 `v1` text NULL COMMENT "",
-                `v2` DECIMAL(50, 18) NULL COMMENT ""
+                `v2` DECIMALv3(50, 18) NULL COMMENT ""
               ) ENGINE=OLAP
               UNIQUE KEY(`k1`)
               CLUSTER BY(`v2`)

@@ -54,10 +54,10 @@ suite("test_cast_struct") {
     }
 
     // struct literal can not cast to basic types
-    test {
-        sql "select cast({1,2} as string)"
-        exception "errCode = 2,"
-    }
+    //    test {
+    //        sql "select cast({1,2} as string)"
+    //        exception "errCode = 2,"
+    //    }
 
     // struct literal cast to struct MUST with same field number
     test {

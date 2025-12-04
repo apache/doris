@@ -20,41 +20,20 @@
 
 #pragma once
 
-#include "common/logging.h"
-#include "vec/core/field.h"
+#include <cstddef>
+
 #include "vec/data_types/data_type.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
-inline void assert_unary(const std::string& name, const DataTypes& argument_types) {
-    CHECK_EQ(argument_types.size(), 1)
-            << fmt::format("Aggregate function {} require single argument", name);
-}
-
-inline void assert_binary(const std::string& name, const DataTypes& argument_types) {
-    CHECK_EQ(argument_types.size(), 2)
-            << fmt::format("Aggregate function {} require two arguments") << name;
-}
-
-template <std::size_t maximal_arity>
-void assert_arity_at_most(const std::string& name, const DataTypes& argument_types) {
-    if (argument_types.size() <= maximal_arity) {
-        return;
-    }
-
-    if constexpr (maximal_arity == 0) {
+inline void assert_arity_range(const std::string& name, const DataTypes& argument_types,
+                               size_t least, size_t most) {
+    if (argument_types.size() < least || argument_types.size() > most) {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                               "Aggregate function {} cannot have arguments", name);
+                               "Aggregate function {} requires {} to {} arguments, got {}", name,
+                               least, most, argument_types.size());
     }
-
-    if constexpr (maximal_arity == 1) {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                               "Aggregate function {} requires zero or one argument", name);
-    }
-    throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                           "Aggregate function {} requires at most {} arguments", name,
-                           maximal_arity);
 }
 
 } // namespace doris::vectorized

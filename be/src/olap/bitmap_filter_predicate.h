@@ -41,10 +41,6 @@ public:
 
     PredicateType type() const override { return PredicateType::BITMAP_FILTER; }
 
-    bool can_do_apply_safely(PrimitiveType input_type, bool is_null) const override {
-        return input_type == T || (is_string_type(input_type) && is_string_type(T));
-    }
-
     bool evaluate_and(const std::pair<WrapperField*, WrapperField*>& statistic) const override {
         if (_specific_filter->is_not_in()) {
             return true;
@@ -64,9 +60,7 @@ public:
         return _specific_filter->contains_any(min_value, max_value);
     }
 
-    Status evaluate(BitmapIndexIterator*, uint32_t, roaring::Roaring*) const override {
-        return Status::OK();
-    }
+    using ColumnPredicate::evaluate;
 
 private:
     bool _can_ignore() const override { return false; }
@@ -113,7 +107,7 @@ uint16_t BitmapFilterColumnPredicate<T>::_evaluate_inner(const vectorized::IColu
     } else {
         new_size = evaluate<false>(column, nullptr, sel, size);
     }
-    update_filter_info(size - new_size, size);
+    update_filter_info(size - new_size, size, 0);
     return new_size;
 }
 } //namespace doris

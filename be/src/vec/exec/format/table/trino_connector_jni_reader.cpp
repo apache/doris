@@ -76,9 +76,8 @@ TrinoConnectorJniReader::TrinoConnectorJniReader(
             "org/apache/doris/trinoconnector/TrinoConnectorJniScanner", params, column_names);
 }
 
-Status TrinoConnectorJniReader::init_reader(
-        const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range) {
-    RETURN_IF_ERROR(_jni_connector->init(colname_to_value_range));
+Status TrinoConnectorJniReader::init_reader() {
+    RETURN_IF_ERROR(_jni_connector->init());
     RETURN_IF_ERROR(_set_spi_plugins_dir());
     return _jni_connector->open(_state, _profile);
 }
@@ -107,8 +106,11 @@ Status TrinoConnectorJniReader::_set_spi_plugins_dir() {
     // call: setPluginsDir(String pluginsDir)
     jstring trino_connector_plugin_path =
             env->NewStringUTF(doris::config::trino_connector_plugin_dir.c_str());
+    RETURN_ERROR_IF_EXC(env);
     env->CallStaticVoidMethod(plugin_loader_cls, set_plugins_dir_method,
                               trino_connector_plugin_path);
+    RETURN_ERROR_IF_EXC(env);
+    env->DeleteLocalRef(trino_connector_plugin_path);
     RETURN_ERROR_IF_EXC(env);
 
     return Status::OK();

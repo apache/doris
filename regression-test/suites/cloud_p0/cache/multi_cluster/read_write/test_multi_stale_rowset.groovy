@@ -107,7 +107,7 @@ suite("test_multi_stale_rowset") {
         }
     }
     def getCurCacheSize = {
-        backendIdToCacheSize = [:]
+        def backendIdToCacheSize = [:]
         for (int i = 0; i < ipList.size(); i++) {
             StringBuilder sb = new StringBuilder();
             sb.append("curl http://")
@@ -117,10 +117,10 @@ suite("test_multi_stale_rowset") {
             sb.append("/vars/*file_cache_cache_size")
             String command = sb.toString()
             logger.info(command);
-            process = command.execute()
-            code = process.waitFor()
-            err = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())));
-            out = process.getText()
+            def process = command.execute()
+            def code = process.waitFor()
+            def err = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())));
+            def out = process.getText()
             logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
             assertEquals(code, 0)
             String[] str = out.split(':')

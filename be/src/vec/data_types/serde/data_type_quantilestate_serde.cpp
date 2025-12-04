@@ -22,12 +22,12 @@
 namespace doris::vectorized {
 
 void DataTypeQuantileStateSerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result,
-                                                         Arena* mem_pool, int32_t col_id,
+                                                         Arena& arena, int32_t col_id,
                                                          int64_t row_num) const {
     const auto& col = reinterpret_cast<const ColumnQuantileState&>(column);
-    auto& val = const_cast<QuantileState&>(col.get_element(row_num));
+    auto& val = col.get_element(row_num);
     size_t actual_size = val.get_serialized_size();
-    auto* ptr = mem_pool->alloc(actual_size);
+    auto* ptr = arena.alloc(actual_size);
     val.serialize((uint8_t*)ptr);
     result.writeKey(cast_set<JsonbKeyValue::keyid_type>(col_id));
     result.writeStartBinary();
@@ -43,4 +43,22 @@ void DataTypeQuantileStateSerDe::read_one_cell_from_jsonb(IColumn& column,
     val.deserialize(Slice(blob->getBlob(), blob->getBlobLen()));
     col.insert_value(val);
 }
+
+bool DataTypeQuantileStateSerDe::write_column_to_mysql_text(const IColumn& column,
+                                                            BufferWritable& bw,
+                                                            int64_t row_idx) const {
+    const auto& data_column = reinterpret_cast<const ColumnQuantileState&>(column);
+
+    if (_return_object_as_string) {
+        const auto& quantile_value = data_column.get_element(row_idx);
+        size_t size = quantile_value.get_serialized_size();
+        std::unique_ptr<char[]> buf = std::make_unique_for_overwrite<char[]>(size);
+        quantile_value.serialize((uint8_t*)buf.get());
+        bw.write(buf.get(), size);
+        return true;
+    } else {
+        return false;
+    }
+}
+
 } // namespace doris::vectorized

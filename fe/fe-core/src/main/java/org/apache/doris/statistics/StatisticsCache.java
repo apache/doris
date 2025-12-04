@@ -40,7 +40,7 @@ import org.apache.doris.thrift.TUpdateFollowerStatsCacheRequest;
 
 import com.github.benmanes.caffeine.cache.AsyncLoadingCache;
 import com.github.benmanes.caffeine.cache.Caffeine;
-import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.collections4.CollectionUtils;
 import org.apache.hudi.common.util.VisibleForTesting;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -241,7 +241,7 @@ public class StatisticsCache {
         long retryTimes = 0;
         while (!StatisticsUtil.statsTblAvailable()) {
             try {
-                Thread.sleep(100L);
+                Thread.sleep(1000L);
             } catch (InterruptedException e) {
                 // IGNORE
             }

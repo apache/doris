@@ -18,6 +18,7 @@
 #include "CN_QuantifierSegmenter.h"
 
 namespace doris::segment_v2 {
+#include "common/compile_check_begin.h"
 
 const std::u32string CN_QuantifierSegmenter::CHINESE_NUMBERS =
         U"一二两三四五六七八九十零壹贰叁肆伍陆柒捌玖拾百千万亿拾佰仟萬億兆卅廿";
@@ -58,15 +59,15 @@ void CN_QuantifierSegmenter::processCNumber(AnalyzeContext& context) {
         if (CharacterUtil::CHAR_CHINESE == context.getCurrentCharType() &&
             CHINESE_NUMBER_CHARS.find(currentChar) != CHINESE_NUMBER_CHARS.end()) {
             // Record the starting and ending positions of numeral words.
-            number_start_ = context.getCursor();
-            number_end_ = context.getCursor();
+            number_start_ = static_cast<int32_t>(context.getCursor());
+            number_end_ = static_cast<int32_t>(context.getCursor());
         }
     } else {
         // Processing status
         if (CharacterUtil::CHAR_CHINESE == context.getCurrentCharType() &&
             CHINESE_NUMBER_CHARS.find(context.getCurrentChar()) != CHINESE_NUMBER_CHARS.end()) {
             // Record the end position of numeral words
-            number_end_ = context.getCursor();
+            number_end_ = static_cast<int32_t>(context.getCursor());
         } else {
             // Output numeral
             outputNumLexeme(context);
@@ -112,20 +113,34 @@ void CN_QuantifierSegmenter::processCount(AnalyzeContext& context) {
                 }
             }
         }
-        // Perform a single-character match at the current pointer position.
-        auto singleCharHit = Dictionary::getSingleton()->matchInQuantifierDict(
-                typedRuneArray, context.getCursor(), 1);
-        if (singleCharHit.isMatch()) {
-            Lexeme newLexeme(context.getBufferOffset(), context.getCurrentCharOffset(),
-                             context.getCurrentCharLen(), Lexeme::Type::Count, context.getCursor(),
-                             context.getCursor());
-            context.addLexeme(newLexeme);
 
-            if (singleCharHit.isPrefix()) {
+        // Check if single character quantifier matching should be performed
+        // Only perform single character quantifier matching when there are preceding numerals
+        bool shouldMatchSingleChar = false;
+        if (!context.getOrgLexemes()->isEmpty()) {
+            auto l = context.getOrgLexemes()->peekLast();
+            if ((l->getType() == Lexeme::Type::CNum || l->getType() == Lexeme::Type::Arabic) &&
+                (l->getCharEnd() + 1 == context.getCursor())) {
+                shouldMatchSingleChar = true;
+            }
+        }
+
+        if (shouldMatchSingleChar || !count_hits_.empty()) {
+            // Perform a single-character match at the current pointer position.
+            auto singleCharHit = Dictionary::getSingleton()->matchInQuantifierDict(
+                    typedRuneArray, context.getCursor(), 1);
+            if (singleCharHit.isMatch()) {
+                Lexeme newLexeme(context.getBufferOffset(), context.getCurrentCharOffset(),
+                                 context.getCurrentCharLen(), Lexeme::Type::Count,
+                                 context.getCursor(), context.getCursor());
+                context.addLexeme(newLexeme);
+
+                if (singleCharHit.isPrefix()) {
+                    count_hits_.push_back(singleCharHit);
+                }
+            } else if (singleCharHit.isPrefix()) {
                 count_hits_.push_back(singleCharHit);
             }
-        } else if (singleCharHit.isPrefix()) {
-            count_hits_.push_back(singleCharHit);
         }
     } else {
         count_hits_.clear();
@@ -161,4 +176,6 @@ void CN_QuantifierSegmenter::outputNumLexeme(AnalyzeContext& context) {
         context.addLexeme(newLexeme);
     }
 }
+
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2

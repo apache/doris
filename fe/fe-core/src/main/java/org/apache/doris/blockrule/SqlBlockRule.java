@@ -17,14 +17,16 @@
 
 package org.apache.doris.blockrule;
 
-import org.apache.doris.analysis.AlterSqlBlockRuleStmt;
-import org.apache.doris.analysis.CreateSqlBlockRuleStmt;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.SqlBlockUtil;
+import org.apache.doris.metric.LongCounterMetric;
+import org.apache.doris.metric.Metric.MetricUnit;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 
+import com.codahale.metrics.Histogram;
+import com.codahale.metrics.SlidingWindowReservoir;
 import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.lang3.StringUtils;
@@ -74,6 +76,8 @@ public class SqlBlockRule implements Writable, GsonPostProcessable {
     private Boolean enable;
 
     private Pattern sqlPattern;
+    private Histogram tryBlockHistogram;
+    private LongCounterMetric blockCount;
 
     /**
      * Create SqlBlockRule.
@@ -91,16 +95,14 @@ public class SqlBlockRule implements Writable, GsonPostProcessable {
         if (StringUtils.isNotEmpty(sql)) {
             this.sqlPattern = Pattern.compile(sql);
         }
+        this.tryBlockHistogram = new Histogram(new SlidingWindowReservoir(1000));
+        this.blockCount = new LongCounterMetric("blocks", MetricUnit.ROWS, "");
     }
 
-    public static SqlBlockRule fromCreateStmt(CreateSqlBlockRuleStmt stmt) {
-        return new SqlBlockRule(stmt.getRuleName(), stmt.getSql(), stmt.getSqlHash(), stmt.getPartitionNum(),
-                stmt.getTabletNum(), stmt.getCardinality(), stmt.isGlobal(), stmt.isEnable());
-    }
-
-    public static SqlBlockRule fromAlterStmt(AlterSqlBlockRuleStmt stmt) {
-        return new SqlBlockRule(stmt.getRuleName(), stmt.getSql(), stmt.getSqlHash(), stmt.getPartitionNum(),
-                stmt.getTabletNum(), stmt.getCardinality(), stmt.getGlobal(), stmt.getEnable());
+    // for gson
+    public SqlBlockRule() {
+        this.tryBlockHistogram = new Histogram(new SlidingWindowReservoir(1000));
+        this.blockCount = new LongCounterMetric("blocks", MetricUnit.ROWS, "");
     }
 
     public String getName() {
@@ -180,6 +182,14 @@ public class SqlBlockRule implements Writable, GsonPostProcessable {
                 this.tabletNum == null ? "0" : Long.toString(this.tabletNum),
                 this.cardinality == null ? "0" : Long.toString(this.cardinality), String.valueOf(this.global),
                 String.valueOf(this.enable));
+    }
+
+    public Histogram getTryBlockHistogram() {
+        return tryBlockHistogram;
+    }
+
+    public LongCounterMetric getBlockCount() {
+        return blockCount;
     }
 
     @Override

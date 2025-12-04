@@ -83,7 +83,7 @@ suite ("mv_ssb_q_1_1") {
     sql """alter table lineorder_flat modify column C_CITY set stats ('row_count'='6');"""
 
     createMV ("""create materialized view lineorder_q_1_1 as 
-                SELECT LO_ORDERKEY, SUM(LO_EXTENDEDPRICE * LO_DISCOUNT) AS revenue
+                SELECT LO_ORDERKEY a1, SUM(LO_EXTENDEDPRICE * LO_DISCOUNT) AS revenuea2
                 FROM lineorder_flat
                 WHERE
                     LO_ORDERDATE >= 19930101

@@ -99,8 +99,18 @@ public:
         }
     }
 
-    bool require_shuffled_data_distribution() const override {
+    bool require_shuffled_data_distribution(RuntimeState* /*state*/) const override {
         return _followed_by_shuffled_operator;
+    }
+
+    DataDistribution required_data_distribution(RuntimeState* /*state*/) const override {
+        if (_child->is_serial_operator() && _followed_by_shuffled_operator) {
+            return DataDistribution(ExchangeType::HASH_SHUFFLE, _distribute_exprs);
+        }
+        if (_child->is_serial_operator()) {
+            return DataDistribution(ExchangeType::PASSTHROUGH);
+        }
+        return DataDistribution(ExchangeType::NOOP);
     }
 
     void set_low_memory_mode(RuntimeState* state) override {
@@ -127,6 +137,7 @@ private:
     const RowDescriptor _row_descriptor;
     const int _cur_child_id;
     const int _child_size;
+    const std::vector<TExpr> _distribute_exprs;
     int children_count() const { return _child_size; }
     bool is_child_passthrough(int child_idx) const {
         DCHECK_LT(child_idx, _child_size);

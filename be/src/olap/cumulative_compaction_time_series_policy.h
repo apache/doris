@@ -42,8 +42,7 @@ public:
     /// When the first time the tablet does compact, this calculation is executed. Its main policy is to find first rowset
     /// which does not satisfied the _compaction_goal_size * 0.8.
     /// The result of compaction may be slightly smaller than the _compaction_goal_size.
-    void calculate_cumulative_point(Tablet* tablet,
-                                    const std::vector<RowsetMetaSharedPtr>& all_rowsets,
+    void calculate_cumulative_point(Tablet* tablet, const RowsetMetaMapContainer& all_rowsets,
                                     int64_t current_cumulative_point,
                                     int64_t* cumulative_point) override;
 

@@ -41,6 +41,7 @@ class RuntimeProfile;
 using namespace ErrorCode;
 
 namespace vectorized {
+#include "common/compile_check_begin.h"
 
 Status VStatisticsIterator::init(const StorageReadOptions& opts) {
     if (!_init) {
@@ -133,7 +134,6 @@ bool VMergeIteratorContext::compare(const VMergeIteratorContext& rhs) const {
     return result;
 }
 
-// `advanced = false` when current block finished
 Status VMergeIteratorContext::copy_rows(Block* block, bool advanced) {
     Block& src = *_block;
     Block& dst = *block;
@@ -155,10 +155,17 @@ Status VMergeIteratorContext::copy_rows(Block* block, bool advanced) {
             d_cp->assume_mutable()->insert_range_from(*s_cp, start, _cur_batch_num);
         }
     });
-    const auto& tmp_pre_ctx_same_bit = get_pre_ctx_same();
-    dst.set_same_bit(tmp_pre_ctx_same_bit.begin(), tmp_pre_ctx_same_bit.begin() + _cur_batch_num);
     _cur_batch_num = 0;
     return Status::OK();
+}
+
+// `advanced = false` when current block finished
+Status VMergeIteratorContext::copy_rows(BlockWithSameBit* block_with_same_bit, bool advanced) {
+    const auto& tmp_pre_ctx_same_bit = get_pre_ctx_same();
+    block_with_same_bit->same_bit.insert(block_with_same_bit->same_bit.end(),
+                                         tmp_pre_ctx_same_bit.begin(),
+                                         tmp_pre_ctx_same_bit.begin() + _cur_batch_num);
+    return copy_rows(block_with_same_bit->block, advanced);
 }
 
 Status VMergeIteratorContext::copy_rows(BlockView* view, bool advanced) {
@@ -213,23 +220,23 @@ public:
                 const auto* col_schema = _schema.column(j);
                 switch (col_schema->type()) {
                 case FieldType::OLAP_FIELD_TYPE_SMALLINT:
-                    *(int16_t*)data = _rows_returned + j;
+                    *(int16_t*)data = cast_set<int16_t>(_rows_returned + j);
                     data_len = sizeof(int16_t);
                     break;
                 case FieldType::OLAP_FIELD_TYPE_INT:
-                    *(int32_t*)data = _rows_returned + j;
+                    *(int32_t*)data = cast_set<int32_t>(_rows_returned + j);
                     data_len = sizeof(int32_t);
                     break;
                 case FieldType::OLAP_FIELD_TYPE_BIGINT:
-                    *(int64_t*)data = _rows_returned + j;
+                    *(int64_t*)data = cast_set<int64_t>(_rows_returned + j);
                     data_len = sizeof(int64_t);
                     break;
                 case FieldType::OLAP_FIELD_TYPE_FLOAT:
-                    *(float*)data = _rows_returned + j;
+                    *(float*)data = cast_set<float>(_rows_returned + j);
                     data_len = sizeof(float);
                     break;
                 case FieldType::OLAP_FIELD_TYPE_DOUBLE:
-                    *(double*)data = _rows_returned + j;
+                    *(double*)data = cast_set<double>(_rows_returned + j);
                     data_len = sizeof(double);
                     break;
                 default:
@@ -448,6 +455,7 @@ RowwiseIteratorUPtr new_auto_increment_iterator(const Schema& schema, size_t num
     return std::make_unique<VAutoIncrementIterator>(schema, num_rows);
 }
 
+#include "common/compile_check_end.h"
 } // namespace vectorized
 
 } // namespace doris

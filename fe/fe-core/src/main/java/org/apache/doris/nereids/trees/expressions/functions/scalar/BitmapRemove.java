@@ -48,13 +48,18 @@ public class BitmapRemove extends ScalarFunction
         super("bitmap_remove", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private BitmapRemove(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public BitmapRemove withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2, String.format("children.size() is %d", children.size()));
-        return new BitmapRemove(children.get(0), children.get(1));
+        return new BitmapRemove(getFunctionParams(children));
     }
 
     @Override

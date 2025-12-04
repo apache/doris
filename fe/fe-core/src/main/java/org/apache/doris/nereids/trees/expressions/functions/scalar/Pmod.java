@@ -52,13 +52,18 @@ public class Pmod extends ScalarFunction
         super("pmod", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Pmod(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public Pmod withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new Pmod(children.get(0), children.get(1));
+        return new Pmod(getFunctionParams(children));
     }
 
     /**

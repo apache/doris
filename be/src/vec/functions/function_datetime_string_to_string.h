@@ -17,9 +17,14 @@
 
 #pragma once
 
-#include <stddef.h>
+#include <fmt/compile.h>
+#include <fmt/core.h>
+#include <glog/logging.h>
 
+#include <cstddef>
 #include <memory>
+#include <string>
+#include <type_traits>
 #include <utility>
 #include <variant>
 
@@ -28,9 +33,7 @@
 #include "runtime/runtime_state.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
-#include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
-#include "vec/columns/column_vector.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/block.h"
@@ -42,6 +45,7 @@
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/functions/date_format_type.h"
+#include "vec/functions/datetime_errors.h"
 #include "vec/functions/function.h"
 
 namespace doris {
@@ -57,12 +61,14 @@ public:
     static constexpr auto name = Transform::name;
     static constexpr bool has_variadic_argument =
             !std::is_void_v<decltype(has_variadic_argument_types(std::declval<Transform>()))>;
+    using ColumnType = typename PrimitiveTypeTraits<Transform::FromPType>::ColumnType;
+    constexpr static bool IsDecimal = is_decimal(Transform::FromPType);
 
     static FunctionPtr create() { return std::make_shared<FunctionDateTimeStringToString>(); }
 
     String get_name() const override { return name; }
 
-    bool is_variadic() const override { return true; }
+    bool is_variadic() const override { return true; } // because format string is optional
     size_t get_number_of_arguments() const override { return 0; }
     DataTypes get_variadic_argument_types_impl() const override {
         if constexpr (has_variadic_argument) {
@@ -87,8 +93,12 @@ public:
         context->set_function_state(scope, state);
         if (context->get_num_args() == 1) {
             // default argument
-            state->format_str = time_format_type::default_format;
-            state->format_type = time_format_type::default_impl;
+            if constexpr (IsDecimal) {
+                state->format_str = time_format_type::DEFAULT_FORMAT_DECIMAL;
+            } else {
+                state->format_str = time_format_type::DEFAULT_FORMAT;
+                state->format_type = time_format_type::DEFAULT_IMPL;
+            }
             return IFunction::open(context, scope);
         }
 
@@ -107,10 +117,11 @@ public:
         }
 
         string_vale = string_vale.trim();
-        auto format_str =
-                time_format_type::rewrite_specific_format(string_vale.data, string_vale.size);
+        // no need to rewrite, we choose implement by format_type. format_type's check has compatible logic about
+        // special format string.
+        auto format_str = StringRef(string_vale.data, string_vale.size);
         if (format_str.size > 128) {
-            //  exceeds the length limit.
+            // exceeds the length limit.
             state->is_valid = false;
             return IFunction::open(context, scope);
         }
@@ -123,47 +134,32 @@ public:
     }
 
     DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
-        return make_nullable(std::make_shared<DataTypeString>());
+        return std::make_shared<DataTypeString>();
     }
 
-    bool use_default_implementation_for_nulls() const override { return false; }
+    // avoid random value of nested for null row which would cause false positive of out of range error.
+    bool need_replace_null_data_to_default() const override { return true; }
     ColumnNumbers get_arguments_that_are_always_constant() const override { return {1}; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
-        const ColumnPtr source_col = block.get_by_position(arguments[0]).column;
-
-        const auto* nullable_column = check_and_get_column<ColumnNullable>(source_col.get());
-        const auto* sources = assert_cast<const ColumnVector<Transform::FromPType>*>(
-                nullable_column ? nullable_column->get_nested_column_ptr().get()
-                                : source_col.get());
+        const auto& sources =
+                assert_cast<const ColumnType&>(*block.get_by_position(arguments[0]).column);
 
         auto col_res = ColumnString::create();
-        ColumnUInt8::MutablePtr col_null_map_to;
-        col_null_map_to = ColumnUInt8::create();
-        auto& vec_null_map_to = col_null_map_to->get_data();
 
-        RETURN_IF_ERROR(vector_constant(context, sources->get_data(), col_res->get_chars(),
-                                        col_res->get_offsets(), vec_null_map_to));
+        // in open we have checked the second argument is constant,
+        RETURN_IF_ERROR(
+                vector_constant(context, sources, col_res->get_chars(), col_res->get_offsets()));
 
-        if (nullable_column) {
-            // input column is nullable
-            const auto& origin_null_map = nullable_column->get_null_map_column().get_data();
-            for (int i = 0; i < origin_null_map.size(); ++i) {
-                vec_null_map_to[i] |= origin_null_map[i];
-            }
-        }
-
-        block.get_by_position(result).column =
-                ColumnNullable::create(std::move(col_res), std::move(col_null_map_to));
+        block.get_by_position(result).column = std::move(col_res);
 
         return Status::OK();
     }
 
-    Status vector_constant(FunctionContext* context,
-                           const PaddedPODArray<typename Transform::FromType>& ts,
-                           ColumnString::Chars& res_data, ColumnString::Offsets& res_offsets,
-                           PaddedPODArray<UInt8>& null_map) const {
+    Status vector_constant(FunctionContext* context, const ColumnType& col,
+                           ColumnString::Chars& res_data,
+                           ColumnString::Offsets& res_offsets) const {
         auto* format_state = reinterpret_cast<FormatState*>(
                 context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
         if (!format_state) {
@@ -172,30 +168,73 @@ public:
         }
 
         StringRef format(format_state->format_str);
+        auto result_row_length = std::visit([](auto type) { return decltype(type)::row_size; },
+                                            format_state->format_type);
 
-        const auto len = ts.size();
+        const auto& pod_array = col.get_data();
+        const auto len = pod_array.size();
 
         if (!format_state->is_valid) {
-            res_offsets.resize_fill(len, 0);
-            null_map.resize_fill(len, true);
-            return Status::OK();
+            // invalid parameter -> throw
+            throw_invalid_string(name, "invalid or oversized format");
         }
         res_offsets.resize(len);
-        res_data.reserve(len * format.size + len);
-        null_map.resize_fill(len, false);
+        res_data.reserve(len * result_row_length);
 
-        std::visit(
-                [&](auto type) {
-                    using Impl = decltype(type);
-                    size_t offset = 0;
-                    for (int i = 0; i < len; ++i) {
-                        null_map[i] = Transform::template execute<Impl>(
-                                ts[i], format, res_data, offset, context->state()->timezone_obj());
-                        res_offsets[i] = cast_set<uint32_t>(offset);
+        if constexpr (IsDecimal) {
+            // FromUnixTimeDecimalImpl. may use UserDefinedImpl or yyyy_MM_dd_HH_mm_ss_SSSSSSImpl.
+            size_t offset = 0;
+            if (format_state->format_str == time_format_type::DEFAULT_FORMAT_DECIMAL) {
+                for (int i = 0; i < len; ++i) {
+                    bool invalid = Transform::template execute_decimal<
+                            time_format_type::yyyy_MM_dd_HH_mm_ss_SSSSSSImpl>(
+                            col.get_intergral_part(i), col.get_fractional_part(i), format, res_data,
+                            offset, context->state()->timezone_obj());
+                    if (invalid) [[unlikely]] {
+                        throw_invalid_strings(
+                                name,
+                                fmt::format(FMT_COMPILE("{}.{}"), col.get_intergral_part(i),
+                                            col.get_fractional_part(i)),
+                                format_state->format_str);
                     }
-                    res_data.resize(offset);
-                },
-                format_state->format_type);
+                    res_offsets[i] = cast_set<uint32_t>(offset);
+                }
+            } else {
+                for (int i = 0; i < len; ++i) {
+                    bool invalid =
+                            Transform::template execute_decimal<time_format_type::UserDefinedImpl>(
+                                    col.get_intergral_part(i), col.get_fractional_part(i), format,
+                                    res_data, offset, context->state()->timezone_obj());
+                    if (invalid) [[unlikely]] {
+                        throw_invalid_strings(
+                                name,
+                                fmt::format(FMT_COMPILE("{}.{}"), col.get_intergral_part(i),
+                                            col.get_fractional_part(i)),
+                                format_state->format_str);
+                    }
+                    res_offsets[i] = cast_set<uint32_t>(offset);
+                }
+            }
+            res_data.resize(offset);
+        } else {
+            std::visit(
+                    [&](auto type) {
+                        using Impl = decltype(type);
+                        size_t offset = 0;
+                        for (int i = 0; i < len; ++i) {
+                            bool invalid = Transform::template execute<Impl>(
+                                    pod_array[i], format, res_data, offset,
+                                    context->state()->timezone_obj());
+                            if (invalid) [[unlikely]] {
+                                throw_invalid_strings(name, std::to_string(pod_array[i]),
+                                                      format_state->format_str);
+                            }
+                            res_offsets[i] = cast_set<uint32_t>(offset);
+                        }
+                        res_data.resize(offset);
+                    },
+                    format_state->format_type);
+        }
         return Status::OK();
     }
 };

@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
-import org.apache.doris.analysis.AlterTableClause;
 import org.apache.doris.analysis.ColumnPosition;
 import org.apache.doris.analysis.StmtType;
 import org.apache.doris.catalog.AggregateType;
@@ -36,10 +35,12 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.InternalDatabaseUtil;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.info.AddColumnOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AddColumnsOp;
+import org.apache.doris.nereids.trees.plans.commands.info.AddPartitionFieldOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AddRollupOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterTableOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
@@ -47,15 +48,17 @@ import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceBranchO
 import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceTagOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropBranchOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropColumnOp;
+import org.apache.doris.nereids.trees.plans.commands.info.DropPartitionFieldOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropRollupOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropTagOp;
 import org.apache.doris.nereids.trees.plans.commands.info.EnableFeatureOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyColumnOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyEngineOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyTablePropertiesOp;
+import org.apache.doris.nereids.trees.plans.commands.info.RenameColumnOp;
 import org.apache.doris.nereids.trees.plans.commands.info.RenameTableOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ReorderColumnsOp;
-import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.ReplacePartitionFieldOp;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.qe.ConnectContext;
@@ -88,14 +91,8 @@ public class AlterTableCommand extends Command implements ForwardWithSync {
     /**
      * getOps
      */
-    public List<AlterTableClause> getOps() {
-        List<AlterTableClause> alterTableClauses = new ArrayList<>(ops.size());
-        for (AlterTableOp op : ops) {
-            AlterTableClause alter = op.translateToLegacyAlterClause();
-            alter.setTableName(tbl.transferToTableName());
-            alterTableClauses.add(alter);
-        }
-        return alterTableClauses;
+    public List<AlterTableOp> getOps() {
+        return ops;
     }
 
     /**
@@ -238,23 +235,27 @@ public class AlterTableCommand extends Command implements ForwardWithSync {
      */
     private void checkExternalTableOperationAllow(TableIf table) throws UserException {
         List<AlterTableOp> alterTableOps = new ArrayList<>();
-        for (AlterTableOp alterClause : ops) {
-            if (alterClause instanceof RenameTableOp
-                    || alterClause instanceof AddColumnOp
-                    || alterClause instanceof AddColumnsOp
-                    || alterClause instanceof DropColumnOp
-                    || alterClause instanceof ModifyColumnOp
-                    || alterClause instanceof ReorderColumnsOp
-                    || alterClause instanceof ModifyEngineOp
-                    || alterClause instanceof ModifyTablePropertiesOp
-                    || alterClause instanceof CreateOrReplaceBranchOp
-                    || alterClause instanceof CreateOrReplaceTagOp
-                    || alterClause instanceof DropBranchOp
-                    || alterClause instanceof DropTagOp) {
-                alterTableOps.add(alterClause);
+        for (AlterTableOp alterTableOp : ops) {
+            if (alterTableOp instanceof RenameTableOp
+                    || alterTableOp instanceof AddColumnOp
+                    || alterTableOp instanceof AddColumnsOp
+                    || alterTableOp instanceof DropColumnOp
+                    || alterTableOp instanceof RenameColumnOp
+                    || alterTableOp instanceof ModifyColumnOp
+                    || alterTableOp instanceof ReorderColumnsOp
+                    || alterTableOp instanceof ModifyEngineOp
+                    || alterTableOp instanceof ModifyTablePropertiesOp
+                    || alterTableOp instanceof CreateOrReplaceBranchOp
+                    || alterTableOp instanceof CreateOrReplaceTagOp
+                    || alterTableOp instanceof DropBranchOp
+                    || alterTableOp instanceof DropTagOp
+                    || alterTableOp instanceof AddPartitionFieldOp
+                    || alterTableOp instanceof DropPartitionFieldOp
+                    || alterTableOp instanceof ReplacePartitionFieldOp) {
+                alterTableOps.add(alterTableOp);
             } else {
                 throw new AnalysisException(table.getType().toString() + " [" + table.getName() + "] "
-                        + "do not support " + alterClause.getOpType().toString() + " clause now");
+                        + "do not support " + alterTableOp.getOpType().toString() + " clause now");
             }
         }
         ops = alterTableOps;

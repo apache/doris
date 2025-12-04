@@ -48,7 +48,7 @@ suite("test_bitmap_mtmv","mtmv") {
         """
     // add index
     sql """
-        CREATE INDEX idx1 ON ${mvName} (k3) USING BITMAP;
+        CREATE INDEX idx1 ON ${mvName} (k3) USING INVERTED;
         """
     assertEquals("FINISHED", getAlterColumnFinalState("${mvName}"))
     def showIndexResult = sql """show index from ${mvName};"""

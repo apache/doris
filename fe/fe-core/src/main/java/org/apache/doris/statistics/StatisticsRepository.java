@@ -24,8 +24,9 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.nereids.trees.plans.commands.AlterColumnStatsCommand;
-import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.util.DBObjects;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
@@ -85,7 +86,8 @@ public class StatisticsRepository {
     private static final String INSERT_INTO_COLUMN_STATISTICS_FOR_ALTER =
             StatisticConstants.INSERT_INTO_COLUMN_STATS_PREFIX
                     + "('${id}', ${catalogId}, ${dbId}, ${tblId}, '${idxId}',"
-                    + "'${colId}', ${partId}, ${count}, ${ndv}, ${nullCount}, ${min}, ${max}, ${dataSize}, NOW())";
+                    + "'${colId}', ${partId}, ${count}, ${ndv}, ${nullCount}, ${min}, ${max}, ${dataSize}, NOW(), "
+                    + "${hotValues})";
 
     private static final String DELETE_TABLE_STATISTICS_BY_COLUMN_TEMPLATE = "DELETE FROM "
             + FeConstants.INTERNAL_DB_NAME + "." + StatisticConstants.TABLE_STATISTIC_TBL_NAME
@@ -133,7 +135,7 @@ public class StatisticsRepository {
             return columnStatistic;
         }
         try {
-            columnStatistic = ColumnStatistic.fromResultRow(resultRow);
+            columnStatistic = ColumnStatistic.fromResultRow(resultRow, true);
         } catch (Exception e) {
             LOG.warn("Failed to deserialize column statistics. reason: [{}]. Row [{}]", e.getMessage(), resultRow);
             if (LOG.isDebugEnabled()) {
@@ -323,6 +325,7 @@ public class StatisticsRepository {
         String min = alterColumnStatsCommand.getValue(StatsType.MIN_VALUE);
         String max = alterColumnStatsCommand.getValue(StatsType.MAX_VALUE);
         String dataSize = alterColumnStatsCommand.getValue(StatsType.DATA_SIZE);
+        String hotValues = alterColumnStatsCommand.getValue(StatsType.HOT_VALUES);
         long indexId = alterColumnStatsCommand.getIndexId();
         if (rowCount == null) {
             throw new RuntimeException("Row count is null.");
@@ -356,7 +359,16 @@ public class StatisticsRepository {
                 }
             }
         }
-
+        if (ndv != null) {
+            try {
+                double avgOccurrences = 1 / Double.parseDouble(ndv);
+                builder.setHotValues(StatisticsUtil.getHotValues(hotValues, column.getType(), avgOccurrences));
+            } catch (Exception e) {
+                if (SessionVariable.isFeDebug()) {
+                    throw e;
+                }
+            }
+        }
         ColumnStatistic columnStatistic = builder.build();
         Map<String, String> params = new HashMap<>();
         params.put("id", constructId(objects.table.getId(), indexId, colName));
@@ -371,6 +383,7 @@ public class StatisticsRepository {
         params.put("min", min == null ? "NULL" : "'" + StatisticsUtil.escapeSQL(min) + "'");
         params.put("max", max == null ? "NULL" : "'" + StatisticsUtil.escapeSQL(max) + "'");
         params.put("dataSize", String.valueOf(columnStatistic.dataSize));
+        params.put("hotValues", "'" + StatisticsUtil.escapeSQL(hotValues) + "'");
 
         if (partitionIds.isEmpty()) {
             // update table granularity statistics
@@ -378,7 +391,7 @@ public class StatisticsRepository {
             StatisticsUtil.execUpdate(INSERT_INTO_COLUMN_STATISTICS_FOR_ALTER, params);
             ColStatsData data = new ColStatsData(constructId(objects.table.getId(), indexId, colName),
                     objects.catalog.getId(), objects.db.getId(), objects.table.getId(), indexId, colName,
-                    null, columnStatistic);
+                    null, hotValues, columnStatistic);
             Env.getCurrentEnv().getStatisticsCache().syncColStats(data);
             AnalysisInfo mockedJobInfo = new AnalysisInfoBuilder()
                     .setTblUpdateTime(objects.table.getUpdateTime())

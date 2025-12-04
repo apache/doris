@@ -18,17 +18,9 @@
 package org.apache.doris.mysql.privilege;
 
 import org.apache.doris.alter.AlterUserOpType;
-import org.apache.doris.analysis.AlterRoleStmt;
-import org.apache.doris.analysis.CreateRoleStmt;
-import org.apache.doris.analysis.DropRoleStmt;
-import org.apache.doris.analysis.DropUserStmt;
 import org.apache.doris.analysis.PasswordOptions;
-import org.apache.doris.analysis.RefreshLdapStmt;
 import org.apache.doris.analysis.ResourcePattern;
 import org.apache.doris.analysis.ResourceTypeEnum;
-import org.apache.doris.analysis.SetLdapPassVar;
-import org.apache.doris.analysis.SetPassVar;
-import org.apache.doris.analysis.SetUserPropertyStmt;
 import org.apache.doris.analysis.TablePattern;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.analysis.WorkloadGroupPattern;
@@ -80,7 +72,7 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -274,8 +266,9 @@ public class Auth implements Writable {
         readLock();
         try {
             Set<Role> roles = getRolesByUserWithLdap(currentUser);
+            PrivBitSet savedPrivs = PrivBitSet.of();
             for (Role role : roles) {
-                if (role.checkGlobalPriv(wanted)) {
+                if (role.checkGlobalPriv(wanted, savedPrivs)) {
                     return true;
                 }
             }
@@ -297,8 +290,9 @@ public class Auth implements Writable {
         readLock();
         try {
             Set<Role> roles = getRolesByUserWithLdap(currentUser);
+            PrivBitSet savedPrivs = PrivBitSet.of();
             for (Role role : roles) {
-                if (role.checkCtlPriv(ctl, wanted)) {
+                if (role.checkCtlPriv(ctl, wanted, savedPrivs)) {
                     return true;
                 }
             }
@@ -320,8 +314,9 @@ public class Auth implements Writable {
         readLock();
         try {
             Set<Role> roles = getRolesByUserWithLdap(currentUser);
+            PrivBitSet savedPrivs = PrivBitSet.of();
             for (Role role : roles) {
-                if (role.checkDbPriv(ctl, db, wanted)) {
+                if (role.checkDbPriv(ctl, db, wanted, savedPrivs)) {
                     return true;
                 }
             }
@@ -343,8 +338,9 @@ public class Auth implements Writable {
         readLock();
         try {
             Set<Role> roles = getRolesByUserWithLdap(currentUser);
+            PrivBitSet savedPrivs = PrivBitSet.of();
             for (Role role : roles) {
-                if (role.checkTblPriv(ctl, db, tbl, wanted)) {
+                if (role.checkTblPriv(ctl, db, tbl, wanted, savedPrivs)) {
                     return true;
                 }
             }
@@ -371,8 +367,9 @@ public class Auth implements Writable {
 
     private boolean checkColPriv(String ctl, String db, String tbl,
             String col, PrivPredicate wanted, Set<Role> roles) {
+        PrivBitSet savedPrivs = PrivBitSet.of();
         for (Role role : roles) {
-            if (role.checkColPriv(ctl, db, tbl, col, wanted)) {
+            if (role.checkColPriv(ctl, db, tbl, col, wanted, savedPrivs)) {
                 return true;
             }
         }
@@ -384,8 +381,9 @@ public class Auth implements Writable {
         readLock();
         try {
             Set<Role> roles = getRolesByUserWithLdap(currentUser);
+            PrivBitSet savedPrivs = PrivBitSet.of();
             for (Role role : roles) {
-                if (role.checkResourcePriv(resourceName, wanted)) {
+                if (role.checkResourcePriv(resourceName, wanted, savedPrivs)) {
                     return true;
                 }
             }
@@ -400,8 +398,9 @@ public class Auth implements Writable {
         readLock();
         try {
             Set<Role> roles = getRolesByUserWithLdap(currentUser);
+            PrivBitSet savedPrivs = PrivBitSet.of();
             for (Role role : roles) {
-                if (role.checkStorageVaultPriv(storageVaultName, wanted)) {
+                if (role.checkStorageVaultPriv(storageVaultName, wanted, savedPrivs)) {
                     return true;
                 }
             }
@@ -422,8 +421,9 @@ public class Auth implements Writable {
             }
 
             Set<Role> roles = getRolesByUserWithLdap(currentUser);
+            PrivBitSet savedPrivs = PrivBitSet.of();
             for (Role role : roles) {
-                if (role.checkWorkloadGroupPriv(workloadGroupName, wanted)) {
+                if (role.checkWorkloadGroupPriv(workloadGroupName, wanted, savedPrivs)) {
                     return true;
                 }
             }
@@ -444,29 +444,10 @@ public class Auth implements Writable {
                     return true;
                 }
             }
-            Set<String> roles = userRoleManager.getRolesByUser(currentUser);
-            for (String roleName : roles) {
-                if (roleManager.getRole(roleName).checkCloudPriv(cloudName, wanted, type)) {
-                    return true;
-                }
-            }
-            return false;
-        } finally {
-            readUnlock();
-        }
-    }
-
-    // ==== Other ====
-    /*
-     * Check if current user has certain privilege.
-     * This method will check the given privilege levels
-     */
-    public boolean checkHasPriv(ConnectContext ctx, PrivPredicate priv, PrivLevel... levels) {
-        readLock();
-        try {
-            Set<Role> roles = getRolesByUserWithLdap(ctx.getCurrentUserIdentity());
+            Set<Role> roles = getRolesByUserWithLdap(currentUser);
+            PrivBitSet savedPrivs = PrivBitSet.of();
             for (Role role : roles) {
-                if (role.checkHasPriv(priv, levels)) {
+                if (role.checkCloudPriv(cloudName, wanted, type, savedPrivs)) {
                     return true;
                 }
             }
@@ -559,11 +540,6 @@ public class Auth implements Writable {
 
     public void dropUser(UserIdentity userIdent, boolean ignoreIfNonExists)  throws DdlException {
         dropUserInternal(userIdent, ignoreIfNonExists, false);
-    }
-
-    // drop user
-    public void dropUser(DropUserStmt stmt) throws DdlException {
-        dropUserInternal(stmt.getUserIdentity(), stmt.isSetIfExists(), false);
     }
 
     public void replayDropUser(UserIdentity userIdent) {
@@ -984,12 +960,6 @@ public class Auth implements Writable {
         }
     }
 
-    // set password
-    public void setPassword(SetPassVar stmt) throws DdlException {
-        setPasswordInternal(stmt.getUserIdent(), stmt.getPassword(), null, true /* err on non exist */,
-                false /* set by resolver */, false);
-    }
-
     public void setPassword(UserIdentity userIdentity, byte[] password) throws DdlException {
         setPasswordInternal(userIdentity, password, null, true /* err on non exist */,
                 false /* set by resolver */, false);
@@ -1031,13 +1001,6 @@ public class Auth implements Writable {
         LOG.info("finished to set password for {}. is replay: {}", userIdent, isReplay);
     }
 
-    // set ldap admin password.
-    public void setLdapPassword(SetLdapPassVar stmt) {
-        ldapInfo = new LdapInfo(stmt.getLdapPassword());
-        Env.getCurrentEnv().getEditLog().logSetLdapPassword(ldapInfo);
-        LOG.info("finished to set ldap password.");
-    }
-
     public void setLdapPassword(String ldapPassword) {
         ldapInfo = new LdapInfo(ldapPassword);
         Env.getCurrentEnv().getEditLog().logSetLdapPassword(ldapInfo);
@@ -1051,25 +1014,12 @@ public class Auth implements Writable {
         }
     }
 
-    public void refreshLdap(RefreshLdapStmt refreshLdapStmt) {
-        ldapManager.refresh(refreshLdapStmt.getIsAll(), refreshLdapStmt.getUser());
-    }
-
     public void refreshLdap(RefreshLdapCommand command) {
         ldapManager.refresh(command.getIsAll(), command.getUser());
     }
 
-    // create role
-    public void createRole(CreateRoleStmt stmt) throws DdlException {
-        createRoleInternal(stmt.getRole(), stmt.isSetIfNotExists(), stmt.getComment(), false);
-    }
-
     public void createRole(String role, boolean ignoreIfExists, String comment) throws DdlException {
         createRoleInternal(role, ignoreIfExists, comment, false);
-    }
-
-    public void alterRole(AlterRoleStmt stmt) throws DdlException {
-        alterRoleInternal(stmt.getRole(), stmt.getComment(), false);
     }
 
     public void alterRole(String role, String comment) throws DdlException {
@@ -1126,11 +1076,6 @@ public class Auth implements Writable {
         LOG.info("finished to create role: {}, is replay: {}", role, isReplay);
     }
 
-    // drop role
-    public void dropRole(DropRoleStmt stmt) throws DdlException {
-        dropRoleInternal(stmt.getRole(), stmt.isSetIfExists(), false);
-    }
-
     public void dropRole(String role, boolean ignoreIfNonExists) throws DdlException {
         dropRoleInternal(role, ignoreIfNonExists, false);
     }
@@ -1170,12 +1115,6 @@ public class Auth implements Writable {
         } finally {
             readUnlock();
         }
-    }
-
-    // update user property
-    public void updateUserProperty(SetUserPropertyStmt stmt) throws UserException {
-        List<Pair<String, String>> properties = stmt.getPropertyPairList();
-        updateUserPropertyInternal(stmt.getUser(), properties, false /* is replay */);
     }
 
     public void replayUpdateUserProperty(UserPropertyInfo propInfo) {
@@ -1310,6 +1249,24 @@ public class Auth implements Writable {
         readLock();
         try {
             return propertyMgr.isWorkloadGroupInUse(groupName);
+        } finally {
+            readUnlock();
+        }
+    }
+
+    public boolean getEnablePreferCachedRowset(String qualifiedUser) {
+        readLock();
+        try {
+            return propertyMgr.getEnablePreferCachedRowset(qualifiedUser);
+        } finally {
+            readUnlock();
+        }
+    }
+
+    public long getQueryFreshnessToleranceMs(String qualifiedUser) {
+        readLock();
+        try {
+            return propertyMgr.getQueryFreshnessToleranceMs(qualifiedUser);
         } finally {
             readUnlock();
         }

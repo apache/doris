@@ -108,7 +108,7 @@ private:
     std::map<TxnKey, TxnVal> _txn_map;
     std::multimap<int64_t, TxnKey> _expiration_txn;
     std::shared_mutex _rwlock;
-    scoped_refptr<Thread> _clean_thread;
+    std::shared_ptr<Thread> _clean_thread;
     CountDownLatch _stop_latch;
 };
 

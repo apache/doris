@@ -15,38 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("regression_test_variant_with_index", "nonConcurrent"){
-    def set_be_config = { key, value ->
-        String backend_id;
-        def backendId_to_backendIP = [:]
-        def backendId_to_backendHttpPort = [:]
-        getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
-
-        backend_id = backendId_to_backendIP.keySet()[0]
-        def (code, out, err) = update_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), key, value)
-        logger.info("update config: code=" + code + ", out=" + out + ", err=" + err)
-    }
-
+suite("regression_test_variant_with_index", "p0"){
     def timeout = 60000
-    def delta_time = 1000
-    def alter_res = "null"
-    def useTime = 0
-    def wait_for_latest_op_on_table_finish = { tableName, OpTimeout ->
-        for(int t = delta_time; t <= OpTimeout; t += delta_time){
-            alter_res = sql """SHOW ALTER TABLE COLUMN WHERE TableName = "${tableName}" ORDER BY CreateTime DESC LIMIT 1;"""
-            alter_res = alter_res.toString()
-            if(alter_res.contains("FINISHED")) {
-                sleep(3000) // wait change table state to normal
-                logger.info(tableName + " latest alter job finished, detail: " + alter_res)
-                break
-            }
-            useTime = t
-            sleep(delta_time)
-        }
-        assertTrue(useTime <= OpTimeout, "wait_for_latest_op_on_table_finish timeout")
-    }
-    set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "1.0")
-    set_be_config.call("variant_threshold_rows_to_estimate_sparse_column", "0")
+
+    sql "set enable_add_index_for_new_data = true"
+
     def table_name = "var_with_index"
     sql "DROP TABLE IF EXISTS var_with_index"
     sql """
@@ -68,7 +41,6 @@ suite("regression_test_variant_with_index", "nonConcurrent"){
     qt_sql_inv_3 """select * from var_with_index where inv match 'hello' and cast(v["a"] as int) > 0 order by k"""
     sql "truncate table var_with_index"
     // set back configs
-    set_be_config.call("variant_threshold_rows_to_estimate_sparse_column", "2048")
     // sql "truncate table ${table_name}"
     sql """insert into var_with_index values(1, '{"a1" : 0, "b1": 3}', 'hello world'), (2, '{"a2" : 123}', 'world'),(3, '{"a3" : 123}', 'hello world')"""
     sql """insert into var_with_index values(4, '{"b1" : 0, "b2": 3}', 'hello world'), (5, '{"b2" : 123}', 'world'),(6, '{"b3" : 123}', 'hello world')"""
@@ -77,13 +49,16 @@ suite("regression_test_variant_with_index", "nonConcurrent"){
                           drop index idx
                   """
     logger.info("drop index " + "${table_name}" +  "; result: " + drop_result)
-    wait_for_latest_op_on_table_finish(table_name, timeout)
+    wait_for_last_schema_change_finish(table_name, timeout)
     def show_result = sql "show index from ${table_name}"
     assertEquals(show_result.size(), 0)
     qt_sql_inv4 """select v["a1"] from ${table_name} where cast(v['a1'] as int) = 0"""
     qt_sql_inv5 """select * from ${table_name} order by k"""
     sql "create index inv_idx on ${table_name}(`inv`) using inverted"
-    wait_for_latest_op_on_table_finish(table_name, timeout)
+
+    build_index_on_table("inv_idx", table_name)
+
+    wait_for_last_schema_change_finish(table_name, timeout)
     show_result = sql "show index from ${table_name}"
     assertEquals(show_result.size(), 1)
     sql """insert into var_with_index values(7, '{"a1" : 0, "b1": 3}', 'hello world'), (8, '{"a2" : 123}', 'world'),(9, '{"a3" : 123}', 'hello world')"""
@@ -93,8 +68,8 @@ suite("regression_test_variant_with_index", "nonConcurrent"){
 
     sql """insert into var_with_index values(1, '{"a" : 0, "b": 3}', 'hello world'), (2, '{"a" : 123}', 'world'),(3, '{"a" : 123}', 'hello world')"""
     sql "select * from var_with_index order by k limit 4"
-    wait_for_latest_op_on_table_finish(table_name, timeout)
+
     sql """insert into var_with_index values(1, '{"a" : 0, "b": 3}', 'hello world'), (2, '{"a" : 123}', 'world'),(3, '{"a" : 123}', 'hello world')"""
     sql "select * from var_with_index order by k limit 4"
-    wait_for_latest_op_on_table_finish(table_name, timeout)
+
 }

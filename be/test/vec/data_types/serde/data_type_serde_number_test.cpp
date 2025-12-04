@@ -15,11 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <arrow/api.h>
+#include <cctz/time_zone.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 #include <gtest/gtest.h>
 #include <streamvbyte.h>
 
+#include <cmath>
 #include <cstddef>
 #include <iostream>
 #include <limits>
@@ -126,7 +129,25 @@ TEST_F(DataTypeNumberSerDeTest, serdes) {
                 Slice slice {actual_str_value.data(), actual_str_value.size()};
                 st = serde.deserialize_one_cell_from_json(*deser_column, slice, option);
                 EXPECT_TRUE(st.ok()) << "Failed to deserialize column at row " << j << ": " << st;
-                EXPECT_EQ(deser_col_with_type->get_element(j), source_column->get_element(j));
+                if constexpr (std::is_same_v<ColumnType, ColumnFloat32> ||
+                              std::is_same_v<ColumnType, ColumnFloat64>) {
+                    // for float and double, we need to check the value with a tolerance
+                    auto expected_value = source_column->get_element(j);
+                    auto actual_value = deser_col_with_type->get_element(j);
+                    if (std::isnan(expected_value)) {
+                        EXPECT_TRUE(std::isnan(actual_value))
+                                << "Row " << j << " value mismatch: expected NaN, got "
+                                << actual_value;
+                    } else if (std::isinf(expected_value)) {
+                        EXPECT_EQ(actual_value, expected_value);
+                    } else {
+                        EXPECT_NEAR(actual_value, expected_value, 0.00001)
+                                << "Row " << j << " value mismatch: expected " << expected_value
+                                << ", got " << actual_value;
+                    }
+                } else {
+                    EXPECT_EQ(deser_col_with_type->get_element(j), source_column->get_element(j));
+                }
             }
         }
 
@@ -158,7 +179,28 @@ TEST_F(DataTypeNumberSerDeTest, serdes) {
             EXPECT_TRUE(st.ok()) << "Failed to deserialize column from json: " << st;
             EXPECT_EQ(num_deserialized, row_count);
             for (size_t j = 0; j != row_count; ++j) {
-                EXPECT_EQ(deser_col_with_type->get_element(j), source_column->get_element(j));
+                if constexpr (std::is_same_v<ColumnType, ColumnFloat32> ||
+                              std::is_same_v<ColumnType, ColumnFloat64>) {
+                    // for float and double, we need to check the value with a tolerance
+                    auto expected_value = source_column->get_element(j);
+                    auto actual_value = deser_col_with_type->get_element(j);
+                    if (std::isnan(expected_value)) {
+                        EXPECT_TRUE(std::isnan(actual_value))
+                                << "Row " << j << " value mismatch: expected NaN, got "
+                                << actual_value;
+                    } else if (std::isinf(expected_value)) {
+                        EXPECT_TRUE(std::isinf(actual_value))
+                                << "Row " << j << " value mismatch: expected inf, got "
+                                << actual_value;
+                    } else {
+                        // EXPECT_EQ(actual_value, expected_value);
+                        EXPECT_NEAR(actual_value, expected_value, 0.00001)
+                                << "Row " << j << " value mismatch: expected " << expected_value
+                                << ", got " << actual_value;
+                    }
+                } else {
+                    EXPECT_EQ(deser_col_with_type->get_element(j), source_column->get_element(j));
+                }
             }
         }
 
@@ -173,7 +215,21 @@ TEST_F(DataTypeNumberSerDeTest, serdes) {
             st = serde.read_column_from_pb(*deser_column, pv);
             EXPECT_TRUE(st.ok()) << "Failed to read column from pb: " << st;
             for (size_t j = 0; j != row_count; ++j) {
-                EXPECT_EQ(deser_col_with_type->get_element(j), source_column->get_element(j));
+                if constexpr (std::is_same_v<ColumnType, ColumnFloat32> ||
+                              std::is_same_v<ColumnType, ColumnFloat64>) {
+                    // for float and double, we need to check the value with a tolerance
+                    auto expected_value = source_column->get_element(j);
+                    auto actual_value = deser_col_with_type->get_element(j);
+                    if (std::isnan(expected_value)) {
+                        EXPECT_TRUE(std::isnan(actual_value))
+                                << "Row " << j << " value mismatch: expected NaN, got "
+                                << actual_value;
+                    } else {
+                        EXPECT_EQ(actual_value, expected_value);
+                    }
+                } else {
+                    EXPECT_EQ(deser_col_with_type->get_element(j), source_column->get_element(j));
+                }
             }
         }
         {
@@ -183,7 +239,7 @@ TEST_F(DataTypeNumberSerDeTest, serdes) {
             Arena pool;
 
             for (size_t j = 0; j != row_count; ++j) {
-                serde.write_one_cell_to_jsonb(*source_column, jsonb_writer, &pool, 0, j);
+                serde.write_one_cell_to_jsonb(*source_column, jsonb_writer, pool, 0, j);
             }
             jsonb_writer.writeEndObject();
 
@@ -191,26 +247,31 @@ TEST_F(DataTypeNumberSerDeTest, serdes) {
             ser_col->reserve(row_count);
             MutableColumnPtr deser_column = source_column->clone_empty();
             const auto* deser_col_with_type = assert_cast<const ColumnType*>(deser_column.get());
-            JsonbDocument* pdoc = nullptr;
+            const JsonbDocument* pdoc = nullptr;
             auto st = JsonbDocument::checkAndCreateDocument(jsonb_writer.getOutput()->getBuffer(),
                                                             jsonb_writer.getOutput()->getSize(),
                                                             &pdoc);
             ASSERT_TRUE(st.ok()) << "checkAndCreateDocument failed: " << st.to_string();
-            JsonbDocument& doc = *pdoc;
+            const JsonbDocument& doc = *pdoc;
             for (auto it = doc->begin(); it != doc->end(); ++it) {
                 serde.read_one_cell_from_jsonb(*deser_column, it->value());
             }
             for (size_t j = 0; j != row_count; ++j) {
-                EXPECT_EQ(deser_col_with_type->get_element(j), source_column->get_element(j));
-            }
-        }
-        {
-            // test write_column_to_mysql
-            MysqlRowBuffer<false> mysql_rb;
-            for (int row_idx = 0; row_idx < row_count; ++row_idx) {
-                auto st = serde.write_column_to_mysql(*source_column, mysql_rb, row_idx, false,
-                                                      option);
-                EXPECT_TRUE(st.ok()) << "Failed to write column to mysql: " << st;
+                if constexpr (std::is_same_v<ColumnType, ColumnFloat32> ||
+                              std::is_same_v<ColumnType, ColumnFloat64>) {
+                    // for float and double, we need to check the value with a tolerance
+                    auto expected_value = source_column->get_element(j);
+                    auto actual_value = deser_col_with_type->get_element(j);
+                    if (std::isnan(expected_value)) {
+                        EXPECT_TRUE(std::isnan(actual_value))
+                                << "Row " << j << " value mismatch: expected NaN, got "
+                                << actual_value;
+                    } else {
+                        EXPECT_EQ(actual_value, expected_value);
+                    }
+                } else {
+                    EXPECT_EQ(deser_col_with_type->get_element(j), source_column->get_element(j));
+                }
             }
         }
     };
@@ -223,4 +284,53 @@ TEST_F(DataTypeNumberSerDeTest, serdes) {
     test_func(*serde_int128, column_int128);
     test_func(*serde_uint8, column_uint8);
 }
+
+// Run with UBSan enabled to catch misalignment errors.
+TEST_F(DataTypeNumberSerDeTest, ArrowMemNotAligned) {
+    // 1.Prepare the data.
+    std::vector<std::string> strings = {"9223372036854775807", "9223372036854775806",
+                                        "9223372036854775805", "9223372036854775804",
+                                        "9223372036854775803"};
+
+    int32_t total_length = 0;
+    std::vector<int32_t> offsets = {0};
+    for (const auto& str : strings) {
+        total_length += static_cast<int32_t>(str.length());
+        offsets.push_back(total_length);
+    }
+
+    // 2.Create an unaligned memory buffer.
+    std::vector<uint8_t> value_storage(total_length + 10);
+    std::vector<uint8_t> offset_storage((strings.size() + 1) * sizeof(int32_t) + 10);
+
+    uint8_t* unaligned_value_data = value_storage.data() + 1;
+    uint8_t* unaligned_offset_data = offset_storage.data() + 1;
+
+    // 3. Copy data to unaligned memory
+    int32_t current_pos = 0;
+    for (size_t i = 0; i < strings.size(); ++i) {
+        memcpy(unaligned_value_data + current_pos, strings[i].data(), strings[i].length());
+        current_pos += strings[i].length();
+    }
+
+    for (size_t i = 0; i < offsets.size(); ++i) {
+        memcpy(unaligned_offset_data + i * sizeof(int32_t), &offsets[i], sizeof(int32_t));
+    }
+
+    // 4. Create Arrow array with unaligned memory
+    auto value_buffer = arrow::Buffer::Wrap(unaligned_value_data, total_length);
+    auto offset_buffer =
+            arrow::Buffer::Wrap(unaligned_offset_data, offsets.size() * sizeof(int32_t));
+    auto arr = std::make_shared<arrow::StringArray>(strings.size(), offset_buffer, value_buffer);
+
+    const auto* offsets_ptr = arr->raw_value_offsets();
+    uintptr_t address = reinterpret_cast<uintptr_t>(offsets_ptr);
+    EXPECT_EQ((reinterpret_cast<uintptr_t>(address) % 4), 1);
+
+    // 5.Test read_column_from_arrow
+    cctz::time_zone tz;
+    auto st = serde_int128->read_column_from_arrow(*column_int128, arr.get(), 0, 1, tz);
+    EXPECT_TRUE(st.ok());
+}
+
 } // namespace doris::vectorized

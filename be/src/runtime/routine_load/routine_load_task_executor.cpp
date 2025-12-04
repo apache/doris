@@ -278,13 +278,29 @@ Status RoutineLoadTaskExecutor::submit_task(const TRoutineLoadTask& task) {
     TStatus tstatus;
     tstatus.status_code = TStatusCode::OK;
     put_result.status = tstatus;
-    if (task.__isset.params) {
-        put_result.params = task.params;
-        put_result.__isset.params = true;
-    } else {
-        put_result.pipeline_params = task.pipeline_params;
-        put_result.__isset.pipeline_params = true;
+
+    put_result.pipeline_params = task.pipeline_params;
+    put_result.__isset.pipeline_params = true;
+    if (task.pipeline_params.__isset.file_scan_params &&
+        task.pipeline_params.file_scan_params.size() > 0) {
+        const auto& file_scan_range_param = task.pipeline_params.file_scan_params.begin()->second;
+        if (file_scan_range_param.__isset.strict_mode && file_scan_range_param.strict_mode) {
+            put_result.pipeline_params.query_options.__set_enable_insert_strict(true);
+        }
+    } else if (task.pipeline_params.local_params.size() > 0 &&
+               task.pipeline_params.local_params[0].per_node_scan_ranges.size() > 0) {
+        auto scan_ranges =
+                task.pipeline_params.local_params[0].per_node_scan_ranges.begin()->second;
+        if (scan_ranges.size() > 0 &&
+            scan_ranges[0].scan_range.ext_scan_range.file_scan_range.__isset.params) {
+            const auto& params = scan_ranges[0].scan_range.ext_scan_range.file_scan_range.params;
+            if (params.__isset.strict_mode) {
+                put_result.pipeline_params.query_options.__set_enable_insert_strict(
+                        params.strict_mode);
+            }
+        }
     }
+
     ctx->put_result = put_result;
     if (task.__isset.format) {
         ctx->format = task.format;

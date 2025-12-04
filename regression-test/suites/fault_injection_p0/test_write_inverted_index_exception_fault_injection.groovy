@@ -91,6 +91,7 @@ suite("test_write_inverted_index_exception_fault_injection", "nonConcurrent") {
         sql """ INSERT INTO ${tableName} VALUES (2, "bason", 11, [79, 85, 97], ["singing", "dancing"], "bason is good at singing", ["bason is very clever", "bason is very healthy"]); """
         sql """ INSERT INTO ${tableName} VALUES (3, "andy", 10, [89, 80, 98], ["football", "basketball"], "andy is good at sports", ["andy has a good heart", "andy is so nice"]); """
         sql """ INSERT INTO ${tableName} VALUES (3, "bason", 11, [79, 85, 97], ["singing", "dancing"], "bason is good at singing", ["bason is very clever", "bason is very healthy"]); """
+        sql """ SYNC """
     }
 
     def check_count = { String tableName, int count ->
@@ -161,12 +162,12 @@ suite("test_write_inverted_index_exception_fault_injection", "nonConcurrent") {
     def debug_points = [
         "inverted_index_parser.get_parser_stopwords_from_properties",
         "CharFilterFactory::create_return_nullptr",
-        "InvertedIndexFileWriter::delete_index_index_meta_nullptr",
-        "InvertedIndexFileWriter::delete_index_indices_dirs_reach_end",
-        "InvertedIndexFileWriter::copyFile_openInput_error",
-        "InvertedIndexFileWriter::copyFile_remainder_is_not_zero",
-        "InvertedIndexFileWriter::copyFile_diff_not_equals_length",
-        "InvertedIndexFileWriter::write_v1_out_dir_createOutput_nullptr",
+        "IndexFileWriter::delete_index_index_meta_nullptr",
+        "IndexFileWriter::delete_index_indices_dirs_reach_end",
+        "IndexFileWriter::copyFile_openInput_error",
+        "IndexFileWriter::copyFile_remainder_is_not_zero",
+        "IndexFileWriter::copyFile_diff_not_equals_length",
+        "IndexFileWriter::write_v1_out_dir_createOutput_nullptr",
         "FSIndexInput::~SharedHandle_reader_close_error",
         "DorisFSDirectory::FSIndexInput::readInternal_reader_read_at_error",
         "DorisFSDirectory::FSIndexInput::readInternal_bytes_read_error",
@@ -212,18 +213,17 @@ suite("test_write_inverted_index_exception_fault_injection", "nonConcurrent") {
         "InvertedIndexColumnWriter::create_index_writer_setRAMBufferSizeMB_error",
         "InvertedIndexColumnWriter::create_index_writer_setMaxBufferedDocs_error",
         "InvertedIndexColumnWriter::create_index_writer_setMergeFactor_error",
-        "InvertedIndexColumnWriterImpl::add_document_throw_error",
-        "InvertedIndexColumnWriterImpl::add_null_document_throw_error",
-        "InvertedIndexColumnWriterImpl::add_nulls_field_nullptr",
-        "InvertedIndexColumnWriterImpl::add_nulls_index_writer_nullptr",
-        "InvertedIndexColumnWriterImpl::new_char_token_stream__char_string_reader_init_error",
-        "InvertedIndexColumnWriterImpl::add_values_field_is_nullptr",
-        "InvertedIndexColumnWriterImpl::add_values_index_writer_is_nullptr",
-        "InvertedIndexColumnWriterImpl::add_array_values_count_is_zero",
-        "InvertedIndexColumnWriterImpl::add_array_values_index_writer_is_nullptr",
-        "InvertedIndexColumnWriterImpl::add_array_values_create_field_error",
-        "InvertedIndexColumnWriterImpl::add_array_values_create_field_error_2",
-        "InvertedIndexColumnWriterImpl::add_array_values_field_is_nullptr",
+        "InvertedIndexColumnWriter::add_document_throw_error",
+        "InvertedIndexColumnWriter::add_null_document_throw_error",
+        "InvertedIndexColumnWriter::add_nulls_field_nullptr",
+        "InvertedIndexColumnWriter::add_nulls_index_writer_nullptr",
+        "InvertedIndexColumnWriter::new_char_token_stream__char_string_reader_init_error",
+        "InvertedIndexColumnWriter::add_values_field_is_nullptr",
+        "InvertedIndexColumnWriter::add_values_index_writer_is_nullptr",
+        "InvertedIndexColumnWriter::add_array_values_index_writer_is_nullptr",
+        "InvertedIndexColumnWriter::add_array_values_create_field_error",
+        "InvertedIndexColumnWriter::add_array_values_create_field_error_2",
+        "InvertedIndexColumnWriter::add_array_values_field_is_nullptr",
         "InvertedIndexWriter._throw_clucene_error_in_fulltext_writer_close",
         "InvertedIndexColumnWriter::create_array_typeinfo_is_nullptr",
         "InvertedIndexColumnWriter::create_unsupported_type_for_inverted_index"
@@ -262,13 +262,7 @@ suite("test_write_inverted_index_exception_fault_injection", "nonConcurrent") {
                     GetDebugPoint().enableDebugPointForAllBEs(debug_point)
                     run_insert("${tableName}")
                     check_count("${tableName}", 6)
-                    // if debug_point equals InvertedIndexColumnWriterImpl::add_array_values_count_is_zero, run_select(false(abnormal))
-                    // else run_select(true(normal))
-                    if (debug_point == "InvertedIndexColumnWriterImpl::add_array_values_count_is_zero") {
-                        run_select("${tableName}", false)
-                    } else {
-                        run_select("${tableName}", true)
-                    }
+                    run_select("${tableName}", true)
                     sql "TRUNCATE TABLE ${tableName}"
                 } catch (Exception e) {
                     log.error("Caught exception: ${e}")

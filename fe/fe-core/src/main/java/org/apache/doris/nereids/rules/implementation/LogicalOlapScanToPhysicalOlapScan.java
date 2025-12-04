@@ -61,8 +61,16 @@ public class LogicalOlapScanToPhysicalOlapScan extends OneImplementationRuleFact
                         olapScan.getOutputByIndex(olapScan.getTable().getBaseIndexId()),
                         Optional.empty(),
                         olapScan.getLogicalProperties(),
+                        null,
+                        null,
                         olapScan.getTableSample(),
-                        olapScan.getOperativeSlots())
+                        olapScan.getOperativeSlots(),
+                        olapScan.getVirtualColumns(),
+                        olapScan.getScoreOrderKeys(),
+                        olapScan.getScoreLimit(),
+                        olapScan.getAnnOrderKeys(),
+                        olapScan.getAnnLimit(),
+                        olapScan.getTableAlias())
         ).toRule(RuleType.LOGICAL_OLAP_SCAN_TO_PHYSICAL_OLAP_SCAN_RULE);
     }
 
@@ -75,7 +83,8 @@ public class LogicalOlapScanToPhysicalOlapScan extends OneImplementationRuleFact
         // rounded robin algorithm. Therefore, the hashDistributedSpec can be broken except they are in
         // the same stable colocateGroup(CG)
         boolean isBelongStableCG = colocateTableIndex.isColocateTable(olapTable.getId())
-                && !colocateTableIndex.isGroupUnstable(colocateTableIndex.getGroup(olapTable.getId()));
+                && !colocateTableIndex.isGroupUnstable(colocateTableIndex.getGroup(olapTable.getId()))
+                && olapTable.getCatalogId() == Env.getCurrentInternalCatalog().getId();
         boolean isSelectUnpartition = olapTable.getPartitionInfo().getType() == PartitionType.UNPARTITIONED
                 || olapScan.getSelectedPartitionIds().size() == 1;
         // TODO: find a better way to handle both tablet num == 1 and colocate table together in future
@@ -87,8 +96,9 @@ public class LogicalOlapScanToPhysicalOlapScan extends OneImplementationRuleFact
                 List<ExprId> hashColumns = Lists.newArrayList();
                 for (Column column : hashDistributionInfo.getDistributionColumns()) {
                     for (Slot slot : output) {
-                        if (((SlotReference) slot).getOriginalColumn().get().getNameWithoutMvPrefix()
-                                .equals(column.getName())) {
+                        Column originalColumn = ((SlotReference) slot).getOriginalColumn().get();
+                        String origName = originalColumn.tryGetBaseColumnName();
+                        if (origName.equals(column.getName())) {
                             hashColumns.add(slot.getExprId());
                         }
                     }
@@ -117,7 +127,8 @@ public class LogicalOlapScanToPhysicalOlapScan extends OneImplementationRuleFact
                         // If the length of the column in the bucket key changes after DDL, the length cannot be
                         // determined. As a result, some bucket fields are lost in the query execution plan.
                         // So here we use the column name to avoid this problem
-                        if (((SlotReference) slot).getOriginalColumn().get().getName()
+                        if (((SlotReference) slot).getOriginalColumn().isPresent()
+                                && ((SlotReference) slot).getOriginalColumn().get().getName()
                                 .equalsIgnoreCase(column.getName())) {
                             hashColumns.add(slot.getExprId());
                         }

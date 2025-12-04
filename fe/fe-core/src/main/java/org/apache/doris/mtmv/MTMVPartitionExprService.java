@@ -47,7 +47,7 @@ public interface MTMVPartitionExprService {
      * @throws AnalysisException
      */
     PartitionKeyDesc generateRollUpPartitionKeyDesc(
-            PartitionKeyDesc partitionKeyDesc, MTMVPartitionInfo mvPartitionInfo)
+            PartitionKeyDesc partitionKeyDesc, MTMVPartitionInfo mvPartitionInfo, MTMVRelatedTableIf pctTable)
             throws AnalysisException;
 
     /**
@@ -57,4 +57,11 @@ public interface MTMVPartitionExprService {
      * @throws AnalysisException
      */
     void analyze(MTMVPartitionInfo mtmvPartitionInfo) throws AnalysisException;
+
+    /**
+     * for show create MTMV
+     * @param mvPartitionInfo
+     * @return
+     */
+    String toSql(MTMVPartitionInfo mvPartitionInfo);
 }

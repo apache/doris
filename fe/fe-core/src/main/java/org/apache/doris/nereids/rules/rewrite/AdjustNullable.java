@@ -17,11 +17,14 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -29,7 +32,9 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalApply;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalGenerate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
@@ -46,14 +51,16 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.qe.ConnectContext;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.LinkedHashMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -67,6 +74,14 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * So, we need add a rule to adjust all expression's nullable attribute after rewrite.
  */
 public class AdjustNullable extends DefaultPlanRewriter<Map<ExprId, Slot>> implements CustomRewriter {
+
+    private static final Logger LOG = LogManager.getLogger(AdjustNullable.class);
+
+    private final boolean isAnalyzedPhase;
+
+    public AdjustNullable(boolean isAnalyzedPhase) {
+        this.isAnalyzedPhase = isAnalyzedPhase;
+    }
 
     @Override
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
@@ -84,9 +99,29 @@ public class AdjustNullable extends DefaultPlanRewriter<Map<ExprId, Slot>> imple
     }
 
     @Override
+    public Plan visitLogicalCatalogRelation(LogicalCatalogRelation relation, Map<ExprId, Slot> replaceMap) {
+        relation = (LogicalCatalogRelation) super.visit(relation, replaceMap);
+        relation = (LogicalCatalogRelation) relation.recomputeLogicalProperties();
+        for (Slot slot : relation.getOutput()) {
+            replaceMap.put(slot.getExprId(), slot);
+        }
+        Optional<List<NamedExpression>> newVirtualColumns
+                = updateExpressions(relation.getVirtualColumns(), replaceMap, true);
+        if (!newVirtualColumns.isPresent()) {
+            return relation;
+        }
+        for (NamedExpression newVirtualColumn : newVirtualColumns.get()) {
+            replaceMap.put(newVirtualColumn.getExprId(), newVirtualColumn.toSlot());
+        }
+        return relation.withVirtualColumns(newVirtualColumns.get())
+                .recomputeLogicalProperties();
+    }
+
+    @Override
     public Plan visitLogicalSink(LogicalSink<? extends Plan> logicalSink, Map<ExprId, Slot> replaceMap) {
         logicalSink = (LogicalSink<? extends Plan>) super.visit(logicalSink, replaceMap);
-        Optional<List<NamedExpression>> newOutputExprs = updateExpressions(logicalSink.getOutputExprs(), replaceMap);
+        Optional<List<NamedExpression>> newOutputExprs
+                = updateExpressions(logicalSink.getOutputExprs(), replaceMap, true);
         if (!newOutputExprs.isPresent()) {
             return logicalSink;
         } else {
@@ -98,8 +133,8 @@ public class AdjustNullable extends DefaultPlanRewriter<Map<ExprId, Slot>> imple
     public Plan visitLogicalAggregate(LogicalAggregate<? extends Plan> aggregate, Map<ExprId, Slot> replaceMap) {
         aggregate = (LogicalAggregate<? extends Plan>) super.visit(aggregate, replaceMap);
         Optional<List<NamedExpression>> newOutputs
-                = updateExpressions(aggregate.getOutputExpressions(), replaceMap);
-        Optional<List<Expression>> newGroupBy = updateExpressions(aggregate.getGroupByExpressions(), replaceMap);
+                = updateExpressions(aggregate.getOutputExpressions(), replaceMap, true);
+        Optional<List<Expression>> newGroupBy = updateExpressions(aggregate.getGroupByExpressions(), replaceMap, true);
         for (NamedExpression newOutput : newOutputs.orElse(aggregate.getOutputExpressions())) {
             replaceMap.put(newOutput.getExprId(), newOutput.toSlot());
         }
@@ -115,7 +150,7 @@ public class AdjustNullable extends DefaultPlanRewriter<Map<ExprId, Slot>> imple
     @Override
     public Plan visitLogicalFilter(LogicalFilter<? extends Plan> filter, Map<ExprId, Slot> replaceMap) {
         filter = (LogicalFilter<? extends Plan>) super.visit(filter, replaceMap);
-        Optional<Set<Expression>> conjuncts = updateExpressions(filter.getConjuncts(), replaceMap);
+        Optional<Set<Expression>> conjuncts = updateExpressions(filter.getConjuncts(), replaceMap, true);
         if (!conjuncts.isPresent()) {
             return filter;
         }
@@ -125,7 +160,7 @@ public class AdjustNullable extends DefaultPlanRewriter<Map<ExprId, Slot>> imple
     @Override
     public Plan visitLogicalGenerate(LogicalGenerate<? extends Plan> generate, Map<ExprId, Slot> replaceMap) {
         generate = (LogicalGenerate<? extends Plan>) super.visit(generate, replaceMap);
-        Optional<List<Function>> newGenerators = updateExpressions(generate.getGenerators(), replaceMap);
+        Optional<List<Function>> newGenerators = updateExpressions(generate.getGenerators(), replaceMap, true);
         Plan newGenerate = generate;
         if (newGenerators.isPresent()) {
             newGenerate = generate.withGenerators(newGenerators.get()).recomputeLogicalProperties();
@@ -139,32 +174,50 @@ public class AdjustNullable extends DefaultPlanRewriter<Map<ExprId, Slot>> imple
     @Override
     public Plan visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> join, Map<ExprId, Slot> replaceMap) {
         join = (LogicalJoin<? extends Plan, ? extends Plan>) super.visit(join, replaceMap);
-        Optional<List<Expression>> hashConjuncts = updateExpressions(join.getHashJoinConjuncts(), replaceMap);
+        return doVisitLogicalJoin(join, replaceMap, isAnalyzedPhase, !isAnalyzedPhase);
+    }
+
+    /**
+     * Adjust join nullable attribute of slot reference in expression.
+     */
+    public static LogicalJoin<? extends Plan, ? extends Plan> doVisitLogicalJoin(
+            LogicalJoin<? extends Plan, ? extends Plan> join,
+            Map<ExprId, Slot> replaceMap, boolean isAnalyzedPhase, boolean check) {
+        Optional<List<Expression>> hashConjuncts = doUpdateExpressions(join.getHashJoinConjuncts(), replaceMap, check);
         Optional<List<Expression>> markConjuncts = Optional.empty();
-        boolean needCheckHashConjuncts = false;
-        if (!hashConjuncts.isPresent() || hashConjuncts.get().isEmpty()) {
-            // if hashConjuncts is empty, mark join conjuncts may used to build hash table
+        boolean hadUpdatedMarkConjuncts = false;
+        if (isAnalyzedPhase || join.getHashJoinConjuncts().isEmpty()) {
+            // if hashConjuncts is empty, mark join conjuncts may use to build hash table
             // so need call updateExpressions for mark join conjuncts before adjust nullable by output slot
-            markConjuncts = updateExpressions(join.getMarkJoinConjuncts(), replaceMap);
-        } else {
-            needCheckHashConjuncts = true;
+            markConjuncts = doUpdateExpressions(join.getMarkJoinConjuncts(), replaceMap, check);
+            hadUpdatedMarkConjuncts = true;
+        }
+        // in fact, otherConjuncts shouldn't use join output nullable attribute,
+        // it should use left and right tables' origin nullable attribute.
+        // but for history reason, BE use join output nullable attribute for evaluating the other conditions.
+        // so here, we make a difference:
+        // 1) when at analyzed phase, still update other conjuncts without using join output nullables.
+        //    then later at rewrite phase, the join conditions may push down, and the push down condition with proper
+        //    nullable attribute.
+        // 2) when at the end of rewrite phase, update other conjuncts with join output nullables.
+        //    Just change it to be consistent with BE.
+        Optional<List<Expression>> otherConjuncts = Optional.empty();
+        if (isAnalyzedPhase) {
+            otherConjuncts = doUpdateExpressions(join.getOtherJoinConjuncts(), replaceMap, false);
         }
         for (Slot slot : join.getOutput()) {
             replaceMap.put(slot.getExprId(), slot);
         }
-        if (needCheckHashConjuncts) {
-            // hashConjuncts is not empty, mark join conjuncts are processed like other join conjuncts
-            Preconditions.checkState(
-                    !hashConjuncts.orElse(join.getHashJoinConjuncts()).isEmpty(),
-                    "hash conjuncts should not be empty"
-            );
-            markConjuncts = updateExpressions(join.getMarkJoinConjuncts(), replaceMap);
+        if (!hadUpdatedMarkConjuncts) {
+            markConjuncts = doUpdateExpressions(join.getMarkJoinConjuncts(), replaceMap, false);
         }
-        Optional<List<Expression>> otherConjuncts = updateExpressions(join.getOtherJoinConjuncts(), replaceMap);
+        if (!isAnalyzedPhase) {
+            otherConjuncts = doUpdateExpressions(join.getOtherJoinConjuncts(), replaceMap, false);
+        }
         if (!hashConjuncts.isPresent() && !markConjuncts.isPresent() && !otherConjuncts.isPresent()) {
             return join;
         }
-        return join.withJoinConjuncts(
+        return (LogicalJoin<? extends Plan, ? extends Plan>) join.withJoinConjuncts(
                 hashConjuncts.orElse(join.getHashJoinConjuncts()),
                 otherConjuncts.orElse(join.getOtherJoinConjuncts()),
                 markConjuncts.orElse(join.getMarkJoinConjuncts()),
@@ -175,7 +228,7 @@ public class AdjustNullable extends DefaultPlanRewriter<Map<ExprId, Slot>> imple
     @Override
     public Plan visitLogicalProject(LogicalProject<? extends Plan> project, Map<ExprId, Slot> replaceMap) {
         project = (LogicalProject<? extends Plan>) super.visit(project, replaceMap);
-        Optional<List<NamedExpression>> newProjects = updateExpressions(project.getProjects(), replaceMap);
+        Optional<List<NamedExpression>> newProjects = updateExpressions(project.getProjects(), replaceMap, true);
         for (NamedExpression newProject : newProjects.orElse(project.getProjects())) {
             replaceMap.put(newProject.getExprId(), newProject.toSlot());
         }
@@ -183,6 +236,38 @@ public class AdjustNullable extends DefaultPlanRewriter<Map<ExprId, Slot>> imple
             return project;
         }
         return project.withProjects(newProjects.get());
+    }
+
+    @Override
+    public Plan visitLogicalApply(LogicalApply<? extends Plan, ? extends Plan> apply, Map<ExprId, Slot> replaceMap) {
+        apply = (LogicalApply<? extends Plan, ? extends Plan>) super.visit(apply, replaceMap);
+        Optional<Expression> newCompareExpr = updateExpression(apply.getCompareExpr(), replaceMap, true);
+        Optional<Expression> newTypeCoercionExpr = updateExpression(apply.getTypeCoercionExpr(), replaceMap, true);
+        Optional<List<Slot>> newCorrelationSlot = updateExpressions(apply.getCorrelationSlot(), replaceMap, true);
+        Optional<Expression> newCorrelationFilter = updateExpression(apply.getCorrelationFilter(), replaceMap, true);
+        Optional<MarkJoinSlotReference> newMarkJoinSlotReference =
+                updateExpression(apply.getMarkJoinSlotReference(), replaceMap, true);
+
+        for (Slot slot : apply.getOutput()) {
+            replaceMap.put(slot.getExprId(), slot);
+        }
+        if (!newCompareExpr.isPresent() && !newTypeCoercionExpr.isPresent() && !newCorrelationSlot.isPresent()
+                && !newCorrelationFilter.isPresent() && !newMarkJoinSlotReference.isPresent()) {
+            return apply;
+        }
+
+        return new LogicalApply<>(
+                newCorrelationSlot.orElse(apply.getCorrelationSlot()),
+                apply.getSubqueryType(),
+                apply.isNot(),
+                newCompareExpr.isPresent() ? newCompareExpr : apply.getCompareExpr(),
+                newTypeCoercionExpr.isPresent() ? newTypeCoercionExpr : apply.getTypeCoercionExpr(),
+                newCorrelationFilter.isPresent() ? newCorrelationFilter : apply.getCorrelationFilter(),
+                newMarkJoinSlotReference.isPresent() ? newMarkJoinSlotReference : apply.getMarkJoinSlotReference(),
+                apply.isNeedAddSubOutputToProjects(),
+                apply.isMarkJoinSlotNotNull(),
+                apply.left(),
+                apply.right());
     }
 
     @Override
@@ -196,7 +281,7 @@ public class AdjustNullable extends DefaultPlanRewriter<Map<ExprId, Slot>> imple
             if (flattenGroupingSetExpr.contains(output)) {
                 newOutput = output;
             } else {
-                newOutput = updateExpression(output, replaceMap).orElse(output);
+                newOutput = updateExpression(output, replaceMap, true).orElse(output);
             }
             newOutputs.add(newOutput);
             replaceMap.put(newOutput.getExprId(), newOutput.toSlot());
@@ -274,7 +359,7 @@ public class AdjustNullable extends DefaultPlanRewriter<Map<ExprId, Slot>> imple
         boolean changed = false;
         ImmutableList.Builder<OrderKey> newOrderKeys = ImmutableList.builder();
         for (OrderKey orderKey : sort.getOrderKeys()) {
-            Optional<Expression> newOrderKey = updateExpression(orderKey.getExpr(), replaceMap);
+            Optional<Expression> newOrderKey = updateExpression(orderKey.getExpr(), replaceMap, true);
             if (!newOrderKey.isPresent()) {
                 newOrderKeys.add(orderKey);
             } else {
@@ -295,7 +380,7 @@ public class AdjustNullable extends DefaultPlanRewriter<Map<ExprId, Slot>> imple
         boolean changed = false;
         ImmutableList.Builder<OrderKey> newOrderKeys = ImmutableList.builder();
         for (OrderKey orderKey : topN.getOrderKeys()) {
-            Optional<Expression> newOrderKey = updateExpression(orderKey.getExpr(), replaceMap);
+            Optional<Expression> newOrderKey = updateExpression(orderKey.getExpr(), replaceMap, true);
             if (!newOrderKey.isPresent()) {
                 newOrderKeys.add(orderKey);
             } else {
@@ -313,7 +398,7 @@ public class AdjustNullable extends DefaultPlanRewriter<Map<ExprId, Slot>> imple
     public Plan visitLogicalWindow(LogicalWindow<? extends Plan> window, Map<ExprId, Slot> replaceMap) {
         window = (LogicalWindow<? extends Plan>) super.visit(window, replaceMap);
         Optional<List<NamedExpression>> windowExpressions =
-                updateExpressions(window.getWindowExpressions(), replaceMap);
+                updateExpressions(window.getWindowExpressions(), replaceMap, true);
         for (NamedExpression w : windowExpressions.orElse(window.getWindowExpressions())) {
             replaceMap.put(w.getExprId(), w.toSlot());
         }
@@ -327,8 +412,9 @@ public class AdjustNullable extends DefaultPlanRewriter<Map<ExprId, Slot>> imple
     public Plan visitLogicalPartitionTopN(LogicalPartitionTopN<? extends Plan> partitionTopN,
             Map<ExprId, Slot> replaceMap) {
         partitionTopN = (LogicalPartitionTopN<? extends Plan>) super.visit(partitionTopN, replaceMap);
-        Optional<List<Expression>> partitionKeys = updateExpressions(partitionTopN.getPartitionKeys(), replaceMap);
-        Optional<List<OrderExpression>> orderKeys = updateExpressions(partitionTopN.getOrderKeys(), replaceMap);
+        Optional<List<Expression>> partitionKeys
+                = updateExpressions(partitionTopN.getPartitionKeys(), replaceMap, true);
+        Optional<List<OrderExpression>> orderKeys = updateExpressions(partitionTopN.getOrderKeys(), replaceMap, true);
         if (!partitionKeys.isPresent() && !orderKeys.isPresent()) {
             return partitionTopN;
         }
@@ -342,7 +428,7 @@ public class AdjustNullable extends DefaultPlanRewriter<Map<ExprId, Slot>> imple
         Map<Slot, Slot> consumerToProducerOutputMap = new LinkedHashMap<>();
         Multimap<Slot, Slot> producerToConsumerOutputMap = LinkedHashMultimap.create();
         for (Slot producerOutputSlot : cteConsumer.getConsumerToProducerOutputMap().values()) {
-            Optional<Slot> newProducerOutputSlot = updateExpression(producerOutputSlot, replaceMap);
+            Optional<Slot> newProducerOutputSlot = updateExpression(producerOutputSlot, replaceMap, true);
             for (Slot consumerOutputSlot : cteConsumer.getProducerToConsumerOutputMap().get(producerOutputSlot)) {
                 Slot slot = newProducerOutputSlot.orElse(producerOutputSlot);
                 Slot newConsumerOutputSlot = consumerOutputSlot.withNullable(slot.nullable());
@@ -354,11 +440,25 @@ public class AdjustNullable extends DefaultPlanRewriter<Map<ExprId, Slot>> imple
         return cteConsumer.withTwoMaps(consumerToProducerOutputMap, producerToConsumerOutputMap);
     }
 
-    private <T extends Expression> Optional<T> updateExpression(T input, Map<ExprId, Slot> replaceMap) {
+    private <T extends Expression> Optional<T> updateExpression(Optional<T> input,
+            Map<ExprId, Slot> replaceMap, boolean debugCheck) {
+        return input.isPresent() ? updateExpression(input.get(), replaceMap, debugCheck) : Optional.empty();
+    }
+
+    private <T extends Expression> Optional<T> updateExpression(T input,
+            Map<ExprId, Slot> replaceMap, boolean debugCheck) {
         AtomicBoolean changed = new AtomicBoolean(false);
-        Expression replaced = input.rewriteDownShortCircuit(e -> {
+        Expression replaced = doUpdateExpression(changed, input, replaceMap, !isAnalyzedPhase && debugCheck);
+        return changed.get() ? Optional.of((T) replaced) : Optional.empty();
+    }
+
+    // !isAnalyzedPhase && debugCheck
+    private static Expression doUpdateExpression(AtomicBoolean changed, Expression input,
+            Map<ExprId, Slot> replaceMap, boolean check) {
+        return input.rewriteDownShortCircuit(e -> {
             if (e instanceof SlotReference) {
                 SlotReference slotReference = (SlotReference) e;
+                Slot newSlotReference = slotReference;
                 Slot replacedSlot = replaceMap.get(slotReference.getExprId());
                 if (replacedSlot != null) {
                     if (replacedSlot.getDataType().isAggStateType()) {
@@ -369,41 +469,75 @@ public class AdjustNullable extends DefaultPlanRewriter<Map<ExprId, Slot>> imple
                             // TODO: remove if statement after we ensure be constant folding do not change
                             //  expr type at all.
                             changed.set(true);
-                            return slotReference.withNullableAndDataType(
-                                    replacedSlot.nullable(), replacedSlot.getDataType()
-                            );
+                            newSlotReference = slotReference.withNullableAndDataType(
+                                    replacedSlot.nullable(), replacedSlot.getDataType());
                         }
                     } else if (slotReference.nullable() != replacedSlot.nullable()) {
                         changed.set(true);
-                        return slotReference.withNullable(replacedSlot.nullable());
+                        newSlotReference = slotReference.withNullable(replacedSlot.nullable());
                     }
                 }
-                return slotReference;
+                // for join other conditions, debugCheck = false, for other case, debugCheck is always true.
+                // Because join other condition use join output's nullable attribute, outer join may check fail.
+                // At analyzed phase, the slot reference nullable may change, for example, NormalRepeat may adjust some
+                // slot reference to nullable, after this rule, node above repeat need adjust.
+                // so analyzed phase don't assert not-nullable -> nullable, otherwise adjust plan above
+                // repeat may check fail.
+                if (!slotReference.nullable() && newSlotReference.nullable()
+                        && check && ConnectContext.get() != null) {
+                    if (ConnectContext.get().getSessionVariable().feDebug) {
+                        throw new AnalysisException("AdjustNullable convert slot " + slotReference
+                                + " from not-nullable to nullable. You can disable check by set fe_debug = false.");
+                    } else {
+                        LOG.warn("adjust nullable convert slot '" + slotReference
+                                + "' from not-nullable to nullable for query "
+                                + DebugUtil.printId(ConnectContext.get().queryId()));
+                    }
+                }
+                return newSlotReference;
             } else {
                 return e;
             }
         });
-        return changed.get() ? Optional.of((T) replaced) : Optional.empty();
     }
 
-    private <T extends Expression> Optional<List<T>> updateExpressions(List<T> inputs, Map<ExprId, Slot> replaceMap) {
+    private <T extends Expression> Optional<List<T>> updateExpressions(List<T> inputs,
+            Map<ExprId, Slot> replaceMap, boolean debugCheck) {
         ImmutableList.Builder<T> result = ImmutableList.builderWithExpectedSize(inputs.size());
         boolean changed = false;
         for (T input : inputs) {
-            Optional<T> newInput = updateExpression(input, replaceMap);
+            Optional<T> newInput = updateExpression(input, replaceMap, debugCheck);
             changed |= newInput.isPresent();
             result.add(newInput.orElse(input));
         }
         return changed ? Optional.of(result.build()) : Optional.empty();
     }
 
-    private <T extends Expression> Optional<Set<T>> updateExpressions(Set<T> inputs, Map<ExprId, Slot> replaceMap) {
+    private <T extends Expression> Optional<Set<T>> updateExpressions(Set<T> inputs,
+            Map<ExprId, Slot> replaceMap, boolean debugCheck) {
         boolean changed = false;
         ImmutableSet.Builder<T> result = ImmutableSet.builderWithExpectedSize(inputs.size());
         for (T input : inputs) {
-            Optional<T> newInput = updateExpression(input, replaceMap);
+            Optional<T> newInput = updateExpression(input, replaceMap, debugCheck);
             changed |= newInput.isPresent();
             result.add(newInput.orElse(input));
+        }
+        return changed ? Optional.of(result.build()) : Optional.empty();
+    }
+
+    /**
+     * Static methods cannot use generics, so the following method was added
+     */
+    private static Optional<List<Expression>> doUpdateExpressions(List<Expression> inputs,
+            Map<ExprId, Slot> replaceMap, boolean check) {
+        ImmutableList.Builder<Expression> result = ImmutableList.builderWithExpectedSize(inputs.size());
+        boolean changed = false;
+        for (Expression input : inputs) {
+            AtomicBoolean eachChanged = new AtomicBoolean(false);
+            Expression newInput = doUpdateExpression(
+                    eachChanged, input, replaceMap, check);
+            changed |= eachChanged.get();
+            result.add(eachChanged.get() ? newInput : input);
         }
         return changed ? Optional.of(result.build()) : Optional.empty();
     }

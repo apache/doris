@@ -141,7 +141,10 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         }
 
         // db should be empty. all tables are recycled before
-        Preconditions.checkState(db.getTables().isEmpty());
+        if (!db.getTableIds().isEmpty()) {
+            throw new IllegalStateException("Database " + db.getFullName() + " is not empty. Contains tables: "
+                                            + db.getTableIds().stream().collect(Collectors.toSet()));
+        }
 
         // recycle db
         RecycleDatabaseInfo databaseInfo = new RecycleDatabaseInfo(db, tableNames, tableIds);
@@ -332,7 +335,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
 
             Table table = tableInfo.getTable();
             if (table.isManagedTable()) {
-                Env.getCurrentEnv().onEraseOlapTable((OlapTable) table, false);
+                Env.getCurrentEnv().onEraseOlapTable(dbId, (OlapTable) table, false);
             }
             iterator.remove();
             idToRecycleTime.remove(table.getId());
@@ -363,7 +366,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
 
                 if (isExpire(tableId, currentTimeMs)) {
                     if (table.isManagedTable()) {
-                        Env.getCurrentEnv().onEraseOlapTable((OlapTable) table, false);
+                        Env.getCurrentEnv().onEraseOlapTable(tableInfo.dbId, (OlapTable) table, false);
                     }
 
                     // erase table
@@ -445,7 +448,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             }
             Table table = tableInfo.getTable();
             if (table.isManagedTable()) {
-                Env.getCurrentEnv().onEraseOlapTable((OlapTable) table, false);
+                Env.getCurrentEnv().onEraseOlapTable(dbId, (OlapTable) table, false);
             }
 
             idToTable.remove(tableId);
@@ -466,7 +469,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         }
         Table table = tableInfo.getTable();
         if (table.isManagedTable()) {
-            Env.getCurrentEnv().onEraseOlapTable((OlapTable) table, true);
+            Env.getCurrentEnv().onEraseOlapTable(tableInfo.dbId, (OlapTable) table, true);
         }
         LOG.info("replay erase table[{}]", tableId);
     }
@@ -870,6 +873,11 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         idToPartition.remove(partitionId);
         idToRecycleTime.remove(partitionId);
 
+        if (!Env.getCurrentEnv().invalidCacheForCloud()) {
+            long version = table.getNextVersion();
+            table.updateVisibleVersionAndTime(version, System.currentTimeMillis());
+        }
+
         // log
         RecoverInfo recoverInfo = new RecoverInfo(dbId, table.getId(), partitionId, "",
                                                     table.getName(), "", partitionName, newPartitionName);
@@ -881,6 +889,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
     public synchronized void replayRecoverPartition(OlapTable table, long partitionId,
                                                     String newPartitionName) throws DdlException {
         Iterator<Map.Entry<Long, RecyclePartitionInfo>> iterator = idToPartition.entrySet().iterator();
+        Env currentEnv = Env.getCurrentEnv();
         while (iterator.hasNext()) {
             Map.Entry<Long, RecyclePartitionInfo> entry = iterator.next();
             RecyclePartitionInfo recyclePartitionInfo = entry.getValue();
@@ -913,6 +922,11 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
 
             iterator.remove();
             idToRecycleTime.remove(partitionId);
+
+            if (!currentEnv.invalidCacheForCloud()) {
+                long version = table.getNextVersion();
+                table.updateVisibleVersionAndTime(version, System.currentTimeMillis());
+            }
 
             LOG.info("replay recover partition[{}]", partitionId);
             break;
@@ -979,7 +993,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             long dbId = tableInfo.getDbId();
             Table table = tableInfo.getTable();
             if (table.getType() == TableType.OLAP || table.getType() == TableType.MATERIALIZED_VIEW) {
-                Env.getCurrentEnv().onEraseOlapTable((OlapTable) table, false);
+                Env.getCurrentEnv().onEraseOlapTable(dbId, (OlapTable) table, false);
             }
 
             // erase table from idToTable and idToRecycleTime

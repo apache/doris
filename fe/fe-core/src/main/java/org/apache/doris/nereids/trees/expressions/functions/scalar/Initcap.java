@@ -47,13 +47,18 @@ public class Initcap extends ScalarFunction
         super("initcap", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Initcap(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public Initcap withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Initcap(children.get(0));
+        return new Initcap(getFunctionParams(children));
     }
 
     @Override

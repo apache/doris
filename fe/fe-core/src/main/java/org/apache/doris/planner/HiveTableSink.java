@@ -21,11 +21,16 @@
 package org.apache.doris.planner;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
+import org.apache.doris.datasource.hive.HiveMetaStoreCache;
+import org.apache.doris.datasource.hive.HiveMetaStoreClientHelper;
+import org.apache.doris.datasource.hive.HivePartition;
 import org.apache.doris.datasource.hive.HiveProperties;
+import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.nereids.trees.plans.commands.insert.HiveInsertCommandContext;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertCommandContext;
 import org.apache.doris.qe.ConnectContext;
@@ -59,6 +64,7 @@ public class HiveTableSink extends BaseExternalTableDataSink {
             add(TFileFormatType.FORMAT_CSV_PLAIN);
             add(TFileFormatType.FORMAT_ORC);
             add(TFileFormatType.FORMAT_PARQUET);
+            add(TFileFormatType.FORMAT_TEXT);
         }};
 
     public HiveTableSink(HMSExternalTable targetTable) {
@@ -122,18 +128,18 @@ public class HiveTableSink extends BaseExternalTableDataSink {
         setSerDeProperties(tSink);
 
         THiveLocationParams locationParams = new THiveLocationParams();
-        LocationPath locationPath = new LocationPath(sd.getLocation(), targetTable.getHadoopProperties(), false);
-        String location = locationPath.getPath().toString();
-        String storageLocation = locationPath.toStorageLocation().toString();
+        String originalLocation = sd.getLocation();
+        LocationPath locationPath = LocationPath.of(sd.getLocation(), targetTable.getStoragePropertiesMap());
+        String location = sd.getLocation();
         TFileType fileType = locationPath.getTFileTypeForBE();
         if (fileType == TFileType.FILE_S3) {
-            locationParams.setWritePath(storageLocation);
-            locationParams.setOriginalWritePath(location);
-            locationParams.setTargetPath(location);
+            locationParams.setWritePath(locationPath.getNormalizedLocation());
+            locationParams.setOriginalWritePath(originalLocation);
+            locationParams.setTargetPath(locationPath.getNormalizedLocation());
             if (insertCtx.isPresent()) {
                 HiveInsertCommandContext context = (HiveInsertCommandContext) insertCtx.get();
                 tSink.setOverwrite(context.isOverwrite());
-                context.setWritePath(location);
+                context.setWritePath(locationPath.getNormalizedLocation());
                 context.setFileType(fileType);
             }
         } else {
@@ -154,7 +160,7 @@ public class HiveTableSink extends BaseExternalTableDataSink {
             tSink.setBrokerAddresses(getBrokerAddresses(targetTable.getCatalog().bindBrokerName()));
         }
 
-        tSink.setHadoopConfig(targetTable.getHadoopProperties());
+        tSink.setHadoopConfig(targetTable.getBackendStorageProperties());
 
         tDataSink = new TDataSink(getDataSinkType());
         tDataSink.setHiveTableSink(tSink);
@@ -175,6 +181,7 @@ public class HiveTableSink extends BaseExternalTableDataSink {
                 compressType = targetTable.getRemoteTable().getParameters().get("parquet.compression");
                 break;
             case FORMAT_CSV_PLAIN:
+            case FORMAT_TEXT:
                 compressType = targetTable.getRemoteTable().getParameters().get("text.compression");
                 if (Strings.isNullOrEmpty(compressType)) {
                     compressType = ConnectContext.get().getSessionVariable().hiveTextCompression();
@@ -188,18 +195,32 @@ public class HiveTableSink extends BaseExternalTableDataSink {
     }
 
     private void setPartitionValues(THiveTableSink tSink) throws AnalysisException {
-        List<THivePartition> partitions = new ArrayList<>();
-        List<org.apache.hadoop.hive.metastore.api.Partition> hivePartitions =
-                ((HMSExternalCatalog) targetTable.getCatalog())
-                        .getClient().listPartitions(targetTable.getDbName(), targetTable.getName());
-        for (org.apache.hadoop.hive.metastore.api.Partition partition : hivePartitions) {
-            THivePartition hivePartition = new THivePartition();
-            StorageDescriptor sd = partition.getSd();
-            hivePartition.setFileFormat(getTFileFormatType(sd.getInputFormat()));
+        if (ConnectContext.get().getExecutor() != null) {
+            ConnectContext.get().getExecutor().getSummaryProfile().setSinkGetPartitionsStartTime();
+        }
 
-            hivePartition.setValues(partition.getValues());
+        List<THivePartition> partitions = new ArrayList<>();
+
+        List<HivePartition> hivePartitions = new ArrayList<>();
+        if (targetTable.isPartitionedTable()) {
+            // Get partitions from cache instead of HMS client (similar to HiveScanNode)
+            HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
+                    .getMetaStoreCache((HMSExternalCatalog) targetTable.getCatalog());
+            HiveMetaStoreCache.HivePartitionValues partitionValues =
+                    targetTable.getHivePartitionValues(MvccUtil.getSnapshotFromContext(targetTable));
+            List<List<String>> partitionValuesList =
+                    new ArrayList<>(partitionValues.getPartitionValuesMap().values());
+            hivePartitions = cache.getAllPartitionsWithCache(targetTable, partitionValuesList);
+        }
+
+        // Convert HivePartition to THivePartition (same logic as before)
+        for (HivePartition partition : hivePartitions) {
+            THivePartition hivePartition = new THivePartition();
+            hivePartition.setFileFormat(getTFileFormatType(partition.getInputFormat()));
+            hivePartition.setValues(partition.getPartitionValues());
+
             THiveLocationParams locationParams = new THiveLocationParams();
-            String location = sd.getLocation();
+            String location = partition.getPath();
             // pass the same of write path and target path to partition
             locationParams.setWritePath(location);
             locationParams.setTargetPath(location);
@@ -207,14 +228,24 @@ public class HiveTableSink extends BaseExternalTableDataSink {
             hivePartition.setLocation(locationParams);
             partitions.add(hivePartition);
         }
+
         tSink.setPartitions(partitions);
+
+        if (ConnectContext.get().getExecutor() != null) {
+            ConnectContext.get().getExecutor().getSummaryProfile().setSinkGetPartitionsFinishTime();
+        }
     }
 
     private void setSerDeProperties(THiveTableSink tSink) {
         THiveSerDeProperties serDeProperties = new THiveSerDeProperties();
         Table table = targetTable.getRemoteTable();
+        String serDeLib = table.getSd().getSerdeInfo().getSerializationLib();
         // 1. set field delimiter
-        serDeProperties.setFieldDelim(HiveProperties.getFieldDelimiter(table));
+        if (HiveMetaStoreClientHelper.HIVE_MULTI_DELIMIT_SERDE.equals(serDeLib)) {
+            serDeProperties.setFieldDelim(HiveProperties.getFieldDelimiter(table, true));
+        } else {
+            serDeProperties.setFieldDelim(HiveProperties.getFieldDelimiter(table));
+        }
         // 2. set line delimiter
         serDeProperties.setLineDelim(HiveProperties.getLineDelimiter(table));
         // 3. set collection delimiter

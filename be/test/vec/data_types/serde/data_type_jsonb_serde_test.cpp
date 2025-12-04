@@ -163,7 +163,7 @@ TEST_F(DataTypeJsonbSerDeTest, serdes) {
             Arena pool;
 
             for (size_t j = 0; j != row_count; ++j) {
-                serde.write_one_cell_to_jsonb(*source_column, jsonb_writer, &pool, 0, j);
+                serde.write_one_cell_to_jsonb(*source_column, jsonb_writer, pool, 0, j);
             }
             jsonb_writer.writeEndObject();
 
@@ -171,12 +171,12 @@ TEST_F(DataTypeJsonbSerDeTest, serdes) {
             ser_col->reserve(row_count);
             MutableColumnPtr deser_column = source_column->clone_empty();
             const auto* deser_col_with_type = assert_cast<const ColumnType*>(deser_column.get());
-            JsonbDocument* pdoc = nullptr;
+            const JsonbDocument* pdoc = nullptr;
             auto st = JsonbDocument::checkAndCreateDocument(jsonb_writer.getOutput()->getBuffer(),
                                                             jsonb_writer.getOutput()->getSize(),
                                                             &pdoc);
             EXPECT_TRUE(st.ok()) << "Failed to check and create jsonb document: " << st;
-            JsonbDocument& doc = *pdoc;
+            const JsonbDocument& doc = *pdoc;
             for (auto it = doc->begin(); it != doc->end(); ++it) {
                 serde.read_one_cell_from_jsonb(*deser_column, it->value());
             }
@@ -185,20 +185,11 @@ TEST_F(DataTypeJsonbSerDeTest, serdes) {
             }
         }
         {
-            // test write_column_to_mysql
-            MysqlRowBuffer<false> mysql_rb;
-            for (int row_idx = 0; row_idx < row_count; ++row_idx) {
-                auto st = serde.write_column_to_mysql(*source_column, mysql_rb, row_idx, false,
-                                                      option);
-                EXPECT_TRUE(st.ok()) << "Failed to write column to mysql: " << st;
-            }
-        }
-        {
             // test write_column_to_mysql with binary format
-            MysqlRowBuffer<true> mysql_rb;
+            MysqlRowBinaryBuffer mysql_rb;
             for (int row_idx = 0; row_idx < row_count; ++row_idx) {
-                auto st = serde.write_column_to_mysql(*source_column, mysql_rb, row_idx, false,
-                                                      option);
+                auto st = serde.write_column_to_mysql_binary(*source_column, mysql_rb, row_idx,
+                                                             false, option);
                 EXPECT_TRUE(st.ok())
                         << "Failed to write column to mysql with binary format: " << st;
             }
@@ -215,36 +206,13 @@ TEST_F(DataTypeJsonbSerDeTest, serdes) {
         }
         {
             // test write_column_to_orc
-            std::vector<StringRef> buffer_list;
-            Defer defer {[&]() {
-                for (auto& bufferRef : buffer_list) {
-                    if (bufferRef.data) {
-                        free(const_cast<char*>(bufferRef.data));
-                    }
-                }
-            }};
+            Arena arena;
             auto orc_batch =
                     std::make_unique<orc::StringVectorBatch>(row_count, *orc::getDefaultPool());
             Status st = serde.write_column_to_orc("UTC", *source_column, nullptr, orc_batch.get(),
-                                                  0, row_count - 1, buffer_list);
+                                                  0, row_count - 1, arena);
             EXPECT_EQ(st, Status::OK()) << "Failed to write column to orc: " << st;
             EXPECT_EQ(orc_batch->numElements, row_count - 1);
-        }
-        {
-            // test write_one_cell_to_json/read_one_cell_from_json
-            rapidjson::Document doc;
-            doc.SetObject();
-            Arena mem_pool;
-            for (int row_idx = 0; row_idx < row_count - 1; ++row_idx) {
-                auto st = serde.write_one_cell_to_json(*source_column, doc, doc.GetAllocator(),
-                                                       mem_pool, row_idx);
-                EXPECT_TRUE(st.ok()) << "Failed to write one cell to json: " << st;
-            }
-            MutableColumnPtr deser_column = source_column->clone_empty();
-            for (int row_idx = 0; row_idx < row_count - 1; ++row_idx) {
-                auto st = serde.read_one_cell_from_json(*deser_column, doc);
-                EXPECT_TRUE(st.ok()) << "Failed to read one cell from json: " << st;
-            }
         }
     };
     test_func(*serde_jsonb, column_jsonb);

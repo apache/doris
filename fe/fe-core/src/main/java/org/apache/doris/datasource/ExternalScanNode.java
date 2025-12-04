@@ -17,13 +17,11 @@
 
 package org.apache.doris.datasource;
 
-import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.common.UserException;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TScanRangeLocations;
 
@@ -51,18 +49,10 @@ public abstract class ExternalScanNode extends ScanNode {
             ? new FederationBackendPolicy(NodeSelectionStrategy.CONSISTENT_HASHING)
             : new FederationBackendPolicy();
 
-    public ExternalScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName, StatisticalType statisticalType,
+    public ExternalScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName,
             boolean needCheckColumnPriv) {
-        super(id, desc, planNodeName, statisticalType);
+        super(id, desc, planNodeName);
         this.needCheckColumnPriv = needCheckColumnPriv;
-    }
-
-    @Override
-    public void init(Analyzer analyzer) throws UserException {
-        super.init(analyzer);
-        computeStats(analyzer);
-        computeColumnsFilter();
-        initBackendPolicy();
     }
 
     // For Nereids
@@ -77,21 +67,12 @@ public abstract class ExternalScanNode extends ScanNode {
         numNodes = backendPolicy.numBackends();
     }
 
-    public FederationBackendPolicy getBackendPolicy() {
-        return backendPolicy;
-    }
-
     @Override
     public List<TScanRangeLocations> getScanRangeLocations(long maxScanRangeLength) {
         if (LOG.isDebugEnabled()) {
             LOG.debug("There is {} scanRangeLocations for execution.", scanRangeLocations.size());
         }
         return scanRangeLocations;
-    }
-
-    @Override
-    public boolean needToCheckColumnPriv() {
-        return this.needCheckColumnPriv;
     }
 
     @Override

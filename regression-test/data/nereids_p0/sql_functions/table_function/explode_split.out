@@ -26,3 +26,8 @@
 额
 啊
 
+-- !explode_split_empty_delimiter --
+a
+a
+a
+

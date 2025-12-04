@@ -40,8 +40,6 @@ class MultiCastDataStreamSinkLocalState final
 
     Status open(RuntimeState* state) override;
 
-    std::vector<Dependency*> dependencies() const override;
-
     std::string debug_string(int indentation_level) const override;
 };
 
@@ -50,9 +48,9 @@ class MultiCastDataStreamSinkOperatorX final
     using Base = DataSinkOperatorX<MultiCastDataStreamSinkLocalState>;
 
 public:
-    MultiCastDataStreamSinkOperatorX(int sink_id, std::vector<int>& sources, ObjectPool* pool,
-                                     const TMultiCastDataStreamSink& sink)
-            : Base(sink_id, -1, sources),
+    MultiCastDataStreamSinkOperatorX(int sink_id, int node_id, std::vector<int>& sources,
+                                     ObjectPool* pool, const TMultiCastDataStreamSink& sink)
+            : Base(sink_id, node_id, sources),
               _pool(pool),
               _cast_sender_count(sources.size()),
               _sink(sink),

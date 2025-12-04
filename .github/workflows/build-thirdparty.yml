@@ -53,6 +53,7 @@ jobs:
           filters: |
             thirdparty_changes:
               - 'thirdparty/**'
+              - 'env.sh'
 
   build_linux:
     name: Build Third Party Libraries (Linux)
@@ -120,7 +121,7 @@ jobs:
           sudo DEBIAN_FRONTEND=noninteractive apt install --yes "${packages[@]}"
 
           mkdir -p "${DEFAULT_DIR}"
-          wget https://github.com/amosbird/ldb_toolchain_gen/releases/download/v0.18/ldb_toolchain_gen.sh \
+          wget https://github.com/amosbird/ldb_toolchain_gen/releases/download/v0.25/ldb_toolchain_gen.sh \
             -q -O /tmp/ldb_toolchain_gen.sh
           bash /tmp/ldb_toolchain_gen.sh "${DEFAULT_DIR}/ldb-toolchain"
 
@@ -131,6 +132,8 @@ jobs:
           export PATH="$(find /usr/lib/jvm/java-8-openjdk* -maxdepth 1 -type d -name 'bin'):${PATH}"
           export JAVA_HOME="$(find /usr/lib/jvm/java-8-openjdk* -maxdepth 0)"
           export DORIS_TOOLCHAIN=gcc
+          export CMAKE_POLICY_VERSION_MINIMUM=3.10
+          export CUSTOM_CMAKE="/usr/local/bin/cmake"
 
           cd thirdparty
           ./build-thirdparty.sh -j "$(nproc)"
@@ -173,7 +176,7 @@ jobs:
             'openjdk@11'
             'maven'
             'node'
-            'llvm@16'
+            'llvm@20'
           )
 
           # Install packages except cmake
@@ -189,6 +192,8 @@ jobs:
       - name: Build
         run: |
           export MACOSX_DEPLOYMENT_TARGET=12.0
+          export CMAKE_POLICY_VERSION_MINIMUM=3.10
+          export CUSTOM_CMAKE="/usr/local/bin/cmake"
 
           cd thirdparty
           ./build-thirdparty.sh -j "$(nproc)"
@@ -231,7 +236,7 @@ jobs:
             'openjdk@11'
             'maven'
             'node'
-            'llvm@16'
+            'llvm@20'
           )
 
           # Install packages except cmake
@@ -247,6 +252,8 @@ jobs:
       - name: Build
         run: |
           export MACOSX_DEPLOYMENT_TARGET=12.0
+          export CMAKE_POLICY_VERSION_MINIMUM=3.10
+          export CUSTOM_CMAKE="/usr/local/bin/cmake"
 
           cd thirdparty
           ./build-thirdparty.sh -j "$(nproc)"

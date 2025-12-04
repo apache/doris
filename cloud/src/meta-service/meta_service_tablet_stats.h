@@ -19,6 +19,7 @@
 
 #include <gen_cpp/cloud.pb.h>
 
+#include "meta-store/clone_chain_reader.h"
 #include "resource-manager/resource_manager.h"
 
 namespace doris::cloud {
@@ -46,10 +47,41 @@ void internal_get_tablet_stats(MetaServiceCode& code, std::string& msg, Transact
 // Merge `detached_stats` `stats` to `stats`.
 void merge_tablet_stats(TabletStatsPB& stats, const TabletStats& detached_stats);
 
+// Detach tablet stats from `stats` to `detached_stats`.
+void detach_tablet_stats(const TabletStatsPB& stats, TabletStats& detached_stats);
+
 // Get merged tablet stats via `txn`. If an error occurs, `code` will be set to non OK.
 void internal_get_tablet_stats(MetaServiceCode& code, std::string& msg, Transaction* txn,
                                const std::string& instance_id, const TabletIndexPB& idx,
                                TabletStatsPB& stats, bool snapshot = false);
+
+// Get versioned load tablet stats via `txn`. If an error occurs, `code` will be set to non OK.
+//
+// If the versioned load stats doesn't exist, fall back to get single version detached tablet stats.
+void internal_get_load_tablet_stats(MetaServiceCode& code, std::string& msg,
+                                    CloneChainReader& meta_reader, Transaction* txn,
+                                    const std::string& instance_id, const TabletIndexPB& idx,
+                                    TabletStatsPB& stats, bool snapshot = false);
+
+// Batch version: Get versioned load tablet stats for multiple tablets via `txn`.
+// If an error occurs, `code` will be set to non OK.
+//
+// For tablets whose versioned load stats doesn't exist, fall back to get single version detached tablet stats.
+// tablet_indexes: map of tablet_id -> TabletIndexPB
+// tablet_stats: output map of tablet_id -> TabletStatsPB
+void internal_get_load_tablet_stats_batch(
+        MetaServiceCode& code, std::string& msg, CloneChainReader& meta_reader, Transaction* txn,
+        const std::string& instance_id,
+        const std::unordered_map<int64_t, TabletIndexPB>& tablet_indexes,
+        std::unordered_map<int64_t, TabletStatsPB>* tablet_stats, bool snapshot = false);
+
+// Overload for std::map
+void internal_get_load_tablet_stats_batch(MetaServiceCode& code, std::string& msg,
+                                          CloneChainReader& meta_reader, Transaction* txn,
+                                          const std::string& instance_id,
+                                          const std::map<int64_t, TabletIndexPB>& tablet_indexes,
+                                          std::unordered_map<int64_t, TabletStatsPB>* tablet_stats,
+                                          bool snapshot = false);
 
 // clang-format off
 /**

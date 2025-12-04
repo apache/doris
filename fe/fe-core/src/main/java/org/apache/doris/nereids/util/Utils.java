@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.util;
 
+import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.parser.NereidsParser;
@@ -25,7 +26,6 @@ import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.plans.commands.info.AliasInfo;
-import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
@@ -191,9 +191,34 @@ public class Utils {
         if (variables.length == 0) {
             return stringBuilder.append(" )").toString();
         }
-
+        boolean first = true;
         for (int i = 0; i < variables.length - 1; i += 2) {
             if (!"".equals(toStringOrNull(variables[i + 1]))) {
+                if (!first) {
+                    stringBuilder.append(", ");
+                }
+                first = false;
+                stringBuilder.append(toStringOrNull(variables[i])).append("=").append(toStringOrNull(variables[i + 1]));
+            }
+        }
+
+        return stringBuilder.append(" )").toString();
+    }
+
+    /**
+     * same as toSqlString, but skip null obj
+     */
+    public static String toSqlStringSkipNull(String planName, Object... variables) {
+        Preconditions.checkState(variables.length % 2 == 0);
+        StringBuilder stringBuilder = new StringBuilder();
+        stringBuilder.append(planName).append(" ( ");
+
+        if (variables.length == 0) {
+            return stringBuilder.append(" )").toString();
+        }
+
+        for (int i = 0; i < variables.length - 1; i += 2) {
+            if (!skipEmptyOrNull(variables[i + 1])) {
                 if (i != 0) {
                     stringBuilder.append(", ");
                 }
@@ -202,6 +227,16 @@ public class Utils {
         }
 
         return stringBuilder.append(" )").toString();
+    }
+
+    private static boolean skipEmptyOrNull(Object obj) {
+        if (obj == null) {
+            return true;
+        }
+        if ("".equals(obj.toString())) {
+            return true;
+        }
+        return false;
     }
 
     public static String toStringOrNull(Object obj) {

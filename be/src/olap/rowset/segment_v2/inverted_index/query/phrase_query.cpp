@@ -23,13 +23,16 @@
 
 #include "CLucene/index/Terms.h"
 #include "olap/rowset/segment_v2/inverted_index/analyzer/analyzer.h"
+#include "olap/rowset/segment_v2/inverted_index/query/query.h"
+#include "olap/rowset/segment_v2/inverted_index/query/query_helper.h"
 #include "olap/rowset/segment_v2/inverted_index/util/term_position_iterator.h"
 
 namespace doris::segment_v2 {
 
-PhraseQuery::PhraseQuery(const std::shared_ptr<lucene::search::IndexSearcher>& searcher,
-                         const TQueryOptions& query_options, const io::IOContext* io_ctx)
-        : _searcher(searcher), _io_ctx(io_ctx) {}
+PhraseQuery::PhraseQuery(SearcherPtr searcher, IndexQueryContextPtr context)
+        : _searcher(std::move(searcher)),
+          _context(std::move(context)),
+          _term_query(_searcher, _context) {}
 
 void PhraseQuery::add(const InvertedIndexQueryInfo& query_info) {
     if (query_info.term_infos.empty()) {
@@ -37,25 +40,18 @@ void PhraseQuery::add(const InvertedIndexQueryInfo& query_info) {
     }
 
     if (query_info.term_infos.size() == 1) {
-        const auto& term_info = query_info.term_infos[0];
-        if (term_info.is_multi_terms()) {
-            throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "Not supported yet.");
-        }
-
-        auto iter = TermPositionsIterator::create(_io_ctx, _searcher->getReader(),
-                                                  query_info.field_name,
-                                                  query_info.term_infos[0].get_single_term());
-        _iterators.emplace_back(std::move(iter));
-        _lead1 = &_iterators.at(0);
+        _term_query.add(query_info);
         return;
     }
 
+    bool is_similarity = _context->collection_similarity && query_info.is_similarity_score;
+
     if (query_info.slop == 0) {
-        init_exact_phrase_matcher(query_info);
+        init_exact_phrase_matcher(query_info, is_similarity);
     } else if (!query_info.ordered) {
-        init_sloppy_phrase_matcher(query_info);
+        init_sloppy_phrase_matcher(query_info, is_similarity);
     } else {
-        init_ordered_sloppy_phrase_matcher(query_info);
+        init_ordered_sloppy_phrase_matcher(query_info, is_similarity);
     }
 
     std::sort(_iterators.begin(), _iterators.end(), [](const DISI& a, const DISI& b) {
@@ -69,22 +65,27 @@ void PhraseQuery::add(const InvertedIndexQueryInfo& query_info) {
     for (int32_t i = 2; i < _iterators.size(); i++) {
         _others.emplace_back(&_iterators[i]);
     }
+
+    init_similarities(query_info.field_name, is_similarity);
 }
 
-void PhraseQuery::init_exact_phrase_matcher(const InvertedIndexQueryInfo& query_info) {
+void PhraseQuery::init_exact_phrase_matcher(const InvertedIndexQueryInfo& query_info,
+                                            bool is_similarity) {
     std::vector<PostingsAndPosition> postings;
     for (size_t i = 0; i < query_info.term_infos.size(); i++) {
         const auto& term_info = query_info.term_infos[i];
         if (term_info.is_single_term()) {
             const auto& term = term_info.get_single_term();
-            auto iter = TermPositionsIterator::create(_io_ctx, _searcher->getReader(),
-                                                      query_info.field_name, term);
+            auto iter = TermPositionsIterator::create(_context->io_ctx, is_similarity,
+                                                      _searcher->getReader(), query_info.field_name,
+                                                      term);
             _iterators.emplace_back(iter);
             postings.emplace_back(iter, i);
         } else {
             std::vector<TermPositionsIterPtr> subs;
             for (const auto& term : term_info.get_multi_terms()) {
-                auto iter = TermPositionsIterator::create(_io_ctx, _searcher->getReader(),
+                auto iter = TermPositionsIterator::create(_context->io_ctx, is_similarity,
+                                                          _searcher->getReader(),
                                                           query_info.field_name, term);
                 subs.emplace_back(iter);
             }
@@ -97,7 +98,8 @@ void PhraseQuery::init_exact_phrase_matcher(const InvertedIndexQueryInfo& query_
     _matchers.emplace_back(std::move(matcher));
 }
 
-void PhraseQuery::init_sloppy_phrase_matcher(const InvertedIndexQueryInfo& query_info) {
+void PhraseQuery::init_sloppy_phrase_matcher(const InvertedIndexQueryInfo& query_info,
+                                             bool is_similarity) {
     std::vector<PostingsAndFreq> postings;
     for (size_t i = 0; i < query_info.term_infos.size(); i++) {
         const auto& term_info = query_info.term_infos[i];
@@ -106,8 +108,9 @@ void PhraseQuery::init_sloppy_phrase_matcher(const InvertedIndexQueryInfo& query
         }
 
         const auto& term = term_info.get_single_term();
-        auto iter = TermPositionsIterator::create(_io_ctx, _searcher->getReader(),
-                                                  query_info.field_name, term);
+        auto iter =
+                TermPositionsIterator::create(_context->io_ctx, is_similarity,
+                                              _searcher->getReader(), query_info.field_name, term);
         _iterators.emplace_back(iter);
         postings.emplace_back(iter, i, std::vector<std::string> {term});
     }
@@ -115,7 +118,8 @@ void PhraseQuery::init_sloppy_phrase_matcher(const InvertedIndexQueryInfo& query
     _matchers.emplace_back(std::move(matcher));
 }
 
-void PhraseQuery::init_ordered_sloppy_phrase_matcher(const InvertedIndexQueryInfo& query_info) {
+void PhraseQuery::init_ordered_sloppy_phrase_matcher(const InvertedIndexQueryInfo& query_info,
+                                                     bool is_similarity) {
     std::vector<PostingsAndPosition> postings;
     for (size_t i = 0; i < query_info.term_infos.size(); i++) {
         const auto& term_info = query_info.term_infos[i];
@@ -123,9 +127,9 @@ void PhraseQuery::init_ordered_sloppy_phrase_matcher(const InvertedIndexQueryInf
             throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "Not supported yet.");
         }
 
-        auto iter =
-                TermPositionsIterator::create(_io_ctx, _searcher->getReader(),
-                                              query_info.field_name, term_info.get_single_term());
+        auto iter = TermPositionsIterator::create(_context->io_ctx, is_similarity,
+                                                  _searcher->getReader(), query_info.field_name,
+                                                  term_info.get_single_term());
         _iterators.emplace_back(iter);
         postings.emplace_back(iter, i);
     }
@@ -133,35 +137,52 @@ void PhraseQuery::init_ordered_sloppy_phrase_matcher(const InvertedIndexQueryInf
     _matchers.emplace_back(std::move(single_matcher));
 }
 
-void PhraseQuery::search(roaring::Roaring& roaring) {
-    if (_lead1 == nullptr) {
-        return;
-    }
-    if (_lead2 == nullptr) {
-        search_by_bitmap(roaring);
-        return;
-    }
-    search_by_skiplist(roaring);
-}
-
-void PhraseQuery::search_by_bitmap(roaring::Roaring& roaring) {
-    if (auto* term_iter = std::get_if<TermPositionsIterPtr>(_lead1)) {
-        DocRange doc_range;
-        while ((*term_iter)->read_range(&doc_range)) {
-            if (doc_range.type_ == DocRangeType::kMany) {
-                roaring.addMany(doc_range.doc_many_size_, doc_range.doc_many->data());
-            } else {
-                roaring.addRange(doc_range.doc_range.first, doc_range.doc_range.second);
+void PhraseQuery::init_similarities(const std::wstring& field_name, bool is_similarity) {
+    // TODO: Current implementation - computes BM25 scores separately for each term
+    // Note: This approach is suitable for TermQuery but does not conform to BM25 specification for PhraseQuery
+    // BM25 phrase query specification requires:
+    //   idf component = sum of idf values for all terms
+    //   tf component = phrase frequency (number of times entire phrase appears in document)
+    //   doc_length = total document length
+    //
+    // Future optimization direction:
+    //   1. Shift to unified phrase scoring: calculate sum of idf for all terms as combined idf
+    //   2. Use phrase frequency instead of individual term frequencies
+    //   3. Maintain document length normalization
+    //   4. Refactor to create a single Similarity object handling the entire phrase
+    if (is_similarity) {
+        _similarities.resize(_iterators.size());
+        for (size_t i = 0; i < _iterators.size(); i++) {
+            const auto& iter = _iterators[i];
+            if (std::holds_alternative<TermPositionsIterPtr>(iter)) {
+                const auto& term_iter = std::get<TermPositionsIterPtr>(iter);
+                auto similarity = std::make_unique<BM25Similarity>();
+                similarity->for_one_term(_context, field_name, term_iter->term());
+                _similarities[i] = std::move(similarity);
             }
         }
     }
 }
 
+void PhraseQuery::search(roaring::Roaring& roaring) {
+    if (_lead1 == nullptr) {
+        _term_query.search(roaring);
+        return;
+    }
+
+    search_by_skiplist(roaring);
+}
+
 void PhraseQuery::search_by_skiplist(roaring::Roaring& roaring) {
     int32_t doc = 0;
     while ((doc = do_next(visit_node(*_lead1, NextDoc {}))) != INT32_MAX) {
-        if (matches(doc)) {
-            roaring.add(doc);
+        if (!matches(doc)) {
+            continue;
+        }
+        roaring.add(doc);
+
+        if (!_similarities.empty()) {
+            QueryHelper::collect(_context, _similarities, _iterators, doc);
         }
     }
 }
@@ -251,12 +272,15 @@ void PhraseQuery::parser_slop(std::string& query, InvertedIndexQueryInfo& query_
     }
 }
 
-void PhraseQuery::parser_info(std::string& query,
+void PhraseQuery::parser_info(OlapReaderStatistics* stats, std::string& query,
                               const std::map<std::string, std::string>& properties,
                               InvertedIndexQueryInfo& query_info) {
     parser_slop(query, query_info);
-    query_info.term_infos =
-            inverted_index::InvertedIndexAnalyzer::get_analyse_result(query, properties);
+    {
+        SCOPED_RAW_TIMER(&stats->inverted_index_analyzer_timer);
+        query_info.term_infos =
+                inverted_index::InvertedIndexAnalyzer::get_analyse_result(query, properties);
+    }
 }
 
 } // namespace doris::segment_v2

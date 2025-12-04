@@ -30,6 +30,7 @@ public class RewriteJobContext {
     final int childIndexInParentContext;
     final Plan plan;
     final RewriteJobContext[] childrenContext;
+    Plan tmpPlan;
     Plan result;
 
     /** RewriteJobContext */
@@ -44,6 +45,10 @@ public class RewriteJobContext {
             parentContext.childrenContext[childIndexInParentContext] = this;
         }
         this.batchId = batchId;
+    }
+
+    public void setTmpPlan(Plan tmp) {
+        this.tmpPlan = tmp;
     }
 
     public void setResult(Plan result) {

@@ -60,10 +60,20 @@ public class LogicalExcept extends LogicalSetOperation {
 
     @Override
     public String toString() {
-        return Utils.toSqlString("LogicalExcept",
+        return Utils.toSqlStringSkipNull("LogicalExcept",
                 "qualifier", qualifier,
                 "outputs", outputs,
-                "regularChildrenOutputs", regularChildrenOutputs);
+                "regularChildrenOutputs", regularChildrenOutputs,
+                "stats", statistics);
+    }
+
+    @Override
+    public String toDigest() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("(").append(child(0).toDigest()).append(")");
+        sb.append(" EXCEPT ").append(qualifier).append(" ");
+        sb.append("(").append(child(1).toDigest()).append(")");
+        return sb.toString();
     }
 
     @Override

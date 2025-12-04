@@ -25,7 +25,7 @@ function usage() {
     echo "    test_binary the unit test binary name, e.g. txn_kv_test"
     echo "    gtest_filter the filter for the test_binary unit test, e.g. TxnKvTest.BatchGet"
 }
-if ! OPTS=$(getopt -n "$0" -o a:b:c: -l test:,fdb:,filter:,coverage -- "$@"); then
+if ! OPTS=$(getopt -n "$0" -o a:b:c: -l test:,fdb:,filter:,coverage,gdb -- "$@"); then
     usage
     exit 1
 fi
@@ -35,12 +35,18 @@ eval set -- "${OPTS}"
 test=""
 fdb_conf=""
 filter=""
+gdb=0
 ENABLE_CLANG_COVERAGE="OFF"
+COVERAGE_FORMAT=${COVERAGE_FORMAT:-html}
 if [[ $# != 1 ]]; then
     while true; do
         case "$1" in
         --coverage)
             ENABLE_CLANG_COVERAGE="ON"
+            shift 1
+            ;;
+        --gdb)
+            gdb=1
             shift 1
             ;;
         --test)
@@ -121,14 +127,18 @@ function report_coverage() {
         binary_objects_options[${#binary_objects_options[*]}]="-object ${object}"
     done
     ${LLVM_PROFDATA:-llvm-profdata} merge -o ${profdata} ${profraw}
-    ${LLVM_COV:-llvm-cov} show -output-dir=report -format=html \
+    ${LLVM_COV:-llvm-cov} show -output-dir=report -format=${COVERAGE_FORMAT} \
         -ignore-filename-regex='(.*gensrc/.*)|(.*_test\.cpp$)' \
         -instr-profile=${profdata} \
         ${binary_objects_options[*]}
 }
 
-export LSAN_OPTIONS=suppressions=./lsan_suppression.conf
+export LSAN_OPTIONS=suppressions=./lsan_suppr.conf
 unittest_files=()
+ret=0
+if [[ "${filter}" != "" ]]; then
+    filter="--gtest_filter=${filter}"
+fi
 for i in *_test; do
     [[ -e "${i}" ]] || break
     if [[ "${test}" != "" ]]; then
@@ -142,14 +152,17 @@ for i in *_test; do
         if [[ "${fdb}" != "" ]]; then
             patchelf --set-rpath "$(pwd)" "${i}"
         fi
-
-        set -euo pipefail
-        if [[ "${filter}" == "" ]]; then
-            LLVM_PROFILE_FILE="./report/${i}.profraw" "./${i}" --gtest_print_time=true --gtest_output="xml:${i}.xml"
-        else
-            LLVM_PROFILE_FILE="./report/${i}.profraw" "./${i}" --gtest_print_time=true --gtest_output="xml:${i}.xml" --gtest_filter="${filter}"
+        if [[ ${gdb} -ne 0 ]]; then
+            gdb --args "${i}" "${filter}"
+            continue
         fi
-        set +euo pipefail
+
+        LLVM_PROFILE_FILE="./report/${i}.profraw" "./${i}" --gtest_print_time=true --gtest_output="xml:${i}.xml" "${filter}"
+        last_ret=$?
+        echo "${i} ret=${last_ret}"
+        if [[ ${ret} -eq 0 ]]; then
+            ret=${last_ret}
+        fi
         unittest_files[${#unittest_files[*]}]="${i}"
         echo "--------------------------"
     fi
@@ -159,4 +172,5 @@ if [[ "_${ENABLE_CLANG_COVERAGE}" == "_ON" ]]; then
     report_coverage "${unittest_files[*]}"
 fi
 
+exit ${ret}
 # vim: et ts=4 sw=4:

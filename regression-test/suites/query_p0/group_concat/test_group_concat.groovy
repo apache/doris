@@ -72,7 +72,26 @@ suite("test_group_concat", "query,p0,arrow_flight_sql") {
 
     qt_select_12 """
                 select
-                group_concat( distinct b1, '?'), group_concat( distinct b3, '?')
+                group_concat( distinct b1, 123), group_concat( distinct b3, '?')
+                from
+                table_group_concat
+                group by 
+                b2;
+              """
+
+    qt_select_12 """
+                select
+                multi_distinct_group_concat(b1, 123), multi_distinct_group_concat(b3, '?')
+                from
+                table_group_concat
+                group by 
+                b2;
+              """
+
+    // test SPLIT_MULTI_DISTINCT could work right with can not be banned aggregation
+    qt_select_13 """
+                select
+                group_concat( distinct b1, cast(b2 as varchar)), group_concat( distinct b3, '?')
                 from
                 table_group_concat
                 group by 
@@ -99,7 +118,7 @@ suite("test_group_concat", "query,p0,arrow_flight_sql") {
       select * from table_group_concat order by b1, b2, b3;
     """
     qt_select_group_concat_order_by_desc1 """
-                SELECT b1, group_concat(cast(abs(b2) as varchar) order by abs(b2) desc) FROM table_group_concat  group by b1 order by b1
+                SELECT b1, group_concat(abs(b2) order by abs(b2) desc) FROM table_group_concat  group by b1 order by b1
               """
 
     qt_select_group_concat_order_by_desc2 """
@@ -109,12 +128,13 @@ suite("test_group_concat", "query,p0,arrow_flight_sql") {
                 SELECT b1, group_concat(cast(abs(b3) as varchar) order by abs(b2) desc, b3 desc) FROM table_group_concat  group by b1 order by b1
               """
     qt_select_group_concat_order_by1 """
-                select group_concat(b3,',' order by b3 asc),group_concat(b3,',' order by b3 desc) from table_group_concat;
+                select group_concat(b3,',' order by b3 asc),group_concat(b3,'2' order by b3 desc) from table_group_concat;
     """
 
     sql """create view if not exists test_view as select group_concat(b3,',' order by b3 asc),group_concat(b3,',' order by b3 desc) from table_group_concat;"""
     qt_select_group_concat_order_by2 """
                 select * from test_view;
     """
+
     sql """drop view if exists test_view"""
 }

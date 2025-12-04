@@ -15,84 +15,144 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <bit>
 #include <bitset>
 #include <cstdint>
 #include <exception>
-#include <stdexcept>
 #include <type_traits>
 
 #include "common/compiler_util.h"
-#include "common/exception.h"
-#include "common/logging.h"
 #include "common/status.h"
 #include "vec/core/types.h"
-#include "vec/functions/function_binary_arithmetic.h"
+#include "vec/data_types/data_type_number.h"
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {
 
-struct NameBitShiftLeft {
-    static constexpr auto name = "bit_shift_left";
+template <typename Impl>
+class FunctionBitShift : public IFunction {
+public:
+    static constexpr auto name = Impl::name;
+
+    String get_name() const override { return name; }
+
+    static FunctionPtr create() { return std::make_shared<FunctionBitShift<Impl>>(); }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return std::make_shared<DataTypeInt64>();
+    }
+
+    size_t get_number_of_arguments() const override { return 2; }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count) const override {
+        auto& column_left = block.get_by_position(arguments[0]).column;
+        auto& column_right = block.get_by_position(arguments[1]).column;
+        bool is_const_left = is_column_const(*column_left);
+        bool is_const_right = is_column_const(*column_right);
+
+        ColumnPtr column_result = nullptr;
+        if (is_const_left && is_const_right) {
+            column_result = constant_constant(column_left, column_right);
+        } else if (is_const_left) {
+            column_result = constant_vector(column_left, column_right);
+        } else if (is_const_right) {
+            column_result = vector_constant(column_left, column_right);
+        } else {
+            column_result = vector_vector(column_left, column_right);
+        }
+        block.replace_by_position(result, std::move(column_result));
+
+        return Status::OK();
+    }
+
+private:
+    ColumnPtr constant_constant(ColumnPtr column_left, ColumnPtr column_right) const {
+        const auto* column_left_ptr = assert_cast<const ColumnConst*>(column_left.get());
+        const auto* column_right_ptr = assert_cast<const ColumnConst*>(column_right.get());
+        ColumnPtr column_result = nullptr;
+
+        auto res = ColumnInt64::create(1);
+        res->get_element(0) = Impl::apply(column_left_ptr->template get_value<int64_t>(),
+                                          column_right_ptr->template get_value<int8_t>());
+        column_result = std::move(res);
+        return ColumnConst::create(std::move(column_result), column_left->size());
+    }
+
+    ColumnPtr vector_constant(ColumnPtr column_left, ColumnPtr column_right) const {
+        const auto* column_right_ptr = assert_cast<const ColumnConst*>(column_right.get());
+        const auto* column_left_ptr = assert_cast<const ColumnInt64*>(column_left.get());
+        auto column_result = ColumnInt64::create(column_left->size());
+
+        auto& a = column_left_ptr->get_data();
+        auto& c = column_result->get_data();
+        size_t size = a.size();
+        for (size_t i = 0; i < size; ++i) {
+            c[i] = Impl::apply(a[i], column_right_ptr->template get_value<int8_t>());
+        }
+        return column_result;
+    }
+
+    ColumnPtr constant_vector(ColumnPtr column_left, ColumnPtr column_right) const {
+        const auto* column_left_ptr = assert_cast<const ColumnConst*>(column_left.get());
+        const auto* column_right_ptr = assert_cast<const ColumnInt8*>(column_right.get());
+        auto column_result = ColumnInt64::create(column_right->size());
+
+        auto& b = column_right_ptr->get_data();
+        auto& c = column_result->get_data();
+        size_t size = b.size();
+        for (size_t i = 0; i < size; ++i) {
+            c[i] = Impl::apply(column_left_ptr->template get_value<int64_t>(), b[i]);
+        }
+        return column_result;
+    }
+
+    ColumnPtr vector_vector(ColumnPtr column_left, ColumnPtr column_right) const {
+        const auto* column_left_ptr = assert_cast<const ColumnInt64*>(column_left->get_ptr().get());
+        const auto* column_right_ptr =
+                assert_cast<const ColumnInt8*>(column_right->get_ptr().get());
+
+        auto column_result = ColumnInt64::create(column_left->size());
+
+        auto& a = column_left_ptr->get_data();
+        auto& b = column_right_ptr->get_data();
+        auto& c = column_result->get_data();
+        size_t size = a.size();
+        for (size_t i = 0; i < size; ++i) {
+            c[i] = Impl::apply(a[i], b[i]);
+        }
+        return column_result;
+    }
 };
 
-struct NameBitShiftRight {
-    static constexpr auto name = "bit_shift_right";
-};
-
-template <PrimitiveType AType, PrimitiveType BType>
 struct BitShiftLeftImpl {
-    using A = typename PrimitiveTypeTraits<AType>::ColumnItemType;
-    using B = typename PrimitiveTypeTraits<BType>::ColumnItemType;
-    static constexpr PrimitiveType ResultType = NumberTraits::ResultOfBit<A, B>::Type;
+    static constexpr auto name = "bit_shift_left";
 
-    template <PrimitiveType Result = ResultType>
-    static inline typename PrimitiveTypeTraits<Result>::CppType apply(A a, B b) {
-        if constexpr (!std::is_same_v<A, Int64> || !std::is_same_v<B, Int8>) {
-            throw Exception(ErrorCode::NOT_FOUND,
-                            "bit_shift_left only supports [BIGINT, TINYINT] as operator");
-        } else {
-            // return zero if b < 0, keep consistent with mysql
-            // cast to unsigned so that we can do logical shift by default, keep consistent with mysql
-            if (UNLIKELY(b >= 64 || b < 0)) {
-                return 0;
-            }
-            return static_cast<typename std::make_unsigned<A>::type>(a)
-                   << static_cast<typename PrimitiveTypeTraits<Result>::CppType>(b);
+    static inline Int64 apply(Int64 a, Int8 b) {
+        // return zero if b < 0, keep consistent with mysql
+        // cast to unsigned so that we can do logical shift by default, keep consistent with mysql
+        if (UNLIKELY(b >= 64 || b < 0)) {
+            return 0;
         }
+        return static_cast<typename std::make_unsigned<Int64>::type>(a) << static_cast<Int64>(b);
     }
 };
 
-template <PrimitiveType AType, PrimitiveType BType>
 struct BitShiftRightImpl {
-    using A = typename PrimitiveTypeTraits<AType>::ColumnItemType;
-    using B = typename PrimitiveTypeTraits<BType>::ColumnItemType;
-    static constexpr PrimitiveType ResultType = NumberTraits::ResultOfBit<A, B>::Type;
+    static constexpr auto name = "bit_shift_right";
 
-    template <PrimitiveType Result = ResultType>
-    static inline typename PrimitiveTypeTraits<Result>::CppType apply(A a, B b) {
-        if constexpr (!std::is_same_v<A, Int64> || !std::is_same_v<B, Int8>) {
-            throw Exception(ErrorCode::NOT_FOUND,
-                            "bit_shift_right only supports [BIGINT, TINYINT] as operator");
-        } else {
-            // return zero if b < 0, keep consistent with mysql
-            // cast to unsigned so that we can do logical shift by default, keep consistent with mysql
-            if (UNLIKELY(b >= 64 || b < 0)) {
-                return 0;
-            }
-
-            return static_cast<typename std::make_unsigned<A>::type>(a) >>
-                   static_cast<typename PrimitiveTypeTraits<Result>::CppType>(b);
+    static inline Int64 apply(Int64 a, Int8 b) {
+        // return zero if b < 0, keep consistent with mysql
+        // cast to unsigned so that we can do logical shift by default, keep consistent with mysql
+        if (UNLIKELY(b >= 64 || b < 0)) {
+            return 0;
         }
+        return static_cast<typename std::make_unsigned<Int64>::type>(a) >> static_cast<Int64>(b);
     }
 };
-
-using FunctionBitShiftLeft = FunctionBinaryArithmetic<BitShiftLeftImpl, NameBitShiftLeft, false>;
-using FunctionBitShiftRight = FunctionBinaryArithmetic<BitShiftRightImpl, NameBitShiftRight, false>;
 
 void register_function_bit_shift(SimpleFunctionFactory& factory) {
-    factory.register_function<FunctionBitShiftLeft>();
-    factory.register_function<FunctionBitShiftRight>();
+    factory.register_function<FunctionBitShift<BitShiftRightImpl>>();
+    factory.register_function<FunctionBitShift<BitShiftLeftImpl>>();
 }
 
 } // namespace doris::vectorized

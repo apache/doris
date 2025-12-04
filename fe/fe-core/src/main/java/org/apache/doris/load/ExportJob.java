@@ -21,8 +21,6 @@ import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.OutFileClause;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.StorageBackend.StorageType;
-import org.apache.doris.analysis.TableName;
-import org.apache.doris.analysis.TableRef;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -39,6 +37,7 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
@@ -111,7 +110,7 @@ public class ExportJob implements Writable {
     @SerializedName(value = "partitionNames", alternate = {"partitions"})
     private List<String> partitionNames;
     @SerializedName("tableName")
-    private TableName tableName;
+    private TableNameInfo tableName;
     @SerializedName("state")
     private ExportJobState state;
     @SerializedName("createTimeMs")
@@ -154,8 +153,6 @@ public class ExportJob implements Writable {
     private String compressType;
     @SerializedName("whereStr")
     private String whereStr;
-
-    private TableRef tableRef;
 
     // when fe restart, job will be cancel, so whereExpression not need persist
     private Optional<Expression> whereExpression;
@@ -276,6 +273,7 @@ public class ExportJob implements Writable {
         List<List<Long>> tabletsListPerParallel = splitTablets();
 
         // Each Outfile clause responsible for MAXIMUM_TABLETS_OF_OUTFILE_IN_EXPORT tablets
+        int index = 0;
         for (List<Long> tabletsList : tabletsListPerParallel) {
             // generate LogicalPlan
             LogicalPlan plan = generateOneLogicalPlan(qualifiedTableName, tabletsList,
@@ -283,6 +281,10 @@ public class ExportJob implements Writable {
             // generate  LogicalPlanAdapter
             StatementBase statementBase = generateLogicalPlanAdapter(plan);
             selectStmtPerParallel.add(Optional.of(statementBase));
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Export Job [{}]: parallelism {} tablets: {}", id, index, tabletsList);
+            }
+            index++;
         }
     }
 
@@ -477,13 +479,12 @@ public class ExportJob implements Writable {
         if (format.equals("csv") || format.equals("csv_with_names") || format.equals("csv_with_names_and_types")) {
             outfileProperties.put(OutFileClause.PROP_COLUMN_SEPARATOR, columnSeparator);
             outfileProperties.put(OutFileClause.PROP_LINE_DELIMITER, lineDelimiter);
-        } else {
-            // orc / parquet
-            // compressType == null means outfile will use default compression type
-            if (compressType != null) {
-                outfileProperties.put(ExportCommand.COMPRESS_TYPE, compressType);
-            }
         }
+        // compressType == null means outfile will use default compression type
+        if (compressType != null) {
+            outfileProperties.put(ExportCommand.COMPRESS_TYPE, compressType);
+        }
+
         if (!maxFileSize.isEmpty()) {
             outfileProperties.put(OutFileClause.PROP_MAX_FILE_SIZE, maxFileSize);
         }

@@ -59,6 +59,11 @@ public class MinBy extends NullableAggregateFunction
         super("min_by", distinct, alwaysNullable, arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private MinBy(NullableAggregateFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public void checkLegalityBeforeTypeCoercion() {
         if (getArgumentType(1).isOnlyMetricType()) {
@@ -72,12 +77,12 @@ public class MinBy extends NullableAggregateFunction
     @Override
     public MinBy withDistinctAndChildren(boolean distinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new MinBy(distinct, alwaysNullable, children.get(0), children.get(1));
+        return new MinBy(getFunctionParams(distinct, children));
     }
 
     @Override
     public NullableAggregateFunction withAlwaysNullable(boolean alwaysNullable) {
-        return new MinBy(distinct, alwaysNullable, children.get(0), children.get(1));
+        return new MinBy(getAlwaysNullableFunctionParams(alwaysNullable));
     }
 
     @Override

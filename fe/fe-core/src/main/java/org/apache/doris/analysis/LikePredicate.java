@@ -20,23 +20,15 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Function;
-import org.apache.doris.catalog.FunctionSet;
-import org.apache.doris.catalog.ScalarFunction;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
-import org.apache.doris.catalog.Type;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
 
 import java.util.Objects;
-import java.util.regex.Pattern;
-import java.util.regex.PatternSyntaxException;
 
 public class LikePredicate extends Predicate {
 
@@ -56,21 +48,6 @@ public class LikePredicate extends Predicate {
         }
     }
 
-    public static void initBuiltins(FunctionSet functionSet) {
-        functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltin(
-                Operator.LIKE.name(), Type.BOOLEAN, Lists.<Type>newArrayList(Type.VARCHAR, Type.VARCHAR),
-                false,
-                "_ZN5doris13LikePredicate4likeEPN9doris_udf15FunctionContextERKNS1_9StringValES6_",
-                "_ZN5doris13LikePredicate12like_prepareEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE",
-                "_ZN5doris13LikePredicate10like_closeEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE", true));
-        functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltin(
-                Operator.REGEXP.name(), Type.BOOLEAN, Lists.<Type>newArrayList(Type.VARCHAR, Type.VARCHAR),
-                false,
-                "_ZN5doris13LikePredicate5regexEPN9doris_udf15FunctionContextERKNS1_9StringValES6_",
-                "_ZN5doris13LikePredicate13regex_prepareEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE",
-                "_ZN5doris13LikePredicate11regex_closeEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE", true));
-    }
-
     @SerializedName("op")
     private Operator op;
 
@@ -85,8 +62,6 @@ public class LikePredicate extends Predicate {
         children.add(e1);
         Preconditions.checkNotNull(e2);
         children.add(e2);
-        // TODO: improve with histograms?
-        selectivity = 0.1;
     }
 
     protected LikePredicate(LikePredicate other) {
@@ -124,46 +99,8 @@ public class LikePredicate extends Predicate {
     }
 
     @Override
-    public String toDigestImpl() {
-        return getChild(0).toDigest() + " " + op.toString() + " " + getChild(1).toDigest();
-    }
-
-
-    @Override
     protected void toThrift(TExprNode msg) {
         msg.node_type = TExprNodeType.FUNCTION_CALL;
-    }
-
-    @Override
-    public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
-        super.analyzeImpl(analyzer);
-        if (getChild(0).getType().isObjectStored()) {
-            throw new AnalysisException(
-                    "left operand of " + op.toString() + " must not be Bitmap or HLL: " + toSql());
-        }
-        if (!getChild(1).getType().isStringType() && !getChild(1).getType().isNull()) {
-            throw new AnalysisException("right operand of " + op.toString() + " must be of type STRING: " + toSql());
-        }
-
-        if (!getChild(0).getType().isStringType()) {
-            uncheckedCastChild(Type.VARCHAR, 0);
-        }
-
-        fn = getBuiltinFunction(op.toString(), collectChildReturnTypes(),
-                Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
-
-        if (!getChild(1).getType().isNull() && getChild(1).isLiteral() && (op == Operator.REGEXP)) {
-            // let's make sure the pattern works
-            // TODO: this checks that it's a Java-supported regex, but the syntax supported
-            // by the backend is Posix; add a call to the backend to check the re syntax
-            try {
-                Pattern.compile(((StringLiteral) getChild(1)).getValue());
-            } catch (PatternSyntaxException e) {
-                throw new AnalysisException("Invalid regular expression in '" + this.toSql() + "'");
-            }
-        } else if (getChild(1) instanceof NullLiteral) {
-            getChild(1).setType(Type.STRING);
-        }
     }
 
     @Override

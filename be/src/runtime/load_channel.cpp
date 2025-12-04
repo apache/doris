@@ -30,6 +30,7 @@
 #include "runtime/tablets_channel.h"
 #include "runtime/thread_context.h"
 #include "runtime/workload_group/workload_group_manager.h"
+#include "util/debug_points.h"
 
 namespace doris {
 
@@ -135,7 +136,7 @@ Status LoadChannel::open(const PTabletWriterOpenRequest& params) {
                                                            _is_high_priority, _self_profile);
             }
             {
-                std::lock_guard<std::mutex> l(_tablets_channels_lock);
+                std::lock_guard<std::mutex> lt(_tablets_channels_lock);
                 _tablets_channels.insert({index_id, channel});
             }
         }
@@ -175,6 +176,8 @@ Status LoadChannel::_get_tablets_channel(std::shared_ptr<BaseTabletsChannel>& ch
 
 Status LoadChannel::add_batch(const PTabletWriterAddBlockRequest& request,
                               PTabletWriterAddBlockResult* response) {
+    DBUG_EXECUTE_IF("LoadChannel.add_batch.failed",
+                    { return Status::InternalError("fault injection"); });
     SCOPED_TIMER(_add_batch_timer);
     COUNTER_UPDATE(_add_batch_times, 1);
     SCOPED_ATTACH_TASK(_resource_ctx);
@@ -237,7 +240,7 @@ Status LoadChannel::_handle_eos(BaseTabletsChannel* channel,
     if (finished) {
         std::lock_guard<std::mutex> l(_lock);
         {
-            std::lock_guard<std::mutex> l(_tablets_channels_lock);
+            std::lock_guard<std::mutex> lt(_tablets_channels_lock);
             _tablets_channels_rows.insert(std::make_pair(
                     index_id,
                     std::make_pair(channel->total_received_rows(), channel->num_rows_filtered())));
@@ -292,6 +295,7 @@ bool LoadChannel::is_finished() {
 }
 
 Status LoadChannel::cancel() {
+    _cancelled.store(true);
     std::lock_guard<std::mutex> l(_lock);
     for (auto& it : _tablets_channels) {
         static_cast<void>(it.second->cancel());

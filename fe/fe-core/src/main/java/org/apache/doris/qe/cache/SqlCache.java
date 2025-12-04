@@ -17,7 +17,6 @@
 
 package org.apache.doris.qe.cache;
 
-import org.apache.doris.analysis.SelectStmt;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.metric.MetricRepo;
@@ -35,10 +34,6 @@ public class SqlCache extends Cache {
 
     private String originSql;
     private PUniqueId cacheMd5;
-
-    public SqlCache(TUniqueId queryId, SelectStmt selectStmt) {
-        super(queryId, selectStmt);
-    }
 
     // For SetOperationStmt and Nereids
     public SqlCache(TUniqueId queryId, String originSql) {
@@ -64,7 +59,7 @@ public class SqlCache extends Cache {
     }
 
     public String getSqlWithViewStmt() {
-        String originSql = selectStmt != null ? selectStmt.toSql() : this.originSql;
+        String originSql = this.originSql;
         String cacheKey = originSql + "|" + allViewExpandStmtListStr;
         if (LOG.isDebugEnabled()) {
             LOG.debug("Cache key: {}", cacheKey);
@@ -116,14 +111,12 @@ public class SqlCache extends Cache {
                 latestTable.latestPartitionId, latestTable.latestPartitionVersion,
                 latestTable.latestPartitionTime, latestTable.sumOfPartitionNum, status);
         if (status.ok() && cacheResult != null && cacheResult.getStatus() == InternalService.PCacheStatus.CACHE_OK) {
-            MetricRepo.COUNTER_CACHE_HIT_SQL.increase(1L);
+            if (MetricRepo.isInit) {
+                MetricRepo.COUNTER_SQL_CACHE_HIT.increase(1L);
+            }
             hitRange = HitRange.Full;
         }
         return cacheResult;
-    }
-
-    public SelectStmt getRewriteStmt() {
-        return null;
     }
 
     public void copyRowBatch(RowBatch rowBatch) {

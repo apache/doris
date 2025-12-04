@@ -655,7 +655,8 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                                         bucketsSeq.size() + " vs. " + replicationNum);
                                 Tablet tablet = index.getTablet(tabletId);
                                 totalReplicaDataSizes.set(tabletOrderIdx,
-                                        totalReplicaDataSizes.get(tabletOrderIdx) + tablet.getDataSize(true));
+                                        totalReplicaDataSizes.get(tabletOrderIdx)
+                                        + tablet.getDataSize(true, false));
                                 tabletOrderIdx++;
                             }
                         }

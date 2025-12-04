@@ -48,13 +48,18 @@ public class ExtractUrlParameter extends ScalarFunction
         super("extract_url_parameter", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ExtractUrlParameter(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public ExtractUrlParameter withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new ExtractUrlParameter(children.get(0), children.get(1));
+        return new ExtractUrlParameter(getFunctionParams(children));
     }
 
     @Override

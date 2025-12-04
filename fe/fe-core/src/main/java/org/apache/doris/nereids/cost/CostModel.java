@@ -380,10 +380,11 @@ class CostModel extends PlanVisitor<Cost, PlanContext> {
                     exprCost / 100 + inputStatistics.getRowCount() / beNumber,
                     inputStatistics.getRowCount() / beNumber, 0);
         } else {
+            int factor = aggregate.getGroupByExpressions().isEmpty() ? 1 : beNumber;
             // global
-            return Cost.of(context.getSessionVariable(), exprCost / 100
-                            + inputStatistics.getRowCount(),
-                    inputStatistics.getRowCount(), 0);
+            return Cost.of(context.getSessionVariable(),
+                    exprCost / 100 + inputStatistics.getRowCount() / factor,
+                    inputStatistics.getRowCount() / factor, 0);
         }
     }
 

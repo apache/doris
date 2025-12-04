@@ -111,8 +111,6 @@ public:
 
     const Path& path() const override { return _local_file_writer->path(); }
 
-    io::FileCacheAllocatorBuilder* cache_builder() const override { return nullptr; }
-
 private:
     std::unique_ptr<io::FileWriter> _local_file_writer;
 };

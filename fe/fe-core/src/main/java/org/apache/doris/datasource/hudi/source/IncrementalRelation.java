@@ -27,6 +27,7 @@ import java.util.Map;
 
 public interface IncrementalRelation {
     public static String EARLIEST_TIME = "earliest";
+    public static String LATEST_TIME = "latest";
 
     List<FileSlice> collectFileSlices() throws HoodieException;
 
@@ -35,8 +36,6 @@ public interface IncrementalRelation {
     Map<String, String> getHoodieParams();
 
     boolean fallbackFullTableScan();
-
-    boolean isIncludeStartTime();
 
     String getStartTs();
 

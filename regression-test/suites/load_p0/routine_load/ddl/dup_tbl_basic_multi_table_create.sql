@@ -10,8 +10,8 @@ CREATE TABLE routine_load_dup_tbl_basic_multi_table
     k07 LARGEINT        NULL,
     k08 FLOAT           NULL,
     k09 DOUBLE          NULL,
-    k10 DECIMAL(9,1)    NULL,
-    k11 DECIMALV3(9,1)  NULL,
+    k10 DECIMAL(10,1)    NULL,
+    k11 DECIMALV3(10,1)  NULL,
     k12 DATETIME        NULL,
     k13 DATEV2          NULL,
     k14 DATETIMEV2      NULL,
@@ -29,7 +29,7 @@ CREATE TABLE routine_load_dup_tbl_basic_multi_table
     INDEX idx_ngrambf_k116 (`k16`) USING NGRAM_BF PROPERTIES("gram_size"="3", "bf_size"="256"),
     INDEX idx_ngrambf_k117 (`k17`) USING NGRAM_BF PROPERTIES("gram_size"="3", "bf_size"="256"),
 
-    INDEX idx_bitmap_k104 (`k02`) USING BITMAP
+    INDEX idx_bitmap_k104 (`k02`) USING INVERTED
     
 )
 DUPLICATE KEY(k00)

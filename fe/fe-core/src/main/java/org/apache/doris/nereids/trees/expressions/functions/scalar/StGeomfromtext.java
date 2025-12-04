@@ -50,13 +50,18 @@ public class StGeomfromtext extends ScalarFunction
         super("st_geomfromtext", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private StGeomfromtext(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public StGeomfromtext withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new StGeomfromtext(children.get(0));
+        return new StGeomfromtext(getFunctionParams(children));
     }
 
     @Override

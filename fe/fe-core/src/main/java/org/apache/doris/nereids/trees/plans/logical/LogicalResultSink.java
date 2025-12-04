@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.logical;
 
+import org.apache.doris.analysis.StmtType;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -81,5 +82,10 @@ public class LogicalResultSink<CHILD_TYPE extends Plan> extends LogicalSink<CHIL
     public String toString() {
         return Utils.toSqlString("LogicalResultSink[" + id.asInt() + "]",
                 "outputExprs", outputExprs);
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.SELECT;
     }
 }

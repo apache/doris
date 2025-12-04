@@ -35,6 +35,13 @@ target_link_libraries(index_tool
     ${DORIS_LINK_LIBS}
 )
 
+if (COMPILER_CLANG)
+    target_compile_options(index_tool PRIVATE
+    -Wno-implicit-int-conversion
+    -Wno-shorten-64-to-32
+    )
+endif()
+
 install(DIRECTORY DESTINATION ${OUTPUT_DIR}/lib/)
 install(TARGETS index_tool DESTINATION ${OUTPUT_DIR}/lib/)
 if (NOT OS_MACOSX)

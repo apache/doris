@@ -198,14 +198,14 @@ suite("test_schema_change_agg", "p0") {
     //partition col
     test {
         sql "alter table ${tableName3} modify column siteid varchar DEFAULT '10'"
-        exception "Can not modify partition or distribution column : siteid"
+        exception "Can not modify partition column[siteid]."
     }
 
     //distribution key
 
     test {
         sql "alter table ${tableName3} modify column citycode smallint  comment 'citycode'"
-        exception "Can not modify partition or distribution column : citycode"
+        exception "Can not modify distribution column[citycode]. index[${tableName3}]"
     }
 
 

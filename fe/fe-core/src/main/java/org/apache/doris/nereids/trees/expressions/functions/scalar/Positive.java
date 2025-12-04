@@ -54,13 +54,18 @@ public class Positive extends ScalarFunction
         super("positive", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Positive(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public Positive withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Positive(children.get(0));
+        return new Positive(getFunctionParams(children));
     }
 
     @Override

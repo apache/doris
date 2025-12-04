@@ -24,15 +24,18 @@ import org.apache.doris.cloud.proto.Cloud.StagePB.StageAccessType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.Pair;
 
 import lombok.Getter;
 import org.apache.commons.lang3.tuple.Triple;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.File;
 import java.io.UnsupportedEncodingException;
 import java.util.Base64;
 import java.util.List;
+import java.util.function.Function;
 
 public abstract class RemoteBase {
     private static final Logger LOG = LogManager.getLogger(RemoteBase.class);
@@ -135,6 +138,19 @@ public abstract class RemoteBase {
     public abstract Triple<String, String, String> getStsToken() throws DdlException;
 
     public abstract void deleteObjects(List<String> keys) throws DdlException;
+
+    public abstract void putObject(File file, String key) throws DdlException;
+
+    /**
+     * @param function the function is called after create multipart upload request.
+     *         Use the upload_id as a parameter.
+     *         Returns a pair, the first element indicates whether to continue to upload,
+     *         the second element is the reason of why not continue to upload.
+     */
+    public abstract void multipartUploadObject(File file, String key,
+            Function<String, Pair<Boolean, String>> function) throws DdlException;
+
+    public abstract void getObject(String key, String file) throws DdlException;
 
     public void close() {}
 

@@ -18,20 +18,30 @@
 package org.apache.doris.nereids.trees.expressions.functions;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalV3Literal;
+import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.MapLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TimeV2Literal;
+import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BooleanType;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.types.DateType;
+import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.DoubleType;
@@ -40,17 +50,21 @@ import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.NullType;
 import org.apache.doris.nereids.types.SmallIntType;
 import org.apache.doris.nereids.types.TimeV2Type;
+import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
 import org.apache.doris.nereids.types.coercion.FollowToAnyDataType;
 import org.apache.doris.nereids.types.coercion.FollowToArgumentType;
 
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 public class ComputeSignatureHelperTest {
@@ -132,8 +146,9 @@ public class ComputeSignatureHelperTest {
     void testMapImplementAnyDataTypeWithOutIndex() {
         FunctionSignature signature = FunctionSignature.ret(IntegerType.INSTANCE)
                 .args(MapType.of(AnyDataType.INSTANCE_WITHOUT_INDEX, AnyDataType.INSTANCE_WITHOUT_INDEX));
-        List<Expression> arguments = Lists.newArrayList(new MapLiteral(Lists.newArrayList(new IntegerLiteral(0)),
-                Lists.newArrayList(new BigIntLiteral(0))));
+        Map<Literal, Literal> map = Maps.newLinkedHashMap();
+        map.put(new IntegerLiteral(0), new BigIntLiteral(0));
+        List<Expression> arguments = Lists.newArrayList(new MapLiteral(map));
         signature = ComputeSignatureHelper.implementAnyDataTypeWithOutIndex(signature, arguments);
         Assertions.assertTrue(signature.getArgType(0) instanceof MapType);
         Assertions.assertTrue(((MapType) signature.getArgType(0)).getKeyType() instanceof IntegerType);
@@ -197,8 +212,10 @@ public class ComputeSignatureHelperTest {
         FunctionSignature signature = FunctionSignature.ret(IntegerType.INSTANCE)
                 .args(MapType.of(new AnyDataType(0), new AnyDataType(1)),
                         new AnyDataType(0), new AnyDataType(1));
+        Map<Literal, Literal> map = Maps.newLinkedHashMap();
+        map.put(new IntegerLiteral(0), new BigIntLiteral(0));
         List<Expression> arguments = Lists.newArrayList(
-                new MapLiteral(Lists.newArrayList(new IntegerLiteral(0)), Lists.newArrayList(new BigIntLiteral(0))),
+                new MapLiteral(map),
                 new BigIntLiteral(0), new IntegerLiteral(0));
         signature = ComputeSignatureHelper.implementAnyDataTypeWithIndex(signature, arguments);
         Assertions.assertTrue(signature.getArgType(0) instanceof MapType);
@@ -231,10 +248,11 @@ public class ComputeSignatureHelperTest {
                 .args(MapType.of(new AnyDataType(0), new AnyDataType(1)),
                         new AnyDataType(0), new AnyDataType(1),
                         MapType.of(new FollowToAnyDataType(0), new FollowToAnyDataType(1)));
+        Map<Literal, Literal> map = Maps.newLinkedHashMap();
+        map.put(new BigIntLiteral(0), new IntegerLiteral(0));
         List<Expression> arguments = Lists.newArrayList(
                 new NullLiteral(), new NullLiteral(), new NullLiteral(),
-                new MapLiteral(Lists.newArrayList(new BigIntLiteral(0)),
-                        Lists.newArrayList(new IntegerLiteral(0))));
+                new MapLiteral(map));
         signature = ComputeSignatureHelper.implementAnyDataTypeWithIndex(signature, arguments);
         Assertions.assertTrue(signature.getArgType(0) instanceof MapType);
         Assertions.assertTrue(((MapType) signature.getArgType(0)).getKeyType() instanceof BigIntType);
@@ -270,9 +288,9 @@ public class ComputeSignatureHelperTest {
                         new AnyDataType(0), new AnyDataType(1),
                         MapType.of(new FollowToAnyDataType(0), new FollowToAnyDataType(1)));
         List<Expression> arguments = Lists.newArrayList(
-                new MapLiteral(Lists.newArrayList(new IntegerLiteral(0)), Lists.newArrayList(new BigIntLiteral(0))),
+                new MapLiteral(ImmutableMap.of(new IntegerLiteral(0), new BigIntLiteral(0))),
                 new BigIntLiteral(0), new IntegerLiteral(0),
-                new MapLiteral(Lists.newArrayList(new IntegerLiteral(0)), Lists.newArrayList(new BigIntLiteral(0))));
+                new MapLiteral(ImmutableMap.of(new IntegerLiteral(0), new BigIntLiteral(0))));
         signature = ComputeSignatureHelper.implementAnyDataTypeWithIndex(signature, arguments);
         Assertions.assertTrue(signature.getArgType(0) instanceof MapType);
         Assertions.assertTrue(((MapType) signature.getArgType(0)).getKeyType() instanceof BigIntType);
@@ -333,8 +351,8 @@ public class ComputeSignatureHelperTest {
                         MapType.of(DecimalV3Type.WILDCARD, DecimalV3Type.WILDCARD),
                         DecimalV3Type.WILDCARD);
         List<Expression> arguments = Lists.newArrayList(
-                new MapLiteral(Lists.newArrayList(new DecimalV3Literal(new BigDecimal("1.1234"))),
-                        Lists.newArrayList(new DecimalV3Literal(new BigDecimal("12.12345")))),
+                new MapLiteral(ImmutableMap.of(new DecimalV3Literal(new BigDecimal("1.1234")),
+                        new DecimalV3Literal(new BigDecimal("12.12345")))),
                 new NullLiteral(),
                 new DecimalV3Literal(new BigDecimal("123.123")));
         signature = ComputeSignatureHelper.computePrecision(new FakeComputeSignature(), signature, arguments);
@@ -387,8 +405,8 @@ public class ComputeSignatureHelperTest {
                         MapType.of(DateTimeV2Type.SYSTEM_DEFAULT, DateTimeV2Type.SYSTEM_DEFAULT),
                         DateTimeV2Type.SYSTEM_DEFAULT);
         List<Expression> arguments = Lists.newArrayList(
-                new MapLiteral(Lists.newArrayList(new DateTimeV2Literal("2020-02-02 00:00:00.123")),
-                        Lists.newArrayList(new DateTimeV2Literal("2020-02-02 00:00:00.12"))),
+                new MapLiteral(ImmutableMap.of(new DateTimeV2Literal("2020-02-02 00:00:00.123"),
+                        new DateTimeV2Literal("2020-02-02 00:00:00.12"))),
                 new NullLiteral(),
                 new DateTimeV2Literal("2020-02-02 00:00:00.1234"));
         signature = ComputeSignatureHelper.computePrecision(new FakeComputeSignature(), signature, arguments);
@@ -408,8 +426,8 @@ public class ComputeSignatureHelperTest {
 
     @Test
     void testTimeV2PrecisionPromotion() {
-        FunctionSignature signature = FunctionSignature.ret(BooleanType.INSTANCE).args(TimeV2Type.INSTANCE,
-                        TimeV2Type.INSTANCE, TimeV2Type.INSTANCE);
+        FunctionSignature signature = FunctionSignature.ret(BooleanType.INSTANCE).args(TimeV2Type.SYSTEM_DEFAULT,
+                        TimeV2Type.SYSTEM_DEFAULT, TimeV2Type.SYSTEM_DEFAULT);
         List<Expression> arguments = Lists.newArrayList(new TimeV2Literal("12:34:56.12"),
                         new TimeV2Literal("12:34:56.123"), new TimeV2Literal("12:34:56.1"));
         signature = ComputeSignatureHelper.computePrecision(new FakeComputeSignature(), signature, arguments);
@@ -423,7 +441,7 @@ public class ComputeSignatureHelperTest {
     @Test
     void testMixedDateTimeV2AndTimeV2PrecisionPromotion() {
         FunctionSignature signature = FunctionSignature.ret(DateTimeV2Type.SYSTEM_DEFAULT).args(
-                        DateTimeV2Type.SYSTEM_DEFAULT, TimeV2Type.INSTANCE, DateTimeV2Type.SYSTEM_DEFAULT);
+                        DateTimeV2Type.SYSTEM_DEFAULT, TimeV2Type.SYSTEM_DEFAULT, DateTimeV2Type.SYSTEM_DEFAULT);
         List<Expression> arguments = Lists.newArrayList(new DateTimeV2Literal("2020-02-02 00:00:00.12"),
                         new TimeV2Literal("12:34:56.123"), new DateTimeV2Literal("2020-02-02 00:00:00.1"));
         signature = ComputeSignatureHelper.computePrecision(new FakeComputeSignature(), signature, arguments);
@@ -438,14 +456,14 @@ public class ComputeSignatureHelperTest {
 
     @Test
     void testNestedTimeV2PrecisionPromotion() {
-        FunctionSignature signature = FunctionSignature.ret(ArrayType.of(TimeV2Type.INSTANCE)).args(
-                        ArrayType.of(TimeV2Type.INSTANCE),
-                        MapType.of(IntegerType.INSTANCE, TimeV2Type.INSTANCE), TimeV2Type.INSTANCE);
+        FunctionSignature signature = FunctionSignature.ret(ArrayType.of(TimeV2Type.SYSTEM_DEFAULT)).args(
+                        ArrayType.of(TimeV2Type.SYSTEM_DEFAULT),
+                        MapType.of(IntegerType.INSTANCE, TimeV2Type.SYSTEM_DEFAULT), TimeV2Type.SYSTEM_DEFAULT);
+        Map<Literal, Literal> map = Maps.newLinkedHashMap();
+        map.put(new IntegerLiteral(1), new TimeV2Literal("12:34:56.1234"));
         List<Expression> arguments = Lists.newArrayList(
                         new ArrayLiteral(Lists.newArrayList(new TimeV2Literal("12:34:56.12"))),
-                        new MapLiteral(Lists.newArrayList(new IntegerLiteral(1)),
-                                        Lists.newArrayList(new TimeV2Literal("12:34:56.1234"))),
-                        new TimeV2Literal("12:34:56.123"));
+                        new MapLiteral(map), new TimeV2Literal("12:34:56.123"));
         signature = ComputeSignatureHelper.computePrecision(new FakeComputeSignature(), signature, arguments);
 
         // Check array argument (precision should be 4 from the map value)
@@ -469,22 +487,23 @@ public class ComputeSignatureHelperTest {
     void testComplexNestedMixedTimePrecisionPromotion() {
         // Create a complex nested structure with both DateTimeV2 and TimeV2 types
         FunctionSignature signature = FunctionSignature
-                        .ret(MapType.of(DateTimeV2Type.SYSTEM_DEFAULT, ArrayType.of(TimeV2Type.INSTANCE)))
-                        .args(MapType.of(DateTimeV2Type.SYSTEM_DEFAULT, ArrayType.of(TimeV2Type.INSTANCE)),
-                                        ArrayType.of(MapType.of(TimeV2Type.INSTANCE,
+                        .ret(MapType.of(DateTimeV2Type.SYSTEM_DEFAULT, ArrayType.of(TimeV2Type.SYSTEM_DEFAULT)))
+                        .args(MapType.of(DateTimeV2Type.SYSTEM_DEFAULT, ArrayType.of(TimeV2Type.SYSTEM_DEFAULT)),
+                                        ArrayType.of(MapType.of(TimeV2Type.SYSTEM_DEFAULT,
                                                         DateTimeV2Type.SYSTEM_DEFAULT)),
                                         DateTimeV2Type.SYSTEM_DEFAULT);
 
+        Map<Literal, Literal> map = Maps.newLinkedHashMap();
+        map.put(new DateTimeV2Literal("2020-02-02 00:00:00.12"),
+                        new ArrayLiteral(Lists.newArrayList(new TimeV2Literal("12:34:56.1"))));
+        Map<Literal, Literal> map2 = Maps.newLinkedHashMap();
+        map2.put(new TimeV2Literal("12:34:56.123"), new DateTimeV2Literal("2020-02-02 00:00:00"));
         // Create complex arguments with different precisions
         List<Expression> arguments = Lists.newArrayList(
                         // Map(DateTimeV2(2) -> Array(TimeV2(1)))
-                        new MapLiteral(Lists.newArrayList(new DateTimeV2Literal("2020-02-02 00:00:00.12")),
-                                        Lists.newArrayList(new ArrayLiteral(
-                                                        Lists.newArrayList(new TimeV2Literal("12:34:56.1"))))),
+                        new MapLiteral(map),
                         // Array(Map(TimeV2(3) -> DateTimeV2(0)))
-                        new ArrayLiteral(Lists.newArrayList(new MapLiteral(
-                                        Lists.newArrayList(new TimeV2Literal("12:34:56.123")),
-                                        Lists.newArrayList(new DateTimeV2Literal("2020-02-02 00:00:00"))))),
+                        new ArrayLiteral(Lists.newArrayList(new MapLiteral(map2))),
                         // DateTimeV2(4)
                         new DateTimeV2Literal("2020-02-02 00:00:00.1234"));
 
@@ -516,6 +535,234 @@ public class ComputeSignatureHelperTest {
         Assertions.assertTrue(((MapType) signature.returnType).getValueType() instanceof ArrayType);
         Assertions.assertEquals(TimeV2Type.of(4),
                         ((ArrayType) ((MapType) signature.returnType).getValueType()).getItemType());
+    }
+
+    @Test
+    void testNoDynamicComputeVariantArgs() {
+        FunctionSignature signature = FunctionSignature.ret(DoubleType.INSTANCE).args(IntegerType.INSTANCE);
+        signature = ComputeSignatureHelper.dynamicComputeVariantArgs(signature, Collections.emptyList());
+        Assertions.assertTrue(signature.returnType instanceof DoubleType);
+    }
+
+    @Test
+    void testDynamicComputeVariantArgsSingleVariant() {
+        VariantType variantType = new VariantType(100);
+        FunctionSignature signature = FunctionSignature.ret(VariantType.INSTANCE)
+                .args(VariantType.INSTANCE, IntegerType.INSTANCE);
+
+        List<Expression> arguments = Lists.newArrayList(
+                new MockVariantExpression(variantType),
+                new IntegerLiteral(42));
+
+        signature = ComputeSignatureHelper.dynamicComputeVariantArgs(signature, arguments);
+
+        Assertions.assertTrue(signature.returnType instanceof VariantType);
+        Assertions.assertEquals(100, ((VariantType) signature.returnType).getVariantMaxSubcolumnsCount());
+        Assertions.assertEquals(10000, ((VariantType) signature.returnType).getVariantMaxSparseColumnStatisticsSize());
+
+        Assertions.assertTrue(signature.getArgType(0) instanceof VariantType);
+        Assertions.assertEquals(100, ((VariantType) signature.getArgType(0)).getVariantMaxSubcolumnsCount());
+        Assertions.assertEquals(10000, ((VariantType) signature.getArgType(0)).getVariantMaxSparseColumnStatisticsSize());
+
+        Assertions.assertTrue(signature.getArgType(1) instanceof IntegerType);
+    }
+
+    @Test
+    void testDynamicComputeVariantArgsMultipleVariants() {
+        VariantType variantType1 = new VariantType(150);
+        VariantType variantType2 = new VariantType(250);
+        FunctionSignature signature = FunctionSignature.ret(IntegerType.INSTANCE)
+                .args(VariantType.INSTANCE, VariantType.INSTANCE);
+
+        List<Expression> arguments = Lists.newArrayList(
+                new MockVariantExpression(variantType1),
+                new MockVariantExpression(variantType2));
+
+        signature = ComputeSignatureHelper.dynamicComputeVariantArgs(signature, arguments);
+
+        Assertions.assertTrue(signature.getArgType(0) instanceof VariantType);
+        Assertions.assertEquals(150, ((VariantType) signature.getArgType(0)).getVariantMaxSubcolumnsCount());
+        Assertions.assertEquals(10000, ((VariantType) signature.getArgType(0)).getVariantMaxSparseColumnStatisticsSize());
+        Assertions.assertTrue(signature.getArgType(1) instanceof VariantType);
+        Assertions.assertEquals(250, ((VariantType) signature.getArgType(1)).getVariantMaxSubcolumnsCount());
+        Assertions.assertEquals(10000, ((VariantType) signature.getArgType(1)).getVariantMaxSparseColumnStatisticsSize());
+        Assertions.assertTrue(signature.returnType instanceof IntegerType);
+    }
+
+    @Test
+    void testDynamicComputeVariantArgsMixedTypesWithSingleVariant() {
+        VariantType variantType = new VariantType(75);
+        FunctionSignature signature = FunctionSignature.ret(BooleanType.INSTANCE)
+                .args(VariantType.INSTANCE, IntegerType.INSTANCE, DoubleType.INSTANCE);
+
+        List<Expression> arguments = Lists.newArrayList(
+                new MockVariantExpression(variantType),
+                new IntegerLiteral(10),
+                new DoubleLiteral(3.14));
+
+        signature = ComputeSignatureHelper.dynamicComputeVariantArgs(signature, arguments);
+
+        Assertions.assertTrue(signature.getArgType(0) instanceof VariantType);
+        Assertions.assertEquals(75, ((VariantType) signature.getArgType(0)).getVariantMaxSubcolumnsCount());
+        Assertions.assertEquals(10000, ((VariantType) signature.getArgType(0)).getVariantMaxSparseColumnStatisticsSize());
+        Assertions.assertTrue(signature.getArgType(1) instanceof IntegerType);
+        Assertions.assertTrue(signature.getArgType(2) instanceof DoubleType);
+
+        Assertions.assertTrue(signature.returnType instanceof BooleanType);
+    }
+
+    @Test
+    void testDynamicComputeVariantArgsWithNullLiteral() {
+        FunctionSignature signature = FunctionSignature.ret(BooleanType.INSTANCE)
+                .args(VariantType.INSTANCE, IntegerType.INSTANCE);
+
+        List<Expression> arguments = Lists.newArrayList(
+                new NullLiteral(),
+                new IntegerLiteral(10));
+
+        signature = ComputeSignatureHelper.dynamicComputeVariantArgs(signature, arguments);
+
+        Assertions.assertTrue(signature.getArgType(0) instanceof VariantType);
+        Assertions.assertEquals(0, ((VariantType) signature.getArgType(0)).getVariantMaxSubcolumnsCount());
+        Assertions.assertEquals(10000, ((VariantType) signature.getArgType(0)).getVariantMaxSparseColumnStatisticsSize());
+        Assertions.assertTrue(signature.getArgType(1) instanceof IntegerType);
+    }
+
+    @Test
+    void testDynamicComputeVariantArgsNoVariantReturnType() {
+        VariantType variantType = new VariantType(300);
+        FunctionSignature signature = FunctionSignature.ret(IntegerType.INSTANCE)
+                .args(VariantType.INSTANCE);
+
+        List<Expression> arguments = Lists.newArrayList(
+                new MockVariantExpression(variantType));
+
+        signature = ComputeSignatureHelper.dynamicComputeVariantArgs(signature, arguments);
+
+        Assertions.assertTrue(signature.returnType instanceof IntegerType);
+
+        Assertions.assertTrue(signature.getArgType(0) instanceof VariantType);
+        Assertions.assertEquals(300, ((VariantType) signature.getArgType(0)).getVariantMaxSubcolumnsCount());
+        Assertions.assertEquals(10000, ((VariantType) signature.getArgType(0)).getVariantMaxSparseColumnStatisticsSize());
+    }
+
+    @Test
+    void testDynamicComputeVariantArgsWithVarArgsThrowsException() {
+        VariantType variantType1 = new VariantType(150);
+        VariantType variantType2 = new VariantType(250);
+        FunctionSignature signature = FunctionSignature.ret(VariantType.INSTANCE)
+                .args(VariantType.INSTANCE, VariantType.INSTANCE);
+
+        List<Expression> arguments = Lists.newArrayList(
+                new MockVariantExpression(variantType1),
+                new MockVariantExpression(variantType2));
+
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class, () -> {
+            ComputeSignatureHelper.dynamicComputeVariantArgs(signature, arguments);
+        });
+
+        Assertions.assertEquals("variant type is not supported in multiple arguments", exception.getMessage());
+    }
+
+    @Test
+    void testDynamicComputeVariantArgsWithComputeSignature() {
+        VariantType variantType = new VariantType(200);
+        FunctionSignature signature = FunctionSignature.ret(VariantType.INSTANCE)
+                .args(VariantType.INSTANCE);
+
+        List<Expression> arguments = Lists.newArrayList(
+                new MockVariantExpression(variantType));
+
+        signature = ComputeSignatureHelper.dynamicComputeVariantArgs(signature, arguments);
+
+        Assertions.assertTrue(signature.returnType instanceof VariantType);
+        Assertions.assertEquals(200, ((VariantType) signature.returnType).getVariantMaxSubcolumnsCount());
+        Assertions.assertEquals(10000, ((VariantType) signature.returnType).getVariantMaxSparseColumnStatisticsSize());
+        Assertions.assertTrue(signature.getArgType(0) instanceof VariantType);
+        Assertions.assertEquals(200, ((VariantType) signature.getArgType(0)).getVariantMaxSubcolumnsCount());
+        Assertions.assertEquals(10000, ((VariantType) signature.getArgType(0)).getVariantMaxSparseColumnStatisticsSize());
+    }
+
+    /**
+     * Mock Expression class for testing VariantType
+     */
+    private static class MockVariantExpression extends Expression {
+        private final VariantType variantType;
+
+        public MockVariantExpression(VariantType variantType) {
+            super(Collections.emptyList());
+            this.variantType = variantType;
+        }
+
+        @Override
+        public DataType getDataType() {
+            return variantType;
+        }
+
+        @Override
+        public boolean nullable() {
+            return true;
+        }
+
+        @Override
+        public Expression withChildren(List<Expression> children) {
+            return this;
+        }
+
+        @Override
+        public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
+            return visitor.visit(this, context);
+        }
+
+        @Override
+        public int arity() {
+            return 0;
+        }
+
+        @Override
+        public Expression child(int index) {
+            throw new IndexOutOfBoundsException("MockVariantExpression has no children");
+        }
+
+        @Override
+        public List<Expression> children() {
+            return Collections.emptyList();
+        }
+    }
+
+    @Test
+    void testDateV1AndDateTimeV1TypeConversion() {
+        // Test DateType -> DateV2Type conversion with implementAnyDataTypeWithOutIndex
+        FunctionSignature dateSignature = FunctionSignature.ret(DateType.INSTANCE).args(DateType.INSTANCE);
+        List<Expression> dateArguments = Lists.newArrayList(new DateLiteral("2023-01-01"));
+
+        dateSignature = ComputeSignatureHelper.implementAnyDataTypeWithOutIndex(dateSignature, dateArguments);
+
+        // Verify that DateType is converted to DateV2Type
+        Assertions.assertTrue(dateSignature.argumentsTypes.get(0) instanceof DateV2Type);
+
+        // Test DateTimeType -> DateTimeV2Type conversion with implementAnyDataTypeWithOutIndex
+        FunctionSignature dateTimeSignature = FunctionSignature.ret(DateTimeType.INSTANCE)
+                .args(DateTimeType.INSTANCE);
+        List<Expression> dateTimeArguments = Lists.newArrayList(new DateTimeLiteral("2023-01-01 12:00:00"));
+
+        dateTimeSignature = ComputeSignatureHelper.implementAnyDataTypeWithOutIndex(dateTimeSignature,
+                dateTimeArguments);
+
+        // Verify that DateTimeType is converted to DateTimeV2Type
+        Assertions.assertTrue(dateTimeSignature.argumentsTypes.get(0) instanceof DateTimeV2Type);
+
+        // Also test with implementAnyDataTypeWithIndex
+        FunctionSignature dateSignatureWithIndex = FunctionSignature.ret(DateType.INSTANCE).args(DateType.INSTANCE);
+        dateSignatureWithIndex = ComputeSignatureHelper.implementAnyDataTypeWithIndex(dateSignatureWithIndex,
+                dateArguments);
+        Assertions.assertTrue(dateSignatureWithIndex.argumentsTypes.get(0) instanceof DateV2Type);
+
+        FunctionSignature dateTimeSignatureWithIndex = FunctionSignature.ret(DateTimeType.INSTANCE)
+                .args(DateTimeType.INSTANCE);
+        dateTimeSignatureWithIndex = ComputeSignatureHelper
+                .implementAnyDataTypeWithIndex(dateTimeSignatureWithIndex, dateTimeArguments);
+        Assertions.assertTrue(dateTimeSignatureWithIndex.argumentsTypes.get(0) instanceof DateTimeV2Type);
     }
 
     private static class FakeComputeSignature implements ComputeSignature {

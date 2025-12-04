@@ -248,3 +248,21 @@ id	text	Yes	true	\N
 ds	text	Yes	true	\N	
 audit_flag	text	Yes	true	\N	
 
+-- !where_1 --
+1	WS0001	Example Web Site 1	Example Company	1234 Main Street Apt Unit 101	Metropolis, NY	USA	1
+2	WS0002	Example Web Site 2	Tech Innovations	5678 Tech Avenue Suite Suite 200	Gotham, CA	USA	1
+3	WS0003	Example Web Site 3	Health Corp	9101 Health Drive Floor Floor 3	Star City, TX	USA	1
+4	WS0004	Example Web Site 4	Edu Tech	1122 Education Lane Building Building 1	Smallville, FL	USA	1
+5	WS0005	Example Web Site 5	Travel Inc	3344 Tourist Street Unit Unit 5	Metropolis, WA	USA	1
+
+-- !where_2 --
+
+-- !where_3 --
+
+-- !where_4 --
+1	WS0001	2023-01-01	2023-12-31	Example Web Site 1	20230101	20231231	E-commerce	John Doe	101	Retail	Online retail website	Jane Smith	201	Example Company	1234	Main Street	Apt	Unit 101	Metropolis	County	NY	12345	USA	-5.0	8.25
+2	WS0002	2023-02-01	2023-11-30	Example Web Site 2	20230201	20231130	Technology	Alice Johnson	102	Tech	Tech news and reviews	Bob Brown	202	Tech Innovations	5678	Tech Avenue	Suite	Suite 200	Gotham	County	CA	67890	USA	-8.0	7.50
+3	WS0003	2023-03-01	2023-10-31	Example Web Site 3	20230301	20231031	Healthcare	Robert White	103	Health	Healthcare services and products	Emily Green	203	Health Corp	9101	Health Drive	Floor	Floor 3	Star City	County	TX	23456	USA	-6.0	6.75
+4	WS0004	2023-04-01	2023-09-30	Example Web Site 4	20230401	20230930	Education	David Black	104	EdTech	Educational technology platform	Fiona Grey	204	Edu Tech	1122	Education Lane	Building	Building 1	Smallville	County	FL	34567	USA	-4.0	5.00
+5	WS0005	2023-05-01	2023-08-31	Example Web Site 5	20230501	20230831	Travel	Sophia Blue	105	Travel	Travel and booking services	Daniel Red	205	Travel Inc	3344	Tourist Street	Unit	Unit 5	Metropolis	County	WA	45678	USA	-7.0	8.00
+

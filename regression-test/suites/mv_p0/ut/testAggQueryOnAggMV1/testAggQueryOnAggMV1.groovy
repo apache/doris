@@ -18,7 +18,10 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("testAggQueryOnAggMV1") {
+    // this mv rewrite would not be rewritten in RBO phase, so set TRY_IN_RBO explicitly to make case stable
+    sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
     sql """set enable_nereids_planner=true;"""
+    sql "set disable_nereids_rules='CONSTANT_PROPAGATION'"
     sql """ DROP TABLE IF EXISTS emps; """
 
     sql """
@@ -44,9 +47,9 @@ suite ("testAggQueryOnAggMV1") {
 
 sql """alter table emps modify column time_col set stats ('row_count'='9');"""
 
-    createMV("create materialized view emps_mv as select deptno, sum(salary), max(commission) from emps group by deptno;")
-    createMV("create materialized view emps_mv_count_key as select deptno, count(deptno) from emps group by deptno;")
-    createMV("create materialized view emps_mv_if as select deptno, sum(if(empid = 1, empid, salary)) from emps group by deptno;")
+    createMV("create materialized view emps_mv as select deptno as a1, sum(salary) as a2, max(commission) as a3 from emps group by deptno;")
+    createMV("create materialized view emps_mv_count_key as select deptno as a4, count(deptno) as a5 from emps group by deptno;")
+    createMV("create materialized view emps_mv_if as select deptno as a6, sum(if(empid = 1, empid, salary)) as a7 from emps group by deptno;")
 
     sql """insert into emps values("2020-01-01",1,"a",1,1,1);"""
 
@@ -81,3 +84,4 @@ sql """alter table emps modify column time_col set stats ('row_count'='9');"""
     qt_select_mv "select deptno, sum(salary), max(commission) from emps where salary=1 group by deptno order by deptno;"
 
 }
+

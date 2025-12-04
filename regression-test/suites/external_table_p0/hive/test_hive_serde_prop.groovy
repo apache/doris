@@ -55,6 +55,14 @@ suite("test_hive_serde_prop", "external_docker,hive,external_docker_hive,p0,exte
         qt_test_open_csv_default_prop """select * from ${catalog_name}.regression.test_open_csv_default_prop order by id;"""
         qt_test_open_csv_standard_prop """select * from ${catalog_name}.regression.test_open_csv_standard_prop order by id;"""
         qt_test_open_csv_custom_prop """select * from ${catalog_name}.regression.test_open_csv_custom_prop order by id;"""
+
+        qt_test_empty_null_format_text """select * from ${catalog_name}.regression.test_empty_null_format_text order by id;"""
+        qt_test_empty_null_format_text2 """select * from ${catalog_name}.regression.test_empty_null_format_text where name is null order by id;"""
+        qt_test_empty_null_format_text3 """select * from ${catalog_name}.regression.test_empty_null_format_text where name = '' order by id;"""
+
+        qt_test_empty_null_defined_text """select * from ${catalog_name}.regression.test_empty_null_defined_text order by id;"""
+        qt_test_empty_null_defined_text2 """select * from ${catalog_name}.regression.test_empty_null_defined_text where name is null order by id;"""
+        qt_test_empty_null_defined_text3 """select * from ${catalog_name}.regression.test_empty_null_defined_text where name = '' order by id;"""
     }
 }
 

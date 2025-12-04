@@ -57,14 +57,16 @@ public:
 
     size_t block_count() const { return block_count_; }
 
-    void set_counters(RuntimeProfile* profile) {
-        _read_file_timer = profile->get_counter("SpillReadFileTime");
-        _deserialize_timer = profile->get_counter("SpillReadDerializeBlockTime");
-        _read_block_count = profile->get_counter("SpillReadBlockCount");
-        _read_block_data_size = profile->get_counter("SpillReadBlockBytes");
-        _read_file_size = profile->get_counter("SpillReadFileBytes");
-        _read_rows_count = profile->get_counter("SpillReadRows");
-        _read_file_count = profile->get_counter("SpillReadFileCount");
+    void set_counters(RuntimeProfile* operator_profile) {
+        RuntimeProfile* custom_profile = operator_profile->get_child("CustomCounters");
+        DCHECK(custom_profile != nullptr);
+        _read_file_timer = custom_profile->get_counter("SpillReadFileTime");
+        _deserialize_timer = custom_profile->get_counter("SpillReadDerializeBlockTime");
+        _read_block_count = custom_profile->get_counter("SpillReadBlockCount");
+        _read_block_data_size = custom_profile->get_counter("SpillReadBlockBytes");
+        _read_file_size = custom_profile->get_counter("SpillReadFileBytes");
+        _read_rows_count = custom_profile->get_counter("SpillReadRows");
+        _read_file_count = custom_profile->get_counter("SpillReadFileCount");
     }
 
 private:

@@ -17,33 +17,6 @@
 
 package org.apache.doris.alter;
 
-import org.apache.doris.analysis.AddPartitionClause;
-import org.apache.doris.analysis.AddPartitionLikeClause;
-import org.apache.doris.analysis.AlterClause;
-import org.apache.doris.analysis.AlterMultiPartitionClause;
-import org.apache.doris.analysis.AlterTableStmt;
-import org.apache.doris.analysis.AlterViewStmt;
-import org.apache.doris.analysis.ColumnRenameClause;
-import org.apache.doris.analysis.CreateMaterializedViewStmt;
-import org.apache.doris.analysis.CreateOrReplaceBranchClause;
-import org.apache.doris.analysis.CreateOrReplaceTagClause;
-import org.apache.doris.analysis.DropBranchClause;
-import org.apache.doris.analysis.DropMaterializedViewStmt;
-import org.apache.doris.analysis.DropPartitionClause;
-import org.apache.doris.analysis.DropPartitionFromIndexClause;
-import org.apache.doris.analysis.DropTagClause;
-import org.apache.doris.analysis.ModifyColumnCommentClause;
-import org.apache.doris.analysis.ModifyDistributionClause;
-import org.apache.doris.analysis.ModifyEngineClause;
-import org.apache.doris.analysis.ModifyPartitionClause;
-import org.apache.doris.analysis.ModifyTableCommentClause;
-import org.apache.doris.analysis.ModifyTablePropertiesClause;
-import org.apache.doris.analysis.PartitionRenameClause;
-import org.apache.doris.analysis.ReplacePartitionClause;
-import org.apache.doris.analysis.ReplaceTableClause;
-import org.apache.doris.analysis.RollupRenameClause;
-import org.apache.doris.analysis.TableName;
-import org.apache.doris.analysis.TableRenameClause;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.Database;
@@ -69,16 +42,51 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.cache.NereidsSqlCacheManager;
 import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.PropertyAnalyzer.RewriteProperty;
 import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
+import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.nereids.trees.plans.commands.AlterSystemCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.AlterViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateMaterializedViewCommand;
-import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
+import org.apache.doris.nereids.trees.plans.commands.DropMaterializedViewCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.AddColumnOp;
+import org.apache.doris.nereids.trees.plans.commands.info.AddColumnsOp;
+import org.apache.doris.nereids.trees.plans.commands.info.AddPartitionFieldOp;
+import org.apache.doris.nereids.trees.plans.commands.info.AddPartitionLikeOp;
+import org.apache.doris.nereids.trees.plans.commands.info.AddPartitionOp;
+import org.apache.doris.nereids.trees.plans.commands.info.AlterMultiPartitionOp;
+import org.apache.doris.nereids.trees.plans.commands.info.AlterOp;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceBranchOp;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceTagOp;
+import org.apache.doris.nereids.trees.plans.commands.info.DropBranchOp;
+import org.apache.doris.nereids.trees.plans.commands.info.DropColumnOp;
+import org.apache.doris.nereids.trees.plans.commands.info.DropPartitionFieldOp;
+import org.apache.doris.nereids.trees.plans.commands.info.DropPartitionFromIndexOp;
+import org.apache.doris.nereids.trees.plans.commands.info.DropPartitionOp;
+import org.apache.doris.nereids.trees.plans.commands.info.DropTagOp;
+import org.apache.doris.nereids.trees.plans.commands.info.ModifyColumnCommentOp;
+import org.apache.doris.nereids.trees.plans.commands.info.ModifyColumnOp;
+import org.apache.doris.nereids.trees.plans.commands.info.ModifyDistributionOp;
+import org.apache.doris.nereids.trees.plans.commands.info.ModifyEngineOp;
+import org.apache.doris.nereids.trees.plans.commands.info.ModifyPartitionOp;
+import org.apache.doris.nereids.trees.plans.commands.info.ModifyTableCommentOp;
+import org.apache.doris.nereids.trees.plans.commands.info.ModifyTablePropertiesOp;
+import org.apache.doris.nereids.trees.plans.commands.info.RenameColumnOp;
+import org.apache.doris.nereids.trees.plans.commands.info.RenamePartitionOp;
+import org.apache.doris.nereids.trees.plans.commands.info.RenameRollupOp;
+import org.apache.doris.nereids.trees.plans.commands.info.RenameTableOp;
+import org.apache.doris.nereids.trees.plans.commands.info.ReorderColumnsOp;
+import org.apache.doris.nereids.trees.plans.commands.info.ReplacePartitionFieldOp;
+import org.apache.doris.nereids.trees.plans.commands.info.ReplacePartitionOp;
+import org.apache.doris.nereids.trees.plans.commands.info.ReplaceTableOp;
 import org.apache.doris.persist.AlterMTMV;
 import org.apache.doris.persist.AlterViewInfo;
 import org.apache.doris.persist.BatchModifyPartitionsInfo;
@@ -131,18 +139,6 @@ public class Alter {
         systemHandler.start();
     }
 
-    public void processCreateMaterializedView(CreateMaterializedViewStmt stmt)
-            throws DdlException, AnalysisException, MetaNotFoundException {
-        String tableName = stmt.getBaseIndexName();
-        // check db
-        String dbName = stmt.getDBName();
-        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
-        Env.getCurrentInternalCatalog().checkAvailableCapacity(db);
-
-        OlapTable olapTable = (OlapTable) db.getNonTempTableOrMetaException(tableName, TableType.OLAP);
-        ((MaterializedViewHandler) materializedViewHandler).processCreateMaterializedView(stmt, db, olapTable);
-    }
-
     public void processCreateMaterializedView(CreateMaterializedViewCommand command)
             throws DdlException, AnalysisException, MetaNotFoundException {
         String tableName = command.getBaseIndexName();
@@ -155,30 +151,19 @@ public class Alter {
         ((MaterializedViewHandler) materializedViewHandler).processCreateMaterializedView(command, db, olapTable);
     }
 
-    public void processDropMaterializedView(DropMaterializedViewStmt stmt) throws DdlException, MetaNotFoundException {
-        TableName tableName = stmt.getTableName();
+    public void processDropMaterializedView(DropMaterializedViewCommand command)
+            throws DdlException, MetaNotFoundException {
+        TableNameInfo tableName = command.getTableName();
         String dbName = tableName.getDb();
         Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
 
         String name = tableName.getTbl();
         OlapTable olapTable = (OlapTable) db.getTableOrMetaException(name, TableType.OLAP);
-        ((MaterializedViewHandler) materializedViewHandler).processDropMaterializedView(stmt, db, olapTable);
-    }
-
-    private boolean processAlterOlapTable(AlterTableStmt stmt, OlapTable olapTable, List<AlterClause> alterClauses,
-                                          Database db) throws UserException {
-        if (olapTable.getDataSortInfo() != null
-                && olapTable.getDataSortInfo().getSortType() == TSortType.ZORDER) {
-            throw new UserException("z-order table can not support schema change!");
-        }
-        stmt.rewriteAlterClause(olapTable);
-
-        alterClauses.addAll(stmt.getOps());
-        return processAlterOlapTableInternal(alterClauses, olapTable, db, stmt.toSql());
+        ((MaterializedViewHandler) materializedViewHandler).processDropMaterializedView(command, db, olapTable);
     }
 
     private boolean processAlterOlapTable(AlterTableCommand command, OlapTable olapTable,
-            List<AlterClause> alterClauses,
+            List<AlterOp> alterOps,
             Database db) throws UserException {
         if (olapTable.getDataSortInfo() != null
                 && olapTable.getDataSortInfo().getSortType() == TSortType.ZORDER) {
@@ -186,12 +171,12 @@ public class Alter {
         }
 
         // check conflict alter ops first
-        alterClauses.addAll(command.getOps());
-        return processAlterOlapTableInternal(alterClauses, olapTable, db, command.toSql());
+        alterOps.addAll(command.getOps());
+        return processAlterOlapTableInternal(alterOps, olapTable, db, command.toSql());
     }
 
-    private boolean processAlterOlapTableInternal(List<AlterClause> alterClauses, OlapTable olapTable,
-                                          Database db, String sql) throws UserException {
+    private boolean processAlterOlapTableInternal(List<AlterOp> alterOps, OlapTable olapTable,
+                                                  Database db, String sql) throws UserException {
         if (olapTable.getDataSortInfo() != null
                 && olapTable.getDataSortInfo().getSortType() == TSortType.ZORDER) {
             throw new UserException("z-order table can not support schema change!");
@@ -199,12 +184,22 @@ public class Alter {
 
         // check conflict alter ops first
         AlterOperations currentAlterOps = new AlterOperations();
-        currentAlterOps.checkConflict(alterClauses);
+        currentAlterOps.checkConflict(alterOps);
+        for (AlterOp alterOp : alterOps) {
+            // Check for unsupported operations on internal tables
+            if (alterOp instanceof AddPartitionFieldOp) {
+                throw new UserException("ADD PARTITION KEY is only supported for Iceberg tables");
+            }
+            if (alterOp instanceof DropPartitionFieldOp) {
+                throw new UserException("DROP PARTITION KEY is only supported for Iceberg tables");
+            }
+            if (alterOp instanceof ReplacePartitionFieldOp) {
+                throw new UserException("REPLACE PARTITION KEY is only supported for Iceberg tables");
+            }
 
-        for (AlterClause clause : alterClauses) {
             Map<String, String> properties = null;
             try {
-                properties = clause.getProperties();
+                properties = alterOp.getProperties();
             } catch (Exception e) {
                 continue;
             }
@@ -215,7 +210,7 @@ public class Alter {
         }
 
         if (olapTable instanceof MTMV) {
-            currentAlterOps.checkMTMVAllow(alterClauses);
+            currentAlterOps.checkMTMVAllow(alterOps);
         }
 
         // check cluster capacity and db quota, only need to check once.
@@ -227,9 +222,9 @@ public class Alter {
         boolean needProcessOutsideTableLock = false;
         BaseTableInfo oldBaseTableInfo = new BaseTableInfo(olapTable);
         Optional<BaseTableInfo> newBaseTableInfo = Optional.empty();
-        if (currentAlterOps.checkTableStoragePolicy(alterClauses)) {
+        if (currentAlterOps.checkTableStoragePolicy(alterOps)) {
             String tableStoragePolicy = olapTable.getStoragePolicy();
-            String currentStoragePolicy = currentAlterOps.getTableStoragePolicy(alterClauses);
+            String currentStoragePolicy = currentAlterOps.getTableStoragePolicy(alterOps);
 
             // If the two policy has one same resource, then it's safe for the table to change policy
             // There would only be the cooldown ttl or cooldown time would be affected
@@ -239,8 +234,8 @@ public class Alter {
                 for (Partition partition : olapTable.getAllPartitions()) {
                     if (Partition.PARTITION_INIT_VERSION < partition.getVisibleVersion()) {
                         throw new DdlException("Do not support alter table's storage policy , this table ["
-                                + olapTable.getName() + "] has storage policy " + tableStoragePolicy
-                                + ", the table need to be empty.");
+                            + olapTable.getName() + "] has storage policy " + tableStoragePolicy
+                            + ", the table need to be empty.");
                     }
                 }
             }
@@ -261,47 +256,47 @@ public class Alter {
             }
             olapTable.setStoragePolicy(currentStoragePolicy);
             needProcessOutsideTableLock = true;
-        } else if (currentAlterOps.checkIsBeingSynced(alterClauses)) {
-            olapTable.setIsBeingSynced(currentAlterOps.isBeingSynced(alterClauses));
+        } else if (currentAlterOps.checkIsBeingSynced(alterOps)) {
+            olapTable.setIsBeingSynced(currentAlterOps.isBeingSynced(alterOps));
             needProcessOutsideTableLock = true;
-        } else if (currentAlterOps.checkMinLoadReplicaNum(alterClauses)) {
-            Preconditions.checkState(alterClauses.size() == 1);
-            AlterClause alterClause = alterClauses.get(0);
-            processModifyMinLoadReplicaNum(db, olapTable, alterClause);
-        } else if (currentAlterOps.checkBinlogConfigChange(alterClauses)) {
+        } else if (currentAlterOps.checkMinLoadReplicaNum(alterOps)) {
+            Preconditions.checkState(alterOps.size() == 1);
+            AlterOp alterOp = alterOps.get(0);
+            processModifyMinLoadReplicaNum(db, olapTable, alterOp);
+        } else if (currentAlterOps.checkBinlogConfigChange(alterOps)) {
             if (!Config.enable_feature_binlog) {
                 throw new DdlException("Binlog feature is not enabled");
             }
             // TODO(Drogon): check error
-            ((SchemaChangeHandler) schemaChangeHandler).updateBinlogConfig(db, olapTable, alterClauses);
+            ((SchemaChangeHandler) schemaChangeHandler).updateBinlogConfig(db, olapTable, alterOps);
         } else if (currentAlterOps.hasSchemaChangeOp()) {
-            // if modify storage type to v2, do schema change to convert all related tablets to segment v2 format
-            schemaChangeHandler.process(sql, alterClauses, db, olapTable);
+            // schema change, or change properties that need schema change(dynamic partition, storage_medium...)
+            schemaChangeHandler.process(sql, alterOps, db, olapTable);
         } else if (currentAlterOps.hasRollupOp()) {
-            materializedViewHandler.process(alterClauses, db, olapTable);
+            materializedViewHandler.process(alterOps, db, olapTable);
         } else if (currentAlterOps.hasPartitionOp()) {
-            Preconditions.checkState(!alterClauses.isEmpty());
-            for (AlterClause alterClause : alterClauses) {
+            Preconditions.checkState(!alterOps.isEmpty());
+            for (AlterOp alterOp : alterOps) {
                 olapTable.writeLockOrDdlException();
                 try {
-                    if (alterClause instanceof DropPartitionClause) {
-                        if (!((DropPartitionClause) alterClause).isTempPartition()) {
+                    if (alterOp instanceof DropPartitionOp) {
+                        if (!((DropPartitionOp) alterOp).isTempPartition()) {
                             DynamicPartitionUtil.checkAlterAllowed(olapTable);
                         }
-                        Env.getCurrentEnv().dropPartition(db, olapTable, ((DropPartitionClause) alterClause));
-                    } else if (alterClause instanceof ReplacePartitionClause) {
-                        Env.getCurrentEnv().replaceTempPartition(db, olapTable, (ReplacePartitionClause) alterClause);
-                    } else if (alterClause instanceof ModifyPartitionClause) {
-                        ModifyPartitionClause clause = ((ModifyPartitionClause) alterClause);
+                        Env.getCurrentEnv().dropPartition(db, olapTable, ((DropPartitionOp) alterOp));
+                    } else if (alterOp instanceof ReplacePartitionOp) {
+                        Env.getCurrentEnv().replaceTempPartition(db, olapTable, (ReplacePartitionOp) alterOp);
+                    } else if (alterOp instanceof ModifyPartitionOp) {
+                        ModifyPartitionOp op = ((ModifyPartitionOp) alterOp);
                         // expand the partition names if it is 'Modify Partition(*)'
-                        if (clause.isNeedExpand()) {
-                            List<String> partitionNames = clause.getPartitionNames();
+                        if (op.isNeedExpand()) {
+                            List<String> partitionNames = op.getPartitionNames();
                             partitionNames.clear();
                             for (Partition partition : olapTable.getPartitions()) {
                                 partitionNames.add(partition.getName());
                             }
                         }
-                        Map<String, String> properties = clause.getProperties();
+                        Map<String, String> properties = op.getProperties();
                         if (properties.containsKey(PropertyAnalyzer.PROPERTIES_INMEMORY)) {
                             boolean isInMemory =
                                     Boolean.parseBoolean(properties.get(PropertyAnalyzer.PROPERTIES_INMEMORY));
@@ -310,65 +305,73 @@ public class Alter {
                             }
                             needProcessOutsideTableLock = true;
                         } else {
-                            List<String> partitionNames = clause.getPartitionNames();
+                            List<String> partitionNames = op.getPartitionNames();
                             if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY)) {
                                 modifyPartitionsProperty(db, olapTable, partitionNames, properties,
-                                        clause.isTempPartition());
+                                        op.isTempPartition());
                             } else {
                                 needProcessOutsideTableLock = true;
                             }
                         }
-                    } else if (alterClause instanceof DropPartitionFromIndexClause) {
+                    } else if (alterOp instanceof DropPartitionFromIndexOp) {
                         // do nothing
-                    } else if (alterClause instanceof AddPartitionClause
-                            || alterClause instanceof AddPartitionLikeClause
-                            || alterClause instanceof AlterMultiPartitionClause) {
+                    } else if (alterOp instanceof AddPartitionOp
+                            || alterOp instanceof AddPartitionLikeOp
+                            || alterOp instanceof AlterMultiPartitionOp) {
                         needProcessOutsideTableLock = true;
                     } else {
-                        throw new DdlException("Invalid alter operation: " + alterClause.getOpType());
+                        throw new DdlException("Invalid alter operation: " + alterOp.getOpType());
                     }
                 } finally {
                     olapTable.writeUnlock();
                 }
             }
         } else if (currentAlterOps.hasRenameOp()) {
-            processRename(db, olapTable, alterClauses);
+            processRename(db, olapTable, alterOps);
             newBaseTableInfo = Optional.of(new BaseTableInfo(olapTable));
         } else if (currentAlterOps.hasReplaceTableOp()) {
-            processReplaceTable(db, olapTable, alterClauses);
+            processReplaceTable(db, olapTable, alterOps);
             // after replace table, olapTable may still be old name, so need set it to new name
-            ReplaceTableClause clause = (ReplaceTableClause) alterClauses.get(0);
-            String newTblName = clause.getTblName();
+            ReplaceTableOp op = (ReplaceTableOp) alterOps.get(0);
+            String newTblName = op.getTblName();
             newBaseTableInfo = Optional.of(new BaseTableInfo(olapTable));
             newBaseTableInfo.get().setTableName(newTblName);
         } else if (currentAlterOps.contains(AlterOpType.MODIFY_TABLE_PROPERTY_SYNC)) {
             needProcessOutsideTableLock = true;
         } else if (currentAlterOps.contains(AlterOpType.MODIFY_DISTRIBUTION)) {
-            Preconditions.checkState(alterClauses.size() == 1);
-            AlterClause alterClause = alterClauses.get(0);
+            Preconditions.checkState(alterOps.size() == 1);
+            AlterOp alterOp = alterOps.get(0);
             Env.getCurrentEnv()
-                    .modifyDefaultDistributionBucketNum(db, olapTable, (ModifyDistributionClause) alterClause);
+                    .modifyDefaultDistributionBucketNum(db, olapTable, (ModifyDistributionOp) alterOp);
         } else if (currentAlterOps.contains(AlterOpType.MODIFY_COLUMN_COMMENT)) {
-            processModifyColumnComment(db, olapTable, alterClauses);
+            processModifyColumnComment(db, olapTable, alterOps);
         } else if (currentAlterOps.contains(AlterOpType.MODIFY_TABLE_COMMENT)) {
-            Preconditions.checkState(alterClauses.size() == 1);
-            AlterClause alterClause = alterClauses.get(0);
-            processModifyTableComment(db, olapTable, alterClause);
+            Preconditions.checkState(alterOps.size() == 1);
+            AlterOp alterOp = alterOps.get(0);
+            processModifyTableComment(db, olapTable, alterOp);
         } else {
             throw new DdlException("Invalid alter operations: " + currentAlterOps);
         }
-        if (needChangeMTMVState(alterClauses)) {
+        if (needChangeMTMVState(alterOps)) {
             Env.getCurrentEnv().getMtmvService()
-                    .alterTable(oldBaseTableInfo, newBaseTableInfo, currentAlterOps.hasReplaceTableOp());
+                .alterTable(oldBaseTableInfo, newBaseTableInfo, currentAlterOps.hasReplaceTableOp());
+        }
+
+        olapTable.writeLock();
+        try {
+            NereidsSqlCacheManager sqlCacheManager = Env.getCurrentEnv().getSqlCacheManager();
+            sqlCacheManager.invalidateAboutTable(olapTable);
+        } finally {
+            olapTable.writeUnlock();
         }
         return needProcessOutsideTableLock;
     }
 
-    private void setExternalTableAutoAnalyzePolicy(ExternalTable table, List<AlterClause> alterClauses) {
-        Preconditions.checkState(alterClauses.size() == 1);
-        AlterClause alterClause = alterClauses.get(0);
-        Preconditions.checkState(alterClause instanceof ModifyTablePropertiesClause);
-        Map<String, String> properties = alterClause.getProperties();
+    private void setExternalTableAutoAnalyzePolicy(ExternalTable table, List<AlterOp> alterOps) {
+        Preconditions.checkState(alterOps.size() == 1);
+        AlterOp alterOp = alterOps.get(0);
+        Preconditions.checkState(alterOp instanceof ModifyTablePropertiesOp);
+        Map<String, String> properties = alterOp.getProperties();
         Preconditions.checkState(properties.size() == 1);
         Preconditions.checkState(properties.containsKey(PropertyAnalyzer.PROPERTIES_AUTO_ANALYZE_POLICY));
         String value = properties.get(PropertyAnalyzer.PROPERTIES_AUTO_ANALYZE_POLICY);
@@ -383,47 +386,89 @@ public class Alter {
     }
 
     private void processAlterTableForExternalTable(
-            ExternalTable table,
-            List<AlterClause> alterClauses) throws UserException {
-        for (AlterClause alterClause : alterClauses) {
-            if (alterClause instanceof ModifyTablePropertiesClause) {
-                setExternalTableAutoAnalyzePolicy(table, alterClauses);
-            } else if (alterClause instanceof CreateOrReplaceBranchClause) {
+            ExternalTable table, List<AlterOp> alterOps) throws UserException {
+        for (AlterOp alterOp : alterOps) {
+            if (alterOp instanceof ModifyTablePropertiesOp) {
+                setExternalTableAutoAnalyzePolicy(table, alterOps);
+            } else if (alterOp instanceof CreateOrReplaceBranchOp) {
                 table.getCatalog().createOrReplaceBranch(
-                        table.getDbName(), table.getName(),
-                        ((CreateOrReplaceBranchClause) alterClause).getBranchInfo());
-            } else if (alterClause instanceof CreateOrReplaceTagClause) {
+                        table, ((CreateOrReplaceBranchOp) alterOp).getBranchInfo());
+            } else if (alterOp instanceof CreateOrReplaceTagOp) {
                 table.getCatalog().createOrReplaceTag(
-                        table.getDbName(), table.getName(),
-                        ((CreateOrReplaceTagClause) alterClause).getTagInfo());
-            } else if (alterClause instanceof DropBranchClause) {
+                        table, ((CreateOrReplaceTagOp) alterOp).getTagInfo());
+            } else if (alterOp instanceof DropBranchOp) {
                 table.getCatalog().dropBranch(
-                        table.getDbName(), table.getName(),
-                        ((DropBranchClause) alterClause).getDropBranchInfo());
-            } else if (alterClause instanceof DropTagClause) {
+                        table, ((DropBranchOp) alterOp).getDropBranchInfo());
+            } else if (alterOp instanceof DropTagOp) {
                 table.getCatalog().dropTag(
-                        table.getDbName(), table.getName(),
-                        ((DropTagClause) alterClause).getDropTagInfo());
+                        table, ((DropTagOp) alterOp).getDropTagInfo());
+            } else if (alterOp instanceof RenameTableOp) {
+                RenameTableOp renameTableOp = (RenameTableOp) alterOp;
+                table.getCatalog().renameTable(
+                        table.getDbName(), table.getName(), renameTableOp.getNewTableName());
+            } else if (alterOp instanceof AddColumnOp) {
+                AddColumnOp addColumn = (AddColumnOp) alterOp;
+                table.getCatalog().addColumn(table, addColumn.getColumn(), addColumn.getColPos());
+            } else if (alterOp instanceof AddColumnsOp) {
+                AddColumnsOp addColumns = (AddColumnsOp) alterOp;
+                table.getCatalog().addColumns(table, addColumns.getColumns());
+            } else if (alterOp instanceof DropColumnOp) {
+                DropColumnOp dropColumn = (DropColumnOp) alterOp;
+                table.getCatalog().dropColumn(table, dropColumn.getColName());
+            } else if (alterOp instanceof RenameColumnOp) {
+                RenameColumnOp columnRename = (RenameColumnOp) alterOp;
+                table.getCatalog().renameColumn(
+                        table, columnRename.getColName(), columnRename.getNewColName());
+            } else if (alterOp instanceof ModifyColumnOp) {
+                ModifyColumnOp modifyColumn = (ModifyColumnOp) alterOp;
+                table.getCatalog().modifyColumn(table, modifyColumn.getColumn(), modifyColumn.getColPos());
+            } else if (alterOp instanceof ReorderColumnsOp) {
+                ReorderColumnsOp reorderColumns = (ReorderColumnsOp) alterOp;
+                table.getCatalog().reorderColumns(table, reorderColumns.getColumnsByPos());
+            } else if (alterOp instanceof AddPartitionFieldOp) {
+                AddPartitionFieldOp addPartitionField = (AddPartitionFieldOp) alterOp;
+                if (table instanceof IcebergExternalTable) {
+                    ((IcebergExternalCatalog) table.getCatalog()).addPartitionField(
+                            (IcebergExternalTable) table, addPartitionField);
+                } else {
+                    throw new UserException("ADD PARTITION KEY is only supported for Iceberg tables");
+                }
+            } else if (alterOp instanceof DropPartitionFieldOp) {
+                DropPartitionFieldOp dropPartitionField = (DropPartitionFieldOp) alterOp;
+                if (table instanceof IcebergExternalTable) {
+                    ((IcebergExternalCatalog) table.getCatalog()).dropPartitionField(
+                            (IcebergExternalTable) table, dropPartitionField);
+                } else {
+                    throw new UserException("DROP PARTITION KEY is only supported for Iceberg tables");
+                }
+            } else if (alterOp instanceof ReplacePartitionFieldOp) {
+                ReplacePartitionFieldOp replacePartitionField = (ReplacePartitionFieldOp) alterOp;
+                if (table instanceof IcebergExternalTable) {
+                    ((IcebergExternalCatalog) table.getCatalog()).replacePartitionField(
+                            (IcebergExternalTable) table, replacePartitionField);
+                } else {
+                    throw new UserException("REPLACE PARTITION KEY is only supported for Iceberg tables");
+                }
             } else {
-                throw new UserException("Invalid alter operations for external table: " + alterClauses);
+                throw new UserException("Invalid alter operations for external table: " + alterOps);
             }
         }
     }
 
-    private boolean needChangeMTMVState(List<AlterClause> alterClauses) {
-        for (AlterClause alterClause : alterClauses) {
-            if (alterClause.needChangeMTMVState()) {
+    private boolean needChangeMTMVState(List<AlterOp> alterOps) {
+        for (AlterOp alterOp : alterOps) {
+            if (alterOp.needChangeMTMVState()) {
                 return true;
             }
         }
         return false;
     }
 
-    private void processModifyTableComment(Database db, OlapTable tbl, AlterClause alterClause)
+    private void processModifyTableComment(Database db, OlapTable tbl, AlterOp alterOp)
             throws DdlException {
         tbl.writeLockOrDdlException();
         try {
-            ModifyTableCommentClause clause = (ModifyTableCommentClause) alterClause;
+            ModifyTableCommentOp clause = (ModifyTableCommentOp) alterOp;
             tbl.setComment(clause.getComment());
             // log
             ModifyCommentOperationLog op = ModifyCommentOperationLog
@@ -434,23 +479,23 @@ public class Alter {
         }
     }
 
-    private void processModifyColumnComment(Database db, OlapTable tbl, List<AlterClause> alterClauses)
+    private void processModifyColumnComment(Database db, OlapTable tbl, List<AlterOp> alterOps)
             throws DdlException {
         tbl.writeLockOrDdlException();
         try {
             // check first
             Map<String, String> colToComment = Maps.newHashMap();
-            for (AlterClause alterClause : alterClauses) {
-                Preconditions.checkState(alterClause instanceof ModifyColumnCommentClause);
-                ModifyColumnCommentClause clause = (ModifyColumnCommentClause) alterClause;
-                String colName = clause.getColName();
+            for (AlterOp alterOp : alterOps) {
+                Preconditions.checkState(alterOp instanceof ModifyColumnCommentOp);
+                ModifyColumnCommentOp op = (ModifyColumnCommentOp) alterOp;
+                String colName = op.getColName();
                 if (tbl.getColumn(colName) == null) {
                     throw new DdlException("Unknown column: " + colName);
                 }
                 if (colToComment.containsKey(colName)) {
                     throw new DdlException("Duplicate column: " + colName);
                 }
-                colToComment.put(colName, clause.getComment());
+                colToComment.put(colName, op.getComment());
             }
 
             // modify comment
@@ -492,41 +537,34 @@ public class Alter {
         }
     }
 
-    private void processAlterExternalTable(AlterTableStmt stmt, Table externalTable, Database db)
-            throws UserException {
-        stmt.checkExternalTableOperationAllow(externalTable);
-        processAlterExternalTableInternal(stmt.getOps(), externalTable, db);
-    }
-
     private void processAlterExternalTable(AlterTableCommand command, Table externalTable, Database db)
             throws UserException {
-        List<AlterClause> alterClauses = new ArrayList<>();
-        alterClauses.addAll(command.getOps());
-        processAlterExternalTableInternal(alterClauses, externalTable, db);
+        List<AlterOp> alterOps = new ArrayList<>(command.getOps());
+        processAlterExternalTableInternal(alterOps, externalTable, db);
     }
 
-    private void processAlterExternalTableInternal(List<AlterClause> alterClauses, Table externalTable, Database db)
+    private void processAlterExternalTableInternal(List<AlterOp> alterOps, Table externalTable, Database db)
             throws UserException {
         // check conflict alter ops first
         AlterOperations currentAlterOps = new AlterOperations();
-        currentAlterOps.checkConflict(alterClauses);
+        currentAlterOps.checkConflict(alterOps);
         if (currentAlterOps.hasRenameOp()) {
-            processRename(db, externalTable, alterClauses);
+            processRename(db, externalTable, alterOps);
         } else if (currentAlterOps.hasSchemaChangeOp()) {
-            schemaChangeHandler.processExternalTable(alterClauses, db, externalTable);
+            schemaChangeHandler.processExternalTable(alterOps, db, externalTable);
         } else if (currentAlterOps.contains(AlterOpType.MODIFY_ENGINE)) {
-            ModifyEngineClause modifyEngineClause = (ModifyEngineClause) alterClauses.get(0);
-            processModifyEngine(db, externalTable, modifyEngineClause);
+            ModifyEngineOp modifyEngineOp = (ModifyEngineOp) alterOps.get(0);
+            processModifyEngine(db, externalTable, modifyEngineOp);
         }
     }
 
-    public void processModifyEngine(Database db, Table externalTable, ModifyEngineClause clause) throws DdlException {
+    public void processModifyEngine(Database db, Table externalTable, ModifyEngineOp op) throws DdlException {
         externalTable.writeLockOrDdlException();
         try {
             if (externalTable.getType() != TableType.MYSQL) {
                 throw new DdlException("Only support modify table engine from MySQL to ODBC");
             }
-            processModifyEngineInternal(db, externalTable, clause.getProperties(), false);
+            processModifyEngineInternal(db, externalTable, op.getProperties(), false);
         } finally {
             externalTable.writeUnlock();
         }
@@ -584,111 +622,28 @@ public class Alter {
         }
     }
 
-    public void processAlterTable(AlterTableStmt stmt) throws UserException {
-        TableName dbTableName = stmt.getTbl();
-        String ctlName = dbTableName.getCtl();
-        String dbName = dbTableName.getDb();
-        String tableName = dbTableName.getTbl();
-        DatabaseIf dbIf = Env.getCurrentEnv().getCatalogMgr()
-                .getCatalogOrException(ctlName, catalog -> new DdlException("Unknown catalog " + catalog))
-                .getDbOrDdlException(dbName);
-        TableIf tableIf = dbIf.getTableOrDdlException(tableName);
-        List<AlterClause> alterClauses = Lists.newArrayList();
-        // some operations will take long time to process, need to be done outside the table lock
-        boolean needProcessOutsideTableLock = false;
-        switch (tableIf.getType()) {
-            case MATERIALIZED_VIEW:
-            case OLAP:
-                if (tableIf.isTemporary()) {
-                    throw new DdlException("Do not support alter temporary table[" + tableName + "]");
-                }
-                OlapTable olapTable = (OlapTable) tableIf;
-                needProcessOutsideTableLock = processAlterOlapTable(stmt, olapTable, alterClauses, (Database) dbIf);
-                break;
-            case ODBC:
-            case JDBC:
-            case HIVE:
-            case MYSQL:
-            case ELASTICSEARCH:
-                processAlterExternalTable(stmt, (Table) tableIf, (Database) dbIf);
-                return;
-            case HMS_EXTERNAL_TABLE:
-            case JDBC_EXTERNAL_TABLE:
-            case ICEBERG_EXTERNAL_TABLE:
-            case PAIMON_EXTERNAL_TABLE:
-            case MAX_COMPUTE_EXTERNAL_TABLE:
-            case HUDI_EXTERNAL_TABLE:
-            case TRINO_CONNECTOR_EXTERNAL_TABLE:
-                alterClauses.addAll(stmt.getOps());
-                setExternalTableAutoAnalyzePolicy((ExternalTable) tableIf, alterClauses);
-                return;
-            default:
-                throw new DdlException("Do not support alter "
-                        + tableIf.getType().toString() + " table[" + tableName + "]");
-        }
-
-        Database db = (Database) dbIf;
-        // the following ops should done outside table lock. because it contain synchronized create operation
-        if (needProcessOutsideTableLock) {
-            Preconditions.checkState(alterClauses.size() == 1);
-            AlterClause alterClause = alterClauses.get(0);
-            if (alterClause instanceof AddPartitionClause) {
-                if (!((AddPartitionClause) alterClause).isTempPartition()) {
-                    DynamicPartitionUtil.checkAlterAllowed(
-                            (OlapTable) db.getTableOrMetaException(tableName, TableType.OLAP));
-                }
-                Env.getCurrentEnv().addPartition(db, tableName, (AddPartitionClause) alterClause, false, 0, true);
-            } else if (alterClause instanceof AddPartitionLikeClause) {
-                if (!((AddPartitionLikeClause) alterClause).getIsTempPartition()) {
-                    DynamicPartitionUtil.checkAlterAllowed(
-                            (OlapTable) db.getTableOrMetaException(tableName, TableType.OLAP));
-                }
-                Env.getCurrentEnv().addPartitionLike(db, tableName, (AddPartitionLikeClause) alterClause);
-            } else if (alterClause instanceof ModifyPartitionClause) {
-                ModifyPartitionClause clause = ((ModifyPartitionClause) alterClause);
-                Map<String, String> properties = clause.getProperties();
-                List<String> partitionNames = clause.getPartitionNames();
-                ((SchemaChangeHandler) schemaChangeHandler).updatePartitionsProperties(
-                        db, tableName, partitionNames, properties);
-                OlapTable olapTable = (OlapTable) tableIf;
-                olapTable.writeLockOrDdlException();
-                try {
-                    modifyPartitionsProperty(db, olapTable, partitionNames, properties, clause.isTempPartition());
-                } finally {
-                    olapTable.writeUnlock();
-                }
-            } else if (alterClause instanceof ModifyTablePropertiesClause) {
-                Map<String, String> properties = alterClause.getProperties();
-                ((SchemaChangeHandler) schemaChangeHandler).updateTableProperties(db, tableName, properties);
-            } else if (alterClause instanceof AlterMultiPartitionClause) {
-                if (!((AlterMultiPartitionClause) alterClause).isTempPartition()) {
-                    DynamicPartitionUtil.checkAlterAllowed(
-                             (OlapTable) db.getTableOrMetaException(tableName, TableType.OLAP));
-                }
-                Env.getCurrentEnv().addMultiPartitions(db, tableName, (AlterMultiPartitionClause) alterClause);
-            } else {
-                throw new DdlException("Invalid alter operation: " + alterClause.getOpType());
-            }
-        }
-    }
-
+    /*
+     * There's two ways to process properties' change:
+     * 1. processAlterOlapTable will trigger schemaChangeHandler.process
+     * 2. as ModifyTablePropertiesClause trigger schemaChangeHandler.updateTableProperties
+     */
     public void processAlterTable(AlterTableCommand command) throws UserException {
         TableNameInfo dbTableName = command.getTbl();
         String ctlName = dbTableName.getCtl();
         String dbName = dbTableName.getDb();
         String tableName = dbTableName.getTbl();
         DatabaseIf dbIf = Env.getCurrentEnv().getCatalogMgr()
-                .getCatalogOrException(ctlName, catalog -> new DdlException("Unknown catalog " + catalog))
+                .getCatalogOrDdlException(ctlName)
                 .getDbOrDdlException(dbName);
         TableIf tableIf = dbIf.getTableOrDdlException(tableName);
-        List<AlterClause> alterClauses = Lists.newArrayList();
+        List<AlterOp> alterOps = Lists.newArrayList();
         // some operations will take long time to process, need to be done outside the table lock
         boolean needProcessOutsideTableLock = false;
         switch (tableIf.getType()) {
             case MATERIALIZED_VIEW:
             case OLAP:
                 OlapTable olapTable = (OlapTable) tableIf;
-                needProcessOutsideTableLock = processAlterOlapTable(command, olapTable, alterClauses, (Database) dbIf);
+                needProcessOutsideTableLock = processAlterOlapTable(command, olapTable, alterOps, (Database) dbIf);
                 break;
             case ODBC:
             case JDBC:
@@ -704,8 +659,8 @@ public class Alter {
             case MAX_COMPUTE_EXTERNAL_TABLE:
             case HUDI_EXTERNAL_TABLE:
             case TRINO_CONNECTOR_EXTERNAL_TABLE:
-                alterClauses.addAll(command.getOps());
-                processAlterTableForExternalTable((ExternalTable) tableIf, alterClauses);
+                alterOps.addAll(command.getOps());
+                processAlterTableForExternalTable((ExternalTable) tableIf, alterOps);
                 return;
             default:
                 throw new DdlException("Do not support alter "
@@ -715,22 +670,22 @@ public class Alter {
         Database db = (Database) dbIf;
         // the following ops should done outside table lock. because it contain synchronized create operation
         if (needProcessOutsideTableLock) {
-            Preconditions.checkState(alterClauses.size() == 1);
-            AlterClause alterClause = alterClauses.get(0);
-            if (alterClause instanceof AddPartitionClause) {
-                if (!((AddPartitionClause) alterClause).isTempPartition()) {
+            Preconditions.checkState(alterOps.size() == 1);
+            AlterOp alterOp = alterOps.get(0);
+            if (alterOp instanceof AddPartitionOp) {
+                if (!((AddPartitionOp) alterOp).isTempPartition()) {
                     DynamicPartitionUtil.checkAlterAllowed(
                             (OlapTable) db.getTableOrMetaException(tableName, TableType.OLAP));
                 }
-                Env.getCurrentEnv().addPartition(db, tableName, (AddPartitionClause) alterClause, false, 0, true);
-            } else if (alterClause instanceof AddPartitionLikeClause) {
-                if (!((AddPartitionLikeClause) alterClause).getIsTempPartition()) {
+                Env.getCurrentEnv().addPartition(db, tableName, (AddPartitionOp) alterOp, false, 0, true);
+            } else if (alterOp instanceof AddPartitionLikeOp) {
+                if (!((AddPartitionLikeOp) alterOp).getTempPartition()) {
                     DynamicPartitionUtil.checkAlterAllowed(
                             (OlapTable) db.getTableOrMetaException(tableName, TableType.OLAP));
                 }
-                Env.getCurrentEnv().addPartitionLike(db, tableName, (AddPartitionLikeClause) alterClause);
-            } else if (alterClause instanceof ModifyPartitionClause) {
-                ModifyPartitionClause clause = ((ModifyPartitionClause) alterClause);
+                Env.getCurrentEnv().addPartitionLike(db, tableName, (AddPartitionLikeOp) alterOp);
+            } else if (alterOp instanceof ModifyPartitionOp) {
+                ModifyPartitionOp clause = ((ModifyPartitionOp) alterOp);
                 Map<String, String> properties = clause.getProperties();
                 List<String> partitionNames = clause.getPartitionNames();
                 ((SchemaChangeHandler) schemaChangeHandler).updatePartitionsProperties(
@@ -742,25 +697,25 @@ public class Alter {
                 } finally {
                     olapTable.writeUnlock();
                 }
-            } else if (alterClause instanceof ModifyTablePropertiesClause) {
-                Map<String, String> properties = alterClause.getProperties();
+            } else if (alterOp instanceof ModifyTablePropertiesOp) {
+                Map<String, String> properties = alterOp.getProperties();
                 ((SchemaChangeHandler) schemaChangeHandler).updateTableProperties(db, tableName, properties);
-            } else if (alterClause instanceof AlterMultiPartitionClause) {
-                if (!((AlterMultiPartitionClause) alterClause).isTempPartition()) {
+            } else if (alterOp instanceof AlterMultiPartitionOp) {
+                if (!((AlterMultiPartitionOp) alterOp).isTempPartition()) {
                     DynamicPartitionUtil.checkAlterAllowed(
                              (OlapTable) db.getTableOrMetaException(tableName, TableType.OLAP));
                 }
-                Env.getCurrentEnv().addMultiPartitions(db, tableName, (AlterMultiPartitionClause) alterClause);
+                Env.getCurrentEnv().addMultiPartitions(db, tableName, (AlterMultiPartitionOp) alterOp);
             } else {
-                throw new DdlException("Invalid alter operation: " + alterClause.getOpType());
+                throw new DdlException("Invalid alter operation: " + alterOp.getOpType());
             }
         }
     }
 
     // entry of processing replace table
-    private void processReplaceTable(Database db, OlapTable origTable, List<AlterClause> alterClauses)
+    private void processReplaceTable(Database db, OlapTable origTable, List<AlterOp> alterOps)
             throws UserException {
-        ReplaceTableClause clause = (ReplaceTableClause) alterClauses.get(0);
+        ReplaceTableOp clause = (ReplaceTableOp) alterOps.get(0);
         String newTblName = clause.getTblName();
         Table newTable = db.getTableOrMetaException(newTblName);
         if (newTable.getType() == TableType.MATERIALIZED_VIEW) {
@@ -862,7 +817,7 @@ public class Alter {
             // not swap, the origin table is not used anymore, need to drop all its tablets.
             // put original table to recycle bin.
             if (isForce) {
-                Env.getCurrentEnv().onEraseOlapTable(origTable, isReplay);
+                Env.getCurrentEnv().onEraseOlapTable(db.getId(), origTable, isReplay);
             } else {
                 Env.getCurrentRecycleBin().recycleTable(db.getId(), origTable, isReplay, isForce, 0);
             }
@@ -873,16 +828,16 @@ public class Alter {
         }
     }
 
-    public void processAlterView(AlterViewStmt stmt, ConnectContext ctx) throws UserException {
-        TableName dbTableName = stmt.getTbl();
-        String dbName = dbTableName.getDb();
-
+    public void processAlterView(AlterViewCommand command, ConnectContext ctx) throws UserException {
+        org.apache.doris.nereids.trees.plans.commands.info.AlterViewInfo alterViewInfo = command.getAlterViewInfo();
+        TableNameInfo tableNameInfo = alterViewInfo.getViewName();
+        String dbName = tableNameInfo.getDb();
         Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
 
-        String tableName = dbTableName.getTbl();
+        String tableName = tableNameInfo.getTbl();
         View view = (View) db.getTableOrMetaException(tableName, TableType.VIEW);
-        modifyViewDef(db, view, stmt.getInlineViewDef(), ctx.getSessionVariable().getSqlMode(),
-                stmt.getColumns(), stmt.getComment());
+        modifyViewDef(db, view, alterViewInfo.getInlineViewDef(), ctx.getSessionVariable().getSqlMode(),
+                alterViewInfo.getColumns(), alterViewInfo.getComment());
     }
 
     private void modifyViewDef(Database db, View view, String inlineViewDef, long sqlMode,
@@ -904,6 +859,7 @@ public class Alter {
                 db.registerTable(view);
                 AlterViewInfo alterViewInfo = new AlterViewInfo(db.getId(), view.getId(),
                         inlineViewDef, newFullSchema, sqlMode, comment);
+                Env.getCurrentEnv().getMtmvService().alterView(new BaseTableInfo(view));
                 Env.getCurrentEnv().getEditLog().logModifyViewDef(alterViewInfo);
                 LOG.info("modify view[{}] definition to {}", viewName, inlineViewDef);
             } finally {
@@ -941,7 +897,7 @@ public class Alter {
 
             db.unregisterTable(viewName);
             db.registerTable(view);
-
+            Env.getCurrentEnv().getMtmvService().alterView(new BaseTableInfo(view));
             LOG.info("replay modify view[{}] definition to {}", viewName, inlineViewDef);
         } finally {
             view.writeUnlock();
@@ -953,20 +909,20 @@ public class Alter {
         systemHandler.processForNereids(Collections.singletonList(command), null, null);
     }
 
-    private void processRename(Database db, OlapTable table, List<AlterClause> alterClauses) throws DdlException {
-        for (AlterClause alterClause : alterClauses) {
-            if (alterClause instanceof TableRenameClause) {
-                Env.getCurrentEnv().renameTable(db, table, (TableRenameClause) alterClause);
+    private void processRename(Database db, OlapTable table, List<AlterOp> alterOps) throws DdlException {
+        for (AlterOp alterOp : alterOps) {
+            if (alterOp instanceof RenameTableOp) {
+                Env.getCurrentEnv().renameTable(db, table, (RenameTableOp) alterOp);
                 break;
             } else {
-                if (alterClause instanceof RollupRenameClause) {
-                    Env.getCurrentEnv().renameRollup(db, table, (RollupRenameClause) alterClause);
+                if (alterOp instanceof RenameRollupOp) {
+                    Env.getCurrentEnv().renameRollup(db, table, (RenameRollupOp) alterOp);
                     break;
-                } else if (alterClause instanceof PartitionRenameClause) {
-                    Env.getCurrentEnv().renamePartition(db, table, (PartitionRenameClause) alterClause);
+                } else if (alterOp instanceof RenamePartitionOp) {
+                    Env.getCurrentEnv().renamePartition(db, table, (RenamePartitionOp) alterOp);
                     break;
-                } else if (alterClause instanceof ColumnRenameClause) {
-                    Env.getCurrentEnv().renameColumn(db, table, (ColumnRenameClause) alterClause);
+                } else if (alterOp instanceof RenameColumnOp) {
+                    Env.getCurrentEnv().renameColumn(db, table, (RenameColumnOp) alterOp);
                     break;
                 } else {
                     Preconditions.checkState(false);
@@ -975,10 +931,10 @@ public class Alter {
         }
     }
 
-    private void processRename(Database db, Table table, List<AlterClause> alterClauses) throws DdlException {
-        for (AlterClause alterClause : alterClauses) {
-            if (alterClause instanceof TableRenameClause) {
-                Env.getCurrentEnv().renameTable(db, table, (TableRenameClause) alterClause);
+    private void processRename(Database db, Table table, List<AlterOp> alterOps) throws DdlException {
+        for (AlterOp alterOp : alterOps) {
+            if (alterOp instanceof RenameTableOp) {
+                Env.getCurrentEnv().renameTable(db, table, (RenameTableOp) alterOp);
                 break;
             } else {
                 Preconditions.checkState(false);
@@ -1169,7 +1125,6 @@ public class Alter {
                      .status == Tablet.TabletStatus.HEALTHY;
     }
 
-
     private Map<Tag, List<Replica>> getReplicasWithTag(Tablet tablet) {
         return tablet.getReplicas().stream()
                 .collect(Collectors.groupingBy(replica -> Env.getCurrentSystemInfo()
@@ -1248,9 +1203,9 @@ public class Alter {
         }
     }
 
-    private void processModifyMinLoadReplicaNum(Database db, OlapTable olapTable, AlterClause alterClause)
+    private void processModifyMinLoadReplicaNum(Database db, OlapTable olapTable, AlterOp alterOp)
             throws DdlException {
-        Map<String, String> properties = alterClause.getProperties();
+        Map<String, String> properties = alterOp.getProperties();
         short minLoadReplicaNum = -1;
         try {
             minLoadReplicaNum = PropertyAnalyzer.analyzeMinLoadReplicaNum(properties);
@@ -1260,13 +1215,13 @@ public class Alter {
         ReplicaAllocation replicaAlloc = olapTable.getDefaultReplicaAllocation();
         if (minLoadReplicaNum > replicaAlloc.getTotalReplicaNum()) {
             throw new DdlException("Failed to check min load replica num [" + minLoadReplicaNum + "]  <= "
-                    + "default replica num [" + replicaAlloc.getTotalReplicaNum() + "]");
+                + "default replica num [" + replicaAlloc.getTotalReplicaNum() + "]");
         }
         if (olapTable.dynamicPartitionExists()) {
             replicaAlloc = olapTable.getTableProperty().getDynamicPartitionProperty().getReplicaAllocation();
             if (!replicaAlloc.isNotSet() && minLoadReplicaNum > replicaAlloc.getTotalReplicaNum()) {
                 throw new DdlException("Failed to check min load replica num [" + minLoadReplicaNum + "]  <= "
-                        + "dynamic partition replica num [" + replicaAlloc.getTotalReplicaNum() + "]");
+                    + "dynamic partition replica num [" + replicaAlloc.getTotalReplicaNum() + "]");
             }
         }
         properties.put(PropertyAnalyzer.PROPERTIES_MIN_LOAD_REPLICA_NUM, Short.toString(minLoadReplicaNum));
@@ -1315,6 +1270,7 @@ public class Alter {
     public void processAlterMTMV(AlterMTMV alterMTMV, boolean isReplay) {
         TableNameInfo tbl = alterMTMV.getMvName();
         MTMV mtmv = null;
+        boolean alterSuccess = true;
         try {
             Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(tbl.getDb());
             mtmv = (MTMV) db.getTableOrMetaException(tbl.getTbl(), TableType.MATERIALIZED_VIEW);
@@ -1329,7 +1285,8 @@ public class Alter {
                     mtmv.alterMvProperties(alterMTMV.getMvProperties());
                     break;
                 case ADD_TASK:
-                    mtmv.addTaskResult(alterMTMV.getTask(), alterMTMV.getRelation(), alterMTMV.getPartitionSnapshots(),
+                    alterSuccess = mtmv.addTaskResult(alterMTMV.getTask(), alterMTMV.getRelation(),
+                            alterMTMV.getPartitionSnapshots(),
                             isReplay);
                     // If it is not a replay thread, it means that the current service is already a new version
                     // and does not require compatibility
@@ -1344,7 +1301,7 @@ public class Alter {
                 Env.getCurrentEnv().getMtmvService().alterJob(mtmv, isReplay);
             }
             // 4. log it and replay it in the follower
-            if (!isReplay) {
+            if (!isReplay && alterSuccess) {
                 Env.getCurrentEnv().getEditLog().logAlterMTMV(alterMTMV);
             }
         } catch (UserException e) {

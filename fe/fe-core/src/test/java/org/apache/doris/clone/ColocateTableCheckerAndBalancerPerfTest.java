@@ -17,16 +17,18 @@
 
 package org.apache.doris.clone;
 
-import org.apache.doris.analysis.CreateDbStmt;
-import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.DdlExecutor;
+import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
 import org.apache.doris.utframe.UtFrameUtils;
@@ -94,8 +96,12 @@ public class ColocateTableCheckerAndBalancerPerfTest {
 
         Env env = Env.getCurrentEnv();
         String createDbStmtStr = "create database test;";
-        CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, connectContext);
-        DdlExecutor.execute(env, createDbStmt);
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = nereidsParser.parseSingle(createDbStmtStr);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, createDbStmtStr);
+        if (logicalPlan instanceof CreateDatabaseCommand) {
+            ((CreateDatabaseCommand) logicalPlan).run(connectContext, stmtExecutor);
+        }
 
         Random random = new Random();
         final int groupNum = 100;
@@ -109,12 +115,12 @@ public class ColocateTableCheckerAndBalancerPerfTest {
                         + "DISTRIBUTED BY HASH(k2) BUCKETS 11\n"
                         + "PROPERTIES('colocate_with' = 'group_%s');",
                         groupIndex, tableIndex, groupIndex);
-                CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
-                try {
-                    DdlExecutor.execute(env, createTableStmt);
-                } catch (Exception e) {
-                    e.printStackTrace();
-                    throw e;
+
+                nereidsParser = new NereidsParser();
+                LogicalPlan parsed = nereidsParser.parseSingle(sql);
+                stmtExecutor = new StmtExecutor(connectContext, sql);
+                if (parsed instanceof CreateTableCommand) {
+                    ((CreateTableCommand) parsed).run(connectContext, stmtExecutor);
                 }
 
                 BalanceStatistic beforeBalanceStatistic = BalanceStatistic.getCurrentBalanceStatistic();

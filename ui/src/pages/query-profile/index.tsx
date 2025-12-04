@@ -50,7 +50,7 @@ export default function QueryProfile(params: any) {
                     if (!res.data.column_names) {
                         setProfile(res.data);
                         if (container.current !== null) {
-                            container.current.innerHTML = res.data;
+                            container.current.innerText = res.data;
                         }
                     } else {
                         setProfile('');
@@ -188,14 +188,14 @@ export default function QueryProfile(params: any) {
                 </Col>
             </Row>
             {profile ? (
-                <div
+                <pre
                     ref={container}
                     style={{ background: '#f9f9f9', padding: '20px', whiteSpace: 'pre-wrap',
                         fontFamily: 'Menlo, Monaco, \'Courier New\', monospace'
                         }}
                 >
                     {/* {profile} */}
-                </div>
+                </pre>
             ) : (
                 <Table
                     rowKey={(record) => record['Profile ID']}

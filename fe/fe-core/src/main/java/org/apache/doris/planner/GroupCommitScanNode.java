@@ -17,11 +17,9 @@
 
 package org.apache.doris.planner;
 
-import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.ExternalScanNode;
-import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TGroupCommitScanNode;
 import org.apache.doris.thrift.TPlanNode;
@@ -37,17 +35,12 @@ public class GroupCommitScanNode extends ExternalScanNode {
     long tableId;
 
     public GroupCommitScanNode(PlanNodeId id, TupleDescriptor desc, long tableId) {
-        super(id, desc, "GROUP_COMMIT_SCAN_NODE",
-                StatisticalType.GROUP_COMMIT_SCAN_NODE, false);
+        super(id, desc, "GROUP_COMMIT_SCAN_NODE", false);
         this.tableId = tableId;
     }
 
     @Override
     protected void createScanRangeLocations() throws UserException {
-    }
-
-    @Override
-    public void finalize(Analyzer analyzer) throws UserException {
     }
 
     @Override

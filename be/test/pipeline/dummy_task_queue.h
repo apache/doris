@@ -16,6 +16,7 @@
 // under the License.
 
 #include "pipeline/task_queue.h"
+#include "pipeline/task_scheduler.h"
 
 namespace doris::pipeline {
 
@@ -46,5 +47,23 @@ class DummyTaskQueue final : public MultiCoreTaskQueue {
         }
         return task;
     }
+};
+
+class MockTaskScheduler : public TaskScheduler {
+public:
+    MockTaskScheduler() : TaskScheduler() { _task_queue = std::make_unique<DummyTaskQueue>(1); }
+
+    Status submit(PipelineTaskSPtr task) override { return _task_queue->push_back(task); }
+
+    Status start() override { return Status::OK(); }
+
+    void stop() override {}
+
+    std::vector<std::pair<std::string, std::vector<int>>> thread_debug_info() override {
+        return {};
+    }
+
+private:
+    std::unique_ptr<DummyTaskQueue> _task_queue;
 };
 } // namespace doris::pipeline

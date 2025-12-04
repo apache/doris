@@ -17,54 +17,71 @@
 
 package org.apache.doris.datasource.iceberg;
 
-import org.apache.doris.analysis.CreateDbStmt;
-import org.apache.doris.analysis.CreateTableStmt;
-import org.apache.doris.analysis.DropTableStmt;
+import org.apache.doris.analysis.ColumnPosition;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.security.authentication.PreExecutionAuthenticator;
+import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.DorisTypeVisitor;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.operations.ExternalMetadataOps;
-import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
+import org.apache.doris.datasource.property.metastore.IcebergRestProperties;
+import org.apache.doris.datasource.property.metastore.MetastoreProperties;
+import org.apache.doris.nereids.trees.plans.commands.info.AddPartitionFieldOp;
 import org.apache.doris.nereids.trees.plans.commands.info.BranchOptions;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceBranchInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceTagInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.DropBranchInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.DropPartitionFieldOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropTagInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.ReplacePartitionFieldOp;
 import org.apache.doris.nereids.trees.plans.commands.info.TagOptions;
 
+import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Splitter;
+import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.iceberg.ManageSnapshots;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.SnapshotRef;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.UpdatePartitionSpec;
+import org.apache.iceberg.UpdateSchema;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.SupportsNamespaces;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.catalog.ViewCatalog;
+import org.apache.iceberg.exceptions.NoSuchNamespaceException;
+import org.apache.iceberg.expressions.Expressions;
+import org.apache.iceberg.expressions.Literal;
+import org.apache.iceberg.expressions.Term;
 import org.apache.iceberg.types.Type;
+import org.apache.iceberg.types.Types.NestedField;
 import org.apache.iceberg.view.View;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 public class IcebergMetadataOps implements ExternalMetadataOps {
 
@@ -72,7 +89,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     protected Catalog catalog;
     protected ExternalCatalog dorisCatalog;
     protected SupportsNamespaces nsCatalog;
-    private PreExecutionAuthenticator preExecutionAuthenticator;
+    private ExecutionAuthenticator executionAuthenticator;
     // Generally, there should be only two levels under the catalog, namely <database>.<table>,
     // but the REST type catalog is obtained from an external server,
     // and the level provided by the external server may be three levels, <catalog>.<database>.<table>.
@@ -84,7 +101,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         this.dorisCatalog = dorisCatalog;
         this.catalog = catalog;
         nsCatalog = (SupportsNamespaces) catalog;
-        this.preExecutionAuthenticator = dorisCatalog.getPreExecutionAuthenticator();
+        this.executionAuthenticator = dorisCatalog.getExecutionAuthenticator();
 
         if (dorisCatalog.getProperties().containsKey(IcebergExternalCatalog.EXTERNAL_CATALOG_NAME)) {
             externalCatalogName =
@@ -110,7 +127,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     @Override
     public boolean tableExist(String dbName, String tblName) {
         try {
-            return preExecutionAuthenticator.execute(() -> catalog.tableExists(getTableIdentifier(dbName, tblName)));
+            return executionAuthenticator.execute(() -> catalog.tableExists(getTableIdentifier(dbName, tblName)));
         } catch (Exception e) {
             throw new RuntimeException("Failed to check table exist, error message is:" + e.getMessage(), e);
         }
@@ -118,7 +135,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
 
     public boolean databaseExist(String dbName) {
         try {
-            return preExecutionAuthenticator.execute(() -> nsCatalog.namespaceExists(getNamespace(dbName)));
+            return executionAuthenticator.execute(() -> nsCatalog.namespaceExists(getNamespace(dbName)));
         } catch (Exception e) {
             throw new RuntimeException("Failed to check database exist, error message is:" + e.getMessage(), e);
         }
@@ -126,20 +143,40 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
 
     public List<String> listDatabaseNames() {
         try {
-            return preExecutionAuthenticator.execute(() -> nsCatalog.listNamespaces(getNamespace())
-                   .stream()
-                   .map(n -> n.level(n.length() - 1))
-                   .collect(Collectors.toList()));
+            return executionAuthenticator.execute(() -> listNestedNamespaces(getNamespace()));
         } catch (Exception e) {
             throw new RuntimeException("Failed to list database names, error message is:" + e.getMessage(), e);
         }
     }
 
+    @NotNull
+    private List<String> listNestedNamespaces(Namespace parentNs) {
+        // Handle nested namespaces for Iceberg REST catalog,
+        // only if "iceberg.rest.nested-namespace-enabled" is true.
+        if (dorisCatalog instanceof IcebergRestExternalCatalog) {
+            IcebergRestExternalCatalog restCatalog = (IcebergRestExternalCatalog) dorisCatalog;
+            MetastoreProperties metaProps = restCatalog.getCatalogProperty().getMetastoreProperties();
+            if (metaProps instanceof IcebergRestProperties
+                    && ((IcebergRestProperties) metaProps).isIcebergRestNestedNamespaceEnabled()) {
+                return nsCatalog.listNamespaces(parentNs)
+                        .stream()
+                        .flatMap(childNs -> Stream.concat(
+                                Stream.of(childNs.toString()),
+                                listNestedNamespaces(childNs).stream()
+                        )).collect(Collectors.toList());
+            }
+        }
+
+        return nsCatalog.listNamespaces(parentNs)
+                .stream()
+                .map(n -> n.level(n.length() - 1))
+                .collect(Collectors.toList());
+    }
 
     @Override
     public List<String> listTableNames(String dbName) {
         try {
-            return preExecutionAuthenticator.execute(() -> {
+            return executionAuthenticator.execute(() -> {
                 List<TableIdentifier> tableIdentifiers = catalog.listTables(getNamespace(dbName));
                 List<String> views;
                 // Our original intention was simply to clearly define the responsibilities of ViewCatalog and Catalog.
@@ -166,44 +203,28 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     }
 
     @Override
-    public void createDbImpl(CreateDbStmt stmt) throws DdlException {
+    public boolean createDbImpl(String dbName, boolean ifNotExists, Map<String, String> properties)
+            throws DdlException {
         try {
-            preExecutionAuthenticator.execute(() -> {
-                performCreateDb(stmt);
-                return null;
-            });
+            return executionAuthenticator.execute(() -> performCreateDb(dbName, ifNotExists, properties));
         } catch (Exception e) {
             throw new DdlException("Failed to create database: "
-                    + stmt.getFullDbName() + ": " + Util.getRootCauseMessage(e), e);
+                    + dbName + ": " + Util.getRootCauseMessage(e), e);
         }
     }
 
     @Override
-    public void createDbImpl(CreateDatabaseCommand command) throws DdlException {
-        try {
-            preExecutionAuthenticator.execute(() -> {
-                performCreateDb(command);
-                return null;
-            });
-        } catch (Exception e) {
-            throw new DdlException("Failed to create database: "
-                + command.getDbName() + ": " + Util.getRootCauseMessage(e), e);
-        }
+    public void afterCreateDb() {
+        dorisCatalog.resetMetaCacheNames();
     }
 
-    @Override
-    public void afterCreateDb(String dbName) {
-        dorisCatalog.onRefreshCache(true);
-    }
-
-    private void performCreateDb(CreateDbStmt stmt) throws DdlException {
+    private boolean performCreateDb(String dbName, boolean ifNotExists, Map<String, String> properties)
+            throws DdlException {
         SupportsNamespaces nsCatalog = (SupportsNamespaces) catalog;
-        String dbName = stmt.getFullDbName();
-        Map<String, String> properties = stmt.getProperties();
         if (databaseExist(dbName)) {
-            if (stmt.isSetIfNotExists()) {
+            if (ifNotExists) {
                 LOG.info("create database[{}] which already exists", dbName);
-                return;
+                return true;
             } else {
                 ErrorReport.reportDdlException(ErrorCode.ERR_DB_CREATE_EXISTS, dbName);
             }
@@ -216,35 +237,14 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
             }
         }
         nsCatalog.createNamespace(getNamespace(dbName), properties);
-    }
-
-    private void performCreateDb(CreateDatabaseCommand command) throws DdlException {
-        SupportsNamespaces nsCatalog = (SupportsNamespaces) catalog;
-        String dbName = command.getDbName();
-        Map<String, String> properties = command.getProperties();
-        if (databaseExist(dbName)) {
-            if (command.isIfNotExists()) {
-                LOG.info("create database[{}] which already exists", dbName);
-                return;
-            } else {
-                ErrorReport.reportDdlException(ErrorCode.ERR_DB_CREATE_EXISTS, dbName);
-            }
-        }
-        if (!properties.isEmpty() && dorisCatalog instanceof IcebergExternalCatalog) {
-            String icebergCatalogType = ((IcebergExternalCatalog) dorisCatalog).getIcebergCatalogType();
-            if (!IcebergExternalCatalog.ICEBERG_HMS.equals(icebergCatalogType)) {
-                throw new DdlException(
-                    "Not supported: create database with properties for iceberg catalog type: " + icebergCatalogType);
-            }
-        }
-        nsCatalog.createNamespace(getNamespace(dbName), properties);
+        return false;
     }
 
     @Override
     public void dropDbImpl(String dbName, boolean ifExists, boolean force) throws DdlException {
         try {
-            preExecutionAuthenticator.execute(() -> {
-                preformDropDb(dbName, ifExists, force);
+            executionAuthenticator.execute(() -> {
+                performDropDb(dbName, ifExists, force);
                 return null;
             });
         } catch (Exception e) {
@@ -253,8 +253,9 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         }
     }
 
-    private void preformDropDb(String dbName, boolean ifExists, boolean force) throws DdlException {
-        if (!databaseExist(dbName)) {
+    private void performDropDb(String dbName, boolean ifExists, boolean force) throws DdlException {
+        ExternalDatabase dorisDb = dorisCatalog.getDbNullable(dbName);
+        if (dorisDb == null) {
             if (ifExists) {
                 LOG.info("drop database[{}] which does not exist", dbName);
                 return;
@@ -263,50 +264,81 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
             }
         }
         if (force) {
-            // try to drop all tables in the database
-            List<String> tables = listTableNames(dbName);
-            for (String table : tables) {
-                performDropTable(dbName, table, true);
-            }
-            if (!tables.isEmpty()) {
-                LOG.info("drop database[{}] with force, drop all tables, num: {}", dbName, tables.size());
+            try {
+                // try to drop all tables in the database
+                List<String> remoteTableNames = listTableNames(dorisDb.getRemoteName());
+                for (String remoteTableName : remoteTableNames) {
+                    performDropTable(dorisDb.getRemoteName(), remoteTableName, true);
+                }
+                if (!remoteTableNames.isEmpty()) {
+                    LOG.info("drop database[{}] with force, drop all tables, num: {}", dbName, remoteTableNames.size());
+                }
+                // try to drop all views in the database
+                List<String> remoteViewNames = listViewNames(dorisDb.getRemoteName());
+                for (String remoteViewName : remoteViewNames) {
+                    performDropView(dorisDb.getRemoteName(), remoteViewName);
+                }
+                if (!remoteViewNames.isEmpty()) {
+                    LOG.info("drop database[{}] with force, drop all views, num: {}", dbName, remoteViewNames.size());
+                }
+            } catch (NoSuchNamespaceException e) {
+                // just ignore
+                LOG.info("drop database[{}] force which does not exist", dbName);
+                return;
             }
         }
-        nsCatalog.dropNamespace(getNamespace(dbName));
+        nsCatalog.dropNamespace(getNamespace(dorisDb.getRemoteName()));
     }
 
     @Override
     public void afterDropDb(String dbName) {
-        dorisCatalog.onRefreshCache(true);
+        dorisCatalog.unregisterDatabase(dbName);
     }
 
     @Override
-    public boolean createTableImpl(CreateTableStmt stmt) throws UserException {
+    public boolean createTableImpl(CreateTableInfo createTableInfo) throws UserException {
         try {
-            preExecutionAuthenticator.execute(() -> performCreateTable(stmt));
+            return executionAuthenticator.execute(() -> performCreateTable(createTableInfo));
         } catch (Exception e) {
             throw new DdlException(
-                "Failed to create table: " + stmt.getTableName() + ", error message is:" + e.getMessage(), e);
+                "Failed to create table: " + createTableInfo.getTableName() + ", error message is:" + e.getMessage(),
+                    e);
         }
-        return false;
     }
 
-    public boolean performCreateTable(CreateTableStmt stmt) throws UserException {
-        String dbName = stmt.getDbName();
+    public boolean performCreateTable(CreateTableInfo createTableInfo) throws UserException {
+        String dbName = createTableInfo.getDbName();
         ExternalDatabase<?> db = dorisCatalog.getDbNullable(dbName);
         if (db == null) {
             throw new UserException("Failed to get database: '" + dbName + "' in catalog: " + dorisCatalog.getName());
         }
-        String tableName = stmt.getTableName();
-        if (tableExist(dbName, tableName)) {
-            if (stmt.isSetIfNotExists()) {
+        String tableName = createTableInfo.getTableName();
+        // 1. first, check if table exist in remote
+        if (tableExist(db.getRemoteName(), tableName)) {
+            if (createTableInfo.isIfNotExists()) {
                 LOG.info("create table[{}] which already exists", tableName);
                 return true;
             } else {
                 ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR, tableName);
             }
         }
-        List<Column> columns = stmt.getColumns();
+        // 2. second, check fi table exist in local.
+        // This is because case sensibility issue, eg:
+        // 1. lower_case_table_name = 1
+        // 2. create table tbl1;
+        // 3. create table TBL1;  TBL1 does not exist in remote because the remote system is case-sensitive.
+        //    but because lower_case_table_name = 1, the table can not be created in Doris because it is conflict with
+        //    tbl1
+        ExternalTable dorisTable = db.getTableNullable(tableName);
+        if (dorisTable != null) {
+            if (createTableInfo.isIfNotExists()) {
+                LOG.info("create table[{}] which already exists", tableName);
+                return true;
+            } else {
+                ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR, tableName);
+            }
+        }
+        List<Column> columns = createTableInfo.getColumns();
         List<StructField> collect = columns.stream()
                 .map(col -> new StructField(col.getName(), col.getType(), col.getComment(), col.isAllowNull()))
                 .collect(Collectors.toList());
@@ -314,91 +346,97 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         Type visit =
                 DorisTypeVisitor.visit(structType, new DorisTypeToIcebergType(structType));
         Schema schema = new Schema(visit.asNestedType().asStructType().fields());
-        Map<String, String> properties = stmt.getProperties();
+        Map<String, String> properties = createTableInfo.getProperties();
         properties.put(ExternalCatalog.DORIS_VERSION, ExternalCatalog.DORIS_VERSION_VALUE);
-        PartitionSpec partitionSpec = IcebergUtils.solveIcebergPartitionSpec(stmt.getPartitionDesc(), schema);
+        PartitionSpec partitionSpec = IcebergUtils.solveIcebergPartitionSpec(createTableInfo.getPartitionDesc(),
+                schema);
         catalog.createTable(getTableIdentifier(dbName, tableName), schema, partitionSpec, properties);
         return false;
     }
 
     @Override
     public void afterCreateTable(String dbName, String tblName) {
-        ExternalDatabase<?> db = dorisCatalog.getDbNullable(dbName);
-        if (db != null) {
-            db.setUnInitialized(true);
+        Optional<ExternalDatabase<?>> db = dorisCatalog.getDbForReplay(dbName);
+        if (db.isPresent()) {
+            db.get().resetMetaCacheNames();
         }
+        LOG.info("after create table {}.{}.{}, is db exists: {}",
+                dorisCatalog.getName(), dbName, tblName, db.isPresent());
     }
 
     @Override
-    public void dropTableImpl(DropTableStmt stmt) throws DdlException {
-        if (stmt == null) {
-            throw new DdlException("DropTableStmt is null");
-        }
-        dropTableImpl(stmt.getDbName(), stmt.getTableName(), stmt.isSetIfExists());
-    }
-
-    public void dropTableImpl(String dbName, String tableName, boolean ifExists) throws DdlException {
+    public void dropTableImpl(ExternalTable dorisTable, boolean ifExists) throws DdlException {
         try {
-            preExecutionAuthenticator.execute(() -> {
-                if (getExternalCatalog().getMetadataOps().viewExists(dbName, tableName)) {
-                    performDropView(dbName, tableName, ifExists);
+            executionAuthenticator.execute(() -> {
+                if (getExternalCatalog().getMetadataOps()
+                        .viewExists(dorisTable.getRemoteDbName(), dorisTable.getRemoteName())) {
+                    performDropView(dorisTable.getRemoteDbName(), dorisTable.getRemoteName());
                 } else {
-                    performDropTable(dbName, tableName, ifExists);
+                    performDropTable(dorisTable.getRemoteDbName(), dorisTable.getRemoteName(), ifExists);
                 }
                 return null;
             });
         } catch (Exception e) {
             throw new DdlException(
-                "Failed to drop table: " + tableName + ", error message is:" + e.getMessage(), e);
+                    "Failed to drop table: " + dorisTable.getName() + ", error message is:" + e.getMessage(), e);
         }
     }
 
     @Override
     public void afterDropTable(String dbName, String tblName) {
-        ExternalDatabase<?> db = dorisCatalog.getDbNullable(dbName);
-        if (db != null) {
-            db.setUnInitialized(true);
+        Optional<ExternalDatabase<?>> db = dorisCatalog.getDbForReplay(dbName);
+        if (db.isPresent()) {
+            db.get().unregisterTable(tblName);
         }
+        LOG.info("after drop table {}.{}.{}. is db exists: {}",
+                dorisCatalog.getName(), dbName, tblName, db.isPresent());
     }
 
-    private void performDropTable(DropTableStmt stmt) throws DdlException {
-        if (stmt == null) {
-            throw new DdlException("DropTableStmt is null");
+    private void performDropTable(String remoteDbName, String remoteTblName, boolean ifExists) throws DdlException {
+        if (!tableExist(remoteDbName, remoteTblName)) {
+            if (ifExists) {
+                LOG.info("drop table[{}] which does not exist", remoteTblName);
+                return;
+            } else {
+                ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_TABLE, remoteTblName, remoteDbName);
+            }
         }
-        performDropTable(stmt.getDbName(), stmt.getTableName(), stmt.isSetIfExists());
+        catalog.dropTable(getTableIdentifier(remoteDbName, remoteTblName), true);
     }
 
-    private void performDropTable(String dbName, String tableName, boolean ifExists) throws DdlException {
-        ExternalDatabase<?> db = dorisCatalog.getDbNullable(dbName);
-        if (db == null) {
-            if (ifExists) {
-                LOG.info("database [{}] does not exist when drop table[{}]", dbName, tableName);
-                return;
-            } else {
-                ErrorReport.reportDdlException(ErrorCode.ERR_BAD_DB_ERROR, dbName);
-            }
+    public void renameTableImpl(String dbName, String tblName, String newTblName) throws DdlException {
+        try {
+            executionAuthenticator.execute(() -> {
+                catalog.renameTable(getTableIdentifier(dbName, tblName), getTableIdentifier(dbName, newTblName));
+                return null;
+            });
+        } catch (Exception e) {
+            throw new DdlException(
+                    "Failed to rename table: " + tblName + " to " + newTblName + ", error message is:" + e.getMessage(),
+                    e);
         }
-
-        if (!tableExist(dbName, tableName)) {
-            if (ifExists) {
-                LOG.info("drop table[{}] which does not exist", tableName);
-                return;
-            } else {
-                ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_TABLE, tableName, dbName);
-            }
-        }
-        catalog.dropTable(getTableIdentifier(dbName, tableName), true);
     }
 
     @Override
-    public void truncateTableImpl(String dbName, String tblName, List<String> partitions) {
+    public void afterRenameTable(String dbName, String oldName, String newName) {
+        Optional<ExternalDatabase<?>> db = dorisCatalog.getDbForReplay(dbName);
+        if (db.isPresent()) {
+            db.get().unregisterTable(oldName);
+            db.get().resetMetaCacheNames();
+        }
+        LOG.info("after rename table {}.{}.{} to {}, is db exists: {}",
+                dorisCatalog.getName(), dbName, oldName, newName, db.isPresent());
+    }
+
+    @Override
+    public void truncateTableImpl(ExternalTable dorisTable, List<String> partitions) {
         throw new UnsupportedOperationException("Truncate Iceberg table is not supported.");
     }
 
     @Override
-    public void createOrReplaceBranchImpl(String dbName, String tblName, CreateOrReplaceBranchInfo branchInfo)
+    public void createOrReplaceBranchImpl(ExternalTable dorisTable, CreateOrReplaceBranchInfo branchInfo)
             throws UserException {
-        Table icebergTable = IcebergUtils.getIcebergTable(dorisCatalog, dbName, tblName);
+        Table icebergTable = IcebergUtils.getIcebergTable(dorisTable);
         BranchOptions branchOptions = branchInfo.getBranchOptions();
 
         Long snapshotId = branchOptions.getSnapshotId()
@@ -406,18 +444,32 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
                         // use current snapshot
                         Optional.ofNullable(icebergTable.currentSnapshot()).map(Snapshot::snapshotId).orElse(null));
 
-        ManageSnapshots manageSnapshots = icebergTable.manageSnapshots();
+        ManageSnapshots manageSnapshots;
+        try {
+            manageSnapshots = executionAuthenticator.execute(icebergTable::manageSnapshots);
+        } catch (Exception e) {
+            throw new RuntimeException(
+                    "Failed to create ManageSnapshots for table: " + icebergTable.name()
+                            + ", error message is: {} " + ExceptionUtils.getRootCauseMessage(e), e);
+        }
         String branchName = branchInfo.getBranchName();
         boolean refExists = null != icebergTable.refs().get(branchName);
         boolean create = branchInfo.getCreate();
         boolean replace = branchInfo.getReplace();
         boolean ifNotExists = branchInfo.getIfNotExists();
-
         Runnable safeCreateBranch = () -> {
-            if (snapshotId == null) {
-                manageSnapshots.createBranch(branchName);
-            } else {
-                manageSnapshots.createBranch(branchName, snapshotId);
+            try {
+                executionAuthenticator.execute(() -> {
+                    if (snapshotId == null) {
+                        manageSnapshots.createBranch(branchName);
+                    } else {
+                        manageSnapshots.createBranch(branchName, snapshotId);
+                    }
+                });
+            } catch (Exception e) {
+                throw new RuntimeException(
+                        "Failed to create branch: " + branchName + " in table: " + icebergTable.name()
+                                + ", error message is: {} " + ExceptionUtils.getRootCauseMessage(e), e);
             }
         };
 
@@ -443,7 +495,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         branchOptions.getRetention().ifPresent(n -> manageSnapshots.setMaxRefAgeMs(branchName, n));
 
         try {
-            preExecutionAuthenticator.execute(() -> manageSnapshots.commit());
+            executionAuthenticator.execute(manageSnapshots::commit);
         } catch (Exception e) {
             throw new RuntimeException(
                     "Failed to create or replace branch: " + branchName + " in table: " + icebergTable.name()
@@ -453,19 +505,21 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
 
     @Override
     public void afterOperateOnBranchOrTag(String dbName, String tblName) {
-        ExternalDatabase<?> db = dorisCatalog.getDbNullable(dbName);
-        if (db != null) {
-            ExternalTable tbl = db.getTableNullable(tblName);
-            if (tbl != null) {
-                tbl.unsetObjectCreated();
+        Optional<ExternalDatabase<?>> db = dorisCatalog.getDbForReplay(dbName);
+        if (db.isPresent()) {
+            Optional tbl = db.get().getTableForReplay(tblName);
+            if (tbl.isPresent()) {
+                Env.getCurrentEnv().getRefreshManager()
+                        .refreshTableInternal(db.get(), (ExternalTable) tbl.get(),
+                                System.currentTimeMillis());
             }
         }
     }
 
     @Override
-    public void createOrReplaceTagImpl(String dbName, String tblName, CreateOrReplaceTagInfo tagInfo)
+    public void createOrReplaceTagImpl(ExternalTable dorisTable, CreateOrReplaceTagInfo tagInfo)
             throws UserException {
-        Table icebergTable = IcebergUtils.getIcebergTable(dorisCatalog, dbName, tblName);
+        Table icebergTable = IcebergUtils.getIcebergTable(dorisTable);
         TagOptions tagOptions = tagInfo.getTagOptions();
         Long snapshotId = tagOptions.getSnapshotId()
                 .orElse(
@@ -484,21 +538,23 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         boolean ifNotExists = tagInfo.getIfNotExists();
         boolean refExists = null != icebergTable.refs().get(tagName);
 
-        ManageSnapshots manageSnapshots = icebergTable.manageSnapshots();
-        if (create && replace && !refExists) {
-            manageSnapshots.createTag(tagName, snapshotId);
-        } else if (replace) {
-            manageSnapshots.replaceTag(tagName, snapshotId);
-        } else {
-            if (refExists && ifNotExists) {
-                return;
-            }
-            manageSnapshots.createTag(tagName, snapshotId);
-        }
 
-        tagOptions.getRetain().ifPresent(n -> manageSnapshots.setMaxRefAgeMs(tagName, n));
         try {
-            preExecutionAuthenticator.execute(() -> manageSnapshots.commit());
+            executionAuthenticator.execute(() -> {
+                ManageSnapshots manageSnapshots = icebergTable.manageSnapshots();
+                if (create && replace && !refExists) {
+                    manageSnapshots.createTag(tagName, snapshotId);
+                } else if (replace) {
+                    manageSnapshots.replaceTag(tagName, snapshotId);
+                } else {
+                    if (refExists && ifNotExists) {
+                        return;
+                    }
+                    manageSnapshots.createTag(tagName, snapshotId);
+                }
+                tagOptions.getRetain().ifPresent(n -> manageSnapshots.setMaxRefAgeMs(tagName, n));
+                manageSnapshots.commit();
+            });
         } catch (Exception e) {
             throw new RuntimeException(
                     "Failed to create or replace tag: " + tagName + " in table: " + icebergTable.name()
@@ -507,64 +563,366 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     }
 
     @Override
-    public void dropTagImpl(String dbName, String tblName, DropTagInfo tagInfo) throws UserException {
+    public void dropTagImpl(ExternalTable dorisTable, DropTagInfo tagInfo) throws UserException {
         String tagName = tagInfo.getTagName();
         boolean ifExists = tagInfo.getIfExists();
-        Table icebergTable = IcebergUtils.getIcebergTable(dorisCatalog, dbName, tblName);
+        Table icebergTable = IcebergUtils.getIcebergTable(dorisTable);
         SnapshotRef snapshotRef = icebergTable.refs().get(tagName);
 
         if (snapshotRef != null || !ifExists) {
-            ManageSnapshots manageSnapshots = icebergTable.manageSnapshots();
             try {
-                preExecutionAuthenticator.execute(() -> manageSnapshots.removeTag(tagName).commit());
+                executionAuthenticator.execute(() -> {
+                    ManageSnapshots manageSnapshots = icebergTable.manageSnapshots();
+                    manageSnapshots.removeTag(tagName).commit();
+                });
             } catch (Exception e) {
                 throw new RuntimeException(
                         "Failed to drop tag: " + tagName + " in table: " + icebergTable.name()
-                        + ", error message is: " + e.getMessage(), e);
+                                + ", error message is: " + e.getMessage(), e);
             }
         }
     }
 
     @Override
-    public void dropBranchImpl(String dbName, String tblName, DropBranchInfo branchInfo) throws UserException {
+    public void dropBranchImpl(ExternalTable dorisTable, DropBranchInfo branchInfo) throws UserException {
         String branchName = branchInfo.getBranchName();
         boolean ifExists = branchInfo.getIfExists();
-        Table icebergTable = IcebergUtils.getIcebergTable(dorisCatalog, dbName, tblName);
+        Table icebergTable = IcebergUtils.getIcebergTable(dorisTable);
         SnapshotRef snapshotRef = icebergTable.refs().get(branchName);
 
         if (snapshotRef != null || !ifExists) {
-            ManageSnapshots manageSnapshots = icebergTable.manageSnapshots();
             try {
-                preExecutionAuthenticator.execute(() -> manageSnapshots.removeBranch(branchName).commit());
+                executionAuthenticator.execute(() -> {
+                    ManageSnapshots manageSnapshots = icebergTable.manageSnapshots();
+                    manageSnapshots.removeBranch(branchName).commit();
+                });
             } catch (Exception e) {
                 throw new RuntimeException(
                         "Failed to drop branch: " + branchName + " in table: " + icebergTable.name()
-                        + ", error message is: " + e.getMessage(), e);
+                                + ", error message is: " + e.getMessage(), e);
             }
         }
     }
 
-    public PreExecutionAuthenticator getPreExecutionAuthenticator() {
-        return preExecutionAuthenticator;
+    private void addOneColumn(UpdateSchema updateSchema, Column column) throws UserException {
+        if (!column.isAllowNull()) {
+            throw new UserException("can't add a non-nullable column to an Iceberg table");
+        }
+        org.apache.iceberg.types.Type dorisType = IcebergUtils.dorisTypeToIcebergType(column.getType());
+        Literal<?> defaultValue = IcebergUtils.parseIcebergLiteral(column.getDefaultValue(), dorisType);
+        updateSchema.addColumn(column.getName(), dorisType, column.getComment(), defaultValue);
+    }
+
+    private void applyPosition(UpdateSchema updateSchema, ColumnPosition position, String columnName) {
+        if (position.isFirst()) {
+            updateSchema.moveFirst(columnName);
+        } else {
+            updateSchema.moveAfter(columnName, position.getLastCol());
+        }
+    }
+
+    private void refreshTable(ExternalTable dorisTable) {
+        Optional<ExternalDatabase<?>> db = dorisCatalog.getDbForReplay(dorisTable.getRemoteDbName());
+        if (db.isPresent()) {
+            Optional<?> tbl = db.get().getTableForReplay(dorisTable.getRemoteName());
+            if (tbl.isPresent()) {
+                Env.getCurrentEnv().getRefreshManager()
+                        .refreshTableInternal(db.get(), (ExternalTable) tbl.get(), System.currentTimeMillis());
+            }
+        }
+    }
+
+    @Override
+    public void addColumn(ExternalTable dorisTable, Column column, ColumnPosition position)
+            throws UserException {
+        validateCommonColumnInfo(column);
+        Table icebergTable = IcebergUtils.getIcebergTable(dorisTable);
+        UpdateSchema updateSchema = icebergTable.updateSchema();
+        addOneColumn(updateSchema, column);
+        if (position != null) {
+            applyPosition(updateSchema, position, column.getName());
+        }
+        try {
+            executionAuthenticator.execute(() -> updateSchema.commit());
+        } catch (Exception e) {
+            throw new UserException("Failed to add column: " + column.getName() + " to table: "
+                    + icebergTable.name() + ", error message is: " + e.getMessage(), e);
+        }
+        refreshTable(dorisTable);
+    }
+
+    @Override
+    public void addColumns(ExternalTable dorisTable, List<Column> columns) throws UserException {
+        Table icebergTable = IcebergUtils.getIcebergTable(dorisTable);
+        UpdateSchema updateSchema = icebergTable.updateSchema();
+        for (Column column : columns) {
+            validateCommonColumnInfo(column);
+            addOneColumn(updateSchema, column);
+        }
+        try {
+            executionAuthenticator.execute(() -> updateSchema.commit());
+        } catch (Exception e) {
+            throw new UserException("Failed to add columns to table: " + icebergTable.name()
+                    + ", error message is: " + e.getMessage(), e);
+        }
+        refreshTable(dorisTable);
+    }
+
+    @Override
+    public void dropColumn(ExternalTable dorisTable, String columnName) throws UserException {
+        Table icebergTable = IcebergUtils.getIcebergTable(dorisTable);
+        UpdateSchema updateSchema = icebergTable.updateSchema();
+        updateSchema.deleteColumn(columnName);
+        try {
+            executionAuthenticator.execute(() -> updateSchema.commit());
+        } catch (Exception e) {
+            throw new UserException("Failed to drop column: " + columnName + " from table: "
+                    + icebergTable.name() + ", error message is: " + e.getMessage(), e);
+        }
+        refreshTable(dorisTable);
+    }
+
+    @Override
+    public void renameColumn(ExternalTable dorisTable, String oldName, String newName) throws UserException {
+        Table icebergTable = IcebergUtils.getIcebergTable(dorisTable);
+        UpdateSchema updateSchema = icebergTable.updateSchema();
+        updateSchema.renameColumn(oldName, newName);
+        try {
+            executionAuthenticator.execute(() -> updateSchema.commit());
+        } catch (Exception e) {
+            throw new UserException("Failed to rename column: " + oldName + " to " + newName
+                    + " in table: " + icebergTable.name() + ", error message is: " + e.getMessage(), e);
+        }
+        refreshTable(dorisTable);
+    }
+
+    @Override
+    public void modifyColumn(ExternalTable dorisTable, Column column, ColumnPosition position)
+            throws UserException {
+        Table icebergTable = IcebergUtils.getIcebergTable(dorisTable);
+        validateForModifyColumn(column, icebergTable);
+        Type icebergType = IcebergUtils.dorisTypeToIcebergType(column.getType());
+        UpdateSchema updateSchema = icebergTable.updateSchema();
+        updateSchema.updateColumn(column.getName(), icebergType.asPrimitiveType(), column.getComment());
+        if (column.isAllowNull()) {
+            // we can change a required column to optional, but not the other way around
+            // because we don't know whether there is existing data with null values.
+            updateSchema.makeColumnOptional(column.getName());
+        }
+        if (position != null) {
+            applyPosition(updateSchema, position, column.getName());
+        }
+        try {
+            executionAuthenticator.execute(() -> updateSchema.commit());
+        } catch (Exception e) {
+            throw new UserException("Failed to modify column: " + column.getName() + " in table: "
+                    + icebergTable.name() + ", error message is: " + e.getMessage(), e);
+        }
+        refreshTable(dorisTable);
+    }
+
+    private void validateForModifyColumn(Column column, Table icebergTable) throws UserException {
+        validateCommonColumnInfo(column);
+        // check complex type
+        if (column.getType().isComplexType()) {
+            throw new UserException("Modify column type to non-primitive type is not supported: " + column.getType());
+        }
+        // check exist
+        NestedField currentCol = icebergTable.schema().findField(column.getName());
+        if (currentCol == null) {
+            throw new UserException("Column " + column.getName() + " does not exist");
+        }
+        // check nullable
+        if (currentCol.isOptional() && !column.isAllowNull()) {
+            throw new UserException("Can not change nullable column " + column.getName() + " to not null");
+        }
+    }
+
+    private void validateCommonColumnInfo(Column column) throws UserException {
+        // check aggregation method
+        if (column.isAggregated()) {
+            throw new UserException("Can not specify aggregation method for iceberg table column");
+        }
+        // check auto inc
+        if (column.isAutoInc()) {
+            throw new UserException("Can not specify auto incremental iceberg table column");
+        }
+    }
+
+    @Override
+    public void reorderColumns(ExternalTable dorisTable, List<String> newOrder) throws UserException {
+        if (newOrder == null || newOrder.isEmpty()) {
+            throw new UserException("Reorder column failed, new order is empty.");
+        }
+        Table icebergTable = IcebergUtils.getIcebergTable(dorisTable);
+        UpdateSchema updateSchema = icebergTable.updateSchema();
+        updateSchema.moveFirst(newOrder.get(0));
+        for (int i = 1; i < newOrder.size(); i++) {
+            updateSchema.moveAfter(newOrder.get(i), newOrder.get(i - 1));
+        }
+        try {
+            executionAuthenticator.execute(() -> updateSchema.commit());
+        } catch (Exception e) {
+            throw new UserException("Failed to reorder columns in table: " + icebergTable.name()
+                    + ", error message is: " + e.getMessage(), e);
+        }
+        refreshTable(dorisTable);
+    }
+
+    public ExecutionAuthenticator getExecutionAuthenticator() {
+        return executionAuthenticator;
+    }
+
+    private Term getTransform(String transformName, String columnName, Integer transformArg) throws UserException {
+        if (columnName == null) {
+            throw new UserException("Column name is required for partition transform");
+        }
+        if (transformName == null) {
+            // identity transform
+            return Expressions.ref(columnName);
+        }
+        switch (transformName.toLowerCase()) {
+            case "bucket":
+                if (transformArg == null) {
+                    throw new UserException("Bucket transform requires a bucket count argument");
+                }
+                return Expressions.bucket(columnName, transformArg);
+            case "truncate":
+                if (transformArg == null) {
+                    throw new UserException("Truncate transform requires a width argument");
+                }
+                return Expressions.truncate(columnName, transformArg);
+            case "year":
+                return Expressions.year(columnName);
+            case "month":
+                return Expressions.month(columnName);
+            case "day":
+                return Expressions.day(columnName);
+            case "hour":
+                return Expressions.hour(columnName);
+            default:
+                throw new UserException("Unsupported partition transform: " + transformName);
+        }
+    }
+
+    /**
+     * Add partition field to Iceberg table for partition evolution
+     */
+    public void addPartitionField(ExternalTable dorisTable, AddPartitionFieldOp op) throws UserException {
+        Table icebergTable = IcebergUtils.getIcebergTable(dorisTable);
+        UpdatePartitionSpec updateSpec = icebergTable.updateSpec();
+
+        String transformName = op.getTransformName();
+        Integer transformArg = op.getTransformArg();
+        String columnName = op.getColumnName();
+        String partitionFieldName = op.getPartitionFieldName();
+        Term transform = getTransform(transformName, columnName, transformArg);
+
+        if (partitionFieldName != null) {
+            updateSpec.addField(partitionFieldName, transform);
+        } else {
+            updateSpec.addField(transform);
+        }
+
+        try {
+            executionAuthenticator.execute(() -> updateSpec.commit());
+        } catch (Exception e) {
+            throw new UserException("Failed to add partition field to table: " + icebergTable.name()
+                    + ", error message is: " + ExceptionUtils.getRootCauseMessage(e), e);
+        }
+        refreshTable(dorisTable);
+        // Reset cached isValidRelatedTable flag after partition evolution
+        ((IcebergExternalTable) dorisTable).setIsValidRelatedTableCached(false);
+    }
+
+    /**
+     * Drop partition field from Iceberg table for partition evolution
+     */
+    public void dropPartitionField(ExternalTable dorisTable, DropPartitionFieldOp op) throws UserException {
+        Table icebergTable = IcebergUtils.getIcebergTable(dorisTable);
+        UpdatePartitionSpec updateSpec = icebergTable.updateSpec();
+
+        if (op.getPartitionFieldName() != null) {
+            updateSpec.removeField(op.getPartitionFieldName());
+        } else {
+            String transformName = op.getTransformName();
+            Integer transformArg = op.getTransformArg();
+            String columnName = op.getColumnName();
+            Term transform = getTransform(transformName, columnName, transformArg);
+            updateSpec.removeField(transform);
+        }
+
+        try {
+            executionAuthenticator.execute(() -> updateSpec.commit());
+        } catch (Exception e) {
+            throw new UserException("Failed to drop partition field from table: " + icebergTable.name()
+                    + ", error message is: " + ExceptionUtils.getRootCauseMessage(e), e);
+        }
+        refreshTable(dorisTable);
+        // Reset cached isValidRelatedTable flag after partition evolution
+        ((IcebergExternalTable) dorisTable).setIsValidRelatedTableCached(false);
+    }
+
+    /**
+     * Replace partition field in Iceberg table for partition evolution
+     */
+    public void replacePartitionField(ExternalTable dorisTable, ReplacePartitionFieldOp op)
+            throws UserException {
+        Table icebergTable = IcebergUtils.getIcebergTable(dorisTable);
+        UpdatePartitionSpec updateSpec = icebergTable.updateSpec();
+
+        // remove old partition field
+        if (op.getOldPartitionFieldName() != null) {
+            updateSpec.removeField(op.getOldPartitionFieldName());
+        } else {
+            String oldTransformName = op.getOldTransformName();
+            Integer oldTransformArg = op.getOldTransformArg();
+            String oldColumnName = op.getOldColumnName();
+            Term oldTransform = getTransform(oldTransformName, oldColumnName, oldTransformArg);
+            updateSpec.removeField(oldTransform);
+        }
+
+        // add new partition field
+        String newPartitionFieldName = op.getNewPartitionFieldName();
+        String newTransformName = op.getNewTransformName();
+        Integer newTransformArg = op.getNewTransformArg();
+        String newColumnName = op.getNewColumnName();
+        Term newTransform = getTransform(newTransformName, newColumnName, newTransformArg);
+
+        if (newPartitionFieldName != null) {
+            updateSpec.addField(newPartitionFieldName, newTransform);
+        } else {
+            updateSpec.addField(newTransform);
+        }
+
+        try {
+            executionAuthenticator.execute(() -> updateSpec.commit());
+        } catch (Exception e) {
+            throw new UserException("Failed to replace partition field in table: " + icebergTable.name()
+                    + ", error message is: " + ExceptionUtils.getRootCauseMessage(e), e);
+        }
+        refreshTable(dorisTable);
+        // Reset cached isValidRelatedTable flag after partition evolution
+        ((IcebergExternalTable) dorisTable).setIsValidRelatedTableCached(false);
     }
 
     @Override
     public Table loadTable(String dbName, String tblName) {
         try {
-            return preExecutionAuthenticator.execute(() -> catalog.loadTable(getTableIdentifier(dbName, tblName)));
+            return executionAuthenticator.execute(() -> catalog.loadTable(getTableIdentifier(dbName, tblName)));
         } catch (Exception e) {
             throw new RuntimeException("Failed to load table, error message is:" + e.getMessage(), e);
         }
     }
 
     @Override
-    public boolean viewExists(String dbName, String viewName) {
+    public boolean viewExists(String remoteDbName, String remoteViewName) {
         if (!(catalog instanceof ViewCatalog)) {
             return false;
         }
         try {
-            return preExecutionAuthenticator.execute(() ->
-                    ((ViewCatalog) catalog).viewExists(getTableIdentifier(dbName, viewName)));
+            return executionAuthenticator.execute(() ->
+                    ((ViewCatalog) catalog).viewExists(getTableIdentifier(remoteDbName, remoteViewName)));
         } catch (Exception e) {
             throw new RuntimeException("Failed to check view exist, error message is:" + e.getMessage(), e);
 
@@ -578,7 +936,8 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         }
         try {
             ViewCatalog viewCatalog = (ViewCatalog) catalog;
-            return preExecutionAuthenticator.execute(() -> viewCatalog.loadView(TableIdentifier.of(dbName, tblName)));
+            return executionAuthenticator.execute(
+                    () -> viewCatalog.loadView(TableIdentifier.of(getNamespace(dbName), tblName)));
         } catch (Exception e) {
             throw new RuntimeException("Failed to load view, error message is:" + e.getMessage(), e);
         }
@@ -590,8 +949,8 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
             return Collections.emptyList();
         }
         try {
-            return preExecutionAuthenticator.execute(() ->
-                ((ViewCatalog) catalog).listViews(Namespace.of(db))
+            return executionAuthenticator.execute(() ->
+                    ((ViewCatalog) catalog).listViews(getNamespace(db))
                     .stream().map(TableIdentifier::name).collect(Collectors.toList()));
         } catch (Exception e) {
             throw new RuntimeException("Failed to list view names, error message is:" + e.getMessage(), e);
@@ -599,15 +958,22 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     }
 
     private TableIdentifier getTableIdentifier(String dbName, String tblName) {
-        return externalCatalogName
-            .map(s -> TableIdentifier.of(s, dbName, tblName))
-            .orElseGet(() -> TableIdentifier.of(dbName, tblName));
+        Namespace ns = getNamespace(dbName);
+        return TableIdentifier.of(ns, tblName);
     }
 
     private Namespace getNamespace(String dbName) {
-        return externalCatalogName
-            .map(s -> Namespace.of(s, dbName))
-            .orElseGet(() -> Namespace.of(dbName));
+        return getNamespace(externalCatalogName, dbName);
+    }
+
+    @VisibleForTesting
+    public static Namespace getNamespace(Optional<String> catalogName, String dbName) {
+        String[] splits = Splitter.on(".").omitEmptyStrings().trimResults().splitToList(dbName).toArray(new String[0]);
+        if (catalogName.isPresent()) {
+            splits = Arrays.copyOf(splits, splits.length + 1);
+            splits[splits.length - 1] = catalogName.get();
+        }
+        return Namespace.of(splits);
     }
 
     private Namespace getNamespace() {
@@ -615,33 +981,16 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     }
 
     public ThreadPoolExecutor getThreadPoolWithPreAuth() {
-        return dorisCatalog.getThreadPoolExecutor();
+        return dorisCatalog.getThreadPoolWithPreAuth();
     }
 
-    private void performDropView(String dbName, String viewName, boolean ifExists) throws DdlException {
+    private void performDropView(String remoteDbName, String remoteViewName) throws DdlException {
         if (!(catalog instanceof ViewCatalog)) {
             throw new DdlException("Drop Iceberg view is not supported with not view catalog.");
         }
-        ExternalDatabase<?> db = dorisCatalog.getDbNullable(dbName);
-        if (db == null) {
-            if (ifExists) {
-                LOG.info("database [{}] does not exist when drop view[{}]", dbName, viewName);
-                return;
-            } else {
-                ErrorReport.reportDdlException(ErrorCode.ERR_BAD_DB_ERROR, dbName);
-            }
-        }
         ViewCatalog viewCatalog = (ViewCatalog) catalog;
-        if (!viewExists(dbName, viewName)) {
-            if (ifExists) {
-                LOG.info("drop view[{}] which does not exist", viewName);
-                return;
-            } else {
-                ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_TABLE, viewName, dbName);
-            }
-        }
-        viewCatalog.dropView(getTableIdentifier(dbName, viewName));
-        db.setUnInitialized(true);
+        viewCatalog.dropView(getTableIdentifier(remoteDbName, remoteViewName));
     }
-
 }
+
+

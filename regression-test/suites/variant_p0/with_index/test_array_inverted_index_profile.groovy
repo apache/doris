@@ -19,7 +19,7 @@ import groovy.json.JsonSlurper
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-suite("test_variant_arrayInvertedIdx_profile", "nonConcurrent"){
+suite("test_variant_arrayInvertedIdx_profile", "p0,nonConcurrent"){
     // prepare test table
     def indexTblName = "var_arr_idx"
     def httpGet = { url ->
@@ -32,32 +32,47 @@ suite("test_variant_arrayInvertedIdx_profile", "nonConcurrent"){
         return conn.getInputStream().getText()
     }
 
-    def checkRowsInvertedIndexFilter = { sql, expectedRowsInvertedIndexFiltered ->
-        order_qt_sql sql
-        def profileUrl = '/rest/v1/query_profile/'
-        def profiles = httpGet(profileUrl)
-        log.debug("profiles:{}", profiles);
-        profiles = new JsonSlurper().parseText(profiles)
-        assertEquals(0, profiles.code)
+    def getProfileList = {
+        def dst = 'http://' + context.config.feHttpAddress
+        def conn = new URL(dst + "/rest/v1/query_profile").openConnection()
+        conn.setRequestMethod("GET")
+        def encoding = Base64.getEncoder().encodeToString((context.config.feHttpUser + ":" + 
+                (context.config.feHttpPassword == null ? "" : context.config.feHttpPassword)).getBytes("UTF-8"))
+        conn.setRequestProperty("Authorization", "Basic ${encoding}")
+        return conn.getInputStream().getText()
+    }
 
-        def profileId = null;
-        for (def profile in profiles["data"]["rows"]) {
-            if (profile["Sql Statement"].contains(sql)) {
-                profileId = profile["Profile ID"]
-                break;
+    def getProfile = { id ->
+            def dst = 'http://' + context.config.feHttpAddress
+            def conn = new URL(dst + "/api/profile/text/?query_id=$id").openConnection()
+            conn.setRequestMethod("GET")
+            def encoding = Base64.getEncoder().encodeToString((context.config.feHttpUser + ":" + 
+                    (context.config.feHttpPassword == null ? "" : context.config.feHttpPassword)).getBytes("UTF-8"))
+            conn.setRequestProperty("Authorization", "Basic ${encoding}")
+            return conn.getInputStream().getText()
+    }
+
+    // Fetch profile text by token with small retries for robustness
+    def getProfileWithToken = { token ->
+        String profileId = ""
+        int attempts = 0
+        while (attempts < 10 && (profileId == null || profileId == "")) {
+            List profileData = new JsonSlurper().parseText(getProfileList()).data.rows
+            for (def profileItem in profileData) {
+                if (profileItem["Sql Statement"].toString().contains(token)) {
+                    profileId = profileItem["Profile ID"].toString()
+                    break
+                }
             }
+            if (profileId == null || profileId == "") {
+                Thread.sleep(300)
+            }
+            attempts++
         }
-        log.info("profileId:{}", profileId);
-        def profileDetail = httpGet("/rest/v1/query_profile/" + profileId)
-        String regex = "RowsInvertedIndexFiltered:.*(\\d+)"
-        Pattern pattern = Pattern.compile(regex)
-        Matcher matcher = pattern.matcher(profileDetail)
-        log.info("profileDetail:{}", profileDetail);
-    	while (matcher.find()) {
-        	int number = Integer.parseInt(matcher.group(1))
-                log.info("filter number:{}", number)
-                assertEquals(expectedRowsInvertedIndexFiltered, number)
-    	}
+        assertTrue(profileId != null && profileId != "")
+        // ensure profile text is fully ready
+        Thread.sleep(800)
+        return getProfile(profileId).toString()
     }
 
     // If we use common expr pass to inverted index , we should set enable_common_expr_pushdown = true
@@ -67,32 +82,32 @@ suite("test_variant_arrayInvertedIdx_profile", "nonConcurrent"){
     sql """ set profile_level = 2;"""
     setFeConfigTemporary([enable_inverted_index_v1_for_variant: true]) {
 
-        sql "DROP TABLE IF EXISTS ${indexTblName}"
-        def storageFormat = new Random().nextBoolean() ? "V1" : "V2"
-        if (storageFormat == "V1" && isCloudMode()) {
-            return;
-        }
-        // create 1 replica table
-        sql """
-        CREATE TABLE IF NOT EXISTS `${indexTblName}` (
-        `apply_date` date NULL COMMENT '',
-        `id` varchar(60) NOT NULL COMMENT '',
-        `inventors` variant NULL COMMENT '',
-        INDEX index_inverted_inventors(inventors) USING INVERTED  COMMENT ''
-        ) ENGINE=OLAP
-        DUPLICATE KEY(`apply_date`, `id`)
-        COMMENT 'OLAP'
-        DISTRIBUTED BY HASH(`id`) BUCKETS 1
-        PROPERTIES (
-        "replication_allocation" = "tag.location.default: 1",
-        "is_being_synced" = "false",
-        "storage_format" = "V2",
-        "light_schema_change" = "true",
-        "disable_auto_compaction" = "false",
-        "enable_single_replica_compaction" = "false",
-        "inverted_index_storage_format" = "$storageFormat"
-        );
-        """
+    sql "DROP TABLE IF EXISTS ${indexTblName}"
+    def storageFormat = new Random().nextBoolean() ? "V1" : "V2"
+    if (storageFormat == "V1" && isCloudMode()) {
+        return;
+    }
+    // create 1 replica table
+    sql """
+	CREATE TABLE IF NOT EXISTS `${indexTblName}` (
+      `apply_date` date NULL COMMENT '',
+      `id` varchar(60) NOT NULL COMMENT '',
+      `inventors` variant<'inventors' : array<text>> NULL COMMENT '',
+      INDEX index_inverted_inventors(inventors) USING INVERTED PROPERTIES( "field_pattern" = "inventors") COMMENT ''
+    ) ENGINE=OLAP
+    DUPLICATE KEY(`apply_date`, `id`)
+    COMMENT 'OLAP'
+    DISTRIBUTED BY HASH(`id`) BUCKETS 1
+    PROPERTIES (
+    "replication_allocation" = "tag.location.default: 1",
+    "is_being_synced" = "false",
+    "storage_format" = "V2",
+    "light_schema_change" = "true",
+    "disable_auto_compaction" = "false",
+    "enable_single_replica_compaction" = "false",
+    "inverted_index_storage_format" = "$storageFormat"
+    );
+    """
 
         sql """ INSERT INTO `var_arr_idx` (`apply_date`, `id`, `inventors`) VALUES
             ('2017-01-01', '6afef581285b6608bf80d5a4e46cf839', '{"inventors":["a", "b", "c"]}'),
@@ -116,31 +131,22 @@ suite("test_variant_arrayInvertedIdx_profile", "nonConcurrent"){
         int randomInt = new Random().nextInt(10)
 
         if (randomInt % 2) {
-            profile("test_profile_time_${randomInt}") {
-                run {
-                    sql "/* test_profile_time_${randomInt} */ select apply_date,id, inventors['inventors'] from var_arr_idx where array_contains(cast(inventors['inventors'] as array<text>), 'w') order by id"
-                }
-
-                check { profileString, exception ->
-                    log.info(profileString)
-                    assertTrue(profileString.contains("RowsInvertedIndexFiltered:  6"))
-                }
-            }
+            def t1 = UUID.randomUUID().toString()
+            sql """
+                select apply_date,id, "${t1}", inventors['inventors'] from var_arr_idx where array_contains(cast(inventors['inventors'] as array<text>), 'w') order by id
+            """
+            def p1 = getProfileWithToken(t1)
+            logger.info("p1: {}", p1)
+            assertTrue(p1.contains("RowsInvertedIndexFiltered: 6"))
         } else {
-            profile("test_profile_time_${randomInt}") {
-                run {
-                    sql "/* test_profile_time_${randomInt} */ select apply_date,id, inventors['inventors'] from var_arr_idx where array_contains(cast(inventors['inventors'] as array<text>), 's') and apply_date = '2017-01-01' order by id"
-                }
-
-                check { profileString, exception ->
-                    log.info(profileString)
-                    assertTrue(profileString.contains("RowsInvertedIndexFiltered:  5"))
-                }
-            }
+            def t2 = UUID.randomUUID().toString()
+            sql """
+                select apply_date,id, "${t2}", inventors['inventors'] from var_arr_idx where array_contains(cast(inventors['inventors'] as array<text>), 's') and apply_date = '2017-01-01' order by id
+            """
+            def p2 = getProfileWithToken(t2)
+            logger.info("p2: {}", p2)
+            assertTrue(p2.contains("RowsInvertedIndexFiltered: 5"))
         }
-    
-
-        // checkRowsInvertedIndexFilter.call("select apply_date,id, inventors['inventors'] from var_arr_idx where array_contains(cast(inventors['inventors'] as array<text>), 'w') order by id;", 6)
 
         try {
             GetDebugPoint().enableDebugPointForAllBEs(checkpoints_name, [result_bitmap: 1])

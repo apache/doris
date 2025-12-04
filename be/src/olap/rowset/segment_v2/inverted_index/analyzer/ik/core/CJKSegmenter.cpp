@@ -18,6 +18,7 @@
 #include "CJKSegmenter.h"
 
 namespace doris::segment_v2 {
+#include "common/compile_check_begin.h"
 
 CJKSegmenter::CJKSegmenter() = default;
 
@@ -79,4 +80,6 @@ void CJKSegmenter::analyze(AnalyzeContext& context) {
 void CJKSegmenter::reset() {
     tmp_hits_.clear();
 }
+
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2

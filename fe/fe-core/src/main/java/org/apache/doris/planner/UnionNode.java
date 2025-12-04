@@ -20,22 +20,15 @@
 
 package org.apache.doris.planner;
 
-import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.TupleId;
-import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
 
-import java.util.List;
-
 public class UnionNode extends SetOperationNode {
-    public UnionNode(PlanNodeId id, TupleId tupleId) {
-        super(id, tupleId, "UNION", StatisticalType.UNION_NODE);
-    }
+    private boolean localShuffleUnion;
 
-    public UnionNode(PlanNodeId id, TupleId tupleId,
-                        List<Expr> setOpResultExprs, boolean isInSubplan) {
-        super(id, tupleId, "UNION", setOpResultExprs, isInSubplan, StatisticalType.UNION_NODE);
+    public UnionNode(PlanNodeId id, TupleId tupleId) {
+        super(id, tupleId, "UNION");
     }
 
     @Override
@@ -48,5 +41,13 @@ public class UnionNode extends SetOperationNode {
     @Override
     public boolean isSerialOperator() {
         return children.isEmpty();
+    }
+
+    public boolean isLocalShuffleUnion() {
+        return localShuffleUnion;
+    }
+
+    public void setLocalShuffleUnion(boolean localShuffleUnion) {
+        this.localShuffleUnion = localShuffleUnion;
     }
 }

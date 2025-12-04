@@ -17,11 +17,11 @@
 
 package org.apache.doris.persist;
 
-import org.apache.doris.analysis.CreateRoutineLoadStmt;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.load.routineload.kafka.KafkaConfiguration;
 import org.apache.doris.load.routineload.kafka.KafkaDataSourceProperties;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateRoutineLoadInfo;
 
 import com.google.common.collect.Maps;
 import org.junit.Assert;
@@ -48,7 +48,7 @@ public class AlterRoutineLoadOperationLogTest {
 
         long jobId = 1000;
         Map<String, String> jobProperties = Maps.newHashMap();
-        jobProperties.put(CreateRoutineLoadStmt.DESIRED_CONCURRENT_NUMBER_PROPERTY, "5");
+        jobProperties.put(CreateRoutineLoadInfo.DESIRED_CONCURRENT_NUMBER_PROPERTY, "5");
 
         Map<String, String> dataSourceProperties = Maps.newHashMap();
         dataSourceProperties.put(KafkaConfiguration.KAFKA_PARTITIONS.getName(), "0, 1");
@@ -71,7 +71,7 @@ public class AlterRoutineLoadOperationLogTest {
 
         AlterRoutineLoadJobOperationLog log2 = AlterRoutineLoadJobOperationLog.read(in);
         Assert.assertEquals(1, log2.getJobProperties().size());
-        Assert.assertEquals("5", log2.getJobProperties().get(CreateRoutineLoadStmt.DESIRED_CONCURRENT_NUMBER_PROPERTY));
+        Assert.assertEquals("5", log2.getJobProperties().get(CreateRoutineLoadInfo.DESIRED_CONCURRENT_NUMBER_PROPERTY));
         KafkaDataSourceProperties kafkaDataSourceProperties = (KafkaDataSourceProperties) log2.getDataSourceProperties();
         Assert.assertEquals(null, kafkaDataSourceProperties.getBrokerList());
         Assert.assertEquals(null, kafkaDataSourceProperties.getTopic());

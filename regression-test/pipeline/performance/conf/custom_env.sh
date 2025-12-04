@@ -19,3 +19,4 @@
 export DORIS_TOOLCHAIN=gcc
 export BUILD_TYPE=release
 export DISABLE_BUILD_UI=ON
+export DISABLE_BUILD_AZURE=ON

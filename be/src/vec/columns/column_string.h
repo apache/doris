@@ -95,6 +95,10 @@ private:
     uint32_t ALWAYS_INLINE size_at(ssize_t i) const {
         return uint32_t(offsets[i] - offsets[i - 1]);
     }
+    size_t serialize_size_at(size_t row) const override {
+        auto string_size(size_at(row));
+        return sizeof(string_size) + string_size;
+    }
 
     template <bool positive>
     struct less;
@@ -367,17 +371,7 @@ public:
 
     const char* deserialize_and_insert_from_arena(const char* pos) override;
 
-    void deserialize_vec(StringRef* keys, const size_t num_rows) override;
-
     size_t get_max_row_byte_size() const override;
-
-    void serialize_vec(StringRef* keys, size_t num_rows, size_t max_row_byte_size) const override;
-
-    void serialize_vec_with_null_map(StringRef* keys, size_t num_rows,
-                                     const uint8_t* null_map) const override;
-
-    void deserialize_vec_with_null_map(StringRef* keys, const size_t num_rows,
-                                       const uint8_t* null_map) override;
 
     void update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
                                   const uint8_t* __restrict null_data) const override {
@@ -490,8 +484,6 @@ public:
     void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
                          IColumn::Permutation& res) const override;
 
-    ColumnPtr replicate(const IColumn::Offsets& replicate_offsets) const override;
-
     void reserve(size_t n) override;
 
     void resize(size_t n) override;
@@ -527,6 +519,15 @@ public:
     ColumnPtr convert_column_if_overflow() override;
 
     void erase(size_t start, size_t length) override;
+
+    void deserialize(StringRef* keys, const size_t num_rows) override;
+    void serialize(StringRef* keys, const size_t num_rows) const override;
+    size_t serialize_impl(char* pos, size_t row) const override;
+    size_t deserialize_impl(const char* pos) override;
+    void serialize_with_nullable(StringRef* keys, size_t num_rows, const bool has_null,
+                                 const uint8_t* __restrict null_map) const override;
+    void deserialize_with_nullable(StringRef* keys, const size_t num_rows,
+                                   PaddedPODArray<UInt8>& null_map) override;
 };
 
 using ColumnString = ColumnStr<UInt32>;

@@ -28,14 +28,14 @@
 
 #include "common/status.h"
 #include "runtime/define_primitive_type.h"
+#include "runtime/primitive_type.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_number_base.h"
-#include "vec/data_types/serde/data_type_date64_serde.h"
+#include "vec/data_types/serde/data_type_date_or_datetime_serde.h"
 
 namespace doris::vectorized {
 class BufferWritable;
-class ReadBuffer;
 class IColumn;
 class DataTypeDate;
 class DataTypeDateV2;
@@ -75,12 +75,21 @@ public:
     }
 
     bool equals(const IDataType& rhs) const override;
+#ifdef BE_TEST
+    /// TODO: remove this in the future
+    using IDataType::to_string;
+    std::string to_string(Int64 int_val) const {
+        doris::VecDateTimeValue value = binary_cast<Int64, doris::VecDateTimeValue>(int_val);
 
-    std::string to_string(const IColumn& column, size_t row_num) const override;
-    std::string to_string(Int64 value) const;
-
+        char buf[64];
+        value.to_string(buf);
+        // DateTime to_string the end is /0
+        return buf;
+    }
+#endif
+    using SerDeType = DataTypeDateTimeSerDe;
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
-        return std::make_shared<DataTypeDateTimeSerDe>(nesting_level);
+        return std::make_shared<SerDeType>(nesting_level);
     }
 
     Field get_field(const TExprNode& node) const override {
@@ -93,17 +102,6 @@ public:
                                    "Invalid value: {} for type DateTime", node.date_literal.value);
         }
     }
-
-    void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
-    void to_string_batch(const IColumn& column, ColumnString& column_to) const final {
-        DataTypeNumberBase<PrimitiveType::TYPE_DATETIME>::template to_string_batch_impl<
-                DataTypeDateTime>(column, column_to);
-    }
-
-    size_t number_length() const;
-    void push_number(ColumnString::Chars& chars, const Int64& num) const;
-
-    Status from_string(ReadBuffer& rb, IColumn* column) const override;
 
     static void cast_to_date_time(Int64& x);
 
@@ -131,10 +129,17 @@ template <>
 inline constexpr bool IsDateTimeV2Type<DataTypeDateTimeV2> = true;
 
 template <typename DataType>
-constexpr bool IsDatelikeV1Types = IsDateTimeType<DataType> || IsDateType<DataType>;
+constexpr bool IsTimeV2Type = false;
+template <>
+inline constexpr bool IsTimeV2Type<DataTypeTimeV2> = true;
 
 template <typename DataType>
+constexpr bool IsDatelikeV1Types = IsDateTimeType<DataType> || IsDateType<DataType>;
+template <typename DataType>
 constexpr bool IsDatelikeV2Types = IsDateTimeV2Type<DataType> || IsDateV2Type<DataType>;
+template <typename DataType>
+constexpr bool IsDatelikeTypes =
+        IsDatelikeV1Types<DataType> || IsDatelikeV2Types<DataType> || IsTimeV2Type<DataType>;
 
 #include "common/compile_check_end.h"
 } // namespace doris::vectorized

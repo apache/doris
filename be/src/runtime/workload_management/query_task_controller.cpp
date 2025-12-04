@@ -24,8 +24,9 @@
 namespace doris {
 #include "common/compile_check_begin.h"
 
-std::unique_ptr<TaskController> QueryTaskController::create(QueryContext* query_ctx) {
-    return QueryTaskController::create_unique(query_ctx->shared_from_this());
+std::unique_ptr<TaskController> QueryTaskController::create(
+        std::shared_ptr<QueryContext> query_ctx) {
+    return QueryTaskController::create_unique(query_ctx);
 }
 
 bool QueryTaskController::is_cancelled() const {

@@ -18,9 +18,9 @@ PhysicalResultSink
 --------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((cd1.cd_education_status = cd2.cd_education_status) and (cd1.cd_marital_status = cd2.cd_marital_status) and (cd2.cd_demo_sk = web_returns.wr_returning_cdemo_sk)) otherCondition=() build RFs:RF5 wr_returning_cdemo_sk->[cd_demo_sk];RF6 cd_marital_status->[cd_marital_status];RF7 cd_education_status->[cd_education_status]
 ----------------------------PhysicalProject
 ------------------------------filter(cd_education_status IN ('Advanced Degree', 'College', 'Primary') and cd_marital_status IN ('D', 'S', 'U'))
---------------------------------PhysicalOlapScan[customer_demographics] apply RFs: RF5 RF6 RF7
+--------------------------------PhysicalOlapScan[customer_demographics(cd2)] apply RFs: RF5 RF6 RF7
 ----------------------------PhysicalProject
-------------------------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((customer_address.ca_address_sk = web_returns.wr_refunded_addr_sk)) otherCondition=(OR[AND[ca_state IN ('IA', 'NC', 'TX'),(web_sales.ws_net_profit >= 100.00),(web_sales.ws_net_profit <= 200.00)],AND[ca_state IN ('GA', 'WI', 'WV'),(web_sales.ws_net_profit >= 150.00)],AND[ca_state IN ('KY', 'OK', 'VA'),(web_sales.ws_net_profit <= 250.00)]]) build RFs:RF4 wr_refunded_addr_sk->[ca_address_sk]
+------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((customer_address.ca_address_sk = web_returns.wr_refunded_addr_sk)) otherCondition=(OR[AND[ca_state IN ('IA', 'NC', 'TX'),(web_sales.ws_net_profit >= 100.00),(web_sales.ws_net_profit <= 200.00)],AND[ca_state IN ('GA', 'WI', 'WV'),(web_sales.ws_net_profit >= 150.00)],AND[ca_state IN ('KY', 'OK', 'VA'),(web_sales.ws_net_profit <= 250.00)]]) build RFs:RF4 wr_refunded_addr_sk->[ca_address_sk]
 --------------------------------PhysicalProject
 ----------------------------------filter((customer_address.ca_country = 'United States') and ca_state IN ('GA', 'IA', 'KY', 'NC', 'OK', 'TX', 'VA', 'WI', 'WV'))
 ------------------------------------PhysicalOlapScan[customer_address] apply RFs: RF4
@@ -40,12 +40,12 @@ PhysicalResultSink
 ------------------------------------------------PhysicalOlapScan[date_dim]
 ------------------------------------PhysicalProject
 --------------------------------------filter(OR[AND[(cd1.cd_marital_status = 'D'),(cd1.cd_education_status = 'Primary')],AND[(cd1.cd_marital_status = 'S'),(cd1.cd_education_status = 'College')],AND[(cd1.cd_marital_status = 'U'),(cd1.cd_education_status = 'Advanced Degree')]] and cd_education_status IN ('Advanced Degree', 'College', 'Primary') and cd_marital_status IN ('D', 'S', 'U'))
-----------------------------------------PhysicalOlapScan[customer_demographics]
+----------------------------------------PhysicalOlapScan[customer_demographics(cd1)]
 ------------------------PhysicalProject
 --------------------------PhysicalOlapScan[reason]
 
 Hint log:
-Used: leading(web_page broadcast { { cd2 { customer_address { { web_returns { web_sales date_dim } } cd1 } } } reason } ) 
-UnUsed: 
+Used: leading(web_page broadcast { { cd2 { customer_address { { web_returns { web_sales date_dim } } cd1 } } } reason } )
+UnUsed:
 SyntaxError:
 

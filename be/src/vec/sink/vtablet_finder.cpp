@@ -58,8 +58,8 @@ Status OlapTabletFinder::find_tablets(RuntimeState* state, Block* block, int row
                     []() -> std::string { return ""; },
                     [&]() -> std::string {
                         fmt::memory_buffer buf;
-                        fmt::format_to(buf, "no partition for this tuple. tuple=\n{}",
-                                       block->dump_data(row_index, 1));
+                        fmt::format_to(buf, "no partition for this tuple. tuple={}",
+                                       block->dump_data_json(row_index, 1));
                         return fmt::to_string(buf);
                     }));
             continue;

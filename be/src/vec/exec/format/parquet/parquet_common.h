@@ -27,34 +27,22 @@
 #include <unordered_set>
 #include <vector>
 
+#include "olap/rowset/segment_v2/row_ranges.h"
 #include "vec/columns/column_nullable.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 using level_t = int16_t;
 
-struct RowRange {
-    RowRange() = default;
-    RowRange(int64_t first, int64_t last) : first_row(first), last_row(last) {}
-
-    int64_t first_row;
-    int64_t last_row;
-
-    bool operator<(const RowRange& range) const { return first_row < range.first_row; }
-
-    std::string debug_string() const {
-        std::stringstream ss;
-        ss << "[" << first_row << "," << last_row << ")";
-        return ss.str();
-    }
-};
+using segment_v2::RowRange;
+using segment_v2::RowRanges;
 
 #pragma pack(1)
 struct ParquetInt96 {
     int64_t lo; // time of nanoseconds in a day
     int32_t hi; // days from julian epoch
 
-    inline int64_t to_timestamp_micros() const {
+    NO_SANITIZE_UNDEFINED inline int64_t to_timestamp_micros() const {
         return (hi - JULIAN_EPOCH_OFFSET_DAYS) * MICROS_IN_DAY + lo / NANOS_PER_MICROSECOND;
     }
     inline __int128 to_int128() const {

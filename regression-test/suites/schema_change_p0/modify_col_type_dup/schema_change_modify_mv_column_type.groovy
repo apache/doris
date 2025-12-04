@@ -68,7 +68,7 @@ suite("schema_change_modify_mv_column_type") {
             assertEquals(100000, json.NumberLoadedRows)
         }
     }
-    createMV ("""CREATE MATERIALIZED VIEW mv_${testTable}_1 AS SELECT c_tinyint, c_bool, k1, c_smallint, c_int, c_bigint, c_largeint, c_float, c_double,  c_decimal, c_decimalv3, c_date, c_datetime, c_datev2, c_datetimev2, c_char, c_varchar, c_string FROM ${testTable} ORDER BY c_tinyint, c_bool, k1""")
+    createMV ("""CREATE MATERIALIZED VIEW mv_${testTable}_1 AS SELECT c_tinyint as a1, c_bool as a2, k1 as a3, c_smallint as a4, c_int as a5, c_bigint as a6, c_largeint as b1, c_float as b2, c_double as b3,  c_decimal as b4, c_decimalv3 as b5, c_date as b6, c_datetime as c1, c_datev2 as c2, c_datetimev2 as c3, c_char as c4, c_varchar as c5, c_string as c6 FROM ${testTable} ORDER BY c_tinyint, c_bool, k1""")
     qt_sql """ desc ${testTable} all """
     sql "set topn_opt_limit_threshold = 100"
     qt_sql "SELECT * from ${testTable} order by 1, 2, 3 limit 10"

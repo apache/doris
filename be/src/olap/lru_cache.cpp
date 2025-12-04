@@ -180,6 +180,10 @@ PrunedInfo LRUCache::set_capacity(size_t capacity) {
     LRUHandle* last_ref_list = nullptr;
     {
         std::lock_guard l(_mutex);
+        if (capacity > _capacity) {
+            _capacity = capacity;
+            return {0, 0};
+        }
         _capacity = capacity;
         _evict_from_lru(0, &last_ref_list);
     }
@@ -626,6 +630,16 @@ PrunedInfo LRUCache::prune_if(CachePrunePredicate pred, bool lazy_mode) {
     return {pruned_count, pruned_size};
 }
 
+void LRUCache::for_each_entry(const std::function<void(const LRUHandle*)>& visitor) {
+    std::lock_guard l(_mutex);
+    for (LRUHandle* p = _lru_normal.next; p != &_lru_normal; p = p->next) {
+        visitor(p);
+    }
+    for (LRUHandle* p = _lru_durable.next; p != &_lru_durable; p = p->next) {
+        visitor(p);
+    }
+}
+
 void LRUCache::set_cache_value_time_extractor(CacheValueTimeExtractor cache_value_time_extractor) {
     _cache_value_time_extractor = cache_value_time_extractor;
 }
@@ -771,6 +785,12 @@ PrunedInfo ShardedLRUCache::prune_if(CachePrunePredicate pred, bool lazy_mode) {
         pruned_info.pruned_size += info.pruned_size;
     }
     return pruned_info;
+}
+
+void ShardedLRUCache::for_each_entry(const std::function<void(const LRUHandle*)>& visitor) {
+    for (int s = 0; s < _num_shards; s++) {
+        _shards[s]->for_each_entry(visitor);
+    }
 }
 
 int64_t ShardedLRUCache::get_usage() {

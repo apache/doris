@@ -25,6 +25,7 @@ import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.Scope;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.translator.ExpressionTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.jobs.executor.Rewriter;
@@ -42,6 +43,8 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.Filter;
+import org.apache.doris.nereids.trees.plans.algebra.Join;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
@@ -62,7 +65,7 @@ import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
-import org.apache.commons.collections.map.CaseInsensitiveMap;
+import org.apache.commons.collections4.map.CaseInsensitiveMap;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -143,7 +146,28 @@ public class PlanUtils {
     }
 
     /**
-     * merge childProjects with parentProjects
+     * try merge childProjects with parentProjects. if merged expression exceeds limit, return empty.
+     */
+    public static Optional<List<NamedExpression>> tryMergeProjections(List<? extends NamedExpression> childProjects,
+            List<? extends NamedExpression> parentProjects) {
+        try {
+            return Optional.of(mergeProjections(childProjects, parentProjects));
+        } catch (AnalysisException e) {
+            if (e.getErrorCode() == AnalysisException.ErrorCode.EXPRESSION_EXCEEDS_LIMIT) {
+                return Optional.empty();
+            } else {
+                throw e;
+            }
+        }
+    }
+
+    /** check if a plan have filter expression */
+    public static boolean isConditionExpressionPlan(Plan plan) {
+        return plan instanceof Filter || plan instanceof Join;
+    }
+
+    /**
+     * merge childProjects with parentProjects. if merged expression exceeds limit, will throw AnalysisException.
      */
     public static List<NamedExpression> mergeProjections(List<? extends NamedExpression> childProjects,
             List<? extends NamedExpression> parentProjects) {
@@ -160,26 +184,26 @@ public class PlanUtils {
     /**
      * replace targetExpressions with project.
      * if the target expression contains a slot which is an alias and its origin expression contains
-     * non-foldable expression and the slot exits multiple times, then can not replace.
+     * unique function and the slot exits multiple times, then can not replace.
      * for example, target expressions: [a, a + 10],  child project: [ t + random() as a ],
      * if replace with the projects, then result expressions: [ t + random(),  t + random() + 10 ],
      * it will calculate random two times, this is error.
      */
-    public static boolean canReplaceWithProjections(List<? extends NamedExpression> childProjects,
+    public static boolean canMergeWithProjections(List<? extends NamedExpression> childProjects,
             List<? extends Expression> targetExpressions) {
-        Set<Slot> nonfoldableSlots = Sets.newHashSet();
+        Set<Slot> uniqueFunctionSlots = Sets.newHashSet();
         for (Entry<Slot, Expression> kv : ExpressionUtils.generateReplaceMap(childProjects).entrySet()) {
-            if (kv.getValue().containsNonfoldable()) {
-                nonfoldableSlots.add(kv.getKey());
+            if (kv.getValue().containsUniqueFunction()) {
+                uniqueFunctionSlots.add(kv.getKey());
             }
         }
-        if (nonfoldableSlots.isEmpty()) {
+        if (uniqueFunctionSlots.isEmpty()) {
             return true;
         }
 
         Set<Slot> counterSet = Sets.newHashSet();
         return targetExpressions.stream().noneMatch(target -> target.anyMatch(
-                e -> (e instanceof Slot) && nonfoldableSlots.contains(e) && !counterSet.add((Slot) e)));
+                e -> (e instanceof Slot) && uniqueFunctionSlots.contains(e) && !counterSet.add((Slot) e)));
     }
 
     public static Plan skipProjectFilterLimit(Plan plan) {

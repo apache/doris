@@ -20,6 +20,8 @@ package org.apache.doris.nereids.types.coercion;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DataType;
 
+import org.apache.commons.lang3.NotImplementedException;
+
 /**
  * Abstract class for all integral data type in Nereids.
  */
@@ -44,5 +46,10 @@ public class IntegralType extends NumericType {
 
     public boolean widerThan(IntegralType other) {
         return this.width() > other.width();
+    }
+
+    // The maximum number of digits that Integer can represent.
+    public int range() {
+        throw new NotImplementedException("should be implemented by derived class");
     }
 }

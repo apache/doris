@@ -167,6 +167,7 @@ public class LoadLoadingTask extends LoadTask {
             this.jobProfile.addExecutionProfile(curCoordinator.getExecutionProfile());
         }
         curCoordinator.setQueryType(TQueryType.LOAD);
+        curCoordinator.getQueryOptions().setEnableInsertStrict(strictMode);
         curCoordinator.setExecMemoryLimit(execMemLimit);
 
         curCoordinator.setMemTableOnSinkNode(enableMemTableOnSinkNode);
@@ -209,6 +210,7 @@ public class LoadLoadingTask extends LoadTask {
                 attachment = new BrokerLoadingTaskAttachment(signature,
                         curCoordinator.getLoadCounters(),
                         curCoordinator.getTrackingUrl(),
+                        curCoordinator.getFirstErrorMsg(),
                         TabletCommitInfo.fromThrift(curCoordinator.getCommitInfos()),
                         ErrorTabletInfo.fromThrift(curCoordinator.getErrorTabletInfos()
                                 .stream().limit(Config.max_error_tablet_of_broker_load).collect(Collectors.toList())),

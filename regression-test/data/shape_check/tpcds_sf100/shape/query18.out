@@ -10,7 +10,7 @@ PhysicalResultSink
 --------------hashAgg[LOCAL]
 ----------------PhysicalRepeat
 ------------------PhysicalProject
---------------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((catalog_sales.cs_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF5 cs_item_sk->[i_item_sk]
+--------------------hashJoin[INNER_JOIN shuffle] hashCondition=((catalog_sales.cs_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF5 cs_item_sk->[i_item_sk]
 ----------------------PhysicalProject
 ------------------------PhysicalOlapScan[item] apply RFs: RF5
 ----------------------PhysicalProject
@@ -23,11 +23,11 @@ PhysicalResultSink
 ------------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF2 RF3 RF4
 ----------------------------------PhysicalProject
 ------------------------------------filter((cd1.cd_education_status = 'Advanced Degree') and (cd1.cd_gender = 'F'))
---------------------------------------PhysicalOlapScan[customer_demographics]
+--------------------------------------PhysicalOlapScan[customer_demographics(cd1)]
 ------------------------------PhysicalProject
 --------------------------------hashJoin[INNER_JOIN shuffle] hashCondition=((customer.c_current_cdemo_sk = cd2.cd_demo_sk)) otherCondition=() build RFs:RF1 c_current_cdemo_sk->[cd_demo_sk]
 ----------------------------------PhysicalProject
-------------------------------------PhysicalOlapScan[customer_demographics] apply RFs: RF1
+------------------------------------PhysicalOlapScan[customer_demographics(cd2)] apply RFs: RF1
 ----------------------------------PhysicalProject
 ------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((customer.c_current_addr_sk = customer_address.ca_address_sk)) otherCondition=() build RFs:RF0 ca_address_sk->[c_current_addr_sk]
 --------------------------------------PhysicalProject

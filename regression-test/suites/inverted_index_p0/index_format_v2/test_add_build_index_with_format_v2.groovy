@@ -113,9 +113,13 @@ suite("test_add_build_index_with_format_v2", "inverted_index_format_v2"){
     String ip = backendId_to_backendIP.get(backend_id)
     String port = backendId_to_backendHttpPort.get(backend_id)
 
-    // cloud mode is directly schema change, local mode is light schema change.
     // cloud mode is 12, local mode is 6
     if (isCloudMode()) {
+        // build index
+        sql """
+        BUILD INDEX ON ${tableName};
+        """
+        wait_for_build_index_on_partition_finish(tableName, timeout)
         check_nested_index_file(ip, port, tablet_id, 7, 2, "V2")
         qt_sql "SELECT * FROM $tableName WHERE name match 'andy' order by id, name, score;"
         return

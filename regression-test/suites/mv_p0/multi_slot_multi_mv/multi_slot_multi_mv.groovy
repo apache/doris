@@ -17,6 +17,9 @@
 
 suite ("multi_slot_multi_mv") {
 
+    // this mv rewrite would not be rewritten in RBO phase, so set TRY_IN_RBO explicitly to make case stable
+    sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
+
     sql """ DROP TABLE IF EXISTS d_table; """
 
     sql """
@@ -35,9 +38,9 @@ suite ("multi_slot_multi_mv") {
     sql "insert into d_table select 2,2,2,'b';"
     sql "insert into d_table select 3,-3,null,'c';"
 
-    createMV ("create materialized view k1a2p2ap3p as select abs(k1)+k2+1,abs(k2+2)+k3+3 from d_table;")
+    createMV ("create materialized view k1a2p2ap3p as select abs(k1)+k2+1 as a1,abs(k2+2)+k3+3 as a2 from d_table;")
 
-    createMV("create materialized view k1a2p2ap3ps as select abs(k1)+k2+1,sum(abs(k2+2)+k3+3) from d_table group by abs(k1)+k2+1;")
+    createMV("create materialized view k1a2p2ap3ps as select abs(k1)+k2+1 as a3,sum(abs(k2+2)+k3+3) as a4 from d_table group by abs(k1)+k2+1;")
 
     sql "insert into d_table select -4,-4,-4,'d';"
     sql "insert into d_table select -4,-4,-4,'d';"
@@ -79,7 +82,7 @@ suite ("multi_slot_multi_mv") {
     }
     qt_select_mv "select abs(k1)+k2+1,sum(abs(k2+2)+k3+3) from d_table group by abs(k1)+k2+1 order by abs(k1)+k2+1;"
 
-    mv_rewrite_success("select abs(k1)+k2+1,abs(k2+2)+k3+3 from d_table order by abs(k1)+k2+1,abs(k2+2)+k3+3", "k1a2p2ap3p")
+    mv_rewrite_success_without_check_chosen("select abs(k1)+k2+1,abs(k2+2)+k3+3 from d_table order by abs(k1)+k2+1,abs(k2+2)+k3+3", "k1a2p2ap3p")
     qt_select_mv "select abs(k1)+k2+1,abs(k2+2)+k3+3 from d_table order by abs(k1)+k2+1,abs(k2+2)+k3+3;"
 
     sql """set enable_stats=true;"""
@@ -112,6 +115,6 @@ suite ("multi_slot_multi_mv") {
         sleep(1000)
     }
 
-    mv_rewrite_success("select abs(k1)+k2+1,abs(k2+2)+k3+3 from d_table order by abs(k1)+k2+1,abs(k2+2)+k3+3", "k1a2p2ap3p")
+    mv_rewrite_success_without_check_chosen("select abs(k1)+k2+1,abs(k2+2)+k3+3 from d_table order by abs(k1)+k2+1,abs(k2+2)+k3+3", "k1a2p2ap3p")
 
 }

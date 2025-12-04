@@ -29,7 +29,7 @@ doris_jdbc_catalog
 
 -- !base1 --
 \N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N
-true	1	1	1	1	1	1.0	1.0	1.00000	1.0000000000	2021-01-01	2021-01-01T00:00	a	a	{"a":1}
+true	1	1	1	1	1	1.0	1	1.00000	1.0000000000	2021-01-01	2021-01-01T00:00	a	a	{"a":1}
 
 -- !all_null --
 \N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N
@@ -62,7 +62,7 @@ doris_jdbc_catalog
 
 -- !base2 --
 \N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N
-true	1	1	1	1	1	1.0	1.0	1.00000	1.0000000000	2021-01-01	2021-01-01T00:00	a	a	{"a":1}
+true	1	1	1	1	1	1.0	1	1.00000	1.0000000000	2021-01-01	2021-01-01T00:00	a	a	{"a":1}
 
 -- !all_null2 --
 \N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N
@@ -114,7 +114,7 @@ arr_string_col	array<text>	Yes	false	\N	NONE
 
 -- !query_ctas_base --
 \N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N
-true	1	1	1	1	1	1.0	1.0	1.00000	1.0000000000	2021-01-01	2021-01-01T00:00	a	a	{"a":1}
+true	1	1	1	1	1	1.0	1	1.00000	1.0000000000	2021-01-01	2021-01-01T00:00	a	a	{"a":1}
 
 -- !query_ctas_arr --
 1	[1]	[1]	[1]	[1]	[1]	[1]	[1]	[1]	[1.00000]	[1.0000000000]	["2021-01-01"]	["2021-01-01 00:00:00.000"]	["a"]	["a"]	["a"]
@@ -141,17 +141,34 @@ char_col	char(85)	Yes	true	\N	NONE
 varchar_col	char(85)	Yes	true	\N	NONE
 json_col	text	Yes	true	\N	NONE
 
--- !sql --
+-- !sql1 --
 \N	\N
 a	1
 
--- !sql --
+-- !sql2 --
 \N	\N
 1	a
 
--- !sql --
-doris_jdbc_catalog
+-- !sql3 --
+\N
+a
 
--- !sql --
-internal
+-- !sql4 --
+\N
+1
+
+-- !sql5 --
+\N
+1
+
+-- !sql6 --
+\N	\N
+1	a
+
+-- !sql7 --
+\N
+1
+
+-- !keywork_table_name --
+1
 

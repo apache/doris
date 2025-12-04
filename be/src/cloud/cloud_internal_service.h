@@ -40,6 +40,19 @@ public:
                                           PGetFileCacheMetaResponse* response,
                                           google::protobuf::Closure* done) override;
 
+    void warm_up_rowset(google::protobuf::RpcController* controller,
+                        const PWarmUpRowsetRequest* request, PWarmUpRowsetResponse* response,
+                        google::protobuf::Closure* done) override;
+
+    void recycle_cache(google::protobuf::RpcController* controller,
+                       const PRecycleCacheRequest* request, PRecycleCacheResponse* response,
+                       google::protobuf::Closure* done) override;
+
+    // Get file cached data about the path in file cache
+    void fetch_peer_data(google::protobuf::RpcController* controller,
+                         const PFetchPeerDataRequest* request, PFetchPeerDataResponse* response,
+                         google::protobuf::Closure* done) override;
+
 private:
     CloudStorageEngine& _engine;
 };

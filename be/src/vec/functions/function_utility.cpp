@@ -78,7 +78,7 @@ public:
         const auto& argument_column =
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
 
-        auto res_column = ColumnUInt8::create();
+        auto res_column = ColumnUInt8::create(input_rows_count, 0);
 
         if (auto* nullable_column = check_and_get_column<ColumnNullable>(*argument_column)) {
             auto null_map_column = ColumnUInt8::create();
@@ -88,12 +88,10 @@ public:
 
             for (int i = 0; i < input_rows_count; i++) {
                 if (nullable_column->is_null_at(i)) {
-                    res_column->insert(Field::create_field<TYPE_BOOLEAN>(0));
                     null_map_column->insert(Field::create_field<TYPE_BOOLEAN>(1));
                 } else {
                     int seconds = data_column->get_data()[i];
                     std::this_thread::sleep_for(std::chrono::seconds(seconds));
-                    res_column->insert(Field::create_field<TYPE_BOOLEAN>(1));
                     null_map_column->insert(Field::create_field<TYPE_BOOLEAN>(0));
                 }
             }
@@ -106,7 +104,6 @@ public:
             for (int i = 0; i < input_rows_count; i++) {
                 int seconds = data_column->get_element(i);
                 std::this_thread::sleep_for(std::chrono::seconds(seconds));
-                res_column->insert(Field::create_field<TYPE_BOOLEAN>(1));
             }
 
             block.replace_by_position(result, std::move(res_column));

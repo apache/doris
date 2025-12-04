@@ -24,6 +24,7 @@ import com.google.common.collect.Lists;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Optional;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
@@ -105,7 +106,10 @@ public class DorisMetricRegistry {
     private static String computeLabelId(List<MetricLabel> labels) {
         TreeMap<String, String> labelMap = new TreeMap<>();
         for (MetricLabel label : labels) {
-            labelMap.put(label.getKey(), label.getValue().replace("\\", "\\\\").replace("\"", "\\\""));
+            labelMap.put(label.getKey(),
+                    Optional.ofNullable(label.getValue())
+                            .map(v -> v.replace("\\", "\\\\").replace("\"", "\\\""))
+                            .orElse(""));
         }
         return labelMap.entrySet()
                 .stream()

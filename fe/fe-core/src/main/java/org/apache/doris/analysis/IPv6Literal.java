@@ -38,6 +38,9 @@ public class IPv6Literal extends LiteralExpr {
             Pattern.compile("^([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}$");
     private static final Pattern IPV6_COMPRESS_REGEX =
             Pattern.compile("^(([0-9A-Fa-f]{1,4}(:[0-9A-Fa-f]{1,4})*)?)::((([0-9A-Fa-f]{1,4}:)*[0-9A-Fa-f]{1,4})?)$");
+    private static final String IPV4_PART = "(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)";
+    private static final Pattern IPV6_MAPPED_REGEX =
+            Pattern.compile("^::[fF]{4}:(" + IPV4_PART + "\\.){3}" + IPV4_PART + "$");
 
     @SerializedName("v")
     private String value;
@@ -70,7 +73,8 @@ public class IPv6Literal extends LiteralExpr {
     private void checkValueValid(String ipv6) throws AnalysisException {
         if (ipv6.length() > 39) {
             throw new AnalysisException("The length of IPv6 must not exceed 39. type: " + Type.IPV6);
-        } else if (!IPV6_STD_REGEX.matcher(ipv6).matches() && !IPV6_COMPRESS_REGEX.matcher(ipv6).matches()) {
+        } else if (!IPV6_STD_REGEX.matcher(ipv6).matches() && !IPV6_COMPRESS_REGEX.matcher(ipv6).matches()
+                && !IPV6_MAPPED_REGEX.matcher(ipv6).matches()) {
             throw new AnalysisException("Invalid IPv6 format: " + ipv6 + ". type: " + Type.IPV6);
         }
     }

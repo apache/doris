@@ -19,12 +19,12 @@ package org.apache.doris.common.proc;
 
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.SlotRef;
-import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.info.TableNameInfo;
 
 import com.google.common.collect.Lists;
 import org.junit.Assert;
@@ -39,8 +39,8 @@ public class IndexSchemaProcNodeTest {
         List<Column> columnList = Lists.newArrayList();
         Column column1 = new Column("k1", Type.INT, true, null, true, "", "");
         Column column2 = new Column("mv_bitmap_union_v1", Type.BITMAP, false, AggregateType.BITMAP_UNION, true, "", "");
-        TableName tableName = new TableName(InternalCatalog.INTERNAL_CATALOG_NAME, "db1", "t1");
-        SlotRef slotRef = new SlotRef(tableName, "v1");
+        TableNameInfo tableNameInfo = new TableNameInfo(InternalCatalog.INTERNAL_CATALOG_NAME, "db1", "t1");
+        SlotRef slotRef = new SlotRef(tableNameInfo, "v1");
         FunctionCallExpr functionCallExpr = new FunctionCallExpr("to_bitmap", Lists.newArrayList(slotRef));
         column2.setDefineExpr(functionCallExpr);
         columnList.add(column1);
@@ -50,6 +50,8 @@ public class IndexSchemaProcNodeTest {
         Assert.assertEquals(2, procResult.getRows().size());
         Assert.assertTrue(procResult.getRows().get(1).contains(column2.getDisplayName()));
         Assert.assertFalse(procResult.getRows().get(1).contains(column2.getName()));
+        Assert.assertEquals("The column size should be 6", 6, procResult.getColumnNames().size());
+        Assert.assertEquals("The row size should be 6", 6, procResult.getRows().get(1).size());
 
     }
 }

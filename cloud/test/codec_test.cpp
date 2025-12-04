@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "meta-service/codec.h"
+#include "meta-store/codec.h"
 
 #include <gtest/gtest.h>
 
@@ -32,6 +32,7 @@ int main(int argc, char** argv) {
 }
 
 TEST(CodecTest, StringCodecTest) {
+    using namespace doris::cloud;
     std::mt19937 gen(std::random_device("/dev/urandom")());
     const int max_len = (2 << 16) + 10086;
     std::uniform_int_distribution<int> rd_len(0, max_len);
@@ -66,41 +67,52 @@ TEST(CodecTest, StringCodecTest) {
             int len2 = rd_len(gen);
             int zero_count1 = 0;
             int zero_count2 = 0;
-            while (len1--) {
+            while (str1.size() < len1) {
                 str1.push_back(rd_char(gen));
                 str1.back() == 0x00 ? ++zero_count1 : zero_count1 += 0;
             }
-            while (len2--) {
+            while (str2.size() < len2) {
                 str2.push_back(rd_char(gen));
                 str2.back() == 0x00 ? ++zero_count2 : zero_count2 += 0;
             }
             cloud::encode_bytes(str1, &b1);
             cloud::encode_bytes(str2, &b2);
-            int sequence = std::memcmp(&str1[0], &str2[0],
-                                       str1.size() > str2.size() ? str2.size() : str1.size());
-            int sequence_decoded =
-                    std::memcmp(&b1[0], &b2[0], b1.size() > b2.size() ? b2.size() : b1.size());
-            ASSERT_TRUE((sequence * sequence_decoded > 0) ||
-                        (sequence == 0 && sequence_decoded == 0));
-            ASSERT_TRUE(b1[0] == cloud::EncodingTag::BYTES_TAG);
-            ASSERT_TRUE(b2[0] == cloud::EncodingTag::BYTES_TAG);
+            // clang-format off
+            int sequence = std::memcmp(&str1[0], &str2[0], str1.size() > str2.size() ? str2.size() : str1.size());
+            int sequence_encoded = std::memcmp(&b1[0], &b2[0], b1.size() > b2.size() ? b2.size() : b1.size());
+#define CASE_INFO "sequence=" << sequence << " sequence_encoded=" << sequence_encoded << " str1=" << hex(str1)<< " str2=" << hex(str2)<< " b1=" << hex(b1)<< " b2=" << hex(b2) << " len1=" << len1 << " len2=" << len2
+            if (len1 > 0 && len2 > 0) {
+                EXPECT_TRUE((sequence * sequence_encoded > 0) || (sequence == 0 && sequence_encoded == 0)) << CASE_INFO;
+            } else { // sequence is not 0 if one of len1,len2 is 0
+                if (len1 > len2) {
+                    EXPECT_GT(sequence_encoded, 0) << CASE_INFO;
+                } else if (len1 < len2) {
+                    EXPECT_LT(sequence_encoded, 0) << CASE_INFO;
+                } else { // len1 == len2 == 0
+                    EXPECT_TRUE(len1 == 0 && len2 == 0 && sequence == 0 && sequence == sequence_encoded) << CASE_INFO;
+                }
+            }
+#undef CASE_INFO
+            EXPECT_EQ(b1[0], cloud::EncodingTag::BYTES_TAG) << " str1=" << hex(str1)<< " str2=" << hex(str2)<< " b1=" << hex(b1)<< " b2=" << hex(b2);
+            EXPECT_EQ(b2[0], cloud::EncodingTag::BYTES_TAG) << " str1=" << hex(str1)<< " str2=" << hex(str2)<< " b1=" << hex(b1)<< " b2=" << hex(b2);
             // Check encoded value size, marker + zero_escape + terminator
-            ASSERT_TRUE(b1.size() == (str1.size() + 1 + zero_count1 + 2));
-            ASSERT_TRUE(b2.size() == (str2.size() + 1 + zero_count2 + 2));
+            EXPECT_EQ(b1.size(), (str1.size() + 1 + zero_count1 + 2)) << "zc1=" << zero_count1;
+            EXPECT_EQ(b2.size(), (str2.size() + 1 + zero_count2 + 2)) << "zc2=" << zero_count2;
 
             // Decoding test
             b1 += "cloud is good";
             b2 += "cloud will be better";
             std::string_view b1_sv(b1);
             ret = cloud::decode_bytes(&b1_sv, &d1);
-            ASSERT_TRUE(ret == 0);
-            ASSERT_TRUE(d1 == str1);
+            EXPECT_EQ(ret, 0);
+            EXPECT_EQ(d1, str1);
             std::string_view b2_sv(b2);
             ret = cloud::decode_bytes(&b2_sv, &d2);
-            ASSERT_TRUE(ret == 0);
-            ASSERT_TRUE(d2 == str2);
-            ASSERT_TRUE(b1_sv == "cloud is good");
-            ASSERT_TRUE(b2_sv == "cloud will be better");
+            EXPECT_EQ(ret, 0);
+            EXPECT_EQ(d2, str2);
+            EXPECT_EQ(b1_sv, "cloud is good");
+            EXPECT_EQ(b2_sv, "cloud will be better");
+            // clang-format on
         }
     }
 

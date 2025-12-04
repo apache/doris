@@ -49,26 +49,23 @@ public:
         }
     }
     bool equals(const IDataType& rhs) const override;
-
-    std::string to_string(const IColumn& column, size_t row_num) const override;
-    std::string to_string(double int_val) const;
-
-    void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
-    void to_string_batch(const IColumn& column, ColumnString& column_to) const final {
-        DataTypeNumberBase<PrimitiveType::TYPE_TIMEV2>::template to_string_batch_impl<
-                DataTypeTimeV2>(column, column_to);
+    bool equals_ignore_precision(const IDataType& rhs) const override {
+        return rhs.get_primitive_type() == PrimitiveType::TYPE_TIMEV2;
     }
-
-    size_t number_length() const;
+    /// TODO: remove this in the future
+    using IDataType::to_string;
+    std::string to_string(double int_val) const;
     void push_number(ColumnString::Chars& chars, const Float64& num) const;
     MutableColumnPtr create_column() const override;
 
     void to_pb_column_meta(PColumnMeta* col_meta) const override;
+    using SerDeType = DataTypeTimeV2SerDe;
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
-        return std::make_shared<DataTypeTimeV2SerDe>(_scale, nesting_level);
+        return std::make_shared<SerDeType>(_scale, nesting_level);
     };
     PrimitiveType get_primitive_type() const override { return PrimitiveType::TYPE_TIMEV2; }
-    const std::string get_family_name() const override { return "timev2"; }
+    const std::string get_family_name() const override { return "TimeV2"; }
+    std::string do_get_name() const override { return "TimeV2(" + std::to_string(_scale) + ")"; }
     UInt32 get_scale() const override { return _scale; }
 
     Field get_field(const TExprNode& node) const override;

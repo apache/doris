@@ -17,6 +17,9 @@
 
 #include "data_type_string_serde.h"
 
+#include "runtime/define_primitive_type.h"
+#include "util/jsonb_document_cast.h"
+#include "util/jsonb_utils.h"
 #include "util/jsonb_writer.h"
 #include "vec/columns/column_string.h"
 
@@ -196,7 +199,7 @@ Status DataTypeStringSerDeBase<ColumnType>::read_column_from_pb(IColumn& column,
 template <typename ColumnType>
 void DataTypeStringSerDeBase<ColumnType>::write_one_cell_to_jsonb(const IColumn& column,
                                                                   JsonbWriter& result,
-                                                                  Arena* mem_pool, int32_t col_id,
+                                                                  Arena& mem_pool, int32_t col_id,
                                                                   int64_t row_num) const {
     result.writeKey(cast_set<JsonbKeyValue::keyid_type>(col_id));
     const auto& data_ref = column.get_data_at(row_num);
@@ -259,12 +262,21 @@ Status DataTypeStringSerDeBase<ColumnType>::read_column_from_arrow(
         arrow_array->type_id() == arrow::Type::BINARY) {
         const auto* concrete_array = dynamic_cast<const arrow::BinaryArray*>(arrow_array);
         std::shared_ptr<arrow::Buffer> buffer = concrete_array->value_data();
+        const uint8_t* offsets_data = concrete_array->value_offsets()->data();
+        const size_t offset_size = sizeof(int32_t);
 
         for (auto offset_i = start; offset_i < end; ++offset_i) {
             if (!concrete_array->IsNull(offset_i)) {
-                const auto* raw_data = buffer->data() + concrete_array->value_offset(offset_i);
+                int32_t start_offset = 0;
+                int32_t end_offset = 0;
+                memcpy(&start_offset, offsets_data + offset_i * offset_size, offset_size);
+                memcpy(&end_offset, offsets_data + (offset_i + 1) * offset_size, offset_size);
+
+                int32_t length = end_offset - start_offset;
+                const auto* raw_data = buffer->data() + start_offset;
+
                 assert_cast<ColumnType&>(column).insert_data(
-                        (char*)raw_data, concrete_array->value_length(offset_i));
+                        reinterpret_cast<const char*>(raw_data), length);
             } else {
                 assert_cast<ColumnType&>(column).insert_default();
             }
@@ -304,27 +316,15 @@ Status DataTypeStringSerDeBase<ColumnType>::read_column_from_arrow(
 }
 
 template <typename ColumnType>
-Status DataTypeStringSerDeBase<ColumnType>::write_column_to_mysql(
-        const IColumn& column, MysqlRowBuffer<true>& row_buffer, int64_t row_idx, bool col_const,
-        const FormatOptions& options) const {
-    return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
-}
-template <typename ColumnType>
-Status DataTypeStringSerDeBase<ColumnType>::write_column_to_mysql(
-        const IColumn& column, MysqlRowBuffer<false>& row_buffer, int64_t row_idx, bool col_const,
-        const FormatOptions& options) const {
-    return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
-}
-
-template <typename ColumnType>
 Status DataTypeStringSerDeBase<ColumnType>::write_column_to_orc(
         const std::string& timezone, const IColumn& column, const NullMap* null_map,
         orc::ColumnVectorBatch* orc_col_batch, int64_t start, int64_t end,
-        std::vector<StringRef>& buffer_list) const {
+        vectorized::Arena& arena) const {
     auto* cur_batch = dynamic_cast<orc::StringVectorBatch*>(orc_col_batch);
 
     for (auto row_id = start; row_id < end; row_id++) {
         const auto& ele = assert_cast<const ColumnType&>(column).get_data_at(row_id);
+        // to adapt to orc::Writer, no modifications will be made. so can use const_cast
         cur_batch->data[row_id] = const_cast<char*>(ele.data);
         cur_batch->length[row_id] = ele.size;
     }
@@ -334,28 +334,124 @@ Status DataTypeStringSerDeBase<ColumnType>::write_column_to_orc(
 }
 
 template <typename ColumnType>
-Status DataTypeStringSerDeBase<ColumnType>::write_one_cell_to_json(
-        const IColumn& column, rapidjson::Value& result,
-        rapidjson::Document::AllocatorType& allocator, Arena& mem_pool, int64_t row_num) const {
-    const auto& col = assert_cast<const ColumnType&>(column);
-    const auto& data_ref = col.get_data_at(row_num);
-    result.SetString(data_ref.data, cast_set<rapidjson::SizeType>(data_ref.size));
+Status DataTypeStringSerDeBase<ColumnType>::serialize_column_to_jsonb(const IColumn& from_column,
+                                                                      int64_t row_num,
+                                                                      JsonbWriter& writer) const {
+    if constexpr (!std::is_same_v<ColumnType, ColumnString>) {
+        return Status::NotSupported(
+                "DataTypeStringSerDeBase only supports ColumnString for serialize_column_to_jsonb");
+    }
+    const auto& data = assert_cast<const ColumnString&>(from_column).get_data_at(row_num);
+
+    // start writing string
+    if (!writer.writeStartString()) {
+        return Status::InternalError("writeStartString failed");
+    }
+
+    // write string
+    if (data.size > 0) {
+        if (writer.writeString(data.data, data.size) == 0) {
+            return Status::InternalError("writeString failed");
+        }
+    }
+
+    // end writing string
+    if (!writer.writeEndString()) {
+        return Status::InternalError("writeEndString failed");
+    }
+
     return Status::OK();
 }
 
 template <typename ColumnType>
-Status DataTypeStringSerDeBase<ColumnType>::read_one_cell_from_json(
-        IColumn& column, const rapidjson::Value& result) const {
-    auto& col = assert_cast<ColumnType&>(column);
-    if (!result.IsString()) {
-        rapidjson::StringBuffer buffer;
-        rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
-        result.Accept(writer);
-        col.insert_data(buffer.GetString(), buffer.GetSize());
-        return Status::OK();
+Status DataTypeStringSerDeBase<ColumnType>::deserialize_column_from_jsonb(
+        IColumn& column, const JsonbValue* jsonb_value, CastParameters& castParms) const {
+    if constexpr (!std::is_same_v<ColumnType, ColumnString>) {
+        return Status::NotSupported(
+                "DataTypeStringSerDeBase only supports ColumnString for "
+                "deserialize_column_from_jsonb");
     }
-    col.insert_data(result.GetString(), result.GetStringLength());
+    auto& col_str = assert_cast<ColumnString&>(column);
+    std::string str;
+    if (jsonb_value->isString()) {
+        const auto* blob = jsonb_value->unpack<JsonbBinaryVal>();
+        str.assign(blob->getBlob(), blob->getBlobLen());
+    } else {
+        str = JsonbToJson {}.to_json_string(jsonb_value);
+    }
+    col_str.insert_value(str);
+
     return Status::OK();
+}
+
+template <typename ColumnType>
+Status DataTypeStringSerDeBase<ColumnType>::deserialize_column_from_jsonb_vector(
+        ColumnNullable& column_to, const ColumnString& col_from_json,
+        CastParameters& castParms) const {
+    if constexpr (!std::is_same_v<ColumnType, ColumnString>) {
+        return Status::NotSupported(
+                "DataTypeStringSerDeBase only supports ColumnString for "
+                "deserialize_column_from_jsonb_vector");
+    }
+
+    const size_t size = col_from_json.size();
+
+    auto& null_map = column_to.get_null_map_data();
+    auto& col_str = assert_cast<ColumnString&>(column_to.get_nested_column());
+
+    null_map.resize_fill(size, false);
+    col_str.get_offsets().reserve(size);
+    col_str.get_chars().reserve(col_from_json.get_chars().size());
+
+    for (size_t i = 0; i < size; ++i) {
+        const auto& val = col_from_json.get_data_at(i);
+        auto* jsonb_value = handle_jsonb_value(val);
+        if (!jsonb_value) {
+            null_map[i] = true;
+            col_str.insert_default();
+            continue;
+        }
+        if (jsonb_value->isString()) {
+            const auto* blob = jsonb_value->unpack<JsonbBinaryVal>();
+            col_str.insert_data(blob->getBlob(), blob->getBlobLen());
+        } else {
+            col_str.insert_value(JsonbToJson {}.to_json_string(jsonb_value));
+        }
+    }
+    return Status::OK();
+}
+
+template <typename ColumnType>
+void DataTypeStringSerDeBase<ColumnType>::to_string(const IColumn& column, size_t row_num,
+                                                    BufferWritable& bw) const {
+    if (_nesting_level > 1) {
+        bw.write('"');
+    }
+    const auto& value =
+            assert_cast<const ColumnType&, TypeCheckOnRelease::DISABLE>(column).get_data_at(
+                    row_num);
+    bw.write(value.data, value.size);
+    if (_nesting_level > 1) {
+        bw.write('"');
+    }
+}
+
+template <typename ColumnType>
+bool DataTypeStringSerDeBase<ColumnType>::write_column_to_presto_text(const IColumn& column,
+                                                                      BufferWritable& bw,
+                                                                      int64_t row_idx) const {
+    const auto& value =
+            assert_cast<const ColumnType&, TypeCheckOnRelease::DISABLE>(column).get_data_at(
+                    row_idx);
+    bw.write(value.data, value.size);
+    return true;
+}
+
+template <typename ColumnType>
+Status DataTypeStringSerDeBase<ColumnType>::from_string(StringRef& str, IColumn& column,
+                                                        const FormatOptions& options) const {
+    auto slice = str.to_slice();
+    return deserialize_one_cell_from_json(column, slice, options);
 }
 
 template class DataTypeStringSerDeBase<ColumnString>;

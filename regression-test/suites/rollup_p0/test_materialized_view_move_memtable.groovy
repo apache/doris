@@ -130,7 +130,7 @@ suite("test_materialized_view_move_memtable", "rollup") {
             );
         """
     
-    sql "CREATE materialized VIEW test_load_open AS SELECT k1 FROM ${tbName1} GROUP BY k1;"
+    sql "CREATE materialized VIEW test_load_open AS SELECT k1 as a1 FROM ${tbName1} GROUP BY k1;"
     int max_try_secs = 60
     while (max_try_secs--) {
         String res = getJobState(tbName1)
@@ -147,7 +147,7 @@ suite("test_materialized_view_move_memtable", "rollup") {
         }
     }
 
-    sql "CREATE materialized VIEW test_load_open_dynamic_partition AS SELECT k1 FROM ${tbName2} GROUP BY k1;"
+    sql "CREATE materialized VIEW test_load_open_dynamic_partition AS SELECT k1 as a2 FROM ${tbName2} GROUP BY k1;"
     max_try_secs = 60
     while (max_try_secs--) {
         String res = getJobState(tbName2)
@@ -164,7 +164,7 @@ suite("test_materialized_view_move_memtable", "rollup") {
         }
     }
 
-    sql "CREATE materialized VIEW test_load_open_schema_change AS SELECT k1 FROM ${tbName3} GROUP BY k1;"
+    sql "CREATE materialized VIEW test_load_open_schema_change AS SELECT k1 as a3 FROM ${tbName3} GROUP BY k1;"
     max_try_secs = 60
     while (max_try_secs--) {
         String res = getJobState(tbName3)
@@ -181,7 +181,7 @@ suite("test_materialized_view_move_memtable", "rollup") {
         }
     }
 
-    sql "CREATE materialized VIEW test_load_open_dynamic_partition_schema_change AS SELECT k1 FROM ${tbName4} GROUP BY k1;"
+    sql "CREATE materialized VIEW test_load_open_dynamic_partition_schema_change AS SELECT k1 as a4 FROM ${tbName4} GROUP BY k1;"
     max_try_secs = 60
     while (max_try_secs--) {
         String res = getJobState(tbName4)

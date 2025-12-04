@@ -52,7 +52,6 @@ class DecimalV2Value;
 class IPv4Value;
 class IPv6Value;
 
-template <bool is_binary_format = false>
 class MysqlRowBuffer {
 public:
     MysqlRowBuffer();
@@ -73,7 +72,6 @@ public:
     int push_largeint(int128_t data);
     int push_float(float data);
     int push_double(double data);
-    int push_time(double data);
     int push_timev2(double data, int scale);
     template <typename DateType>
     int push_datetime(const DateType& data, int scale);
@@ -86,47 +84,9 @@ public:
     template <typename DateType>
     int push_vec_datetime(DateType& data, int scale = -1);
 
-    // this function reserved size, change the pos step size, return old pos
-    // Becareful when use the returned pointer.
-    char* reserved(int64_t size);
-
     const char* buf() const { return _buf; }
     const char* pos() const { return _pos; }
     int64_t length() const { return _pos - _buf; }
-
-    /**
-     * Why?
-     * Because the Nested-Type's data need pushed multiple times, but mysql protocol don't
-     * support nested type and each push will decide a column data.
-     *
-     * How?
-     * Dynamic mode allow we push data in a column multiple times, and allow recursive push.
-     * We will think that the length of the next column is uncertain when open dynamic
-     * mode, so we will set the flag to 254(longest flag) and skip 8 bytes which used for
-     * record length, then compute the actual data length when close dynamic mode.
-     * In a recursive call(special for nested type), the mode will open multiple times, but
-     * the data is actually written in one column, so we only need to deal it at the beginning
-     * and at the end.
-     *
-     * the code:
-     *     mrb.push_tinyint(5);
-     *     mrb.push_smallint(120);
-     *     mrb.push_int(-30000);
-     *
-     * In normal mode, the buffer contains three column:
-     *  1-'5'-3-'120'-6-'-30000'
-     *
-     * Same code in dynamic mode, the buffer contains a column:
-     *  254-48-'5'-'120'-'-30000'
-     *
-     * NOTE: The open_dynamic_mode() and close_dynamic_mode() need appear in pairs
-     */
-    void open_dynamic_mode();
-
-    /**
-     * NOTE: The open_dynamic_mode() and close_dynamic_mode() need appear in pairs
-     */
-    void close_dynamic_mode();
 
 private:
     int reserve(int64_t size);
@@ -140,12 +100,12 @@ private:
     char* _pos = nullptr;
     char* _buf = nullptr;
     int64_t _buf_size;
-    char _default_buf[4096];
 
-    int _dynamic_mode;
-    uint64_t _len_pos;
     uint32_t _field_pos = 0;
-    uint32_t _field_count = 0;
+
+    char _default_buf[4096];
 };
+
+using MysqlRowBinaryBuffer = MysqlRowBuffer;
 
 } // namespace doris

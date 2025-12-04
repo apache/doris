@@ -17,38 +17,28 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.analysis.ColumnDef;
 import org.apache.doris.analysis.ColumnPosition;
-import org.apache.doris.analysis.CreateTableStmt;
-import org.apache.doris.analysis.ModifyColumnClause;
 import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.hive.HMSExternalTable;
+import org.apache.doris.nereids.trees.plans.commands.info.AlterOp;
+import org.apache.doris.nereids.trees.plans.commands.info.AlterTableOp;
+import org.apache.doris.nereids.trees.plans.commands.info.ModifyColumnOp;
 import org.apache.doris.plugin.audit.AuditLoader;
 import org.apache.doris.statistics.StatisticConstants;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import mockit.Mock;
-import mockit.MockUp;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
-import java.lang.reflect.Method;
 import java.util.List;
 
 class InternalSchemaInitializerTest {
     @Test
-    public void testGetModifyColumn() {
-        new MockUp<HMSExternalTable>() {
-            @Mock
-            public HMSExternalTable.DLAType getDlaType() {
-                return HMSExternalTable.DLAType.HUDI;
-            }
-        };
-
+    public void testGetModifyColumn() throws UserException {
         InternalSchemaInitializer initializer = new InternalSchemaInitializer();
-        OlapTable table = new OlapTable();
+        OlapTable table = Mockito.mock(OlapTable.class);
         Column key1 = new Column("key1", ScalarType.createVarcharType(100), true, null, false, null, "");
         Column key2 = new Column("key2", ScalarType.createVarcharType(100), true, null, true, null, "");
         Column key3 = new Column("key3", ScalarType.createVarcharType(1024), true, null, null, "");
@@ -56,6 +46,7 @@ class InternalSchemaInitializerTest {
         Column key5 = new Column("key5", ScalarType.INT, true, null, null, "");
         Column value1 = new Column("value1", ScalarType.INT, false, null, null, "");
         Column value2 = new Column("value2", ScalarType.createVarcharType(100), false, null, null, "");
+        Column value3 = new Column("hot_value", ScalarType.createVarcharType(100), false, null, null, "");
         List<Column> schema = Lists.newArrayList();
         schema.add(key1);
         schema.add(key2);
@@ -64,18 +55,21 @@ class InternalSchemaInitializerTest {
         schema.add(key5);
         schema.add(value1);
         schema.add(value2);
-        table.fullSchema = schema;
-        List<AlterClause> modifyColumnClauses = initializer.getModifyColumnClauses(table);
-        Assertions.assertEquals(2, modifyColumnClauses.size());
-        ModifyColumnClause clause1 = (ModifyColumnClause) modifyColumnClauses.get(0);
-        Assertions.assertEquals("key1", clause1.getColumn().getName());
-        Assertions.assertEquals(StatisticConstants.MAX_NAME_LEN, clause1.getColumn().getType().getLength());
-        Assertions.assertFalse(clause1.getColumn().isAllowNull());
+        schema.add(value3);
+        Mockito.when(table.getFullSchema()).thenReturn(schema);
+        Mockito.when(table.getBaseSchema()).thenReturn(schema);
 
-        ModifyColumnClause clause2 = (ModifyColumnClause) modifyColumnClauses.get(1);
-        Assertions.assertEquals("key2", clause2.getColumn().getName());
-        Assertions.assertEquals(StatisticConstants.MAX_NAME_LEN, clause2.getColumn().getType().getLength());
-        Assertions.assertTrue(clause2.getColumn().isAllowNull());
+        List<AlterTableOp> ops = initializer.getModifyColumnOp(table);
+        Assertions.assertEquals(16, ops.size());
+        ModifyColumnOp modifyColumnOp = (ModifyColumnOp) ops.get(14);
+        Assertions.assertEquals("key1", modifyColumnOp.getColumnDef().translateToCatalogStyle().getName());
+        Assertions.assertEquals(StatisticConstants.MAX_NAME_LEN, modifyColumnOp.getColumnDef().translateToCatalogStyle().getType().getLength());
+        Assertions.assertFalse(modifyColumnOp.getColumnDef().translateToCatalogStyle().isAllowNull());
+
+        modifyColumnOp = (ModifyColumnOp) ops.get(15);
+        Assertions.assertEquals("key2", modifyColumnOp.getColumnDef().translateToCatalogStyle().getName());
+        Assertions.assertEquals(StatisticConstants.MAX_NAME_LEN, modifyColumnOp.getColumnDef().translateToCatalogStyle().getType().getLength());
+        Assertions.assertTrue(modifyColumnOp.getColumnDef().translateToCatalogStyle().isAllowNull());
     }
 
     @Test
@@ -86,13 +80,13 @@ class InternalSchemaInitializerTest {
         for (ColumnDef columnDef : InternalSchema.AUDIT_SCHEMA) {
             if (columnDef.getName().equals("scan_bytes_from_local_storage")) {
                 hasLocalStorageField = true;
-                Assertions.assertEquals(PrimitiveType.BIGINT, columnDef.getTypeDef().getType().getPrimitiveType());
+                Assertions.assertEquals(PrimitiveType.BIGINT, columnDef.getType().getPrimitiveType());
                 Assertions.assertTrue(columnDef.isAllowNull());
             }
 
             if (columnDef.getName().equals("scan_bytes_from_remote_storage")) {
                 hasRemoteStorageField = true;
-                Assertions.assertEquals(PrimitiveType.BIGINT, columnDef.getTypeDef().getType().getPrimitiveType());
+                Assertions.assertEquals(PrimitiveType.BIGINT, columnDef.getType().getPrimitiveType());
                 Assertions.assertTrue(columnDef.isAllowNull());
             }
         }
@@ -100,38 +94,6 @@ class InternalSchemaInitializerTest {
         Assertions.assertTrue(hasLocalStorageField, "scan_bytes_from_local_storage field is missing from AUDIT_SCHEMA");
         Assertions.assertTrue(hasRemoteStorageField,
                 "scan_bytes_from_remote_storage field is missing from AUDIT_SCHEMA");
-    }
-
-    @Test
-    public void testAuditLogTableCreationWithStorageFields() throws Exception {
-        Method buildAuditTblStmtMethod = InternalSchemaInitializer.class.getDeclaredMethod("buildAuditTblStmt");
-        buildAuditTblStmtMethod.setAccessible(true);
-
-        CreateTableStmt createTableStmt = (CreateTableStmt) buildAuditTblStmtMethod.invoke(null);
-
-        List<Column> columns = createTableStmt.getColumns();
-
-        boolean hasLocalStorageField = false;
-        boolean hasRemoteStorageField = false;
-
-        for (Column column : columns) {
-            if (column.getName().equals("scan_bytes_from_local_storage")) {
-                hasLocalStorageField = true;
-                Assertions.assertEquals(PrimitiveType.BIGINT, column.getType().getPrimitiveType());
-                Assertions.assertTrue(column.isAllowNull());
-            }
-
-            if (column.getName().equals("scan_bytes_from_remote_storage")) {
-                hasRemoteStorageField = true;
-                Assertions.assertEquals(PrimitiveType.BIGINT, column.getType().getPrimitiveType());
-                Assertions.assertTrue(column.isAllowNull());
-            }
-        }
-
-        Assertions.assertTrue(hasLocalStorageField,
-                "scan_bytes_from_local_storage field is missing from the created audit log table");
-        Assertions.assertTrue(hasRemoteStorageField,
-                "scan_bytes_from_remote_storage field is missing from the created audit log table");
     }
 
     @Test
@@ -144,13 +106,13 @@ class InternalSchemaInitializerTest {
         for (ColumnDef columnDef : copiedSchema) {
             if (columnDef.getName().equals("scan_bytes_from_local_storage")) {
                 hasLocalStorageField = true;
-                Assertions.assertEquals(PrimitiveType.BIGINT, columnDef.getTypeDef().getType().getPrimitiveType());
+                Assertions.assertEquals(PrimitiveType.BIGINT, columnDef.getType().getPrimitiveType());
                 Assertions.assertTrue(columnDef.isAllowNull());
             }
 
             if (columnDef.getName().equals("scan_bytes_from_remote_storage")) {
                 hasRemoteStorageField = true;
-                Assertions.assertEquals(PrimitiveType.BIGINT, columnDef.getTypeDef().getType().getPrimitiveType());
+                Assertions.assertEquals(PrimitiveType.BIGINT, columnDef.getType().getPrimitiveType());
                 Assertions.assertTrue(columnDef.isAllowNull());
             }
         }
@@ -181,29 +143,29 @@ class InternalSchemaInitializerTest {
 
         // Simulate column position logic in InternalSchemaInitializer
         // Note: Based on test failure, the system uses FIRST position rather than after a specific column
-        List<AlterClause> alterClauses = Lists.newArrayList();
+        List<AlterOp> alterOps = Lists.newArrayList();
 
         // Add scan_bytes_from_local_storage column using FIRST position
         ColumnPosition localStoragePosition = ColumnPosition.FIRST;
-        ModifyColumnClause localStorageClause = new ModifyColumnClause(
-                localStorageDef, localStoragePosition, null, Maps.newHashMap());
-        localStorageClause.setColumn(localStorageDef.toColumn());
-        alterClauses.add(localStorageClause);
+        ModifyColumnOp modifyColumnOp = new ModifyColumnOp(
+                localStorageDef.translateToColumnDefinition(), localStoragePosition, null, Maps.newHashMap());
+        modifyColumnOp.setColumn(localStorageDef.toColumn());
+        alterOps.add(modifyColumnOp);
 
         // Add scan_bytes_from_remote_storage column using FIRST position
         ColumnPosition remoteStoragePosition = ColumnPosition.FIRST;
-        ModifyColumnClause remoteStorageClause = new ModifyColumnClause(
-                remoteStorageDef, remoteStoragePosition, null, Maps.newHashMap());
-        remoteStorageClause.setColumn(remoteStorageDef.toColumn());
-        alterClauses.add(remoteStorageClause);
+        ModifyColumnOp modifyColumnOp1 = new ModifyColumnOp(
+                remoteStorageDef.translateToColumnDefinition(), remoteStoragePosition, null, Maps.newHashMap());
+        modifyColumnOp1.setColumn(remoteStorageDef.toColumn());
+        alterOps.add(modifyColumnOp1);
 
         // Verify the generated AlterClauses
-        Assertions.assertEquals(2, alterClauses.size(), "Two AlterClauses should be generated");
+        Assertions.assertEquals(2, alterOps.size(), "Two AlterClauses should be generated");
 
         // Verify that column positions are FIRST
-        Assertions.assertTrue(((ModifyColumnClause) alterClauses.get(0)).getColPos().isFirst(),
+        Assertions.assertTrue(((ModifyColumnOp) alterOps.get(0)).getColPos().isFirst(),
                 "The position of the scan_bytes_from_local_storage column should be FIRST");
-        Assertions.assertTrue(((ModifyColumnClause) alterClauses.get(1)).getColPos().isFirst(),
+        Assertions.assertTrue(((ModifyColumnOp) alterOps.get(1)).getColPos().isFirst(),
                 "The position of the scan_bytes_from_remote_storage column should be FIRST");
     }
 
@@ -253,7 +215,7 @@ class InternalSchemaInitializerTest {
         }
 
         // Simulate column processing logic in InternalSchemaInitializer
-        List<AlterClause> alterClauses = Lists.newArrayList();
+        List<AlterOp> alterOps = Lists.newArrayList();
 
         // Add columns if they don't exist
         for (int i = 0; i < expectedSchema.size(); i++) {
@@ -272,9 +234,9 @@ class InternalSchemaInitializerTest {
                 }
                 ColumnPosition position = afterColumn == null ? ColumnPosition.FIRST :
                         new ColumnPosition(afterColumn);
-                ModifyColumnClause clause = new ModifyColumnClause(def, position, null, Maps.newHashMap());
-                clause.setColumn(def.toColumn());
-                alterClauses.add(clause);
+                ModifyColumnOp op = new ModifyColumnOp(def.translateToColumnDefinition(), position, null, Maps.newHashMap());
+                op.setColumn(def.toColumn());
+                alterOps.add(op);
             }
             // Note: InternalSchemaInitializer.created() method does not check if column types match
             // It only adds columns that don't exist in the table
@@ -284,11 +246,11 @@ class InternalSchemaInitializerTest {
         boolean hasLocalStorageClause = false;
         boolean hasRemoteStorageClause = false;
 
-        for (AlterClause clause : alterClauses) {
-            ModifyColumnClause modifyClause = (ModifyColumnClause) clause;
-            if (modifyClause.getColumn().getName().equals("scan_bytes_from_local_storage")) {
+        for (AlterOp op : alterOps) {
+            ModifyColumnOp modifyColumnOp = (ModifyColumnOp) op;
+            if (modifyColumnOp.getColumn().getName().equals("scan_bytes_from_local_storage")) {
                 hasLocalStorageClause = true;
-            } else if (modifyClause.getColumn().getName().equals("scan_bytes_from_remote_storage")) {
+            } else if (modifyColumnOp.getColumn().getName().equals("scan_bytes_from_remote_storage")) {
                 hasRemoteStorageClause = true;
             }
         }

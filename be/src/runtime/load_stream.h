@@ -94,6 +94,8 @@ public:
     void close(const std::vector<PTabletID>& tablets_to_commit,
                std::vector<int64_t>* success_tablet_ids, FailedTablets* failed_tablet_ids);
 
+    void get_all_write_tablet_ids(std::vector<int64_t>* tablet_ids);
+
 private:
     void _init_tablet_stream(TabletStreamSharedPtr& tablet_stream, int64_t tablet_id,
                              int64_t partition_id);
@@ -129,7 +131,8 @@ public:
         }
     }
 
-    void close(int64_t src_id, const std::vector<PTabletID>& tablets_to_commit,
+    // return true if all streams are closed, otherwise return false
+    bool close(int64_t src_id, const std::vector<PTabletID>& tablets_to_commit,
                std::vector<int64_t>* success_tablet_ids, FailedTablets* failed_tablet_ids);
 
     // callbacks called by brpc
@@ -148,6 +151,10 @@ private:
                         const std::vector<int64_t>& success_tablet_ids,
                         const FailedTablets& failed_tablets, bool eos);
     void _report_schema(StreamId stream, const PStreamHeader& hdr);
+    void _report_tablet_load_info(StreamId stream, int64_t index_id);
+    void _collect_tablet_load_info_from_tablets(
+            const std::vector<int64_t>& tablet_ids,
+            google::protobuf::RepeatedPtrField<PTabletLoadRowsetInfo>* tablet_load_infos);
 
     // report failure for one message
     void _report_failure(StreamId stream, const Status& status, const PStreamHeader& header) {
@@ -177,6 +184,7 @@ private:
     RuntimeProfile::Counter* _close_wait_timer = nullptr;
     LoadStreamMgr* _load_stream_mgr = nullptr;
     std::shared_ptr<ResourceContext> _resource_ctx;
+    std::vector<int64_t> _closing_stream_ids;
     bool _is_incremental = false;
 };
 

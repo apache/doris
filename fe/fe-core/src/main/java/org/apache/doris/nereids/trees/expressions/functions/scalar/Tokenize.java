@@ -52,6 +52,11 @@ public class Tokenize extends ScalarFunction
         super("tokenize", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Tokenize(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public void checkLegalityBeforeTypeCoercion() {
         Expression rightChild = child(1);
@@ -79,7 +84,7 @@ public class Tokenize extends ScalarFunction
     @Override
     public Tokenize withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new Tokenize(children.get(0), children.get(1));
+        return new Tokenize(getFunctionParams(children));
     }
 
     @Override

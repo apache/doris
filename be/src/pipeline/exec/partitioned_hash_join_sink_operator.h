@@ -17,9 +17,7 @@
 
 #pragma once
 
-#include <stdint.h>
-
-#include <atomic>
+#include <cstdint>
 
 #include "common/be_mock_util.h"
 #include "common/status.h"
@@ -57,6 +55,8 @@ public:
     MOCK_FUNCTION void update_profile_from_inner();
 
     Dependency* finishdependency() override;
+
+    bool is_blockable() const override;
 
 protected:
     PartitionedHashJoinSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
@@ -118,7 +118,7 @@ public:
 
     size_t get_reserve_mem_size(RuntimeState* state, bool eos) override;
 
-    DataDistribution required_data_distribution() const override {
+    DataDistribution required_data_distribution(RuntimeState* /*state*/) const override {
         if (_join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
             return {ExchangeType::NOOP};
         }

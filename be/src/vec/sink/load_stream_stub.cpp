@@ -88,6 +88,10 @@ int LoadStreamReplyHandler::on_received_messages(brpc::StreamId id, butil::IOBuf
         ss << ", status: " << st;
         LOG(INFO) << ss.str();
 
+        if (response.tablet_load_rowset_num_infos_size() > 0) {
+            stub->_refresh_back_pressure_version_wait_time(response.tablet_load_rowset_num_infos());
+        }
+
         if (response.has_load_stream_profile()) {
             TRuntimeProfileTree tprofile;
             const uint8_t* buf =
@@ -196,6 +200,9 @@ Status LoadStreamStub::open(BrpcClientCache<PBackendService_Stub>* client_cache,
         _enable_unique_mow_for_index->emplace(resp.index_id(),
                                               resp.enable_unique_key_merge_on_write());
     }
+    if (response.tablet_load_rowset_num_infos_size() > 0) {
+        _refresh_back_pressure_version_wait_time(response.tablet_load_rowset_num_infos());
+    }
     if (cntl.Failed()) {
         brpc::StreamClose(_stream_id);
         _status = Status::InternalError("Failed to connect to backend {}: {}", _dst_id,
@@ -234,8 +241,7 @@ Status LoadStreamStub::append_data(int64_t partition_id, int64_t index_id, int64
 
 // ADD_SEGMENT
 Status LoadStreamStub::add_segment(int64_t partition_id, int64_t index_id, int64_t tablet_id,
-                                   int32_t segment_id, const SegmentStatistics& segment_stat,
-                                   TabletSchemaSPtr flush_schema) {
+                                   int32_t segment_id, const SegmentStatistics& segment_stat) {
     if (!_is_open.load()) {
         add_failed_tablet(tablet_id, _status);
         return _status;
@@ -250,14 +256,12 @@ Status LoadStreamStub::add_segment(int64_t partition_id, int64_t index_id, int64
     header.set_segment_id(segment_id);
     header.set_opcode(doris::PStreamHeader::ADD_SEGMENT);
     segment_stat.to_pb(header.mutable_segment_statistics());
-    if (flush_schema != nullptr) {
-        flush_schema->to_schema_pb(header.mutable_flush_schema());
-    }
     return _encode_and_send(header);
 }
 
 // CLOSE_LOAD
-Status LoadStreamStub::close_load(const std::vector<PTabletID>& tablets_to_commit) {
+Status LoadStreamStub::close_load(const std::vector<PTabletID>& tablets_to_commit,
+                                  int num_incremental_streams) {
     if (!_is_open.load()) {
         return _status;
     }
@@ -268,6 +272,7 @@ Status LoadStreamStub::close_load(const std::vector<PTabletID>& tablets_to_commi
     for (const auto& tablet : tablets_to_commit) {
         *header.add_tablets() = tablet;
     }
+    header.set_num_incremental_streams(num_incremental_streams);
     _status = _encode_and_send(header);
     if (!_status.ok()) {
         LOG(WARNING) << "stream " << _stream_id << " close failed: " << _status;
@@ -318,7 +323,7 @@ Status LoadStreamStub::wait_for_schema(int64_t partition_id, int64_t index_id, i
     watch.start();
     while (!_tablet_schema_for_index->contains(index_id) &&
            watch.elapsed_time() / 1000 / 1000 < timeout_ms) {
-        RETURN_IF_ERROR(_check_cancel());
+        RETURN_IF_ERROR(check_cancel());
         static_cast<void>(wait_for_new_schema(100));
     }
 
@@ -337,15 +342,15 @@ Status LoadStreamStub::close_finish_check(RuntimeState* state, bool* is_closed) 
         // we don't need to close wait on non-open streams
         return Status::OK();
     }
+    if (state->get_query_ctx()->is_cancelled()) {
+        return state->get_query_ctx()->exec_status();
+    }
     if (!_is_closing.load()) {
         *is_closed = false;
         return _status;
     }
-    if (state->get_query_ctx()->is_cancelled()) {
-        return state->get_query_ctx()->exec_status();
-    }
     if (_is_closed.load()) {
-        RETURN_IF_ERROR(_check_cancel());
+        RETURN_IF_ERROR(check_cancel());
         if (!_is_eos.load()) {
             return Status::InternalError("Stream closed without EOS, {}", to_string());
         }
@@ -381,6 +386,7 @@ Status LoadStreamStub::_encode_and_send(PStreamHeader& header, std::span<const S
     }
     bool eos = header.opcode() == doris::PStreamHeader::CLOSE_LOAD;
     bool get_schema = header.opcode() == doris::PStreamHeader::GET_SCHEMA;
+    add_bytes_written(buf.size());
     return _send_with_buffer(buf, eos || get_schema);
 }
 
@@ -469,7 +475,7 @@ void LoadStreamStub::_handle_failure(butil::IOBuf& buf, Status st) {
 
 Status LoadStreamStub::_send_with_retry(butil::IOBuf& buf) {
     for (;;) {
-        RETURN_IF_ERROR(_check_cancel());
+        RETURN_IF_ERROR(check_cancel());
         int ret;
         {
             DBUG_EXECUTE_IF("LoadStreamStub._send_with_retry.delay_before_send", {
@@ -496,6 +502,44 @@ Status LoadStreamStub::_send_with_retry(butil::IOBuf& buf) {
         default:
             return Status::InternalError("StreamWrite failed, err={}, {}", ret, to_string());
         }
+    }
+}
+
+void LoadStreamStub::_refresh_back_pressure_version_wait_time(
+        const ::google::protobuf::RepeatedPtrField<::doris::PTabletLoadRowsetInfo>&
+                tablet_load_infos) {
+    int64_t max_rowset_num_gap = 0;
+    // if any one tablet is under high load pressure, we would make the whole procedure
+    // sleep to prevent the corresponding BE return -235
+    std::for_each(
+            tablet_load_infos.begin(), tablet_load_infos.end(),
+            [&max_rowset_num_gap](auto& load_info) {
+                int64_t cur_rowset_num = load_info.current_rowset_nums();
+                int64_t high_load_point = load_info.max_config_rowset_nums() *
+                                          (config::load_back_pressure_version_threshold / 100);
+                DCHECK(cur_rowset_num > high_load_point);
+                max_rowset_num_gap = std::max(max_rowset_num_gap, cur_rowset_num - high_load_point);
+            });
+    // to slow down the high load pressure
+    // we would use the rowset num gap to calculate one sleep time
+    // for example:
+    // if the max tablet version is 2000, there are 3 BE
+    // A: ====================  1800
+    // B: ===================   1700
+    // C: ==================    1600
+    //    ==================    1600
+    //                      ^
+    //                      the high load point
+    // then then max gap is 1800 - (max tablet version * config::load_back_pressure_version_threshold / 100) = 200,
+    // we would make the whole send procesure sleep
+    // 1200ms for compaction to be done toe reduce the high pressure
+    auto max_time = config::max_load_back_pressure_version_wait_time_ms;
+    if (UNLIKELY(max_rowset_num_gap > 0)) {
+        _load_back_pressure_version_wait_time_ms.store(
+                std::min(max_rowset_num_gap + 1000, max_time));
+        LOG(INFO) << "try to back pressure version, wait time(ms): "
+                  << _load_back_pressure_version_wait_time_ms << ", load id: " << print_id(_load_id)
+                  << ", max_rowset_num_gap: " << max_rowset_num_gap;
     }
 }
 
@@ -544,7 +588,8 @@ Status LoadStreamStubs::open(BrpcClientCache<PBackendService_Stub>* client_cache
     return status;
 }
 
-Status LoadStreamStubs::close_load(const std::vector<PTabletID>& tablets_to_commit) {
+Status LoadStreamStubs::close_load(const std::vector<PTabletID>& tablets_to_commit,
+                                   int num_incremental_streams) {
     if (!_open_success.load()) {
         return Status::InternalError("streams not open");
     }
@@ -553,10 +598,10 @@ Status LoadStreamStubs::close_load(const std::vector<PTabletID>& tablets_to_comm
     for (auto& stream : _streams) {
         Status st;
         if (first) {
-            st = stream->close_load(tablets_to_commit);
+            st = stream->close_load(tablets_to_commit, num_incremental_streams);
             first = false;
         } else {
-            st = stream->close_load({});
+            st = stream->close_load({}, num_incremental_streams);
         }
         if (!st.ok()) {
             LOG(WARNING) << "close_load failed: " << st << "; stream: " << *stream;

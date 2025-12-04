@@ -22,6 +22,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.types.JsonType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
@@ -37,8 +38,8 @@ public class JsonExtractNoQuotes extends ScalarFunction
         implements ExplicitlyCastableSignature, AlwaysNullable {
 
     public static final List<FunctionSignature> SIGNATURES =
-            ImmutableList.of(FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT)
-                    .varArgs(VarcharType.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT));
+            ImmutableList.of(FunctionSignature.ret(JsonType.INSTANCE)
+                    .varArgs(JsonType.INSTANCE, VarcharType.SYSTEM_DEFAULT));
 
     /**
      * constructor with 1 or more arguments.
@@ -47,14 +48,18 @@ public class JsonExtractNoQuotes extends ScalarFunction
         super("json_extract_no_quotes", ExpressionUtils.mergeArguments(arg0, arg1, varArgs));
     }
 
+    /** constructor for withChildren and reuse signature */
+    private JsonExtractNoQuotes(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public JsonExtractNoQuotes withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() >= 2);
-        return new JsonExtractNoQuotes(children.get(0), children.get(1),
-                children.subList(2, children.size()).toArray(new Expression[0]));
+        return new JsonExtractNoQuotes(getFunctionParams(children));
     }
 
     @Override

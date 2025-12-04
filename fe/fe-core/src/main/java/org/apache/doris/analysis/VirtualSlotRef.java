@@ -17,9 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Type;
-import org.apache.doris.common.AnalysisException;
-
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -28,46 +25,21 @@ import java.util.Set;
  * It like a SlotRef except that it is not a real column exist in table.
  */
 public class VirtualSlotRef extends SlotRef {
-    // results of analysis slot
-    private TupleDescriptor tupleDescriptor;
     private List<Expr> realSlots;
-
-    public VirtualSlotRef(String col, Type type, TupleDescriptor tupleDescriptor, List<Expr> realSlots) {
-        super(null, col);
-        super.type = type;
-        this.tupleDescriptor = tupleDescriptor;
-        this.realSlots = realSlots;
-    }
 
     protected VirtualSlotRef(VirtualSlotRef other) {
         super(other);
         if (other.realSlots != null) {
             realSlots = Expr.cloneList(other.realSlots);
         }
-        tupleDescriptor = other.tupleDescriptor;
     }
 
     public VirtualSlotRef(SlotDescriptor desc) {
         super(desc);
     }
 
-    public String getRealColumnName() {
-        if (getColumnName().startsWith(GroupingInfo.GROUPING_PREFIX)) {
-            return getColumnName().substring(GroupingInfo.GROUPING_PREFIX.length());
-        }
-        return getColumnName();
-    }
-
     @Override
     public void getTableIdToColumnNames(Map<Long, Set<String>> tableIdToColumnNames) {
-    }
-
-    public List<Expr> getRealSlots() {
-        return realSlots;
-    }
-
-    public void setRealSlots(List<Expr> realSlots) {
-        this.realSlots = realSlots;
     }
 
     @Override
@@ -76,18 +48,7 @@ public class VirtualSlotRef extends SlotRef {
     }
 
     @Override
-    public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
-        desc = analyzer.registerVirtualColumnRef(super.getColumnName(), type, tupleDescriptor);
-        numDistinctValues = desc.getStats().getNumDistinctValues();
-    }
-
-    @Override
     public String getExprName() {
         return super.getExprName();
-    }
-
-    @Override
-    public boolean supportSerializable() {
-        return false;
     }
 }

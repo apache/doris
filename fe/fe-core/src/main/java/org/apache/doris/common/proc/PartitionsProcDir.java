@@ -77,7 +77,7 @@ import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
-import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 
 import java.util.ArrayList;
@@ -188,7 +188,7 @@ public class PartitionsProcDir implements ProcDirInterface {
         }
 
         if (expr instanceof EqualTo && expr.child(1) instanceof StringLikeLiteral) {
-            return ((StringLikeLiteral) expr.child(1)).getValue().equals(element);
+            return ((StringLikeLiteral) expr.child(1)).getValue().equals(element.toString());
         }
         long leftVal;
         long rightVal;
@@ -247,7 +247,7 @@ public class PartitionsProcDir implements ProcDirInterface {
                 return !filterSubExpression(subExpr, element);
             }
         } else {
-            return like((String) element, ((StringLikeLiteral) subExpr.child(1)).getStringValue());
+            return like(element.toString(), ((StringLikeLiteral) subExpr.child(1)).getStringValue());
         }
         return false;
     }

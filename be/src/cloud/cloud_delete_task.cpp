@@ -66,6 +66,8 @@ Status CloudDeleteTask::execute(CloudStorageEngine& engine, const TPushReq& requ
     auto tablet_schema = std::make_shared<TabletSchema>();
     // FIXME(plat1ko): Rewrite columns updating logic
     tablet_schema->update_tablet_columns(*tablet->tablet_schema(), request.columns_desc);
+    tablet_schema->update_indexes_from_thrift(request.index_list);
+
     tablet_schema->set_schema_version(request.schema_version);
     RETURN_IF_ERROR(DeleteHandler::generate_delete_predicate(*tablet_schema,
                                                              request.delete_conditions, &del_pred));

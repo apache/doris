@@ -59,18 +59,18 @@ public class ArrayShuffle extends ScalarFunction
         super("array_shuffle", arg, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ArrayShuffle(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public ArrayShuffle withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() == 1
-                || children.size() == 2);
-        if (children.size() == 1) {
-            return new ArrayShuffle(children.get(0));
-        } else {
-            return new ArrayShuffle(children.get(0), children.get(1));
-        }
+        Preconditions.checkArgument(children.size() == 1 || children.size() == 2);
+        return new ArrayShuffle(getFunctionParams(children));
     }
 
     @Override

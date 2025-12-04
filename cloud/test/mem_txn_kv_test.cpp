@@ -15,18 +15,21 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "meta-service/mem_txn_kv.h"
+#include "meta-store/mem_txn_kv.h"
 
 #include <gtest/gtest-death-test.h>
 #include <gtest/gtest.h>
 
+#include <chrono>
 #include <memory>
+#include <thread>
 
 #include "common/config.h"
 #include "common/util.h"
 #include "meta-service/doris_txn.h"
-#include "meta-service/txn_kv.h"
-#include "meta-service/txn_kv_error.h"
+#include "meta-store/codec.h"
+#include "meta-store/txn_kv.h"
+#include "meta-store/txn_kv_error.h"
 
 using namespace doris;
 
@@ -333,6 +336,48 @@ static void atomic_set_ver_key_test(std::shared_ptr<cloud::TxnKv> txn_kv) {
     }
 
     ASSERT_LT(versionstamp_1, versionstamp_2);
+
+    std::string versionstamp_3;
+    {
+        // write key_3, with offset
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string suffix = "_suffix";
+        std::string prefix = "key_3_";
+        std::string k(prefix);
+        uint32_t offset = k.size();
+        k.append(10, '\0'); // reserve 10 bytes for versionstamp
+        k += suffix;
+        ASSERT_TRUE(txn->atomic_set_ver_key(k, offset, "3"));
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+        // read key_3
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string end_key = prefix + "\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF";
+        std::unique_ptr<RangeGetIterator> it;
+        ASSERT_EQ(txn->get(prefix, end_key, &it), TxnErrorCode::TXN_OK);
+        ASSERT_TRUE(it->has_next());
+        auto&& [key_3, _3] = it->next();
+        ASSERT_EQ(key_3.length(), k.size());
+        key_3.remove_suffix(suffix.size());
+        key_3.remove_prefix(prefix.size());
+        versionstamp_3 = key_3;
+    }
+
+    ASSERT_LT(versionstamp_2, versionstamp_3);
+
+    {
+        // write key, but offset is invalid
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string prefix = "key_4_";
+        std::string k(prefix);
+        k.append(10, '\0');             // reserve 10 bytes for versionstamp
+        uint32_t offset = k.size() + 1; // invalid offset
+        ASSERT_FALSE(txn->atomic_set_ver_key(k, offset, "4"));
+
+        k = "fake";
+        ASSERT_FALSE(txn->atomic_set_ver_key(k, 0, "4"));
+    }
 }
 
 TEST(TxnMemKvTest, AtomicSetVerKeyTest) {
@@ -937,4 +982,803 @@ TEST(TxnMemKvTest, MaybeUnusedFunctionTest) {
             ASSERT_EQ(ver, 1);
         }
     }
+}
+
+TEST(TxnMemKvTest, RangeGetKeySelector) {
+    using namespace doris::cloud;
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    constexpr std::string_view prefix = "range_get_key_selector_";
+
+    {
+        // Remove the existing keys and insert some new keys.
+        std::unique_ptr<Transaction> txn;
+        TxnErrorCode err = txn_kv->create_txn(&txn);
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+
+        std::string last_key = fmt::format("{}{}", prefix, 9);
+        encode_int64(INT64_MAX, &last_key);
+        txn->remove(prefix, last_key);
+        for (int i = 0; i < 5; ++i) {
+            std::string key = fmt::format("{}{}", prefix, i);
+            txn->put(key, std::to_string(i));
+        }
+        err = txn->commit();
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+    }
+
+    struct TestCase {
+        RangeKeySelector begin_key_selector, end_key_selector;
+        std::vector<std::string> expected_keys;
+    };
+
+    std::string range_begin = fmt::format("{}{}", prefix, 1);
+    std::string range_end = fmt::format("{}{}", prefix, 3);
+    std::vector<TestCase> test_case {
+            {
+                    RangeKeySelector::FIRST_GREATER_OR_EQUAL,
+                    RangeKeySelector::FIRST_GREATER_OR_EQUAL,
+                    {fmt::format("{}{}", prefix, 1), fmt::format("{}{}", prefix, 2)},
+            },
+            {
+                    RangeKeySelector::FIRST_GREATER_OR_EQUAL,
+                    RangeKeySelector::FIRST_GREATER_THAN,
+                    {
+                            fmt::format("{}{}", prefix, 1),
+                            fmt::format("{}{}", prefix, 2),
+                            fmt::format("{}{}", prefix, 3),
+                    },
+            },
+            {
+                    RangeKeySelector::FIRST_GREATER_OR_EQUAL,
+                    RangeKeySelector::LAST_LESS_OR_EQUAL,
+                    {fmt::format("{}{}", prefix, 1), fmt::format("{}{}", prefix, 2)},
+            },
+            {
+                    RangeKeySelector::FIRST_GREATER_OR_EQUAL,
+                    RangeKeySelector::LAST_LESS_THAN,
+                    {fmt::format("{}{}", prefix, 1)},
+            },
+            {
+                    RangeKeySelector::FIRST_GREATER_THAN,
+                    RangeKeySelector::FIRST_GREATER_OR_EQUAL,
+                    {fmt::format("{}{}", prefix, 2)},
+            },
+            {
+                    RangeKeySelector::FIRST_GREATER_THAN,
+                    RangeKeySelector::FIRST_GREATER_THAN,
+                    {fmt::format("{}{}", prefix, 2), fmt::format("{}{}", prefix, 3)},
+            },
+            {
+                    RangeKeySelector::FIRST_GREATER_THAN,
+                    RangeKeySelector::LAST_LESS_OR_EQUAL,
+                    {fmt::format("{}{}", prefix, 2)},
+            },
+            {
+                    RangeKeySelector::FIRST_GREATER_THAN,
+                    RangeKeySelector::LAST_LESS_THAN,
+                    {},
+            },
+            {
+                    RangeKeySelector::LAST_LESS_OR_EQUAL,
+                    RangeKeySelector::FIRST_GREATER_OR_EQUAL,
+                    {fmt::format("{}{}", prefix, 1), fmt::format("{}{}", prefix, 2)},
+            },
+            {
+                    RangeKeySelector::LAST_LESS_OR_EQUAL,
+                    RangeKeySelector::FIRST_GREATER_THAN,
+                    {
+                            fmt::format("{}{}", prefix, 1),
+                            fmt::format("{}{}", prefix, 2),
+                            fmt::format("{}{}", prefix, 3),
+                    },
+            },
+            {
+                    RangeKeySelector::LAST_LESS_OR_EQUAL,
+                    RangeKeySelector::LAST_LESS_OR_EQUAL,
+                    {fmt::format("{}{}", prefix, 1), fmt::format("{}{}", prefix, 2)},
+            },
+            {
+                    RangeKeySelector::LAST_LESS_OR_EQUAL,
+                    RangeKeySelector::LAST_LESS_THAN,
+                    {fmt::format("{}{}", prefix, 1)},
+            },
+            {
+                    RangeKeySelector::LAST_LESS_THAN,
+                    RangeKeySelector::FIRST_GREATER_OR_EQUAL,
+                    {
+                            fmt::format("{}{}", prefix, 0),
+                            fmt::format("{}{}", prefix, 1),
+                            fmt::format("{}{}", prefix, 2),
+                    },
+            },
+            {
+                    RangeKeySelector::LAST_LESS_THAN,
+                    RangeKeySelector::FIRST_GREATER_THAN,
+                    {
+                            fmt::format("{}{}", prefix, 0),
+                            fmt::format("{}{}", prefix, 1),
+                            fmt::format("{}{}", prefix, 2),
+                            fmt::format("{}{}", prefix, 3),
+                    },
+            },
+            {
+                    RangeKeySelector::LAST_LESS_THAN,
+                    RangeKeySelector::LAST_LESS_OR_EQUAL,
+                    {
+                            fmt::format("{}{}", prefix, 0),
+                            fmt::format("{}{}", prefix, 1),
+                            fmt::format("{}{}", prefix, 2),
+                    },
+            },
+            {
+                    RangeKeySelector::LAST_LESS_THAN,
+                    RangeKeySelector::LAST_LESS_THAN,
+                    {fmt::format("{}{}", prefix, 0), fmt::format("{}{}", prefix, 1)},
+            },
+    };
+
+    // Scan range with different key selectors
+    for (const auto& tc : test_case) {
+        std::unique_ptr<Transaction> txn;
+        TxnErrorCode err = txn_kv->create_txn(&txn);
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+
+        RangeGetOptions options;
+        options.batch_limit = 1000;
+        options.begin_key_selector = tc.begin_key_selector;
+        options.end_key_selector = tc.end_key_selector;
+        std::unique_ptr<RangeGetIterator> it;
+        err = txn->get(range_begin, range_end, &it, options);
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+
+        std::vector<std::string> actual_keys;
+        while (it->has_next()) {
+            auto [k, v] = it->next();
+            actual_keys.emplace_back(k);
+        }
+        EXPECT_EQ(actual_keys, tc.expected_keys)
+                << "Failed for begin_key_selector=" << static_cast<int>(tc.begin_key_selector)
+                << ", end_key_selector=" << static_cast<int>(tc.end_key_selector);
+    }
+}
+
+TEST(TxnMemKvTest, ReverseRangeGet) {
+    using namespace doris::cloud;
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    constexpr std::string_view prefix = "reverse_range_get_";
+
+    {
+        // Remove the existing keys and insert some new keys.
+        std::unique_ptr<Transaction> txn;
+        TxnErrorCode err = txn_kv->create_txn(&txn);
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+
+        std::string last_key = fmt::format("{}{}", prefix, 9);
+        encode_int64(INT64_MAX, &last_key);
+        txn->remove(prefix, last_key);
+        for (int i = 0; i < 5; ++i) {
+            std::string key = fmt::format("{}{}", prefix, i);
+            txn->put(key, std::to_string(i));
+        }
+        err = txn->commit();
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+    }
+
+    std::string range_begin = fmt::format("{}{}", prefix, 1);
+    std::string range_end = fmt::format("{}{}", prefix, 3);
+
+    struct TestCase {
+        RangeKeySelector begin_key_selector, end_key_selector;
+        std::vector<std::string> expected_keys;
+    };
+
+    std::vector<TestCase> test_case {
+            // 1. [begin, end)
+            {
+                    RangeKeySelector::FIRST_GREATER_OR_EQUAL,
+                    RangeKeySelector::FIRST_GREATER_OR_EQUAL,
+                    {fmt::format("{}{}", prefix, 2), fmt::format("{}{}", prefix, 1)},
+            },
+            // 2. [begin, end]
+            {
+                    RangeKeySelector::FIRST_GREATER_OR_EQUAL,
+                    RangeKeySelector::FIRST_GREATER_THAN,
+                    {
+                            fmt::format("{}{}", prefix, 3),
+                            fmt::format("{}{}", prefix, 2),
+                            fmt::format("{}{}", prefix, 1),
+                    },
+            },
+            // 3. (begin, end)
+            {
+                    RangeKeySelector::FIRST_GREATER_THAN,
+                    RangeKeySelector::FIRST_GREATER_OR_EQUAL,
+                    {fmt::format("{}{}", prefix, 2)},
+            },
+            // 4. (begin, end]
+            {
+                    RangeKeySelector::FIRST_GREATER_THAN,
+                    RangeKeySelector::FIRST_GREATER_THAN,
+                    {fmt::format("{}{}", prefix, 3), fmt::format("{}{}", prefix, 2)},
+            },
+    };
+    for (const auto& tc : test_case) {
+        std::unique_ptr<Transaction> txn;
+        TxnErrorCode err = txn_kv->create_txn(&txn);
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+
+        RangeGetOptions options;
+        options.batch_limit = 1000;
+        options.begin_key_selector = tc.begin_key_selector;
+        options.end_key_selector = tc.end_key_selector;
+        options.reverse = true; // Reserve range get
+        std::unique_ptr<RangeGetIterator> it;
+        err = txn->get(range_begin, range_end, &it, options);
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+
+        std::vector<std::string> actual_keys;
+        while (it->has_next()) {
+            auto [k, v] = it->next();
+            actual_keys.emplace_back(k);
+        }
+        EXPECT_EQ(actual_keys, tc.expected_keys)
+                << "Failed for begin_key_selector=" << static_cast<int>(tc.begin_key_selector)
+                << ", end_key_selector=" << static_cast<int>(tc.end_key_selector);
+    }
+}
+
+TEST(TxnMemKvTest, ReverseFullRangeGet) {
+    using namespace doris::cloud;
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    constexpr std::string_view prefix = "reverse_full_range_get_";
+
+    {
+        // Remove the existing keys and insert some new keys.
+        std::unique_ptr<Transaction> txn;
+        TxnErrorCode err = txn_kv->create_txn(&txn);
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+
+        std::string last_key = fmt::format("{}{:03}", prefix, 99);
+        encode_int64(INT64_MAX, &last_key);
+        txn->remove(prefix, last_key);
+        for (int i = 0; i < 100; ++i) {
+            std::string key = fmt::format("{}{:03}", prefix, i);
+            txn->put(key, std::to_string(i));
+        }
+        err = txn->commit();
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+    }
+
+    std::string range_begin = fmt::format("{}{:03}", prefix, 1);
+    std::string range_end = fmt::format("{}{:03}", prefix, 98);
+
+    struct TestCase {
+        RangeKeySelector begin_key_selector, end_key_selector;
+    };
+
+    std::vector<TestCase> test_case {
+            // 1. [begin, end)
+            {
+                    RangeKeySelector::FIRST_GREATER_OR_EQUAL,
+                    RangeKeySelector::FIRST_GREATER_OR_EQUAL,
+            },
+            // 2. [begin, end]
+            {
+                    RangeKeySelector::FIRST_GREATER_OR_EQUAL,
+                    RangeKeySelector::FIRST_GREATER_THAN,
+            },
+            // 3. (begin, end)
+            {
+                    RangeKeySelector::FIRST_GREATER_THAN,
+                    RangeKeySelector::FIRST_GREATER_OR_EQUAL,
+            },
+            // 4. (begin, end]
+            {
+                    RangeKeySelector::FIRST_GREATER_THAN,
+                    RangeKeySelector::FIRST_GREATER_THAN,
+            },
+    };
+
+    for (const auto& tc : test_case) {
+        std::vector<std::string> expected_keys;
+        {
+            // Read the expected keys via range_get
+            std::unique_ptr<Transaction> txn;
+            TxnErrorCode err = txn_kv->create_txn(&txn);
+            ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+
+            RangeGetOptions options;
+            options.batch_limit = 11;
+            options.begin_key_selector = tc.begin_key_selector;
+            options.end_key_selector = tc.end_key_selector;
+            options.reverse = true; // Reserve range get
+            std::string begin = range_begin, end = range_end;
+
+            std::unique_ptr<RangeGetIterator> it;
+            do {
+                err = txn->get(begin, end, &it, options);
+                ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+
+                while (it->has_next()) {
+                    auto [k, v] = it->next();
+                    expected_keys.emplace_back(k);
+                }
+                // Get next begin key for reverse range get
+                end = it->last_key();
+                options.end_key_selector = RangeKeySelector::FIRST_GREATER_OR_EQUAL;
+            } while (it->more());
+        }
+
+        std::vector<std::string> actual_keys;
+        {
+            // Read the actual keys via full_range_get
+            FullRangeGetOptions opts(txn_kv);
+            opts.batch_limit = 11;
+            opts.begin_key_selector = tc.begin_key_selector;
+            opts.end_key_selector = tc.end_key_selector;
+            opts.reverse = true; // Reserve full range get
+
+            auto it = txn_kv->full_range_get(range_begin, range_end, opts);
+            ASSERT_TRUE(it->is_valid());
+
+            while (it->has_next()) {
+                auto kvp = it->next();
+                ASSERT_TRUE(kvp.has_value());
+                auto [k, v] = *kvp;
+                actual_keys.emplace_back(k);
+            }
+        }
+
+        EXPECT_EQ(actual_keys, expected_keys)
+                << "Failed for begin_key_selector=" << static_cast<int>(tc.begin_key_selector)
+                << ", end_key_selector=" << static_cast<int>(tc.end_key_selector);
+    }
+}
+
+TEST(TxnMemKvTest, BatchScan) {
+    using namespace doris::cloud;
+
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_NE(txn_kv.get(), nullptr);
+
+    std::vector<std::pair<std::string, std::string>> test_data = {
+            {"different_key", "different_value"},
+            {"prefix1", "value1"},
+            {"prefix1_sub1", "sub_value1"},
+            {"prefix1_sub2", "sub_value2"},
+            {"prefix2", "value2"},
+            {"prefix2_sub1", "sub_value3"},
+            {"prefix3", "value3"},
+    };
+
+    std::unique_ptr<Transaction> txn;
+    {
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        for (const auto& [key, val] : test_data) {
+            txn->put(key, val);
+        }
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    struct TestCase {
+        bool reverse;
+        std::vector<std::string> scan_keys;
+        std::vector<std::optional<std::string>> expected_keys;
+    };
+
+    std::vector<TestCase> test_cases = {
+            {false,
+             {"prefix1", "prefix2", "prefix3", "different_key"},
+             {"prefix1", "prefix2", "prefix3", "different_key"}},
+            {false, {"prefix1_", "prefix2_"}, {"prefix1_sub1", "prefix2_sub1"}},
+            {false, {"prefix5_"}, {std::nullopt}},
+            {true, {"a"}, {std::nullopt}},
+            {true, {"prefix1_", "prefix2_"}, {"prefix1_sub2", "prefix2_sub1"}},
+            {true,
+             {"prefix1", "prefix2", "prefix3", "different_key"},
+             {"prefix1_sub2", "prefix2_sub1", "prefix3", "different_key"}},
+    };
+
+    size_t count = 0;
+    for (auto& tc : test_cases) {
+        auto ret = txn_kv->create_txn(&txn);
+        ASSERT_EQ(ret, TxnErrorCode::TXN_OK);
+        std::vector<std::optional<std::pair<std::string, std::string>>> results;
+        Transaction::BatchGetOptions opts;
+        opts.reverse = tc.reverse; // Reverse order
+        opts.snapshot = false;
+
+        ret = txn->batch_scan(&results, tc.scan_keys, opts);
+        ASSERT_EQ(ret, TxnErrorCode::TXN_OK);
+        ASSERT_EQ(results.size(), tc.scan_keys.size());
+
+        for (size_t i = 0; i < results.size(); ++i) {
+            if (tc.expected_keys[i].has_value()) {
+                ASSERT_TRUE(results[i].has_value())
+                        << "count: " << count << ", expected key at index " << i
+                        << " for scan key: " << tc.scan_keys[i]
+                        << ", expected: " << tc.expected_keys[i].value() << ", got: empty";
+                std::string& key = results[i].value().first;
+                std::string& expected_key = tc.expected_keys[i].value();
+                ASSERT_EQ(key, expected_key) << "count: " << count << ", mismatch at index " << i
+                                             << " for scan key: " << tc.scan_keys[i]
+                                             << ", expected: " << expected_key << ", got: " << key;
+            } else {
+                ASSERT_FALSE(results[i].has_value());
+            }
+        }
+        count += 1;
+    }
+}
+
+static void versionstamp_test(std::shared_ptr<cloud::TxnKv> txn_kv) {
+    using namespace doris::cloud;
+    std::string txn_kv_class = dynamic_cast<MemTxnKv*>(txn_kv.get()) != nullptr ? " memkv" : " fdb";
+    std::unique_ptr<Transaction> txn;
+    std::string key_prefix = "versionstamp_test_";
+
+    // Test without enabling versionstamp
+    {
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        Versionstamp versionstamp;
+        ASSERT_EQ(txn->get_versionstamp(&versionstamp), TxnErrorCode::TXN_INVALID_ARGUMENT)
+                << txn_kv_class;
+    }
+
+    // Test with versionstamp enabled but no commit
+    {
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->enable_get_versionstamp();
+        Versionstamp versionstamp;
+        ASSERT_EQ(txn->get_versionstamp(&versionstamp), TxnErrorCode::TXN_KEY_NOT_FOUND)
+                << txn_kv_class;
+    }
+
+    // Test with versionstamp enabled and commit
+    {
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        // Enable versionstamp and perform versioned operations
+        txn->enable_get_versionstamp();
+        txn->atomic_set_ver_key(key_prefix + "key1", "value1");
+        txn->atomic_set_ver_value(key_prefix + "key2", "value2");
+
+        // Commit transaction
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK) << txn_kv_class;
+
+        // Get versionstamp
+        Versionstamp versionstamp;
+        ASSERT_EQ(txn->get_versionstamp(&versionstamp), TxnErrorCode::TXN_OK) << txn_kv_class;
+
+        std::cout << txn_kv_class << " Versionstamp: " << versionstamp.to_string() << std::endl;
+    }
+
+    // Test multiple transactions get different versionstamps
+    Versionstamp versionstamp1, versionstamp2;
+    {
+        // First transaction
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->enable_get_versionstamp();
+        txn->atomic_set_ver_key(key_prefix + "tx1", "value1");
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK) << txn_kv_class;
+        ASSERT_EQ(txn->get_versionstamp(&versionstamp1), TxnErrorCode::TXN_OK) << txn_kv_class;
+
+        // Small delay to ensure different timestamps (mainly for FDB)
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+
+        // Second transaction
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->enable_get_versionstamp();
+        txn->atomic_set_ver_key(key_prefix + "tx2", "value2");
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK) << txn_kv_class;
+        ASSERT_EQ(txn->get_versionstamp(&versionstamp2), TxnErrorCode::TXN_OK) << txn_kv_class;
+    }
+
+    ASSERT_NE(versionstamp1, versionstamp2) << txn_kv_class;
+    ASSERT_LT(versionstamp1, versionstamp2)
+            << txn_kv_class; // Later transaction should have larger versionstamp
+}
+
+TEST(TxnMemKvTest, GetVersionstampTest) {
+    using namespace doris::cloud;
+
+    auto mem_txn_kv = std::dynamic_pointer_cast<TxnKv>(std::make_shared<MemTxnKv>());
+    ASSERT_NE(mem_txn_kv.get(), nullptr);
+
+    versionstamp_test(mem_txn_kv);
+    versionstamp_test(fdb_txn_kv);
+}
+
+static void watch_key_test(std::shared_ptr<cloud::TxnKv> txn_kv) {
+    using namespace doris::cloud;
+    std::string txn_kv_class = dynamic_cast<MemTxnKv*>(txn_kv.get()) != nullptr ? " memkv" : " fdb";
+
+    // Test 1: Watch a key that gets modified
+    {
+        std::unique_ptr<Transaction> txn;
+        std::string key = "watch_test_key1";
+        std::string initial_val = "initial_value";
+        std::string new_val = "new_value";
+
+        // Set initial value
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->put(key, initial_val);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        // Create a watch on the key
+        std::atomic<bool> watch_triggered {false};
+        std::atomic<bool> read_success {false};
+        std::thread watcher([&]() {
+            std::unique_ptr<Transaction> watch_txn;
+            ASSERT_EQ(txn_kv->create_txn(&watch_txn), TxnErrorCode::TXN_OK);
+            std::string val;
+            ASSERT_EQ(watch_txn->get(key, &val), TxnErrorCode::TXN_OK);
+            ASSERT_EQ(val, initial_val);
+
+            read_success = true;
+
+            // This will block until the key is modified
+            ASSERT_EQ(watch_txn->watch_key(key), TxnErrorCode::TXN_OK) << txn_kv_class;
+            watch_triggered = true;
+        });
+
+        // Wait a bit to ensure the watch is registered
+        while (!read_success) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+
+        // Modify the key
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->put(key, new_val);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        // Wait for the watch to be triggered
+        watcher.join();
+        ASSERT_TRUE(watch_triggered) << txn_kv_class;
+    }
+
+    // Test 2: Watch a key that gets deleted
+    {
+        std::unique_ptr<Transaction> txn;
+        std::string key = "watch_test_key2";
+        std::string initial_val = "value_to_delete";
+
+        // Set initial value
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->put(key, initial_val);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        // Create a watch on the key
+        std::atomic<bool> watch_triggered {false};
+        std::atomic<bool> read_success {false};
+        std::thread watcher([&]() {
+            std::unique_ptr<Transaction> watch_txn;
+            ASSERT_EQ(txn_kv->create_txn(&watch_txn), TxnErrorCode::TXN_OK);
+            std::string val;
+            ASSERT_EQ(watch_txn->get(key, &val), TxnErrorCode::TXN_OK);
+            read_success = true;
+
+            ASSERT_EQ(watch_txn->watch_key(key), TxnErrorCode::TXN_OK) << txn_kv_class;
+            watch_triggered = true;
+        });
+
+        while (!read_success) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+
+        // Delete the key
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->remove(key);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        watcher.join();
+        ASSERT_TRUE(watch_triggered) << txn_kv_class;
+    }
+
+    // Test 3: Watch a non-existent key that gets created
+    {
+        std::unique_ptr<Transaction> txn;
+        std::string key = "watch_test_key3_nonexistent";
+        std::string new_val = "newly_created";
+
+        // Ensure the key doesn't exist
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->remove(key);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        // Create a watch on the non-existent key
+        std::atomic<bool> watch_triggered {false};
+        std::atomic<bool> read_success {false};
+        std::thread watcher([&]() {
+            std::unique_ptr<Transaction> watch_txn;
+            ASSERT_EQ(txn_kv->create_txn(&watch_txn), TxnErrorCode::TXN_OK);
+            std::string val;
+            auto ret = watch_txn->get(key, &val);
+            ASSERT_EQ(ret, TxnErrorCode::TXN_KEY_NOT_FOUND);
+            read_success = true;
+
+            ASSERT_EQ(watch_txn->watch_key(key), TxnErrorCode::TXN_OK) << txn_kv_class;
+            watch_triggered = true;
+        });
+
+        while (!read_success) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+
+        // Create the key
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->put(key, new_val);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        watcher.join();
+        ASSERT_TRUE(watch_triggered) << txn_kv_class;
+    }
+
+    // Test 4: Multiple watches on the same key
+    {
+        std::unique_ptr<Transaction> txn;
+        std::string key = "watch_test_key4_multiple";
+        std::string initial_val = "multi_watch_initial";
+        std::string new_val = "multi_watch_new";
+
+        // Set initial value
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->put(key, initial_val);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        // Create multiple watches on the same key
+        std::atomic<int> watch_count {0};
+        std::atomic<int> read_count {0};
+        std::thread watcher1([&]() {
+            std::unique_ptr<Transaction> watch_txn;
+            ASSERT_EQ(txn_kv->create_txn(&watch_txn), TxnErrorCode::TXN_OK);
+            std::string val;
+            ASSERT_EQ(watch_txn->get(key, &val), TxnErrorCode::TXN_OK);
+
+            read_count++;
+            ASSERT_EQ(watch_txn->watch_key(key), TxnErrorCode::TXN_OK) << txn_kv_class;
+            watch_count++;
+        });
+
+        std::thread watcher2([&]() {
+            std::unique_ptr<Transaction> watch_txn;
+            ASSERT_EQ(txn_kv->create_txn(&watch_txn), TxnErrorCode::TXN_OK);
+            std::string val;
+            ASSERT_EQ(watch_txn->get(key, &val), TxnErrorCode::TXN_OK);
+            read_count++;
+
+            ASSERT_EQ(watch_txn->watch_key(key), TxnErrorCode::TXN_OK) << txn_kv_class;
+            watch_count++;
+        });
+
+        std::thread watcher3([&]() {
+            std::unique_ptr<Transaction> watch_txn;
+            ASSERT_EQ(txn_kv->create_txn(&watch_txn), TxnErrorCode::TXN_OK);
+            std::string val;
+            ASSERT_EQ(watch_txn->get(key, &val), TxnErrorCode::TXN_OK);
+            read_count++;
+
+            ASSERT_EQ(watch_txn->watch_key(key), TxnErrorCode::TXN_OK) << txn_kv_class;
+            watch_count++;
+        });
+
+        while (read_count.load() < 3) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+
+        // Modify the key - all watches should be triggered
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->put(key, new_val);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        watcher1.join();
+        watcher2.join();
+        watcher3.join();
+
+        ASSERT_EQ(watch_count.load(), 3) << txn_kv_class;
+    }
+}
+
+TEST(TxnMemKvTest, WatchKeyTest) {
+    using namespace doris::cloud;
+
+    auto mem_txn_kv = std::dynamic_pointer_cast<TxnKv>(std::make_shared<MemTxnKv>());
+    ASSERT_NE(mem_txn_kv.get(), nullptr);
+
+    watch_key_test(mem_txn_kv);
+    watch_key_test(fdb_txn_kv);
+}
+
+static void watch_key_race_condition_test(std::shared_ptr<cloud::TxnKv> txn_kv) {
+    using namespace doris::cloud;
+    std::string txn_kv_class = dynamic_cast<MemTxnKv*>(txn_kv.get()) != nullptr ? " memkv" : " fdb";
+
+    // Test race condition: txn2 modifies the key after txn1 commits but before watch is registered
+    {
+        std::unique_ptr<Transaction> txn;
+        std::string key = "watch_race_key_" + std::to_string(time(nullptr));
+        std::string initial_val = "initial";
+        std::string new_val = "modified";
+
+        // Set initial value
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->put(key, initial_val);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        std::atomic<bool> watch_triggered {false};
+        std::atomic<bool> txn1_committed {false};
+        std::atomic<bool> txn2_can_proceed {false};
+
+        // Thread 1: Watch the key
+        std::thread watcher([&]() {
+            std::unique_ptr<Transaction> watch_txn;
+            ASSERT_EQ(txn_kv->create_txn(&watch_txn), TxnErrorCode::TXN_OK);
+            std::string val;
+            ASSERT_EQ(watch_txn->get(key, &val), TxnErrorCode::TXN_OK);
+            ASSERT_EQ(val, initial_val);
+
+            // Signal that we've read the value and are about to commit
+            txn2_can_proceed = true;
+
+            // Small delay to increase the chance of race condition
+            std::this_thread::sleep_for(std::chrono::microseconds(100));
+
+            // This will commit and then try to register watch
+            // During this time, txn2 might modify the key
+            txn1_committed = true;
+            ASSERT_EQ(watch_txn->watch_key(key), TxnErrorCode::TXN_OK) << txn_kv_class;
+            watch_triggered = true;
+        });
+
+        // Thread 2: Modify the key right after txn1 commits
+        std::thread modifier([&]() {
+            // Wait for watcher to read the value
+            while (!txn2_can_proceed) {
+                std::this_thread::sleep_for(std::chrono::microseconds(10));
+            }
+
+            // Wait for txn1 to commit but try to modify before watch is registered
+            while (!txn1_committed) {
+                std::this_thread::sleep_for(std::chrono::microseconds(10));
+            }
+
+            // Modify the key - this should trigger the watch even if it happens
+            // between commit and watch registration
+            std::unique_ptr<Transaction> modify_txn;
+            ASSERT_EQ(txn_kv->create_txn(&modify_txn), TxnErrorCode::TXN_OK);
+            modify_txn->put(key, new_val);
+            ASSERT_EQ(modify_txn->commit(), TxnErrorCode::TXN_OK);
+        });
+
+        watcher.join();
+        modifier.join();
+
+        // The watch should have been triggered (or returned immediately if change was detected)
+        ASSERT_TRUE(watch_triggered) << txn_kv_class;
+
+        // Verify the final value
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string final_val;
+        ASSERT_EQ(txn->get(key, &final_val), TxnErrorCode::TXN_OK);
+        ASSERT_EQ(final_val, new_val) << txn_kv_class;
+    }
+}
+
+TEST(TxnMemKvTest, WatchKeyRaceConditionTest) {
+    using namespace doris::cloud;
+
+    auto mem_txn_kv = std::dynamic_pointer_cast<TxnKv>(std::make_shared<MemTxnKv>());
+    ASSERT_NE(mem_txn_kv.get(), nullptr);
+
+    // Run the test multiple times to increase the chance of catching race conditions
+    for (int i = 0; i < 10; ++i) {
+        watch_key_race_condition_test(mem_txn_kv);
+    }
+    watch_key_race_condition_test(fdb_txn_kv);
 }

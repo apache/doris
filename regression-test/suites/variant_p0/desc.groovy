@@ -15,11 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("regression_test_variant_desc", "nonConcurrent"){
-    // if (isCloudMode()) {
-    //     return
-    // }
-
+suite("regression_test_variant_desc", "p0"){
     def load_json_data = {table_name, file_name ->
         // load the json data
         streamLoad {
@@ -80,57 +76,44 @@ suite("regression_test_variant_desc", "nonConcurrent"){
         """
     }
 
-    def set_be_config = { key, value ->
-        // String backend_id;
-        def backendId_to_backendIP = [:]
-        def backendId_to_backendHttpPort = [:]
-        getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
-
-        // backend_id = backendId_to_backendIP.keySet()[0]
-        for (backend_id in  backendId_to_backendIP.keySet()) {
-            def (code, out, err) = update_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), key, value)
-            logger.info("update config: code=" + code + ", out=" + out + ", err=" + err)
-        }
-    }
-
     try {
+        sql """set default_variant_max_subcolumns_count = 2"""
+        sql "set default_variant_sparse_hash_shard_count = 0"
         // sparse columns
         def table_name = "sparse_columns"
         create_table table_name
-        set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "0.95")
         sql """set describe_extend_variant_column = true"""
-        sql """insert into  sparse_columns select 0, '{"a": 11245, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : null, "e" : 7.111}}'  as json_str
-            union  all select 0, '{"a": 1123}' as json_str union all select 0, '{"a" : 1234, "xxxx" : "kaana"}' as json_str from numbers("number" = "4096") limit 4096 ;"""
+        sql """insert into  sparse_columns select * from (select 0, '{"a": 11245, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : null, "e" : 7.111}}'  as json_str
+            union  all select 1, '{"a": 1123}' as json_str union all select 2, '{"a" : 1234, "xxxx" : "kaana"}' as json_str from numbers("number" = "4096"))t order by 1 limit 4096 ;"""
         // select for sync rowsets
         sql "select * from sparse_columns limit 1"
         qt_sql_1 """desc ${table_name}"""
         sql "truncate table sparse_columns"
-        sql """insert into  sparse_columns select 0, '{"a": 1123, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : null, "e" : 7.111}, "zzz" : null, "oooo" : {"akakaka" : null, "xxxx" : {"xxx" : 123}}}'  as json_str
-            union  all select 0, '{"a" : 1234, "xxxx" : "kaana", "ddd" : {"aaa" : 123, "mxmxm" : [456, "789"]}}' as json_str from numbers("number" = "4096") limit 4096 ;"""
+        sql """insert into  sparse_columns select * from (select 0, '{"a": 1123, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : null, "e" : 7.111}, "zzz" : null, "oooo" : {"akakaka" : null, "xxxx" : {"xxx" : 123}}}'  as json_str
+            union  all select 1, '{"a" : 1234, "xxxx" : "kaana", "ddd" : {"aaa" : 123, "mxmxm" : [456, "789"]}}' as json_str from numbers("number" = "4096"))t order by 1 limit 4096 ;"""
         sql "select * from sparse_columns limit 1"
         qt_sql_2 """desc ${table_name}"""
         sql "truncate table sparse_columns"
 
+        sql """set default_variant_max_subcolumns_count = 0"""
         // no sparse columns
         table_name = "no_sparse_columns"
         create_table.call(table_name, "4")
         sql "set enable_two_phase_read_opt = false;"
-        set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "1.0")
-        sql """insert into  ${table_name} select 0, '{"a": 11245, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : null, "e" : 7.111}}'  as json_str
-            union  all select 0, '{"a": 1123}' as json_str union all select 0, '{"a" : 1234, "xxxx" : "kaana"}' as json_str from numbers("number" = "4096") limit 4096 ;"""
+        sql """insert into  ${table_name} select * from (select 0, '{"a": 11245, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : null, "e" : 7.111}}'  as json_str
+            union  all select 1, '{"a": 1123}' as json_str union all select 2, '{"a" : 1234, "xxxx" : "kaana"}' as json_str from numbers("number" = "4096"))t order by 1 limit 4096 ;"""
         sql "select * from no_sparse_columns limit 1"
         qt_sql_3 """desc ${table_name}"""
         sql "truncate table ${table_name}"
 
-        // partititon
+        // partition
         table_name = "partition_data"
         create_table_partition.call(table_name, "4")
         sql "set enable_two_phase_read_opt = false;"
-        set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "0.95")
-        sql """insert into  ${table_name} select 2500, '{"a": 1123, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : null, "e" : 7.111}, "zzz" : null, "oooo" : {"akakaka" : null, "xxxx" : {"xxx" : 123}}}'  as json_str
-            union  all select 2500, '{"a" : 1234, "xxxx" : "kaana", "ddd" : {"aaa" : 123, "mxmxm" : [456, "789"]}}' as json_str from numbers("number" = "4096") limit 4096 ;"""
-        sql """insert into  ${table_name} select 45000, '{"a": 11245, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : null, "e" : 7.111}}'  as json_str
-            union  all select 45000, '{"a": 1123}' as json_str union all select 45000, '{"a" : 1234, "xxxx" : "kaana"}' as json_str from numbers("number" = "4096") limit 4096 ;"""
+        sql """insert into  ${table_name} select * from (select 2500, '{"a": 1123, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : null, "e" : 7.111}, "zzz" : null, "oooo" : {"akakaka" : null, "xxxx" : {"xxx" : 123}}}'  as json_str
+            union  all select 2501, '{"a" : 1234, "xxxx" : "kaana", "ddd" : {"aaa" : 123, "mxmxm" : [456, "789"]}}' as json_str from numbers("number" = "4096"))t order by 1 limit 4096 ;"""
+        sql """insert into  ${table_name} select * from (select 45000, '{"a": 11245, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : null, "e" : 7.111}}'  as json_str
+            union  all select 45001, '{"a": 1123}' as json_str union all select 45002, '{"a" : 1234, "xxxx" : "kaana"}' as json_str from numbers("number" = "4096"))t order by 1 limit 4096 ;"""
         sql """insert into  ${table_name} values(95000, '{"a": 11245, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : null, "e" : 7.111}}')"""
         sql "select * from partition_data limit 1"
         qt_sql_6_1 """desc ${table_name} partition p1"""
@@ -274,6 +257,5 @@ suite("regression_test_variant_desc", "nonConcurrent"){
         sql "desc large_tablets"
     } finally {
         // reset flags
-        set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "1")
     }
 }

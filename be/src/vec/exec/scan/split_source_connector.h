@@ -22,6 +22,7 @@
 #include "runtime/runtime_state.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 /*
  * Multiple scanners within a scan node share a split source.
@@ -57,8 +58,8 @@ protected:
         // In the insert statement, reading data in partition order can reduce the memory usage of BE
         // and prevent the generation of smaller tables.
         merged_ranges.resize(_max_scanners);
-        int num_ranges = scan_ranges.size() / _max_scanners;
-        int num_add_one = scan_ranges.size() - num_ranges * _max_scanners;
+        int num_ranges = static_cast<int>(scan_ranges.size()) / _max_scanners;
+        int num_add_one = static_cast<int>(scan_ranges.size()) - num_ranges * _max_scanners;
         int scan_index = 0;
         int range_index = 0;
         for (int i = 0; i < num_add_one; ++i) {
@@ -66,9 +67,9 @@ protected:
             auto& ranges =
                     merged_ranges[scan_index++].scan_range.ext_scan_range.file_scan_range.ranges;
             for (int j = 0; j < num_ranges; j++) {
-                auto& merged_ranges =
+                auto& tmp_merged_ranges =
                         scan_ranges[range_index++].scan_range.ext_scan_range.file_scan_range.ranges;
-                ranges.insert(ranges.end(), merged_ranges.begin(), merged_ranges.end());
+                ranges.insert(ranges.end(), tmp_merged_ranges.begin(), tmp_merged_ranges.end());
             }
         }
         for (int i = num_add_one; i < _max_scanners; ++i) {
@@ -76,9 +77,9 @@ protected:
             auto& ranges =
                     merged_ranges[scan_index++].scan_range.ext_scan_range.file_scan_range.ranges;
             for (int j = 0; j < num_ranges - 1; j++) {
-                auto& merged_ranges =
+                auto& tmp_merged_ranges =
                         scan_ranges[range_index++].scan_range.ext_scan_range.file_scan_range.ranges;
-                ranges.insert(ranges.end(), merged_ranges.begin(), merged_ranges.end());
+                ranges.insert(ranges.end(), tmp_merged_ranges.begin(), tmp_merged_ranges.end());
             }
         }
         LOG(INFO) << "Merge " << scan_ranges.size() << " scan ranges to " << merged_ranges.size();
@@ -109,7 +110,7 @@ public:
 
     Status get_next(bool* has_next, TFileRangeDesc* range) override;
 
-    int num_scan_ranges() override { return _scan_ranges.size(); }
+    int num_scan_ranges() override { return static_cast<int>(_scan_ranges.size()); }
 
     TFileScanRangeParams* get_params() override {
         if (_scan_ranges.size() > 0 &&
@@ -166,4 +167,5 @@ public:
     }
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

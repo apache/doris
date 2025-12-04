@@ -32,6 +32,7 @@
 
 #include "common/status.h"
 #include "io/fs/local_file_system.h"
+#include "util/metrics.h"
 #include "util/system_metrics.h"
 
 namespace doris {
@@ -43,6 +44,8 @@ DEFINE_COUNTER_METRIC_PROTOTYPE_3ARG(fragment_requests_total, MetricUnit::REQUES
                                      "Total fragment requests received.");
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(fragment_request_duration_us, MetricUnit::MICROSECONDS);
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(query_scan_bytes, MetricUnit::BYTES);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(query_scan_bytes_from_local, MetricUnit::BYTES);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(query_scan_bytes_from_remote, MetricUnit::BYTES);
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(query_scan_rows, MetricUnit::ROWS);
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(query_scan_count, MetricUnit::NOUNIT);
 DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(push_requests_success_total, MetricUnit::REQUESTS, "",
@@ -117,6 +120,13 @@ DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(
         segment_row_total, MetricUnit::ROWS,
         "(segment_v2) total number of rows in queried segments (before index pruning)",
         segment_read, Labels({{"type", "segment_row_total"}}));
+
+DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(condition_cache_search_count, MetricUnit::OPERATIONS,
+                                     "number of condition cache lookups when digest != 0",
+                                     condition_cache, Labels({{"type", "condition_cache_search"}}));
+DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(condition_cache_hit_count, MetricUnit::OPERATIONS,
+                                     "number of condition cache hits", condition_cache,
+                                     Labels({{"type", "condition_cache_hit"}}));
 
 DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(stream_load_txn_begin_request_total, MetricUnit::OPERATIONS,
                                      "", stream_load_txn_request, Labels({{"type", "begin"}}));
@@ -222,6 +232,9 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(s3_file_open_writing, MetricUnit::FILESYSTEM)
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(num_io_bytes_read_total, MetricUnit::OPERATIONS);
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(num_io_bytes_read_from_cache, MetricUnit::OPERATIONS);
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(num_io_bytes_read_from_remote, MetricUnit::OPERATIONS);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(num_io_bytes_read_from_peer, MetricUnit::OPERATIONS);
+
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(udf_close_bthread_count, MetricUnit::OPERATIONS);
 
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(query_ctx_cnt, MetricUnit::NOUNIT);
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(scanner_ctx_cnt, MetricUnit::NOUNIT);
@@ -238,6 +251,15 @@ DEFINE_GAUGE_CORE_METRIC_PROTOTYPE_2ARG(runtime_filter_consumer_timeout_num, Met
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(get_remote_tablet_slow_time_ms, MetricUnit::MILLISECONDS);
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(get_remote_tablet_slow_cnt, MetricUnit::NOUNIT);
 
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(ann_index_load_costs_ms, MetricUnit::MILLISECONDS);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(ann_index_load_cnt, MetricUnit::NOUNIT);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(ann_index_search_costs_ms, MetricUnit::MILLISECONDS);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(ann_index_search_cnt, MetricUnit::NOUNIT);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(ann_index_in_memory_cnt, MetricUnit::NOUNIT);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(ann_index_in_memory_rows_cnt, MetricUnit::ROWS);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(ann_index_construction, MetricUnit::NOUNIT);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(ann_index_build_index_threads, MetricUnit::NOUNIT);
+
 const std::string DorisMetrics::_s_registry_name = "doris_be";
 const std::string DorisMetrics::_s_hook_name = "doris_metrics";
 
@@ -247,6 +269,8 @@ DorisMetrics::DorisMetrics() : _metric_registry(_s_registry_name) {
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, fragment_requests_total);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, fragment_request_duration_us);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, query_scan_bytes);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, query_scan_bytes_from_local);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, query_scan_bytes_from_remote);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, query_scan_rows);
 
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, push_requests_success_total);
@@ -309,6 +333,8 @@ DorisMetrics::DorisMetrics() : _metric_registry(_s_registry_name) {
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, cumulative_compaction_task_pending_total);
 
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, segment_read_total);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, condition_cache_search_count);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, condition_cache_hit_count);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, segment_row_total);
 
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, stream_load_txn_begin_request_total);
@@ -378,6 +404,9 @@ DorisMetrics::DorisMetrics() : _metric_registry(_s_registry_name) {
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, num_io_bytes_read_total);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, num_io_bytes_read_from_cache);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, num_io_bytes_read_from_remote);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, num_io_bytes_read_from_peer);
+
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, udf_close_bthread_count);
 
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, query_ctx_cnt);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, scanner_ctx_cnt);
@@ -393,6 +422,15 @@ DorisMetrics::DorisMetrics() : _metric_registry(_s_registry_name) {
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, get_remote_tablet_slow_cnt);
 
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, pipeline_task_queue_size);
+
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, ann_index_load_costs_ms);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, ann_index_load_cnt);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, ann_index_search_costs_ms);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, ann_index_search_cnt);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, ann_index_in_memory_cnt);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, ann_index_in_memory_rows_cnt);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, ann_index_construction);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, ann_index_build_index_threads);
 }
 
 void DorisMetrics::initialize(bool init_system_metrics, const std::set<std::string>& disk_devices,

@@ -35,10 +35,10 @@ suite("test_ip_implicit_cast") {
     );
     """
     sql "insert into ${tableName} values(-1, NULL, NULL)"
-    sql "insert into ${tableName} values(0, 0, '::')"
-    sql "insert into ${tableName} values(1, 1, '::1')"
-    sql "insert into ${tableName} values(2130706433, 2130706433, '2001:1b70:a1:610::b102:2')"
-    sql "insert into ${tableName} values(4294967295, 4294967295, 'ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff')"
+    sql "insert into ${tableName} values(0, TO_IPV4(IPV4_NUM_TO_STRING(0)), '::')"
+    sql "insert into ${tableName} values(1, TO_IPV4(IPV4_NUM_TO_STRING(1)), '::1')"
+    sql "insert into ${tableName} values(2130706433,TO_IPV4(IPV4_NUM_TO_STRING(2130706433)) , '2001:1b70:a1:610::b102:2')"
+    sql "insert into ${tableName} values(4294967295,TO_IPV4(IPV4_NUM_TO_STRING(4294967295)), 'ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff')"
 
     qt_sql1 "select id, ip_v4, ip_v6 from ${tableName} order by id"
 

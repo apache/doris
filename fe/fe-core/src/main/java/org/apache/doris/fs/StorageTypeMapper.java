@@ -20,6 +20,7 @@ package org.apache.doris.fs;
 import org.apache.doris.datasource.property.storage.AzureProperties;
 import org.apache.doris.datasource.property.storage.BrokerProperties;
 import org.apache.doris.datasource.property.storage.COSProperties;
+import org.apache.doris.datasource.property.storage.GCSProperties;
 import org.apache.doris.datasource.property.storage.HdfsProperties;
 import org.apache.doris.datasource.property.storage.MinioProperties;
 import org.apache.doris.datasource.property.storage.OBSProperties;
@@ -43,6 +44,7 @@ public enum StorageTypeMapper {
     MINIO(MinioProperties.class, S3FileSystem::new),
     AZURE(AzureProperties.class, AzureFileSystem::new),
     S3(S3Properties.class, S3FileSystem::new),
+    GCS(GCSProperties.class, S3FileSystem::new),
     HDFS(HdfsProperties.class, DFSFileSystem::new),
     BROKER(BrokerProperties.class, BrokerFileSystem::new),
     OSS_HDFS(OSSHdfsProperties.class, DFSFileSystem::new);

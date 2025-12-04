@@ -33,9 +33,12 @@
 #include "common/cast_set.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
+#include "runtime/define_primitive_type.h"
 #include "runtime/result_block_buffer.h"
 #include "runtime/runtime_state.h"
 #include "runtime/types.h"
+#include "udf/udf.h"
+#include "util/mysql_global.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
@@ -173,7 +176,6 @@ Status VMysqlResultWriter<is_binary_format>::_set_options(
     }
     return Status::OK();
 }
-
 template <bool is_binary_format>
 Status VMysqlResultWriter<is_binary_format>::_write_one_block(RuntimeState* state, Block& block) {
     Status status = Status::OK();
@@ -184,15 +186,12 @@ Status VMysqlResultWriter<is_binary_format>::_write_one_block(RuntimeState* stat
     uint64_t bytes_sent = 0;
     {
         SCOPED_TIMER(_convert_tuple_timer);
-        MysqlRowBuffer<is_binary_format> row_buffer;
-        if constexpr (is_binary_format) {
-            row_buffer.start_binary_row(_output_vexpr_ctxs.size());
-        }
 
         struct Arguments {
             const IColumn* column;
             bool is_const;
             DataTypeSerDeSPtr serde;
+            PrimitiveType type;
         };
 
         const size_t num_cols = _output_vexpr_ctxs.size();
@@ -219,7 +218,8 @@ Status VMysqlResultWriter<is_binary_format>::_write_one_block(RuntimeState* stat
                 serde = block.get_by_position(col_idx).type->get_serde();
             }
             serde->set_return_object_as_string(output_object_data());
-            arguments.emplace_back(column_ptr.get(), col_const, serde);
+            arguments.emplace_back(column_ptr.get(), col_const, serde,
+                                   block.get_by_position(col_idx).type->get_primitive_type());
         }
 
         for (size_t col_idx = 0; col_idx < num_cols; ++col_idx) {
@@ -232,19 +232,79 @@ Status VMysqlResultWriter<is_binary_format>::_write_one_block(RuntimeState* stat
                         num_rows, argument.column->get_name(), argument.column->size());
             }
         }
+        auto mysql_output_tmp_col = ColumnString::create();
+        BufferWriter write_buffer(*mysql_output_tmp_col);
+        size_t write_buffer_index = 0;
+        // For non-binary format, we need to call different serialization interfaces
+        // write_column_to_mysql/presto/hive text
+        if (!is_binary_format) {
+            const auto& serde_dialect = state->query_options().serde_dialect;
+            auto write_to_text = [serde_dialect](DataTypeSerDeSPtr& serde, const IColumn* column,
+                                                 BufferWriter& write_buffer, size_t col_index) {
+                if (serde_dialect == TSerdeDialect::DORIS) {
+                    return serde->write_column_to_mysql_text(*column, write_buffer, col_index);
+                } else if (serde_dialect == TSerdeDialect::PRESTO) {
+                    return serde->write_column_to_presto_text(*column, write_buffer, col_index);
+                } else if (serde_dialect == TSerdeDialect::HIVE) {
+                    return serde->write_column_to_hive_text(*column, write_buffer, col_index);
+                } else {
+                    return false;
+                }
+            };
 
-        for (int row_idx = 0; row_idx < num_rows; ++row_idx) {
-            for (size_t col_idx = 0; col_idx < num_cols; ++col_idx) {
-                RETURN_IF_ERROR(arguments[col_idx].serde->write_column_to_mysql(
-                        *(arguments[col_idx].column), row_buffer, row_idx,
-                        arguments[col_idx].is_const, _options));
+            for (int row_idx = 0; row_idx < num_rows; ++row_idx) {
+                auto& mysql_rows = result->result_batch.rows[row_idx];
+                for (size_t col_idx = 0; col_idx < num_cols; ++col_idx) {
+                    const auto col_index = index_check_const(row_idx, arguments[col_idx].is_const);
+                    const auto* column = arguments[col_idx].column;
+                    if (write_to_text(arguments[col_idx].serde, column, write_buffer, col_index)) {
+                        write_buffer.commit();
+                        auto str = mysql_output_tmp_col->get_data_at(write_buffer_index);
+                        direct_write_to_mysql_result_string(mysql_rows, str.data, str.size);
+                        write_buffer_index++;
+                    } else {
+                        direct_write_to_mysql_result_null(mysql_rows);
+                    }
+                }
+                bytes_sent += mysql_rows.size();
             }
+        } else {
+            MysqlRowBinaryBuffer row_buffer;
 
-            // copy MysqlRowBuffer to Thrift
-            result->result_batch.rows[row_idx].append(row_buffer.buf(), row_buffer.length());
-            bytes_sent += row_buffer.length();
-            row_buffer.reset();
-            if constexpr (is_binary_format) {
+            row_buffer.start_binary_row(_output_vexpr_ctxs.size());
+
+            for (int row_idx = 0; row_idx < num_rows; ++row_idx) {
+                for (size_t col_idx = 0; col_idx < num_cols; ++col_idx) {
+                    auto type = arguments[col_idx].type;
+                    if (type == PrimitiveType::TYPE_ARRAY || type == PrimitiveType::TYPE_MAP ||
+                        type == PrimitiveType::TYPE_STRUCT ||
+                        type == PrimitiveType::TYPE_QUANTILE_STATE ||
+                        type == PrimitiveType::TYPE_HLL || type == PrimitiveType::TYPE_BITMAP) {
+                        // Complex types are not supported in binary format yet
+                        // So use text format serialization interface here
+                        const auto col_index =
+                                index_check_const(row_idx, arguments[col_idx].is_const);
+                        const auto* column = arguments[col_idx].column;
+                        if (arguments[col_idx].serde->write_column_to_mysql_text(
+                                    *column, write_buffer, col_index)) {
+                            write_buffer.commit();
+                            auto str = mysql_output_tmp_col->get_data_at(write_buffer_index);
+                            row_buffer.push_string(str.data, str.size);
+                            write_buffer_index++;
+                        } else {
+                            row_buffer.push_null();
+                        }
+
+                    } else {
+                        RETURN_IF_ERROR(arguments[col_idx].serde->write_column_to_mysql_binary(
+                                *(arguments[col_idx].column), row_buffer, row_idx,
+                                arguments[col_idx].is_const, _options));
+                    }
+                }
+
+                result->result_batch.rows[row_idx].append(row_buffer.buf(), row_buffer.length());
+                bytes_sent += row_buffer.length();
+                row_buffer.reset();
                 row_buffer.start_binary_row(_output_vexpr_ctxs.size());
             }
         }

@@ -43,7 +43,7 @@ DEFINE_mInt32(init_scanner_sync_rowsets_parallelism, "10");
 DEFINE_mInt32(sync_rowsets_slow_threshold_ms, "1000");
 
 DEFINE_mInt64(min_compaction_failure_interval_ms, "5000");
-DEFINE_mInt64(base_compaction_freeze_interval_s, "7200");
+DEFINE_mInt64(base_compaction_freeze_interval_s, "1800");
 DEFINE_mInt64(compaction_load_max_freeze_interval_s, "1200");
 DEFINE_mInt64(cumu_compaction_interval_s, "1800");
 
@@ -56,6 +56,7 @@ DEFINE_mInt32(check_auto_compaction_interval_seconds, "5");
 DEFINE_mInt32(max_base_compaction_task_num_per_disk, "2");
 DEFINE_mBool(prioritize_query_perf_in_compaction, "false");
 DEFINE_mInt32(compaction_max_rowset_count, "10000");
+DEFINE_mInt64(compaction_txn_max_size_bytes, "7340032"); // 7MB
 
 DEFINE_mInt32(refresh_s3_info_interval_s, "60");
 DEFINE_mInt32(vacuum_stale_rowsets_interval_s, "300");
@@ -65,13 +66,35 @@ DEFINE_mInt32(mow_stream_load_commit_retry_times, "5");
 
 DEFINE_mBool(save_load_error_log_to_s3, "false");
 
+DEFINE_mBool(use_public_endpoint_for_error_log, "true");
+
 DEFINE_mInt32(sync_load_for_tablets_thread, "32");
 
 DEFINE_mBool(enable_new_tablet_do_compaction, "true");
 
+// Empty rowset compaction strategy configurations
+DEFINE_mBool(enable_empty_rowset_compaction, "true");
+DEFINE_mInt32(empty_rowset_compaction_min_count, "5");
+DEFINE_mDouble(empty_rowset_compaction_min_ratio, "0.3");
+
 DEFINE_mInt32(delete_bitmap_lock_expiration_seconds, "10");
 
 DEFINE_mInt32(get_delete_bitmap_lock_max_retry_times, "100");
+
+DEFINE_mBool(enable_sync_tablet_delete_bitmap_by_cache, "true");
+DEFINE_mInt32(delete_bitmap_store_write_version, "1");
+DEFINE_mInt32(delete_bitmap_store_read_version, "1");
+DEFINE_mBool(enable_delete_bitmap_store_v2_check_correctness, "false");
+DEFINE_mInt64(delete_bitmap_store_v2_max_bytes_in_fdb, "1024"); // TODO change default value
+DEFINE_Int32(sync_delete_bitmap_task_max_thread, "32");
+DEFINE_mBool(enable_agg_delta_delete_bitmap_for_store_v2, "true");
+
+DEFINE_mBool(enable_batch_get_delete_bitmap, "false");
+// used in get_delete_bitmap rpc
+// The MS will return the current results to BE immediately when the size of delete bitmap
+// in memory fetched from fdb reached this theshold the first time, and BE will make subsequent RPCs
+// to get the remaining rowsets' results.
+DEFINE_mInt64(get_delete_bitmap_bytes_threshold, "524288000"); // 500MB
 
 DEFINE_Bool(enable_cloud_txn_lazy_commit, "false");
 
@@ -91,5 +114,33 @@ DEFINE_mInt32(meta_service_conflict_error_retry_times, "10");
 
 DEFINE_Bool(enable_check_storage_vault, "true");
 
+DEFINE_mBool(skip_writing_empty_rowset_metadata, "false");
+
+DEFINE_mInt64(cloud_index_change_task_timeout_second, "3600");
+
+DEFINE_mInt64(warmup_tablet_replica_info_cache_ttl_sec, "600");
+
+DEFINE_mInt32(warm_up_manager_thread_pool_size, "4");
+
+DEFINE_mInt64(warm_up_rowset_slow_log_ms, "1000");
+
+DEFINE_mBool(enable_compaction_delay_commit_for_warm_up, "false");
+
+DEFINE_mInt64(warm_up_rowset_sync_wait_min_timeout_ms, "10000");
+
+DEFINE_mInt64(warm_up_rowset_sync_wait_max_timeout_ms, "120000");
+
+DEFINE_mBool(enable_warmup_immediately_on_new_rowset, "false");
+
+DEFINE_mBool(enable_standby_passive_compaction, "true");
+
+DEFINE_mDouble(standby_compaction_version_ratio, "0.8");
+
+DEFINE_mBool(enable_cache_read_from_peer, "true");
+
+// Cache the expiration time of the peer address.
+// This can be configured to be less than the `rehash_tablet_after_be_dead_seconds` setting in the `fe` configuration.
+// If the value is -1, use the `rehash_tablet_after_be_dead_seconds` setting in the `fe` configuration as the expiration time.
+DEFINE_mInt64(cache_read_from_peer_expired_seconds, "-1");
 #include "common/compile_check_end.h"
 } // namespace doris::config

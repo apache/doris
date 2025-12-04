@@ -87,11 +87,18 @@ public class GlobalTransactionMgr implements GlobalTransactionMgrIface {
 
     private Env env;
 
+    private final AutoPartitionCacheManager autoPartitionCacheManager;
+
     public GlobalTransactionMgr(Env env) {
         this.env = env;
         this.dbIdToDatabaseTransactionMgrs = Maps.newConcurrentMap();
         this.idGenerator = new TransactionIdGenerator();
         this.callbackFactory = new TxnStateCallbackFactory();
+        this.autoPartitionCacheManager = new AutoPartitionCacheManager();
+    }
+
+    public AutoPartitionCacheManager getAutoPartitionCacheMgr() {
+        return autoPartitionCacheManager;
     }
 
     @Override
@@ -164,16 +171,16 @@ public class GlobalTransactionMgr implements GlobalTransactionMgrIface {
             switch (sourceType) {
                 case BACKEND_STREAMING:
                     checkValidTimeoutSecond(timeoutSecond, Config.max_stream_load_timeout_second,
-                            Config.min_load_timeout_second);
+                            Config.min_load_timeout_second, sourceType);
                     break;
                 default:
                     checkValidTimeoutSecond(timeoutSecond, Config.max_load_timeout_second,
-                            Config.min_load_timeout_second);
+                            Config.min_load_timeout_second, sourceType);
             }
 
             DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(dbId);
             return dbTransactionMgr.beginTransaction(tableIdList, label, requestId,
-                coordinator, sourceType, listenerId, timeoutSecond);
+                    coordinator, sourceType, listenerId, timeoutSecond);
         } catch (DuplicatedRequestException e) {
             throw e;
         } catch (Exception e) {
@@ -395,6 +402,7 @@ public class GlobalTransactionMgr implements GlobalTransactionMgrIface {
             dbTransactionMgr.abortTransaction(txnId, reason, txnCommitAttachment);
         } finally {
             MetaLockUtils.writeUnlockTables(tableList);
+            autoPartitionCacheManager.clearAutoPartitionInfo(txnId);
         }
     }
 
@@ -419,6 +427,7 @@ public class GlobalTransactionMgr implements GlobalTransactionMgrIface {
             dbTransactionMgr.abortTransaction2PC(transactionId);
         } finally {
             MetaLockUtils.writeUnlockTables(tableList);
+            autoPartitionCacheManager.clearAutoPartitionInfo(transactionId);
         }
     }
 
@@ -529,6 +538,7 @@ public class GlobalTransactionMgr implements GlobalTransactionMgrIface {
             Map<Long, Set<Long>> backendPartitions) throws UserException {
         DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(dbId);
         dbTransactionMgr.finishTransaction(transactionId, partitionVisibleVersions, backendPartitions);
+        autoPartitionCacheManager.clearAutoPartitionInfo(transactionId);
     }
 
     /**

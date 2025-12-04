@@ -43,6 +43,8 @@
 #include "vec/runtime/vdatetime_value.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
+
 class TupleDescriptor;
 
 TableConnector::TableConnector(const TupleDescriptor* tuple_desc, bool use_transaction,
@@ -54,10 +56,11 @@ TableConnector::TableConnector(const TupleDescriptor* tuple_desc, bool use_trans
           _tuple_desc(tuple_desc),
           _sql_str(sql_str) {}
 
-void TableConnector::init_profile(doris::RuntimeProfile* profile) {
-    _convert_tuple_timer = ADD_TIMER(profile, "TupleConvertTime");
-    _result_send_timer = ADD_TIMER(profile, "ResultSendTime");
-    _sent_rows_counter = ADD_COUNTER(profile, "NumSentRows", TUnit::UNIT);
+void TableConnector::init_profile(doris::RuntimeProfile* operator_profile) {
+    RuntimeProfile* custom_profile = operator_profile->get_child("CustomCounters");
+    _convert_tuple_timer = ADD_TIMER(custom_profile, "TupleConvertTime");
+    _result_send_timer = ADD_TIMER(custom_profile, "ResultSendTime");
+    _sent_rows_counter = ADD_COUNTER(custom_profile, "NumSentRows", TUnit::UNIT);
 }
 
 std::u16string TableConnector::utf8_to_u16string(const char* first, const char* last) {
@@ -69,7 +72,7 @@ std::u16string TableConnector::utf8_to_u16string(const char* first, const char* 
     };
     std::unique_ptr<std::remove_pointer_t<iconv_t>, decltype(deleter)> convertor(
             iconv_open("UTF-16LE", "UTF-8"), deleter);
-
+    // The `first` variable remains unmodified; `const_cast` is used to adapt to third-party functions.
     char* in = const_cast<char*>(first);
     size_t inbytesleft = last - first;
 
@@ -98,7 +101,7 @@ std::u16string TableConnector::utf8_to_u16string(const char* first, const char* 
 
 Status TableConnector::convert_column_data(const vectorized::ColumnPtr& column_ptr,
                                            const vectorized::DataTypePtr& type_ptr,
-                                           const vectorized::DataTypePtr& type, int row,
+                                           const vectorized::DataTypePtr& type, size_t row,
                                            TOdbcTableType::type table_type) {
     auto extra_convert_func = [&](const std::string_view& str, const bool& is_date) -> void {
         if (table_type == TOdbcTableType::ORACLE || table_type == TOdbcTableType::SAP_HANA) {
@@ -266,4 +269,5 @@ Status TableConnector::convert_column_data(const vectorized::ColumnPtr& column_p
     }
     return Status::OK();
 }
+#include "common/compile_check_end.h"
 } // namespace doris

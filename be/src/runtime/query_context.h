@@ -61,6 +61,7 @@ struct ReportStatusRequest {
     int backend_num;
     RuntimeState* runtime_state;
     std::string load_error_url;
+    std::string first_error_msg;
     std::function<void(const Status&)> cancel_fn;
 };
 
@@ -106,14 +107,15 @@ public:
         return _query_watcher.elapsed_time_seconds(now) > _timeout_second;
     }
 
-    void set_thread_token(int concurrency, bool is_serial) {
-        _thread_token = _exec_env->scanner_scheduler()->new_limited_scan_pool_token(
-                is_serial ? ThreadPool::ExecutionMode::SERIAL
-                          : ThreadPool::ExecutionMode::CONCURRENT,
-                concurrency);
+    int64_t get_remaining_query_time_seconds() const {
+        timespec now;
+        clock_gettime(CLOCK_MONOTONIC, &now);
+        if (is_timeout(now)) {
+            return -1;
+        }
+        int64_t elapsed_seconds = _query_watcher.elapsed_time_seconds(now);
+        return _timeout_second - elapsed_seconds;
     }
-
-    ThreadPoolToken* get_token() { return _thread_token.get(); }
 
     void set_ready_to_execute(Status reason);
 
@@ -185,6 +187,12 @@ public:
         return _query_options.__isset.enable_force_spill && _query_options.enable_force_spill;
     }
     const TQueryOptions& query_options() const { return _query_options; }
+    bool should_be_shuffled_agg(int node_id) const {
+        return _query_options.__isset.shuffled_agg_ids &&
+               std::any_of(_query_options.shuffled_agg_ids.begin(),
+                           _query_options.shuffled_agg_ids.end(),
+                           [&](const int id) -> bool { return id == node_id; });
+    }
 
     // global runtime filter mgr, the runtime filter have remote target or
     // need local merge should regist here. before publish() or push_to_remote()
@@ -193,9 +201,9 @@ public:
 
     TUniqueId query_id() const { return _query_id; }
 
-    vectorized::SimplifiedScanScheduler* get_scan_scheduler() { return _scan_task_scheduler; }
+    vectorized::ScannerScheduler* get_scan_scheduler() { return _scan_task_scheduler; }
 
-    vectorized::SimplifiedScanScheduler* get_remote_scan_scheduler() {
+    vectorized::ScannerScheduler* get_remote_scan_scheduler() {
         return _remote_scan_task_scheduler;
     }
 
@@ -256,6 +264,15 @@ public:
         DCHECK_EQ(_using_brpc_stubs[network_address].get(), brpc_stub.get());
     }
 
+    void set_ai_resources(std::map<std::string, TAIResource> ai_resources) {
+        _ai_resources =
+                std::make_shared<std::map<std::string, TAIResource>>(std::move(ai_resources));
+    }
+
+    const std::shared_ptr<std::map<std::string, TAIResource>>& get_ai_resources() const {
+        return _ai_resources;
+    }
+
     std::unordered_map<TNetworkAddress, std::shared_ptr<PBackendService_Stub>>
     get_using_brpc_stubs() {
         std::lock_guard<std::mutex> lock(_brpc_stubs_mutex);
@@ -276,6 +293,8 @@ public:
 
     void set_load_error_url(std::string error_url);
     std::string get_load_error_url();
+    void set_first_error_msg(std::string error_msg);
+    std::string get_first_error_msg();
 
 private:
     friend class QueryTaskController;
@@ -287,13 +306,6 @@ private:
     bool _is_nereids = false;
 
     std::shared_ptr<ResourceContext> _resource_ctx;
-
-    // A token used to submit olap scanner to the "_limited_scan_thread_pool",
-    // This thread pool token is created from "_limited_scan_thread_pool" from exec env.
-    // And will be shared by all instances of this query.
-    // So that we can control the max thread that a query can be used to execute.
-    // If this token is not set, the scanner will be executed in "_scan_thread_pool" in exec env.
-    std::unique_ptr<ThreadPoolToken> _thread_token {nullptr};
 
     void _init_resource_context();
     void _init_query_mem_tracker();
@@ -308,8 +320,8 @@ private:
     AtomicStatus _exec_status;
 
     doris::pipeline::TaskScheduler* _task_scheduler = nullptr;
-    vectorized::SimplifiedScanScheduler* _scan_task_scheduler = nullptr;
-    vectorized::SimplifiedScanScheduler* _remote_scan_task_scheduler = nullptr;
+    vectorized::ScannerScheduler* _scan_task_scheduler = nullptr;
+    vectorized::ScannerScheduler* _remote_scan_task_scheduler = nullptr;
     // This dependency indicates if the 2nd phase RPC received from FE.
     std::unique_ptr<pipeline::Dependency> _execution_dependency;
     // This dependency indicates if memory is sufficient to execute.
@@ -351,6 +363,8 @@ private:
     std::unordered_map<int, std::vector<std::shared_ptr<TRuntimeProfileTree>>> _profile_map;
     std::unordered_map<int, std::shared_ptr<TRuntimeProfileTree>> _load_channel_profile_map;
 
+    std::shared_ptr<std::map<std::string, TAIResource>> _ai_resources;
+
     void _report_query_profile();
 
     std::unordered_map<int, std::vector<std::shared_ptr<TRuntimeProfileTree>>>
@@ -358,6 +372,7 @@ private:
 
     std::mutex _error_url_lock;
     std::string _load_error_url;
+    std::string _first_error_msg;
 
 public:
     // when fragment of pipeline is closed, it will register its profile to this map by using add_fragment_profile

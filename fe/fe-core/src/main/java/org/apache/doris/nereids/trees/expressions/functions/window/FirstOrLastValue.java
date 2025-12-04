@@ -53,6 +53,11 @@ public abstract class FirstOrLastValue extends WindowFunction
         super(name, children);
     }
 
+    /** constructor for withChildren and reuse signature */
+    protected FirstOrLastValue(WindowFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     public FirstOrLastValue reverse() {
         if (this instanceof FirstValue) {
             return new LastValue(children);

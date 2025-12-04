@@ -89,7 +89,13 @@ suite("mv_ssb_test") {
     sql "set runtime_filter_mode=OFF"
     sql "SET enable_nereids_timeout = false"
     sql "SET BATCH_SIZE = 4064"
-
+    sql """
+          alter table customer modify column c_mktsegment SET STATS ('ndv'='5', 'num_nulls'='0', 'row_count'='3000');
+          alter table lineorder modify column lo_revenue SET STATS ('ndv'='453898', 'num_nulls'='0', 'row_count'='30600572');
+          alter table part modify column p_mfgr SET STATS ('ndv'='5', 'num_nulls'='0', 'row_count'='20000.0');
+          alter table date modify column d_dayofweek  SET STATS ('ndv'='7', 'num_nulls'='0', 'row_count'='255');
+          alter table supplier modify column s_phone  SET STATS ('ndv'='200', 'num_nulls'='0', 'row_count'='200');
+        """
     def mv1_1 = """
             SELECT SUM(lo_extendedprice*lo_discount) AS
             REVENUE

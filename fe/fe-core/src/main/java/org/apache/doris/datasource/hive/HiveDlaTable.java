@@ -30,7 +30,7 @@ import org.apache.doris.mtmv.MTMVSnapshotIf;
 import org.apache.doris.mtmv.MTMVTimestampSnapshot;
 
 import com.google.common.collect.Lists;
-import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.collections4.CollectionUtils;
 
 import java.util.Collections;
 import java.util.List;
@@ -71,11 +71,10 @@ public class HiveDlaTable extends HMSDlaTable {
     @Override
     public MTMVSnapshotIf getPartitionSnapshot(String partitionName, MTMVRefreshContext context,
             Optional<MvccSnapshot> snapshot) throws AnalysisException {
+        HiveMetaStoreCache.HivePartitionValues hivePartitionValues = hmsTable.getHivePartitionValues(snapshot);
+        Long partitionId = getPartitionIdByNameOrAnalysisException(partitionName, hivePartitionValues);
         HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
                 .getMetaStoreCache((HMSExternalCatalog) hmsTable.getCatalog());
-        HiveMetaStoreCache.HivePartitionValues hivePartitionValues = cache.getPartitionValues(
-                hmsTable.getDbName(), hmsTable.getName(), hmsTable.getPartitionColumnTypes(snapshot));
-        Long partitionId = getPartitionIdByNameOrAnalysisException(partitionName, hivePartitionValues);
         HivePartition hivePartition = getHivePartitionByIdOrAnalysisException(partitionId,
                 hivePartitionValues, cache);
         return new MTMVTimestampSnapshot(hivePartition.getLastModifiedTime());
@@ -95,14 +94,13 @@ public class HiveDlaTable extends HMSDlaTable {
         HivePartition maxPartition = null;
         long maxVersionTime = 0L;
         long visibleVersionTime;
+        HiveMetaStoreCache.HivePartitionValues hivePartitionValues = hmsTable.getHivePartitionValues(snapshot);
         HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
                 .getMetaStoreCache((HMSExternalCatalog) hmsTable.getCatalog());
-        HiveMetaStoreCache.HivePartitionValues hivePartitionValues = cache.getPartitionValues(
-                hmsTable.getDbName(), hmsTable.getName(), hmsTable.getPartitionColumnTypes(snapshot));
-        List<HivePartition> partitionList = cache.getAllPartitionsWithCache(hmsTable.getDbName(), hmsTable.getName(),
+        List<HivePartition> partitionList = cache.getAllPartitionsWithCache(hmsTable,
                 Lists.newArrayList(hivePartitionValues.getPartitionValuesMap().values()));
         if (CollectionUtils.isEmpty(partitionList)) {
-            throw new AnalysisException("partitionList is empty, table name: " + hmsTable.getName());
+            return new MTMVMaxTimestampSnapshot(hmsTable.getName(), 0L);
         }
         for (HivePartition hivePartition : partitionList) {
             visibleVersionTime = hivePartition.getLastModifiedTime();
@@ -132,7 +130,7 @@ public class HiveDlaTable extends HMSDlaTable {
         if (CollectionUtils.isEmpty(partitionValues)) {
             throw new AnalysisException("can not find partitionValues: " + partitionId);
         }
-        HivePartition partition = cache.getHivePartition(hmsTable.getDbName(), hmsTable.getName(), partitionValues);
+        HivePartition partition = cache.getHivePartition(hmsTable, partitionValues);
         if (partition == null) {
             throw new AnalysisException("can not find partition: " + partitionId);
         }

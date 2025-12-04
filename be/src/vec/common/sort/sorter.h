@@ -56,8 +56,7 @@ public:
             // create_empty_block should ignore invalid slots, unsorted_block
             // should be same structure with arrival block from child node
             // since block from child node may ignored these slots
-            : _unsorted_block(Block::create_unique(
-                      VectorizedUtils::create_empty_block(row_desc, true /*ignore invalid slot*/))),
+            : _unsorted_block(Block::create_unique(VectorizedUtils::create_empty_block(row_desc))),
               _offset(offset) {}
 
     ~MergeSorterState() = default;
@@ -83,8 +82,10 @@ public:
 
     std::unique_ptr<Block>& unsorted_block() { return _unsorted_block; }
 
+    void ignore_offset() { _offset = 0; }
+
 private:
-    Status _merge_sort_read_impl(int batch_size, doris::vectorized::Block* block, bool* eos);
+    void _merge_sort_read_impl(int batch_size, doris::vectorized::Block* block, bool* eos);
 
     std::unique_ptr<Block> _unsorted_block;
     MergeSorterQueue _queue;
@@ -129,7 +130,7 @@ public:
 
     virtual Status append_block(Block* block) = 0;
 
-    virtual Status prepare_for_read() = 0;
+    virtual Status prepare_for_read(bool is_spill) = 0;
 
     virtual Status get_next(RuntimeState* state, Block* block, bool* eos) = 0;
 
@@ -152,7 +153,7 @@ public:
 
 protected:
     Status partial_sort(Block& src_block, Block& dest_block, bool reversed = false);
-
+    Status _prepare_sort_columns(Block& src_block, Block& dest_block, bool reversed = false);
     bool _enable_spill = false;
     SortDescription _sort_description;
     VSortExecExprs& _vsort_exec_exprs;
@@ -182,7 +183,7 @@ public:
 
     Status append_block(Block* block) override;
 
-    Status prepare_for_read() override;
+    Status prepare_for_read(bool is_spill) override;
 
     Status get_next(RuntimeState* state, Block* block, bool* eos) override;
 
@@ -194,9 +195,13 @@ public:
                                      int batch_size, bool* eos) override;
     void reset() override;
 
+    void set_max_buffered_block_bytes(size_t max_buffered_block_bytes) {
+        _max_buffered_block_bytes = max_buffered_block_bytes;
+    }
+
 private:
     bool _reach_limit() {
-        return _state->unsorted_block()->allocated_bytes() >= INITIAL_BUFFERED_BLOCK_BYTES;
+        return _state->unsorted_block()->allocated_bytes() >= _max_buffered_block_bytes;
     }
 
     bool has_enough_capacity(Block* input_block, Block* unsorted_block) const;
@@ -212,6 +217,8 @@ private:
 
     size_t _buffered_block_size = SPILL_BUFFERED_BLOCK_SIZE;
     size_t _buffered_block_bytes = SPILL_BUFFERED_BLOCK_BYTES;
+
+    size_t _max_buffered_block_bytes = INITIAL_BUFFERED_BLOCK_BYTES;
 };
 
 #include "common/compile_check_end.h"

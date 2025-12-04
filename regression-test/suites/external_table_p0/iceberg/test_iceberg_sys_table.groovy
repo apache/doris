@@ -103,9 +103,9 @@ suite("test_iceberg_sys_table", "p0,external,doris,external_docker,external_dock
             }
         }
 
-        order_qt_select_entries """select status, sequence_number, file_sequence_number, readable_metrics from ${systableName}"""
+        order_qt_select_entries """select status, sequence_number, file_sequence_number from ${systableName}"""
         order_qt_select_entries_count """select count(*) from ${systableName}"""
-        order_qt_select_entries_where """select status, sequence_number, file_sequence_number, readable_metrics from ${systableName} where status="0";"""
+        order_qt_select_entries_where """select status, sequence_number, file_sequence_number from ${systableName} where status="0";"""
         order_qt_select_entries_where_count """select count(status) from ${systableName} where status="0";"""
     }
 
@@ -125,9 +125,9 @@ suite("test_iceberg_sys_table", "p0,external,doris,external_docker,external_dock
             }
         }
 
-        order_qt_select_files """select content, file_format, record_count, lower_bounds, upper_bounds, readable_metrics from ${systableName}"""
+        order_qt_select_files """select content, file_format, record_count, lower_bounds, upper_bounds from ${systableName}"""
         order_qt_select_files_count """select count(*) from ${systableName}"""
-        order_qt_select_files_where """select content, file_format, record_count, lower_bounds, upper_bounds, readable_metrics from ${systableName} where content="0";"""
+        order_qt_select_files_where """select content, file_format, record_count, lower_bounds, upper_bounds from ${systableName} where content="0";"""
         order_qt_select_files_where_count """select count(content) from ${systableName} where content="0";"""
     }
 

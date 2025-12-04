@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.VarBinaryType;
 import org.apache.doris.nereids.types.VarcharType;
 
 import com.google.common.base.Preconditions;
@@ -42,7 +43,9 @@ public class Sha2 extends ScalarFunction
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(VarcharType.SYSTEM_DEFAULT, IntegerType.INSTANCE),
-            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(StringType.INSTANCE, IntegerType.INSTANCE));
+            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(StringType.INSTANCE, IntegerType.INSTANCE),
+            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(VarBinaryType.INSTANCE, IntegerType.INSTANCE)
+    );
 
     private static final List<Integer> validDigest = Lists.newArrayList(224, 256, 384, 512);
 
@@ -51,6 +54,11 @@ public class Sha2 extends ScalarFunction
      */
     public Sha2(Expression arg0, Expression arg1) {
         super("sha2", arg0, arg1);
+    }
+
+    /** constructor for withChildren and reuse signature */
+    private Sha2(ScalarFunctionParams functionParams) {
+        super(functionParams);
     }
 
     @Override
@@ -75,7 +83,7 @@ public class Sha2 extends ScalarFunction
     @Override
     public Sha2 withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new Sha2(children.get(0), children.get(1));
+        return new Sha2(getFunctionParams(children));
     }
 
     @Override

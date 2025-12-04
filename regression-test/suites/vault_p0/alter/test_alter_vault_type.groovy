@@ -95,4 +95,28 @@ suite("test_alter_vault_type", "nonConcurrent") {
     } catch (Exception e) {
         assertTrue(e.getMessage().contains("Access denied for user"), e.getMessage())
     }
+
+    sql """
+        ALTER STORAGE VAULT ${s3VaultName}
+        PROPERTIES (
+            "s3.access_key" = "${getS3AK()}",
+            "s3.secret_key" = "${getS3SK()}"
+        );
+    """
+
+    sql """
+        ALTER STORAGE VAULT ${hdfsVaultName}
+        PROPERTIES (
+            "hadoop.username" = "${getHmsUser()}"
+        );
+    """
+
+    expectExceptionLike({
+        sql """
+            ALTER STORAGE VAULT non_existent_vault_${randomStr}
+            PROPERTIES (
+                "s3.access_key" = "test_ak"
+            );
+        """
+    }, "does not exist")
 }

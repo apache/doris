@@ -19,7 +19,7 @@
 suite("test_variant_is_null_expr", "p0, nonConcurrent") {
     // define a sql table
     def testTable = "test_variant_is_null_expr"
-
+    sql "set default_variant_max_subcolumns_count = 10"
     sql """ DROP TABLE IF EXISTS ${testTable} """ 
     sql """
         CREATE TABLE ${testTable} (

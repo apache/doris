@@ -52,6 +52,7 @@ namespace ErrorCode {
     TStatusError(END_OF_FILE, false);                     \
     TStatusError(INTERNAL_ERROR, true);                   \
     TStatusError(RUNTIME_ERROR, true);                    \
+    TStatusError(JNI_ERROR, true);                        \
     TStatusError(CANCELLED, false);                       \
     TStatusError(ANALYSIS_ERROR, false);                  \
     TStatusError(MEM_LIMIT_EXCEEDED, false);              \
@@ -79,7 +80,8 @@ namespace ErrorCode {
     TStatusError(NOT_MASTER, true);                       \
     TStatusError(OBTAIN_LOCK_FAILED, false);              \
     TStatusError(SNAPSHOT_EXPIRED, false);                \
-    TStatusError(DELETE_BITMAP_LOCK_ERROR, false);
+    TStatusError(DELETE_BITMAP_LOCK_ERROR, false);        \
+    TStatusError(FINISHED, false);
 // E error_name, error_code, print_stacktrace
 #define APPLY_FOR_OLAP_ERROR_CODES(E)                        \
     E(OK, 0, false);                                         \
@@ -135,6 +137,7 @@ namespace ErrorCode {
     E(QUERY_MEMORY_EXCEEDED, -257, false);                   \
     E(WORKLOAD_GROUP_MEMORY_EXCEEDED, -258, false);          \
     E(PROCESS_MEMORY_EXCEEDED, -259, false);                 \
+    E(INVALID_INPUT_SYNTAX, -260, false);                    \
     E(CE_CMD_PARAMS_ERROR, -300, true);                      \
     E(CE_BUFFER_TOO_SMALL, -301, true);                      \
     E(CE_CMD_NOT_VALID, -302, true);                         \
@@ -278,7 +281,7 @@ namespace ErrorCode {
     E(SEGCOMPACTION_FAILED, -3119, false);                   \
     E(ROWSET_ADD_TO_BINLOG_FAILED, -3122, true);             \
     E(ROWSET_BINLOG_NOT_ONLY_ONE_VERSION, -3123, true);      \
-    E(INVERTED_INDEX_INVALID_PARAMETERS, -6000, false);      \
+    E(INDEX_INVALID_PARAMETERS, -6000, false);               \
     E(INVERTED_INDEX_NOT_SUPPORTED, -6001, false);           \
     E(INVERTED_INDEX_CLUCENE_ERROR, -6002, false);           \
     E(INVERTED_INDEX_FILE_NOT_FOUND, -6003, false);          \
@@ -298,7 +301,7 @@ namespace ErrorCode {
     E(INVALID_TABLET_STATE, -7211, false);                   \
     E(ROWSETS_EXPIRED, -7311, false);                        \
     E(CGROUP_ERROR, -7411, false);                           \
-    E(FATAL_ERROR, -7412, false);
+    E(FATAL_ERROR, -7412, true);
 
 // Define constexpr int error_code_name = error_code_value
 #define M(NAME, ERRORCODE, ENABLESTACKTRACE) constexpr int NAME = ERRORCODE;
@@ -495,6 +498,7 @@ public:
     ERROR_CTOR_NOSTACK(EndOfFile, END_OF_FILE)
     ERROR_CTOR(InternalError, INTERNAL_ERROR)
     ERROR_CTOR(RuntimeError, RUNTIME_ERROR)
+    ERROR_CTOR(JniError, JNI_ERROR)
     ERROR_CTOR_NOSTACK(Cancelled, CANCELLED)
     ERROR_CTOR(MemoryLimitExceeded, MEM_LIMIT_EXCEEDED)
     ERROR_CTOR(RpcError, THRIFT_RPC_ERROR)
@@ -518,7 +522,7 @@ public:
 
     void set_code(int code) { _code = code; }
 
-    bool ok() const { return _code == ErrorCode::OK; }
+    bool ok() const { return _code == ErrorCode::OK || _code == ErrorCode::FINISHED; }
 
     // Convert into TStatus.
     void to_thrift(TStatus* status) const;
@@ -606,7 +610,7 @@ public:
             return false;
         }
         error_st_ = new_status;
-        error_code_.store(new_status.code(), std::memory_order_release);
+        error_code_.store(static_cast<int16_t>(new_status.code()), std::memory_order_release);
         return true;
     }
 
@@ -733,15 +737,25 @@ using ResultError = unexpected<Status>;
         }                                           \
     } while (false)
 
-#define DORIS_TRY(stmt)                          \
-    ({                                           \
-        auto&& res = (stmt);                     \
-        using T = std::decay_t<decltype(res)>;   \
-        if (!res.has_value()) [[unlikely]] {     \
-            return std::forward<T>(res).error(); \
-        }                                        \
-        std::forward<T>(res).value();            \
+#define DORIS_TRY(stmt)                              \
+    ({                                               \
+        auto&& try_res = (stmt);                     \
+        using T = std::decay_t<decltype(try_res)>;   \
+        if (!try_res.has_value()) [[unlikely]] {     \
+            return std::forward<T>(try_res).error(); \
+        }                                            \
+        std::forward<T>(try_res).value();            \
     });
+
+#define TEST_TRY(stmt)                                                                          \
+    ({                                                                                          \
+        auto&& res = (stmt);                                                                    \
+        using T = std::decay_t<decltype(res)>;                                                  \
+        if (!res.has_value()) [[unlikely]] {                                                    \
+            ASSERT_TRUE(res.has_value()) << "Expected success, but got error: " << res.error(); \
+        }                                                                                       \
+        std::forward<T>(res).value();                                                           \
+    })
 
 } // namespace doris
 

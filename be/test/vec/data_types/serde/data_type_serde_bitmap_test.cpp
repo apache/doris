@@ -26,31 +26,6 @@
 
 namespace doris::vectorized {
 
-TEST(BitmapSerdeTest, writeColumnToMysql) {
-    auto bitmap_serde = std::make_shared<vectorized::DataTypeBitMapSerDe>(1);
-    auto column_bitmap = ColumnBitmap::create();
-    column_bitmap->insert_value(BitmapValue::empty_bitmap());
-    ASSERT_EQ(column_bitmap->size(), 1);
-    MysqlRowBuffer<false> mysql_rb;
-    DataTypeSerDe::FormatOptions options;
-    options.nested_string_wrapper = "\"";
-    options.wrapper_len = 1;
-    options.map_key_delim = ':';
-    options.null_format = "null";
-    options.null_len = 4;
-    bitmap_serde->set_return_object_as_string(true);
-    auto st = bitmap_serde->write_column_to_mysql(*column_bitmap, mysql_rb, 0, false, options);
-    EXPECT_TRUE(st.ok());
-    ASSERT_EQ(mysql_rb.length(), 2);
-
-    column_bitmap->insert_value(BitmapValue(123));
-    bitmap_serde->set_return_object_as_string(true);
-    st = bitmap_serde->write_column_to_mysql(*column_bitmap, mysql_rb, 1, false, options);
-    EXPECT_TRUE(st.ok());
-    ASSERT_EQ(mysql_rb.length(), 8);
-    std::cout << "test write_column_to_mysql success" << std::endl;
-}
-
 TEST(BitmapSerdeTest, writeOneCellToJsonb) {
     auto bitmap_serde = std::make_shared<vectorized::DataTypeBitMapSerDe>(1);
     auto column_bitmap = ColumnBitmap::create();
@@ -59,17 +34,17 @@ TEST(BitmapSerdeTest, writeOneCellToJsonb) {
     JsonbWriterT<JsonbOutStream> jsonb_writer;
     Arena pool;
     jsonb_writer.writeStartObject();
-    bitmap_serde->write_one_cell_to_jsonb(*column_bitmap, jsonb_writer, &pool, 0, 0);
+    bitmap_serde->write_one_cell_to_jsonb(*column_bitmap, jsonb_writer, pool, 0, 0);
     jsonb_writer.writeEndObject();
 
     auto jsonb_column = ColumnString::create();
     jsonb_column->insert_data(jsonb_writer.getOutput()->getBuffer(),
                               jsonb_writer.getOutput()->getSize());
     StringRef jsonb_data = jsonb_column->get_data_at(0);
-    JsonbDocument* pdoc = nullptr;
+    const JsonbDocument* pdoc = nullptr;
     auto st = JsonbDocument::checkAndCreateDocument(jsonb_data.data, jsonb_data.size, &pdoc);
     ASSERT_TRUE(st.ok()) << "checkAndCreateDocument failed: " << st.to_string();
-    JsonbDocument& doc = *pdoc;
+    const JsonbDocument& doc = *pdoc;
     for (auto it = doc->begin(); it != doc->end(); ++it) {
         bitmap_serde->read_one_cell_from_jsonb(*column_bitmap, it->value());
     }

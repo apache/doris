@@ -52,6 +52,7 @@ class ColumnPredicate;
 } // namespace doris
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 BlockReader::~BlockReader() {
@@ -136,17 +137,16 @@ Status BlockReader::_init_collect_iter(const ReaderParams& read_params) {
                 RETURN_IF_ERROR(rs_split.rs_reader->init(&_reader_context, rs_split));
             }
 
-            Status res = _vcollect_iter.add_child(rs_split);
-            if (!res.ok() && !res.is<END_OF_FILE>()) {
-                LOG(WARNING) << "failed to add child to iterator, err=" << res;
-                return res;
+            Status res1 = _vcollect_iter.add_child(rs_split);
+            if (!res1.ok() && !res1.is<END_OF_FILE>()) {
+                LOG(WARNING) << "failed to add child to iterator, err=" << res1;
+                return res1;
             }
-            if (res.ok()) {
+            if (res1.ok()) {
                 valid_rs_readers.push_back(rs_split.rs_reader);
             }
         }
     }
-
     {
         SCOPED_RAW_TIMER(&_stats.block_reader_build_heap_init_timer_ns);
         RETURN_IF_ERROR(_vcollect_iter.build_heap(valid_rs_readers));
@@ -205,10 +205,11 @@ Status BlockReader::_init_agg_state(const ReaderParams& read_params) {
 Status BlockReader::init(const ReaderParams& read_params) {
     RETURN_IF_ERROR(TabletReader::init(read_params));
 
-    int32_t return_column_size = read_params.origin_return_columns->size();
+    auto return_column_size = read_params.origin_return_columns->size();
     _return_columns_loc.resize(read_params.return_columns.size());
     for (int i = 0; i < return_column_size; ++i) {
         auto cid = read_params.origin_return_columns->at(i);
+        // For each original cid, find the index in return_columns
         for (int j = 0; j < read_params.return_columns.size(); ++j) {
             if (read_params.return_columns[j] == cid) {
                 if (j < _tablet->num_key_columns() || _tablet->keys_type() != AGG_KEYS) {
@@ -308,7 +309,7 @@ Status BlockReader::_agg_key_next_block(Block* block, bool* eof) {
             return res;
         }
 
-        if (!_get_next_row_same()) {
+        if (!_next_row.is_same) {
             if (target_block_row == _reader_context.batch_size) {
                 break;
             }
@@ -410,7 +411,6 @@ Status BlockReader::_unique_key_next_block(Block* block, bool* eof) {
         block->insert(column_with_type_and_name);
         RETURN_IF_ERROR(Block::filter_block(block, target_columns_size, target_columns_size));
         _stats.rows_del_filtered += target_block_row - block->rows();
-        DCHECK(block->try_get_by_name("__DORIS_COMPACTION_FILTER__") == nullptr);
         if (UNLIKELY(_reader_context.record_rowids)) {
             DCHECK_EQ(_block_row_locations.size(), block->rows() + delete_count);
         }
@@ -449,7 +449,7 @@ void BlockReader::_update_agg_data(MutableColumns& columns) {
 
     // calculate has_null_tag
     for (auto idx : _agg_columns_idx) {
-        _stored_has_null_tag[idx] = _stored_data_columns[idx]->has_null(copy_size);
+        _stored_has_null_tag[idx] = _stored_data_columns[idx]->has_null(0, copy_size);
     }
 
     // calculate aggregate and insert
@@ -515,7 +515,7 @@ void BlockReader::_update_agg_value(MutableColumns& columns, int begin, int end,
 
         if (begin <= end) {
             function->add_batch_range(begin, end, place, const_cast<const IColumn**>(&column_ptr),
-                                      &_arena, _stored_has_null_tag[idx]);
+                                      _arena, _stored_has_null_tag[idx]);
         }
 
         if (is_close) {
@@ -529,13 +529,5 @@ void BlockReader::_update_agg_value(MutableColumns& columns, int begin, int end,
     }
 }
 
-bool BlockReader::_get_next_row_same() {
-    if (_next_row.is_same) {
-        return true;
-    } else {
-        auto* block = _next_row.block.get();
-        return block->get_same_bit(_next_row.row_pos);
-    }
-}
-
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

@@ -65,7 +65,7 @@ TEST_F(PartitionedAggregationSourceOperatorTest, Init) {
             reinterpret_cast<AggSharedState*>(shared_state->in_mem_shared_state_sptr.get());
 
     LocalStateInfo info {
-            .parent_profile = _helper.runtime_profile.get(),
+            .parent_profile = _helper.operator_profile.get(),
             .scan_ranges = {},
             .shared_state = shared_state.get(),
             .shared_state_map = {},
@@ -110,7 +110,7 @@ TEST_F(PartitionedAggregationSourceOperatorTest, GetBlockEmpty) {
                                            source_operator->node_id(), "PartitionedAggSinkTestDep");
 
     LocalSinkStateInfo sink_info {.task_idx = 0,
-                                  .parent_profile = _helper.runtime_profile.get(),
+                                  .parent_profile = _helper.operator_profile.get(),
                                   .sender_id = 0,
                                   .shared_state = shared_state.get(),
                                   .shared_state_map = {},
@@ -125,7 +125,7 @@ TEST_F(PartitionedAggregationSourceOperatorTest, GetBlockEmpty) {
     ASSERT_TRUE(st.ok()) << "open failed: " << st.to_string();
 
     LocalStateInfo info {
-            .parent_profile = _helper.runtime_profile.get(),
+            .parent_profile = _helper.operator_profile.get(),
             .scan_ranges = {},
             .shared_state = shared_state.get(),
             .shared_state_map = {},
@@ -181,7 +181,7 @@ TEST_F(PartitionedAggregationSourceOperatorTest, GetBlock) {
                                            source_operator->node_id(), "PartitionedAggSinkTestDep");
 
     LocalSinkStateInfo sink_info {.task_idx = 0,
-                                  .parent_profile = _helper.runtime_profile.get(),
+                                  .parent_profile = _helper.operator_profile.get(),
                                   .sender_id = 0,
                                   .shared_state = shared_state.get(),
                                   .shared_state_map = {},
@@ -215,7 +215,7 @@ TEST_F(PartitionedAggregationSourceOperatorTest, GetBlock) {
     ASSERT_GT(inner_sink_local_state->_get_hash_table_size(), 0);
 
     LocalStateInfo info {
-            .parent_profile = _helper.runtime_profile.get(),
+            .parent_profile = _helper.operator_profile.get(),
             .scan_ranges = {},
             .shared_state = shared_state.get(),
             .shared_state_map = {},
@@ -273,7 +273,7 @@ TEST_F(PartitionedAggregationSourceOperatorTest, GetBlockWithSpill) {
                                            source_operator->node_id(), "PartitionedAggSinkTestDep");
 
     LocalSinkStateInfo sink_info {.task_idx = 0,
-                                  .parent_profile = _helper.runtime_profile.get(),
+                                  .parent_profile = _helper.operator_profile.get(),
                                   .sender_id = 0,
                                   .shared_state = shared_state.get(),
                                   .shared_state_map = {},
@@ -300,18 +300,10 @@ TEST_F(PartitionedAggregationSourceOperatorTest, GetBlockWithSpill) {
     st = sink_operator->revoke_memory(_helper.runtime_state.get(), nullptr);
     ASSERT_TRUE(st.ok()) << "revoke_memory failed: " << st.to_string();
 
-    while (sink_local_state->_spill_dependency->is_blocked_by()) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    }
-
     ASSERT_TRUE(shared_state->is_spilled);
 
     st = sink_operator->sink(_helper.runtime_state.get(), &block, true);
     ASSERT_TRUE(st.ok()) << "sink failed: " << st.to_string();
-
-    while (sink_local_state->_spill_dependency->is_blocked_by()) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    }
 
     ASSERT_EQ(sink_operator->revocable_mem_size(_helper.runtime_state.get()), 0);
 
@@ -320,7 +312,7 @@ TEST_F(PartitionedAggregationSourceOperatorTest, GetBlockWithSpill) {
     ASSERT_EQ(inner_sink_local_state->_get_hash_table_size(), 0);
 
     LocalStateInfo info {
-            .parent_profile = _helper.runtime_profile.get(),
+            .parent_profile = _helper.operator_profile.get(),
             .scan_ranges = {},
             .shared_state = shared_state.get(),
             .shared_state_map = {},
@@ -345,9 +337,6 @@ TEST_F(PartitionedAggregationSourceOperatorTest, GetBlockWithSpill) {
         st = source_operator->get_block(_helper.runtime_state.get(), &block, &eos);
         ASSERT_TRUE(st.ok()) << "get_block failed: " << st.to_string();
 
-        while (local_state->_spill_dependency->is_blocked_by()) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
-        }
         rows += block.rows();
         block.clear_column_data();
     }
@@ -386,7 +375,7 @@ TEST_F(PartitionedAggregationSourceOperatorTest, GetBlockWithSpillError) {
                                            source_operator->node_id(), "PartitionedAggSinkTestDep");
 
     LocalSinkStateInfo sink_info {.task_idx = 0,
-                                  .parent_profile = _helper.runtime_profile.get(),
+                                  .parent_profile = _helper.operator_profile.get(),
                                   .sender_id = 0,
                                   .shared_state = shared_state.get(),
                                   .shared_state_map = {},
@@ -413,18 +402,10 @@ TEST_F(PartitionedAggregationSourceOperatorTest, GetBlockWithSpillError) {
     st = sink_operator->revoke_memory(_helper.runtime_state.get(), nullptr);
     ASSERT_TRUE(st.ok()) << "revoke_memory failed: " << st.to_string();
 
-    while (sink_local_state->_spill_dependency->is_blocked_by()) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    }
-
     ASSERT_TRUE(shared_state->is_spilled);
 
     st = sink_operator->sink(_helper.runtime_state.get(), &block, true);
     ASSERT_TRUE(st.ok()) << "sink failed: " << st.to_string();
-
-    while (sink_local_state->_spill_dependency->is_blocked_by()) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    }
 
     ASSERT_EQ(sink_operator->revocable_mem_size(_helper.runtime_state.get()), 0);
 
@@ -433,7 +414,7 @@ TEST_F(PartitionedAggregationSourceOperatorTest, GetBlockWithSpillError) {
     ASSERT_EQ(inner_sink_local_state->_get_hash_table_size(), 0);
 
     LocalStateInfo info {
-            .parent_profile = _helper.runtime_profile.get(),
+            .parent_profile = _helper.operator_profile.get(),
             .scan_ranges = {},
             .shared_state = shared_state.get(),
             .shared_state_map = {},
@@ -455,16 +436,12 @@ TEST_F(PartitionedAggregationSourceOperatorTest, GetBlockWithSpillError) {
 
     block.clear();
     bool eos = false;
-    while (!eos && dp_helper.get_spill_status().ok()) {
-        st = source_operator->get_block(_helper.runtime_state.get(), &block, &eos);
-        ASSERT_TRUE(st.ok()) << "get_block failed: " << st.to_string();
 
-        while (local_state->_spill_dependency->is_blocked_by()) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
-        }
+    while (!eos && st.ok()) {
+        st = source_operator->get_block(_helper.runtime_state.get(), &block, &eos);
         block.clear_column_data();
     }
 
-    ASSERT_FALSE(dp_helper.get_spill_status().ok());
+    ASSERT_FALSE(st.ok());
 }
 } // namespace doris::pipeline

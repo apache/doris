@@ -27,12 +27,12 @@ PhysicalResultSink
 --------------------------------------------PhysicalOlapScan[store]
 ------------------------------------PhysicalProject
 --------------------------------------filter((d1.d_year = 2000))
-----------------------------------------PhysicalOlapScan[date_dim]
+----------------------------------------PhysicalOlapScan[date_dim(d1)]
 --------------------------------PhysicalProject
 ----------------------------------PhysicalOlapScan[item]
 
 Hint log:
 Used: leading(store_sales store d1 item )
-UnUsed: 
+UnUsed:
 SyntaxError:
 

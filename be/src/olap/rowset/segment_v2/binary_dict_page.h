@@ -50,13 +50,25 @@ enum { BINARY_DICT_PAGE_HEADER_SIZE = 4 };
 // This type of page use dictionary encoding for strings.
 // There is only one dictionary page for all the data pages within a column.
 //
-// Layout for dictionary encoded page:
-// Either header + embedded codeword page, which can be encoded with any
-//        int PageBuilder, when mode_ = DICT_ENCODING.
-// Or     header + embedded BinaryPlainPage, when mode_ = PLAIN_ENCODING.
-// Data pages start with mode_ = DICT_ENCODING, when the size of dictionary
-// page go beyond the option_->dict_page_size, the subsequent data pages will switch
-// to string plain page automatically.
+// Layout for dictionary encoded data page:
+// The data page starts with a 4-byte header (EncodingTypePB) followed by the encoded data.
+// There are three possible encoding formats:
+//
+// 1. header(4 bytes) + bitshuffle encoded codeword page, when mode_ = DICT_ENCODING.
+//    The codeword page contains integer codes referencing the dictionary, compressed with bitshuffle+lz4.
+//
+// 2. header(4 bytes) + BinaryPlainPageV2, when mode_ = PLAIN_ENCODING_V2.
+//    Used as fallback when dictionary is full. Stores raw strings with varint-encoded lengths.
+//
+// 3. header(4 bytes) + BinaryPlainPage, when mode_ = PLAIN_ENCODING.
+//    Used as fallback when dictionary is full. Stores raw strings with offset array.
+//
+// Data pages start with mode_ = DICT_ENCODING. When the size of dictionary page
+// goes beyond options.dict_page_size, subsequent data pages will switch to plain
+// encoding (either PLAIN_ENCODING_V2 or PLAIN_ENCODING based on config) automatically.
+//
+// The dictionary page itself is encoded as either BinaryPlainPage (PLAIN_ENCODING) or
+// BinaryPlainPageV2 (PLAIN_ENCODING_V2), determined by config::binary_plain_encoding_default_impl.
 class BinaryDictPageBuilder : public PageBuilderHelper<BinaryDictPageBuilder> {
 public:
     using Self = BinaryDictPageBuilder;
@@ -78,9 +90,13 @@ public:
 
     Status get_dictionary_page(OwnedSlice* dictionary_page) override;
 
+    Status get_dictionary_page_encoding(EncodingTypePB* encoding) const override;
+
     Status get_first_value(void* value) const override;
 
     Status get_last_value(void* value) const override;
+
+    uint64_t get_raw_data_size() const override;
 
 private:
     BinaryDictPageBuilder(const PageBuilderOptions& options);
@@ -90,10 +106,15 @@ private:
 
     std::unique_ptr<PageBuilder> _data_page_builder;
 
-    std::unique_ptr<BinaryPlainPageBuilder<FieldType::OLAP_FIELD_TYPE_VARCHAR>> _dict_builder =
-            nullptr;
+    std::unique_ptr<PageBuilder> _dict_builder = nullptr;
 
     EncodingTypePB _encoding_type;
+
+    EncodingTypePB
+            _dict_word_page_encoding_type; // currently only support PLAIN_ENCODING and PLAIN_ENCODING_V2
+    EncodingTypePB
+            _fallback_binary_encoding_type; // currently only support PLAIN_ENCODING and PLAIN_ENCODING_V2
+
     struct HashOfSlice {
         size_t operator()(const Slice& slice) const { return crc32_hash(slice.data, slice.size); }
     };
@@ -103,6 +124,7 @@ private:
     vectorized::Arena _arena;
     faststring _buffer;
     faststring _first_value;
+    uint64_t _raw_data_size = 0;
 
     bool _has_empty = false;
     uint32_t _empty_code = 0;
@@ -127,7 +149,7 @@ public:
 
     bool is_dict_encoding() const;
 
-    void set_dict_decoder(PageDecoder* dict_decoder, StringRef* dict_word_info);
+    void set_dict_decoder(uint32_t num_dict_items, StringRef* dict_word_info);
 
     ~BinaryDictPageDecoder() override;
 
@@ -135,12 +157,12 @@ private:
     Slice _data;
     PageDecoderOptions _options;
     std::unique_ptr<PageDecoder> _data_page_decoder;
-    BinaryPlainPageDecoder<FieldType::OLAP_FIELD_TYPE_VARCHAR>* _dict_decoder = nullptr;
     BitShufflePageDecoder<FieldType::OLAP_FIELD_TYPE_INT>* _bit_shuffle_ptr = nullptr;
     bool _parsed;
     EncodingTypePB _encoding_type;
 
     StringRef* _dict_word_info = nullptr;
+    uint32_t _num_dict_items = 0;
 
     std::vector<int32_t> _buffer;
 };

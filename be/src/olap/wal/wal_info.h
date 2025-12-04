@@ -20,7 +20,7 @@
 namespace doris {
 class WalInfo {
 public:
-    WalInfo(int64_t wal_id, std::string wal_path, int64_t retry_num, int64_t start_time_ms);
+    WalInfo(int64_t wal_id, std::string wal_path, int32_t retry_num, int64_t start_time_ms);
     ~WalInfo() = default;
     int64_t get_wal_id();
     int32_t get_retry_num();

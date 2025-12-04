@@ -21,6 +21,7 @@
 #include <string_view>
 
 namespace doris::segment_v2::inverted_index {
+#include "common/compile_check_begin.h"
 
 ASCIIFoldingFilter::ASCIIFoldingFilter(const TokenStreamPtr& in, bool preserve_original)
         : DorisTokenFilter(in), _preserve_original(preserve_original), _output(512, 0) {}
@@ -34,7 +35,7 @@ Token* ASCIIFoldingFilter::next(Token* t) {
     }
     if (_in->next(t)) {
         const char* buffer = t->termBuffer<char>();
-        int32_t length = t->termLength<char>();
+        auto length = static_cast<int32_t>(t->termLength<char>());
         for (int32_t i = 0; i < length;) {
             UChar32 c = U_UNASSIGNED;
             U8_NEXT(buffer, i, length, c);
@@ -96,7 +97,7 @@ int32_t ASCIIFoldingFilter::fold_to_ascii(const char* in, int32_t input_pos, cha
 
         // Quick test: if it's not in range then just keep current character
         if (c < 0x0080) {
-            out[output_pos++] = c;
+            out[output_pos++] = static_cast<char>(c);
         } else {
             switch (c) {
             case 0x00C0: // À  [LATIN CAPITAL LETTER A WITH GRAVE]
@@ -2007,7 +2008,7 @@ int32_t ASCIIFoldingFilter::fold_to_ascii(const char* in, int32_t input_pos, cha
                 out[output_pos++] = '~';
                 break;
             default: {
-                for (int32_t i = prev_pos; i < pos; i++) {
+                for (size_t i = prev_pos; i < pos; i++) {
                     out[output_pos++] = in[i];
                 }
             } break;
@@ -2017,4 +2018,5 @@ int32_t ASCIIFoldingFilter::fold_to_ascii(const char* in, int32_t input_pos, cha
     return output_pos;
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2::inverted_index

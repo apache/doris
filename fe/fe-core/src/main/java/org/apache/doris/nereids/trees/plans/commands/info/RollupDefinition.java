@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.trees.plans.commands.info;
 
-import org.apache.doris.analysis.AddRollupClause;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.util.Utils;
 
@@ -56,8 +55,8 @@ public class RollupDefinition {
         }
     }
 
-    public AddRollupClause translateToCatalogStyle() {
-        return new AddRollupClause(name, cols, dupKeys, name, properties);
+    public AddRollupOp translateToAddRollupOp() {
+        return new AddRollupOp(name, cols, dupKeys, name, properties);
     }
 
     public String getName() {
@@ -66,5 +65,26 @@ public class RollupDefinition {
 
     public List<String> getCols() {
         return cols;
+    }
+
+    /**
+     * to sql
+     */
+    public String toSql() {
+        StringBuilder stringBuilder = new StringBuilder();
+        stringBuilder.append("ADD ROLLUP `").append(name).append("` (");
+        int idx = 0;
+        for (String column : cols) {
+            if (idx != 0) {
+                stringBuilder.append(", ");
+            }
+            stringBuilder.append("`").append(column).append("`");
+            idx++;
+        }
+        stringBuilder.append(")");
+        if (name != null) {
+            stringBuilder.append(" FROM `").append(name).append("`");
+        }
+        return stringBuilder.toString();
     }
 }

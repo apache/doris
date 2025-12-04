@@ -19,7 +19,7 @@
 
 #include <glog/logging.h>
 
-#include <memory>
+#include "vec/common/custom_allocator.h"
 
 namespace doris {
 
@@ -37,7 +37,7 @@ void faststring::GrowToAtLeast(size_t newcapacity) {
 
 void faststring::GrowArray(size_t newcapacity) {
     DCHECK_GE(newcapacity, capacity_);
-    std::unique_ptr<uint8_t[]> newdata(reinterpret_cast<uint8_t*>(Allocator::alloc(newcapacity)));
+    DorisUniqueBufferPtr<uint8_t> newdata(newcapacity);
     if (len_ > 0) {
         memcpy(&newdata[0], &data_[0], len_);
     }
@@ -62,7 +62,7 @@ void faststring::ShrinkToFitInternal() {
         data_ = initial_data_;
         capacity_ = kInitialCapacity;
     } else {
-        std::unique_ptr<uint8_t[]> newdata(reinterpret_cast<uint8_t*>(Allocator::alloc(len_)));
+        DorisUniqueBufferPtr<uint8_t> newdata(len_);
         memcpy(&newdata[0], &data_[0], len_);
         Allocator::free(data_, capacity_);
         data_ = newdata.release();

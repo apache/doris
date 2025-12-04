@@ -59,17 +59,18 @@ public class Ceil extends ScalarFunction
         super("ceil", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Ceil(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public Ceil withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1 || children.size() == 2);
-        if (children.size() == 1) {
-            return new Ceil(children.get(0));
-        } else {
-            return new Ceil(children.get(0), children.get(1));
-        }
+        return new Ceil(getFunctionParams(children));
     }
 
     @Override

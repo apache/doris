@@ -61,18 +61,18 @@ public class ParseUrl extends ScalarFunction
         super("parse_url", arg0, arg1, arg2);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ParseUrl(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public ParseUrl withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() == 2
-                || children.size() == 3);
-        if (children.size() == 2) {
-            return new ParseUrl(children.get(0), children.get(1));
-        } else {
-            return new ParseUrl(children.get(0), children.get(1), children.get(2));
-        }
+        Preconditions.checkArgument(children.size() == 2 || children.size() == 3);
+        return new ParseUrl(getFunctionParams(children));
     }
 
     @Override

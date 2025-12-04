@@ -27,33 +27,6 @@
 
 namespace doris::vectorized {
 
-TEST(HLLSerdeTest, writeColumnToMysql) {
-    auto hll_serde = std::make_shared<vectorized::DataTypeHLLSerDe>(1);
-    auto column_hll = ColumnHLL::create();
-    column_hll->insert_value(HyperLogLog::empty());
-    ASSERT_EQ(column_hll->size(), 1);
-    MysqlRowBuffer<false> mysql_rb;
-    DataTypeSerDe::FormatOptions options;
-    options.nested_string_wrapper = "\"";
-    options.wrapper_len = 1;
-    options.map_key_delim = ':';
-    options.null_format = "null";
-    options.null_len = 4;
-    hll_serde->set_return_object_as_string(true);
-    auto st = hll_serde->write_column_to_mysql(*column_hll, mysql_rb, 0, false, options);
-    EXPECT_TRUE(st.ok());
-    ASSERT_EQ(mysql_rb.length(), 2);
-
-    HyperLogLog hll;
-    hll.update(123);
-    column_hll->insert_value(hll);
-    hll_serde->set_return_object_as_string(true);
-    st = hll_serde->write_column_to_mysql(*column_hll, mysql_rb, 1, false, options);
-    EXPECT_TRUE(st.ok());
-    ASSERT_EQ(mysql_rb.length(), 13);
-    std::cout << "test write_column_to_mysql success" << std::endl;
-}
-
 TEST(HLLSerdeTest, writeOneCellToJsonb) {
     auto hll_serde = std::make_shared<vectorized::DataTypeHLLSerDe>(1);
     auto column_hll = ColumnHLL::create();
@@ -64,17 +37,17 @@ TEST(HLLSerdeTest, writeOneCellToJsonb) {
     JsonbWriterT<JsonbOutStream> jsonb_writer;
     Arena pool;
     jsonb_writer.writeStartObject();
-    hll_serde->write_one_cell_to_jsonb(*column_hll, jsonb_writer, &pool, 0, 0);
+    hll_serde->write_one_cell_to_jsonb(*column_hll, jsonb_writer, pool, 0, 0);
     jsonb_writer.writeEndObject();
 
     auto jsonb_column = ColumnString::create();
     jsonb_column->insert_data(jsonb_writer.getOutput()->getBuffer(),
                               jsonb_writer.getOutput()->getSize());
     StringRef jsonb_data = jsonb_column->get_data_at(0);
-    JsonbDocument* pdoc = nullptr;
+    const JsonbDocument* pdoc = nullptr;
     auto st = JsonbDocument::checkAndCreateDocument(jsonb_data.data, jsonb_data.size, &pdoc);
     ASSERT_TRUE(st.ok()) << "checkAndCreateDocument failed: " << st.to_string();
-    JsonbDocument& doc = *pdoc;
+    const JsonbDocument& doc = *pdoc;
     for (auto it = doc->begin(); it != doc->end(); ++it) {
         hll_serde->read_one_cell_from_jsonb(*column_hll, it->value());
     }

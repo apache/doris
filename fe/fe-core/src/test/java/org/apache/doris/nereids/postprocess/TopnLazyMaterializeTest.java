@@ -17,15 +17,21 @@
 
 package org.apache.doris.nereids.postprocess;
 
+import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.nereids.datasets.ssb.SSBTestBase;
 import org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.processor.post.PlanPostProcessors;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.util.PlanChecker;
+import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanFragment;
 
+import com.google.common.collect.Lists;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+
+import java.util.List;
 
 public class TopnLazyMaterializeTest extends SSBTestBase {
 
@@ -50,5 +56,26 @@ public class TopnLazyMaterializeTest extends SSBTestBase {
         PlanFragment fragment = new PhysicalPlanTranslator(new PlanTranslatorContext(checker.getCascadesContext())).translatePlan(plan);
         // MaterializationNode materializationNode = (MaterializationNode) fragment.getPlanRoot();
         System.out.println(fragment);
+    }
+
+    @Test
+    public void test2() throws Exception {
+        this.createTables("create table count_test(k1 varchar(1), k2 int) properties('replication_num' = '1')");
+        String sql = "select count(*) from count_test";
+        PlanChecker checker = PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .implement();
+        PhysicalPlan plan = checker.getPhysicalPlan();
+        plan = new PlanPostProcessors(checker.getCascadesContext()).process(plan);
+        PlanFragment fragment = new PhysicalPlanTranslator(
+                new PlanTranslatorContext(checker.getCascadesContext())).translatePlan(plan);
+        System.out.println(fragment);
+        List scanNodes = Lists.newArrayList();
+        fragment.getPlanRoot().collect(OlapScanNode.class, scanNodes);
+        System.out.println(scanNodes);
+        List<SlotDescriptor> slots = ((OlapScanNode) scanNodes.get(0)).getTupleDesc().getSlots();
+        Assertions.assertEquals(1, slots.size());
+        Assertions.assertEquals("k2", slots.get(0).getColumn().getName());
     }
 }

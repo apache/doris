@@ -23,6 +23,14 @@
 2	nereids
 2	nereids
 
+-- !21 --
+1	doris
+1	doris
+1	doris
+2	nereids
+2	nereids
+2	nereids
+
 -- !check_outfile --
 1	doris
 2	nereids

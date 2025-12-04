@@ -21,22 +21,26 @@
 #include <memory>
 #include <vector>
 
-namespace doris::segment_v2::inverted_index {
+#include "common/cast_set.h"
+#include "olap/rowset/segment_v2/inverted_index/util/term_position_iterator.h"
 
-class MockIterator {
+namespace doris::segment_v2::inverted_index {
+#include "common/compile_check_begin.h"
+
+class MockIterator : public TermPositionsIterator {
 public:
     MockIterator() : _impl(std::make_shared<Impl>()) {}
 
     MockIterator(std::map<int32_t, std::vector<int32_t>> postings)
             : _impl(std::make_shared<Impl>(std::move(postings))) {}
 
-    int32_t doc_id() const {
+    int32_t doc_id() const MOCK_DEFINE(override) {
         return _impl->current_doc != _impl->postings.end() ? _impl->current_doc->first : INT_MAX;
     }
 
-    int32_t freq() const { return _impl->current_freq; }
+    int32_t freq() const MOCK_DEFINE(override) { return cast_set<int32_t>(_impl->current_freq); }
 
-    int32_t next_doc() {
+    int32_t next_doc() const MOCK_DEFINE(override) {
         auto& postings = _impl->postings;
         auto& current_doc = _impl->current_doc;
 
@@ -54,7 +58,7 @@ public:
         return INT_MAX;
     }
 
-    int32_t advance(int32_t target) {
+    int32_t advance(int32_t target) const MOCK_DEFINE(override) {
         auto& postings = _impl->postings;
         auto& current_doc = _impl->current_doc;
 
@@ -71,9 +75,11 @@ public:
         return INT_MAX;
     }
 
-    int64_t doc_freq() const { return _impl->postings.size(); }
+    int32_t doc_freq() const MOCK_DEFINE(override) {
+        return cast_set<int32_t>(_impl->postings.size());
+    }
 
-    int32_t next_position() {
+    int32_t next_position() const MOCK_DEFINE(override) {
         auto& current_doc = _impl->current_doc;
         auto& pos_idx = _impl->pos_idx;
 
@@ -81,6 +87,42 @@ public:
             return -1;
         }
         return current_doc->second[pos_idx++];
+    }
+
+    bool read_range(DocRange* doc_range) const MOCK_DEFINE(override) {
+        if (!doc_range) {
+            return false;
+        }
+
+        const auto& postings = _impl->postings;
+        if (postings.empty()) {
+            doc_range->type_ = DocRangeType::kNone;
+            return false;
+        }
+
+        doc_range->type_ = DocRangeType::kMany;
+
+        _impl->doc_many_cache.clear();
+        _impl->freq_many_cache.clear();
+        _impl->doc_many_cache.reserve(postings.size());
+        _impl->freq_many_cache.reserve(postings.size());
+
+        for (const auto& entry : postings) {
+            _impl->doc_many_cache.push_back(cast_set<uint32_t>(entry.first));
+            _impl->freq_many_cache.push_back(cast_set<uint32_t>(entry.second.size()));
+        }
+
+        doc_range->doc_many_size_ = cast_set<uint32_t>(_impl->doc_many_cache.size());
+        doc_range->freq_many_size_ = cast_set<uint32_t>(_impl->freq_many_cache.size());
+        doc_range->doc_many = &_impl->doc_many_cache;
+        doc_range->freq_many = &_impl->freq_many_cache;
+
+        _impl->postings.clear();
+        _impl->current_doc = _impl->postings.end();
+        _impl->current_freq = 0;
+        _impl->pos_idx = 0;
+
+        return true;
     }
 
     void set_postings(std::map<int32_t, std::vector<int32_t>> postings) {
@@ -97,7 +139,10 @@ private:
         std::map<int32_t, std::vector<int32_t>> postings;
         std::map<int32_t, std::vector<int32_t>>::iterator current_doc;
         size_t pos_idx = 0;
-        int32_t current_freq = 0;
+        size_t current_freq = 0;
+
+        mutable std::vector<uint32_t> doc_many_cache;
+        mutable std::vector<uint32_t> freq_many_cache;
 
         Impl() {
             current_doc = postings.begin();
@@ -120,3 +165,4 @@ private:
 using MockIterPtr = std::shared_ptr<MockIterator>;
 
 } // namespace doris::segment_v2::inverted_index
+#include "common/compile_check_end.h"

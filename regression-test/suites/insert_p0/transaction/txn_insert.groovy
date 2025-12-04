@@ -112,7 +112,7 @@ suite("txn_insert") {
                 ) distributed by hash(id, c1) 
                 properties('replication_num'="1");
             """
-            createMV """ create materialized view mv_${tableMV} as select c1 from $tableMV; """
+            createMV """ create materialized view mv_${tableMV} as select c1 as a1 from $tableMV; """
             sql "begin"
             sql """insert into $tableMV values(1, 2), (3, 4)"""
             sql """insert into $tableMV values(5, 6)"""
@@ -281,7 +281,7 @@ suite("txn_insert") {
 
         // 8. insert into select to same table
         if (use_nereids_planner) {
-            createMV """ create materialized view mv_${table}_0 as select k1, sum(k2) from ${table}_0 group by k1; """
+            createMV """ create materialized view mv_${table}_0 as select k1 as a2, sum(k2) as a3 from ${table}_0 group by k1; """
             sql """ begin; """
             sql """ insert into ${table}_0 select * from ${table}_1; """
             sql """ insert into ${table}_0 select * from ${table}_2; """
@@ -784,6 +784,28 @@ suite("txn_insert") {
             order_qt_select_cu2 """select * from ${unique_table}_2"""
             order_qt_select_cu3 """select * from ${unique_table}_3"""
         }
+
+        // 19. delete from empty table
+        sql """ drop table if exists txn_insert_dt6; """
+        sql """
+            CREATE TABLE `txn_insert_dt6` (
+                `ID` int NOT NULL,
+                `NAME` varchar(100) NULL,
+                `SCORE` int NULL
+            ) ENGINE=OLAP
+            DUPLICATE KEY(`ID`)
+            DISTRIBUTED BY HASH(`ID`) BUCKETS 1
+            PROPERTIES (
+                "replication_allocation" = "tag.location.default: 1"
+            ); 
+        """
+        sql """ begin; """
+        sql """ INSERT INTO txn_insert_dt6 select 1, 'Alice', 100; """
+        test {
+            sql """ delete from txn_insert_dt6 where id = 1; """
+            exception """Can not delete because there is a insert operation for the same table"""
+        }
+        sql """ rollback; """
     }
 
     def db_name = "regression_test_insert_p0_transaction"

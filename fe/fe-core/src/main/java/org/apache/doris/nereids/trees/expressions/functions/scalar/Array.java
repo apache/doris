@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
@@ -54,12 +55,32 @@ public class Array extends ScalarFunction
         super("array", varArgs);
     }
 
+    public Array(List<Expression> varArgs) {
+        super("array", varArgs);
+    }
+
+    /** constructor for withChildren and reuse signature */
+    private Array(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
+    @Override
+    public void checkLegalityBeforeTypeCoercion() {
+        if (children.isEmpty()) {
+            return;
+        }
+        DataType firstChildType = children.get(0).getDataType();
+        if (firstChildType.isJsonType() || firstChildType.isVariantType()) {
+            throw new AnalysisException("array does not support jsonb/variant type");
+        }
+    }
+
     /**
      * withChildren.
      */
     @Override
     public Array withChildren(List<Expression> children) {
-        return new Array(children.toArray(new Expression[0]));
+        return new Array(getFunctionParams(children));
     }
 
     @Override
@@ -72,8 +93,8 @@ public class Array extends ScalarFunction
         if (arity() == 0) {
             return SIGNATURES;
         }
-        Optional<DataType> commonDataType = TypeCoercionUtils.findWiderCommonTypeForCaseWhen(
-                children.stream().map(ExpressionTrait::getDataType).collect(Collectors.toList()));
+        Optional<DataType> commonDataType = TypeCoercionUtils.findWiderCommonTypeByVariable(
+                children.stream().map(ExpressionTrait::getDataType).collect(Collectors.toList()), true, true);
         if (commonDataType.isPresent()) {
             return ImmutableList.of(
                     FunctionSignature.ret(ArrayType.of(commonDataType.get())).varArgs(commonDataType.get()));

@@ -33,6 +33,7 @@
 #include "vec/columns/column_vector.h"
 #include "vec/common/assert_cast.h"
 #include "vec/data_types/serde/data_type_serde.h"
+#include "vec/functions/cast/cast_base.h"
 #include "vec/runtime/vcsv_transformer.h"
 
 namespace doris {
@@ -93,6 +94,46 @@ Status DataTypeNullableSerDe::serialize_one_cell_to_hive_text(
         RETURN_IF_ERROR(nested_serde->serialize_one_cell_to_hive_text(
                 col_null.get_nested_column(), row_num, bw, options,
                 hive_text_complex_type_delimiter_level));
+    }
+    return Status::OK();
+}
+
+Status DataTypeNullableSerDe::serialize_column_to_jsonb(const IColumn& from_column, int64_t row_num,
+                                                        JsonbWriter& writer) const {
+    const auto& col_null = assert_cast<const ColumnNullable&>(from_column);
+
+    if (col_null.is_null_at(row_num)) {
+        writer.writeNull();
+    } else {
+        RETURN_IF_ERROR(nested_serde->serialize_column_to_jsonb(col_null.get_nested_column(),
+                                                                row_num, writer));
+    }
+
+    return Status::OK();
+}
+
+Status DataTypeNullableSerDe::deserialize_column_from_jsonb(IColumn& column,
+                                                            const JsonbValue* jsonb_value,
+                                                            CastParameters& castParms) const {
+    auto& null_column = assert_cast<ColumnNullable&>(column);
+    if (jsonb_value->isNull()) {
+        null_column.insert_default();
+        return Status::OK();
+    } else {
+        Status st = nested_serde->deserialize_column_from_jsonb(null_column.get_nested_column(),
+                                                                jsonb_value, castParms);
+
+        if (!st.ok()) {
+            if (castParms.is_strict) {
+                return st;
+            } else {
+                // fill null if fail
+                null_column.insert_default();
+                return Status::OK();
+            }
+        }
+        // fill not null if success
+        null_column.get_null_map_data().push_back(0);
     }
     return Status::OK();
 }
@@ -226,7 +267,7 @@ Status DataTypeNullableSerDe::write_column_to_pb(const IColumn& column, PValues&
     auto row_count = cast_set<int>(end - start);
     const auto& nullable_col = assert_cast<const ColumnNullable&>(column);
     const auto& null_col = nullable_col.get_null_map_column();
-    if (nullable_col.has_null(row_count)) {
+    if (nullable_col.has_null(start, end)) {
         result.set_has_null(true);
         auto* null_map = result.mutable_null_map();
         null_map->Reserve(row_count);
@@ -261,7 +302,7 @@ Status DataTypeNullableSerDe::read_column_from_pb(IColumn& column, const PValues
 }
 
 void DataTypeNullableSerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result,
-                                                    Arena* mem_pool, int32_t col_id,
+                                                    Arena& mem_pool, int32_t col_id,
                                                     int64_t row_num) const {
     const auto& nullable_col = assert_cast<const ColumnNullable&>(column);
     result.writeKey(cast_set<JsonbKeyValue::keyid_type>(col_id));
@@ -312,11 +353,58 @@ Status DataTypeNullableSerDe::read_column_from_arrow(IColumn& column,
                                                 ctz);
 }
 
-template <bool is_binary_format>
-Status DataTypeNullableSerDe::_write_column_to_mysql(const IColumn& column,
-                                                     MysqlRowBuffer<is_binary_format>& result,
-                                                     int64_t row_idx, bool col_const,
-                                                     const FormatOptions& options) const {
+bool DataTypeNullableSerDe::write_column_to_mysql_text(const IColumn& column, BufferWritable& bw,
+                                                       int64_t row_idx) const {
+    if (column.is_null_at(row_idx)) {
+        return false;
+    } else {
+        const auto& col = assert_cast<const ColumnNullable&>(column);
+        return nested_serde->write_column_to_mysql_text(col.get_nested_column(), bw, row_idx);
+    }
+}
+
+bool DataTypeNullableSerDe::write_column_to_presto_text(const IColumn& column, BufferWritable& bw,
+                                                        int64_t row_idx) const {
+    if (column.is_null_at(row_idx)) {
+        if (_nesting_level > 1) {
+            // if is nested type
+            //  array: [abc, def, , NULL]
+            //  map: {k1=NULL, k2=v3}
+            bw.write("NULL", 4);
+            return true;
+        } else {
+            // NULL
+            return false;
+        }
+    } else {
+        const auto& col = assert_cast<const ColumnNullable&>(column);
+        return nested_serde->write_column_to_presto_text(col.get_nested_column(), bw, row_idx);
+    }
+}
+
+bool DataTypeNullableSerDe::write_column_to_hive_text(const IColumn& column, BufferWritable& bw,
+                                                      int64_t row_idx) const {
+    if (column.is_null_at(row_idx)) {
+        if (_nesting_level > 1) {
+            // if is nested type
+            //  array: ["abc","def","",null]
+            //  map: {"k1":null,"k2":"v3"}
+            bw.write("null", 4);
+            return true;
+        } else {
+            // NULL
+            return false;
+        }
+    } else {
+        const auto& col = assert_cast<const ColumnNullable&>(column);
+        return nested_serde->write_column_to_hive_text(col.get_nested_column(), bw, row_idx);
+    }
+}
+
+Status DataTypeNullableSerDe::write_column_to_mysql_binary(const IColumn& column,
+                                                           MysqlRowBinaryBuffer& result,
+                                                           int64_t row_idx, bool col_const,
+                                                           const FormatOptions& options) const {
     const auto& col = assert_cast<const ColumnNullable&>(column);
     const auto col_index = index_check_const(row_idx, col_const);
     if (col.has_null() && col.is_null_at(col_index)) {
@@ -325,31 +413,17 @@ Status DataTypeNullableSerDe::_write_column_to_mysql(const IColumn& column,
         }
     } else {
         const auto& nested_col = col.get_nested_column();
-        RETURN_IF_ERROR(nested_serde->write_column_to_mysql(nested_col, result, col_index,
-                                                            col_const, options));
+        RETURN_IF_ERROR(nested_serde->write_column_to_mysql_binary(nested_col, result, col_index,
+                                                                   col_const, options));
     }
     return Status::OK();
-}
-
-Status DataTypeNullableSerDe::write_column_to_mysql(const IColumn& column,
-                                                    MysqlRowBuffer<true>& row_buffer,
-                                                    int64_t row_idx, bool col_const,
-                                                    const FormatOptions& options) const {
-    return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
-}
-
-Status DataTypeNullableSerDe::write_column_to_mysql(const IColumn& column,
-                                                    MysqlRowBuffer<false>& row_buffer,
-                                                    int64_t row_idx, bool col_const,
-                                                    const FormatOptions& options) const {
-    return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
 }
 
 Status DataTypeNullableSerDe::write_column_to_orc(const std::string& timezone,
                                                   const IColumn& column, const NullMap* null_map,
                                                   orc::ColumnVectorBatch* orc_col_batch,
                                                   int64_t start, int64_t end,
-                                                  std::vector<StringRef>& buffer_list) const {
+                                                  vectorized::Arena& arena) const {
     const auto& column_nullable = assert_cast<const ColumnNullable&>(column);
     orc_col_batch->hasNulls = true;
     const auto& null_map_tmp = column_nullable.get_null_map_data();
@@ -362,38 +436,63 @@ Status DataTypeNullableSerDe::write_column_to_orc(const std::string& timezone,
 
     RETURN_IF_ERROR(nested_serde->write_column_to_orc(timezone, column_nullable.get_nested_column(),
                                                       &column_nullable.get_null_map_data(),
-                                                      orc_col_batch, start, end, buffer_list));
+                                                      orc_col_batch, start, end, arena));
     return Status::OK();
 }
 
-Status DataTypeNullableSerDe::write_one_cell_to_json(const IColumn& column,
-                                                     rapidjson::Value& result,
-                                                     rapidjson::Document::AllocatorType& allocator,
-                                                     Arena& mem_pool, int64_t row_num) const {
-    const auto& col = static_cast<const ColumnNullable&>(column);
-    const auto& nested_col = col.get_nested_column();
-    if (col.is_null_at(row_num)) {
-        result.SetNull();
+void DataTypeNullableSerDe::write_one_cell_to_binary(const IColumn& src_column,
+                                                     ColumnString::Chars& chars,
+                                                     int64_t row_num) const {
+    auto& col = assert_cast<const ColumnNullable&>(src_column);
+    if (col.is_null_at(row_num)) [[unlikely]] {
+        const uint8_t type = static_cast<uint8_t>(FieldType::OLAP_FIELD_TYPE_NONE);
+        const size_t old_size = chars.size();
+        const size_t new_size = old_size + sizeof(uint8_t);
+        chars.resize(new_size);
+        memcpy(chars.data() + old_size, reinterpret_cast<const char*>(&type), sizeof(uint8_t));
     } else {
-        RETURN_IF_ERROR(nested_serde->write_one_cell_to_json(nested_col, result, allocator,
-                                                             mem_pool, row_num));
+        auto& nested_col = col.get_nested_column();
+        nested_serde->write_one_cell_to_binary(nested_col, chars, row_num);
     }
-    return Status::OK();
 }
 
-Status DataTypeNullableSerDe::read_one_cell_from_json(IColumn& column,
-                                                      const rapidjson::Value& result) const {
-    auto& col = static_cast<ColumnNullable&>(column);
-    auto& nested_col = col.get_nested_column();
-    if (result.IsNull()) {
-        col.insert_default();
+void DataTypeNullableSerDe::to_string(const IColumn& column, size_t row_num,
+                                      BufferWritable& bw) const {
+    const auto& col_null = assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(column);
+    if (col_null.is_null_at(row_num)) {
+        if (_nesting_level > 1) {
+            bw.write("null", 4);
+        } else {
+            bw.write("NULL", 4);
+        }
     } else {
-        // TODO sanitize data
-        RETURN_IF_ERROR(nested_serde->read_one_cell_from_json(nested_col, result));
-        col.get_null_map_column().get_data().push_back(0);
+        nested_serde->to_string(col_null.get_nested_column(), row_num, bw);
     }
+}
+
+// In non-strict mode, from string will handle errors by inserting a null value.
+Status DataTypeNullableSerDe::from_string(StringRef& str, IColumn& column,
+                                          const FormatOptions& options) const {
+    auto& null_column = assert_cast<ColumnNullable&>(column);
+    auto st = nested_serde->from_string(str, null_column.get_nested_column(), options);
+    if (!st.ok()) {
+        // fill null if fail
+        null_column.insert_default();
+        return Status::OK();
+    }
+    // fill not null if success
+    null_column.get_null_map_data().push_back(0);
     return Status::OK();
 }
 
+// In strict mode, from string will directly return an error.
+Status DataTypeNullableSerDe::from_string_strict_mode(StringRef& str, IColumn& column,
+                                                      const FormatOptions& options) const {
+    auto& null_column = assert_cast<ColumnNullable&>(column);
+    RETURN_IF_ERROR(nested_serde->from_string(str, null_column.get_nested_column(), options));
+    // fill not null if success
+    null_column.get_null_map_data().push_back(0);
+    return Status::OK();
+}
 } // namespace vectorized
 } // namespace doris

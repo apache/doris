@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.PreferPushDownProject;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
@@ -37,7 +38,7 @@ import java.util.List;
  * ScalarFunction 'map_keys'.
  */
 public class MapKeys extends ScalarFunction
-        implements UnaryExpression, ExplicitlyCastableSignature, PropagateNullable {
+        implements UnaryExpression, ExplicitlyCastableSignature, PropagateNullable, PreferPushDownProject {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(ArrayType.of(new FollowToAnyDataType(0))).args(MapType.of(
@@ -51,13 +52,18 @@ public class MapKeys extends ScalarFunction
         super("map_keys", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private MapKeys(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public MapKeys withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new MapKeys(children.get(0));
+        return new MapKeys(getFunctionParams(children));
     }
 
     @Override

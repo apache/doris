@@ -222,7 +222,7 @@ suite ("test_rename_column") {
     //add materialized view
     def resMv = "null"
     def mvName = "mv1"
-    sql "create materialized view ${mvName} as select user_id, sum(cost) from ${tableName} group by user_id;"
+    sql "create materialized view ${mvName} as select user_id as a1, sum(cost) from ${tableName} group by user_id;"
     max_try_time = 3000
     while (max_try_time--){
         String result = getMVJobState(tableName)

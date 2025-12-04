@@ -65,7 +65,8 @@ public:
 class VfileScannerExceptionTest : public testing::Test {
 public:
     VfileScannerExceptionTest()
-            : _runtime_state(TQueryGlobals()), _global_profile("<global profile>") {
+            : _runtime_state(TQueryOptions(), TQueryGlobals()),
+              _global_profile("<global profile>") {
         _runtime_state.resize_op_id_to_local_state(-1);
         init();
         _profile = _runtime_state.runtime_profile();
@@ -152,7 +153,6 @@ void VfileScannerExceptionTest::_init_desc_table() {
         slot_desc.colName = "c1";
         slot_desc.slotIdx = 1;
         slot_desc.col_unique_id = 0;
-        slot_desc.isMaterialized = true;
 
         t_desc_table.slotDescriptors.push_back(slot_desc);
     }
@@ -180,7 +180,6 @@ void VfileScannerExceptionTest::_init_desc_table() {
         slot_desc.colName = "c2";
         slot_desc.slotIdx = 2;
         slot_desc.col_unique_id = 1;
-        slot_desc.isMaterialized = true;
 
         t_desc_table.slotDescriptors.push_back(slot_desc);
     }
@@ -208,7 +207,6 @@ void VfileScannerExceptionTest::_init_desc_table() {
         slot_desc.colName = "c3";
         slot_desc.slotIdx = 3;
         slot_desc.col_unique_id = 2;
-        slot_desc.isMaterialized = true;
 
         t_desc_table.slotDescriptors.push_back(slot_desc);
     }
@@ -279,16 +277,14 @@ void VfileScannerExceptionTest::init() {
 
 void VfileScannerExceptionTest::generate_scanner(std::shared_ptr<FileScanner>& scanner) {
     auto split_source = std::make_shared<TestSplitSourceConnectorStub>(_scan_range);
-    std::unordered_map<std::string, ColumnValueRangeType> _colname_to_value_range;
     std::unordered_map<std::string, int> _colname_to_slot_id;
     scanner = std::make_shared<FileScanner>(
             &_runtime_state,
             &(_runtime_state.get_local_state(0)->cast<pipeline::FileScanLocalState>()), -1,
-            split_source, _profile, _kv_cache.get(), &_colname_to_value_range,
-            &_colname_to_slot_id);
+            split_source, _profile, _kv_cache.get(), &_colname_to_slot_id);
     scanner->_is_load = false;
     vectorized::VExprContextSPtrs _conjuncts;
-    WARN_IF_ERROR(scanner->prepare(&_runtime_state, _conjuncts), "fail to prepare scanner");
+    WARN_IF_ERROR(scanner->init(&_runtime_state, _conjuncts), "fail to prepare scanner");
 }
 
 TEST_F(VfileScannerExceptionTest, failure_case) {
@@ -299,7 +295,7 @@ TEST_F(VfileScannerExceptionTest, failure_case) {
     auto st = scanner->get_block(&_runtime_state, block.get(), &eof);
     ASSERT_FALSE(st.ok());
     auto msg = st.to_string();
-    auto pos = msg.find("Failed to create reader for");
+    auto pos = msg.find("Not supported create reader");
     std::cout << "msg = " << msg << std::endl;
     ASSERT_TRUE(pos != msg.npos);
     WARN_IF_ERROR(scanner->close(&_runtime_state), "fail to close scanner");
