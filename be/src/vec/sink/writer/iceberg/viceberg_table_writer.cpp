@@ -161,6 +161,12 @@ void VIcebergTableWriter::_init_static_partition_values() {
     }
 }
 
+/**
+ * Builds the partition path string for static partition columns.
+ * Only static partition columns are included, dynamic ones are skipped.
+ * Format: "column1=value1/column2=value2/..."
+ * Example: "year=2023/month=12"
+ */
 std::string VIcebergTableWriter::_build_static_partition_path() {
     std::stringstream ss;
     bool first = true;
