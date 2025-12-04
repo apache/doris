@@ -44,10 +44,24 @@ suite('push_down_filter_through_join_with_unique_function') {
         where t1.id + rand(1, 100) > 100
         '''
 
-    qt_push_down_filter_through_join_4 '''
+    qt_reorder_join_1 '''
          explain shape plan
          select t1.id, t2.id
          from t1 join t2
          where t1.id + rand(1, 100) = t2.id and t1.id * 2 = t2.id * 5
+         '''
+
+    qt_reorder_join_2 '''
+         explain shape plan
+         select t1.id, t2.id, t3.id
+         from t1, t2, t2 as t3
+         where t1.id + rand(1, 100) = t3.id and t1.id * 2 = t2.id * 5
+         '''
+
+    qt_reorder_join_3 '''
+         explain shape plan
+         select t1.id, t2.id, t3.id
+         from t1, t2, t2 as t3
+         where random() > 10 and t1.id * 2 = t3.id * 5
          '''
 }
