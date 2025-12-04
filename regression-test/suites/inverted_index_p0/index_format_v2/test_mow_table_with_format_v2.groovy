@@ -184,6 +184,9 @@ suite("test_mow_table_with_format_v2", "inverted_index_format_v2") {
             String ip = backendId_to_backendIP.get(backend_id)
             String port = backendId_to_backendHttpPort.get(backend_id)
             be_show_tablet_status(ip, port, tablet_id)
+            def code
+            def out
+            def err
             (code, out, err) = be_show_tablet_status(ip, port, tablet_id)
             logger.info("Run show: code=" + code + ", out=" + out + ", err=" + err)
             assertTrue(out.contains("[0-1]"))

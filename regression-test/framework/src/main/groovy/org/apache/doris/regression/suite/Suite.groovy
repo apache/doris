@@ -1873,7 +1873,7 @@ class Suite implements GroovyInterceptable {
             // e.g: jdbc:mysql://locahost:8080
             sql_port = urlWithoutSchema.substring(urlWithoutSchema.indexOf(":") + 1)
         }
-        def tlsUrl = null
+        String tlsUrl = ""
         // set server side prepared statement url
         if ((context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false) {
             String useSslconfig = "useSSL=true&requireSSL=true&verifyServerCertificate=true"

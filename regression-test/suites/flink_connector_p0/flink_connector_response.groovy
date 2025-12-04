@@ -60,6 +60,7 @@ PROPERTIES (
         strBuilder.append(""" -H expect:100-continue """)
         strBuilder.append(""" -H label:""" + label)
         strBuilder.append(""" -T """ + filePath)
+        strBuilder.append(""" http://""" + context.config.feHttpAddress + """/api/${thisDb}/${tableName}/_stream_load""")
         
         String command = strBuilder.toString()
         if ((context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false) {
