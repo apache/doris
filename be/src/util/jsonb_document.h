@@ -520,20 +520,16 @@ class JsonbDocument {
 public:
     // create an JsonbDocument object from JSONB packed bytes
     [[nodiscard]] static Status checkAndCreateDocument(const char* pb, size_t size,
-                                                       JsonbDocument** doc);
+                                                       const JsonbDocument** doc);
 
     // create an JsonbValue from JSONB packed bytes
-    static JsonbValue* createValue(const char* pb, size_t size);
+    static const JsonbValue* createValue(const char* pb, size_t size);
 
     uint8_t version() const { return header_.ver_; }
 
-    JsonbValue* getValue() { return ((JsonbValue*)payload_); }
-
-    void setValue(const JsonbValue* value);
+    const JsonbValue* getValue() const { return ((const JsonbValue*)payload_); }
 
     unsigned int numPackedBytes() const;
-
-    // ObjectVal* operator->();
 
     const ObjectVal* operator->() const;
 
@@ -594,7 +590,9 @@ public:
         return size ? (sizeof(size) + size) : (sizeof(size) + sizeof(keyid_type));
     }
 
-    JsonbValue* value() const { return (JsonbValue*)(((char*)this) + keyPackedBytes()); }
+    const JsonbValue* value() const {
+        return (const JsonbValue*)(((char*)this) + keyPackedBytes());
+    }
 
     // size of the total packed bytes (key+value)
     unsigned int numPackedBytes() const;
@@ -697,7 +695,7 @@ struct JsonbValue {
     int numElements() const;
 
     //Whether to include the jsonbvalue rhs
-    bool contains(JsonbValue* rhs) const;
+    bool contains(const JsonbValue* rhs) const;
 
     // find the JSONB value by JsonbPath
     JsonbFindResult findValue(JsonbPath& path) const;
@@ -751,7 +749,7 @@ struct JsonbValue {
 // }
 
 inline const ObjectVal* JsonbDocument::operator->() const {
-    return (((JsonbValue*)payload_)->unpack<ObjectVal>());
+    return (((const JsonbValue*)payload_)->unpack<ObjectVal>());
 }
 
 /*
@@ -881,29 +879,16 @@ struct ObjectVal : public ContainerVal {
     using value_type = JsonbKeyValue;
     using pointer = value_type*;
     using const_pointer = const value_type*;
-    using iterator = JsonbFwdIteratorT<pointer, ObjectVal>;
     using const_iterator = JsonbFwdIteratorT<const_pointer, ObjectVal>;
 
     const_iterator search(const char* key) const {
-        // Calling a non-const method on a const variable and does not modify the
-        // variable; using const_cast is permissible
-        return const_cast<ObjectVal*>(this)->search(key);
-    }
-
-    const_iterator search(const char* key, unsigned int klen) const {
-        // Calling a non-const method on a const variable and does not modify the
-        // variable; using const_cast is permissible
-        return const_cast<ObjectVal*>(this)->search(key, klen);
-    }
-
-    iterator search(const char* key) {
         if (!key) {
             return end();
         }
         return search(key, (unsigned int)strlen(key));
     }
 
-    iterator search(const char* key, unsigned int klen) {
+    const_iterator search(const char* key, unsigned int klen) const {
         if (!key || !klen) {
             return end();
         }
@@ -927,20 +912,8 @@ struct ObjectVal : public ContainerVal {
         return num;
     }
 
-    const JsonbValue* find(const char* key) const {
-        // Calling a non-const method on a const variable and does not modify the
-        // variable; using const_cast is permissible
-        return const_cast<ObjectVal*>(this)->find(key);
-    }
-
-    const JsonbValue* find(const char* key, unsigned int klen) const {
-        // Calling a non-const method on a const variable and does not modify the
-        // variable; using const_cast is permissible
-        return const_cast<ObjectVal*>(this)->find(key, klen);
-    }
-
     // find the JSONB value by a key string (null terminated)
-    JsonbValue* find(const char* key) {
+    const JsonbValue* find(const char* key) const {
         if (!key) {
             return nullptr;
         }
@@ -948,33 +921,29 @@ struct ObjectVal : public ContainerVal {
     }
 
     // find the JSONB value by a key string (with length)
-    JsonbValue* find(const char* key, unsigned int klen) {
-        iterator kv = search(key, klen);
+    const JsonbValue* find(const char* key, unsigned int klen) const {
+        const_iterator kv = search(key, klen);
         if (end() == kv) {
             return nullptr;
         }
         return kv->value();
     }
 
-    iterator begin() { return iterator((pointer)payload); }
-
     const_iterator begin() const { return const_iterator((pointer)payload); }
-
-    iterator end() { return iterator((pointer)(payload + size)); }
 
     const_iterator end() const { return const_iterator((pointer)(payload + size)); }
 
     std::vector<std::pair<StringRef, const JsonbValue*>> get_ordered_key_value_pairs() const;
 
 private:
-    iterator internalSearch(const char* key, unsigned int klen) {
+    const_iterator internalSearch(const char* key, unsigned int klen) const {
         const char* pch = payload;
         const char* fence = payload + size;
 
         while (pch < fence) {
-            auto* pkey = (JsonbKeyValue*)(pch);
+            const auto* pkey = (const JsonbKeyValue*)(pch);
             if (klen == pkey->klen() && strncmp(key, pkey->getKeyStr(), klen) == 0) {
-                return iterator(pkey);
+                return const_iterator(pkey);
             }
             pch += pkey->numPackedBytes();
         }
@@ -992,11 +961,10 @@ struct ArrayVal : public ContainerVal {
     using value_type = JsonbValue;
     using pointer = value_type*;
     using const_pointer = const value_type*;
-    using iterator = JsonbFwdIteratorT<pointer, ArrayVal>;
     using const_iterator = JsonbFwdIteratorT<const_pointer, ArrayVal>;
 
     // get the JSONB value at index
-    JsonbValue* get(int idx) const {
+    const JsonbValue* get(int idx) const {
         if (idx < 0) {
             return nullptr;
         }
@@ -1005,13 +973,13 @@ struct ArrayVal : public ContainerVal {
         const char* fence = payload + size;
 
         while (pch < fence && idx-- > 0) {
-            pch += ((JsonbValue*)pch)->numPackedBytes();
+            pch += ((const JsonbValue*)pch)->numPackedBytes();
         }
         if (idx > 0 || pch == fence) {
             return nullptr;
         }
 
-        return (JsonbValue*)pch;
+        return (const JsonbValue*)pch;
     }
 
     // Get number of elements in array
@@ -1022,7 +990,7 @@ struct ArrayVal : public ContainerVal {
         unsigned int num = 0;
         while (pch < fence) {
             ++num;
-            pch += ((JsonbValue*)pch)->numPackedBytes();
+            pch += ((const JsonbValue*)pch)->numPackedBytes();
         }
 
         assert(pch == fence);
@@ -1030,30 +998,26 @@ struct ArrayVal : public ContainerVal {
         return num;
     }
 
-    iterator begin() { return iterator((pointer)payload); }
-
     const_iterator begin() const { return const_iterator((pointer)payload); }
-
-    iterator end() { return iterator((pointer)(payload + size)); }
 
     const_iterator end() const { return const_iterator((pointer)(payload + size)); }
 };
 
 inline Status JsonbDocument::checkAndCreateDocument(const char* pb, size_t size,
-                                                    JsonbDocument** doc) {
+                                                    const JsonbDocument** doc) {
     *doc = nullptr;
     if (!pb || size < sizeof(JsonbHeader) + sizeof(JsonbValue)) {
         return Status::InvalidArgument("Invalid JSONB document: too small size({}) or null pointer",
                                        size);
     }
 
-    auto* doc_ptr = (JsonbDocument*)pb;
+    const auto* doc_ptr = (const JsonbDocument*)pb;
     if (doc_ptr->header_.ver_ != JSONB_VER) {
         return Status::InvalidArgument("Invalid JSONB document: invalid version({})",
                                        doc_ptr->header_.ver_);
     }
 
-    auto* val = (JsonbValue*)doc_ptr->payload_;
+    const auto* val = (const JsonbValue*)doc_ptr->payload_;
     if (val->type < JsonbType::T_Null || val->type >= JsonbType::NUM_TYPES ||
         size != sizeof(JsonbHeader) + val->numPackedBytes()) {
         return Status::InvalidArgument("Invalid JSONB document: invalid type({}) or size({})",
@@ -1063,11 +1027,8 @@ inline Status JsonbDocument::checkAndCreateDocument(const char* pb, size_t size,
     *doc = doc_ptr;
     return Status::OK();
 }
-inline void JsonbDocument::setValue(const JsonbValue* value) {
-    memcpy(payload_, value, value->numPackedBytes());
-}
 
-inline JsonbValue* JsonbDocument::createValue(const char* pb, size_t size) {
+inline const JsonbValue* JsonbDocument::createValue(const char* pb, size_t size) {
     if (!pb || size < sizeof(JsonbHeader) + sizeof(JsonbValue)) {
         return nullptr;
     }
@@ -1077,7 +1038,7 @@ inline JsonbValue* JsonbDocument::createValue(const char* pb, size_t size) {
         return nullptr;
     }
 
-    auto* val = (JsonbValue*)doc->payload_;
+    const auto* val = (const JsonbValue*)doc->payload_;
     if (size != sizeof(JsonbHeader) + val->numPackedBytes()) {
         return nullptr;
     }
@@ -1091,7 +1052,7 @@ inline unsigned int JsonbDocument::numPackedBytes() const {
 
 inline unsigned int JsonbKeyValue::numPackedBytes() const {
     unsigned int ks = keyPackedBytes();
-    auto* val = (JsonbValue*)(((char*)this) + ks);
+    const auto* val = (const JsonbValue*)(((char*)this) + ks);
     return ks + val->numPackedBytes();
 }
 
@@ -1187,7 +1148,7 @@ inline int JsonbValue::numElements() const {
                     static_cast<int32_t>(type));
 }
 
-inline bool JsonbValue::contains(JsonbValue* rhs) const {
+inline bool JsonbValue::contains(const JsonbValue* rhs) const {
     switch (type) {
     case JsonbType::T_Int8:
     case JsonbType::T_Int16:

@@ -53,7 +53,7 @@ TEST_F(ConvertFieldToTypeTest, FieldVisitorToJsonb_Null) {
     ASSERT_GT(output->getSize(), 0);
 
     // Verify the output is valid JSONB
-    JsonbDocument* doc = nullptr;
+    const JsonbDocument* doc = nullptr;
     auto status =
             JsonbDocument::checkAndCreateDocument(output->getBuffer(), output->getSize(), &doc);
     ASSERT_TRUE(status.ok()) << "Failed to create JsonbDocument: " << status.to_string();
@@ -77,7 +77,7 @@ TEST_F(ConvertFieldToTypeTest, FieldVisitorToJsonb_Int64) {
     ASSERT_GT(output->getSize(), 0);
 
     // Verify the output is valid JSONB
-    JsonbDocument* doc = nullptr;
+    const JsonbDocument* doc = nullptr;
     auto status =
             JsonbDocument::checkAndCreateDocument(output->getBuffer(), output->getSize(), &doc);
     ASSERT_TRUE(status.ok()) << "Failed to create JsonbDocument: " << status.to_string();
@@ -102,7 +102,7 @@ TEST_F(ConvertFieldToTypeTest, FieldVisitorToJsonb_UInt64) {
     ASSERT_GT(output->getSize(), 0);
 
     // Verify the output is valid JSONB
-    JsonbDocument* doc = nullptr;
+    const JsonbDocument* doc = nullptr;
     auto status =
             JsonbDocument::checkAndCreateDocument(output->getBuffer(), output->getSize(), &doc);
     ASSERT_TRUE(status.ok()) << "Failed to create JsonbDocument: " << status.to_string();
@@ -127,7 +127,7 @@ TEST_F(ConvertFieldToTypeTest, FieldVisitorToJsonb_Float64) {
     ASSERT_GT(output->getSize(), 0);
 
     // Verify the output is valid JSONB
-    JsonbDocument* doc = nullptr;
+    const JsonbDocument* doc = nullptr;
     auto status =
             JsonbDocument::checkAndCreateDocument(output->getBuffer(), output->getSize(), &doc);
     ASSERT_TRUE(status.ok()) << "Failed to create JsonbDocument: " << status.to_string();
@@ -152,7 +152,7 @@ TEST_F(ConvertFieldToTypeTest, FieldVisitorToJsonb_String) {
     ASSERT_GT(output->getSize(), 0);
 
     // Verify the output is valid JSONB
-    JsonbDocument* doc = nullptr;
+    const JsonbDocument* doc = nullptr;
     auto status =
             JsonbDocument::checkAndCreateDocument(output->getBuffer(), output->getSize(), &doc);
     ASSERT_TRUE(status.ok()) << "Failed to create JsonbDocument: " << status.to_string();
@@ -182,7 +182,7 @@ TEST_F(ConvertFieldToTypeTest, FieldVisitorToJsonb_JsonbField) {
     ASSERT_GT(output->getSize(), 0);
 
     // Verify the output is valid JSONB
-    JsonbDocument* doc = nullptr;
+    const JsonbDocument* doc = nullptr;
     auto status =
             JsonbDocument::checkAndCreateDocument(output->getBuffer(), output->getSize(), &doc);
     ASSERT_TRUE(status.ok()) << "Failed to create JsonbDocument: " << status.to_string();
@@ -212,7 +212,7 @@ TEST_F(ConvertFieldToTypeTest, FieldVisitorToJsonb_Array) {
     ASSERT_GT(output->getSize(), 0);
 
     // Verify the output is valid JSONB
-    JsonbDocument* doc = nullptr;
+    const JsonbDocument* doc = nullptr;
     auto status =
             JsonbDocument::checkAndCreateDocument(output->getBuffer(), output->getSize(), &doc);
     ASSERT_TRUE(status.ok()) << "Failed to create JsonbDocument: " << status.to_string();
@@ -246,7 +246,7 @@ TEST_F(ConvertFieldToTypeTest, FieldVisitorToJsonb_NestedArray) {
     ASSERT_GT(output->getSize(), 0);
 
     // Verify the output is valid JSONB
-    JsonbDocument* doc = nullptr;
+    const JsonbDocument* doc = nullptr;
     auto status =
             JsonbDocument::checkAndCreateDocument(output->getBuffer(), output->getSize(), &doc);
     ASSERT_TRUE(status.ok()) << "Failed to create JsonbDocument: " << status.to_string();
@@ -271,7 +271,7 @@ TEST_F(ConvertFieldToTypeTest, FieldVisitorToJsonb_LargeInt) {
     ASSERT_GT(output->getSize(), 0);
 
     // Verify the output is valid JSONB
-    JsonbDocument* doc = nullptr;
+    const JsonbDocument* doc = nullptr;
     auto status =
             JsonbDocument::checkAndCreateDocument(output->getBuffer(), output->getSize(), &doc);
     ASSERT_TRUE(status.ok()) << "Failed to create JsonbDocument: " << status.to_string();
@@ -296,7 +296,7 @@ TEST_F(ConvertFieldToTypeTest, FieldVisitorToJsonb_UInt128) {
     ASSERT_GT(output->getSize(), 0);
 
     // Verify the output is valid JSONB
-    JsonbDocument* doc = nullptr;
+    const JsonbDocument* doc = nullptr;
     auto status =
             JsonbDocument::checkAndCreateDocument(output->getBuffer(), output->getSize(), &doc);
     ASSERT_TRUE(status.ok()) << "Failed to create JsonbDocument: " << status.to_string();
@@ -327,7 +327,7 @@ TEST_F(ConvertFieldToTypeTest, ConvertFieldToType_ToJsonb) {
         ASSERT_GT(jsonb_result.get_size(), 0);
 
         // Verify the JSONB content
-        JsonbDocument* doc = nullptr;
+        const JsonbDocument* doc = nullptr;
         auto status = JsonbDocument::checkAndCreateDocument(jsonb_result.get_value(),
                                                             jsonb_result.get_size(), &doc);
         ASSERT_TRUE(status.ok()) << "Failed to create JsonbDocument: " << status.to_string();
@@ -352,7 +352,7 @@ TEST_F(ConvertFieldToTypeTest, ConvertFieldToType_ToJsonb) {
         ASSERT_GT(jsonb_result.get_size(), 0);
 
         // Verify the JSONB content
-        JsonbDocument* doc = nullptr;
+        const JsonbDocument* doc = nullptr;
         auto status = JsonbDocument::checkAndCreateDocument(jsonb_result.get_value(),
                                                             jsonb_result.get_size(), &doc);
         ASSERT_TRUE(status.ok()) << "Failed to create JsonbDocument: " << status.to_string();
@@ -383,7 +383,7 @@ TEST_F(ConvertFieldToTypeTest, ConvertFieldToType_ToJsonb) {
         ASSERT_GT(jsonb_result.get_size(), 0);
 
         // Verify the JSONB content
-        JsonbDocument* doc = nullptr;
+        const JsonbDocument* doc = nullptr;
         auto status = JsonbDocument::checkAndCreateDocument(jsonb_result.get_value(),
                                                             jsonb_result.get_size(), &doc);
         ASSERT_TRUE(status.ok()) << "Failed to create JsonbDocument: " << status.to_string();
@@ -450,7 +450,7 @@ TEST_F(ConvertFieldToTypeTest, ConvertFieldToType_ToNullableJsonb) {
         ASSERT_GT(jsonb_result.get_size(), 0);
 
         // Verify the JSONB content
-        JsonbDocument* doc = nullptr;
+        const JsonbDocument* doc = nullptr;
         auto status = JsonbDocument::checkAndCreateDocument(jsonb_result.get_value(),
                                                             jsonb_result.get_size(), &doc);
         ASSERT_TRUE(status.ok()) << "Failed to create JsonbDocument: " << status.to_string();
@@ -493,7 +493,7 @@ TEST_F(ConvertFieldToTypeTest, ConvertFieldToType_ArrayToJsonb) {
         ASSERT_GT(jsonb_element.get_size(), 0);
 
         // Verify the JSONB content
-        JsonbDocument* doc = nullptr;
+        const JsonbDocument* doc = nullptr;
         auto status = JsonbDocument::checkAndCreateDocument(jsonb_element.get_value(),
                                                             jsonb_element.get_size(), &doc);
         ASSERT_TRUE(status.ok()) << "Failed to create JsonbDocument for element " << i << ": "

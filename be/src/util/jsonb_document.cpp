@@ -147,7 +147,7 @@ JsonbFindResult JsonbValue::findValue(JsonbPath& path) const {
             }
             result.writer->writeEndArray();
 
-            JsonbDocument* doc = nullptr;
+            const JsonbDocument* doc = nullptr;
             THROW_IF_ERROR(JsonbDocument::checkAndCreateDocument(
                     result.writer->getOutput()->getBuffer(), result.writer->getOutput()->getSize(),
                     &doc));
