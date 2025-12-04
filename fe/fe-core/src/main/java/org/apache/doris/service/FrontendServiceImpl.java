@@ -18,7 +18,6 @@
 package org.apache.doris.service;
 
 import org.apache.doris.analysis.AbstractBackupTableRefClause;
-import org.apache.doris.analysis.AddPartitionClause;
 import org.apache.doris.analysis.PartitionExprUtil;
 import org.apache.doris.analysis.SetType;
 import org.apache.doris.analysis.UserIdentity;
@@ -57,6 +56,7 @@ import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.DuplicatedRequestException;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.LoadException;
@@ -69,6 +69,7 @@ import org.apache.doris.common.ThriftServerContext;
 import org.apache.doris.common.ThriftServerEventProcessor;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.Version;
+import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.cooldown.CooldownDelete;
@@ -90,10 +91,12 @@ import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.load.routineload.RoutineLoadJob.JobState;
 import org.apache.doris.load.routineload.RoutineLoadManager;
 import org.apache.doris.master.MasterImpl;
+import org.apache.doris.meta.MetaContext;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanNodeAndHash;
 import org.apache.doris.nereids.trees.plans.commands.RestoreCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.AddPartitionOp;
 import org.apache.doris.nereids.trees.plans.commands.info.LabelNameInfo;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.planner.OlapTableSink;
@@ -187,6 +190,8 @@ import org.apache.doris.thrift.TGetMetaDB;
 import org.apache.doris.thrift.TGetMetaRequest;
 import org.apache.doris.thrift.TGetMetaResult;
 import org.apache.doris.thrift.TGetMetaTable;
+import org.apache.doris.thrift.TGetOlapTableMetaRequest;
+import org.apache.doris.thrift.TGetOlapTableMetaResult;
 import org.apache.doris.thrift.TGetQueryStatsRequest;
 import org.apache.doris.thrift.TGetSnapshotRequest;
 import org.apache.doris.thrift.TGetSnapshotResult;
@@ -223,6 +228,7 @@ import org.apache.doris.thrift.TNodeInfo;
 import org.apache.doris.thrift.TNullableStringLiteral;
 import org.apache.doris.thrift.TOlapTableIndexTablets;
 import org.apache.doris.thrift.TOlapTablePartition;
+import org.apache.doris.thrift.TPartitionMeta;
 import org.apache.doris.thrift.TPipelineFragmentParams;
 import org.apache.doris.thrift.TPipelineWorkloadGroup;
 import org.apache.doris.thrift.TPlsqlPackageResult;
@@ -297,7 +303,10 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
 
+import java.io.ByteArrayOutputStream;
+import java.io.DataOutputStream;
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -3678,7 +3687,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             }
             partitionValues.add(request.partitionValues.get(i));
         }
-        Map<String, AddPartitionClause> addPartitionClauseMap;
+        Map<String, AddPartitionOp> addPartitionClauseMap;
         try {
             addPartitionClauseMap = PartitionExprUtil.getAddPartitionClauseFromPartitionValues(olapTable,
                     partitionValues, partitionInfo);
@@ -3689,10 +3698,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             return result;
         }
 
-        for (AddPartitionClause addPartitionClause : addPartitionClauseMap.values()) {
+        for (AddPartitionOp addPartitionOp : addPartitionClauseMap.values()) {
             try {
                 // here maybe check and limit created partitions num
-                Env.getCurrentEnv().addPartition(db, olapTable.getName(), addPartitionClause, false, 0, true);
+                Env.getCurrentEnv().addPartition(db, olapTable.getName(), addPartitionOp, false, 0, true);
             } catch (DdlException e) {
                 LOG.warn(e);
                 errorStatus.setErrorMsgs(
@@ -4505,6 +4514,102 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TGetTableTDEInfoResult result = new TGetTableTDEInfoResult();
         result.setAlgorithm(tdeAlgorithm).setStatus(status);
         return result;
+    }
+
+    /**
+     * only copy basic meta about table
+     * do not copy the partitions
+     * @param request
+     * @return
+     * @throws TException
+     */
+    @Override
+    public TGetOlapTableMetaResult getOlapTableMeta(TGetOlapTableMetaRequest request) throws TException {
+        String clientAddr = getClientAddrAsString();
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("receive getOlapTableMeta request: {}, client: {}", request, clientAddr);
+        }
+        TGetOlapTableMetaResult result = new TGetOlapTableMetaResult();
+        TStatus status = new TStatus(TStatusCode.OK);
+        result.setStatus(status);
+        try {
+            checkSingleTablePasswordAndPrivs(request.getUser(), request.getPasswd(), request.getDb(),
+                    request.getTable(), clientAddr, PrivPredicate.SELECT);
+            String dbName = request.getDb();
+            Database db = Env.getCurrentInternalCatalog().getDbNullable(dbName);
+            if (db == null) {
+                throw new UserException("unknown database, database=" + dbName);
+            }
+            OlapTable table = (OlapTable) db.getTableNullable(request.getTable());
+            if (table == null) {
+                throw new UserException("unknown table, table=" + request.getTable());
+            }
+            MetaContext metaContext = new MetaContext();
+            metaContext.setMetaVersion(FeConstants.meta_version);
+            metaContext.setThreadLocalInfo();
+            table.readLock();
+            try (ByteArrayOutputStream bOutputStream = new ByteArrayOutputStream(8192)) {
+                OlapTable copyTable = table.copyTableMeta();
+                try (DataOutputStream out = new DataOutputStream(bOutputStream)) {
+                    copyTable.write(out);
+                    out.flush();
+                    result.setTableMeta(bOutputStream.toByteArray());
+                }
+                Set<Long> updatedPartitionIds = Sets.newHashSet(table.getPartitionIds());
+                List<TPartitionMeta> partitionMetas = request.getPartitionsSize() == 0 ? Lists.newArrayList()
+                        : request.getPartitions();
+                for (TPartitionMeta partitionMeta : partitionMetas) {
+                    if (request.getTableId() != table.getId()) {
+                        result.addToRemovedPartitions(partitionMeta.getId());
+                        continue;
+                    }
+                    Partition partition = table.getPartition(partitionMeta.getId());
+                    if (partition == null) {
+                        result.addToRemovedPartitions(partitionMeta.getId());
+                        continue;
+                    }
+                    if (partition.getVisibleVersion() == partitionMeta.getVisibleVersion()
+                            && partition.getVisibleVersionTime() == partitionMeta.getVisibleVersionTime()) {
+                        updatedPartitionIds.remove(partitionMeta.getId());
+                    }
+                }
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("receive getOlapTableMeta  db: {} table:{} update partitions: {} removed partition:{}",
+                            request.getDb(), request.getTable(), updatedPartitionIds.size(),
+                            result.getRemovedPartitionsSize());
+                }
+                for (Long partitionId : updatedPartitionIds) {
+                    bOutputStream.reset();
+                    Partition partition = table.getPartition(partitionId);
+                    try (DataOutputStream out = new DataOutputStream(bOutputStream)) {
+                        Text.writeString(out, GsonUtils.GSON.toJson(partition));
+                        out.flush();
+                        result.addToUpdatedPartitions(ByteBuffer.wrap(bOutputStream.toByteArray()));
+                    }
+                }
+                return result;
+            } finally {
+                table.readUnlock();
+                MetaContext.remove();
+            }
+        } catch (AuthenticationException e) {
+            LOG.warn("failed to check user auth: {}", e);
+            status.setStatusCode(TStatusCode.NOT_AUTHORIZED);
+            status.addToErrorMsgs(e.getMessage());
+            return result;
+        } catch (UserException e) {
+            LOG.warn("failed to get table meta db:{} table:{} : {}",
+                    request.getDb(), request.getTable(), e);
+            status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
+            status.addToErrorMsgs(Strings.nullToEmpty(e.getMessage()));
+            return result;
+        } catch (Exception e) {
+            LOG.warn("unknown exception when get table meta db:{} table:{} : {}",
+                    request.getDb(), request.getTable(), e);
+            status.setStatusCode(TStatusCode.INTERNAL_ERROR);
+            status.addToErrorMsgs(e.getMessage());
+            return result;
+        }
     }
 
     private TStatus checkMaster() {

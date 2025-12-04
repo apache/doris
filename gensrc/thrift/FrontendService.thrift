@@ -1678,6 +1678,29 @@ struct TGetTableTDEInfoResult {
     2: optional AgentService.TEncryptionAlgorithm algorithm
 }
 
+struct TPartitionMeta {
+    1: optional i64 id
+    2: optional i64 visible_version
+    3: optional i64 visible_version_time
+}
+
+struct TGetOlapTableMetaRequest {
+    1: required string user
+    2: required string passwd
+    3: required string db
+    4: required string table
+    5: required i64 table_id
+    6: optional i32 version // todo serialize according to the version
+    7: optional list<TPartitionMeta> partitions // client owned partition meta
+}
+
+struct TGetOlapTableMetaResult {
+    1: required Status.TStatus status
+    2: required binary table_meta
+    3: optional list<binary> updated_partitions
+    4: optional list<i64> removed_partitions
+}
+
 service FrontendService {
     TGetDbsResult getDbNames(1: TGetDbsParams params)
     TGetTablesResult getTableNames(1: TGetTablesParams params)
@@ -1784,4 +1807,6 @@ service FrontendService {
     TGetEncryptionKeysResult getEncryptionKeys(1: TGetEncryptionKeysRequest request)
 
     TGetTableTDEInfoResult getTableTDEInfo(1: TGetTableTDEInfoRequest request)
+
+    TGetOlapTableMetaResult getOlapTableMeta(1: TGetOlapTableMetaRequest request)
 }

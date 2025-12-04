@@ -188,11 +188,6 @@ private:
     // used by segment v2
     RuntimeProfile::Counter* _cached_pages_num_counter = nullptr;
 
-    // row count filtered by bitmap inverted index
-    RuntimeProfile::Counter* _bitmap_index_filter_counter = nullptr;
-    // time fro bitmap inverted index read and filter
-    RuntimeProfile::Counter* _bitmap_index_filter_timer = nullptr;
-
     RuntimeProfile::Counter* _inverted_index_filter_counter = nullptr;
     RuntimeProfile::Counter* _inverted_index_filter_timer = nullptr;
     RuntimeProfile::Counter* _inverted_index_query_null_bitmap_timer = nullptr;
@@ -267,7 +262,6 @@ private:
 
     RuntimeProfile::Counter* _segment_iterator_init_timer = nullptr;
     RuntimeProfile::Counter* _segment_iterator_init_return_column_iterators_timer = nullptr;
-    RuntimeProfile::Counter* _segment_iterator_init_bitmap_index_iterators_timer = nullptr;
     RuntimeProfile::Counter* _segment_iterator_init_index_iterators_timer = nullptr;
 
     RuntimeProfile::Counter* _segment_create_column_readers_timer = nullptr;

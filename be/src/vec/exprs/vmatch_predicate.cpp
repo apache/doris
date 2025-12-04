@@ -135,7 +135,7 @@ Status VMatchPredicate::evaluate_inverted_index(VExprContext* context, uint32_t 
     return _evaluate_inverted_index(context, _function, segment_num_rows);
 }
 
-Status VMatchPredicate::execute_column(VExprContext* context, const Block* block,
+Status VMatchPredicate::execute_column(VExprContext* context, const Block* block, size_t count,
                                        ColumnPtr& result_column) const {
     DCHECK(_open_finished || _getting_const_col);
     if (fast_execute(context, result_column)) {
@@ -164,7 +164,7 @@ Status VMatchPredicate::execute_column(VExprContext* context, const Block* block
     Block temp_block;
     for (int i = 0; i < _children.size(); ++i) {
         ColumnPtr arg_column;
-        RETURN_IF_ERROR(_children[i]->execute_column(context, block, arg_column));
+        RETURN_IF_ERROR(_children[i]->execute_column(context, block, count, arg_column));
         auto arg_type = _children[i]->execute_type(block);
         temp_block.insert({arg_column, arg_type, _children[i]->expr_name()});
         arguments[i] = i;
@@ -174,8 +174,9 @@ Status VMatchPredicate::execute_column(VExprContext* context, const Block* block
     temp_block.insert({nullptr, _data_type, _expr_name});
 
     RETURN_IF_ERROR(_function->execute(context->fn_context(_fn_context_index), temp_block,
-                                       arguments, num_columns_without_result, block->rows()));
+                                       arguments, num_columns_without_result, temp_block.rows()));
     result_column = temp_block.get_by_position(num_columns_without_result).column;
+    DCHECK_EQ(result_column->size(), count);
     return Status::OK();
 }
 

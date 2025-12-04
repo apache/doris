@@ -146,7 +146,7 @@ TEST_F(ParquetReaderTest, normal) {
     auto p_reader = new ParquetReader(nullptr, scan_params, scan_range, 992, &ctz, nullptr, nullptr,
                                       &cache);
     p_reader->set_file_reader(reader);
-    RuntimeState runtime_state((TQueryGlobals()));
+    RuntimeState runtime_state((TQueryOptions()), TQueryGlobals());
     runtime_state.set_desc_tbl(desc_tbl);
 
     static_cast<void>(
@@ -208,7 +208,7 @@ TEST_F(ParquetReaderTest, uuid_varbinary) {
     auto p_reader = std::make_unique<ParquetReader>(nullptr, scan_params, scan_range, 992, &ctz,
                                                     nullptr, nullptr, &cache);
     p_reader->set_file_reader(reader);
-    RuntimeState runtime_state((TQueryGlobals()));
+    RuntimeState runtime_state = RuntimeState(TQueryOptions(), TQueryGlobals());
     runtime_state.set_desc_tbl(desc_tbl);
 
     st = p_reader->init_reader(column_names, {}, nullptr, nullptr, nullptr, nullptr, nullptr);
@@ -278,7 +278,7 @@ TEST_F(ParquetReaderTest, varbinary_varbinary) {
     auto p_reader = std::make_unique<ParquetReader>(nullptr, scan_params, scan_range, 992, &ctz,
                                                     nullptr, nullptr, &cache);
     p_reader->set_file_reader(reader);
-    RuntimeState runtime_state((TQueryGlobals()));
+    RuntimeState runtime_state = RuntimeState(TQueryOptions(), TQueryGlobals());
     runtime_state.set_desc_tbl(desc_tbl);
 
     st = p_reader->init_reader(column_names, {}, nullptr, nullptr, nullptr, nullptr, nullptr);
@@ -350,7 +350,7 @@ TEST_F(ParquetReaderTest, varbinary_string) {
     auto p_reader = std::make_unique<ParquetReader>(nullptr, scan_params, scan_range, 992, &ctz,
                                                     nullptr, nullptr, &cache);
     p_reader->set_file_reader(reader);
-    RuntimeState runtime_state((TQueryGlobals()));
+    RuntimeState runtime_state = RuntimeState(TQueryOptions(), TQueryGlobals());
     runtime_state.set_desc_tbl(desc_tbl);
 
     st = p_reader->init_reader(column_names, {}, nullptr, nullptr, nullptr, nullptr, nullptr);
@@ -422,7 +422,7 @@ TEST_F(ParquetReaderTest, varbinary_string2) {
     auto p_reader = std::make_unique<ParquetReader>(nullptr, scan_params, scan_range, 992, &ctz,
                                                     nullptr, nullptr, &cache);
     p_reader->set_file_reader(reader);
-    RuntimeState runtime_state((TQueryGlobals()));
+    RuntimeState runtime_state = RuntimeState(TQueryOptions(), TQueryGlobals());
     runtime_state.set_desc_tbl(desc_tbl);
 
     st = p_reader->init_reader(column_names, {}, nullptr, nullptr, nullptr, nullptr, nullptr);

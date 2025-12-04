@@ -39,31 +39,6 @@ public:
 
     PredicateType type() const override { return PT; }
 
-    Status evaluate(BitmapIndexIterator* iterator, uint32_t num_rows,
-                    roaring::Roaring* bitmap) const override {
-        if (iterator == nullptr) {
-            return Status::OK();
-        }
-
-        rowid_t ordinal_limit = iterator->bitmap_nums();
-        if (iterator->has_null_bitmap()) {
-            ordinal_limit--;
-            roaring::Roaring null_bitmap;
-            RETURN_IF_ERROR(iterator->read_null_bitmap(&null_bitmap));
-            *bitmap -= null_bitmap;
-        }
-
-        roaring::Roaring roaring;
-        bool exact_match = false;
-
-        auto&& value = PrimitiveTypeConvertor<Type>::to_storage_field_type(_value);
-        Status status = iterator->seek_dictionary(&value, &exact_match);
-        rowid_t seeked_ordinal = iterator->current_ordinal();
-
-        return _bitmap_compare(status, exact_match, ordinal_limit, seeked_ordinal, iterator,
-                               bitmap);
-    }
-
     Status evaluate(const vectorized::IndexFieldNameAndTypePair& name_with_type,
                     IndexIterator* iterator, uint32_t num_rows,
                     roaring::Roaring* bitmap) const override {
@@ -415,8 +390,9 @@ public:
         // so reference here is safe.
         // https://stackoverflow.com/questions/14688285/c-local-variable-destruction-order
         Defer defer([&]() {
-            update_filter_info(current_evaluated_rows - current_passed_rows,
-                               current_evaluated_rows);
+            update_filter_info(current_evaluated_rows - current_passed_rows, current_evaluated_rows,
+                               0);
+            try_reset_judge_selectivity();
         });
 
         if (column.is_nullable()) {
@@ -559,52 +535,6 @@ private:
     constexpr bool _is_greater() const { return _operator(1, 0); }
 
     constexpr bool _is_eq() const { return _operator(1, 1); }
-
-    Status _bitmap_compare(Status status, bool exact_match, rowid_t ordinal_limit,
-                           rowid_t& seeked_ordinal, BitmapIndexIterator* iterator,
-                           roaring::Roaring* bitmap) const {
-        roaring::Roaring roaring;
-
-        if (status.is<ErrorCode::ENTRY_NOT_FOUND>()) {
-            if constexpr (PT == PredicateType::EQ || PT == PredicateType::GT ||
-                          PT == PredicateType::GE) {
-                *bitmap &= roaring; // set bitmap to empty
-            }
-            return Status::OK();
-        }
-
-        if (!status.ok()) {
-            return status;
-        }
-
-        if constexpr (PT == PredicateType::EQ || PT == PredicateType::NE) {
-            if (exact_match) {
-                RETURN_IF_ERROR(iterator->read_bitmap(seeked_ordinal, &roaring));
-            }
-        } else if constexpr (PredicateTypeTraits::is_range(PT)) {
-            rowid_t from = 0;
-            rowid_t to = ordinal_limit;
-            if constexpr (PT == PredicateType::LT) {
-                to = seeked_ordinal;
-            } else if constexpr (PT == PredicateType::LE) {
-                to = seeked_ordinal + exact_match;
-            } else if constexpr (PT == PredicateType::GT) {
-                from = seeked_ordinal + exact_match;
-            } else if constexpr (PT == PredicateType::GE) {
-                from = seeked_ordinal;
-            }
-
-            RETURN_IF_ERROR(iterator->read_union_bitmap(from, to, &roaring));
-        }
-
-        if constexpr (PT == PredicateType::NE) {
-            *bitmap -= roaring;
-        } else {
-            *bitmap &= roaring;
-        }
-
-        return Status::OK();
-    }
 
     template <bool is_and>
     void _evaluate_bit(const vectorized::IColumn& column, const uint16_t* sel, uint16_t size,

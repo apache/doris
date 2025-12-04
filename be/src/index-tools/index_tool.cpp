@@ -52,6 +52,7 @@
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
 #include "olap/rowset/segment_v2/inverted_index_fs_directory.h"
 #include "olap/tablet_schema.h"
+#include "runtime/thread_context.h"
 
 using doris::segment_v2::DorisCompoundReader;
 using doris::segment_v2::DorisFSDirectoryFactory;
@@ -271,6 +272,8 @@ std::unique_ptr<DorisCompoundReader> get_compound_reader(std::string file_path) 
 }
 
 int main(int argc, char** argv) {
+    SCOPED_INIT_THREAD_CONTEXT();
+
     std::string usage = get_usage(argv[0]);
     gflags::SetUsageMessage(usage);
     google::ParseCommandLineFlags(&argc, &argv, true);
@@ -645,6 +648,11 @@ int main(int argc, char** argv) {
             for (auto& dir : *dirs) {
                 auto index_id = dir.first.first;
                 auto index_suffix = dir.first.second;
+
+                if (FLAGS_idx_id > 0 && index_id != FLAGS_idx_id) {
+                    continue;
+                }
+
                 std::vector<std::string> files;
                 doris::TabletIndexPB index_pb;
                 index_pb.set_index_id(index_id);
@@ -664,7 +672,8 @@ int main(int argc, char** argv) {
                 auto reader = std::forward<T>(ret).value();
                 reader->list(&files);
                 for (auto& file : files) {
-                    std::cout << file << std::endl;
+                    int64_t size = reader->fileLength(file.c_str());
+                    std::cout << file << "\t" << size << " bytes" << std::endl;
                 }
             }
         } catch (CLuceneError& err) {

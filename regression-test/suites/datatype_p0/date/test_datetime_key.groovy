@@ -19,8 +19,7 @@ suite("test_datetime_key") {
     sql "DROP TABLE IF EXISTS `test_datetime_key`"
     sql """
         create table `test_datetime_key` (
-            `k1` datetimev1, `k2` int,
-            INDEX idx_k1 (`k1`) USING BITMAP
+            `k1` datetimev1, `k2` int
         ) duplicate key(`k1`)
         distributed by hash(k2) buckets 3
         properties("replication_num" = "1");
@@ -102,8 +101,7 @@ suite("test_datetime_key") {
     sql "DROP TABLE IF EXISTS `test_datetime_partition`"
     sql """
         create table `test_datetime_partition` (
-            `k1` int, `k2` datetimev1,
-            INDEX idx_k2 (`k2`) USING BITMAP
+            `k1` int, `k2` datetimev1
         ) duplicate key(`k1`)
         PARTITION BY range(`k2`)(
             PARTITION p_1610 VALUES [('2016-10-01 00:00:00'), ('2016-10-31 23:59:59')),

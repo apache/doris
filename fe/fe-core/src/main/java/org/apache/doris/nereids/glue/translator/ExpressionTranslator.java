@@ -80,7 +80,6 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
 import org.apache.doris.nereids.trees.expressions.TryCast;
 import org.apache.doris.nereids.trees.expressions.UnaryArithmetic;
-import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
@@ -818,11 +817,6 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                 NullableMode.DEPEND_ON_ARGUMENT);
         timestampArithmeticExpr.setNullableFromNereids(arithmetic.nullable());
         return timestampArithmeticExpr;
-    }
-
-    @Override
-    public Expr visitVirtualReference(VirtualSlotReference virtualSlotReference, PlanTranslatorContext context) {
-        return context.findSlotRef(virtualSlotReference.getExprId());
     }
 
     @Override

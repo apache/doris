@@ -49,6 +49,7 @@
 #include "vec/exprs/vcast_expr.h"
 #include "vec/exprs/vcolumn_ref.h"
 #include "vec/exprs/vcompound_pred.h"
+#include "vec/exprs/vcondition_expr.h"
 #include "vec/exprs/vectorized_fn_call.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vec/exprs/vexpr_fwd.h"
@@ -483,8 +484,22 @@ Status VExpr::create_expr(const TExprNode& expr_node, VExprSPtr& expr) {
         case TExprNodeType::ARITHMETIC_EXPR:
         case TExprNodeType::BINARY_PRED:
         case TExprNodeType::NULL_AWARE_BINARY_PRED:
-        case TExprNodeType::FUNCTION_CALL:
         case TExprNodeType::COMPUTE_FUNCTION_CALL: {
+            expr = VectorizedFnCall::create_shared(expr_node);
+            break;
+        }
+        case TExprNodeType::FUNCTION_CALL: {
+            if (expr_node.fn.name.function_name == "if") {
+                expr = VectorizedIfExpr::create_shared(expr_node);
+                break;
+            } else if (expr_node.fn.name.function_name == "ifnull" ||
+                       expr_node.fn.name.function_name == "nvl") {
+                expr = VectorizedIfNullExpr::create_shared(expr_node);
+                break;
+            } else if (expr_node.fn.name.function_name == "coalesce") {
+                expr = VectorizedCoalesceExpr::create_shared(expr_node);
+                break;
+            }
             expr = VectorizedFnCall::create_shared(expr_node);
             break;
         }
@@ -822,8 +837,8 @@ uint64_t VExpr::get_digest(uint64_t seed) const {
     return digest;
 }
 
-ColumnPtr VExpr::get_result_from_const(const Block* block) const {
-    return ColumnConst::create(_constant_col->column_ptr, block->rows());
+ColumnPtr VExpr::get_result_from_const(size_t count) const {
+    return ColumnConst::create(_constant_col->column_ptr, count);
 }
 
 Status VExpr::_evaluate_inverted_index(VExprContext* context, const FunctionBasePtr& function,

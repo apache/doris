@@ -94,7 +94,7 @@ public:
         writer->writeEndString();
     }
     void operator()(const JsonbField& x, JsonbWriter* writer) const {
-        JsonbDocument* doc;
+        const JsonbDocument* doc;
         THROW_IF_ERROR(JsonbDocument::checkAndCreateDocument(x.get_value(), x.get_size(), &doc));
         writer->writeValue(doc->getValue());
     }

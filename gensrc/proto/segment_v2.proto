@@ -240,8 +240,17 @@ message PrimaryKeyIndexMetaPB {
     optional bytes max_key = 4;
 }
 
+// SegmentFooterPB versioning (must stay in sync with be/src/olap/rowset/segment_v2/segment.h).
+enum SegmentFooterVersionPB {
+    // 1 = V2 baseline
+    SEGMENT_FOOTER_VERSION_V2_BASELINE = 1;
+    // 2 = V3 (externalized ColumnMetaPB region + CMO present)
+    SEGMENT_FOOTER_VERSION_V3_EXT_COL_META = 2;
+}
+
 message SegmentFooterPB {
-    optional uint32 version = 1 [default = 1]; // file version
+    // file version; see SegmentFooterVersionPB for the semantic meaning of values.
+    optional uint32 version = 1 [default = 1];
     repeated ColumnMetaPB columns = 2; // tablet schema
     optional uint32 num_rows = 3; // number of values
     optional uint64 index_footprint = 4; // total index footprint of all columns
@@ -298,7 +307,7 @@ enum ColumnIndexTypePB {
     UNKNOWN_INDEX_TYPE = 0;
     ORDINAL_INDEX = 1;
     ZONE_MAP_INDEX = 2;
-    BITMAP_INDEX = 3;
+    BITMAP_INDEX = 3; // deprecated
     BLOOM_FILTER_INDEX = 4;
 }
 
@@ -306,7 +315,7 @@ message ColumnIndexMetaPB {
     optional ColumnIndexTypePB type = 1;
     optional OrdinalIndexPB ordinal_index = 7;
     optional ZoneMapIndexPB zone_map_index = 8;
-    optional BitmapIndexPB bitmap_index = 9;
+    optional BitmapIndexPB bitmap_index = 9; // deprecated
     optional BloomFilterIndexPB bloom_filter_index = 10;
 }
 

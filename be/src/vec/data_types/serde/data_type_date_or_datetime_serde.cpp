@@ -251,10 +251,9 @@ Status DataTypeDateSerDe<T>::read_column_from_arrow(IColumn& column,
 }
 
 template <PrimitiveType T>
-template <bool is_binary_format>
-Status DataTypeDateSerDe<T>::_write_column_to_mysql(
-        const IColumn& column, MysqlRowBuffer<is_binary_format>& result, int64_t row_idx,
-        bool col_const, const typename DataTypeNumberSerDe<T>::FormatOptions& options) const {
+Status DataTypeDateSerDe<T>::write_column_to_mysql_binary(
+        const IColumn& column, MysqlRowBinaryBuffer& result, int64_t row_idx, bool col_const,
+        const typename DataTypeNumberSerDe<T>::FormatOptions& options) const {
     const auto& data = assert_cast<const ColumnVector<T>&>(column).get_data();
     const auto col_index = index_check_const(row_idx, col_const);
     auto time_num = data[col_index];
@@ -275,20 +274,6 @@ Status DataTypeDateSerDe<T>::_write_column_to_mysql(
         }
     }
     return Status::OK();
-}
-
-template <PrimitiveType T>
-Status DataTypeDateSerDe<T>::write_column_to_mysql_binary(
-        const IColumn& column, MysqlRowBinaryBuffer& row_buffer, int64_t row_idx, bool col_const,
-        const typename DataTypeNumberSerDe<T>::FormatOptions& options) const {
-    return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
-}
-
-template <PrimitiveType T>
-Status DataTypeDateSerDe<T>::write_column_to_mysql_text(
-        const IColumn& column, MysqlRowTextBuffer& row_buffer, int64_t row_idx, bool col_const,
-        const typename DataTypeNumberSerDe<T>::FormatOptions& options) const {
-    return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
 }
 
 template <PrimitiveType T>

@@ -18,8 +18,6 @@
 package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.alter.AlterOpType;
-import org.apache.doris.analysis.AlterTableClause;
-import org.apache.doris.analysis.CreateOrReplaceTagClause;
 
 import java.util.Map;
 
@@ -61,8 +59,7 @@ public class CreateOrReplaceTagOp extends AlterTableOp {
         return null;
     }
 
-    @Override
-    public AlterTableClause translateToLegacyAlterClause() {
-        return new CreateOrReplaceTagClause(tagInfo);
+    public CreateOrReplaceTagInfo getTagInfo() {
+        return tagInfo;
     }
 }

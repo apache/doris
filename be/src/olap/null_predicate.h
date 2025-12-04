@@ -37,7 +37,6 @@ class Roaring;
 
 namespace doris {
 namespace segment_v2 {
-class BitmapIndexIterator;
 class InvertedIndexIterator;
 } // namespace segment_v2
 namespace vectorized {
@@ -49,9 +48,6 @@ public:
     NullPredicate(uint32_t column_id, bool is_null, bool opposite = false);
 
     PredicateType type() const override;
-
-    Status evaluate(BitmapIndexIterator* iterator, uint32_t num_rows,
-                    roaring::Roaring* roaring) const override;
 
     Status evaluate(const vectorized::IndexFieldNameAndTypePair& name_with_type,
                     IndexIterator* iterator, uint32_t num_rows,

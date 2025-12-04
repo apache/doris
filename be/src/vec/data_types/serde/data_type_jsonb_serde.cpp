@@ -35,11 +35,10 @@ namespace doris {
 namespace vectorized {
 #include "common/compile_check_begin.h"
 
-template <bool is_binary_format>
-Status DataTypeJsonbSerDe::_write_column_to_mysql(const IColumn& column,
-                                                  MysqlRowBuffer<is_binary_format>& result,
-                                                  int64_t row_idx, bool col_const,
-                                                  const FormatOptions& options) const {
+Status DataTypeJsonbSerDe::write_column_to_mysql_binary(const IColumn& column,
+                                                        MysqlRowBinaryBuffer& result,
+                                                        int64_t row_idx, bool col_const,
+                                                        const FormatOptions& options) const {
     auto& data = assert_cast<const ColumnString&>(column);
     const auto col_index = index_check_const(row_idx, col_const);
     const auto jsonb_val = data.get_data_at(col_index);
@@ -55,20 +54,6 @@ Status DataTypeJsonbSerDe::_write_column_to_mysql(const IColumn& column,
         }
     }
     return Status::OK();
-}
-
-Status DataTypeJsonbSerDe::write_column_to_mysql_binary(const IColumn& column,
-                                                        MysqlRowBinaryBuffer& row_buffer,
-                                                        int64_t row_idx, bool col_const,
-                                                        const FormatOptions& options) const {
-    return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
-}
-
-Status DataTypeJsonbSerDe::write_column_to_mysql_text(const IColumn& column,
-                                                      MysqlRowTextBuffer& row_buffer,
-                                                      int64_t row_idx, bool col_const,
-                                                      const FormatOptions& options) const {
-    return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
 }
 
 Status DataTypeJsonbSerDe::serialize_column_to_json(const IColumn& column, int64_t start_idx,
@@ -282,7 +267,7 @@ void convert_jsonb_to_rapidjson(const JsonbValue& val, rapidjson::Value& target,
 Status DataTypeJsonbSerDe::serialize_column_to_jsonb(const IColumn& from_column, int64_t row_num,
                                                      JsonbWriter& writer) const {
     const auto& jsonb_binary = assert_cast<const ColumnString&>(from_column).get_data_at(row_num);
-    JsonbDocument* doc = nullptr;
+    const JsonbDocument* doc = nullptr;
     RETURN_IF_ERROR(
             JsonbDocument::checkAndCreateDocument(jsonb_binary.data, jsonb_binary.size, &doc));
 

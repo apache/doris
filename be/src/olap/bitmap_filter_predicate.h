@@ -62,10 +62,6 @@ public:
 
     using ColumnPredicate::evaluate;
 
-    Status evaluate(BitmapIndexIterator*, uint32_t, roaring::Roaring*) const override {
-        return Status::OK();
-    }
-
 private:
     bool _can_ignore() const override { return false; }
 
@@ -111,7 +107,7 @@ uint16_t BitmapFilterColumnPredicate<T>::_evaluate_inner(const vectorized::IColu
     } else {
         new_size = evaluate<false>(column, nullptr, sel, size);
     }
-    update_filter_info(size - new_size, size);
+    update_filter_info(size - new_size, size, 0);
     return new_size;
 }
 } //namespace doris

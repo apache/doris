@@ -51,7 +51,9 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.MapValues;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StructElement;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
+import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.NestedColumnPrunable;
 import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
@@ -66,6 +68,7 @@ import java.util.ArrayList;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Stack;
 
@@ -136,7 +139,8 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
     public Void visitCast(Cast cast, CollectorContext context) {
         if (!context.accessPathBuilder.isEmpty()
                 && cast.getDataType() instanceof NestedColumnPrunable
-                && cast.child().getDataType() instanceof NestedColumnPrunable) {
+                && cast.child().getDataType() instanceof NestedColumnPrunable
+                && !mapTypeIsChanged(cast.child().getDataType(), cast.getDataType(), false)) {
 
             DataTypeAccessTree castTree = DataTypeAccessTree.of(cast.getDataType(), TAccessPathType.DATA);
             DataTypeAccessTree originTree = DataTypeAccessTree.of(cast.child().getDataType(), TAccessPathType.DATA);
@@ -519,6 +523,48 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
         @Override
         public int hashCode() {
             return path.hashCode();
+        }
+    }
+
+    // if the map type is changed, we can not prune the type, because the map type need distinct the keys,
+    // e.g. select map_values(cast(map(3.0, 1, 3.1, 2) as map<int, int>));
+    // the result is [2] because the keys: 3.0 and 3.1 will cast to 3 and the second entry remained.
+    // backend will throw exception because it can not only access the values without the cast keys,
+    // so we should check whether the map type is changed, if not changed, we can prune the type.
+    private static boolean mapTypeIsChanged(DataType originType, DataType castType, boolean inMap) {
+        if (originType.isMapType()) {
+            MapType originMapType = (MapType) originType;
+            MapType castMapType = (MapType) castType;
+            if (mapTypeIsChanged(originMapType.getKeyType(), castMapType.getKeyType(), true)
+                    || mapTypeIsChanged(originMapType.getValueType(), castMapType.getValueType(), true)) {
+                return true;
+            }
+            return false;
+        } else if (originType.isStructType()) {
+            StructType originStructType = (StructType) originType;
+            StructType castStructType = (StructType) castType;
+            List<Entry<String, StructField>> originFields
+                    = new ArrayList<>(originStructType.getNameToFields().entrySet());
+            List<Entry<String, StructField>> castFields
+                    = new ArrayList<>(castStructType.getNameToFields().entrySet());
+
+            for (int i = 0; i < originFields.size(); i++) {
+                DataType originFieldType = originFields.get(i).getValue().getDataType();
+                DataType castFieldType = castFields.get(i).getValue().getDataType();
+                if (mapTypeIsChanged(originFieldType, castFieldType, inMap)) {
+                    return true;
+                }
+            }
+            return false;
+        } else if (originType.isArrayType()) {
+            ArrayType originArrayType = (ArrayType) originType;
+            ArrayType castArrayType = (ArrayType) castType;
+            return mapTypeIsChanged(originArrayType.getItemType(), castArrayType.getItemType(), inMap);
+        } else if (inMap) {
+            return !originType.equals(castType);
+        } else {
+            // other type changed which not in map will not affect the map
+            return false;
         }
     }
 }

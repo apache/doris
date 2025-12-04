@@ -342,7 +342,7 @@ message ColumnPB {
     optional bool is_bf_column = 12; // ColumnMessage.is_bf_column
     optional int32 referenced_column_id = 13; // deprecated
     optional string referenced_column = 14; // deprecated
-    optional bool has_bitmap_index = 15 [default=false]; // ColumnMessage.has_bitmap_index
+    optional bool has_bitmap_index = 15 [default=false]; // deprecated
     optional bool visible = 16 [default=true];
     repeated ColumnPB children_columns = 17;
     repeated string children_column_names = 18;
@@ -449,7 +449,7 @@ message TabletSchemaPB {
     optional int64 storage_dict_page_size = 31 [default=262144];
 
     // Whether new segments of this tablet use externalized ColumnMetaPB layout (CMO)
-    optional bool is_external_segment_meta_used_default = 32 [default = false];
+    optional bool is_external_segment_column_meta_used = 32 [default = false];
 
     optional SplitSchemaPB __split_schema = 1000;  // A special field, DO NOT change it.
 }
@@ -488,7 +488,7 @@ message TabletSchemaCloudPB {
     optional int64 storage_dict_page_size = 32 [default=262144];
 
     // Whether new segments of this tablet use externalized ColumnMetaPB layout (CMO)
-    optional bool is_external_segment_meta_used_default = 33 [default = false];
+    optional bool is_external_segment_column_meta_used = 33 [default = false];
 
     optional bool is_dynamic_schema = 100 [default=false];
 

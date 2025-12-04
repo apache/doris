@@ -103,7 +103,6 @@ public:
     bool is_on_update_current_timestamp() const { return _is_on_update_current_timestamp; }
     bool is_variant_type() const { return _type == FieldType::OLAP_FIELD_TYPE_VARIANT; }
     bool is_bf_column() const { return _is_bf_column; }
-    bool has_bitmap_index() const { return _has_bitmap_index; }
     bool is_array_type() const { return _type == FieldType::OLAP_FIELD_TYPE_ARRAY; }
     bool is_agg_state_type() const { return _type == FieldType::OLAP_FIELD_TYPE_AGG_STATE; }
     bool is_jsonb_type() const { return _type == FieldType::OLAP_FIELD_TYPE_JSONB; }
@@ -192,7 +191,6 @@ public:
     int32_t parent_unique_id() const { return _parent_col_unique_id; }
     void set_parent_unique_id(int32_t col_unique_id) { _parent_col_unique_id = col_unique_id; }
     void set_is_bf_column(bool is_bf_column) { _is_bf_column = is_bf_column; }
-    void set_has_bitmap_index(bool has_bitmap_index) { _has_bitmap_index = has_bitmap_index; }
     std::shared_ptr<const vectorized::IDataType> get_vec_type() const;
 
     Status check_valid() const {
@@ -203,10 +201,6 @@ public:
         }
         if (is_bf_column()) {
             return Status::NotSupported("Do not support bloom filter index, type={}",
-                                        get_string_by_field_type(type()));
-        }
-        if (has_bitmap_index()) {
-            return Status::NotSupported("Do not support bitmap index, type={}",
                                         get_string_by_field_type(type()));
         }
         return Status::OK();
@@ -280,7 +274,6 @@ private:
 
     bool _is_bf_column = false;
 
-    bool _has_bitmap_index = false;
     bool _visible = true;
 
     std::vector<TabletColumnPtr> _sub_columns;
@@ -694,12 +687,12 @@ public:
     bool has_pruned_columns() const { return !_pruned_columns_data_type.empty(); }
 
     // Whether new segments use externalized ColumnMetaPB layout (CMO) by default
-    bool is_external_segment_meta_used_default() const {
-        return _is_external_segment_meta_used_default;
+    bool is_external_segment_column_meta_used() const {
+        return _is_external_segment_column_meta_used;
     }
 
     void set_external_segment_meta_used_default(bool v) {
-        _is_external_segment_meta_used_default = v;
+        _is_external_segment_column_meta_used = v;
     }
 
 private:
@@ -783,7 +776,7 @@ private:
     std::unordered_map<int32_t, PatternToIndex> _index_by_unique_id_with_pattern;
 
     // Default behavior for new segments: use external ColumnMeta region + CMO table if true
-    bool _is_external_segment_meta_used_default = false;
+    bool _is_external_segment_column_meta_used = false;
 };
 
 bool operator==(const TabletSchema& a, const TabletSchema& b);

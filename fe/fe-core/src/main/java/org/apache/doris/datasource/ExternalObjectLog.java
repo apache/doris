@@ -80,6 +80,16 @@ public class ExternalObjectLog implements Writable {
         return externalObjectLog;
     }
 
+    public static ExternalObjectLog createForRefreshPartitions(long catalogId, String dbName, String tblName,
+            List<String> partitionNames) {
+        ExternalObjectLog externalObjectLog = new ExternalObjectLog();
+        externalObjectLog.setCatalogId(catalogId);
+        externalObjectLog.setDbName(dbName);
+        externalObjectLog.setTableName(tblName);
+        externalObjectLog.setPartitionNames(partitionNames);
+        return externalObjectLog;
+    }
+
     public static ExternalObjectLog createForRenameTable(long catalogId, String dbName, String tblName,
             String newTblName) {
         ExternalObjectLog externalObjectLog = new ExternalObjectLog();

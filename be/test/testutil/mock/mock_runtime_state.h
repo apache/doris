@@ -45,7 +45,8 @@ public:
         _mock_desc_tbl = std::make_unique<MockDescriptorTbl1>();
         set_desc_tbl(_mock_desc_tbl.get());
     }
-    MockRuntimeState(const TQueryGlobals& query_globals) : RuntimeState(query_globals) {
+    MockRuntimeState(const TQueryGlobals& query_globals)
+            : RuntimeState(TQueryOptions(), query_globals) {
         _mock_desc_tbl = std::make_unique<MockDescriptorTbl1>();
         set_desc_tbl(_mock_desc_tbl.get());
     }

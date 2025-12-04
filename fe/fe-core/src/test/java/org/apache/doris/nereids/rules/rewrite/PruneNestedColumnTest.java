@@ -140,13 +140,20 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
 
     @Test
     public void testPruneCast() throws Exception {
+        // the map type is changed, so we can not prune type
+        assertColumn("select struct_element(cast(s as struct<k:text,l:array<map<int,struct<x:int,y:int>>>>), 'k') from tbl",
+                "struct<city:text,data:array<map<int,struct<a:int,b:double>>>>",
+                ImmutableList.of(path("s")),
+                ImmutableList.of()
+        );
+
         assertColumn("select struct_element(cast(s as struct<k:text,l:array<map<int,struct<x:int,y:double>>>>), 'k') from tbl",
                 "struct<city:text>",
                 ImmutableList.of(path("s", "city")),
                 ImmutableList.of()
         );
 
-        assertColumn("select struct_element(map_values(struct_element(cast(s as struct<k:text,l:array<map<int,struct<x:double,y:double>>>>), 'l')[0])[0], 'x') from tbl",
+        assertColumn("select struct_element(map_values(struct_element(cast(s as struct<k:text,l:array<map<int,struct<x:int,y:double>>>>), 'l')[0])[0], 'x') from tbl",
                 "struct<data:array<map<int,struct<a:int>>>>",
                 ImmutableList.of(path("s", "data", "*", "VALUES", "a")),
                 ImmutableList.of()
@@ -408,6 +415,15 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
     }
 
     @Test
+    public void testDereference() throws Exception {
+        assertColumn("select s.city from tbl",
+                "struct<city:text>",
+                ImmutableList.of(path("s", "city")),
+                ImmutableList.of()
+        );
+    }
+
+    @Test
     public void testPushDownThroughJoin() {
         PlanChecker.from(connectContext)
                 .analyze("select coalesce(struct_element(s, 'city'), 'abc') from (select * from tbl)a join (select 100 id, 'f1' name)b on a.id=b.id")
@@ -584,6 +600,167 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
                 ),
                 "STRUCT<city:TEXT,data:ARRAY<MAP<INT,STRUCT<b:DOUBLE>>>>"
         );
+    }
+
+    @Test
+    public void testWithVariant() throws Exception {
+        connectContext.getSessionVariable().enableDecimal256 = true;
+
+        createTable("CREATE TABLE test.`table_20_undef_partitions2_keys3_properties4_distributed_by56` (\n"
+                + "  `col_tinyint_undef_signed_index_inverted` tinyint NULL,\n"
+                + "  `col_smallint_undef_signed_not_null_index_inverted` smallint NOT NULL,\n"
+                + "  `pk` int NULL,\n"
+                + "  `col_int_undef_signed` int NULL,\n"
+                + "  `col_bigint_undef_signed` bigint NULL,\n"
+                + "  `col_decimal_10_0__undef_signed` decimal(10,0) NULL,\n"
+                + "  `col_largeint_undef_signed` largeint NULL,\n"
+                + "  `col_boolean_undef_signed` boolean NULL,\n"
+                + "  `col_boolean_undef_signed_not_null` boolean NOT NULL,\n"
+                + "  `col_tinyint_undef_signed` tinyint NULL,\n"
+                + "  `col_tinyint_undef_signed_not_null` tinyint NOT NULL,\n"
+                + "  `col_tinyint_undef_signed_not_null_index_inverted` tinyint NOT NULL,\n"
+                + "  `col_smallint_undef_signed` smallint NULL,\n"
+                + "  `col_smallint_undef_signed_index_inverted` smallint NULL,\n"
+                + "  `col_smallint_undef_signed_not_null` smallint NOT NULL,\n"
+                + "  `col_int_undef_signed_index_inverted` int NULL,\n"
+                + "  `col_int_undef_signed_not_null` int NOT NULL,\n"
+                + "  `col_int_undef_signed_not_null_index_inverted` int NOT NULL,\n"
+                + "  `col_bigint_undef_signed_index_inverted` bigint NULL,\n"
+                + "  `col_bigint_undef_signed_not_null` bigint NOT NULL,\n"
+                + "  `col_bigint_undef_signed_not_null_index_inverted` bigint NOT NULL,\n"
+                + "  `col_largeint_undef_signed_not_null` largeint NOT NULL,\n"
+                + "  `col_decimal_10_0__undef_signed_index_inverted` decimal(10,0) NULL,\n"
+                + "  `col_decimal_10_0__undef_signed_not_null` decimal(10,0) NOT NULL,\n"
+                + "  `col_decimal_10_0__undef_signed_not_null_index_inverted` decimal(10,0) NOT NULL,\n"
+                + "  `col_decimal_16_10__undef_signed` decimal(16,10) NULL,\n"
+                + "  `col_decimal_16_10__undef_signed_index_inverted` decimal(16,10) NULL,\n"
+                + "  `col_decimal_16_10__undef_signed_not_null` decimal(16,10) NOT NULL,\n"
+                + "  `col_decimal_16_10__undef_signed_not_null_index_inverted` decimal(16,10) NOT NULL,\n"
+                + "  `col_decimal_37__12__undef_signed` decimal(37,12) NULL,\n"
+                + "  `col_decimal_37__12__undef_signed_index_inverted` decimal(37,12) NULL,\n"
+                + "  `col_decimal_37__12__undef_signed_not_null` decimal(37,12) NOT NULL,\n"
+                + "  `col_decimal_37__12__undef_signed_not_null_index_inverted` decimal(37,12) NOT NULL,\n"
+                + "  `col_decimal_17_0__undef_signed` decimal(17,0) NULL,\n"
+                + "  `col_decimal_17_0__undef_signed_index_inverted` decimal(17,0) NULL,\n"
+                + "  `col_decimal_17_0__undef_signed_not_null` decimal(17,0) NOT NULL,\n"
+                + "  `col_decimal_17_0__undef_signed_not_null_index_inverted` decimal(17,0) NOT NULL,\n"
+                + "  `col_decimal_8_4__undef_signed` decimal(8,4) NULL,\n"
+                + "  `col_decimal_8_4__undef_signed_index_inverted` decimal(8,4) NULL,\n"
+                + "  `col_decimal_8_4__undef_signed_not_null` decimal(8,4) NOT NULL,\n"
+                + "  `col_decimal_8_4__undef_signed_not_null_index_inverted` decimal(8,4) NOT NULL,\n"
+                + "  `col_decimal_9_0__undef_signed` decimal(9,0) NULL,\n"
+                + "  `col_decimal_9_0__undef_signed_index_inverted` decimal(9,0) NULL,\n"
+                + "  `col_decimal_9_0__undef_signed_not_null` decimal(9,0) NOT NULL,\n"
+                + "  `col_decimal_9_0__undef_signed_not_null_index_inverted` decimal(9,0) NOT NULL,\n"
+                + "  `col_decimal_76__56__undef_signed` decimal(76,56) NULL,\n"
+                + "  `col_decimal_76__56__undef_signed_index_inverted` decimal(76,56) NULL,\n"
+                + "  `col_decimal_76__56__undef_signed_not_null` decimal(76,56) NOT NULL,\n"
+                + "  `col_decimal_76__56__undef_signed_not_null_index_inverted` decimal(76,56) NOT NULL,\n"
+                + "  `col_datetime_undef_signed` datetime NULL,\n"
+                + "  `col_datetime_undef_signed_index_inverted` datetime NULL,\n"
+                + "  `col_datetime_undef_signed_not_null` datetime NOT NULL,\n"
+                + "  `col_datetime_undef_signed_not_null_index_inverted` datetime NOT NULL,\n"
+                + "  `col_map_boolean__boolean__undef_signed` map<boolean,boolean> NULL,\n"
+                + "  `col_map_boolean__boolean__undef_signed_not_null` map<boolean,boolean> NOT NULL,\n"
+                + "  `col_map_tinyint__tinyint__undef_signed` map<tinyint,tinyint> NULL,\n"
+                + "  `col_map_tinyint__tinyint__undef_signed_not_null` map<tinyint,tinyint> NOT NULL,\n"
+                + "  `col_map_smallint__smallint__undef_signed` map<smallint,smallint> NULL,\n"
+                + "  `col_map_smallint__smallint__undef_signed_not_null` map<smallint,smallint> NOT NULL,\n"
+                + "  `col_map_int__int__undef_signed` map<int,int> NULL,\n"
+                + "  `col_map_int__int__undef_signed_not_null` map<int,int> NOT NULL,\n"
+                + "  `col_map_bigint__bigint__undef_signed` map<bigint,bigint> NULL,\n"
+                + "  `col_map_bigint__bigint__undef_signed_not_null` map<bigint,bigint> NOT NULL,\n"
+                + "  `col_map_largeint__largeint__undef_signed` map<largeint,largeint> NULL,\n"
+                + "  `col_map_largeint__largeint__undef_signed_not_null` map<largeint,largeint> NOT NULL,\n"
+                + "  `col_map_decimal_10_0___decimal_10_0___undef_signed` map<decimal(10,0),decimal(10,0)> NULL,\n"
+                + "  `col_map_decimal_10_0___decimal_10_0___undef_signed_not_null` map<decimal(10,0),decimal(10,0)> NOT NULL,\n"
+                + "  `col_map_decimal_16_10___decimal_16_10___undef_signed` map<decimal(16,10),decimal(16,10)> NULL,\n"
+                + "  `col_map_decimal_16_10___decimal_16_10___undef_signed_not_null` map<decimal(16,10),decimal(16,10)> NOT NULL,\n"
+                + "  `col_map_decimal_37__12___decimal_37__12___undef_signed` map<decimal(37,12),decimal(37,12)> NULL,\n"
+                + "  `col_map_decimal_37__12___decimal_37__12___undef_signed_not_null` map<decimal(37,12),decimal(37,12)> NOT NULL,\n"
+                + "  `col_map_decimal_8_4___decimal_8_4___undef_signed` map<decimal(8,4),decimal(8,4)> NULL,\n"
+                + "  `col_map_decimal_8_4___decimal_8_4___undef_signed_not_null` map<decimal(8,4),decimal(8,4)> NOT NULL,\n"
+                + "  `col_map_decimal_76__56___decimal_76__56___undef_signed` map<decimal(76,56),decimal(76,56)> NULL,\n"
+                + "  `col_map_decimal_76__56___decimal_76__56___undef_signed_not_null` map<decimal(76,56),decimal(76,56)> NOT NULL,\n"
+                + "  `col_map_char_255___boolean__undef_signed` map<character(255),boolean> NULL,\n"
+                + "  `col_map_char_255___boolean__undef_signed_not_null` map<character(255),boolean> NOT NULL,\n"
+                + "  `col_map_char_255___tinyint__undef_signed` map<character(255),tinyint> NULL,\n"
+                + "  `col_map_char_255___tinyint__undef_signed_not_null` map<character(255),tinyint> NOT NULL,\n"
+                + "  `col_map_varchar_255___int__undef_signed` map<varchar(255),int> NULL,\n"
+                + "  `col_map_varchar_255___int__undef_signed_not_null` map<varchar(255),int> NOT NULL,\n"
+                + "  `col_map_varchar_65533___largeint__undef_signed` map<varchar(65533),largeint> NULL,\n"
+                + "  `col_map_varchar_65533___largeint__undef_signed_not_null` map<varchar(65533),largeint> NOT NULL,\n"
+                + "  `col_map_string__decimal_10_0___undef_signed` map<text,decimal(10,0)> NULL,\n"
+                + "  `col_map_string__decimal_10_0___undef_signed_not_null` map<text,decimal(10,0)> NOT NULL,\n"
+                + "  `col_map_varchar_65533___decimal_76__50___undef_signed` map<varchar(65533),decimal(76,50)> NULL,\n"
+                + "  `col_map_varchar_65533___decimal_76__50___undef_signed_not_null` map<varchar(65533),decimal(76,50)> NOT NULL,\n"
+                + "  `col_map_date__boolean__undef_signed` map<date,boolean> NULL,\n"
+                + "  `col_map_date__boolean__undef_signed_not_null` map<date,boolean> NOT NULL,\n"
+                + "  `col_map_date__tinyint__undef_signed` map<date,tinyint> NULL,\n"
+                + "  `col_map_date__tinyint__undef_signed_not_null` map<date,tinyint> NOT NULL,\n"
+                + "  `col_map_date__smallint__undef_signed` map<date,smallint> NULL,\n"
+                + "  `col_map_date__smallint__undef_signed_not_null` map<date,smallint> NOT NULL,\n"
+                + "  `col_map_date__int__undef_signed` map<date,int> NULL,\n"
+                + "  `col_map_date__int__undef_signed_not_null` map<date,int> NOT NULL,\n"
+                + "  `col_map_datetime_6___bigint__undef_signed` map<datetime(6),bigint> NULL,\n"
+                + "  `col_map_datetime_6___bigint__undef_signed_not_null` map<datetime(6),bigint> NOT NULL,\n"
+                + "  `col_map_datetime_3___largeint__undef_signed` map<datetime(3),largeint> NULL,\n"
+                + "  `col_map_datetime_3___largeint__undef_signed_not_null` map<datetime(3),largeint> NOT NULL,\n"
+                + "  `col_map_datetime__decimal_76__50___undef_signed` map<datetime,decimal(76,50)> NULL,\n"
+                + "  `col_map_datetime__decimal_76__50___undef_signed_not_null` map<datetime,decimal(76,50)> NOT NULL,\n"
+                + "  `col_map_date__decimal_16_10___undef_signed` map<date,decimal(16,10)> NULL,\n"
+                + "  `col_map_date__decimal_16_10___undef_signed_not_null` map<date,decimal(16,10)> NOT NULL,\n"
+                + "  `col_map_date__decimal_37__12___undef_signed` map<date,decimal(37,12)> NULL,\n"
+                + "  `col_map_date__decimal_37__12___undef_signed_not_null` map<date,decimal(37,12)> NOT NULL,\n"
+                + "  `col_struct` struct<c_boolean:boolean,c_tinyint:tinyint,c_smallint:smallint,c_int:int,c_bigint:bigint,c_largeint:largeint,c_decimal_10_0:decimal(10,0),c_decimal_16_10:decimal(16,10),c_decimal_37_12:decimal(37,12),c_decimal_17_0:decimal(17,0),c_decimal_8_4:decimal(8,4),c_decimal_9_0:decimal(9,0),c_decimal_76_56:decimal(76,56)> NULL,\n"
+                + "  `col_struct2` struct<c_boolean:boolean,c_tinyint:tinyint,c_smallint:smallint,c_int:int,c_bigint:bigint,c_largeint:largeint,c_decimal_10_0:decimal(10,0),c_decimal_16_10:decimal(16,10),c_decimal_37_12:decimal(37,12),c_decimal_17_0:decimal(17,0),c_decimal_8_4:decimal(8,4),c_decimal_9_0:decimal(9,0),c_decimal_76_56:decimal(76,56)> NOT NULL,\n"
+                + "  `col_variant_undef_signed` variant NULL,\n"
+                + "  `col_variant_undef_signed_not_null` variant NOT NULL,\n"
+                + "  INDEX col_tinyint_undef_signed_index_inverted_idx (`col_tinyint_undef_signed_index_inverted`) USING INVERTED,\n"
+                + "  INDEX col_tinyint_undef_signed_not_null_index_inverted_idx (`col_tinyint_undef_signed_not_null_index_inverted`) USING INVERTED,\n"
+                + "  INDEX col_smallint_undef_signed_index_inverted_idx (`col_smallint_undef_signed_index_inverted`) USING INVERTED,\n"
+                + "  INDEX col_smallint_undef_signed_not_null_index_inverted_idx (`col_smallint_undef_signed_not_null_index_inverted`) USING INVERTED,\n"
+                + "  INDEX col_int_undef_signed_index_inverted_idx (`col_int_undef_signed_index_inverted`) USING INVERTED,\n"
+                + "  INDEX col_int_undef_signed_not_null_index_inverted_idx (`col_int_undef_signed_not_null_index_inverted`) USING INVERTED,\n"
+                + "  INDEX col_bigint_undef_signed_index_inverted_idx (`col_bigint_undef_signed_index_inverted`) USING INVERTED,\n"
+                + "  INDEX col_bigint_undef_signed_not_null_index_inverted_idx (`col_bigint_undef_signed_not_null_index_inverted`) USING INVERTED,\n"
+                + "  INDEX col_decimal_10_0__undef_signed_index_inverted_idx (`col_decimal_10_0__undef_signed_index_inverted`) USING INVERTED,\n"
+                + "  INDEX col_decimal_10_0__undef_signed_not_null_index_inverted_idx (`col_decimal_10_0__undef_signed_not_null_index_inverted`) USING INVERTED,\n"
+                + "  INDEX col_decimal_16_10__undef_signed_index_inverted_idx (`col_decimal_16_10__undef_signed_index_inverted`) USING INVERTED,\n"
+                + "  INDEX col_decimal_16_10__undef_signed_not_null_index_inverted_idx (`col_decimal_16_10__undef_signed_not_null_index_inverted`) USING INVERTED,\n"
+                + "  INDEX col_decimal_37__12__undef_signed_index_inverted_idx (`col_decimal_37__12__undef_signed_index_inverted`) USING INVERTED,\n"
+                + "  INDEX col_decimal_37__12__undef_signed_not_null_index_inverted_idx (`col_decimal_37__12__undef_signed_not_null_index_inverted`) USING INVERTED,\n"
+                + "  INDEX col_decimal_17_0__undef_signed_index_inverted_idx (`col_decimal_17_0__undef_signed_index_inverted`) USING INVERTED,\n"
+                + "  INDEX col_decimal_17_0__undef_signed_not_null_index_inverted_idx (`col_decimal_17_0__undef_signed_not_null_index_inverted`) USING INVERTED,\n"
+                + "  INDEX col_decimal_8_4__undef_signed_index_inverted_idx (`col_decimal_8_4__undef_signed_index_inverted`) USING INVERTED,\n"
+                + "  INDEX col_decimal_8_4__undef_signed_not_null_index_inverted_idx (`col_decimal_8_4__undef_signed_not_null_index_inverted`) USING INVERTED,\n"
+                + "  INDEX col_decimal_9_0__undef_signed_index_inverted_idx (`col_decimal_9_0__undef_signed_index_inverted`) USING INVERTED,\n"
+                + "  INDEX col_decimal_9_0__undef_signed_not_null_index_inverted_idx (`col_decimal_9_0__undef_signed_not_null_index_inverted`) USING INVERTED,\n"
+                + "  INDEX col_decimal_76__56__undef_signed_index_inverted_idx (`col_decimal_76__56__undef_signed_index_inverted`) USING INVERTED,\n"
+                + "  INDEX col_decimal_76__56__undef_signed_not_null_index_inverted_idx (`col_decimal_76__56__undef_signed_not_null_index_inverted`) USING INVERTED,\n"
+                + "  INDEX col_datetime_undef_signed_index_inverted_idx (`col_datetime_undef_signed_index_inverted`) USING INVERTED,\n"
+                + "  INDEX col_datetime_undef_signed_not_null_index_inverted_idx (`col_datetime_undef_signed_not_null_index_inverted`) USING INVERTED\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(`col_tinyint_undef_signed_index_inverted`, `col_smallint_undef_signed_not_null_index_inverted`, `pk`, `col_int_undef_signed`, `col_bigint_undef_signed`, `col_decimal_10_0__undef_signed`, `col_largeint_undef_signed`)\n"
+                + "PARTITION BY RANGE(`col_tinyint_undef_signed_index_inverted`, `col_smallint_undef_signed_not_null_index_inverted`)\n"
+                + "(PARTITION p0 VALUES [(\"-128\", \"-32768\"), (\"0\", \"0\")),\n"
+                + "PARTITION p1 VALUES [(\"0\", \"0\"), (\"10\", \"256\")),\n"
+                + "PARTITION p2 VALUES [(\"10\", \"256\"), (\"50\", \"10240\")),\n"
+                + "PARTITION p3 VALUES [(\"50\", \"10240\"), (\"100\", \"32767\")),\n"
+                + "PARTITION p4 VALUES [(\"100\", \"32767\"), (MAXVALUE, MAXVALUE)))\n"
+                + "DISTRIBUTED BY HASH(`pk`) BUCKETS 10\n"
+                + "PROPERTIES (\n"
+                + "\"replication_allocation\" = \"tag.location.default: 1\""
+                + ")");
+
+        PlanChecker.from(connectContext)
+                .analyze("SELECT col_variant_undef_signed_not_null,\n"
+                        + "          col_struct,\n"
+                        + "          col_variant_undef_signed_not_null[\"c_map_largeint\"]\n"
+                        + " FROM table_20_undef_partitions2_keys3_properties4_distributed_by56")
+                .rewrite()
+                .getCascadesContext()
+                .getRewritePlan();
     }
 
     private void setAccessPathAndAssertType(SlotReference slot, List<String> path, String expectedType) {

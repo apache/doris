@@ -33,7 +33,6 @@
 #include <mutex>
 #include <shared_mutex>
 #include <string>
-#include <utility>
 #include <vector>
 
 #include "agent/be_exec_version_manager.h"
@@ -43,7 +42,6 @@
 #include "common/config.h"
 #include "common/factory_creator.h"
 #include "common/status.h"
-#include "io/fs/file_system.h"
 #include "io/fs/s3_file_system.h"
 #include "runtime/task_execution_context.h"
 #include "runtime/workload_group/workload_group.h"
@@ -102,7 +100,7 @@ public:
                  const std::shared_ptr<MemTrackerLimiter>& query_mem_tracker);
 
     // RuntimeState for executing expr in fe-support.
-    RuntimeState(const TQueryGlobals& query_globals);
+    RuntimeState(const TQueryOptions& query_options, const TQueryGlobals& query_globals);
 
     // for job task only
     RuntimeState();
@@ -713,7 +711,7 @@ public:
     VectorSearchUserParams get_vector_search_params() const {
         return VectorSearchUserParams(_query_options.hnsw_ef_search,
                                       _query_options.hnsw_check_relative_distance,
-                                      _query_options.hnsw_bounded_queue);
+                                      _query_options.hnsw_bounded_queue, _query_options.ivf_nprobe);
     }
 
 private:
@@ -812,7 +810,6 @@ private:
     std::vector<TTabletCommitInfo> _tablet_commit_infos;
     std::vector<TErrorTabletInfo> _error_tablet_infos;
     int _max_operator_id = 0;
-    pipeline::PipelineTask* _task = nullptr;
     int _task_id = -1;
     int _task_num = 0;
 
@@ -834,9 +831,6 @@ private:
     // only to lock _pipeline_id_to_profile
     std::shared_mutex _pipeline_profile_lock;
     std::vector<std::shared_ptr<RuntimeProfile>> _pipeline_id_to_profile;
-
-    // prohibit copies
-    RuntimeState(const RuntimeState&);
 
     // save error log to s3
     std::shared_ptr<io::S3FileSystem> _s3_error_fs;

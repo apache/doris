@@ -17,13 +17,9 @@
 
 package org.apache.doris.planner;
 
-import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.OutFileClause;
-import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.StorageBackend;
-import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
-import org.apache.doris.catalog.Column;
 import org.apache.doris.common.util.FileFormatConstants;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.thrift.TDataSink;
@@ -142,28 +138,5 @@ public class ResultFileSink extends DataSink {
     @Override
     public DataPartition getOutputPartition() {
         return outputPartition;
-    }
-
-    /**
-     * Construct a tuple for file status, the tuple schema as following:
-     * | FileNumber    | Int     |
-     * | TotalRows     | Bigint  |
-     * | FileSize      | Bigint  |
-     * | URL           | Varchar |
-     * | WriteTimeSec  | Varchar |
-     * | WriteSpeedKB  | Varchar |
-     */
-    public static TupleDescriptor constructFileStatusTupleDesc(DescriptorTable descriptorTable) {
-        TupleDescriptor resultFileStatusTupleDesc =
-                descriptorTable.createTupleDescriptor("result_file_status");
-        for (int i = 0; i < OutFileClause.RESULT_COL_NAMES.size(); ++i) {
-            SlotDescriptor slotDescriptor = descriptorTable.addSlotDescriptor(resultFileStatusTupleDesc);
-            slotDescriptor.setLabel(OutFileClause.RESULT_COL_NAMES.get(i));
-            slotDescriptor.setType(OutFileClause.RESULT_COL_TYPES.get(i));
-            slotDescriptor.setColumn(new Column(OutFileClause.RESULT_COL_NAMES.get(i),
-                    OutFileClause.RESULT_COL_TYPES.get(i)));
-            slotDescriptor.setIsNullable(false);
-        }
-        return resultFileStatusTupleDesc;
     }
 }

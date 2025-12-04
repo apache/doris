@@ -293,8 +293,10 @@ private:
     vectorized::Arena _arena;
 };
 
-BlockChanger::BlockChanger(TabletSchemaSPtr tablet_schema, DescriptorTbl desc_tbl)
-        : _desc_tbl(std::move(desc_tbl)) {
+BlockChanger::BlockChanger(TabletSchemaSPtr tablet_schema, DescriptorTbl desc_tbl,
+                           std::shared_ptr<RuntimeState> state)
+        : _desc_tbl(std::move(desc_tbl)), _state(std::move(state)) {
+    CHECK(_state != nullptr);
     _schema_mapping.resize(tablet_schema->num_columns());
 }
 
@@ -315,17 +317,17 @@ ColumnMapping* BlockChanger::get_mutable_column_mapping(size_t column_index) {
 
 Status BlockChanger::change_block(vectorized::Block* ref_block,
                                   vectorized::Block* new_block) const {
-    std::unique_ptr<RuntimeState> state = RuntimeState::create_unique();
-    state->set_desc_tbl(&_desc_tbl);
-    state->set_be_exec_version(_fe_compatible_version);
+    // for old version request compatibility
+    _state->set_desc_tbl(&_desc_tbl);
+    _state->set_be_exec_version(_fe_compatible_version);
     RowDescriptor row_desc =
             RowDescriptor(_desc_tbl.get_tuple_descriptor(_desc_tbl.get_row_tuples()[0]), false);
 
     if (_where_expr != nullptr) {
         vectorized::VExprContextSPtr ctx = nullptr;
         RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(*_where_expr, ctx));
-        RETURN_IF_ERROR(ctx->prepare(state.get(), row_desc));
-        RETURN_IF_ERROR(ctx->open(state.get()));
+        RETURN_IF_ERROR(ctx->prepare(_state.get(), row_desc));
+        RETURN_IF_ERROR(ctx->open(_state.get()));
 
         RETURN_IF_ERROR(vectorized::VExprContext::filter_block(ctx.get(), ref_block));
     }
@@ -340,8 +342,8 @@ Status BlockChanger::change_block(vectorized::Block* ref_block,
         if (expr != nullptr) {
             vectorized::VExprContextSPtr ctx;
             RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(*expr, ctx));
-            RETURN_IF_ERROR(ctx->prepare(state.get(), row_desc));
-            RETURN_IF_ERROR(ctx->open(state.get()));
+            RETURN_IF_ERROR(ctx->prepare(_state.get(), row_desc));
+            RETURN_IF_ERROR(ctx->open(_state.get()));
 
             int result_tmp_column_idx = -1;
             RETURN_IF_ERROR(ctx->execute(ref_block, &result_tmp_column_idx));
@@ -357,6 +359,16 @@ Status BlockChanger::change_block(vectorized::Block* ref_block,
                 return Status::Error<ErrorCode::INTERNAL_ERROR>(
                         "result size invalid, expect={}, real={}; input expr={}, block={}", row_num,
                         result_tmp_column_def.column->size(),
+                        apache::thrift::ThriftDebugString(*expr), ref_block->dump_structure());
+            }
+
+            auto lhs = _schema_mapping[idx].new_column->get_vec_type()->get_primitive_type();
+            auto rhs = result_tmp_column_def.type->get_primitive_type();
+            if (is_string_type(lhs) != is_string_type(rhs) && lhs != rhs) {
+                return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                        "result type invalid, expect={}, real={}; input expr={}, block={}",
+                        _schema_mapping[idx].new_column->get_vec_type()->get_name(),
+                        result_tmp_column_def.type->get_name(),
                         apache::thrift::ThriftDebugString(*expr), ref_block->dump_structure());
             }
 
@@ -1059,6 +1071,14 @@ Status SchemaChangeJob::_do_process_alter_tablet(const TAlterTabletReqV2& reques
         }
         SchemaChangeParams sc_params;
 
+        if (request.__isset.query_globals && request.__isset.query_options) {
+            sc_params.runtime_state =
+                    std::make_shared<RuntimeState>(request.query_options, request.query_globals);
+        } else {
+            // for old version request compatibility
+            sc_params.runtime_state = std::make_shared<RuntimeState>();
+        }
+
         RETURN_IF_ERROR(
                 DescriptorTbl::create(&sc_params.pool, request.desc_tbl, &sc_params.desc_tbl));
         sc_params.ref_rowset_readers.reserve(rs_splits.size());
@@ -1180,7 +1200,7 @@ Status SchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParams& sc
 
     // Add filter information in change, and filter column information will be set in parse_request
     // And filter some data every time the row block changes
-    BlockChanger changer(_new_tablet_schema, *sc_params.desc_tbl);
+    BlockChanger changer(_new_tablet_schema, *sc_params.desc_tbl, sc_params.runtime_state);
 
     bool sc_sorting = false;
     bool sc_directly = false;
