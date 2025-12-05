@@ -168,6 +168,7 @@ public class SummaryProfile {
         WORKLOAD_GROUP,
         PARSE_SQL_TIME,
         CPU_SHARE,
+        MEMORY_LIMIT,
         PLAN_TIME,
         NEREIDS_GARBAGE_COLLECT_TIME,
         NEREIDS_LOCK_TABLE_TIME,
@@ -285,7 +286,7 @@ public class SummaryProfile {
     @SerializedName(value = "cpuShare")
     private long cpuShare = 0;
 
-    @SerializedName(value = "memoryLimit")
+    @SerializedName(value = "MemoryLimit")
     private long memoryLimit = 0;
 
     @SerializedName(value = "enableMemoryOvercommit")
