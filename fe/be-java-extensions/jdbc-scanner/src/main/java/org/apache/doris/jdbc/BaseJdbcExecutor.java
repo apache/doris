@@ -127,7 +127,11 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
 
     public void close() throws Exception {
         if (outputTable != null) {
-            outputTable.close();
+            try {
+                outputTable.close();
+            } finally {
+                outputTable = null;
+            }
         }
         try {
             if (stmt != null && !stmt.isClosed()) {
@@ -143,10 +147,17 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
             }
         } finally {
             closeResources(resultSet, stmt, conn);
+            // Always clear references to help GC, even if close() failed
+            resultSet = null;
+            stmt = null;
+            conn = null;
             if (config.getConnectionPoolMinSize() == 0 && hikariDataSource != null) {
-                hikariDataSource.close();
-                JdbcDataSource.getDataSource().getSourcesMap().remove(config.createCacheKey());
-                hikariDataSource = null;
+                try {
+                    hikariDataSource.close();
+                    JdbcDataSource.getDataSource().getSourcesMap().remove(config.createCacheKey());
+                } finally {
+                    hikariDataSource = null;
+                }
             }
         }
     }
