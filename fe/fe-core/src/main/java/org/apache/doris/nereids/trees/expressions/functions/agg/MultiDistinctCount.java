@@ -55,11 +55,7 @@ public class MultiDistinctCount extends NotNullableAggregateFunction
     }
 
     private MultiDistinctCount(boolean distinct, List<Expression> children) {
-        super("multi_distinct_count", false, new LinkedHashSet<>(children)
-                .stream()
-                .map(arg -> !(arg instanceof Unbound) && arg.getDataType() instanceof DateLikeType
-                        ? new Cast(arg, BigIntType.INSTANCE) : arg)
-                .collect(ImmutableList.toImmutableList()));
+        super("multi_distinct_count", false, children);
         if (super.children().size() > 1) {
             throw new AnalysisException("MultiDistinctCount's children size must be 1");
         }
