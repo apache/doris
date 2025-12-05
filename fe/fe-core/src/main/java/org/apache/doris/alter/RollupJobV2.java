@@ -680,12 +680,12 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
             if (tbl != null) {
                 tbl.writeLock();
                 try {
-                    for (Long partitionId : partitionIdToRollupIndex.keySet()) {
-                        MaterializedIndex rollupIndex = partitionIdToRollupIndex.get(partitionId);
-                        for (Tablet rollupTablet : rollupIndex.getTablets()) {
-                            invertedIndex.deleteTablet(rollupTablet.getId());
-                        }
-                        Partition partition = tbl.getPartition(partitionId);
+                    for (Partition partition : tbl.getPartitions()) {
+                        MaterializedIndex rollupIndex = partition.getIndex(rollupIndexId);
+                        rollupIndex.getTablets()
+                                .stream()
+                                .map(Tablet::getId)
+                                .forEach(invertedIndex::deleteTablet);
                         partition.deleteRollupIndex(rollupIndexId);
                     }
                     tbl.deleteIndexInfo(rollupIndexName);

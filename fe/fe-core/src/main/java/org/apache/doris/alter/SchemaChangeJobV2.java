@@ -854,18 +854,15 @@ public class SchemaChangeJobV2 extends AlterJobV2 implements GsonPostProcessable
             if (tbl != null) {
                 tbl.writeLock();
                 try {
-                    for (long partitionId : partitionIndexMap.rowKeySet()) {
-                        Partition partition = tbl.getPartition(partitionId);
-                        Preconditions.checkNotNull(partition, partitionId);
-
-                        Map<Long, MaterializedIndex> shadowIndexMap = partitionIndexMap.row(partitionId);
-                        for (Map.Entry<Long, MaterializedIndex> entry : shadowIndexMap.entrySet()) {
-                            MaterializedIndex shadowIdx = entry.getValue();
-                            for (Tablet shadowTablet : shadowIdx.getTablets()) {
-                                invertedIndex.deleteTablet(shadowTablet.getId());
-                            }
-                            partition.deleteRollupIndex(shadowIdx.getId());
-                        }
+                    for (Partition partition : tbl.getPartitions()) {
+                        indexIdMap.forEach((shadowIdxId, originIdxId) -> {
+                            MaterializedIndex shadowIndex = partition.getIndex(shadowIdxId);
+                            shadowIndex.getTablets()
+                                    .stream()
+                                    .map(Tablet::getId)
+                                    .forEach(invertedIndex::deleteTablet);
+                            partition.deleteRollupIndex(shadowIdxId);
+                        });
                     }
                     for (String shadowIndexName : indexIdToName.values()) {
                         tbl.deleteIndexInfo(shadowIndexName);
