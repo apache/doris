@@ -283,9 +283,6 @@ public class SummaryProfile {
     @SerializedName(value = "nereidsLockTableFinishTime")
     private long nereidsLockTableFinishTime = -1;
 
-    @SerializedName(value = "cpuShare")
-    private long cpuShare = 0;
-
     @SerializedName(value = "memoryLimit")
     private long memoryLimit = 0;
 
@@ -583,10 +580,6 @@ public class SummaryProfile {
             RuntimeProfile.printCounter(queryFetchResultConsumeTime, TUnit.TIME_MS));
         executionSummaryProfile.addInfoString(WRITE_RESULT_TIME,
             RuntimeProfile.printCounter(queryWriteResultConsumeTime, TUnit.TIME_MS));
-        executionSummaryProfile.addInfoString(CPU_SHARE,
-            RuntimeProfile.printCounter(cpuShare, TUnit.DOUBLE_VALUE));
-        executionSummaryProfile.addInfoString(MEMORY_LIMIT,
-            RuntimeProfile.printCounter(memoryLimit, TUnit.DOUBLE_VALUE));
         setTransactionSummary();
 
         if (Config.isCloudMode()) {

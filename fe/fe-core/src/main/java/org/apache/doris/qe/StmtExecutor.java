@@ -342,7 +342,6 @@ public class StmtExecutor {
         builder.parallelFragmentExecInstance(String.valueOf(context.sessionVariable.getParallelExecInstanceNum()));
         builder.traceId(context.getSessionVariable().getTraceId());
         builder.isNereids(context.getState().isNereids() ? "Yes" : "No");
-        SummaryProfile summaryProfile = SummaryProfile.getSummaryProfile(context);
         try {
             List<WorkloadGroup> list = Env.getCurrentEnv()
                 .getWorkloadGroupMgr()
@@ -350,7 +349,7 @@ public class StmtExecutor {
 
             if (!list.isEmpty()) {
                 WorkloadGroup wg = list.get(0);
-                summaryProfile.setCpuShare(wg.getMaxCpuPercent());
+                getSummaryProfile().setCpuShare(wg.getMaxCpuPercent());
                 builder.memoryLimit(String.valueOf(wg.getMaxMemoryPercent()));
             }
         } catch (UserException e) {
