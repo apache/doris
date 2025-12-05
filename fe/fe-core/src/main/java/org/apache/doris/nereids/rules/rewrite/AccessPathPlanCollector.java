@@ -23,12 +23,14 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalGenerate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTVFRelation;
@@ -54,6 +56,14 @@ public class AccessPathPlanCollector extends DefaultPlanVisitor<Void, StatementC
     public Map<Slot, List<CollectAccessPathResult>> collect(Plan root, StatementContext context) {
         root.accept(this, context);
         return scanSlotToAccessPaths;
+    }
+
+    @Override
+    public Void visitLogicalGenerate(LogicalGenerate<? extends Plan> generate, StatementContext context) {
+        for (Function generator : generate.getGenerators()) {
+
+        }
+        return generate.child().accept(this, context);
     }
 
     @Override
