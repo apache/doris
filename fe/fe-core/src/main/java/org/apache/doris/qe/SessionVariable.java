@@ -32,7 +32,6 @@ import org.apache.doris.nereids.metrics.Event;
 import org.apache.doris.nereids.metrics.EventSwitchParser;
 import org.apache.doris.nereids.parser.Dialect;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.rules.exploration.mv.PreMaterializedViewRewriter.PreRewriteStrategy;
 import org.apache.doris.nereids.rules.expression.ExpressionRuleType;
 import org.apache.doris.planner.GroupCommitBlockSink;
 import org.apache.doris.qe.VariableMgr.VarAttr;
@@ -3216,20 +3215,6 @@ public class SessionVariable implements Serializable, Writable {
             this.enableReserveMemory = randomInt % 5 != 0;
         }
 
-        // random pre materialized view rewrite strategy
-        randomInt = random.nextInt(3);
-        switch (randomInt % 3) {
-            case 0:
-                this.preMaterializedViewRewriteStrategy = PreRewriteStrategy.NOT_IN_RBO.name();
-                break;
-            case 1:
-                this.preMaterializedViewRewriteStrategy = PreRewriteStrategy.TRY_IN_RBO.name();
-                break;
-            case 2:
-            default:
-                this.preMaterializedViewRewriteStrategy = PreRewriteStrategy.FORCE_IN_RBO.name();
-                break;
-        }
         setFuzzyForCatalog(random);
     }
 
