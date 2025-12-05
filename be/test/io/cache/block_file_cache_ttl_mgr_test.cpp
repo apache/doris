@@ -133,8 +133,8 @@ public:
     Status get_tablet_meta(int64_t tablet_id, TabletMetaSharedPtr* tablet_meta,
                            bool /*force_use_only_cached*/ = false) override {
         auto tablet_res = get_tablet(tablet_id);
-        if (!tablet_res.ok()) {
-            return tablet_res.status();
+        if (!tablet_res.has_value()) {
+            return tablet_res.error();
         }
         if (tablet_meta != nullptr) {
             *tablet_meta = tablet_res.value()->tablet_meta();
