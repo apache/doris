@@ -1449,7 +1449,14 @@ public:
 
     void set_int_val(uint64_t val) { this->int_val_ = val; }
 
+    static bool to_format_string_without_check(const char* format, size_t len, char* to,
+                                               size_t max_valid_length, int16_t year, int8_t month,
+                                               int8_t day, int hour, int minute, int second,
+                                               int ms);
+
 private:
+    static uint8_t week(int16_t year, int8_t month, int8_t day, uint8_t mode);
+
     static uint8_t calc_week(const uint32_t& day_nr, const uint16_t& year, const uint8_t& month,
                              const uint8_t& day, uint8_t mode, uint16_t* to_year,
                              bool disable_lut = false);

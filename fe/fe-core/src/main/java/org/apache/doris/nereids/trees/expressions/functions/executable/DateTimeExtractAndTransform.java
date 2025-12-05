@@ -282,10 +282,8 @@ public class DateTimeExtractAndTransform {
             throw new AnalysisException("The length of format string in date_format() function should not be greater"
                     + " than 128.");
         }
-        DateTimeV2Literal datetime = new DateTimeV2Literal(date.getYear(), date.getMonth(), date.getDay(), 0, 0, 0, 0);
         format = (StringLikeLiteral) SupportJavaDateFormatter.translateJavaFormatter(format);
-        return new VarcharLiteral(DateUtils.dateTimeFormatterChecklength(format.getValue(), datetime).format(
-                java.time.LocalDate.of(((int) date.getYear()), ((int) date.getMonth()), ((int) date.getDay()))));
+        return new VarcharLiteral(DateTimeFormatterUtils.toFormatStringConservative(date, format, false));
     }
 
     /**
@@ -298,10 +296,7 @@ public class DateTimeExtractAndTransform {
                     + " than 128.");
         }
         format = (StringLikeLiteral) SupportJavaDateFormatter.translateJavaFormatter(format);
-        return new VarcharLiteral(DateUtils.dateTimeFormatterChecklength(format.getValue(), date).format(
-                java.time.LocalDateTime.of(((int) date.getYear()), ((int) date.getMonth()), ((int) date.getDay()),
-                        ((int) date.getHour()), ((int) date.getMinute()), ((int) date.getSecond()),
-                        ((int) date.getMicroSecond() * 1000))));
+        return new VarcharLiteral(DateTimeFormatterUtils.toFormatStringConservative(date, format, false));
     }
 
     /**
@@ -313,7 +308,7 @@ public class DateTimeExtractAndTransform {
             throw new AnalysisException("The length of format string in time_format() function should not be greater"
                     + " than 128.");
         }
-        return new VarcharLiteral(DateTimeFormatterUtils.formatTimeLiteral(time, format.getValue()));
+        return new VarcharLiteral(DateTimeFormatterUtils.toFormatStringConservative(time, format));
     }
 
     /**
@@ -325,9 +320,7 @@ public class DateTimeExtractAndTransform {
             throw new AnalysisException("The length of format string in time_format() function should not be greater"
                     + " than 128.");
         }
-        DateTimeV2Literal dateTime = new DateTimeV2Literal(date.getYear(), date.getMonth(), date.getDay(),
-                0, 0, 0, 0);
-        return timeFormat(dateTime, format);
+        return new VarcharLiteral(DateTimeFormatterUtils.toFormatStringConservative(date, format, true));
     }
 
     /**
@@ -339,10 +332,7 @@ public class DateTimeExtractAndTransform {
             throw new AnalysisException("The length of format string in time_format() function should not be greater"
                     + " than 128.");
         }
-        TimeV2Literal time = new TimeV2Literal((int) dateTime.getHour(), (int) dateTime.getMinute(),
-                (int) dateTime.getSecond(), (int) dateTime.getMicroSecond(), dateTime.getScale(),
-                false);
-        return timeFormat(time, format);
+        return new VarcharLiteral(DateTimeFormatterUtils.toFormatStringConservative(dateTime, format, true));
     }
 
     /**
