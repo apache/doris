@@ -47,6 +47,9 @@ struct MaxMinValue : public MaxMinValueBase {
 
     MaxMinValue() = default;
 
+    MaxMinValue(const DataTypes& argument_types, int be_version)
+            : value(argument_types, be_version) {}
+
     ~MaxMinValue() override = default;
 
     void write(BufferWritable& buf) const override { value.write(buf); }
@@ -67,7 +70,7 @@ struct MaxMinValue : public MaxMinValueBase {
     }
 };
 
-std::unique_ptr<MaxMinValueBase> create_max_min_value(const DataTypePtr& type);
+std::unique_ptr<MaxMinValueBase> create_max_min_value(const DataTypePtr& type, int be_version);
 
 /// For bitmap value
 struct BitmapValueData {
@@ -124,27 +127,34 @@ template <typename KT>
 struct AggregateFunctionMinMaxByBaseData {
 protected:
     std::unique_ptr<MaxMinValueBase> value;
-    KT key;
+    std::unique_ptr<KT> key;
 
 public:
-    AggregateFunctionMinMaxByBaseData(const DataTypes argument_types) {
-        value = create_max_min_value(argument_types[0]);
+    AggregateFunctionMinMaxByBaseData() {}
+
+    AggregateFunctionMinMaxByBaseData(const DataTypes argument_types, int be_version) {
+        value = create_max_min_value(argument_types[0], be_version);
+        if constexpr (std::is_same_v<KT, SingleValueDataComplexType>) {
+            key.reset(new SingleValueDataComplexType(DataTypes {argument_types[1]}, be_version));
+        } else {
+            key.reset(new KT());
+        }
     }
 
     void insert_result_into(IColumn& to) const { value->insert_result_into(to); }
 
     void reset() {
         value->reset();
-        key.reset();
+        key->reset();
     }
     void write(BufferWritable& buf) const {
         value->write(buf);
-        key.write(buf);
+        key->write(buf);
     }
 
     void read(BufferReadable& buf, Arena& arena) {
         value->read(buf, arena);
-        key.read(buf, arena);
+        key->read(buf, arena);
     }
 };
 
@@ -152,12 +162,14 @@ template <typename KT>
 struct AggregateFunctionMaxByData : public AggregateFunctionMinMaxByBaseData<KT> {
     using Self = AggregateFunctionMaxByData;
 
-    AggregateFunctionMaxByData(const DataTypes argument_types)
-            : AggregateFunctionMinMaxByBaseData<KT>(argument_types) {}
+    AggregateFunctionMaxByData() {}
+
+    AggregateFunctionMaxByData(const DataTypes argument_types, int be_version)
+            : AggregateFunctionMinMaxByBaseData<KT>(argument_types, be_version) {}
 
     void change_if_better(const IColumn& value_column, const IColumn& key_column, size_t row_num,
                           Arena& arena) {
-        if (this->key.change_if_greater(key_column, row_num, arena)) {
+        if (this->key->change_if_greater(key_column, row_num, arena)) {
             this->value->change(value_column, row_num, arena);
         }
     }
@@ -166,7 +178,7 @@ struct AggregateFunctionMaxByData : public AggregateFunctionMinMaxByBaseData<KT>
                                 size_t batch_size, Arena& arena) {
         size_t max_pos = -1;
         for (size_t i = 0; i < batch_size; ++i) {
-            if (this->key.change_if_greater(key_column, i, arena)) {
+            if (this->key->change_if_greater(key_column, i, arena)) {
                 max_pos = i;
             }
         }
@@ -176,7 +188,7 @@ struct AggregateFunctionMaxByData : public AggregateFunctionMinMaxByBaseData<KT>
     }
 
     void change_if_better(const Self& to, Arena& arena) {
-        if (this->key.change_if_greater(to.key, arena)) {
+        if (this->key->change_if_greater(*to.key, arena)) {
             this->value->change(*to.value, arena);
         }
     }
@@ -188,11 +200,14 @@ template <typename KT>
 struct AggregateFunctionMinByData : public AggregateFunctionMinMaxByBaseData<KT> {
     using Self = AggregateFunctionMinByData;
 
-    AggregateFunctionMinByData(const DataTypes argument_types)
-            : AggregateFunctionMinMaxByBaseData<KT>(argument_types) {}
+    AggregateFunctionMinByData() {}
+
+    AggregateFunctionMinByData(const DataTypes argument_types, int be_version)
+            : AggregateFunctionMinMaxByBaseData<KT>(argument_types, be_version) {}
+
     void change_if_better(const IColumn& value_column, const IColumn& key_column, size_t row_num,
                           Arena& arena) {
-        if (this->key.change_if_less(key_column, row_num, arena)) {
+        if (this->key->change_if_less(key_column, row_num, arena)) {
             this->value->change(value_column, row_num, arena);
         }
     }
@@ -201,7 +216,7 @@ struct AggregateFunctionMinByData : public AggregateFunctionMinMaxByBaseData<KT>
                                 size_t batch_size, Arena& arena) {
         size_t min_pos = -1;
         for (size_t i = 0; i < batch_size; ++i) {
-            if (this->key.change_if_less(key_column, i, arena)) {
+            if (this->key->change_if_less(key_column, i, arena)) {
                 min_pos = i;
             }
         }
@@ -211,7 +226,7 @@ struct AggregateFunctionMinByData : public AggregateFunctionMinMaxByBaseData<KT>
     }
 
     void change_if_better(const Self& to, Arena& arena) {
-        if (this->key.change_if_less(to.key, arena)) {
+        if (this->key->change_if_less(*to.key, arena)) {
             this->value->change(*to.value, arena);
         }
     }
@@ -221,7 +236,7 @@ struct AggregateFunctionMinByData : public AggregateFunctionMinMaxByBaseData<KT>
 
 template <typename Data>
 class AggregateFunctionsMinMaxBy final
-        : public IAggregateFunctionDataHelper<Data, AggregateFunctionsMinMaxBy<Data>, true>,
+        : public IAggregateFunctionDataHelper<Data, AggregateFunctionsMinMaxBy<Data>>,
           MultiExpression,
           NullableAggregateFunction {
 private:
@@ -230,10 +245,14 @@ private:
 
 public:
     AggregateFunctionsMinMaxBy(const DataTypes& arguments)
-            : IAggregateFunctionDataHelper<Data, AggregateFunctionsMinMaxBy<Data>, true>(
+            : IAggregateFunctionDataHelper<Data, AggregateFunctionsMinMaxBy<Data>>(
                       {arguments[0], arguments[1]}),
               value_type(this->argument_types[0]),
               key_type(this->argument_types[1]) {}
+
+    void create(AggregateDataPtr __restrict place) const override {
+        new (place) Data(IAggregateFunction::argument_types, IAggregateFunction::version);
+    }
 
     String get_name() const override { return Data::name(); }
 
@@ -353,6 +372,10 @@ AggregateFunctionPtr create_aggregate_function_min_max_by(const String& name,
     case PrimitiveType::TYPE_DATETIMEV2:
         return creator_without_type::create_multi_arguments<
                 AggregateFunctionTemplate<Data<SingleValueDataFixed<TYPE_DATETIMEV2>>>>(
+                argument_types, result_is_nullable, attr);
+    case PrimitiveType::TYPE_ARRAY:
+        return creator_without_type::create_multi_arguments<
+                AggregateFunctionTemplate<Data<SingleValueDataComplexType>>>(
                 argument_types, result_is_nullable, attr);
     default:
         return nullptr;
