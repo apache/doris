@@ -102,12 +102,17 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableListMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
+import org.apache.iceberg.PartitionField;
+import org.apache.iceberg.PartitionSpec;
+import org.apache.iceberg.Table;
 
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -603,9 +608,27 @@ public class BindSink implements AnalysisRuleFactory {
         IcebergExternalTable table = pair.second;
         LogicalPlan child = ((LogicalPlan) sink.child());
 
+        // Get static partition columns if present
+        Map<String, Expression> staticPartitions = sink.getStaticPartitionKeyValues();
+        Set<String> staticPartitionColNames = staticPartitions != null
+                ? staticPartitions.keySet()
+                : Sets.newHashSet();
+
+        // Validate static partition if present
+        if (sink.hasStaticPartition()) {
+            validateStaticPartition(sink, table);
+        }
+
+        // Build bindColumns: exclude static partition columns from the columns that
+        // need to come from SELECT
+        // Because static partition column values come from PARTITION clause, not from
+        // SELECT
         List<Column> bindColumns;
         if (sink.getColNames().isEmpty()) {
-            bindColumns = table.getBaseSchema(true).stream().collect(ImmutableList.toImmutableList());
+            // When no column names specified, include all non-static-partition columns
+            bindColumns = table.getBaseSchema(true).stream()
+                    .filter(col -> !staticPartitionColNames.contains(col.getName()))
+                    .collect(ImmutableList.toImmutableList());
         } else {
             bindColumns = sink.getColNames().stream().map(cn -> {
                 Column column = table.getColumn(cn);
@@ -616,6 +639,7 @@ public class BindSink implements AnalysisRuleFactory {
                 return column;
             }).collect(ImmutableList.toImmutableList());
         }
+
         LogicalIcebergTableSink<?> boundSink = new LogicalIcebergTableSink<>(
                 database,
                 table,
@@ -627,14 +651,90 @@ public class BindSink implements AnalysisRuleFactory {
                 Optional.empty(),
                 Optional.empty(),
                 child);
-        // we need to insert all the columns of the target table
+
+        // Check column count: SELECT columns should match bindColumns (excluding static
+        // partition columns)
         if (boundSink.getCols().size() != child.getOutput().size()) {
-            throw new AnalysisException("insert into cols should be corresponding to the query output");
+            throw new AnalysisException("insert into cols should be corresponding to the query output. "
+                    + "Expected " + boundSink.getCols().size() + " columns but got " + child.getOutput().size());
         }
+
         Map<String, NamedExpression> columnToOutput = getColumnToOutput(ctx, table, false,
                 boundSink, child);
+
+        // For static partition columns, add constant expressions from PARTITION clause
+        // This ensures partition column values are written to the data file
+        if (!staticPartitionColNames.isEmpty()) {
+            for (Map.Entry<String, Expression> entry : staticPartitions.entrySet()) {
+                String colName = entry.getKey();
+                Expression valueExpr = entry.getValue();
+                Column column = table.getColumn(colName);
+                if (column != null) {
+                    // Cast the literal to the correct column type
+                    Expression castExpr = TypeCoercionUtils.castIfNotSameType(
+                            valueExpr, DataType.fromCatalogType(column.getType()));
+                    columnToOutput.put(colName, new Alias(castExpr, colName));
+                }
+            }
+        }
+
         LogicalProject<?> fullOutputProject = getOutputProjectByCoercion(table.getFullSchema(), child, columnToOutput);
         return boundSink.withChildAndUpdateOutput(fullOutputProject);
+    }
+
+    /**
+     * Validate static partition specification for Iceberg table
+     */
+    private void validateStaticPartition(UnboundIcebergTableSink<?> sink, IcebergExternalTable table) {
+        Map<String, Expression> staticPartitions = sink.getStaticPartitionKeyValues();
+        if (staticPartitions == null || staticPartitions.isEmpty()) {
+            return;
+        }
+
+        Table icebergTable = table.getIcebergTable();
+        PartitionSpec partitionSpec = icebergTable.spec();
+
+        // Check if table is partitioned
+        if (!partitionSpec.isPartitioned()) {
+            throw new AnalysisException(
+                    String.format("Table %s is not partitioned, cannot use static partition syntax", table.getName()));
+        }
+
+        // Get partition field names
+        Map<String, PartitionField> partitionFieldMap = Maps.newHashMap();
+        for (PartitionField field : partitionSpec.fields()) {
+            String fieldName = field.name();
+            partitionFieldMap.put(fieldName, field);
+        }
+
+        // Validate each static partition column
+        for (Map.Entry<String, Expression> entry : staticPartitions.entrySet()) {
+            String partitionColName = entry.getKey();
+            Expression partitionValue = entry.getValue();
+
+            // 1. Check if partition column exists
+            if (!partitionFieldMap.containsKey(partitionColName)) {
+                throw new AnalysisException(
+                        String.format("Unknown partition column '%s' in table '%s'. Available partition columns: %s",
+                                partitionColName, table.getName(), partitionFieldMap.keySet()));
+            }
+
+            // 2. Check if it's an identity partition.
+            // Static partition overwrite is only supported for identity partitions.
+            PartitionField field = partitionFieldMap.get(partitionColName);
+            if (!field.transform().isIdentity()) {
+                throw new AnalysisException(
+                        String.format("Cannot use static partition syntax for non-identity partition field '%s'"
+                                + " (transform: %s).", partitionColName, field.transform().toString()));
+            }
+
+            // 3. Validate partition value type must be a literal
+            if (!(partitionValue instanceof Literal)) {
+                throw new AnalysisException(
+                        String.format("Partition value for column '%s' must be a literal, but got: %s",
+                                partitionColName, partitionValue));
+            }
+        }
     }
 
     private Plan bindJdbcTableSink(MatchingContext<UnboundJdbcTableSink<Plan>> ctx) {

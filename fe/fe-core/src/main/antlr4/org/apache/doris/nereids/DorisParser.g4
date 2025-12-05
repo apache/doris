@@ -988,8 +988,12 @@ partitionSpec
     : TEMPORARY? (PARTITION | PARTITIONS) partitions=identifierList
     | TEMPORARY? PARTITION partition=errorCapturingIdentifier
 	| (PARTITION | PARTITIONS) LEFT_PAREN ASTERISK RIGHT_PAREN // for auto detect partition in overwriting
-	// TODO: support analyze external table partition spec https://github.com/apache/doris/pull/24154
+	| PARTITION LEFT_PAREN partitionKeyValue (COMMA partitionKeyValue)* RIGHT_PAREN // static partition: PARTITION (col1='val1', col2='val2')
 	// | PARTITIONS WITH RECENT
+    ;
+
+partitionKeyValue
+    : identifier EQ expression  // col='value' or col=123
     ;
 
 partitionTable
