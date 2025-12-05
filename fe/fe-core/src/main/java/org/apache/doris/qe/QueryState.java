@@ -52,6 +52,7 @@ public class QueryState {
     private boolean isNereids = false;
     private boolean isInternal = false;
     private ShowResultSet rs = null;
+    private boolean planWithUnKnownColumnStats = false;
 
     public QueryState() {
     }
@@ -67,6 +68,7 @@ public class QueryState {
         warningRows = 0;
         isNereids = false;
         rs = null;
+        planWithUnKnownColumnStats = false;
     }
 
     public MysqlStateType getStateType() {
@@ -191,5 +193,13 @@ public class QueryState {
     @Override
     public String toString() {
         return String.valueOf(stateType);
+    }
+
+    public boolean isPlanWithUnKnownColumnStats() {
+        return planWithUnKnownColumnStats;
+    }
+
+    public void setPlanWithUnKnownColumnStats(boolean planWithUnKnownColumnStats) {
+        this.planWithUnKnownColumnStats = planWithUnKnownColumnStats;
     }
 }
