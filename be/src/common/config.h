@@ -1070,6 +1070,9 @@ DECLARE_Int32(doris_remote_scanner_thread_pool_thread_num);
 // number of s3 scanner thread pool queue size
 DECLARE_Int32(doris_remote_scanner_thread_pool_queue_size);
 
+DECLARE_Bool(enable_segment_iterator_prefetch);
+DECLARE_Int32(segment_iterator_prefetch_lookahead);
+DECLARE_mInt64(segment_iterator_prefetch_max_bytes);
 // limit the queue of pending batches which will be sent by a single nodechannel
 DECLARE_mInt64(nodechannel_pending_queue_max_bytes);
 
@@ -1188,6 +1191,7 @@ DECLARE_mInt64(file_cache_background_lru_dump_tail_record_num);
 DECLARE_mInt64(file_cache_background_lru_log_replay_interval_ms);
 DECLARE_mInt32(file_cache_num_parallel_prefetch);
 DECLARE_mInt64(file_cache_tail_read_extra_bytes_threshold);
+DECLARE_mInt64(file_cache_tail_read_extra_factor);
 DECLARE_mBool(enable_evaluate_shadow_queue_diff);
 
 // inverted index searcher cache
@@ -1473,6 +1477,8 @@ DECLARE_mInt32(max_s3_client_retry);
 // and the max retry time is max_s3_client_retry
 DECLARE_mInt32(s3_read_base_wait_time_ms);
 DECLARE_mInt32(s3_read_max_wait_time_ms);
+DECLARE_mBool(enable_s3_parallel_read);
+DECLARE_mInt32(s3_parallel_read_chunk_size);
 DECLARE_mBool(enable_s3_object_check_after_upload);
 
 // write as inverted index tmp directory
@@ -1520,6 +1526,12 @@ DECLARE_Int64(num_buffered_reader_prefetch_thread_pool_max_thread);
 DECLARE_Int64(num_s3_file_upload_thread_pool_min_thread);
 // The max thread num for S3FileUploadThreadPool
 DECLARE_Int64(num_s3_file_upload_thread_pool_max_thread);
+// The min thread num for S3ParallelReadThreadPool
+DECLARE_Int64(num_s3_parallel_read_thread_pool_min_thread);
+// The max thread num for S3ParallelReadThreadPool
+DECLARE_Int64(num_s3_parallel_read_thread_pool_max_thread);
+// Enable segment iterator row bitmap based prefetch for compute-storage separation
+DECLARE_Bool(enable_segment_iterator_bitmap_prefetch);
 // The maximum jvm heap usage ratio for hdfs write workload
 DECLARE_mDouble(max_hdfs_wirter_jni_heap_usage_ratio);
 // The sleep milliseconds duration when hdfs write exceeds the maximum usage
@@ -1640,6 +1652,15 @@ DECLARE_mBool(enable_wal_tde);
 
 DECLARE_mBool(enable_prefill_output_dbm_agg_cache_after_compaction);
 DECLARE_mBool(enable_prefill_all_dbm_agg_cache_after_compaction);
+
+DECLARE_mBool(enable_async_write_back_file_cache);
+DECLARE_mInt32(file_cache_async_write_back_threshold_factor);
+
+DECLARE_mBool(prefetch_segment_footer);
+
+// Concurrency stats dump configuration
+DECLARE_mBool(enable_concurrency_stats_dump);
+DECLARE_mInt32(concurrency_stats_dump_interval_ms);
 
 #ifdef BE_TEST
 // test s3

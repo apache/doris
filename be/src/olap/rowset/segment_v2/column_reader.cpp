@@ -18,6 +18,7 @@
 #include "olap/rowset/segment_v2/column_reader.h"
 
 #include <assert.h>
+#include <bvar/latency_recorder.h>
 #include <gen_cpp/segment_v2.pb.h>
 
 #include <algorithm>
@@ -65,6 +66,7 @@
 #include "util/binary_cast.hpp"
 #include "util/bitmap.h"
 #include "util/block_compression.h"
+#include "util/concurrency_stats.h"
 #include "util/rle_encoding.h" // for RleDecoder
 #include "util/slice.h"
 #include "vec/columns/column.h"
@@ -84,6 +86,8 @@
 #include "vec/runtime/vdatetime_value.h" //for VecDateTime
 
 namespace doris::segment_v2 {
+
+bvar::Adder<int64_t> g_column_reader_read_page_active("column_reader", "read_page_active");
 
 inline bool read_as_string(PrimitiveType type) {
     return type == PrimitiveType::TYPE_STRING || type == PrimitiveType::INVALID_TYPE ||
@@ -363,6 +367,9 @@ Status ColumnReader::new_inverted_index_iterator(
 Status ColumnReader::read_page(const ColumnIteratorOptions& iter_opts, const PagePointer& pp,
                                PageHandle* handle, Slice* page_body, PageFooterPB* footer,
                                BlockCompressionCodec* codec) const {
+    g_column_reader_read_page_active << 1;
+    Defer _ = [&]() { g_column_reader_read_page_active << -1; };
+    SCOPED_CONCURRENCY_COUNT(ConcurrencyStatsManager::instance().column_reader_read_page);
     iter_opts.sanity_check();
     PageReadOptions opts(iter_opts.io_ctx);
     opts.verify_checksum = _opts.verify_checksum;
@@ -613,11 +620,13 @@ Status ColumnReader::get_row_ranges_by_bloom_filter(const AndBlockColumnPredicat
 
 Status ColumnReader::_load_ordinal_index(bool use_page_cache, bool kept_in_memory,
                                          const ColumnIteratorOptions& iter_opts) {
+    SCOPED_RAW_TIMER(&iter_opts.stats->load_ordinal_index_timer_ns);
     return _ordinal_index->load(use_page_cache, kept_in_memory, iter_opts.stats);
 }
 
 Status ColumnReader::_load_zone_map_index(bool use_page_cache, bool kept_in_memory,
                                           const ColumnIteratorOptions& iter_opts) {
+    SCOPED_RAW_TIMER(&iter_opts.stats->load_zone_map_index_timer_ns);
     if (_zone_map_index != nullptr) {
         return _zone_map_index->load(use_page_cache, kept_in_memory, iter_opts.stats);
     }

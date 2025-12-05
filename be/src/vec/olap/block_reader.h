@@ -20,6 +20,7 @@
 #include <parallel_hashmap/phmap.h>
 #include <stddef.h>
 
+#include <set>
 #include <utility>
 #include <vector>
 

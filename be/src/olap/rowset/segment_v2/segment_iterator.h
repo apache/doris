@@ -66,6 +66,7 @@ struct RowLocation;
 namespace segment_v2 {
 
 class BitmapIndexIterator;
+class ColumnReader;
 class ColumnIterator;
 class InvertedIndexIterator;
 class RowRanges;
@@ -115,7 +116,7 @@ struct FuncExprParams {
     std::shared_ptr<roaring::Roaring> result;
 };
 
-class SegmentIterator : public RowwiseIterator {
+class SegmentIterator : public RowwiseIterator, public PrefetchPlanner {
 public:
     SegmentIterator(std::shared_ptr<Segment> segment, SchemaSPtr schema);
     ~SegmentIterator() override;
@@ -161,6 +162,13 @@ public:
                            [](const auto& iterator) { return iterator != nullptr; });
     }
 
+    Status prepare_prefetch_batch(
+            std::set<std::pair<uint64_t, uint32_t>>* pages_to_prefetch,
+            bool* has_more) override;
+
+    Status submit_prefetch_batch(
+            const std::set<std::pair<uint64_t, uint32_t>>& pages_to_prefetch) override;
+
 private:
     Status _next_batch_internal(vectorized::Block* block);
 
@@ -180,6 +188,8 @@ private:
 
     [[nodiscard]] Status _lazy_init();
     [[nodiscard]] Status _init_impl(const StorageReadOptions& opts);
+    // Prefetch data pages based on row bitmap for compute-storage separation
+    [[nodiscard]] Status _prefetch_data_pages_for_row_bitmap();
     [[nodiscard]] Status _init_return_column_iterators();
     [[nodiscard]] Status _init_bitmap_index_iterators();
     [[nodiscard]] Status _init_inverted_index_iterators();
@@ -379,6 +389,22 @@ private:
 
     void _clear_iterators();
 
+    // Prefetch pages for next batch of rowids
+    Status _prefetch_pages_for_next_batch();
+
+    // Helper: Get next batch of rowids to prefetch
+    uint16_t _get_next_prefetch_rowids();
+
+    // Helper: Collect page offsets needed for a column given rowids
+    Status _collect_pages_for_column(ColumnId cid, const std::vector<rowid_t>& sorted_rowids,
+                                     std::set<std::pair<uint64_t, uint32_t>>* pages_to_prefetch,
+                                     int64_t* newly_added_bytes = nullptr);
+
+    // Helper: Issue prefetch requests to CachedRemoteFileReader
+    Status _issue_prefetch_requests(const std::set<std::pair<uint64_t, uint32_t>>& pages_to_prefetch);
+    Status _collect_prefetch_pages(
+            std::set<std::pair<uint64_t, uint32_t>>* pages_to_prefetch, bool* has_more);
+
     class BitmapRangeIterator;
     class BackwardBitmapRangeIterator;
 
@@ -391,10 +417,13 @@ private:
     std::vector<std::unique_ptr<ColumnIterator>> _column_iterators;
     std::vector<std::unique_ptr<BitmapIndexIterator>> _bitmap_index_iterators;
     std::vector<std::unique_ptr<InvertedIndexIterator>> _inverted_index_iterators;
+    // Cache ColumnReader instances across prefetch batches for efficiency
+    std::unordered_map<ColumnId, std::shared_ptr<ColumnReader>> _prefetch_column_readers;
     // after init(), `_row_bitmap` contains all rowid to scan
     roaring::Roaring _row_bitmap;
     // an iterator for `_row_bitmap` that can be used to extract row range to scan
     std::unique_ptr<BitmapRangeIterator> _range_iter;
+    std::unique_ptr<BitmapRangeIterator> _prefetch_range_iter;
     // the next rowid to read
     rowid_t _cur_rowid;
     // members related to lazy materialization read
@@ -407,6 +436,8 @@ private:
     // remember the rowids we've read for the current row block.
     // could be a local variable of next_batch(), kept here to reuse vector memory
     std::vector<rowid_t> _block_rowids;
+    // TODO init
+    std::vector<rowid_t> _block_rowids_prefetch;
     bool _is_need_vec_eval = false;
     bool _is_need_short_eval = false;
     bool _is_need_expr_eval = false;

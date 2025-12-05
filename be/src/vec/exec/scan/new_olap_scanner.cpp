@@ -603,6 +603,7 @@ void NewOlapScanner::_collect_profile_before_close() {
     COUNTER_UPDATE(Parent->_read_compressed_counter, stats.compressed_bytes_read);               \
     COUNTER_UPDATE(Parent->_scan_bytes, stats.uncompressed_bytes_read);                          \
     COUNTER_UPDATE(Parent->_decompressor_timer, stats.decompress_ns);                            \
+    COUNTER_UPDATE(Parent->_predecode_timer, stats.predecode_ns);                                \
     COUNTER_UPDATE(Parent->_read_uncompressed_counter, stats.uncompressed_bytes_read);           \
     COUNTER_UPDATE(Parent->_block_load_timer, stats.block_load_ns);                              \
     COUNTER_UPDATE(Parent->_block_load_counter, stats.blocks_load);                              \
@@ -657,6 +658,26 @@ void NewOlapScanner::_collect_profile_before_close() {
     COUNTER_UPDATE(Parent->_key_range_filtered_counter, stats.rows_key_range_filtered);          \
     COUNTER_UPDATE(Parent->_total_pages_num_counter, stats.total_pages_num);                     \
     COUNTER_UPDATE(Parent->_cached_pages_num_counter, stats.cached_pages_num);                   \
+    COUNTER_UPDATE(Parent->_data_pages_num_counter, stats.data_pages_num);                       \
+    COUNTER_UPDATE(Parent->_index_pages_num_counter, stats.index_pages_num);                     \
+    COUNTER_UPDATE(Parent->_dict_pages_num_counter, stats.dict_pages_num);                       \
+    COUNTER_UPDATE(Parent->_short_key_pages_num_counter, stats.short_key_pages_num);             \
+    COUNTER_UPDATE(Parent->_data_page_compressed_bytes_read_counter,                             \
+                   stats.data_page_compressed_bytes_read);                                       \
+    COUNTER_UPDATE(Parent->_data_page_uncompressed_bytes_read_counter,                           \
+                   stats.data_page_uncompressed_bytes_read);                                     \
+    COUNTER_UPDATE(Parent->_index_page_compressed_bytes_read_counter,                            \
+                   stats.index_page_compressed_bytes_read);                                      \
+    COUNTER_UPDATE(Parent->_index_page_uncompressed_bytes_read_counter,                          \
+                   stats.index_page_uncompressed_bytes_read);                                    \
+    COUNTER_UPDATE(Parent->_dict_page_compressed_bytes_read_counter,                             \
+                   stats.dict_page_compressed_bytes_read);                                       \
+    COUNTER_UPDATE(Parent->_dict_page_uncompressed_bytes_read_counter,                           \
+                   stats.dict_page_uncompressed_bytes_read);                                     \
+    COUNTER_UPDATE(Parent->_short_key_page_compressed_bytes_read_counter,                        \
+                   stats.short_key_page_compressed_bytes_read);                                  \
+    COUNTER_UPDATE(Parent->_short_key_page_uncompressed_bytes_read_counter,                      \
+                   stats.short_key_page_uncompressed_bytes_read);                                \
     COUNTER_UPDATE(Parent->_bitmap_index_filter_counter, stats.rows_bitmap_index_filtered);      \
     COUNTER_UPDATE(Parent->_bitmap_index_filter_timer, stats.bitmap_index_filter_timer);         \
     COUNTER_UPDATE(Parent->_inverted_index_filter_counter, stats.rows_inverted_index_filtered);  \
@@ -747,6 +768,19 @@ void NewOlapScanner::_collect_profile_before_close() {
     COUNTER_UPDATE(local_state->_segment_create_column_readers_timer,
                    stats.segment_create_column_readers_timer_ns);
     COUNTER_UPDATE(local_state->_segment_load_index_timer, stats.segment_load_index_timer_ns);
+    COUNTER_UPDATE(local_state->_load_ordinal_index_timer, stats.load_ordinal_index_timer_ns);
+    COUNTER_UPDATE(local_state->_load_zone_map_index_timer, stats.load_zone_map_index_timer_ns);
+
+    COUNTER_UPDATE(local_state->_parse_footer_count_counter, stats.parse_footer_count);
+    COUNTER_UPDATE(local_state->_parse_footer_total_bytes_counter,
+                   stats.parse_footer_total_bytes);
+    COUNTER_UPDATE(local_state->_parse_footer_read_fixed_timer,
+                   stats.parse_footer_read_fixed_timer_ns);
+    COUNTER_UPDATE(local_state->_parse_footer_read_footer_timer,
+                   stats.parse_footer_read_footer_timer_ns);
+
+    COUNTER_UPDATE(local_state->_pk_index_load_timer, stats.pk_index_load_timer_ns);
+    COUNTER_UPDATE(local_state->_pk_index_load_bytes_counter, stats.pk_index_load_bytes);
 
     // Update metrics
     DorisMetrics::instance()->query_scan_bytes->increment(

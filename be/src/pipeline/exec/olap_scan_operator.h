@@ -100,6 +100,9 @@ private:
 
     Status _build_key_ranges_and_filters();
 
+    // Prefetch segment footers in parallel to warm up file cache
+    Status _prefetch_segment_footers();
+
     std::vector<std::unique_ptr<TPaloScanRange>> _scan_ranges;
     std::vector<SyncRowsetStats> _sync_statistics;
     MonotonicStopWatch _sync_cloud_tablets_watcher;
@@ -126,6 +129,7 @@ private:
     RuntimeProfile::Counter* _io_timer = nullptr;
     RuntimeProfile::Counter* _read_compressed_counter = nullptr;
     RuntimeProfile::Counter* _decompressor_timer = nullptr;
+    RuntimeProfile::Counter* _predecode_timer = nullptr;
     RuntimeProfile::Counter* _read_uncompressed_counter = nullptr;
 
     RuntimeProfile::Counter* _rows_vec_cond_filtered_counter = nullptr;
@@ -188,6 +192,22 @@ private:
     // used by segment v2
     RuntimeProfile::Counter* _cached_pages_num_counter = nullptr;
 
+    // pages read by type
+    RuntimeProfile::Counter* _data_pages_num_counter = nullptr;
+    RuntimeProfile::Counter* _index_pages_num_counter = nullptr;
+    RuntimeProfile::Counter* _dict_pages_num_counter = nullptr;
+    RuntimeProfile::Counter* _short_key_pages_num_counter = nullptr;
+
+    // bytes read by page type
+    RuntimeProfile::Counter* _data_page_compressed_bytes_read_counter = nullptr;
+    RuntimeProfile::Counter* _data_page_uncompressed_bytes_read_counter = nullptr;
+    RuntimeProfile::Counter* _index_page_compressed_bytes_read_counter = nullptr;
+    RuntimeProfile::Counter* _index_page_uncompressed_bytes_read_counter = nullptr;
+    RuntimeProfile::Counter* _dict_page_compressed_bytes_read_counter = nullptr;
+    RuntimeProfile::Counter* _dict_page_uncompressed_bytes_read_counter = nullptr;
+    RuntimeProfile::Counter* _short_key_page_compressed_bytes_read_counter = nullptr;
+    RuntimeProfile::Counter* _short_key_page_uncompressed_bytes_read_counter = nullptr;
+
     // row count filtered by bitmap inverted index
     RuntimeProfile::Counter* _bitmap_index_filter_counter = nullptr;
     // time fro bitmap inverted index read and filter
@@ -245,6 +265,18 @@ private:
 
     RuntimeProfile::Counter* _segment_create_column_readers_timer = nullptr;
     RuntimeProfile::Counter* _segment_load_index_timer = nullptr;
+    RuntimeProfile::Counter* _load_ordinal_index_timer = nullptr;
+    RuntimeProfile::Counter* _load_zone_map_index_timer = nullptr;
+
+    RuntimeProfile::Counter* _parse_footer_count_counter = nullptr;
+    RuntimeProfile::Counter* _parse_footer_total_bytes_counter = nullptr;
+    RuntimeProfile::Counter* _parse_footer_read_fixed_timer = nullptr;
+    RuntimeProfile::Counter* _parse_footer_read_footer_timer = nullptr;
+
+    RuntimeProfile::Counter* _prefetch_segment_footer_timer = nullptr;
+
+    RuntimeProfile::Counter* _pk_index_load_timer = nullptr;
+    RuntimeProfile::Counter* _pk_index_load_bytes_counter = nullptr;
 
     std::mutex _profile_mtx;
     std::vector<TabletWithVersion> _tablets;

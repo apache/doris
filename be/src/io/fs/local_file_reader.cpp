@@ -46,6 +46,10 @@
 namespace doris {
 namespace io {
 
+bvar::Adder<uint64_t> local_file_reader_read_active_counter("local_file_reader", "read_active_num");
+bvar::PerSecond<bvar::Adder<uint64_t>> local_file_reader_read_active_qps(
+        "local_file_reader", "read_active_qps", &local_file_reader_read_active_counter);
+
 std::vector<doris::DataDirInfo> BeConfDataDirReader::be_config_data_dir_list;
 
 void BeConfDataDirReader::get_data_dir_by_file_path(io::Path* file_path,
@@ -137,6 +141,9 @@ Status LocalFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_
                 "offset exceeds file size(offset: {}, file size: {}, path: {})", offset, _file_size,
                 _path.native());
     }
+    local_file_reader_read_active_counter << 1;
+    Defer _ = [&]() { local_file_reader_read_active_counter << -1; };
+
     size_t bytes_req = result.size;
     char* to = result.data;
     bytes_req = std::min(bytes_req, _file_size - offset);

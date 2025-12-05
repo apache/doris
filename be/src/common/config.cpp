@@ -312,6 +312,14 @@ DEFINE_Int32(remote_split_source_batch_size, "1000");
 DEFINE_Int32(doris_max_remote_scanner_thread_pool_thread_num, "-1");
 // number of olap scanner thread pool queue size
 DEFINE_Int32(doris_scanner_thread_pool_queue_size, "102400");
+// doris_remote_scanner_prefetch_depth
+DEFINE_Bool(enable_segment_iterator_prefetch, "true");
+DEFINE_Int32(segment_iterator_prefetch_lookahead, "3");
+DEFINE_Validator(segment_iterator_prefetch_lookahead,
+                 [](const int config) -> bool { return config >= 0; });
+DEFINE_mInt64(segment_iterator_prefetch_max_bytes, "33554432");
+DEFINE_Validator(segment_iterator_prefetch_max_bytes,
+                 [](const int64_t config) -> bool { return config >= 0; });
 // default thrift client connect timeout(in seconds)
 DEFINE_mInt32(thrift_connect_timeout_seconds, "3");
 
@@ -1156,6 +1164,7 @@ DEFINE_mInt32(file_cache_num_parallel_prefetch, "0");
 // config::file_cache_each_block_size + 10KB
 // if tail read is 101KB, the actual IO is 101KB
 DEFINE_mInt64(file_cache_tail_read_extra_bytes_threshold, "102400");
+DEFINE_mInt64(file_cache_tail_read_extra_factor, "1");
 DEFINE_mBool(enable_evaluate_shadow_queue_diff, "false");
 
 DEFINE_Int32(file_cache_downloader_thread_num_min, "32");
@@ -1394,6 +1403,8 @@ DEFINE_mBool(force_azure_blob_global_endpoint, "false");
 DEFINE_mInt32(max_s3_client_retry, "10");
 DEFINE_mInt32(s3_read_base_wait_time_ms, "100");
 DEFINE_mInt32(s3_read_max_wait_time_ms, "800");
+DEFINE_mBool(enable_s3_parallel_read, "false");
+DEFINE_mInt32(s3_parallel_read_chunk_size, "131072"); // 128KB
 DEFINE_mBool(enable_s3_object_check_after_upload, "true");
 
 DEFINE_mBool(enable_s3_rate_limiter, "false");
@@ -1462,6 +1473,12 @@ DEFINE_Int64(num_buffered_reader_prefetch_thread_pool_max_thread, "64");
 DEFINE_Int64(num_s3_file_upload_thread_pool_min_thread, "16");
 // The max thread num for S3FileUploadThreadPool
 DEFINE_Int64(num_s3_file_upload_thread_pool_max_thread, "64");
+// The min thread num for S3ParallelReadThreadPool
+DEFINE_Int64(num_s3_parallel_read_thread_pool_min_thread, "2000");
+// The max thread num for S3ParallelReadThreadPool
+DEFINE_Int64(num_s3_parallel_read_thread_pool_max_thread, "2000");
+// Enable segment iterator row bitmap based prefetch for compute-storage separation
+DEFINE_Bool(enable_segment_iterator_bitmap_prefetch, "false");
 // The maximum jvm heap usage ratio for hdfs write workload
 DEFINE_mDouble(max_hdfs_wirter_jni_heap_usage_ratio, "0.5");
 // The sleep milliseconds duration when hdfs write exceeds the maximum usage
@@ -1579,6 +1596,19 @@ DEFINE_mBool(enable_wal_tde, "false");
 
 DEFINE_mBool(enable_prefill_output_dbm_agg_cache_after_compaction, "true");
 DEFINE_mBool(enable_prefill_all_dbm_agg_cache_after_compaction, "true");
+
+DEFINE_mBool(enable_async_write_back_file_cache, "false");
+DEFINE_mInt32(file_cache_async_write_back_threshold_factor, "1");
+DEFINE_Validator(file_cache_async_write_back_threshold_factor,
+                 [](const int32_t config) -> bool { return config >= 1; });
+
+DEFINE_mBool(prefetch_segment_footer, "false");
+
+// Concurrency stats dump configuration
+DEFINE_mBool(enable_concurrency_stats_dump, "false");
+DEFINE_mInt32(concurrency_stats_dump_interval_ms, "100");
+DEFINE_Validator(concurrency_stats_dump_interval_ms,
+                 [](const int32_t config) -> bool { return config >= 10; });
 
 // clang-format off
 #ifdef BE_TEST
@@ -1916,12 +1946,12 @@ bool init(const char* conf_file, bool fill_conf_map, bool must_exist, bool set_t
         SET_FIELD(it.second, std::vector<std::string>, fill_conf_map, set_to_default);
     }
 
-    if (config::is_cloud_mode()) {
-        auto st = config::set_config("enable_file_cache", "true", true, true);
-        LOG(INFO) << "set config enable_file_cache "
-                  << "true"
-                  << " " << st;
-    }
+    // if (config::is_cloud_mode()) {
+    //     auto st = config::set_config("enable_file_cache", "true", true, true);
+    //     LOG(INFO) << "set config enable_file_cache "
+    //               << "true"
+    //               << " " << st;
+    // }
 
     return true;
 }

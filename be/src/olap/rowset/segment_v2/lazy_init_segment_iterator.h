@@ -17,6 +17,9 @@
 
 #pragma once
 
+#include <set>
+
+#include "olap/iterators.h"
 #include "olap/rowset/segment_v2/common.h"
 #include "olap/rowset/segment_v2/segment.h"
 #include "olap/rowset/segment_v2/segment_iterator.h"
@@ -26,7 +29,7 @@ namespace doris::segment_v2 {
 
 using namespace vectorized;
 
-class LazyInitSegmentIterator : public RowwiseIterator {
+class LazyInitSegmentIterator : public RowwiseIterator, public PrefetchPlanner {
 public:
     LazyInitSegmentIterator(std::shared_ptr<Segment> segment, SchemaSPtr schema,
                             const StorageReadOptions& opts);
@@ -57,7 +60,15 @@ public:
         return false;
     }
 
+    Status prepare_prefetch_batch(
+            std::set<std::pair<uint64_t, uint32_t>>* pages_to_prefetch,
+            bool* has_more) override;
+
+    Status submit_prefetch_batch(
+            const std::set<std::pair<uint64_t, uint32_t>>& pages_to_prefetch) override;
+
 private:
+    Status _ensure_initialized();
     bool _need_lazy_init {true};
     SchemaSPtr _schema = nullptr;
     std::shared_ptr<Segment> _segment;

@@ -214,6 +214,13 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
 #endif
     MonotonicStopWatch max_run_time_watch;
     max_run_time_watch.start();
+
+    // Update schedule times counter
+    scanner->inc_schedule_times();
+
+    // Record first schedule wait time (only for first schedule)
+    scanner->record_first_schedule_wait_time();
+
     scanner->update_wait_worker_timer();
     scanner->start_scan_cpu_timer();
     Status status = Status::OK();

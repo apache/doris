@@ -126,6 +126,18 @@ public:
 
     int64_t get_scanner_wait_worker_timer() const { return _scanner_wait_worker_timer; }
 
+    int64_t get_first_schedule_wait_timer() const { return _first_schedule_wait_timer; }
+
+    int64_t get_schedule_times() const { return _schedule_times; }
+
+    void inc_schedule_times() { _schedule_times++; }
+
+    void record_first_schedule_wait_time() {
+        if (_schedule_times == 1) {
+            _first_schedule_wait_timer = _watch.elapsed_time();
+        }
+    }
+
     void update_scan_cpu_timer();
 
     // Some counters need to be updated realtime, for example, workload group policy need
@@ -226,6 +238,11 @@ protected:
     ThreadCpuStopWatch _cpu_watch;
     int64_t _scanner_wait_worker_timer = 0;
     int64_t _scan_cpu_timer = 0;
+
+    // Time from scanner creation to first schedule
+    int64_t _first_schedule_wait_timer = 0;
+    // Number of times this scanner has been scheduled
+    int64_t _schedule_times = 0;
 
     bool _is_load = false;
 

@@ -527,6 +527,11 @@ public:
                        : 0;
     }
 
+    bool parallel_scan_split_by_segment() const {
+        return _query_options.__isset.parallel_scan_split_by_segment &&
+               _query_options.parallel_scan_split_by_segment;
+    }
+
     int partition_topn_max_partitions() const {
         return _query_options.__isset.partition_topn_max_partitions
                        ? _query_options.partition_topn_max_partitions

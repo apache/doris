@@ -19,6 +19,7 @@
 
 #include <cstddef>
 #include <memory>
+#include <set>
 
 #include "common/status.h"
 #include "io/io_common.h"
@@ -129,6 +130,17 @@ struct CompactionSampleInfo {
     int64_t bytes = 0;
     int64_t rows = 0;
     int64_t group_data_size;
+};
+
+class PrefetchPlanner {
+public:
+    virtual ~PrefetchPlanner() = default;
+
+    virtual Status prepare_prefetch_batch(
+            std::set<std::pair<uint64_t, uint32_t>>* pages_to_prefetch, bool* has_more) = 0;
+
+    virtual Status submit_prefetch_batch(
+            const std::set<std::pair<uint64_t, uint32_t>>& pages_to_prefetch) = 0;
 };
 
 class RowwiseIterator;

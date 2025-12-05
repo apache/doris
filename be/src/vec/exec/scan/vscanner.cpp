@@ -22,6 +22,7 @@
 #include "common/config.h"
 #include "pipeline/exec/scan_operator.h"
 #include "runtime/descriptors.h"
+#include "util/concurrency_stats.h"
 #include "util/defer_op.h"
 #include "util/runtime_profile.h"
 #include "vec/core/column_with_type_and_name.h"
@@ -29,6 +30,8 @@
 #include "vec/exprs/vexpr_context.h"
 
 namespace doris::vectorized {
+
+bvar::Adder<int64_t> g_vscanner_get_block_active("vscanner", "get_block_active");
 
 VScanner::VScanner(RuntimeState* state, pipeline::ScanLocalStateBase* local_state, int64_t limit,
                    RuntimeProfile* profile)
@@ -75,6 +78,10 @@ Status VScanner::prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts
 
 Status VScanner::get_block_after_projects(RuntimeState* state, vectorized::Block* block,
                                           bool* eos) {
+    g_vscanner_get_block_active << 1;
+    Defer _ = [&]() { g_vscanner_get_block_active << -1; };
+    SCOPED_CONCURRENCY_COUNT(ConcurrencyStatsManager::instance().vscanner_get_block);
+
     auto& row_descriptor = _local_state->_parent->row_descriptor();
     if (_output_row_descriptor) {
         _origin_block.clear_column_data(row_descriptor.num_materialized_slots());

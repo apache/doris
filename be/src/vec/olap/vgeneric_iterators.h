@@ -24,6 +24,7 @@
 #include <map>
 #include <memory>
 #include <queue>
+#include <set>
 #include <utility>
 #include <vector>
 
@@ -154,6 +155,8 @@ public:
 
     bool is_cur_block_finished() { return _index_in_block == _block->rows() - 1; }
 
+    RowwiseIterator* iterator() const { return _iter.get(); }
+
 private:
     // Load next block into _block
     Status _load_next_block();
@@ -183,7 +186,7 @@ private:
     mutable std::vector<bool> _pre_ctx_same_bit;
 };
 
-class VMergeIterator : public RowwiseIterator {
+class VMergeIterator : public RowwiseIterator, public PrefetchPlanner {
 public:
     // VMergeIterator takes the ownership of input iterators
     VMergeIterator(std::vector<RowwiseIteratorUPtr>&& iters, int sequence_id_idx, bool is_unique,
@@ -200,6 +203,12 @@ public:
 
     Status next_batch(Block* block) override { return _next_batch(block); }
     Status next_block_view(BlockView* block_view) override { return _next_batch(block_view); }
+
+    Status prepare_prefetch_batch(std::set<std::pair<uint64_t, uint32_t>>* pages_to_prefetch,
+                                  bool* has_more) override;
+
+    Status submit_prefetch_batch(
+            const std::set<std::pair<uint64_t, uint32_t>>& pages_to_prefetch) override;
 
     const Schema& schema() const override { return *_schema; }
 
@@ -227,6 +236,28 @@ private:
         }
         size_t row_idx = 0;
         std::shared_ptr<VMergeIteratorContext> pre_ctx;
+
+        auto trigger_prefetch = [&](const std::shared_ptr<VMergeIteratorContext>& target) -> Status {
+            if (!target) {
+                return Status::OK();
+            }
+            auto* planner = dynamic_cast<PrefetchPlanner*>(target->iterator());
+            if (planner == nullptr) {
+                return Status::OK();
+            }
+            std::set<std::pair<uint64_t, uint32_t>> pages_to_prefetch;
+            bool has_more = false;
+            RETURN_IF_ERROR(planner->prepare_prefetch_batch(&pages_to_prefetch, &has_more));
+            if (pages_to_prefetch.empty()) {
+                return Status::OK();
+            }
+            return planner->submit_prefetch_batch(pages_to_prefetch);
+        };
+
+        if (!_merge_heap.empty()) {
+            RETURN_IF_ERROR(trigger_prefetch(_merge_heap.top()));
+        }
+
         while (_get_size(block) < _block_row_max) {
             if (_merge_heap.empty()) {
                 break;
@@ -266,6 +297,10 @@ private:
             RETURN_IF_ERROR(ctx->advance());
             if (ctx->valid()) {
                 _merge_heap.push(ctx);
+            }
+
+            if (!_merge_heap.empty()) {
+                RETURN_IF_ERROR(trigger_prefetch(_merge_heap.top()));
             }
         }
         if (!_merge_heap.empty()) {

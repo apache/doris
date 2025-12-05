@@ -34,7 +34,7 @@ class RuntimeProfile;
 namespace io {
 struct IOContext;
 
-class S3FileReader final : public FileReader {
+class S3FileReader : public FileReader {
 public:
     static Result<FileReaderSPtr> create(std::shared_ptr<const ObjClientHolder> client,
                                          std::string bucket, std::string key, int64_t file_size,
@@ -59,7 +59,6 @@ protected:
 
     void _collect_profile_before_close() override;
 
-private:
     struct S3Statistics {
         int64_t total_get_request_counter = 0;
         int64_t too_many_request_err_counter = 0;
@@ -77,6 +76,18 @@ private:
 
     RuntimeProfile* _profile = nullptr;
     S3Statistics _s3_stats;
+};
+
+class ParallelS3FileReader final : public S3FileReader {
+public:
+    ParallelS3FileReader(std::shared_ptr<const ObjClientHolder> client, std::string bucket,
+                         std::string key, size_t file_size, RuntimeProfile* profile);
+
+    ~ParallelS3FileReader() override = default;
+
+protected:
+    Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
+                        const IOContext* io_ctx) override;
 };
 
 } // namespace io
