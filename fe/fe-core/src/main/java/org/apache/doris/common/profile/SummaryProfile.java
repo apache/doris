@@ -654,7 +654,6 @@ public class SummaryProfile {
     }
 
     public void setCpuShare(long cpuShare) {
-        this.cpuShare = cpuShare;
         executionSummaryProfile.addInfoString(CPU_SHARE,
             RuntimeProfile.printCounter(cpuShare, TUnit.DOUBLE_VALUE));
     }
