@@ -573,15 +573,15 @@ public class HiveMetaStoreCache {
      *
      * @param table The Hive table whose partitions were modified
      * @param partitionUpdates List of partition updates from BE
+     * @param modifiedPartNames Output list to collect names of modified partitions
+     * @param newPartNames Output list to collect names of new partitions
      */
     public void refreshAffectedPartitions(HMSExternalTable table,
-            List<org.apache.doris.thrift.THivePartitionUpdate> partitionUpdates) {
+            List<org.apache.doris.thrift.THivePartitionUpdate> partitionUpdates,
+            List<String> modifiedPartNames, List<String> newPartNames) {
         if (partitionUpdates == null || partitionUpdates.isEmpty()) {
             return;
         }
-
-        List<String> modifiedPartitionNames = new ArrayList<>();
-        List<String> newPartitionNames = new ArrayList<>();
 
         for (org.apache.doris.thrift.THivePartitionUpdate update : partitionUpdates) {
             String partitionName = update.getName();
@@ -593,10 +593,10 @@ public class HiveMetaStoreCache {
             switch (update.getUpdateMode()) {
                 case APPEND:
                 case OVERWRITE:
-                    modifiedPartitionNames.add(partitionName);
+                    modifiedPartNames.add(partitionName);
                     break;
                 case NEW:
-                    newPartitionNames.add(partitionName);
+                    newPartNames.add(partitionName);
                     break;
                 default:
                     LOG.warn("Unknown update mode {} for partition {}",
@@ -605,20 +605,26 @@ public class HiveMetaStoreCache {
             }
         }
 
+        refreshAffectedPartitionsCache(table, modifiedPartNames, newPartNames);
+    }
+
+    public void refreshAffectedPartitionsCache(HMSExternalTable table,
+            List<String> modifiedPartNames, List<String> newPartNames) {
+
         // Invalidate cache for modified partitions (both partition cache and file cache)
-        for (String partitionName : modifiedPartitionNames) {
+        for (String partitionName : modifiedPartNames) {
             invalidatePartitionCache(table, partitionName);
         }
 
         // Add new partitions to partition values cache
-        if (!newPartitionNames.isEmpty()) {
-            addPartitionsCache(table.getOrBuildNameMapping(), newPartitionNames,
+        if (!newPartNames.isEmpty()) {
+            addPartitionsCache(table.getOrBuildNameMapping(), newPartNames,
                     table.getPartitionColumnTypes(Optional.empty()));
         }
 
         // Log summary
         LOG.info("Refreshed cache for table {}: {} modified partitions, {} new partitions",
-                table.getName(), modifiedPartitionNames.size(), newPartitionNames.size());
+                table.getName(), modifiedPartNames.size(), newPartNames.size());
     }
 
     public void invalidateDbCache(String dbName) {
