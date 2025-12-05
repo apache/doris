@@ -230,7 +230,6 @@ public class TableQueryPlanAction extends RestBaseController {
         context.setQueryId(queryId);
         context.setStartTime();
         context.setSqlHash(DigestUtils.md5Hex(sql));
-        context.getState().setIsQuery(true);
 
         // acquired Planner to get PlanNode and fragment templates
         Planner planner = stmtExecutor.planner();
