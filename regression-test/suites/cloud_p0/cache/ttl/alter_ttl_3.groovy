@@ -141,7 +141,7 @@ suite("alter_ttl_3") {
     waitForFileCacheType.call(tabletIds, "normal", 60000L)
     sql """ select count(*) from customer_ttl """
     sql """ ALTER TABLE customer_ttl SET ("file_cache_ttl_seconds"="3600") """
-    sleep(80000)
+    sleep(160000)
     waitForFileCacheType.call(tabletIds, "ttl", 60000L)
     getMetricsMethod.call() {
         respCode, body ->

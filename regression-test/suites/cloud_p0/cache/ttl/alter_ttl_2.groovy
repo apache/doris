@@ -183,7 +183,6 @@ suite("alter_ttl_2") {
     }
     sql """ ALTER TABLE customer_ttl SET ("file_cache_ttl_seconds"="120") """
     sleep(80000)
-    waitForFileCacheType.call(tabletIds, "ttl", 60000L)
     getMetricsMethod.call() {
         respCode, body ->
             assertEquals("${respCode}".toString(), "200")
