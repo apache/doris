@@ -104,7 +104,22 @@ suite("analyze_agg") {
 
     test {
         sql "select sum(id) as k from t1 group by k;"
-        exception "Unknown column 'k' in 'table list' in AGGREGATE clause"
+        exception "GROUP BY expression must not contain aggregate functions: sum(id)"
+    }
+
+    test {
+        sql "select sum(id) as k from t1 group by k + 1;"
+        exception " GROUP BY expression must not contain aggregate functions: (sum(id) + 1)"
+    }
+
+    test {
+        sql "select sum(id) as x, max(id) as y from t1 group by grouping sets((x), (y));"
+        exception "GROUP BY expression must not contain aggregate functions: sum(id)"
+    }
+
+    test {
+        sql "select 100000 as y from t1 group by grouping sets((sum(id)), (max(id)));"
+        exception "GROUP BY expression must not contain aggregate functions: sum(id)"
     }
 
     test {
@@ -127,6 +142,22 @@ suite("analyze_agg") {
         exception "GROUP BY expression must not contain window functions: sum(id) OVER()"
     }
 
+    // check having
+    test {
+        sql "select 1234 from t1 having sum(id) over() > 0"
+        exception "LOGICAL_HAVING can not contains WindowExpression expression: sum(id) OVER()"
+    }
+
+    test {
+        sql "select 1234 from t1 group by id having sum(id) over() > 0"
+        exception "LOGICAL_HAVING can not contains WindowExpression expression: sum(id) OVER()"
+    }
+
+    test {
+        sql "select sum(id) over() as k from t1 group by id having sum(id) over() > 0"
+        exception "LOGICAL_HAVING can not contains WindowExpression expression: sum(id) OVER()"
+    }
+
     // having need before windows
     qt_having_with_window_1 '''explain shape plan
         select sum(id) over ()
@@ -136,6 +167,22 @@ suite("analyze_agg") {
         having sum(id + random(1, 1)) > 1
         order by id + random(1, 1), sum(id + random(1, 1)), sum(id + random(1, 1)) over ()
         '''
+
+    /* TODO: order by contains window expression throw exception, fix in PR #58036
+    qt_having_with_window_2 '''explain shape plan
+        select 12345
+        from t1
+        having sum(id + random(1, 1)) > 1
+        order by sum(id + random(1, 1)) over ()
+        '''
+
+    qt_having_with_window_3 '''explain shape plan
+        select distinct id + random(1, 1)
+        from t1
+        having sum(id + random(1, 1)) > 1
+        order by sum(id + random(1, 1)) over ()
+        '''
+      */
 
     sql "drop table if exists test_sum0_multi_distinct_with_group_by"
     sql "create table test_sum0_multi_distinct_with_group_by (a int, b int, c int) distributed by hash(a) properties('replication_num'='1');"
