@@ -662,6 +662,8 @@ public class SummaryProfile {
 
     public void setCpuShare(long cpuShare) {
         this.cpuShare = cpuShare;
+        executionSummaryProfile.addInfoString(CPU_SHARE,
+            RuntimeProfile.printCounter(cpuShare, TUnit.DOUBLE_VALUE));
     }
 
     public void setNereidsCollectTablePartitionFinishTime(long collectTablePartitionFinishTime) {
@@ -914,56 +916,52 @@ public class SummaryProfile {
             return this;
         }
 
-        public SummaryBuilder cpuShare(String val) {
-            map.put(CPU_SHARE, val);
-            return this;
-        }
 
         public SummaryBuilder memoryLimit(String val) {
             map.put(MEMORY_LIMIT, val);
             return this;
         }
 
-        public SummaryBuilder enableMemoryOvercommit(String val) {
-            map.put(ENABLE_MEMORY_OVERCOMMIT, val);
-            return this;
-        }
-
-        public SummaryBuilder memoryLowWatermark(String val) {
-            map.put(MEMORY_LOW_WATERMARK, val);
-            return this;
-        }
-
-        public SummaryBuilder memoryHighWatermark(String val) {
-            map.put(MEMORY_HIGH_WATERMARK, val);
-            return this;
-        }
-
-        public SummaryBuilder readBytesPerSecond(String val) {
-            map.put(READ_BYTES_PER_SECOND, val);
-            return this;
-        }
-
-        public SummaryBuilder tag(String val) {
-            map.put(TAG, val);
-            return this;
-        }
-
-        public SummaryBuilder remoteReadBytesPerSecond(String val) {
-            map.put(REMOTE_READ_BYTES_PER_SECOND, val);
-            return this;
-        }
-
-        public SummaryBuilder maxRemoteScanThreadNum(String val) {
-            map.put(MAX_REMOTE_SCAN_THREAD_NUM, val);
-            return this;
-        }
-
-        public SummaryBuilder minRemoteScanThreadNum(String val) {
-            map.put(MIN_REMOTE_SCAN_THREAD_NUM, val);
-            return this;
-        }
-
+//        public SummaryBuilder enableMemoryOvercommit(String val) {
+//            map.put(ENABLE_MEMORY_OVERCOMMIT, val);
+//            return this;
+//        }
+//
+//        public SummaryBuilder memoryLowWatermark(String val) {
+//            map.put(MEMORY_LOW_WATERMARK, val);
+//            return this;
+//        }
+//
+//        public SummaryBuilder memoryHighWatermark(String val) {
+//            map.put(MEMORY_HIGH_WATERMARK, val);
+//            return this;
+//        }
+//
+//        public SummaryBuilder readBytesPerSecond(String val) {
+//            map.put(READ_BYTES_PER_SECOND, val);
+//            return this;
+//        }
+//
+//        public SummaryBuilder tag(String val) {
+//            map.put(TAG, val);
+//            return this;
+//        }
+//
+//        public SummaryBuilder remoteReadBytesPerSecond(String val) {
+//            map.put(REMOTE_READ_BYTES_PER_SECOND, val);
+//            return this;
+//        }
+//
+//        public SummaryBuilder maxRemoteScanThreadNum(String val) {
+//            map.put(MAX_REMOTE_SCAN_THREAD_NUM, val);
+//            return this;
+//        }
+//
+//        public SummaryBuilder minRemoteScanThreadNum(String val) {
+//            map.put(MIN_REMOTE_SCAN_THREAD_NUM, val);
+//            return this;
+//        }
+//
 
 
         public Map<String, String> build() {

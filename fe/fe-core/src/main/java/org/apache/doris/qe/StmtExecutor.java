@@ -342,6 +342,7 @@ public class StmtExecutor {
         builder.parallelFragmentExecInstance(String.valueOf(context.sessionVariable.getParallelExecInstanceNum()));
         builder.traceId(context.getSessionVariable().getTraceId());
         builder.isNereids(context.getState().isNereids() ? "Yes" : "No");
+        SummaryProfile summaryProfile = SummaryProfile.getSummaryProfile(context);
         try {
             List<WorkloadGroup> list = Env.getCurrentEnv()
                 .getWorkloadGroupMgr()
@@ -349,16 +350,8 @@ public class StmtExecutor {
 
             if (!list.isEmpty()) {
                 WorkloadGroup wg = list.get(0);
-                builder.cpuShare(String.valueOf(wg.getMaxCpuPercent()));
-                builder.memoryHighWatermark(String.valueOf(wg.getMaxMemoryPercent()));
+                summaryProfile.setCpuShare(wg.getMaxCpuPercent());
                 builder.memoryLimit(String.valueOf(wg.getMaxMemoryPercent()));
-                builder.memoryLowWatermark(String.valueOf(wg.getMinMemoryPercent()));
-                builder.maxRemoteScanThreadNum(String.valueOf(wg.getProperties().getOrDefault(WorkloadGroup.MAX_REMOTE_SCAN_THREAD_NUM, "-1")));
-                builder.minRemoteScanThreadNum(String.valueOf(wg.getProperties().getOrDefault(WorkloadGroup.MIN_REMOTE_SCAN_THREAD_NUM, "-1")));
-                builder.remoteReadBytesPerSecond(String.valueOf(wg.getProperties().getOrDefault(WorkloadGroup.REMOTE_READ_BYTES_PER_SECOND, "-1")));
-                builder.enableMemoryOvercommit(String.valueOf(wg.getProperties().getOrDefault(WorkloadGroup.MAX_MEMORY_PERCENT, "100")));
-                builder.readBytesPerSecond(String.valueOf(wg.getProperties().getOrDefault(WorkloadGroup.READ_BYTES_PER_SECOND, "-1")));
-                builder.tag(String.valueOf(wg.getProperties().getOrDefault(WorkloadGroup.TAG, "-1")));
             }
         } catch (UserException e) {
             throw new RuntimeException(e);
