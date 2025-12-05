@@ -166,9 +166,9 @@ public class SummaryProfile {
     // The display order of execution summary items.
     public static final ImmutableList<String> EXECUTION_SUMMARY_KEYS = ImmutableList.of(
         WORKLOAD_GROUP,
-        PARSE_SQL_TIME,
         CPU_SHARE,
         MEMORY_LIMIT,
+        PARSE_SQL_TIME,
         PLAN_TIME,
         NEREIDS_GARBAGE_COLLECT_TIME,
         NEREIDS_LOCK_TABLE_TIME,
