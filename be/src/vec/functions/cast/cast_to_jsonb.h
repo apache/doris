@@ -56,7 +56,7 @@ struct ConvertImplGenericFromJsonb {
             const bool is_dst_string = is_string_type(data_type_to->get_primitive_type());
             for (size_t i = 0; i < size; ++i) {
                 const auto& val = col_from_string->get_data_at(i);
-                JsonbDocument* doc = nullptr;
+                const JsonbDocument* doc = nullptr;
                 auto st = JsonbDocument::checkAndCreateDocument(val.data, val.size, &doc);
                 if (!st.ok() || !doc || !doc->getValue()) [[unlikely]] {
                     (*vec_null_map_to)[i] = 1;
@@ -65,7 +65,7 @@ struct ConvertImplGenericFromJsonb {
                 }
 
                 // value is NOT necessary to be deleted since JsonbValue will not allocate memory
-                JsonbValue* value = doc->getValue();
+                const JsonbValue* value = doc->getValue();
                 if (UNLIKELY(!value)) {
                     (*vec_null_map_to)[i] = 1;
                     col_to->insert_default();
