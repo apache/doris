@@ -53,6 +53,7 @@
 #ifdef USE_AZURE
 #include "io/fs/azure_obj_storage_client.h"
 #endif
+#include "exec/olap_common.h"
 #include "io/fs/obj_storage_client.h"
 #include "io/fs/s3_obj_storage_client.h"
 #include "runtime/exec_env.h"
@@ -372,7 +373,7 @@ std::shared_ptr<io::ObjStorageClient> S3ClientFactory::_create_s3_client(
 #ifdef BE_TEST
         // the S3Client may shared by many threads.
         // So need to set the number of connections large enough.
-        aws_config.maxConnections = config::doris_scanner_thread_pool_thread_num;
+        aws_config.maxConnections = config::dynamic::doris_scanner_thread_pool_thread_num();
 #else
         aws_config.maxConnections =
                 ExecEnv::GetInstance()->scanner_scheduler()->remote_thread_pool_max_thread_num();
