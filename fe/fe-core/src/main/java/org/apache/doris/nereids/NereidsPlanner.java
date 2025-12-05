@@ -702,7 +702,7 @@ public class NereidsPlanner extends Planner {
         }
 
         boolean notNeedBackend = false;
-        // if the query can compute without backend, we can skip check cluster privileges
+        // the internal query not support process Resultset, so must process by backend
         if (cascadesContext.getConnectContext().supportHandleByFe()
                 && physicalPlan instanceof ComputeResultSet
                 && !cascadesContext.getConnectContext().getState().isInternal()) {
