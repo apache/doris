@@ -389,7 +389,7 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
         int64_t wait_time = 0;
         static int64_t max_wait_time = 10;
         TEST_SYNC_POINT_CALLBACK("CachedRemoteFileReader::max_wait_time", &max_wait_time);
-        if (block_state != FileBlock::State::DOWNLOADED) {
+        if (block_state != FileBlock::State::DOWNLOADED && !is_dryrun) {
             g_cached_remote_reader_blocking_active << 1;
             Defer _ = [&]() { g_cached_remote_reader_blocking_active << -1; };
             SCOPED_CONCURRENCY_COUNT(
@@ -428,7 +428,7 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
                                      file_offset);
                 }
             }
-            if (!st || block_state != FileBlock::State::DOWNLOADED) {
+            if (!is_dryrun && (!st || block_state != FileBlock::State::DOWNLOADED)) {
                 LOG(WARNING) << "Read data failed from file cache downloaded by others. err="
                              << st.msg() << ", block state=" << block_state;
                 size_t bytes_read {0};
