@@ -317,13 +317,13 @@ int CGroupUtil::get_cgroup_limited_cpu_number(int physical_cores) {
     // For cpuset, child cgroup's cpuset.cpus could not bigger thant parent's cpuset.cpus.
     if (CGroupUtil::cgroupsv2_enable()) {
         std::string cgroupv2_process_path = CGroupUtil::cgroupv2_of_process();
+        std::filesystem::path current_cgroup_path;
         if (cgroupv2_process_path.empty()) {
-            return ret;
+            current_cgroup_path = default_cgroups_mount;
+        } else {
+            current_cgroup_path = (default_cgroups_mount / cgroupv2_process_path);
         }
-        std::filesystem::path current_cgroup_path = (default_cgroups_mount / cgroupv2_process_path);
         ret = get_cgroup_v2_cpu_quota_number(current_cgroup_path, default_cgroups_mount, ret);
-
-        current_cgroup_path = (default_cgroups_mount / cgroupv2_process_path);
         ret = get_cgroup_v2_cpuset_number(current_cgroup_path, default_cgroups_mount, ret);
     } else if (CGroupUtil::cgroupsv1_enable()) {
         // cpu quota, should find first not empty config from current path to top.
@@ -349,7 +349,7 @@ int CGroupUtil::get_cgroup_limited_cpu_number(int physical_cores) {
     return ret;
 }
 
-int CGroupUtil::get_cgroup_v2_cpu_quota_number(std::filesystem::path& current_path,
+int CGroupUtil::get_cgroup_v2_cpu_quota_number(std::filesystem::path current_path,
                                                const std::filesystem::path& default_cg_mout_path,
                                                int cpu_num) {
     int ret = cpu_num;
@@ -369,7 +369,7 @@ int CGroupUtil::get_cgroup_v2_cpu_quota_number(std::filesystem::path& current_pa
     return ret;
 }
 
-int CGroupUtil::get_cgroup_v2_cpuset_number(std::filesystem::path& current_path,
+int CGroupUtil::get_cgroup_v2_cpuset_number(std::filesystem::path current_path,
                                             const std::filesystem::path& default_cg_mout_path,
                                             int cpu_num) {
     int ret = cpu_num;
