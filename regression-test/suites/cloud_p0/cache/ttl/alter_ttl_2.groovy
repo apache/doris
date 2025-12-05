@@ -68,6 +68,39 @@ suite("alter_ttl_2") {
         }
     }
 
+    def getTabletIds = { String tableName ->
+        def tablets = sql "show tablets from ${tableName}"
+        assertTrue(tablets.size() > 0, "No tablets found for table ${tableName}")
+        tablets.collect { it[0] as Long }
+    }
+
+    def waitForFileCacheType = { List<Long> tabletIds, String expectedType, long timeoutMs = 180000L, long intervalMs = 2000L ->
+        long start = System.currentTimeMillis()
+        while (System.currentTimeMillis() - start < timeoutMs) {
+            boolean allMatch = true
+            for (Long tabletId in tabletIds) {
+                def rows = sql "select type from information_schema.file_cache_info where tablet_id = ${tabletId}"
+                if (rows.isEmpty()) {
+                    logger.warn("file_cache_info is empty for tablet ${tabletId} while waiting for ${expectedType}")
+                    allMatch = false
+                    break
+                }
+                def mismatch = rows.find { row -> !row[0]?.toString()?.equalsIgnoreCase(expectedType) }
+                if (mismatch) {
+                    logger.info("tablet ${tabletId} has cache types ${rows.collect { it[0] }} while waiting for ${expectedType}")
+                    allMatch = false
+                    break
+                }
+            }
+            if (allMatch) {
+                logger.info("All file cache entries for tablets ${tabletIds} are ${expectedType}")
+                return
+            }
+            sleep(intervalMs)
+        }
+        assertTrue(false, "Timeout waiting for file_cache_info type ${expectedType} for tablets ${tabletIds}")
+    }
+
     sql new File("""${context.file.parent}/../ddl/customer_ttl_delete.sql""").text
     def load_customer_ttl_once =  { String table ->
         sql (new File("""${context.file.parent}/../ddl/${table}.sql""").text + ttlProperties)
@@ -123,6 +156,8 @@ suite("alter_ttl_2") {
     }
 
     load_customer_ttl_once("customer_ttl")
+    def tabletIds = getTabletIds.call("customer_ttl")
+    waitForFileCacheType.call(tabletIds, "ttl", 60000L)
     sql """ select count(*) from customer_ttl """
     sleep(30000)
     long ttl_cache_size = 0
@@ -148,6 +183,7 @@ suite("alter_ttl_2") {
     }
     sql """ ALTER TABLE customer_ttl SET ("file_cache_ttl_seconds"="120") """
     sleep(80000)
+    waitForFileCacheType.call(tabletIds, "ttl", 60000L)
     getMetricsMethod.call() {
         respCode, body ->
             assertEquals("${respCode}".toString(), "200")
@@ -189,5 +225,7 @@ suite("alter_ttl_2") {
             }
             assertTrue(flag1)
     }
+
+    waitForFileCacheType.call(tabletIds, "normal", 300000L)
     }
 }

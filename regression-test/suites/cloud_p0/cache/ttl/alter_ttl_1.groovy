@@ -70,6 +70,39 @@ suite("alter_ttl_1") {
         }
     }
 
+    def getTabletIds = { String tableName ->
+        def tablets = sql "show tablets from ${tableName}"
+        assertTrue(tablets.size() > 0, "No tablets found for table ${tableName}")
+        tablets.collect { it[0] as Long }
+    }
+
+    def waitForFileCacheType = { List<Long> tabletIds, String expectedType, long timeoutMs = 120000L, long intervalMs = 2000L ->
+        long start = System.currentTimeMillis()
+        while (System.currentTimeMillis() - start < timeoutMs) {
+            boolean allMatch = true
+            for (Long tabletId in tabletIds) {
+                def rows = sql "select type from information_schema.file_cache_info where tablet_id = ${tabletId}"
+                if (rows.isEmpty()) {
+                    logger.warn("file_cache_info is empty for tablet ${tabletId} while waiting for ${expectedType}")
+                    allMatch = false
+                    break
+                }
+                def mismatch = rows.find { row -> !row[0]?.toString()?.equalsIgnoreCase(expectedType) }
+                if (mismatch) {
+                    logger.info("tablet ${tabletId} has cache types ${rows.collect { it[0] }} while waiting for ${expectedType}")
+                    allMatch = false
+                    break
+                }
+            }
+            if (allMatch) {
+                logger.info("All file cache entries for tablets ${tabletIds} are ${expectedType}")
+                return
+            }
+            sleep(intervalMs)
+        }
+        assertTrue(false, "Timeout waiting for file_cache_info type ${expectedType} for tablets ${tabletIds}")
+    }
+
     sql new File("""${context.file.parent}/../ddl/customer_ttl_delete.sql""").text
     def load_customer_ttl_once =  { String table ->
         // def table = "customer"
@@ -108,6 +141,8 @@ suite("alter_ttl_1") {
     sleep(30000)
 
     load_customer_ttl_once("customer_ttl")
+    def tabletIds = getTabletIds.call("customer_ttl")
+    waitForFileCacheType.call(tabletIds, "ttl", 60000L)
     sleep(30000)
     long ttl_cache_size = 0
     long normal_cache_size = 0
@@ -174,5 +209,7 @@ suite("alter_ttl_1") {
             }
             assertTrue(flag1)
     }
+
+    waitForFileCacheType.call(tabletIds, "normal", 180000L)
     }
 }

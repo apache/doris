@@ -112,13 +112,49 @@ suite("test_ttl") {
         }
     }
 
+    def getTabletIds = { String tableName ->
+        def tablets = sql "show tablets from ${tableName}"
+        assertTrue(tablets.size() > 0, "No tablets found for table ${tableName}")
+        tablets.collect { it[0] as Long }
+    }
+
+    def waitForFileCacheType = { List<Long> tabletIds, String expectedType, long timeoutMs = 60000L, long intervalMs = 2000L ->
+        long start = System.currentTimeMillis()
+        while (System.currentTimeMillis() - start < timeoutMs) {
+            boolean allMatch = true
+            for (Long tabletId in tabletIds) {
+                def rows = sql "select type from information_schema.file_cache_info where tablet_id = ${tabletId}"
+                if (rows.isEmpty()) {
+                    logger.warn("file_cache_info is empty for tablet ${tabletId} while waiting for ${expectedType}")
+                    allMatch = false
+                    break
+                }
+                def mismatches = rows.findAll { row -> !row[0]?.toString()?.equalsIgnoreCase(expectedType) }
+                if (!mismatches.isEmpty()) {
+                    logger.info("tablet ${tabletId} has cache types ${rows.collect { it[0] }} while waiting for ${expectedType}")
+                    allMatch = false
+                    break
+                }
+            }
+            if (allMatch) {
+                logger.info("All file cache entries for tablets ${tabletIds} are ${expectedType}")
+                return
+            }
+            sleep(intervalMs)
+        }
+        assertTrue(false, "Timeout waiting for file_cache_info type ${expectedType} for tablets ${tabletIds}")
+    }
+
     clearFileCache.call() {
         respCode, body -> {}
     }
     sleep(10000)
 
+    def tabletIds = []
     load_customer_once("customer_ttl")
     sleep(10000)
+    tabletIds = getTabletIds.call("customer_ttl")
+    waitForFileCacheType.call(tabletIds, "ttl")
     getMetricsMethod.call() {
         respCode, body ->
             assertEquals("${respCode}".toString(), "200")
@@ -162,5 +198,7 @@ suite("test_ttl") {
             }
             assertTrue(flag1)
     }
+
+    waitForFileCacheType.call(tabletIds, "normal")
     }
 }
