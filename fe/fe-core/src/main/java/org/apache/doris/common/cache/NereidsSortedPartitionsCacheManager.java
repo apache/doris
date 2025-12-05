@@ -129,7 +129,7 @@ public class NereidsSortedPartitionsCacheManager {
         // if insert too frequently, we will skip sort partitions
         if (cacheSortedPartitionIntervalSecond >= 0
                 && (now <= partitionMetaLoadTime
-                || (now - partitionMetaLoadTime) <= (cacheSortedPartitionIntervalSecond * 1000))) {
+                    || (now - partitionMetaLoadTime) <= (cacheSortedPartitionIntervalSecond * 1000))) {
             return null;
         }
 
