@@ -426,6 +426,10 @@ struct TIcebergTableSink {
     12: optional string original_output_path
     13: optional PlanNodes.TFileCompressType compression_type
     14: optional list<Types.TNetworkAddress> broker_addresses;
+    // Static partition values for static partition overwrite
+    // Key: partition column name, Value: partition value as string
+    // When set, BE should use these values directly instead of computing from data
+    15: optional map<string, string> static_partition_values;
 }
 
 enum TDictLayoutType {
