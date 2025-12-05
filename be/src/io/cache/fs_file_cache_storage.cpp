@@ -895,7 +895,7 @@ void FSFileCacheStorage::load_cache_info_into_memory(BlockFileCache* _mgr) const
               << ", Estimated FS files: " << estimated_file_count;
 
     // If the difference is more than threshold, load from filesystem as well
-    if (estimated_file_count > 0) {
+    if (estimated_file_count > 100) {
         double difference_ratio =
                 static_cast<double>(estimated_file_count) -
                 static_cast<double>(db_block_count) / static_cast<double>(estimated_file_count);
@@ -914,6 +914,12 @@ void FSFileCacheStorage::load_cache_info_into_memory(BlockFileCache* _mgr) const
                              << st.to_string();
             }
             // TODO(zhengyu): use anti-leak machinism to remove v2 format directory
+        }
+    } else {
+        LOG(INFO) << "FS contains low number of files, num = " << estimated_file_count
+                  << ", skipping FS load.";
+        if (st = write_file_cache_version(); !st.ok()) {
+            LOG(WARNING) << "Failed to write version hints for file cache, err=" << st.to_string();
         }
     }
 }
