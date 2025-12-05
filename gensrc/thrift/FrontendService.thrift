@@ -103,6 +103,8 @@ struct TGetDbsResult {
   2: optional list<string> catalogs
   3: optional list<i64> db_ids
   4: optional list<i64> catalog_ids
+  5: optional list<i64> creation_times
+  6: optional list<string> creators
 }
 
 // Arguments to getTableNames, which returns a list of tables that match an
@@ -136,6 +138,7 @@ struct TTableStatus {
     12: optional i64 avg_row_length
     13: optional i64 data_length;
     14: optional i64 index_length;
+    15: optional string created_by
 }
 
 struct TListTableStatusResult {
