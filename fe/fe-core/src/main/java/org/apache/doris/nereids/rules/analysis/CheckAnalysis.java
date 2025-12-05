@@ -17,16 +17,19 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
+import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.InSubquery;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScalarFunction;
 import org.apache.doris.nereids.trees.expressions.typecoercion.TypeCheckResult;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalGenerate;
@@ -50,8 +53,14 @@ import java.util.Set;
 
 /**
  * Check analysis rule to check semantic correct after analysis by Nereids.
+ *
+ * Filling missing slot may replace a expression with slot reference, for example:
+ *  HAVING(sum(a#12) > 0) => HAVING(sum(a)#34 > 0), aggregate function `sum` will replace with aggregate slot #34.
+ * So run checkAnalysis twice, one run before filling missing slot, one run after it.
  */
 public class CheckAnalysis implements AnalysisRuleFactory {
+
+    private final boolean hadFillMissingSlots;
 
     private static final Map<Class<? extends LogicalPlan>, Set<Class<? extends Expression>>>
             UNEXPECTED_EXPRESSION_TYPE_MAP = ImmutableMap.<Class<? extends LogicalPlan>,
@@ -79,15 +88,26 @@ public class CheckAnalysis implements AnalysisRuleFactory {
             .put(LogicalProject.class, ImmutableSet.of(
                     TableGeneratingFunction.class))
             .put(LogicalSort.class, ImmutableSet.of(
+                    GroupingScalarFunction.class,
+                    TableGeneratingFunction.class))
+            .put(LogicalWindow.class, ImmutableSet.of(
+                    GroupingScalarFunction.class,
+                    TableGeneratingFunction.class))
+            .build();
+
+    private static final Map<Class<? extends LogicalPlan>, Set<Class<? extends Expression>>>
+            UNEXPECTED_EXPRESSION_TYPE_MAP_AFTER_FILL_MISSING_SLOT = ImmutableMap.<Class<? extends LogicalPlan>,
+                    Set<Class<? extends Expression>>>builder()
+            .put(LogicalSort.class, ImmutableSet.of(
                     AggregateFunction.class,
                     GroupingScalarFunction.class,
                     TableGeneratingFunction.class,
                     WindowExpression.class))
-            .put(LogicalWindow.class, ImmutableSet.of(
-                    GroupingScalarFunction.class,
-                    TableGeneratingFunction.class
-            ))
             .build();
+
+    public CheckAnalysis(boolean hadFillMissingSlots) {
+        this.hadFillMissingSlots = hadFillMissingSlots;
+    }
 
     @Override
     public List<Rule> buildRules() {
@@ -100,9 +120,16 @@ public class CheckAnalysis implements AnalysisRuleFactory {
                 })
             ),
             RuleType.CHECK_AGGREGATE_ANALYSIS.build(
-                logicalAggregate().then(agg -> {
+                aggregate().then(agg -> {
                     checkAggregate(agg);
                     return agg;
+                })
+            ),
+            RuleType.CHECK_OBJECT_TYPE_ANALYSIS.build(
+                logicalHaving().thenApply(ctx -> {
+                    LogicalHaving<Plan> having = ctx.root;
+                    checkHavingObjectTypeExpression(having);
+                    return null;
                 })
             )
         );
@@ -110,7 +137,10 @@ public class CheckAnalysis implements AnalysisRuleFactory {
 
     private void checkUnexpectedExpressions(Plan plan) {
         Set<Class<? extends Expression>> unexpectedExpressionTypes
-                = UNEXPECTED_EXPRESSION_TYPE_MAP.getOrDefault(plan.getClass(), Collections.emptySet());
+                = hadFillMissingSlots
+                    && UNEXPECTED_EXPRESSION_TYPE_MAP_AFTER_FILL_MISSING_SLOT.containsKey(plan.getClass())
+                ? UNEXPECTED_EXPRESSION_TYPE_MAP_AFTER_FILL_MISSING_SLOT.get(plan.getClass())
+                : UNEXPECTED_EXPRESSION_TYPE_MAP.getOrDefault(plan.getClass(), Collections.emptySet());
         if (unexpectedExpressionTypes.isEmpty()) {
             return;
         }
@@ -135,7 +165,7 @@ public class CheckAnalysis implements AnalysisRuleFactory {
         }
     }
 
-    private void checkAggregate(LogicalAggregate<? extends Plan> aggregate) {
+    private void checkAggregate(Aggregate<? extends Plan> aggregate) {
         for (Expression expr : aggregate.getGroupByExpressions()) {
             if (ExpressionUtils.hasNonWindowAggregateFunction(expr)) {
                 throw new AnalysisException(
@@ -144,6 +174,17 @@ public class CheckAnalysis implements AnalysisRuleFactory {
             if (expr.containsType(WindowExpression.class)) {
                 throw new AnalysisException(
                         "GROUP BY expression must not contain window functions: " + expr.toSql());
+            }
+        }
+    }
+
+    private void checkHavingObjectTypeExpression(LogicalHaving<Plan> having) {
+        Set<Expression> havingConjuncts = having.getConjuncts();
+        for (Expression predicate : havingConjuncts) {
+            if (predicate instanceof InSubquery) {
+                if (((InSubquery) predicate).getSubqueryOutput().getDataType().isObjectType()) {
+                    throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
+                }
             }
         }
     }
