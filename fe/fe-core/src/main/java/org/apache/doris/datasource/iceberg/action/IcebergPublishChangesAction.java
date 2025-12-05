@@ -99,9 +99,12 @@ public class IcebergPublishChangesAction extends BaseIcebergAction {
             // Invalidate iceberg catalog table cache
             Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache((ExternalTable) table);
 
+            String previousSnapshotIdString = previousSnapshotId != null ? String.valueOf(previousSnapshotId) : "null";
+            String currentSnapshotIdString = currentSnapshotId != null ? String.valueOf(currentSnapshotId) : "null";
+
             return Lists.newArrayList(
-                    String.valueOf(previousSnapshotId),
-                    String.valueOf(currentSnapshotId)
+                    previousSnapshotIdString,
+                    currentSnapshotIdString
             );
 
         } catch (Exception e) {
