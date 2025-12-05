@@ -108,9 +108,6 @@ public:
             const IColumn& column, MysqlRowBinaryBuffer& row_buffer, int64_t row_idx,
             bool col_const,
             const typename DataTypeNumberSerDe<T>::FormatOptions& options) const override;
-    Status write_column_to_mysql_text(
-            const IColumn& column, MysqlRowTextBuffer& row_buffer, int64_t row_idx, bool col_const,
-            const typename DataTypeNumberSerDe<T>::FormatOptions& options) const override;
 
     Status write_column_to_orc(const std::string& timezone, const IColumn& column,
                                const NullMap* null_map, orc::ColumnVectorBatch* orc_col_batch,
@@ -120,12 +117,6 @@ protected:
     template <bool is_date>
     Status _read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int64_t start,
                                    int64_t end, const cctz::time_zone& ctz) const;
-
-private:
-    template <bool is_binary_format>
-    Status _write_column_to_mysql(
-            const IColumn& column, MysqlRowBuffer<is_binary_format>& result, int64_t row_idx,
-            bool col_const, const typename DataTypeNumberSerDe<T>::FormatOptions& options) const;
 };
 
 class DataTypeDateTimeSerDe : public DataTypeDateSerDe<PrimitiveType::TYPE_DATETIME> {

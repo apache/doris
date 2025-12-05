@@ -124,7 +124,7 @@ public:
         JsonbWriter writer;
         for (size_t i = 0; i < size; ++i) {
             StringRef val = input_jsonb_column.get_data_at(i);
-            JsonbDocument* doc = nullptr;
+            const JsonbDocument* doc = nullptr;
             auto st = JsonbDocument::checkAndCreateDocument(val.data, val.size, &doc);
             if (!st.ok() || !doc || !doc->getValue()) [[unlikely]] {
                 // mayby be invalid jsonb, just insert default
@@ -133,7 +133,7 @@ public:
                 to_column->insert_default();
                 continue;
             }
-            JsonbValue* value = doc->getValue();
+            const JsonbValue* value = doc->getValue();
             if (UNLIKELY(!value)) {
                 // mayby be invalid jsonb, just insert default
                 // invalid jsonb value may be caused by the default null processing

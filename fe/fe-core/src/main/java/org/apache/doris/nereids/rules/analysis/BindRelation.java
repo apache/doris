@@ -97,6 +97,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalTestScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalView;
 import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.qe.AutoCloseSessionVariable;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
@@ -109,6 +110,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -586,14 +588,20 @@ public class BindRelation extends OneAnalysisRuleFactory {
     }
 
     private Plan parseAndAnalyzeDorisView(View view, List<String> tableQualifier, CascadesContext parentContext) {
-        Pair<String, Long> viewInfo = parentContext.getStatementContext().getAndCacheViewInfo(tableQualifier, view);
-        long originalSqlMode = parentContext.getConnectContext().getSessionVariable().getSqlMode();
-        parentContext.getConnectContext().getSessionVariable().setSqlMode(viewInfo.second);
-        try {
-            return parseAndAnalyzeView(view, viewInfo.first, parentContext);
-        } finally {
-            parentContext.getConnectContext().getSessionVariable().setSqlMode(originalSqlMode);
+        Pair<String, Map<String, String>> viewInfo = parentContext.getStatementContext()
+                .getAndCacheViewInfo(tableQualifier, view);
+        Plan analyzedPlan;
+        Map<String, String> currentSessionVars =
+                parentContext.getConnectContext().getSessionVariable().getAffectQueryResultInPlanVariables();
+        try (AutoCloseSessionVariable autoClose = new AutoCloseSessionVariable(parentContext.getConnectContext(),
+                viewInfo.second)) {
+            analyzedPlan = parseAndAnalyzeView(view, viewInfo.first, parentContext);
+            if (!SessionVarGuardRewriter.checkSessionVariablesMatch(currentSessionVars, viewInfo.second)) {
+                SessionVarGuardRewriter exprRewriter = new SessionVarGuardRewriter(viewInfo.second, parentContext);
+                analyzedPlan = SessionVarGuardRewriter.rewritePlanTree(exprRewriter, analyzedPlan);
+            }
         }
+        return analyzedPlan;
     }
 
     private Plan parseAndAnalyzeView(TableIf view, String ddlSql, CascadesContext parentContext) {

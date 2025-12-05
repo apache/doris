@@ -126,7 +126,9 @@ Status ScannerContext::init() {
         vectorized::TaskId task_id(fmt::format("{}-{}", print_id(_state->query_id()), ctx_id));
         _task_handle = DORIS_TRY(task_executor->create_task(
                 task_id, []() { return 0.0; },
-                config::task_executor_initial_max_concurrency_per_task,
+                config::task_executor_initial_max_concurrency_per_task > 0
+                        ? config::task_executor_initial_max_concurrency_per_task
+                        : std::max(48, CpuInfo::num_cores() * 2),
                 std::chrono::milliseconds(100), std::nullopt));
     }
 #endif

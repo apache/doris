@@ -514,7 +514,7 @@ TEST_F(IcebergReaderTest, read_iceberg_parquet_file) {
     }
 
     // Setup runtime state
-    RuntimeState runtime_state((TQueryGlobals()));
+    RuntimeState runtime_state = RuntimeState(TQueryOptions(), TQueryGlobals());
 
     // Setup scan parameters
     TFileScanRangeParams scan_params;
@@ -649,7 +649,7 @@ TEST_F(IcebergReaderTest, read_iceberg_orc_file) {
     }
 
     // Setup runtime state
-    RuntimeState runtime_state((TQueryGlobals()));
+    RuntimeState runtime_state = RuntimeState(TQueryOptions(), TQueryGlobals());
 
     // Setup scan parameters
     TFileScanRangeParams scan_params;

@@ -393,7 +393,7 @@ public:
     // if jsonb is invalid, return nullptr
     // if josnb is null json , return nullptr
     // else return jsonb_value
-    static JsonbValue* handle_jsonb_value(const StringRef& val);
+    static const JsonbValue* handle_jsonb_value(const StringRef& val);
 
     virtual Status deserialize_column_from_jsonb_vector(ColumnNullable& column_to,
                                                         const ColumnString& from_column,
@@ -413,23 +413,6 @@ public:
                                          int64_t row_num) const = 0;
 
     virtual void read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const = 0;
-
-    // MySQL serializer and deserializer
-
-    template <bool is_binary_format>
-    Status write_column_to_mysql(const IColumn& column,
-                                 MysqlRowBuffer<is_binary_format>& row_buffer, int64_t row_idx,
-                                 bool col_const, const FormatOptions& options) const {
-        if constexpr (is_binary_format) {
-            return write_column_to_mysql_binary(column, row_buffer, row_idx, col_const, options);
-        } else {
-            return write_column_to_mysql_text(column, row_buffer, row_idx, col_const, options);
-        }
-    }
-
-    virtual Status write_column_to_mysql_text(const IColumn& column, MysqlRowTextBuffer& row_buffer,
-                                              int64_t row_idx, bool col_const,
-                                              const FormatOptions& options) const = 0;
 
     // return true if output as string
     // return false if output null
@@ -517,8 +500,8 @@ inline Status checkArrowStatus(const arrow::Status& status, const std::string& c
     return Status::OK();
 }
 
-inline JsonbValue* DataTypeSerDe::handle_jsonb_value(const StringRef& val) {
-    JsonbDocument* doc = nullptr;
+inline const JsonbValue* DataTypeSerDe::handle_jsonb_value(const StringRef& val) {
+    const JsonbDocument* doc = nullptr;
     if (val.size == 0) {
         return nullptr;
     }
@@ -526,7 +509,7 @@ inline JsonbValue* DataTypeSerDe::handle_jsonb_value(const StringRef& val) {
     if (!st.ok() || !doc || !doc->getValue()) [[unlikely]] {
         return nullptr;
     }
-    JsonbValue* value = doc->getValue();
+    const JsonbValue* value = doc->getValue();
     if (UNLIKELY(!value)) {
         return nullptr;
     }

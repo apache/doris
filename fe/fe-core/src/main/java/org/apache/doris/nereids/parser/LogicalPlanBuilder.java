@@ -961,8 +961,8 @@ import org.apache.doris.nereids.trees.plans.commands.info.ModifyColumnCommentOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyColumnOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyDistributionOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyEngineOp;
-import org.apache.doris.nereids.trees.plans.commands.info.ModifyFrontendOrBackendHostNameOp;
-import org.apache.doris.nereids.trees.plans.commands.info.ModifyFrontendOrBackendHostNameOp.ModifyOpType;
+import org.apache.doris.nereids.trees.plans.commands.info.ModifyNodeHostNameOp;
+import org.apache.doris.nereids.trees.plans.commands.info.ModifyNodeHostNameOp.ModifyOpType;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyPartitionOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyTableCommentOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyTablePropertiesOp;
@@ -1070,6 +1070,7 @@ import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.policy.FilterType;
 import org.apache.doris.policy.PolicyTypeEnum;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.ConnectContextUtil;
 import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.resource.workloadschedpolicy.WorkloadActionMeta;
@@ -1346,27 +1347,26 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             branchName = Optional.of(ctx.optSpecBranch().name.getText());
         }
         List<String> colNames = ctx.cols == null ? ImmutableList.of() : visitIdentifierList(ctx.cols);
-        // TODO visit partitionSpecCtx
         LogicalPlan plan = visitQuery(ctx.query());
-        // partitionSpec may be NULL. means auto detect partition. only available when IOT
-        Pair<Boolean, List<String>> partitionSpec = visitPartitionSpec(ctx.partitionSpec());
-        // partitionSpec.second :
-        // null - auto detect
-        // zero - whole table
-        // others - specific partitions
-        boolean isAutoDetect = partitionSpec.second == null;
+
+        // Parse partition specification using unified method
+        InsertPartitionSpec partitionSpec = parseInsertPartitionSpec(ctx.partitionSpec());
+
+        // Unified sink creation for all catalog types (including Iceberg static
+        // partition)
         LogicalSink<?> sink = UnboundTableSinkCreator.createUnboundTableSinkMaybeOverwrite(
                 tableName.build(),
                 colNames,
-                ImmutableList.of(), // hints
-                partitionSpec.first, // isTemp
-                partitionSpec.second, // partition names
-                isAutoDetect,
+                ImmutableList.of(),
+                partitionSpec.isTemporary(),
+                partitionSpec.isAutoDetect() ? null : partitionSpec.getPartitionNames(),
+                partitionSpec.isAutoDetect(),
                 isOverwrite,
                 ConnectContext.get().getSessionVariable().isEnableUniqueKeyPartialUpdate(),
                 ConnectContext.get().getSessionVariable().getPartialUpdateNewRowPolicy(),
                 ctx.tableId == null ? DMLCommandType.INSERT : DMLCommandType.GROUP_COMMIT,
-                plan);
+                plan,
+                partitionSpec.isStaticPartition() ? partitionSpec.getStaticPartitionValues() : null);
         Optional<LogicalPlan> cte = Optional.empty();
         if (ctx.cte() != null) {
             cte = Optional.ofNullable(withCte(plan, ctx.cte()));
@@ -1445,11 +1445,62 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 partitions = null;
             } else if (ctx.partition != null) {
                 partitions = ImmutableList.of(ctx.partition.getText());
+            } else if (ctx.partitionKeyValue() != null && !ctx.partitionKeyValue().isEmpty()) {
+                // Static partition: PARTITION (col='val', ...)
+                throw new ParseException(
+                        "Static partition syntax PARTITION (col='val', ...) is only supported in INSERT statements",
+                        ctx);
             } else {
                 partitions = visitIdentifierList(ctx.partitions);
             }
         }
         return Pair.of(temporaryPartition, partitions);
+    }
+
+    /**
+     * Parse partition specification for INSERT statements.
+     * Returns a unified InsertPartitionSpec that handles all partition modes:
+     * - Auto-detect: PARTITION (*)
+     * - Dynamic partition by name: PARTITION (p1, p2)
+     * - Static partition with values: PARTITION (col='val', ...)
+     * - No partition specified
+     */
+    private InsertPartitionSpec parseInsertPartitionSpec(PartitionSpecContext ctx) {
+        if (ctx == null) {
+            return InsertPartitionSpec.none();
+        }
+
+        boolean isTemporary = ctx.TEMPORARY() != null;
+
+        // PARTITION (*)
+        if (ctx.ASTERISK() != null) {
+            return InsertPartitionSpec.autoDetect(isTemporary);
+        }
+
+        // PARTITION partition_name (single partition)
+        if (ctx.partition != null) {
+            return InsertPartitionSpec.dynamicPartition(
+                    ImmutableList.of(ctx.partition.getText()), isTemporary);
+        }
+
+        // PARTITION (col1='val1', col2='val2') - static partition
+        if (ctx.partitionKeyValue() != null && !ctx.partitionKeyValue().isEmpty()) {
+            Map<String, Expression> staticValues = Maps.newLinkedHashMap();
+            for (DorisParser.PartitionKeyValueContext kvCtx : ctx.partitionKeyValue()) {
+                String colName = kvCtx.identifier().getText();
+                Expression valueExpr = typedVisit(kvCtx.expression());
+                staticValues.put(colName, valueExpr);
+            }
+            return InsertPartitionSpec.staticPartition(staticValues, isTemporary);
+        }
+
+        // PARTITION (p1, p2, ...) - dynamic partition list
+        if (ctx.partitions != null) {
+            List<String> partitionNames = visitIdentifierList(ctx.partitions);
+            return InsertPartitionSpec.dynamicPartition(partitionNames, isTemporary);
+        }
+
+        return InsertPartitionSpec.none();
     }
 
     @Override
@@ -1490,7 +1541,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 desc, properties, logicalPlan, querySql,
                 new MTMVRefreshInfo(buildMode, refreshMethod, refreshTriggerInfo),
                 ctx.cols == null ? Lists.newArrayList() : visitSimpleColumnDefs(ctx.cols),
-                visitMTMVPartitionInfo(ctx.mvPartition())
+                visitMTMVPartitionInfo(ctx.mvPartition()),
+                ConnectContextUtil.getAffectQueryResultInPlanVariables(ConnectContext.get())
         ));
     }
 
@@ -4727,7 +4779,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public Literal visitDecimalLiteral(DecimalLiteralContext ctx) {
         try {
             if (Config.enable_decimal_conversion) {
-                return new DecimalV3Literal(new BigDecimal(ctx.getText()));
+                return DecimalV3Literal.createWithCheck256(new BigDecimal(ctx.getText()));
             } else {
                 return new DecimalLiteral(new BigDecimal(ctx.getText()));
             }
@@ -7549,9 +7601,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         String hostName = stripQuotes(ctx.hostName.getText());
         AlterSystemOp alterSystemOp = null;
         if (ctx.FRONTEND() != null) {
-            alterSystemOp = new ModifyFrontendOrBackendHostNameOp(hostPort, hostName, ModifyOpType.Frontend);
+            alterSystemOp = new ModifyNodeHostNameOp(hostPort, hostName, ModifyOpType.Frontend);
         } else if (ctx.BACKEND() != null) {
-            alterSystemOp = new ModifyFrontendOrBackendHostNameOp(hostPort, hostName, ModifyOpType.Backend);
+            alterSystemOp = new ModifyNodeHostNameOp(hostPort, hostName, ModifyOpType.Backend);
         }
         return new AlterSystemCommand(alterSystemOp, PlanType.ALTER_SYSTEM_MODIFY_FRONTEND_OR_BACKEND_HOSTNAME);
     }

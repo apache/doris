@@ -831,6 +831,7 @@ enum TSchemaTableName {
   PARTITIONS = 10,
   VIEW_DEPENDENCY = 11,
   SQL_BLOCK_RULE_STATUS = 12,
+  DATABASE_PROPERTIES = 13,
 }
 
 struct TMetadataTableRequestParams {
@@ -1360,6 +1361,8 @@ struct TCreatePartitionRequest {
     // be_endpoint = <ip>:<heartbeat_port> to distinguish a particular BE
     5: optional string be_endpoint
     6: optional bool write_single_replica = false
+    // query_id to identify the coordinator, if coordinator exists, it means this is a multi-instance load
+    7: optional Types.TUniqueId query_id
 }
 
 struct TCreatePartitionResult {
