@@ -31,7 +31,7 @@ import java.util.List;
 /**
  * Subtract Expression. BinaryExpression.
  */
-public class Subtract extends BinaryArithmetic implements PropagateNullable {
+public class Subtract extends BinaryArithmetic implements PropagateNullable, NeedSessionVarGuard {
 
     public Subtract(Expression left, Expression right) {
         super(ImmutableList.of(left, right), Operator.SUBTRACT);
