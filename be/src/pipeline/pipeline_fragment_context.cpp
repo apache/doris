@@ -1981,21 +1981,27 @@ PipelineFragmentContext::collect_realtime_load_channel_profile() const {
 
     for (const auto& tasks : _tasks) {
         for (const auto& task : tasks) {
-            if (task.second->runtime_profile() == nullptr) {
+            if (task.second->load_channel_profile() == nullptr) {
                 continue;
             }
 
             auto tmp_load_channel_profile = std::make_shared<TRuntimeProfileTree>();
 
-            task.second->runtime_profile()->to_thrift(tmp_load_channel_profile.get(),
+            task.second->load_channel_profile()->to_thrift(tmp_load_channel_profile.get(),
                                                       _runtime_state->profile_level());
             _runtime_state->load_channel_profile()->update(*tmp_load_channel_profile);
+            std::ostringstream out;
+            task.second->load_channel_profile()->pretty_print(&out);
+            LOG(INFO) << "Refrain FragmentContext: Load channel profile : " << out.str();
         }
     }
 
     auto load_channel_profile = std::make_shared<TRuntimeProfileTree>();
     _runtime_state->load_channel_profile()->to_thrift(load_channel_profile.get(),
                                                       _runtime_state->profile_level());
+    std::ostringstream out;
+    _runtime_state->load_channel_profile()->pretty_print(&out);
+    LOG(INFO) << "Refrain _runtime_state: Load channel profile : " << out.str();
     return load_channel_profile;
 }
 #include "common/compile_check_end.h"

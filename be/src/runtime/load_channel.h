@@ -45,7 +45,7 @@ class BaseTabletsChannel;
 class LoadChannel {
 public:
     LoadChannel(const UniqueId& load_id, int64_t timeout_s, bool is_high_priority,
-                std::string sender_ip, int64_t backend_id, bool enable_profile, int64_t wg_id);
+                std::string sender_ip, int64_t sender_id, int64_t backend_id, bool enable_profile, int64_t wg_id);
     ~LoadChannel();
 
     // open a new load channel if not exist
@@ -82,7 +82,7 @@ protected:
     Status _handle_eos(BaseTabletsChannel* channel, const PTabletWriterAddBlockRequest& request,
                        PTabletWriterAddBlockResult* response);
 
-    void _init_profile();
+    void _init_profile(int64_t sender_id);
     // thread safety
     void _report_profile(PTabletWriterAddBlockResult* response);
 
