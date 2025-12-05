@@ -535,8 +535,8 @@ std::shared_ptr<ColumnPredicate> create_comparison_predicate0(
     case TYPE_CHAR: {
         // TODO(gabriel): Use std::string instead of StringRef
         size_t target = assert_cast<const vectorized::DataTypeString*>(
-                              vectorized::remove_nullable(data_type).get())
-                              ->len();
+                                vectorized::remove_nullable(data_type).get())
+                                ->len();
         StringRef v = value;
         if (target > value.size) {
             char* buffer = arena.alloc(target);
