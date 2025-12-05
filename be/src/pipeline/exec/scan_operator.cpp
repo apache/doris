@@ -928,9 +928,7 @@ Status ScanLocalState<Derived>::_normalize_not_in_and_not_eq_predicate(
         *pdt = PushDownType::UNACCEPTABLE;
         return Status::OK();
     }
-    if (is_fixed_range) {
-        *pdt = temp_pdt;
-    }
+    *pdt = PushDownType::ACCEPTABLE;
     return Status::OK();
 }
 
