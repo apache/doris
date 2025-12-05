@@ -15,6 +15,8 @@ PhysicalResultSink
 --------------------filter(((cast(id as BIGINT) + random(1, 1)) > 0) and (t1.__DORIS_DELETE_SIGN__ = 0))
 ----------------------PhysicalOlapScan[t1]
 
+-- !having_with_window_2 --
+
 -- !test_sum0 --
 0	0
 0	3
