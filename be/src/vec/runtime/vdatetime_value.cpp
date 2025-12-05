@@ -2977,11 +2977,10 @@ void DateV2Value<T>::set_microsecond(uint64_t microsecond) {
 }
 
 template <typename T>
-bool DateV2Value<T>::to_format_string_conservative(const char* format, size_t len, char* to,
-                                                   size_t max_valid_length) const {
-    if (is_invalid(year(), month(), day(), hour(), minute(), second(), microsecond())) {
-        return false;
-    }
+bool DateV2Value<T>::to_format_string_without_check(const char* format, size_t len, char* to,
+                                                    size_t max_valid_length, int16_t year,
+                                                    int8_t month, int8_t day, int hour, int minute,
+                                                    int second, int ms) {
     char* const begin = to; // to check written bytes
     char buf[64];
     char* pos = nullptr;
@@ -3003,79 +3002,90 @@ bool DateV2Value<T>::to_format_string_conservative(const char* format, size_t le
         switch (ch = *ptr++) {
         case 'y':
             // Year, numeric (two digits)
-            to = write_two_digits_to_string(this->year() % 100, to);
+            to = write_two_digits_to_string(year % 100, to);
             cursor += 2;
             pos = cursor;
             break;
         case 'Y':
             // Year, numeric, four digits
-            to = write_four_digits_to_string(this->year(), to);
+            to = write_four_digits_to_string(year, to);
             cursor += 4;
             pos = cursor;
             break;
         case 'd':
             // Day of month (00...31)
-            to = write_two_digits_to_string(this->day(), to);
+            to = write_two_digits_to_string(day, to);
             cursor += 2;
             pos = cursor;
             break;
         case 'H':
-            to = write_two_digits_to_string(this->hour(), to);
-            cursor += 2;
+            // Hour (00...838)
+            if (hour < 100) {
+                to = write_two_digits_to_string(hour, to);
+                cursor += 2;
+            } else {
+                pos = int_to_str(hour, cursor);
+                to = append_with_prefix(cursor, static_cast<int>(pos - cursor), '0', 2, to);
+                cursor += (pos - cursor);
+            }
             pos = cursor;
             break;
         case 'i':
             // Minutes, numeric (00..59)
-            to = write_two_digits_to_string(this->minute(), to);
+            to = write_two_digits_to_string(minute, to);
             cursor += 2;
             pos = cursor;
             break;
         case 'm':
-            to = write_two_digits_to_string(this->month(), to);
+            to = write_two_digits_to_string(month, to);
             cursor += 2;
             pos = cursor;
             break;
         case 'h':
         case 'I':
             // Hour (01..12)
-            to = write_two_digits_to_string((this->hour() % 24 + 11) % 12 + 1, to);
+            to = write_two_digits_to_string((hour % 24 + 11) % 12 + 1, to);
             cursor += 2;
             pos = cursor;
             break;
         case 's':
         case 'S':
             // Seconds (00..59)
-            to = write_two_digits_to_string(this->second(), to);
+            to = write_two_digits_to_string(second, to);
             cursor += 2;
             pos = cursor;
             break;
         case 'a':
             // Abbreviated weekday name
-            if (this->year() == 0 && this->month() == 0) {
+            if (year == 0 && month == 0) {
                 return false;
             }
-            to = append_string(s_ab_day_name[weekday()], to);
+            to = append_string(s_ab_day_name[calc_weekday(calc_daynr(year, month, day), false)],
+                               to);
             break;
         case 'b':
             // Abbreviated month name
-            if (this->month() == 0) {
+            if (month == 0) {
                 return false;
             }
-            to = append_string(s_ab_month_name[this->month()], to);
+            to = append_string(s_ab_month_name[month], to);
             break;
         case 'c':
             // Month, numeric (0...12)
-            pos = int_to_str(this->month(), cursor);
+            pos = int_to_str(month, cursor);
             to = append_with_prefix(cursor, pos - cursor, '0', 1, to);
             break;
         case 'D':
             // Day of the month with English suffix (0th, 1st, ...)
-            pos = int_to_str(this->day(), cursor);
+            if (month == 0) {
+                return false;
+            }
+            pos = int_to_str(day, cursor);
             to = append_with_prefix(cursor, pos - cursor, '0', 1, to);
-            if (this->day() >= 10 && this->day() <= 19) {
+            if (day >= 10 && day <= 19) {
                 to = append_string("th", to);
             } else {
-                switch (this->day() % 10) {
+                switch (day % 10) {
                 case 1:
                     to = append_string("st", to);
                     break;
@@ -3093,39 +3103,42 @@ bool DateV2Value<T>::to_format_string_conservative(const char* format, size_t le
             break;
         case 'e':
             // Day of the month, numeric (0..31)
-            pos = int_to_str(this->day(), cursor);
+            pos = int_to_str(day, cursor);
             to = append_with_prefix(cursor, pos - cursor, '0', 1, to);
             break;
         case 'f':
             // Microseconds (000000..999999)
-            pos = int_to_str(this->microsecond(), cursor);
+            pos = int_to_str(ms, cursor);
             to = append_with_prefix(cursor, pos - cursor, '0', 6, to);
             break;
         case 'j':
             // Day of year (001..366)
-            pos = int_to_str(daynr() - doris::calc_daynr(this->year(), 1, 1) + 1, cursor);
+            if (month == 0 || day == 0) {
+                return false;
+            }
+            pos = int_to_str(calc_daynr(year, month, day) - calc_daynr(year, 1, 1) + 1, cursor);
             to = append_with_prefix(cursor, pos - cursor, '0', 3, to);
             break;
         case 'k':
-            // Hour (0..23)
-            pos = int_to_str(this->hour(), cursor);
+            // Hour (0..838)
+            pos = int_to_str(hour, cursor);
             to = append_with_prefix(cursor, pos - cursor, '0', 1, to);
             break;
         case 'l':
             // Hour (1..12)
-            pos = int_to_str((this->hour() % 24 + 11) % 12 + 1, cursor);
+            pos = int_to_str((hour % 24 + 11) % 12 + 1, cursor);
             to = append_with_prefix(cursor, pos - cursor, '0', 1, to);
             break;
         case 'M':
             // Month name (January..December)
-            if (this->month() == 0) {
+            if (month == 0) {
                 return false;
             }
-            to = append_string(s_month_name[this->month()], to);
+            to = append_string(s_month_name[month], to);
             break;
         case 'p':
             // AM or PM
-            if ((this->hour() % 24) >= 12) {
+            if ((hour % 24) >= 12) {
                 to = append_string("PM", to);
             } else {
                 to = append_string("AM", to);
@@ -3133,17 +3146,17 @@ bool DateV2Value<T>::to_format_string_conservative(const char* format, size_t le
             break;
         case 'r': {
             // Time, 12-hour (hh:mm:ss followed by AM or PM)
-            *to++ = (char)('0' + (((this->hour() + 11) % 12 + 1) / 10));
-            *to++ = (char)('0' + (((this->hour() + 11) % 12 + 1) % 10));
+            *to++ = (char)('0' + (((hour + 11) % 12 + 1) / 10));
+            *to++ = (char)('0' + (((hour + 11) % 12 + 1) % 10));
             *to++ = ':';
             // Minute
-            *to++ = (char)('0' + (this->minute() / 10));
-            *to++ = (char)('0' + (this->minute() % 10));
+            *to++ = (char)('0' + (minute / 10));
+            *to++ = (char)('0' + (minute % 10));
             *to++ = ':';
             /* Second */
-            *to++ = (char)('0' + (this->second() / 10));
-            *to++ = (char)('0' + (this->second() % 10));
-            if ((this->hour() % 24) >= 12) {
+            *to++ = (char)('0' + (second / 10));
+            *to++ = (char)('0' + (second % 10));
+            if ((hour % 24) >= 12) {
                 to = append_string(" PM", to);
             } else {
                 to = append_string(" AM", to);
@@ -3151,66 +3164,89 @@ bool DateV2Value<T>::to_format_string_conservative(const char* format, size_t le
             break;
         }
         case 'T': {
-            // Time, 24-hour (hh:mm:ss)
-            *to++ = (char)('0' + ((this->hour() % 24) / 10));
-            *to++ = (char)('0' + ((this->hour() % 24) % 10));
+            // Time, 24-hour (hh:mm:ss or hhh:mm:ss for TIME type)
+            if (hour < 100) {
+                *to++ = (char)('0' + (hour / 10));
+                *to++ = (char)('0' + (hour % 10));
+            } else {
+                pos = int_to_str(hour, cursor);
+                to = append_with_prefix(cursor, static_cast<int>(pos - cursor), '0', 2, to);
+            }
             *to++ = ':';
             // Minute
-            *to++ = (char)('0' + (this->minute() / 10));
-            *to++ = (char)('0' + (this->minute() % 10));
+            *to++ = (char)('0' + (minute / 10));
+            *to++ = (char)('0' + (minute % 10));
             *to++ = ':';
             /* Second */
-            *to++ = (char)('0' + (this->second() / 10));
-            *to++ = (char)('0' + (this->second() % 10));
+            *to++ = (char)('0' + (second / 10));
+            *to++ = (char)('0' + (second % 10));
             break;
         }
         case 'u':
             // Week (00..53), where Monday is the first day of the week;
             // WEEK() mode 1
-            to = write_two_digits_to_string(week(mysql_week_mode(1)), to);
+            if (month == 0) {
+                return false;
+            }
+            to = write_two_digits_to_string(week(year, month, day, mysql_week_mode(1)), to);
             cursor += 2;
             pos = cursor;
             break;
         case 'U':
             // Week (00..53), where Sunday is the first day of the week;
             // WEEK() mode 0
-            to = write_two_digits_to_string(week(mysql_week_mode(0)), to);
+            if (month == 0) {
+                return false;
+            }
+            to = write_two_digits_to_string(week(year, month, day, mysql_week_mode(0)), to);
             cursor += 2;
             pos = cursor;
             break;
         case 'v':
             // Week (01..53), where Monday is the first day of the week;
             // WEEK() mode 3; used with %x
-            to = write_two_digits_to_string(week(mysql_week_mode(3)), to);
+            if (month == 0) {
+                return false;
+            }
+            to = write_two_digits_to_string(week(year, month, day, mysql_week_mode(3)), to);
             cursor += 2;
             pos = cursor;
             break;
         case 'V':
             // Week (01..53), where Sunday is the first day of the week;
             // WEEK() mode 2; used with %X
-            to = write_two_digits_to_string(week(mysql_week_mode(2)), to);
+            if (month == 0) {
+                return false;
+            }
+            to = write_two_digits_to_string(week(year, month, day, mysql_week_mode(2)), to);
             cursor += 2;
             pos = cursor;
             break;
         case 'w':
             // Day of the week (0=Sunday..6=Saturday)
-            if (this->month() == 0 && this->year() == 0) {
+            if (month == 0 && year == 0) {
                 return false;
             }
-            pos = int_to_str(doris::calc_weekday(daynr(), true), cursor);
+            pos = int_to_str(calc_weekday(calc_daynr(year, month, day), true), cursor);
             to = append_with_prefix(cursor, pos - cursor, '0', 1, to);
             break;
         case 'W':
             // Weekday name (Sunday..Saturday)
-            to = append_string(s_day_name[weekday()], to);
+            if (year == 0 && month == 0) {
+                return false;
+            }
+            to = append_string(s_day_name[calc_weekday(calc_daynr(year, month, day), false)], to);
             break;
         case 'x': {
             // Year for the week, where Monday is the first day of the week,
             // numeric, four digits; used with %v
-            uint16_t year = 0;
-            calc_week(this->daynr(), this->year(), this->month(), this->day(), mysql_week_mode(3),
-                      &year, true);
-            to = write_four_digits_to_string(year, to);
+            if (month == 0 || day == 0) {
+                return false;
+            }
+            uint16_t year_to_write = 0;
+            calc_week(calc_daynr(year, month, day), year, month, day, mysql_week_mode(3),
+                      &year_to_write, true);
+            to = write_four_digits_to_string(year_to_write, to);
             cursor += 4;
             pos = cursor;
             break;
@@ -3218,10 +3254,13 @@ bool DateV2Value<T>::to_format_string_conservative(const char* format, size_t le
         case 'X': {
             // Year for the week where Sunday is the first day of the week,
             // numeric, four digits; used with %V
-            uint16_t year = 0;
-            calc_week(this->daynr(), this->year(), this->month(), this->day(), mysql_week_mode(2),
-                      &year);
-            to = write_four_digits_to_string(year, to);
+            if (month == 0 || day == 0) {
+                return false;
+            }
+            uint16_t year_to_write = 0;
+            calc_week(calc_daynr(year, month, day), year, month, day, mysql_week_mode(2),
+                      &year_to_write);
+            to = write_four_digits_to_string(year_to_write, to);
             cursor += 4;
             pos = cursor;
             break;
@@ -3234,6 +3273,18 @@ bool DateV2Value<T>::to_format_string_conservative(const char* format, size_t le
     }
     *to++ = '\0';
     return true;
+}
+
+template <typename T>
+bool DateV2Value<T>::to_format_string_conservative(const char* format, size_t len, char* to,
+                                                   size_t max_valid_length) const {
+    if (is_invalid(year(), month(), day(), hour(), minute(), second(), microsecond())) {
+        return false;
+    }
+
+    return to_format_string_without_check(format, len, to, max_valid_length, this->year(),
+                                          this->month(), this->day(), this->hour(), this->minute(),
+                                          this->second(), this->microsecond());
 }
 
 template <typename T>
@@ -3344,6 +3395,11 @@ uint16_t DateV2Value<T>::year_of_week() const {
         }
     }
     return date_v2_value_.year_;
+}
+template <typename T>
+uint8_t DateV2Value<T>::week(int16_t year, int8_t month, int8_t day, uint8_t mode) {
+    uint16_t year_to_write = 0;
+    return calc_week(calc_daynr(year, month, day), year, month, day, mode, &year_to_write);
 }
 
 template <typename T>

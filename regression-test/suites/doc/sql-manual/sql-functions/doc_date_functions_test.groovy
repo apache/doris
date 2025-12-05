@@ -194,6 +194,7 @@ suite("doc_date_functions_test") {
     // Any parameter is NULL
     qt_date_format_7 """SELECT DATE_FORMAT(NULL, '%Y-%m-%d')"""
     qt_date_format_8 """SELECT DATE_FORMAT('2009-10-04', NULL)"""
+    qt_date_format_9 """SELECT DATE_FORMAT('2009-10-04 22:23:00', '   %W %M    %Y')"""
 
     // 10. DATE function tests
     // Extract date part from datetime
@@ -1569,6 +1570,7 @@ suite("doc_date_functions_test") {
     testFoldConst("SELECT DATE_FORMAT('2009-10-04', '%D %e %f')")
     testFoldConst("SELECT DATE_FORMAT(NULL, '%Y-%m-%d')")
     testFoldConst("SELECT DATE_FORMAT('2009-10-04', NULL)")
+    testFoldConst("SELECT DATE_FORMAT('2009-10-04 22:23:00', '   %W %M    %Y')")
 
     // 7. DATE function constant folding tests
     testFoldConst("SELECT DATE('2003-12-31 01:02:03')")
