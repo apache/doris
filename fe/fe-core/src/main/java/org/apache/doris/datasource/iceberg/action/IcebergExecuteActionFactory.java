@@ -104,8 +104,7 @@ public class IcebergExecuteActionFactory {
                 FAST_FORWARD,
                 EXPIRE_SNAPSHOTS,
                 REWRITE_DATA_FILES,
-                PUBLISH_CHANGES,
-              
+                PUBLISH_CHANGES
         };
     }
 }
