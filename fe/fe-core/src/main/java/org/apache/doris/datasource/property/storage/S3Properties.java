@@ -24,6 +24,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.datasource.property.ConnectorPropertiesUtils;
 import org.apache.doris.datasource.property.ConnectorProperty;
+import org.apache.doris.datasource.property.common.AwsCredentialsProviderMode;
 import org.apache.doris.thrift.TCredProviderType;
 import org.apache.doris.thrift.TS3StorageParam;
 
@@ -33,15 +34,10 @@ import com.google.common.collect.ImmutableSet;
 import lombok.Getter;
 import lombok.Setter;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import software.amazon.awssdk.auth.credentials.AnonymousCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
-import software.amazon.awssdk.auth.credentials.AwsCredentialsProviderChain;
-import software.amazon.awssdk.auth.credentials.ContainerCredentialsProvider;
-import software.amazon.awssdk.auth.credentials.EnvironmentVariableCredentialsProvider;
-import software.amazon.awssdk.auth.credentials.InstanceProfileCredentialsProvider;
-import software.amazon.awssdk.auth.credentials.ProfileCredentialsProvider;
-import software.amazon.awssdk.auth.credentials.SystemPropertyCredentialsProvider;
-import software.amazon.awssdk.auth.credentials.WebIdentityTokenFileCredentialsProvider;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.sts.StsClient;
 import software.amazon.awssdk.services.sts.auth.StsAssumeRoleCredentialsProvider;
@@ -56,6 +52,8 @@ import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
 public class S3Properties extends AbstractS3CompatibleProperties {
+
+    private static final Logger LOG = LogManager.getLogger(S3Properties.class);
 
     public static final String USE_PATH_STYLE = "use_path_style";
 
@@ -170,6 +168,16 @@ public class S3Properties extends AbstractS3CompatibleProperties {
             description = "The external id of S3.")
     protected String s3ExternalId = "";
 
+    @ConnectorProperty(names = {"s3.credentials_provider_type", "glue.credentials_provider_type"},
+            required = false,
+            description = "The credentials provider type of S3. "
+                    + "Options are: DEFAULT, ASSUME_ROLE, ENVIRONMENT, SYSTEM_PROPERTIES, "
+                    + "WEB_IDENTITY_TOKEN_FILE, INSTANCE_PROFILE. "
+                    + "If not set, it will use the default provider chain of AWS SDK.")
+    protected String awsCredentialsProviderType = AwsCredentialsProviderMode.DEFAULT.name();
+
+    private AwsCredentialsProviderMode awsCredentialsProviderMode;
+
     public static S3Properties of(Map<String, String> properties) {
         S3Properties propertiesObj = new S3Properties(properties);
         ConnectorPropertiesUtils.bindConnectorProperties(propertiesObj, properties);
@@ -215,6 +223,7 @@ public class S3Properties extends AbstractS3CompatibleProperties {
             throw new IllegalArgumentException("s3.external_id must be used with s3.role_arn");
         }
         convertGlueToS3EndpointIfNeeded();
+        awsCredentialsProviderMode = AwsCredentialsProviderMode.fromString(awsCredentialsProviderType);
     }
 
     /**
@@ -297,7 +306,7 @@ public class S3Properties extends AbstractS3CompatibleProperties {
         if (StringUtils.isNotBlank(s3IAMRole)) {
             StsClient stsClient = StsClient.builder()
                     .region(Region.of(region))
-                    .credentialsProvider(InstanceProfileCredentialsProvider.create())
+                    .credentialsProvider(awsCredentialsProviderMode.getCredentialsProviderV2())
                     .build();
 
             return StsAssumeRoleCredentialsProvider.builder()
@@ -310,15 +319,7 @@ public class S3Properties extends AbstractS3CompatibleProperties {
                     }).build();
         }
         // For anonymous access (no credentials required)
-        //fixme: should return AwsCredentialsProviderChain
-        if (StringUtils.isBlank(accessKey) && StringUtils.isBlank(secretKey)) {
-            return AnonymousCredentialsProvider.create();
-        }
-        return AwsCredentialsProviderChain.of(SystemPropertyCredentialsProvider.create(),
-                EnvironmentVariableCredentialsProvider.create(),
-                WebIdentityTokenFileCredentialsProvider.create(),
-                ProfileCredentialsProvider.create(),
-                InstanceProfileCredentialsProvider.create());
+        return AnonymousCredentialsProvider.create();
     }
 
     private AwsCredentialsProvider getAwsCredentialsProviderV2() {
@@ -329,13 +330,7 @@ public class S3Properties extends AbstractS3CompatibleProperties {
         if (StringUtils.isNotBlank(s3IAMRole)) {
             StsClient stsClient = StsClient.builder()
                     .region(Region.of(region))
-                    .credentialsProvider(AwsCredentialsProviderChain.of(
-                            WebIdentityTokenFileCredentialsProvider.create(),
-                            ContainerCredentialsProvider.create(),
-                            InstanceProfileCredentialsProvider.create(),
-                            SystemPropertyCredentialsProvider.create(),
-                            EnvironmentVariableCredentialsProvider.create(),
-                            ProfileCredentialsProvider.create()))
+                    .credentialsProvider(awsCredentialsProviderMode.getCredentialsProviderV2())
                     .build();
 
             return StsAssumeRoleCredentialsProvider.builder()
@@ -347,13 +342,7 @@ public class S3Properties extends AbstractS3CompatibleProperties {
                         }
                     }).build();
         }
-        return AwsCredentialsProviderChain.of(
-                WebIdentityTokenFileCredentialsProvider.create(),
-                ContainerCredentialsProvider.create(),
-                InstanceProfileCredentialsProvider.create(),
-                SystemPropertyCredentialsProvider.create(),
-                EnvironmentVariableCredentialsProvider.create(),
-                ProfileCredentialsProvider.create());
+        return awsCredentialsProviderMode.getCredentialsProviderV2();
     }
 
     @Override
@@ -375,11 +364,15 @@ public class S3Properties extends AbstractS3CompatibleProperties {
             hadoopStorageConfig.set("fs.s3a.aws.credentials.provider",
                     "org.apache.hadoop.fs.s3a.auth.AssumedRoleCredentialProvider");
             hadoopStorageConfig.set("fs.s3a.assumed.role.credentials.provider",
-                    "org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider,com.amazonaws.auth.EnvironmentVar"
-                            + "iableCredentialsProvider,com.amazonaws.auth.InstanceProfileCredentialsProvider");
+                    awsCredentialsProviderMode.getClassName());
             if (StringUtils.isNotBlank(s3ExternalId)) {
                 hadoopStorageConfig.set("fs.s3a.assumed.role.external.id", s3ExternalId);
             }
+            return;
+        }
+        if (Config.aws_credentials_provider_version.equalsIgnoreCase("v2")) {
+            hadoopStorageConfig.set("fs.s3a.aws.credentials.provider",
+                    awsCredentialsProviderMode.getClassName());
         }
     }
 
