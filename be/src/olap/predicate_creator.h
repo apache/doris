@@ -369,35 +369,28 @@ inline std::shared_ptr<ColumnPredicate> parse_to_predicate(const vectorized::Dat
 template <PrimitiveType TYPE, PredicateType PT>
 std::shared_ptr<ColumnPredicate> create_in_list_predicate(const uint32_t cid,
                                                           const std::shared_ptr<HybridSetBase>& set,
-                                                          bool is_opposite) {
+                                                          bool is_opposite,
+                                                          size_t char_length = 0) {
     auto set_size = set->size();
     if (set_size == 1) {
-        return InListPredicateBase<TYPE, PT, 1>::create_shared(cid, set,
-                                                               PT == PredicateType::NOT_IN_LIST);
+        return InListPredicateBase<TYPE, PT, 1>::create_shared(cid, set, is_opposite, char_length);
     } else if (set_size == 2) {
-        return InListPredicateBase<TYPE, PT, 2>::create_shared(cid, set,
-                                                               PT == PredicateType::NOT_IN_LIST);
+        return InListPredicateBase<TYPE, PT, 2>::create_shared(cid, set, is_opposite, char_length);
     } else if (set_size == 3) {
-        return InListPredicateBase<TYPE, PT, 3>::create_shared(cid, set,
-                                                               PT == PredicateType::NOT_IN_LIST);
+        return InListPredicateBase<TYPE, PT, 3>::create_shared(cid, set, is_opposite, char_length);
     } else if (set_size == 4) {
-        return InListPredicateBase<TYPE, PT, 4>::create_shared(cid, set,
-                                                               PT == PredicateType::NOT_IN_LIST);
+        return InListPredicateBase<TYPE, PT, 4>::create_shared(cid, set, is_opposite, char_length);
     } else if (set_size == 5) {
-        return InListPredicateBase<TYPE, PT, 5>::create_shared(cid, set,
-                                                               PT == PredicateType::NOT_IN_LIST);
+        return InListPredicateBase<TYPE, PT, 5>::create_shared(cid, set, is_opposite, char_length);
     } else if (set_size == 6) {
-        return InListPredicateBase<TYPE, PT, 6>::create_shared(cid, set,
-                                                               PT == PredicateType::NOT_IN_LIST);
+        return InListPredicateBase<TYPE, PT, 6>::create_shared(cid, set, is_opposite, char_length);
     } else if (set_size == 7) {
-        return InListPredicateBase<TYPE, PT, 7>::create_shared(cid, set,
-                                                               PT == PredicateType::NOT_IN_LIST);
+        return InListPredicateBase<TYPE, PT, 7>::create_shared(cid, set, is_opposite, char_length);
     } else if (set_size == FIXED_CONTAINER_MAX_SIZE) {
-        return InListPredicateBase<TYPE, PT, 8>::create_shared(cid, set,
-                                                               PT == PredicateType::NOT_IN_LIST);
+        return InListPredicateBase<TYPE, PT, 8>::create_shared(cid, set, is_opposite, char_length);
     } else {
         return InListPredicateBase<TYPE, PT, FIXED_CONTAINER_MAX_SIZE + 1>::create_shared(
-                cid, set, PT == PredicateType::NOT_IN_LIST);
+                cid, set, is_opposite, char_length);
     }
 }
 
@@ -444,7 +437,11 @@ std::shared_ptr<ColumnPredicate> create_in_list_predicate(const uint32_t cid,
         return create_in_list_predicate<TYPE_DECIMAL256, PT>(cid, set, is_opposite);
     }
     case TYPE_CHAR: {
-        return create_in_list_predicate<TYPE_CHAR, PT>(cid, set, is_opposite);
+        return create_in_list_predicate<TYPE_CHAR, PT>(
+                cid, set, is_opposite,
+                assert_cast<const vectorized::DataTypeString*>(
+                        vectorized::remove_nullable(data_type).get())
+                        ->len());
     }
     case TYPE_VARCHAR: {
         return create_in_list_predicate<TYPE_VARCHAR, PT>(cid, set, is_opposite);
@@ -483,7 +480,7 @@ std::shared_ptr<ColumnPredicate> create_in_list_predicate(const uint32_t cid,
 template <PredicateType PT>
 std::shared_ptr<ColumnPredicate> create_comparison_predicate0(
         const uint32_t cid, const vectorized::DataTypePtr& data_type, StringRef& value,
-        bool opposite) {
+        bool opposite, vectorized::Arena& arena) {
     switch (data_type->get_primitive_type()) {
     case TYPE_TINYINT: {
         return ComparisonPredicateBase<TYPE_TINYINT, PT>::create_shared(
@@ -536,7 +533,19 @@ std::shared_ptr<ColumnPredicate> create_comparison_predicate0(
                 opposite);
     }
     case TYPE_CHAR: {
-        return ComparisonPredicateBase<TYPE_CHAR, PT>::create_shared(cid, value, opposite);
+        // TODO(gabriel): Use std::string instead of StringRef
+        size_t target = assert_cast<const vectorized::DataTypeString*>(
+                              vectorized::remove_nullable(data_type).get())
+                              ->len();
+        StringRef v = value;
+        if (target > value.size) {
+            char* buffer = arena.alloc(target);
+            memset(buffer, 0, target);
+            memcpy(buffer, value.data, value.size);
+            v = {buffer, target};
+        }
+
+        return ComparisonPredicateBase<TYPE_CHAR, PT>::create_shared(cid, v, opposite);
     }
     case TYPE_VARCHAR: {
         return ComparisonPredicateBase<TYPE_VARCHAR, PT>::create_shared(cid, value, opposite);

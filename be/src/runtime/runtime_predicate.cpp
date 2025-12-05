@@ -195,8 +195,9 @@ Status RuntimePredicate::update(const Field& value) {
         }
         const auto& column = *DORIS_TRY(ctx.tablet_schema->column(ctx.col_name));
         auto str_ref = _get_string_ref(_orderby_extrem, _type);
-        std::shared_ptr<ColumnPredicate> pred = _pred_constructor(
-                ctx.predicate->column_id(), column.get_vec_type(), str_ref, false);
+        std::shared_ptr<ColumnPredicate> pred =
+                _pred_constructor(ctx.predicate->column_id(), column.get_vec_type(), str_ref, false,
+                                  _predicate_arena);
 
         // For NULLS FIRST, wrap a AcceptNullPredicate to return true for NULL
         // since ORDER BY ASC/DESC should get NULL first but pred returns NULL

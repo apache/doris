@@ -742,7 +742,7 @@ Status ScanLocalState<Derived>::_normalize_in_and_eq_predicate(
                     slot->type()->get_primitive_type() == TYPE_VARIANT
                             ? expr->get_child(0)->data_type()
                             : slot->type(),
-                    value, false));
+                    value, false, _arena));
 
             if constexpr (T == TYPE_CHAR || T == TYPE_VARCHAR || T == TYPE_STRING ||
                           T == TYPE_HLL) {
@@ -908,7 +908,7 @@ Status ScanLocalState<Derived>::_normalize_not_in_and_not_eq_predicate(
                     slot->type()->get_primitive_type() == TYPE_VARIANT
                             ? expr->get_child(0)->data_type()
                             : slot->type(),
-                    value, false));
+                    value, false, _arena));
             auto fn_name = std::string("");
             if constexpr (T == TYPE_CHAR || T == TYPE_VARCHAR || T == TYPE_STRING ||
                           T == TYPE_HLL) {
@@ -1082,28 +1082,28 @@ Status ScanLocalState<Derived>::_normalize_noneq_binary_predicate(
                             slot->type()->get_primitive_type() == TYPE_VARIANT
                                     ? expr->get_child(0)->data_type()
                                     : slot->type(),
-                            value, false));
+                            value, false, _arena));
                 } else if (function_name == "gt") {
                     predicates.emplace_back(create_comparison_predicate0<PredicateType::GT>(
                             slot->id(),
                             slot->type()->get_primitive_type() == TYPE_VARIANT
                                     ? expr->get_child(0)->data_type()
                                     : slot->type(),
-                            value, false));
+                            value, false, _arena));
                 } else if (function_name == "le") {
                     predicates.emplace_back(create_comparison_predicate0<PredicateType::LE>(
                             slot->id(),
                             slot->type()->get_primitive_type() == TYPE_VARIANT
                                     ? expr->get_child(0)->data_type()
                                     : slot->type(),
-                            value, false));
+                            value, false, _arena));
                 } else if (function_name == "ge") {
                     predicates.emplace_back(create_comparison_predicate0<PredicateType::GE>(
                             slot->id(),
                             slot->type()->get_primitive_type() == TYPE_VARIANT
                                     ? expr->get_child(0)->data_type()
                                     : slot->type(),
-                            value, false));
+                            value, false, _arena));
                 } else {
                     throw Exception(
                             Status::InternalError("Unsupported function name: {}", function_name));

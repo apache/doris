@@ -334,6 +334,7 @@ protected:
 
     // ScanLocalState owns the ownership of scanner, scanner context only has its weakptr
     std::list<std::shared_ptr<vectorized::ScannerDelegate>> _scanners;
+    vectorized::Arena _arena;
 };
 
 template <typename LocalStateType>
