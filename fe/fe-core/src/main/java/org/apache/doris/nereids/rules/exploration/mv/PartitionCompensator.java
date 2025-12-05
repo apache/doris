@@ -163,9 +163,13 @@ public class PartitionCompensator {
         }
         MTMV mtmv = ((AsyncMaterializationContext) materializationContext).getMtmv();
         BaseTableInfo relatedTableInfo = mtmv.getMvPartitionInfo().getRelatedTableInfo();
-        PartitionType type = mtmv.getPartitionInfo().getType();
-        MTMVPartitionInfo mvPartitionInfo = mtmv.getMvPartitionInfo();
-        MTMVRelatedTableIf pctTable = mvPartitionInfo.getRelatedTable();
+        if (relatedTableInfo == null) {
+            return false;
+        }
+        if (PartitionType.UNPARTITIONED.equals(mtmv.getPartitionInfo().getType())) {
+            return false;
+        }
+        MTMVRelatedTableIf pctTable = mtmv.getMvPartitionInfo().getRelatedTable();
         Multimap<List<String>, Pair<RelationId, Set<String>>> tableUsedPartitionNameMap =
                 statementContext.getTableUsedPartitionNameMap();
         if (pctTable instanceof ExternalTable && !((ExternalTable) pctTable).supportInternalPartitionPruned()) {
@@ -176,14 +180,11 @@ public class PartitionCompensator {
         }
         Collection<Pair<RelationId, Set<String>>> tableUsedPartitions
                 = tableUsedPartitionNameMap.get(pctTable.getFullQualifiers());
-        if (ALL_PARTITIONS_LIST.equals(tableUsedPartitions)
-                || tableUsedPartitions.stream().anyMatch(ALL_PARTITIONS::equals)) {
-            // If query base table all partitions with ALL_PARTITIONS or ALL_PARTITIONS_LIST,
-            // should not do union compensate, because it means query all partitions from base table
-            // and prune partition failed
-            return false;
-        }
-        return !PartitionType.UNPARTITIONED.equals(type) && relatedTableInfo != null;
+        // If query base table all partitions with ALL_PARTITIONS or ALL_PARTITIONS_LIST,
+        // should not do union compensate, because it means query all partitions from base table
+        // and prune partition failed
+        return !ALL_PARTITIONS_LIST.equals(tableUsedPartitions)
+                && tableUsedPartitions.stream().noneMatch(ALL_PARTITIONS::equals);
     }
 
     /**
