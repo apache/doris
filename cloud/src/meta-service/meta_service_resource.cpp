@@ -87,7 +87,7 @@ static int encrypt_ak_sk_helper(const std::string plain_ak, const std::string pl
     if (ret != 0) {
         msg = "failed to get encryption key";
         code = MetaServiceCode::ERR_ENCRYPT;
-        LOG(WARNING) << msg;
+        LOG_WARNING(msg);
         return -1;
     }
     auto& encryption_method = get_encryption_method_for_ak_sk();
@@ -96,7 +96,7 @@ static int encrypt_ak_sk_helper(const std::string plain_ak, const std::string pl
     if (ret != 0) {
         msg = "failed to encrypt";
         code = MetaServiceCode::ERR_ENCRYPT;
-        LOG(WARNING) << msg;
+        LOG_WARNING(msg);
         return -1;
     }
     encryption_info->set_key_id(key_id);
@@ -153,7 +153,7 @@ int decrypt_instance_info(InstanceInfoPB& instance, const std::string& instance_
         if (!iam_user.ParseFromString(val)) {
             code = MetaServiceCode::PROTOBUF_PARSE_ERR;
             msg = "failed to parse RamUserPB";
-            LOG(WARNING) << msg;
+            LOG_WARNING(msg);
             return -1;
         }
         AkSkPair plain_ak_sk_pair;
@@ -166,7 +166,7 @@ int decrypt_instance_info(InstanceInfoPB& instance, const std::string& instance_
     } else {
         code = cast_as<ErrCategory::READ>(err);
         msg = fmt::format("failed to get arn_info_key, err={}", err);
-        LOG(WARNING) << msg;
+        LOG_WARNING(msg);
         return -1;
     }
 
@@ -464,9 +464,10 @@ void MetaServiceImpl::get_obj_store_info(google::protobuf::RpcController* contro
     if (instance_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "empty instance_id";
-        LOG(INFO) << msg << ", cloud_unique_id=" << cloud_unique_id;
+        LOG_INFO("{}, cloud_unique_id={}", msg, cloud_unique_id);
         return;
     }
+
     RPC_RATE_LIMIT(get_obj_store_info)
     InstanceKeyInfo key_info {instance_id};
     std::string key;
@@ -477,11 +478,11 @@ void MetaServiceImpl::get_obj_store_info(google::protobuf::RpcController* contro
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::CREATE>(err);
         msg = "failed to create txn";
-        LOG(WARNING) << msg << " err=" << err;
+        LOG_WARNING("{} err={}", msg, err);
         return;
     }
     err = txn->get(key, &val);
-    LOG(INFO) << "get instance_key=" << hex(key);
+    LOG_INFO("get instance_key={}", hex(key));
 
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::READ>(err);
@@ -514,7 +515,7 @@ void MetaServiceImpl::get_obj_store_info(google::protobuf::RpcController* contro
             if (err != TxnErrorCode::TXN_OK) {
                 code = cast_as<ErrCategory::READ>(err);
                 msg = fmt::format("internal error, failed to get storage vault, err={}", err);
-                LOG(WARNING) << msg;
+                LOG_WARNING(msg);
                 return;
             }
 
@@ -525,7 +526,7 @@ void MetaServiceImpl::get_obj_store_info(google::protobuf::RpcController* contro
                     code = MetaServiceCode::PROTOBUF_PARSE_ERR;
                     msg = fmt::format("malformed storage vault, unable to deserialize key={}",
                                       hex(k));
-                    LOG(WARNING) << msg << " key=" << hex(k);
+                    LOG_WARNING("{} key=", msg, hex(k));
                     return;
                 }
                 if (!it->has_next()) {
@@ -774,7 +775,7 @@ static int remove_hdfs_storage_vault(InstanceInfoPB& instance, Transaction* txn,
     txn->remove(vault_key);
     instance.mutable_storage_vault_names()->DeleteSubrange(vault_idx, 1);
     instance.mutable_resource_ids()->DeleteSubrange(vault_idx, 1);
-    LOG(INFO) << "remove storage_vault_key=" << hex(vault_key);
+    LOG_INFO("remove storage_vault_key={}", hex(vault_key));
 
     return 0;
 }
@@ -789,7 +790,7 @@ static void set_default_vault_log_helper(const InstanceInfoPB& instance,
                                 instance.default_storage_vault_name(),
                                 instance.default_storage_vault_id());
     }
-    LOG(INFO) << vault_msg;
+    LOG_INFO(vault_msg);
 }
 
 static bool vault_exist(const InstanceInfoPB& instance, const std::string& new_vault_name) {
@@ -838,7 +839,7 @@ static int alter_hdfs_storage_vault(InstanceInfoPB& instance, std::unique_ptr<Tr
     std::string val;
 
     auto err = txn->get(vault_key, &val);
-    LOG(INFO) << "get vault_key=" << hex(vault_key);
+    LOG_INFO("get vault_key={}", hex(vault_key));
 
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::READ>(err);
@@ -906,8 +907,8 @@ static int alter_hdfs_storage_vault(InstanceInfoPB& instance, std::unique_ptr<Tr
     }
 
     txn->put(vault_key, val);
-    LOG(INFO) << "put vault_id=" << vault_id << ", vault_key=" << hex(vault_key)
-              << ", origin vault=" << origin_vault_info << ", new_vault=" << new_vault_info;
+    LOG_INFO("put vault_id={}, vault_key={}, origin vault={}, new_vault={}", vault_id,
+             hex(vault_key), origin_vault_info, new_vault_info);
 
     DCHECK_EQ(new_vault.id(), vault_id);
     response->set_storage_vault_id(new_vault.id());
@@ -952,7 +953,7 @@ static int alter_s3_storage_vault(InstanceInfoPB& instance, std::unique_ptr<Tran
     std::string val;
 
     auto err = txn->get(vault_key, &val);
-    LOG(INFO) << "get vault_key=" << hex(vault_key);
+    LOG_INFO("get vault_key={}", hex(vault_key));
 
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::READ>(err);
@@ -997,7 +998,7 @@ static int alter_s3_storage_vault(InstanceInfoPB& instance, std::unique_ptr<Tran
     if (obj_info.has_role_arn() && (obj_info.has_ak() || obj_info.has_sk())) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "invaild argument, both set ak/sk and role_arn is not allowed";
-        LOG(WARNING) << msg;
+        LOG_WARNING(msg);
         return -1;
     }
 
@@ -1019,7 +1020,7 @@ static int alter_s3_storage_vault(InstanceInfoPB& instance, std::unique_ptr<Tran
         if (ret != 0) {
             msg = "failed to encrypt";
             code = MetaServiceCode::ERR_ENCRYPT;
-            LOG(WARNING) << msg;
+            LOG_WARNING(msg);
             return -1;
         }
         new_vault.mutable_obj_info()->clear_role_arn();
@@ -1111,7 +1112,7 @@ static int extract_object_storage_info(const AlterObjStoreInfoRequest* request,
         if (!obj.has_ak() || !obj.has_sk()) {
             code = MetaServiceCode::INVALID_ARGUMENT;
             msg = "s3 obj info err " + proto_to_json(*request);
-            LOG(INFO) << msg;
+            LOG_INFO(msg);
             return -1;
         }
 
@@ -1264,9 +1265,10 @@ void MetaServiceImpl::alter_storage_vault(google::protobuf::RpcController* contr
     if (instance_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "empty instance_id";
-        LOG(INFO) << msg << ", cloud_unique_id=" << cloud_unique_id;
+        LOG_INFO("{}, cloud_unique_id={}", msg, cloud_unique_id);
         return;
     }
+
     RPC_RATE_LIMIT(alter_obj_store_info)
     InstanceKeyInfo key_info {instance_id};
     std::string key;
@@ -1277,11 +1279,11 @@ void MetaServiceImpl::alter_storage_vault(google::protobuf::RpcController* contr
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::CREATE>(err);
         msg = "failed to create txn";
-        LOG(WARNING) << msg << " err=" << err;
+        LOG_WARNING("{} err={}", msg, err);
         return;
     }
     err = txn->get(key, &val);
-    LOG(INFO) << "get instance_key=" << hex(key);
+    LOG_INFO("get instance_key={}", hex(key));
 
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::READ>(err);
@@ -1473,8 +1475,8 @@ void MetaServiceImpl::alter_storage_vault(google::protobuf::RpcController* contr
     }
     }
 
-    LOG(INFO) << "instance " << instance_id << " has " << instance.obj_info().size()
-              << " s3 history info, and instance = " << proto_to_json(instance);
+    LOG_INFO("instance {} has {} s3 history info, and instance = {}", instance_id,
+             instance.obj_info().size(), proto_to_json(instance));
 
     val = instance.SerializeAsString();
     if (val.empty()) {
@@ -1485,12 +1487,12 @@ void MetaServiceImpl::alter_storage_vault(google::protobuf::RpcController* contr
 
     txn->atomic_add(system_meta_service_instance_update_key(), 1);
     txn->put(key, val);
-    LOG(INFO) << "put instance_id=" << instance_id << " instance_key=" << hex(key);
+    LOG_INFO("put instance_id={} instance_key={}", instance_id, hex(key));
     err = txn->commit();
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::COMMIT>(err);
         msg = fmt::format("failed to commit kv txn, err={}", err);
-        LOG(WARNING) << msg;
+        LOG_WARNING(msg);
     }
 }
 
@@ -1543,9 +1545,10 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
     if (instance_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "empty instance_id";
-        LOG(INFO) << msg << ", cloud_unique_id=" << cloud_unique_id;
+        LOG_INFO("{}, cloud_unique_id={}", msg, cloud_unique_id);
         return;
     }
+
     RPC_RATE_LIMIT(alter_obj_store_info)
     InstanceKeyInfo key_info {instance_id};
     std::string key;
@@ -1556,11 +1559,11 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::CREATE>(err);
         msg = "failed to create txn";
-        LOG(WARNING) << msg << " err=" << err;
+        LOG_WARNING("{} err={}", msg, err);
         return;
     }
     err = txn->get(key, &val);
-    LOG(INFO) << "get instance_key=" << hex(key);
+    LOG_INFO("get instance_key={}", hex(key));
 
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::READ>(err);
@@ -1616,14 +1619,14 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
                     if (!ak.empty() || !sk.empty()) {
                         code = MetaServiceCode::INVALID_ARGUMENT;
                         msg = "invaild argument, both set ak/sk and role_arn is not allowed";
-                        LOG(INFO) << msg;
+                        LOG_INFO(msg);
                         return;
                     }
 
                     if (it.provider() != ObjectStoreInfoPB::S3) {
                         code = MetaServiceCode::INVALID_ARGUMENT;
                         msg = "role_arn is only supported for s3 provider";
-                        LOG(INFO) << msg << " provider=" << it.provider();
+                        LOG_INFO("{} provider={}", msg, it.provider());
                         return;
                     }
 
@@ -1705,8 +1708,8 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
     }
     }
 
-    LOG(INFO) << "instance " << instance_id << " has " << instance.obj_info().size()
-              << " s3 history info, and instance = " << proto_to_json(instance);
+    LOG_INFO("instance {} has {} s3 history info, and instance = {}", instance_id,
+             instance.obj_info().size(), proto_to_json(instance));
 
     val = instance.SerializeAsString();
     if (val.empty()) {
@@ -1717,12 +1720,12 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
 
     txn->atomic_add(system_meta_service_instance_update_key(), 1);
     txn->put(key, val);
-    LOG(INFO) << "put instance_id=" << instance_id << " instance_key=" << hex(key);
+    LOG_INFO("put instance_id={} instance_key={}", instance_id, hex(key));
     err = txn->commit();
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::COMMIT>(err);
         msg = fmt::format("failed to commit kv txn, err={}", err);
-        LOG(WARNING) << msg;
+        LOG_WARNING(msg);
     }
 }
 
@@ -1736,6 +1739,7 @@ void MetaServiceImpl::update_ak_sk(google::protobuf::RpcController* controller,
         code = MetaServiceCode::INVALID_ARGUMENT;
         return;
     }
+
     if (!request->has_ram_user() && request->internal_bucket_user().empty()) {
         msg = "nothing to update";
         code = MetaServiceCode::INVALID_ARGUMENT;
@@ -1752,11 +1756,11 @@ void MetaServiceImpl::update_ak_sk(google::protobuf::RpcController* controller,
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::CREATE>(err);
         msg = "failed to create txn";
-        LOG(WARNING) << msg << " err=" << err;
+        LOG_WARNING("{} err={}", msg, err);
         return;
     }
     err = txn->get(key, &val);
-    LOG(INFO) << "get instance_key=" << hex(key);
+    LOG_INFO("get instance_key={}", hex(key));
 
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::READ>(err);
@@ -1789,9 +1793,8 @@ void MetaServiceImpl::update_ak_sk(google::protobuf::RpcController* controller,
         return;
     }
 
-    LOG(INFO) << "instance " << instance_id << " has " << instance.obj_info().size()
-              << " s3 history info, and " << instance.resource_ids_size() << " vaults "
-              << "instance = " << proto_to_json(instance);
+    LOG_INFO("instance {} has {} s3 history info, and {} vaults instance = {}", instance_id,
+             instance.obj_info().size(), instance.resource_ids_size(), proto_to_json(instance));
 
     val = instance.SerializeAsString();
     if (val.empty()) {
@@ -1972,7 +1975,7 @@ void MetaServiceImpl::create_instance(google::protobuf::RpcController* controlle
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::CREATE>(err);
         msg = "failed to create txn";
-        LOG(WARNING) << msg << " err=" << err;
+        LOG_WARNING("{} err={}", msg, err);
         return;
     }
     if (request->has_vault()) {
@@ -1990,7 +1993,7 @@ void MetaServiceImpl::create_instance(google::protobuf::RpcController* controlle
     if (val.empty()) {
         code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
         msg = "failed to serialize";
-        LOG(ERROR) << msg;
+        LOG_ERROR(msg);
         return;
     }
 
@@ -1998,7 +2001,7 @@ void MetaServiceImpl::create_instance(google::protobuf::RpcController* controlle
         obj_info.set_ak(hide_access_key(obj_info.ak()));
     }
 
-    LOG(INFO) << "xxx instance json=" << proto_to_json(instance);
+    LOG_INFO("xxx instance json={}", proto_to_json(instance));
 
     // Check existence before proceeding
     err = txn->get(key, &val);
@@ -2010,18 +2013,18 @@ void MetaServiceImpl::create_instance(google::protobuf::RpcController* controlle
         code = err == TxnErrorCode::TXN_OK ? MetaServiceCode::ALREADY_EXISTED
                                            : cast_as<ErrCategory::READ>(err);
         msg = ss.str();
-        LOG(WARNING) << msg << " err=" << err;
+        LOG_WARNING("{} err={}", msg, err);
         return;
     }
 
     txn->atomic_add(system_meta_service_instance_update_key(), 1);
     txn->put(key, val);
-    LOG(INFO) << "put instance_id=" << request->instance_id() << " instance_key=" << hex(key);
+    LOG_INFO("put instance_id={} instance_key={}", request->instance_id(), hex(key));
     err = txn->commit();
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::COMMIT>(err);
         msg = fmt::format("failed to commit kv txn, err={}", err);
-        LOG(WARNING) << msg;
+        LOG_WARNING(msg);
     }
 
     async_notify_refresh_instance(
@@ -2152,10 +2155,11 @@ void MetaServiceImpl::alter_instance(google::protobuf::RpcController* controller
                                      const AlterInstanceRequest* request,
                                      AlterInstanceResponse* response,
                                      ::google::protobuf::Closure* done) {
+    AnnotateTag tag_log_id("log_id", get_log_id(controller));
     StopWatch sw;
     auto ctrl = static_cast<brpc::Controller*>(controller);
-    LOG(INFO) << __PRETTY_FUNCTION__ << " rpc from " << ctrl->remote_side()
-              << " request=" << request->ShortDebugString();
+    LOG_INFO("{} rpc from {} request={}", __PRETTY_FUNCTION__,
+             endpoint2str(ctrl->remote_side()).c_str(), request->ShortDebugString());
     brpc::ClosureGuard closure_guard(done);
     MetaServiceCode code = MetaServiceCode::OK;
     std::string msg = "OK";
@@ -2164,8 +2168,8 @@ void MetaServiceImpl::alter_instance(google::protobuf::RpcController* controller
     DORIS_CLOUD_DEFER {
         response->mutable_status()->set_code(code);
         response->mutable_status()->set_msg(msg);
-        LOG(INFO) << (code == MetaServiceCode::OK ? "succ to " : "failed to ")
-                  << __PRETTY_FUNCTION__ << " " << ctrl->remote_side() << " " << msg;
+        LOG_INFO("{} {} {} {}", (code == MetaServiceCode::OK ? "succ to " : "failed to "),
+                 __PRETTY_FUNCTION__, endpoint2str(ctrl->remote_side()).c_str(), msg);
         closure_guard.reset(nullptr);
         if (config::use_detailed_metrics && !instance_id.empty()) {
             g_bvar_ms_alter_instance.put(instance_id, sw.elapsed_us());
@@ -2241,7 +2245,7 @@ void MetaServiceImpl::alter_instance(google::protobuf::RpcController* controller
             std::string name = request->has_name() ? request->name() : "";
             if (name.empty()) {
                 msg = "rename instance name, but not set";
-                LOG(WARNING) << msg;
+                LOG_WARNING(msg);
                 return std::make_pair(MetaServiceCode::INVALID_ARGUMENT, msg);
             }
             instance->set_name(name);
@@ -2249,11 +2253,11 @@ void MetaServiceImpl::alter_instance(google::protobuf::RpcController* controller
             std::string ret = instance->SerializeAsString();
             if (ret.empty()) {
                 msg = "failed to serialize";
-                LOG(ERROR) << msg;
+                LOG_ERROR(msg);
                 return std::make_pair(MetaServiceCode::PROTOBUF_SERIALIZE_ERR, msg);
             }
-            LOG(INFO) << "put instance_id=" << request->instance_id()
-                      << "rename instance json=" << proto_to_json(*instance);
+            LOG_INFO("put instance_id={} rename instance json={}", request->instance_id(),
+                     proto_to_json(*instance));
             return std::make_pair(MetaServiceCode::OK, ret);
         });
     } break;
@@ -2262,7 +2266,7 @@ void MetaServiceImpl::alter_instance(google::protobuf::RpcController* controller
             std::string msg;
             if (instance->sse_enabled()) {
                 msg = "failed to enable sse, instance has enabled sse";
-                LOG(WARNING) << msg;
+                LOG_WARNING(msg);
                 return std::make_pair(MetaServiceCode::INVALID_ARGUMENT, msg);
             }
             instance->set_sse_enabled(true);
@@ -2275,11 +2279,11 @@ void MetaServiceImpl::alter_instance(google::protobuf::RpcController* controller
             std::string ret = instance->SerializeAsString();
             if (ret.empty()) {
                 msg = "failed to serialize";
-                LOG(ERROR) << msg;
+                LOG_ERROR(msg);
                 return std::make_pair(MetaServiceCode::PROTOBUF_SERIALIZE_ERR, msg);
             }
-            LOG(INFO) << "put instance_id=" << request->instance_id()
-                      << "instance enable sse json=" << proto_to_json(*instance);
+            LOG_INFO("put instance_id={} instance enable sse json={}", request->instance_id(),
+                     proto_to_json(*instance));
             return std::make_pair(MetaServiceCode::OK, ret);
         });
     } break;
@@ -2288,7 +2292,7 @@ void MetaServiceImpl::alter_instance(google::protobuf::RpcController* controller
             std::string msg;
             if (!instance->sse_enabled()) {
                 msg = "failed to disable sse, instance has disabled sse";
-                LOG(WARNING) << msg;
+                LOG_WARNING(msg);
                 return std::make_pair(MetaServiceCode::INVALID_ARGUMENT, msg);
             }
             instance->set_sse_enabled(false);
@@ -2301,11 +2305,11 @@ void MetaServiceImpl::alter_instance(google::protobuf::RpcController* controller
             std::string ret = instance->SerializeAsString();
             if (ret.empty()) {
                 msg = "failed to serialize";
-                LOG(ERROR) << msg;
+                LOG_ERROR(msg);
                 return std::make_pair(MetaServiceCode::PROTOBUF_SERIALIZE_ERR, msg);
             }
-            LOG(INFO) << "put instance_id=" << request->instance_id()
-                      << "instance disable sse json=" << proto_to_json(*instance);
+            LOG_INFO("put instance_id={} instance disable sse json={}", request->instance_id(),
+                     proto_to_json(*instance));
             return std::make_pair(MetaServiceCode::OK, ret);
         });
     } break;
@@ -2319,13 +2323,13 @@ void MetaServiceImpl::alter_instance(google::protobuf::RpcController* controller
             if (instance->status() == InstanceInfoPB::DELETED) {
                 msg = "can't set deleted instance to overdue, instance_id = " +
                       request->instance_id();
-                LOG(WARNING) << msg;
+                LOG_WARNING(msg);
                 return std::make_pair(MetaServiceCode::INVALID_ARGUMENT, msg);
             }
             if (instance->status() == InstanceInfoPB::OVERDUE) {
                 msg = "the instance has already set  instance to overdue, instance_id = " +
                       request->instance_id();
-                LOG(WARNING) << msg;
+                LOG_WARNING(msg);
                 return std::make_pair(MetaServiceCode::INVALID_ARGUMENT, msg);
             }
             instance->set_status(InstanceInfoPB::OVERDUE);
@@ -2335,11 +2339,11 @@ void MetaServiceImpl::alter_instance(google::protobuf::RpcController* controller
             std::string ret = instance->SerializeAsString();
             if (ret.empty()) {
                 msg = "failed to serialize";
-                LOG(WARNING) << msg;
+                LOG_WARNING(msg);
                 return std::make_pair(MetaServiceCode::PROTOBUF_SERIALIZE_ERR, msg);
             }
-            LOG(INFO) << "put instance_id=" << request->instance_id()
-                      << "set instance overdue json=" << proto_to_json(*instance);
+            LOG_INFO("put instance_id={} set instance overdue json={}", request->instance_id(),
+                     proto_to_json(*instance));
             return std::make_pair(MetaServiceCode::OK, ret);
         });
     } break;
@@ -2350,12 +2354,12 @@ void MetaServiceImpl::alter_instance(google::protobuf::RpcController* controller
             if (instance->status() == InstanceInfoPB::DELETED) {
                 msg = "can't set deleted instance to normal, instance_id = " +
                       request->instance_id();
-                LOG(WARNING) << msg;
+                LOG_WARNING(msg);
                 return std::make_pair(MetaServiceCode::INVALID_ARGUMENT, msg);
             }
             if (instance->status() == InstanceInfoPB::NORMAL) {
                 msg = "the instance is already normal, instance_id = " + request->instance_id();
-                LOG(WARNING) << msg;
+                LOG_WARNING(msg);
                 return std::make_pair(MetaServiceCode::INVALID_ARGUMENT, msg);
             }
             instance->set_status(InstanceInfoPB::NORMAL);
@@ -2365,11 +2369,11 @@ void MetaServiceImpl::alter_instance(google::protobuf::RpcController* controller
             std::string ret = instance->SerializeAsString();
             if (ret.empty()) {
                 msg = "failed to serialize";
-                LOG(WARNING) << msg;
+                LOG_WARNING(msg);
                 return std::make_pair(MetaServiceCode::PROTOBUF_SERIALIZE_ERR, msg);
             }
-            LOG(INFO) << "put instance_id=" << request->instance_id()
-                      << "set instance normal json=" << proto_to_json(*instance);
+            LOG_INFO("put instance_id={} set instance normal json={}", request->instance_id(),
+                     proto_to_json(*instance));
             return std::make_pair(MetaServiceCode::OK, ret);
         });
     } break;
@@ -2472,9 +2476,10 @@ void MetaServiceImpl::get_instance(google::protobuf::RpcController* controller,
     if (instance_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "empty instance_id";
-        LOG(INFO) << msg << ", cloud_unique_id=" << cloud_unique_id;
+        LOG_INFO("{}, cloud_unique_id={}", msg, cloud_unique_id);
         return;
     }
+
     RPC_RATE_LIMIT(get_instance);
     InstanceKeyInfo key_info {instance_id};
     std::string key;
@@ -2485,11 +2490,11 @@ void MetaServiceImpl::get_instance(google::protobuf::RpcController* controller,
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::CREATE>(err);
         msg = "failed to create txn";
-        LOG(WARNING) << msg << " err=" << err;
+        LOG_WARNING("{} err={}", msg, err);
         return;
     }
     err = txn->get(key, &val);
-    LOG(INFO) << "get instance_key=" << hex(key);
+    LOG_INFO("get instance_key={}", hex(key));
 
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::READ>(err);
@@ -2517,7 +2522,7 @@ std::pair<MetaServiceCode, std::string> MetaServiceImpl::alter_instance(
     std::string instance_id = request->has_instance_id() ? request->instance_id() : "";
     if (instance_id.empty()) {
         msg = "instance id not set";
-        LOG(WARNING) << msg;
+        LOG_WARNING(msg);
         return std::make_pair(MetaServiceCode::INVALID_ARGUMENT, msg);
     }
 
@@ -2529,7 +2534,7 @@ std::pair<MetaServiceCode, std::string> MetaServiceImpl::alter_instance(
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
         msg = "failed to create txn";
-        LOG(WARNING) << msg << " err=" << err;
+        LOG_WARNING("{} err={}", msg, err);
         return std::make_pair(cast_as<ErrCategory::CREATE>(err), msg);
     }
 
@@ -2544,15 +2549,15 @@ std::pair<MetaServiceCode, std::string> MetaServiceImpl::alter_instance(
         code = err == TxnErrorCode::TXN_KEY_NOT_FOUND ? MetaServiceCode::CLUSTER_NOT_FOUND
                                                       : cast_as<ErrCategory::READ>(err);
         msg = ss.str();
-        LOG(WARNING) << msg << " err=" << err;
+        LOG_WARNING("{} err={}", msg, err);
         return std::make_pair(code, msg);
     }
-    LOG(INFO) << "alter instance key=" << hex(key);
+    LOG_INFO("alter instance key={}", hex(key));
     InstanceInfoPB instance;
     if (!instance.ParseFromString(val)) {
         msg = "failed to parse InstanceInfoPB";
         code = MetaServiceCode::PROTOBUF_PARSE_ERR;
-        LOG(WARNING) << msg;
+        LOG_WARNING(msg);
         return std::make_pair(code, msg);
     }
     auto r = action(txn.get(), &instance);
@@ -2566,7 +2571,7 @@ std::pair<MetaServiceCode, std::string> MetaServiceImpl::alter_instance(
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::COMMIT>(err);
         msg = fmt::format("failed to commit kv txn, err={}", err);
-        LOG(WARNING) << msg;
+        LOG_WARNING(msg);
         return std::make_pair(code, msg);
     }
     return std::make_pair(code, msg);
@@ -3014,7 +3019,7 @@ void MetaServiceImpl::alter_cluster(google::protobuf::RpcController* controller,
             !resource_mgr_->is_instance_id_registered(id)) {
             msg = "use degrade cloud_unique_id, but instance_id invalid, cloud_unique_id=" +
                   cloud_unique_id;
-            LOG(WARNING) << msg;
+            LOG_WARNING(msg);
             code = MetaServiceCode::INVALID_ARGUMENT;
             return;
         }
@@ -3022,7 +3027,7 @@ void MetaServiceImpl::alter_cluster(google::protobuf::RpcController* controller,
         if (instance_id.empty()) {
             code = MetaServiceCode::INVALID_ARGUMENT;
             msg = "empty instance_id";
-            LOG(INFO) << msg << ", cloud_unique_id=" << cloud_unique_id;
+            LOG_INFO("{}, cloud_unique_id={}", msg, cloud_unique_id);
             return;
         }
     }
@@ -3039,7 +3044,7 @@ void MetaServiceImpl::alter_cluster(google::protobuf::RpcController* controller,
         return;
     }
 
-    LOG(INFO) << "alter cluster instance_id=" << instance_id << " op=" << request->op();
+    LOG_INFO("alter cluster instance_id={} op={}", instance_id, request->op());
     ClusterInfo cluster;
     cluster.cluster.CopyFrom(request->cluster());
 
@@ -3127,6 +3132,7 @@ void MetaServiceImpl::get_cluster(google::protobuf::RpcController* controller,
     std::string cluster_id = request->has_cluster_id() ? request->cluster_id() : "";
     std::string cluster_name = request->has_cluster_name() ? request->cluster_name() : "";
     std::string mysql_user_name = request->has_mysql_user_name() ? request->mysql_user_name() : "";
+    AnnotateTag tag_cluster_id("cluster_id", cluster_id);
 
     if (cloud_unique_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
@@ -3140,15 +3146,18 @@ void MetaServiceImpl::get_cluster(google::protobuf::RpcController* controller,
             instance_id = request->instance_id();
             // FIXME(gavin): this mechanism benifits debugging and
             //               administration, is it dangerous?
-            LOG(WARNING) << "failed to get instance_id with cloud_unique_id=" << cloud_unique_id
-                         << " use the given instance_id=" << instance_id << " instead";
+            LOG_WARNING(
+                    "failed to get instance_id with cloud_unique_id={} use the given "
+                    "instance_id={} instead",
+                    cloud_unique_id, instance_id);
         } else {
             code = MetaServiceCode::INVALID_ARGUMENT;
             msg = "empty instance_id";
-            LOG(INFO) << msg << ", cloud_unique_id=" << cloud_unique_id;
+            LOG_INFO("{}, cloud_unique_id={}", msg, cloud_unique_id);
             return;
         }
     }
+
     RPC_RATE_LIMIT(get_cluster)
     // ATTN: if the case that multiple conditions are satisfied, just use by this order:
     // cluster_id -> cluster_name -> mysql_user_name
@@ -3180,11 +3189,11 @@ void MetaServiceImpl::get_cluster(google::protobuf::RpcController* controller,
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::CREATE>(err);
         msg = "failed to create txn";
-        LOG(WARNING) << msg << " err=" << err;
+        LOG_WARNING("{} err={}", msg, err);
         return;
     }
     err = txn->get(key, &val);
-    LOG(INFO) << "get instance_key=" << hex(key);
+    LOG_INFO("get instance_key={}", hex(key));
 
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::READ>(err);
@@ -3244,13 +3253,13 @@ void MetaServiceImpl::get_cluster(google::protobuf::RpcController* controller,
             }
 
             txn->put(key, val);
-            LOG(INFO) << "put instance_id=" << instance_id << " instance_key=" << hex(key)
-                      << " json=" << proto_to_json(instance);
+            LOG_INFO("put instance_id={} instance_key={} json={}", instance_id, hex(key),
+                     proto_to_json(instance));
             err = txn->commit();
             if (err != TxnErrorCode::TXN_OK) {
                 code = cast_as<ErrCategory::COMMIT>(err);
                 msg = fmt::format("failed to commit kv txn, err={}", err);
-                LOG(WARNING) << msg;
+                LOG_WARNING(msg);
             }
         }
     }
@@ -3280,9 +3289,10 @@ void MetaServiceImpl::create_stage(::google::protobuf::RpcController* controller
     if (instance_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "empty instance_id";
-        LOG(INFO) << msg << ", cloud_unique_id=" << cloud_unique_id;
+        LOG_INFO("{}, cloud_unique_id={}", msg, cloud_unique_id);
         return;
     }
+
     RPC_RATE_LIMIT(create_stage)
 
     if (!request->has_stage()) {
@@ -3315,7 +3325,7 @@ void MetaServiceImpl::create_stage(::google::protobuf::RpcController* controller
             ss << "internal stage must have a mysql user name and id must be given, name size="
                << stage.mysql_user_name_size() << " id size=" << stage.mysql_user_id_size();
             msg = ss.str();
-            LOG(WARNING) << msg;
+            LOG_WARNING(msg);
             return;
         }
     }
@@ -3329,11 +3339,11 @@ void MetaServiceImpl::create_stage(::google::protobuf::RpcController* controller
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::CREATE>(err);
         msg = "failed to create txn";
-        LOG(WARNING) << msg << " err=" << err;
+        LOG_WARNING("{} err={}", msg, err);
         return;
     }
     err = txn->get(key, &val);
-    LOG(INFO) << "get instance_key=" << hex(key);
+    LOG_INFO("get instance_key={}", hex(key));
 
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::READ>(err);
@@ -3353,8 +3363,8 @@ void MetaServiceImpl::create_stage(::google::protobuf::RpcController* controller
     if (instance.stages_size() >= config::max_num_stages) {
         code = MetaServiceCode::UNDEFINED_ERR;
         msg = "this instance has greater than config num stages";
-        LOG(WARNING) << "can't create more than config num stages, and instance has "
-                     << std::to_string(instance.stages_size());
+        LOG_WARNING("can't create more than config num stages, and instance has {}",
+                    std::to_string(instance.stages_size()));
         return;
     }
 
@@ -3364,8 +3374,8 @@ void MetaServiceImpl::create_stage(::google::protobuf::RpcController* controller
         if (stage.type() == StagePB::INTERNAL) {
             // check all internal stage format is right
             if (s.type() == StagePB::INTERNAL && s.mysql_user_id_size() == 0) {
-                LOG(WARNING) << "impossible, internal stage must have at least one id instance="
-                             << proto_to_json(instance);
+                LOG_WARNING("impossible, internal stage must have at least one id instance={}",
+                            proto_to_json(instance));
             }
 
             if (s.type() == StagePB::INTERNAL &&
@@ -3398,9 +3408,9 @@ void MetaServiceImpl::create_stage(::google::protobuf::RpcController* controller
 
     if (stage.type() == StagePB::INTERNAL) {
         if (instance.obj_info_size() == 0) {
-            LOG(WARNING) << "impossible, instance must have at least one obj_info.";
             code = MetaServiceCode::UNDEFINED_ERR;
             msg = "impossible, instance must have at least one obj_info.";
+            LOG_WARNING(msg);
             return;
         }
         auto& lastest_obj = instance.obj_info()[instance.obj_info_size() - 1];
@@ -3442,13 +3452,13 @@ void MetaServiceImpl::create_stage(::google::protobuf::RpcController* controller
 
     txn->atomic_add(system_meta_service_instance_update_key(), 1);
     txn->put(key, val);
-    LOG(INFO) << "put instance_id=" << instance_id << " instance_key=" << hex(key)
-              << " json=" << proto_to_json(instance);
+    LOG_INFO("put instance_id={} instance_key={} json={}", instance_id, hex(key),
+             proto_to_json(instance));
     err = txn->commit();
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::COMMIT>(err);
         msg = fmt::format("failed to commit kv txn, err={}", err);
-        LOG(WARNING) << msg;
+        LOG_WARNING(msg);
     }
 }
 
@@ -3469,9 +3479,10 @@ void MetaServiceImpl::get_stage(google::protobuf::RpcController* controller,
     if (instance_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "empty instance_id";
-        LOG(INFO) << msg << ", cloud_unique_id=" << cloud_unique_id;
+        LOG_INFO("{}, cloud_unique_id={}", msg, cloud_unique_id);
         return;
     }
+
     RPC_RATE_LIMIT(get_stage)
     if (!request->has_type()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
@@ -3489,11 +3500,11 @@ void MetaServiceImpl::get_stage(google::protobuf::RpcController* controller,
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::CREATE>(err);
         msg = "failed to create txn";
-        LOG(WARNING) << msg << " err=" << err;
+        LOG_WARNING("{} err={}", msg, err);
         return;
     }
     err = txn->get(key, &val);
-    LOG(INFO) << "get instance_key=" << hex(key);
+    LOG_INFO("get instance_key={}", hex(key));
 
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::READ>(err);
@@ -3527,9 +3538,9 @@ void MetaServiceImpl::get_stage(google::protobuf::RpcController* controller,
         auto& stage = instance.stages();
         bool found = false;
         if (instance.obj_info_size() == 0) {
-            LOG(WARNING) << "impossible, instance must have at least one obj_info.";
             code = MetaServiceCode::UNDEFINED_ERR;
             msg = "impossible, instance must have at least one obj_info.";
+            LOG_WARNING(msg);
             return;
         }
 
@@ -3538,9 +3549,10 @@ void MetaServiceImpl::get_stage(google::protobuf::RpcController* controller,
                 continue;
             }
             if (s.mysql_user_name().size() == 0 || s.mysql_user_id().size() == 0) {
-                LOG(WARNING) << "impossible here, internal stage must have at least one user, "
-                                "invalid stage="
-                             << proto_to_json(s);
+                LOG_WARNING(
+                        "impossible here, internal stage must have at least one user, "
+                        "invalid stage={}",
+                        proto_to_json(s));
                 continue;
             }
             if (s.mysql_user_name(0) == mysql_user_name) {
@@ -3548,10 +3560,10 @@ void MetaServiceImpl::get_stage(google::protobuf::RpcController* controller,
                 // internal stage id is user_id, if user_id not eq internal stage's user_id, del it.
                 // let fe create a new internal stage
                 if (s.mysql_user_id(0) != mysql_user_id) {
-                    LOG(INFO) << "ABA user=" << mysql_user_name
-                              << " internal stage original user_id=" << s.mysql_user_id()[0]
-                              << " rpc user_id=" << mysql_user_id
-                              << " stage info=" << proto_to_json(s);
+                    LOG_INFO(
+                            "ABA user={} internal stage original user_id={} rpc user_id={} stage "
+                            "info={}",
+                            mysql_user_name, s.mysql_user_id()[0], mysql_user_id, proto_to_json(s));
                     code = MetaServiceCode::STATE_ALREADY_EXISTED_FOR_USER;
                     msg = "aba user, drop stage and create a new one";
                     // response return to be dropped stage id.
@@ -3564,7 +3576,7 @@ void MetaServiceImpl::get_stage(google::protobuf::RpcController* controller,
                 // get from internal stage
                 int idx = stoi(s.obj_info().id());
                 if (idx > instance.obj_info().size() || idx < 1) {
-                    LOG(WARNING) << "invalid idx: " << idx;
+                    LOG_WARNING("invalid idx: {}", idx);
                     code = MetaServiceCode::UNDEFINED_ERR;
                     msg = "impossible, id invalid";
                     return;
@@ -3595,8 +3607,8 @@ void MetaServiceImpl::get_stage(google::protobuf::RpcController* controller,
             }
         }
         if (!found) {
-            LOG(INFO) << "user=" << mysql_user_name
-                      << " not have a valid stage, rpc user_id=" << mysql_user_id;
+            LOG_INFO("user={} not have a valid stage, rpc user_id={}", mysql_user_name,
+                     mysql_user_id);
             code = MetaServiceCode::STAGE_NOT_FOUND;
             msg = "stage not found, create a new one";
             return;
@@ -3695,20 +3707,23 @@ void MetaServiceImpl::get_stage(google::protobuf::RpcController* controller,
 void MetaServiceImpl::drop_stage(google::protobuf::RpcController* controller,
                                  const DropStageRequest* request, DropStageResponse* response,
                                  ::google::protobuf::Closure* done) {
+    AnnotateTag tag_log_id("log_id", get_log_id(controller));
     StopWatch sw;
     auto ctrl = static_cast<brpc::Controller*>(controller);
-    LOG(INFO) << "rpc from " << ctrl->remote_side() << " request=" << request->DebugString();
+    LOG_INFO("rpc from {} request={}", endpoint2str(ctrl->remote_side()).c_str(),
+             request->DebugString());
     brpc::ClosureGuard closure_guard(done);
     int ret = 0;
     MetaServiceCode code = MetaServiceCode::OK;
     std::string msg = "OK";
     std::string instance_id;
+    AnnotateTag tag_instance_id("instance_id", instance_id);
     bool drop_request = false;
     DORIS_CLOUD_DEFER {
         response->mutable_status()->set_code(code);
         response->mutable_status()->set_msg(msg);
-        LOG(INFO) << (ret == 0 ? "succ to " : "failed to ") << __PRETTY_FUNCTION__ << " "
-                  << ctrl->remote_side() << " " << msg;
+        LOG_INFO("{} {} {} {}", (ret == 0 ? "succ to " : "failed to "), __PRETTY_FUNCTION__,
+                 endpoint2str(ctrl->remote_side()).c_str(), msg);
         closure_guard.reset(nullptr);
         if (config::use_detailed_metrics && !instance_id.empty() && !drop_request) {
             g_bvar_ms_drop_stage.put(instance_id, sw.elapsed_us());
@@ -3726,9 +3741,10 @@ void MetaServiceImpl::drop_stage(google::protobuf::RpcController* controller,
     if (instance_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "empty instance_id";
-        LOG(INFO) << msg << ", cloud_unique_id=" << cloud_unique_id;
+        LOG_INFO("{}, cloud_unique_id={}", msg, cloud_unique_id);
         return;
     }
+
     RPC_RATE_LIMIT(drop_stage)
 
     if (!request->has_type()) {
@@ -3760,12 +3776,13 @@ void MetaServiceImpl::drop_stage(google::protobuf::RpcController* controller,
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::CREATE>(err);
         msg = "failed to create txn";
-        LOG(WARNING) << msg << " err=" << err;
+        LOG_WARNING("{} err={}", msg, err);
         return;
     }
 
     err = txn->get(key, &val);
-    LOG(INFO) << "get instance_key=" << hex(key);
+    LOG_INFO("get instance_key={}", hex(key));
+
     std::stringstream ss;
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::READ>(err);
@@ -3810,8 +3827,8 @@ void MetaServiceImpl::drop_stage(google::protobuf::RpcController* controller,
         return;
     }
     txn->put(key, val);
-    LOG(INFO) << "put instance_id=" << instance_id << " instance_key=" << hex(key)
-              << " json=" << proto_to_json(instance);
+    LOG_INFO("put instance_id={} instance_key={} json={}", instance_id, hex(key),
+             proto_to_json(instance));
 
     std::string key1;
     std::string val1;
@@ -3836,7 +3853,7 @@ void MetaServiceImpl::drop_stage(google::protobuf::RpcController* controller,
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::COMMIT>(err);
         msg = fmt::format("failed to commit kv txn, err={}", err);
-        LOG(WARNING) << msg;
+        LOG_WARNING(msg);
     }
 }
 
@@ -3855,9 +3872,10 @@ void MetaServiceImpl::get_iam(google::protobuf::RpcController* controller,
     if (instance_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "empty instance_id";
-        LOG(INFO) << msg << ", cloud_unique_id=" << cloud_unique_id;
+        LOG_INFO("{}, cloud_unique_id={}", msg, cloud_unique_id);
         return;
     }
+
     RPC_RATE_LIMIT(get_iam)
 
     InstanceKeyInfo key_info {instance_id};
@@ -3869,11 +3887,11 @@ void MetaServiceImpl::get_iam(google::protobuf::RpcController* controller,
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::CREATE>(err);
         msg = "failed to create txn";
-        LOG(WARNING) << msg << " err=" << err;
+        LOG_WARNING("{} err={}", msg, err);
         return;
     }
     err = txn->get(key, &val);
-    LOG(INFO) << "get instance_key=" << hex(key);
+    LOG_INFO("get instance_key={}", hex(key));
 
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::READ>(err);
@@ -3959,7 +3977,7 @@ void MetaServiceImpl::alter_iam(google::protobuf::RpcController* controller,
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::CREATE>(err);
         msg = "failed to create txn";
-        LOG(WARNING) << msg << " err=" << err;
+        LOG_WARNING("{} err={}", msg, err);
         return;
     }
     err = txn->get(key, &val);
@@ -4018,11 +4036,12 @@ void MetaServiceImpl::alter_iam(google::protobuf::RpcController* controller,
         return;
     }
     if (is_add_req) {
-        LOG(INFO) << "add new iam info, cipher ak: " << iam_user.ak()
-                  << " cipher sk: " << iam_user.sk();
+        LOG_INFO("add new iam info, cipher ak: {} cipher sk: {}", iam_user.ak(), iam_user.sk());
     } else {
-        LOG(INFO) << "alter iam info, old:  cipher ak: " << old_ak << " cipher sk" << old_sk
-                  << " new: cipher ak: " << iam_user.ak() << " cipher sk:" << iam_user.sk();
+        LOG_INFO(
+                "alter iam info, old: cipher ak: {} cipher sk: {} new: cipher ak: {} cipher sk: "
+                "{}",
+                old_ak, old_sk, iam_user.ak(), iam_user.sk());
     }
 }
 
@@ -4037,6 +4056,7 @@ void MetaServiceImpl::alter_ram_user(google::protobuf::RpcController* controller
         msg = "empty instance_id";
         return;
     }
+
     if (!request->has_ram_user() || request->ram_user().user_id().empty() ||
         request->ram_user().ak().empty() || request->ram_user().sk().empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
@@ -4054,11 +4074,12 @@ void MetaServiceImpl::alter_ram_user(google::protobuf::RpcController* controller
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::CREATE>(err);
         msg = "failed to create txn";
-        LOG(WARNING) << msg << " err=" << err;
+        LOG_WARNING("{} err={}", msg, err);
         return;
     }
     err = txn->get(key, &val);
-    LOG(INFO) << "get instance_key=" << hex(key);
+    LOG_INFO("get instance_key={}", hex(key));
+
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::READ>(err);
         ss << "failed to get instance, instance_id=" << instance_id << " err=" << err;
@@ -4077,8 +4098,8 @@ void MetaServiceImpl::alter_ram_user(google::protobuf::RpcController* controller
         return;
     }
     if (instance.has_ram_user()) {
-        LOG(WARNING) << "instance has ram user. instance_id=" << instance_id
-                     << ", ram_user_id=" << ram_user.user_id();
+        LOG_WARNING("instance has ram user. instance_id={}, ram_user_id={}", instance_id,
+                    ram_user.user_id());
     }
     EncryptionInfoPB encryption_info;
     AkSkPair cipher_ak_sk_pair;
@@ -4101,12 +4122,12 @@ void MetaServiceImpl::alter_ram_user(google::protobuf::RpcController* controller
     }
     txn->atomic_add(system_meta_service_instance_update_key(), 1);
     txn->put(key, val);
-    LOG(INFO) << "put instance_id=" << instance_id << " instance_key=" << hex(key);
+    LOG_INFO("put instance_id={} instance_key={}", instance_id, hex(key));
     err = txn->commit();
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::COMMIT>(err);
         msg = fmt::format("failed to commit kv txn, err={}", err);
-        LOG(WARNING) << msg;
+        LOG_WARNING(msg);
     }
 }
 
@@ -4125,15 +4146,16 @@ void MetaServiceImpl::begin_copy(google::protobuf::RpcController* controller,
     if (instance_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "empty instance_id";
-        LOG(INFO) << msg << ", cloud_unique_id=" << cloud_unique_id;
+        LOG_INFO("{}, cloud_unique_id={}", msg, cloud_unique_id);
         return;
     }
+
     RPC_RATE_LIMIT(begin_copy)
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::CREATE>(err);
         msg = "failed to create txn";
-        LOG(WARNING) << msg << " err=" << err;
+        LOG_WARNING("{} err={}", msg, err);
         return;
     }
 
@@ -4169,7 +4191,7 @@ void MetaServiceImpl::begin_copy(google::protobuf::RpcController* controller,
         } else if (err != TxnErrorCode::TXN_KEY_NOT_FOUND) { // error
             code = cast_as<ErrCategory::READ>(err);
             msg = fmt::format("failed to get copy file, err={}", err);
-            LOG(WARNING) << msg;
+            LOG_WARNING(msg);
             return;
         }
         // 2. check if reach any limit
@@ -4211,18 +4233,18 @@ void MetaServiceImpl::begin_copy(google::protobuf::RpcController* controller,
     }
     // put copy job
     txn->put(key, val);
-    LOG(INFO) << "put copy_job_key=" << hex(key);
+    LOG_INFO("put copy_job_key={}", hex(key));
     // put copy file
     for (const auto& [k, v] : copy_files) {
         txn->put(k, v);
-        LOG(INFO) << "put copy_file_key=" << hex(k);
+        LOG_INFO("put copy_file_key={}", hex(k));
     }
 
     err = txn->commit();
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::COMMIT>(err);
         msg = fmt::format("failed to commit kv txn, err={}", err);
-        LOG(WARNING) << msg;
+        LOG_WARNING(msg);
     }
 }
 
@@ -4241,16 +4263,17 @@ void MetaServiceImpl::finish_copy(google::protobuf::RpcController* controller,
     if (instance_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "empty instance_id";
-        LOG(INFO) << msg << ", cloud_unique_id=" << cloud_unique_id;
+        LOG_INFO("{}, cloud_unique_id={}", msg, cloud_unique_id);
         return;
     }
+
     RPC_RATE_LIMIT(finish_copy)
 
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::CREATE>(err);
         msg = "failed to create txn";
-        LOG(WARNING) << msg << " err=" << err;
+        LOG_WARNING("{} err={}", msg, err);
         return;
     }
 
@@ -4261,7 +4284,7 @@ void MetaServiceImpl::finish_copy(google::protobuf::RpcController* controller,
     std::string val;
     copy_job_key(key_info, &key);
     err = txn->get(key, &val);
-    LOG(INFO) << "get copy_job_key=" << hex(key);
+    LOG_INFO("get copy_job_key={}", hex(key));
 
     if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) { // not found
         code = MetaServiceCode::COPY_JOB_NOT_FOUND;
@@ -4296,14 +4319,14 @@ void MetaServiceImpl::finish_copy(google::protobuf::RpcController* controller,
             return;
         }
         txn->put(key, val);
-        LOG(INFO) << "put copy_job_key=" << hex(key);
+        LOG_INFO("put copy_job_key={}", hex(key));
     } else if (request->action() == FinishCopyRequest::ABORT ||
                request->action() == FinishCopyRequest::REMOVE) {
         // 1. remove copy job kv
         // 2. remove copy file kvs
         txn->remove(key);
-        LOG(INFO) << (request->action() == FinishCopyRequest::ABORT ? "abort" : "remove")
-                  << " copy_job_key=" << hex(key);
+        LOG_INFO("{} copy_job_key=",
+                 (request->action() == FinishCopyRequest::ABORT ? "abort" : "remove"), hex(key));
         for (const auto& file : copy_job.object_files()) {
             // copy file key
             CopyFileKeyInfo file_key_info {instance_id, request->stage_id(), request->table_id(),
@@ -4314,7 +4337,7 @@ void MetaServiceImpl::finish_copy(google::protobuf::RpcController* controller,
         }
         for (const auto& k : copy_files) {
             txn->remove(k);
-            LOG(INFO) << "remove copy_file_key=" << hex(k);
+            LOG_INFO("remove copy_file_key={}", hex(k));
         }
     } else {
         msg = "Unhandled action";
@@ -4326,7 +4349,7 @@ void MetaServiceImpl::finish_copy(google::protobuf::RpcController* controller,
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::COMMIT>(err);
         msg = fmt::format("failed to commit kv txn, err={}", err);
-        LOG(WARNING) << msg;
+        LOG_WARNING(msg);
     }
 }
 
@@ -4345,7 +4368,7 @@ void MetaServiceImpl::get_copy_job(google::protobuf::RpcController* controller,
     if (instance_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "empty instance_id";
-        LOG(INFO) << msg << ", cloud_unique_id=" << cloud_unique_id;
+        LOG_INFO("{}, cloud_unique_id={}", msg, cloud_unique_id);
         return;
     }
 
@@ -4353,7 +4376,7 @@ void MetaServiceImpl::get_copy_job(google::protobuf::RpcController* controller,
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::CREATE>(err);
         msg = "failed to create txn";
-        LOG(WARNING) << msg << " err=" << err;
+        LOG_WARNING("{} err={}", msg, err);
         return;
     }
 
@@ -4368,7 +4391,7 @@ void MetaServiceImpl::get_copy_job(google::protobuf::RpcController* controller,
     } else if (err != TxnErrorCode::TXN_OK) { // error
         code = cast_as<ErrCategory::READ>(err);
         msg = fmt::format("failed to get copy job, err={}", err);
-        LOG(WARNING) << msg << " err=" << err;
+        LOG_WARNING("{} err={}", msg, err);
         return;
     }
     CopyJobPB copy_job;
@@ -4396,16 +4419,17 @@ void MetaServiceImpl::get_copy_files(google::protobuf::RpcController* controller
     if (instance_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "empty instance_id";
-        LOG(INFO) << msg << ", cloud_unique_id=" << cloud_unique_id;
+        LOG_INFO("{}, cloud_unique_id={}", msg, cloud_unique_id);
         return;
     }
+
     RPC_RATE_LIMIT(get_copy_files)
 
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::CREATE>(err);
         msg = "failed to create txn";
-        LOG(WARNING) << msg << " err=" << err;
+        LOG_WARNING("{} err={}", msg, err);
         return;
     }
 
@@ -4421,7 +4445,7 @@ void MetaServiceImpl::get_copy_files(google::protobuf::RpcController* controller
         if (err != TxnErrorCode::TXN_OK) {
             code = cast_as<ErrCategory::READ>(err);
             msg = fmt::format("failed to get copy jobs, err={}", err);
-            LOG(WARNING) << msg << " err=" << err;
+            LOG_WARNING("{} err={}", msg, err);
             return;
         }
 
@@ -4459,16 +4483,17 @@ void MetaServiceImpl::filter_copy_files(google::protobuf::RpcController* control
     if (instance_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "empty instance_id";
-        LOG(INFO) << msg << ", cloud_unique_id=" << cloud_unique_id;
+        LOG_INFO("{}, cloud_unique_id={}", msg, cloud_unique_id);
         return;
     }
+
     RPC_RATE_LIMIT(filter_copy_files)
 
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::CREATE>(err);
         msg = "failed to create txn";
-        LOG(WARNING) << msg << " err=" << err;
+        LOG_WARNING("{} err={}", msg, err);
         return;
     }
 
@@ -4486,7 +4511,7 @@ void MetaServiceImpl::filter_copy_files(google::protobuf::RpcController* control
             continue;
         } else if (err != TxnErrorCode::TXN_KEY_NOT_FOUND) { // error
             msg = fmt::format("failed to get copy file, err={}", err);
-            LOG(WARNING) << msg << " err=" << err;
+            LOG_WARNING("{} err={}", msg, err);
             return;
         } else {
             response->add_object_files()->CopyFrom(file);
@@ -4520,7 +4545,7 @@ void MetaServiceImpl::get_cluster_status(google::protobuf::RpcController* contro
                       [&](const auto& it) {
                           std::string instance_id = get_instance_id(resource_mgr_, it);
                           if (instance_id.empty()) {
-                              LOG(INFO) << "cant get instance_id from cloud_unique_id : " << it;
+                              LOG_INFO("cant get instance_id from cloud_unique_id : {}", it);
                               return;
                           }
                           instance_ids.emplace_back(instance_id);
@@ -4528,7 +4553,7 @@ void MetaServiceImpl::get_cluster_status(google::protobuf::RpcController* contro
     }
 
     if (instance_ids.empty()) {
-        LOG(INFO) << "can't get valid instanceids";
+        LOG_INFO("can't get valid instanceids");
         return;
     }
     bool has_filter = request->has_status();
@@ -4537,6 +4562,7 @@ void MetaServiceImpl::get_cluster_status(google::protobuf::RpcController* contro
 
     auto get_clusters_info = [this, &request, &response,
                               &has_filter](const std::string& instance_id) {
+        AnnotateTag tag_instance_id("instance_id", instance_id);
         InstanceKeyInfo key_info {instance_id};
         std::string key;
         std::string val;
@@ -4545,7 +4571,7 @@ void MetaServiceImpl::get_cluster_status(google::protobuf::RpcController* contro
         std::unique_ptr<Transaction> txn;
         TxnErrorCode err = txn_kv_->create_txn(&txn);
         if (err != TxnErrorCode::TXN_OK) {
-            LOG(WARNING) << "failed to create txn err=" << err;
+            LOG_WARNING("failed to create txn err={}", err);
             return;
         }
         DORIS_CLOUD_DEFER {
@@ -4556,15 +4582,15 @@ void MetaServiceImpl::get_cluster_status(google::protobuf::RpcController* contro
             }
         };
         err = txn->get(key, &val);
-        LOG(INFO) << "get instance_key=" << hex(key);
+        LOG_INFO("get instance_key={}", hex(key));
 
         if (err != TxnErrorCode::TXN_OK) {
-            LOG(WARNING) << "failed to get instance, instance_id=" << instance_id << " err=" << err;
+            LOG_WARNING("failed to get instance, instance_id={} err={}", instance_id, err);
             return;
         }
         InstanceInfoPB instance;
         if (!instance.ParseFromString(val)) {
-            LOG(WARNING) << "failed to parse InstanceInfoPB";
+            LOG_WARNING("failed to parse InstanceInfoPB");
             return;
         }
         GetClusterStatusResponse::GetClusterStatusResponseDetail detail;
@@ -4610,7 +4636,7 @@ void notify_refresh_instance(std::shared_ptr<TxnKv> txn_kv, const std::string& i
     std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
-        LOG(WARNING) << "failed to create txn err=" << err;
+        LOG_WARNING("failed to create txn err={}", err);
         return;
     }
     std::string key = system_meta_service_registry_key();
@@ -4620,8 +4646,7 @@ void notify_refresh_instance(std::shared_ptr<TxnKv> txn_kv, const std::string& i
         stats->get_counter++;
     }
     if (err != TxnErrorCode::TXN_OK) {
-        LOG(WARNING) << "failed to get server registry"
-                     << " err=" << err;
+        LOG_WARNING("failed to get server registry err={}", err);
         return;
     }
     if (stats) {
@@ -4663,7 +4688,7 @@ void notify_refresh_instance(std::shared_ptr<TxnKv> txn_kv, const std::string& i
             auto channel = std::make_unique<brpc::Channel>();
             ret = channel->Init(endpoint.c_str(), &options);
             if (ret != 0) {
-                LOG(WARNING) << "fail to init brpc channel, endpoint=" << endpoint;
+                LOG_WARNING("fail to init brpc channel, endpoint={}", endpoint);
                 break;
             }
             stub = std::make_shared<MetaService_Stub>(channel.release(),
@@ -4691,16 +4716,15 @@ void notify_refresh_instance(std::shared_ptr<TxnKv> txn_kv, const std::string& i
                             .tag("msg", cntl.ErrorText());
                 } else {
                     succ = res.status().code() == MetaServiceCode::OK;
-                    LOG(INFO) << (succ ? "succ" : "failed")
-                              << " to issue refresh_instance rpc, num_try=" << num_try
-                              << " endpoint=" << endpoint << " response=" << proto_to_json(res);
+                    LOG_INFO("{} to issue refresh_instance rpc, num_try={} endpoint={} response={}",
+                             (succ ? "succ" : "failed"), num_try, endpoint, proto_to_json(res));
                     if (succ) return;
                 }
                 bthread_usleep(300000);
             }
             if (succ) return;
-            LOG(WARNING) << "failed to refresh finally, it may left the system inconsistent,"
-                         << " tired=" << num_try;
+            LOG_WARNING("failed to refresh finally, it may left the system inconsistent, tired={}",
+                        num_try);
         });
         bthread_t bid;
         ret = bthread_start_background(&bid, nullptr, run_bthread_work, f);
@@ -4708,7 +4732,7 @@ void notify_refresh_instance(std::shared_ptr<TxnKv> txn_kv, const std::string& i
         btids.emplace_back(bid);
     } // for
     for (auto& i : btids) bthread_join(i, nullptr);
-    LOG(INFO) << "finish notify_refresh_instance, num_items=" << reg.items_size();
+    LOG_INFO("finish notify_refresh_instance, num_items={}", reg.items_size());
 }
 
 } // namespace doris::cloud
