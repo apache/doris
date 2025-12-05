@@ -290,7 +290,9 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         if (bindSlotInOuterScope && !foundInThisScope && outerScope.isPresent()) {
             boundedOpt = Optional.of(bindSlotByScope(unboundSlot, outerScope.get()));
         }
-        List<? extends Expression> bounded = boundedOpt.get();
+        // it is heavy to deduplicate slots in scope. So we deduplicates bounded here
+        List<? extends Expression> bounded =
+                boundedOpt.get().stream().distinct().collect(Collectors.toList());
         switch (bounded.size()) {
             case 0:
                 String tableName = StringUtils.join(unboundSlot.getQualifier(), ".");
