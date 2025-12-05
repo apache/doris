@@ -636,4 +636,95 @@ suite("test_iceberg_optimize_actions_ddl", "p0,external,doris,external_docker,ex
         """
         exception "Action 'expire_snapshots' does not support partition specification"
     }
+
+    // =====================================================================================
+// Test Case 6: publish_changes action with WAP (Write-Audit-Publish) pattern
+// Simplified workflow:
+//
+//   - Main branch is initially empty (0 rows)
+//   - A WAP snapshot exists with wap.id = "test_wap_001" and 2 rows
+//   - publish_changes should cherry-pick the WAP snapshot into the main branch
+// =====================================================================================
+
+logger.info("Starting simplified WAP (Write-Audit-Publish) workflow verification test")
+
+// WAP test database and table
+String wap_db = "wap_test"
+String wap_table = "orders_wap"
+
+// Step 1: Verify no data is visible before publish_changes
+logger.info("Step 1: Verifying table is empty before publish_changes")
+List<List<Object>> beforePublishData = sql """
+    SELECT order_id, customer_id, amount, order_date
+    FROM ${catalog_name}.${wap_db}.${wap_table}
+    ORDER BY order_id
+"""
+logger.info("Data before publish_changes: ${beforePublishData}")
+assertTrue(
+        beforePublishData.size() == 0,
+        "Expected 0 rows before publish_changes, but got ${beforePublishData.size()}"
+)
+qt_wap_before_publish """
+    SELECT order_id, customer_id, amount, order_date
+    FROM ${catalog_name}.${wap_db}.${wap_table}
+    ORDER BY order_id
+"""
+
+// Step 2: Publish the WAP changes with wap_id = "test_wap_001"
+logger.info("Step 2: Publishing WAP changes with wap_id='test_wap_001'")
+List<List<Object>> publishResult = sql """
+    ALTER TABLE ${catalog_name}.${wap_db}.${wap_table}
+    EXECUTE publish_changes("wap_id" = "test_wap_001")
+"""
+logger.info("Publish changes result (previous_snapshot_id, current_snapshot_id): ${publishResult}")
+assertTrue(
+        publishResult.size() == 1,
+        "Expected 1 row result from publish_changes"
+)
+assertTrue(
+        publishResult[0].size() == 2,
+        "Expected 2 columns (previous_snapshot_id, current_snapshot_id)"
+)
+
+// Step 3: Verify WAP data is visible after publish_changes
+logger.info("Step 3: Verifying WAP data is visible after publish_changes")
+List<List<Object>> afterPublishData = sql """
+    SELECT order_id, customer_id, amount, order_date
+    FROM ${catalog_name}.${wap_db}.${wap_table}
+    ORDER BY order_id
+"""
+logger.info("Data after publish_changes: ${afterPublishData}")
+assertTrue(
+        afterPublishData.size() == 2,
+        "Expected exactly 2 rows after publish_changes (order_id=3,4), but got ${afterPublishData.size()}"
+)
+qt_wap_after_publish """
+    SELECT order_id, customer_id, amount, order_date
+    FROM ${catalog_name}.${wap_db}.${wap_table}
+    ORDER BY order_id
+"""
+
+logger.info("Simplified WAP (Write-Audit-Publish) workflow verification completed successfully")
+
+// Negative tests for publish_changes
+
+// publish_changes with partition specification (should fail)
+test {
+    sql """
+        ALTER TABLE ${catalog_name}.${db_name}.${table_name}
+        EXECUTE publish_changes ("wap_id" = "'test_wap_001'") PARTITIONS (part1)
+    """
+    exception "Action 'publish_changes' does not support partition specification"
+}
+
+// publish_changes with WHERE condition (should fail)
+test {
+    sql """
+        ALTER TABLE ${catalog_name}.${db_name}.${table_name}
+        EXECUTE publish_changes ("wap_id" = "'test_wap_001'") WHERE id > 0
+    """
+    exception "Action 'publish_changes' does not support WHERE condition"
+}
+
+  
 }

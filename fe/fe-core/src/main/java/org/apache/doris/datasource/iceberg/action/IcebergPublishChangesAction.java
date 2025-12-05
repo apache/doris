@@ -115,9 +115,9 @@ public class IcebergPublishChangesAction extends BaseIcebergAction {
     @Override
     protected List<Column> getResultSchema() {
         return Lists.newArrayList(
-                new Column("previous_snapshot_id", Type.BIGINT, false,
+                new Column("previous_snapshot_id", Type.STRING, false,
                         "ID of the snapshot before the publish operation"),
-                new Column("current_snapshot_id", Type.BIGINT, false,
+                new Column("current_snapshot_id", Type.STRING, false,
                         "ID of the new snapshot created as a result of the publish operation"));
     }
 
