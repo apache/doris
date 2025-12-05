@@ -95,21 +95,17 @@ Status FoldConstantExecutor::fold_constant_vexpr(const TFoldConstantParams& para
             // prepare and open context
             RETURN_IF_ERROR(_prepare_and_open(ctx.get()));
 
-            vectorized::Block tmp_block;
-            tmp_block.insert({vectorized::ColumnUInt8::create(1),
-                              std::make_shared<vectorized::DataTypeUInt8>(), ""});
-            int result_column = -1;
+            vectorized::ColumnWithTypeAndName tmp_data;
             // calc vexpr
-            RETURN_IF_ERROR(ctx->execute(&tmp_block, &result_column));
-            DCHECK(result_column != -1);
+            RETURN_IF_ERROR(ctx->execute_const_expr(tmp_data));
             // covert to thrift type
             const auto& res_type = ctx->root()->data_type();
             TPrimitiveType::type t_type = doris::to_thrift(res_type->get_primitive_type());
             // collect result
             PExprResult expr_result;
             std::string result;
-            const auto& column_ptr = tmp_block.get_by_position(result_column).column;
-            const auto& column_type = tmp_block.get_by_position(result_column).type;
+            const auto& column_ptr = tmp_data.column;
+            const auto& column_type = tmp_data.type;
             // 4 from fe: Config.be_exec_version maybe need remove after next version, now in 2.1
             if (_runtime_state->be_exec_version() >= 4 && params.__isset.is_nereids &&
                 params.is_nereids) {
