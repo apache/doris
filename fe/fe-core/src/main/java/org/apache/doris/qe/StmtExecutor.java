@@ -350,7 +350,7 @@ public class StmtExecutor {
             if (!list.isEmpty()) {
                 WorkloadGroup wg = list.get(0);
                 getSummaryProfile().setCpuShare(wg.getMaxCpuPercent());
-                builder.memoryLimit(String.valueOf(wg.getMaxMemoryPercent()));
+                getSummaryProfile().setMemoryLimit(wg.getMaxMemoryPercent());
             }
         } catch (UserException e) {
             throw new RuntimeException(e);

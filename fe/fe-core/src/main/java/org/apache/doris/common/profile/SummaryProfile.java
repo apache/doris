@@ -284,10 +284,10 @@ public class SummaryProfile {
     private long nereidsLockTableFinishTime = -1;
 
     @SerializedName(value = "memoryLimit")
-    private long memoryLimit = 0;
+    private int memoryLimit = 0;
 
     @SerializedName(value = "cpuShare")
-    private long cpuShare = -1;
+    private int cpuShare = 0;
 
     @SerializedName(value = "enableMemoryOvercommit")
     private long enableMemoryOvercommit = 0;
@@ -585,6 +585,8 @@ public class SummaryProfile {
             RuntimeProfile.printCounter(queryWriteResultConsumeTime, TUnit.TIME_MS));
         executionSummaryProfile.addInfoString(CPU_SHARE,
             RuntimeProfile.printCounter(cpuShare, TUnit.DOUBLE_VALUE));
+        executionSummaryProfile.addInfoString(MEMORY_LIMIT,
+            RuntimeProfile.printCounter(memoryLimit, TUnit.DOUBLE_VALUE));
         setTransactionSummary();
 
         if (Config.isCloudMode()) {
@@ -658,8 +660,12 @@ public class SummaryProfile {
         this.nereidsLockTableFinishTime = lockTableFinishTime;
     }
 
-    public void setCpuShare(long cpuShare) {
+    public void setCpuShare(int cpuShare) {
          this.cpuShare = cpuShare;
+    }
+
+    public void setMemoryLimit(int memoryLimit) {
+        this.memoryLimit = memoryLimit;
     }
 
     public void setNereidsCollectTablePartitionFinishTime(long collectTablePartitionFinishTime) {
