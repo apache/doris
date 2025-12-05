@@ -168,15 +168,24 @@ suite("analyze_agg") {
         order by id + random(1, 1), sum(id + random(1, 1)), sum(id + random(1, 1)) over ()
         '''
 
+    qt_having_with_window_2 '''
+        select sum(id) over (partition by a)
+        from t1
+        where id + random(1, 100) > 0
+        group by id, id + random(1, 100), a
+        having sum(id + random(1, 100)) > 1
+        order by id + random(1, 100), sum(id + random(1, 100)), sum(id + random(1, 100)) over ()
+        '''
+
     /* TODO: order by contains window expression throw exception, fix in PR #58036
-    qt_having_with_window_2 '''explain shape plan
+    qt_having_with_window_3 '''explain shape plan
         select 12345
         from t1
         having sum(id + random(1, 1)) > 1
         order by sum(id + random(1, 1)) over ()
         '''
 
-    qt_having_with_window_3 '''explain shape plan
+    qt_having_with_window_4 '''explain shape plan
         select distinct id + random(1, 1)
         from t1
         having sum(id + random(1, 1)) > 1

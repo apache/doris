@@ -334,26 +334,7 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
             return project;
         }
 
-        Map<Slot, Expression> windowExpressions = Maps.newHashMap();
-        for (NamedExpression expression : project.getProjects()) {
-            if (expression instanceof Alias && expression.containsType(WindowExpression.class)) {
-                Expression windowExpr = (Expression) ExpressionUtils.collect(
-                        ImmutableList.of(expression), WindowExpression.class::isInstance).iterator().next();
-                windowExpressions.put(expression.toSlot(), windowExpr);
-            }
-        }
-
         Set<Slot> havingUsedSlots = having.get().getInputSlots();
-        if (!windowExpressions.isEmpty()) {
-            for (Slot slot : havingUsedSlots) {
-                if (windowExpressions.containsKey(slot)) {
-                    throw new AnalysisException(having.get().getType() + " can not contains "
-                            + WindowExpression.class.getSimpleName() + " expression: "
-                            + windowExpressions.get(slot).toSql());
-                }
-            }
-        }
-
         Set<Slot> aggOutputExprIds = newAggregate.getOutputSet();
         if (aggOutputExprIds.containsAll(havingUsedSlots)) {
             // when having just use output slots from agg, we push down having as parent of agg
@@ -364,6 +345,18 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
                     )));
         }
 
+        // after build logical plan, it will not extract window expression from the SELECT lists,
+        // so aggregate may contains window expression.
+        // after we extract the window expression from the aggregate, we need to put them above the having node.
+        // because having run after window.
+        Map<Slot, Expression> windowExpressions = Maps.newHashMap();
+        for (NamedExpression expression : project.getProjects()) {
+            if (expression instanceof Alias && expression.containsType(WindowExpression.class)) {
+                Expression windowExpr = (Expression) ExpressionUtils.collect(
+                        ImmutableList.of(expression), WindowExpression.class::isInstance).iterator().next();
+                windowExpressions.put(expression.toSlot(), windowExpr);
+            }
+        }
         if (windowExpressions.isEmpty()) {
             return (LogicalPlan) having.get().withChildren(project);
         }
@@ -372,7 +365,7 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
                 project.getProjects().size() - windowExpressions.size());
         ImmutableList.Builder<NamedExpression> topProjectsBuilder = ImmutableList.builderWithExpectedSize(
                 project.getProjects().size());
-        Set<Slot> windowExprInputSlots = Sets.newHashSet();
+        Set<Slot> windowExprInputSlots = Sets.newLinkedHashSet();
         Set<Slot> bottomProjectOutputSlots = Sets.newHashSet();
         for (NamedExpression expression : project.getProjects()) {
             if (expression.containsType(WindowExpression.class)) {
@@ -386,6 +379,7 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
             }
         }
         for (Slot slot : windowExprInputSlots) {
+            // make sure the top project can calculate the window expression
             if (bottomProjectOutputSlots.add(slot)) {
                 bottomProjectsBuilder.add(slot);
             }
