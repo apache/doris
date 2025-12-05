@@ -637,7 +637,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
     /**
      * Estimate the total number of splits based on file sizes and split size,
      * and adjust the split size if the estimated total exceeds the limit.
-     * 
+     *
      * @param fileSizes list of file sizes in bytes
      * @param baseSplitSize the base split size to use (from getRealFileSplitSize)
      * @return the adjusted split size that ensures total split count doesn't exceed maxFileSplitsNum

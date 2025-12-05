@@ -294,7 +294,7 @@ public class PaimonScanNode extends FileQueryScanNode {
         // partition data.
         // And for counting the number of selected partitions for this paimon table.
         Map<BinaryRow, Map<String, String>> partitionInfoMaps = new HashMap<>();
-        
+
         // Collect file sizes for split size adjustment (only for native reader files that need splitting)
         List<Long> fileSizes = Lists.newArrayList();
         if (!applyCountPushdown) {
@@ -308,11 +308,12 @@ public class PaimonScanNode extends FileQueryScanNode {
                 }
             }
         }
-        
+
         // Calculate base split size and adjust if needed to limit total split count
         long baseSplitSize = applyCountPushdown ? Long.MAX_VALUE : getRealFileSplitSize(0);
-        long adjustedSplitSize = applyCountPushdown ? Long.MAX_VALUE : adjustSplitSizeForTotalLimit(fileSizes, baseSplitSize);
-        
+        long adjustedSplitSize = applyCountPushdown ? Long.MAX_VALUE
+                : adjustSplitSizeForTotalLimit(fileSizes, baseSplitSize);
+
         for (DataSplit dataSplit : dataSplits) {
             SplitStat splitStat = new SplitStat();
             splitStat.setRowCount(dataSplit.rowCount());

@@ -392,7 +392,7 @@ public class HiveScanNode extends FileQueryScanNode {
         for (HiveMetaStoreCache.HiveFileStatus status : hiveFileStatuses) {
             // Use the adjusted split size, but still respect individual file's block size
             long finalSplitSize = Math.max(adjustedSplitSize, getRealFileSplitSize(status.getBlockSize()));
-            allFiles.addAll(FileSplitter.splitFile(status.getPath(), 
+            allFiles.addAll(FileSplitter.splitFile(status.getPath(),
                     finalSplitSize,
                     status.getBlockLocations(), status.getLength(), status.getModificationTime(),
                     status.isSplittable(), status.getPartitionValues(),
