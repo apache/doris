@@ -60,8 +60,6 @@ import java.util.Set;
  */
 public class CheckAnalysis implements AnalysisRuleFactory {
 
-    private final boolean hadFillMissingSlots;
-
     private static final Map<Class<? extends LogicalPlan>, Set<Class<? extends Expression>>>
             UNEXPECTED_EXPRESSION_TYPE_MAP = ImmutableMap.<Class<? extends LogicalPlan>,
                 Set<Class<? extends Expression>>>builder()
@@ -104,6 +102,8 @@ public class CheckAnalysis implements AnalysisRuleFactory {
                     TableGeneratingFunction.class,
                     WindowExpression.class))
             .build();
+
+    private final boolean hadFillMissingSlots;
 
     public CheckAnalysis(boolean hadFillMissingSlots) {
         this.hadFillMissingSlots = hadFillMissingSlots;
