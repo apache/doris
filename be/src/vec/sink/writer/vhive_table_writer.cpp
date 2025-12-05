@@ -46,8 +46,9 @@ Status VHiveTableWriter::init_properties(ObjectPool* pool) {
 Status VHiveTableWriter::open(RuntimeState* state, RuntimeProfile* operator_profile) {
     _state = state;
     _operator_profile = operator_profile;
-    DCHECK(_operator_profile->get_child("CustomCounters") != nullptr);
-    RuntimeProfile* custom_counters = _operator_profile->get_child("CustomCounters");
+    auto custom_counters_opt = _operator_profile->get_child("CustomCounters");
+    DCHECK(custom_counters_opt.has_value());
+    RuntimeProfile* custom_counters = *custom_counters_opt;
     // add all counter
     _written_rows_counter = ADD_COUNTER(custom_counters, "WrittenRows", TUnit::UNIT);
     _send_data_timer = ADD_TIMER(custom_counters, "SendDataTime");

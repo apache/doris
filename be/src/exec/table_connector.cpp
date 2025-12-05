@@ -57,7 +57,9 @@ TableConnector::TableConnector(const TupleDescriptor* tuple_desc, bool use_trans
           _sql_str(sql_str) {}
 
 void TableConnector::init_profile(doris::RuntimeProfile* operator_profile) {
-    RuntimeProfile* custom_profile = operator_profile->get_child("CustomCounters");
+    auto custom_profile_opt = operator_profile->get_child("CustomCounters");
+    DCHECK(custom_profile_opt.has_value());
+    RuntimeProfile* custom_profile = *custom_profile_opt;
     _convert_tuple_timer = ADD_TIMER(custom_profile, "TupleConvertTime");
     _result_send_timer = ADD_TIMER(custom_profile, "ResultSendTime");
     _sent_rows_counter = ADD_COUNTER(custom_profile, "NumSentRows", TUnit::UNIT);
