@@ -146,10 +146,44 @@ public class TVFScanNode extends FileQueryScanNode {
             needSplit = FileSplitter.needSplitForCountPushdown(parallelNum, numBackends, totalFileNum);
         }
 
+        if (!needSplit) {
+            // No need to split, process files directly
+            for (TBrokerFileStatus fileStatus : fileStatuses) {
+                try {
+                    splits.addAll(FileSplitter.splitFile(LocationPath.of(fileStatus.getPath()),
+                            Long.MAX_VALUE,
+                            null, fileStatus.getSize(),
+                            fileStatus.getModificationTime(), fileStatus.isSplitable, null,
+                            FileSplitCreator.DEFAULT));
+                } catch (IOException e) {
+                    LOG.warn("get file split failed for TVF: {}", fileStatus.getPath(), e);
+                    throw new UserException(e);
+                }
+            }
+            return splits;
+        }
+
+        // Collect file sizes for split size adjustment
+        List<Long> fileSizes = Lists.newArrayList();
+        long representativeBlockSize = 0;
+        for (TBrokerFileStatus fileStatus : fileStatuses) {
+            fileSizes.add(fileStatus.getSize());
+            if (representativeBlockSize == 0 && fileStatus.getBlockSize() > 0) {
+                representativeBlockSize = fileStatus.getBlockSize();
+            }
+        }
+
+        // Calculate base split size and adjust if needed to limit total split count
+        long baseSplitSize = getRealFileSplitSize(representativeBlockSize);
+        long adjustedSplitSize = adjustSplitSizeForTotalLimit(fileSizes, baseSplitSize);
+
+        // Split files using the adjusted split size
         for (TBrokerFileStatus fileStatus : fileStatuses) {
             try {
+                // Use the adjusted split size, but still respect individual file's block size
+                long finalSplitSize = Math.max(adjustedSplitSize, getRealFileSplitSize(fileStatus.getBlockSize()));
                 splits.addAll(FileSplitter.splitFile(LocationPath.of(fileStatus.getPath()),
-                        getRealFileSplitSize(needSplit ? fileStatus.getBlockSize() : Long.MAX_VALUE),
+                        finalSplitSize,
                         null, fileStatus.getSize(),
                         fileStatus.getModificationTime(), fileStatus.isSplitable, null,
                         FileSplitCreator.DEFAULT));
