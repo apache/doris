@@ -235,12 +235,7 @@ public:
     void request_cdc_client(google::protobuf::RpcController* controller,
                               const PRequestCdcClientRequest* request,
                               PRequestCdcClientResult* result,
-                              google::protobuf::Closure* done) override;
-                             
-    void execute_cdc_scan_commit(google::protobuf::RpcController* controller,
-                              const PRequestCdcClientRequest* request,
-                              PRequestCdcClientResult* result,
-                              google::protobuf::Closure* done) override;                       
+                              google::protobuf::Closure* done) override;               
 
 private:
     void _exec_plan_fragment_in_pthread(google::protobuf::RpcController* controller,

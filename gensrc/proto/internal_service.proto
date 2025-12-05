@@ -1120,7 +1120,6 @@ message PFetchPeerDataResponse {
 message PRequestCdcClientRequest {
     optional string api = 1; 
     optional string params = 2; 
-    optional int64 txn_id = 3;
 }
 
 message PRequestCdcClientResult {
@@ -1186,6 +1185,5 @@ service PBackendService {
     rpc get_tablet_rowsets(PGetTabletRowsetsRequest) returns (PGetTabletRowsetsResponse);
     rpc fetch_peer_data(PFetchPeerDataRequest) returns (PFetchPeerDataResponse);
     rpc request_cdc_client(PRequestCdcClientRequest) returns (PRequestCdcClientResult);
-    rpc execute_cdc_scan_commit(PRequestCdcClientRequest) returns (PRequestCdcClientResult);
 };
 

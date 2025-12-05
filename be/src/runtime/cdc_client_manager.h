@@ -22,7 +22,6 @@
 #include <string>
 
 #include "common/status.h"
-#include "util/threadpool.h"
 
 namespace google::protobuf {
 class Closure;
@@ -31,11 +30,9 @@ class RpcController;
 
 namespace doris {
 
-class ExecEnv;
-
 class CdcClientManager {
 public:
-    explicit CdcClientManager(ExecEnv* exec_env);
+    CdcClientManager();
     ~CdcClientManager();
 
     void stop();
@@ -45,23 +42,10 @@ public:
                                  PRequestCdcClientResult* result,
                                  google::protobuf::Closure* done);
 
-    // Execute CDC scan and commit transaction
-    void execute_cdc_scan_commit_impl(const PRequestCdcClientRequest* request,
-                                      PRequestCdcClientResult* result,
-                                      google::protobuf::Closure* done);
-
 private:
     Status send_request_to_cdc_client(const std::string& api,
                                             const std::string& params_body,
                                             std::string* response);
-
-    Status extract_meta_from_response(const std::string& cdc_response,
-                                          std::string* meta_json);
-
-    Status commit_transaction(const int64_t txn_id, const std::string& meta_json);
-
-    ExecEnv* _exec_env = nullptr;
-    std::unique_ptr<doris::ThreadPool> _thread_pool;
 };
 
 } // namespace doris

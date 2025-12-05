@@ -2411,19 +2411,5 @@ void PInternalService::request_cdc_client(google::protobuf::RpcController* contr
     }
 }
 
-void PInternalService::execute_cdc_scan_commit(google::protobuf::RpcController* controller,
-                                         const PRequestCdcClientRequest* request,
-                                         PRequestCdcClientResult* result,
-                                         google::protobuf::Closure* done) {
-    bool ret = _heavy_work_pool.try_offer([this, request, result, done]() {
-        _exec_env->cdc_client_mgr()->execute_cdc_scan_commit_impl(request, result, done);
-    });
-
-    if (!ret) {
-        offer_failed(result, done, _heavy_work_pool);
-        return;
-    }
-}
-
 #include "common/compile_check_avoid_end.h"
 } // namespace doris
