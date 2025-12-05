@@ -17,16 +17,30 @@
 
 package org.apache.doris.nereids.rules.exploration.mv;
 
+import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.MTMV;
+import org.apache.doris.catalog.PartitionInfo;
+import org.apache.doris.catalog.PartitionType;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
+import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.hive.HMSExternalTable;
+import org.apache.doris.mtmv.BaseTableInfo;
+import org.apache.doris.mtmv.MTMVPartitionInfo;
+import org.apache.doris.mtmv.MTMVRelatedTableIf;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.utframe.TestWithFeService;
 
+import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Multimap;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 import java.util.BitSet;
 import java.util.List;
@@ -189,5 +203,150 @@ public class PartitionCompensatorTest extends TestWithFeService {
                             Set<String> orderTableUsedPartition = queryUsedPartitions.get(orderQualifier);
                             Assertions.assertEquals(orderTableUsedPartition, ImmutableSet.of("p1", "p2", "p3", "p4"));
                         });
+    }
+
+    @Test
+    public void testNeedUnionRewriteExternalNoPrune() throws Exception {
+        MaterializationContext ctx = mockCtx(
+                PartitionType.LIST,
+                newBaseTableInfo(),
+                Mockito.mock(MTMVRelatedTableIf.class),
+                true);
+        StatementContext sc = Mockito.mock(StatementContext.class);
+        Mockito.when(sc.getTableUsedPartitionNameMap()).thenReturn(ArrayListMultimap.create());
+        Assertions.assertFalse(PartitionCompensator.needUnionRewrite(ctx, sc));
+    }
+
+    @Test
+    public void testNeedUnionRewritePositive() throws Exception {
+        MaterializationContext ctx = mockCtx(
+                PartitionType.LIST,
+                newBaseTableInfo(),
+                Mockito.mock(MTMVRelatedTableIf.class),
+                false);
+        StatementContext sc = Mockito.mock(StatementContext.class);
+        Mockito.when(sc.getTableUsedPartitionNameMap()).thenReturn(ArrayListMultimap.create());
+        Assertions.assertTrue(PartitionCompensator.needUnionRewrite(ctx, sc));
+    }
+
+    @Test
+    public void testNotNeedUnionRewriteWhenAllPartitions() throws Exception {
+        BaseTableInfo tableInfo = newBaseTableInfo();
+        MaterializationContext ctx = mockCtx(
+                PartitionType.LIST,
+                tableInfo,
+                Mockito.mock(MTMVRelatedTableIf.class),
+                false);
+        StatementContext sc = Mockito.mock(StatementContext.class);
+
+        ArrayListMultimap<List<String>, Pair<RelationId, Set<String>>> t = ArrayListMultimap.create();
+        t.put(ImmutableList.of(), PartitionCompensator.ALL_PARTITIONS);
+        Mockito.when(sc.getTableUsedPartitionNameMap()).thenReturn(t);
+        Assertions.assertFalse(PartitionCompensator.needUnionRewrite(ctx, sc));
+    }
+
+    @Test
+    public void testGetQueryUsedPartitionsAllAndPartial() {
+        // Prepare qualifiers
+        List<String> lineitemQualifier = ImmutableList.of(
+                "internal", "partition_compensate_test", "lineitem_list_partition");
+        List<String> ordersQualifier = ImmutableList.of(
+                "internal", "partition_compensate_test", "orders_list_partition");
+
+        Multimap<List<String>, Pair<RelationId, Set<String>>> tableUsedPartitionNameMap
+                = connectContext.getStatementContext().getTableUsedPartitionNameMap();
+        tableUsedPartitionNameMap.clear();
+
+        tableUsedPartitionNameMap.put(lineitemQualifier, PartitionCompensator.ALL_PARTITIONS);
+
+        RelationId ridA = new RelationId(1);
+        RelationId ridB = new RelationId(2);
+        tableUsedPartitionNameMap.put(ordersQualifier, Pair.of(ridA, ImmutableSet.of("p1", "p2")));
+        tableUsedPartitionNameMap.put(ordersQualifier, Pair.of(ridB, ImmutableSet.of("p3")));
+
+        Map<List<String>, Set<String>> result = PartitionCompensator.getQueryUsedPartitions(
+                connectContext.getStatementContext(), new BitSet());
+        Assertions.assertNull(result.get(lineitemQualifier)); // all partitions
+        Assertions.assertEquals(ImmutableSet.of("p1", "p2", "p3"), result.get(ordersQualifier));
+
+        BitSet filterRidA = new BitSet();
+        filterRidA.set(ridA.asInt());
+        Map<List<String>, Set<String>> resultRidA = PartitionCompensator.getQueryUsedPartitions(
+                connectContext.getStatementContext(), filterRidA);
+        Assertions.assertNull(resultRidA.get(lineitemQualifier));
+        Assertions.assertEquals(ImmutableSet.of("p1", "p2"), resultRidA.get(ordersQualifier));
+
+        BitSet filterRidB = new BitSet();
+        filterRidB.set(ridB.asInt());
+        Map<List<String>, Set<String>> resultRidB = PartitionCompensator.getQueryUsedPartitions(
+                connectContext.getStatementContext(), filterRidB);
+        Assertions.assertNull(resultRidB.get(lineitemQualifier));
+        Assertions.assertEquals(ImmutableSet.of("p3"), resultRidB.get(ordersQualifier));
+
+        tableUsedPartitionNameMap.put(ordersQualifier, PartitionCompensator.ALL_PARTITIONS);
+        Map<List<String>, Set<String>> resultAllOrders = PartitionCompensator.getQueryUsedPartitions(
+                connectContext.getStatementContext(), new BitSet());
+        Assertions.assertNull(resultAllOrders.get(ordersQualifier));
+    }
+
+    @Test
+    public void testGetQueryUsedPartitionsEmptyCollectionMeansNoPartitions() {
+        List<String> qualifier = ImmutableList.of(
+                "internal", "partition_compensate_test", "lineitem_list_partition");
+        Multimap<List<String>, Pair<RelationId, Set<String>>> tableUsedPartitionNameMap
+                = connectContext.getStatementContext().getTableUsedPartitionNameMap();
+        tableUsedPartitionNameMap.clear();
+        // Put an empty set via a distinct relation id to simulate no partitions used
+        RelationId rid = new RelationId(3);
+        tableUsedPartitionNameMap.put(qualifier, Pair.of(rid, ImmutableSet.of()));
+
+        Map<List<String>, Set<String>> result = PartitionCompensator.getQueryUsedPartitions(
+                connectContext.getStatementContext(), new BitSet());
+        Assertions.assertEquals(ImmutableSet.of(), result.get(qualifier));
+    }
+
+    private static MaterializationContext mockCtx(
+            PartitionType type,
+            BaseTableInfo pctInfo,
+            MTMVRelatedTableIf pctTable,
+            boolean externalNoPrune) throws AnalysisException {
+
+        MTMV mtmv = Mockito.mock(MTMV.class);
+        PartitionInfo pi = Mockito.mock(PartitionInfo.class);
+        Mockito.when(mtmv.getPartitionInfo()).thenReturn(pi);
+        Mockito.when(pi.getType()).thenReturn(type);
+
+        MTMVPartitionInfo mpi = Mockito.mock(MTMVPartitionInfo.class);
+        Mockito.when(mtmv.getMvPartitionInfo()).thenReturn(mpi);
+        Mockito.when(mpi.getRelatedTableInfo()).thenReturn(pctInfo);
+        Mockito.when(mpi.getRelatedTable()).thenReturn(pctTable);
+
+        if (externalNoPrune) {
+            HMSExternalTable ext = Mockito.mock(HMSExternalTable.class);
+            Mockito.when(ext.supportInternalPartitionPruned()).thenReturn(false);
+            Mockito.when(mpi.getRelatedTable()).thenReturn(ext);
+        }
+
+        AsyncMaterializationContext ctx = Mockito.mock(AsyncMaterializationContext.class);
+        Mockito.when(ctx.getMtmv()).thenReturn(mtmv);
+        return ctx;
+    }
+
+    private static BaseTableInfo newBaseTableInfo() {
+        CatalogIf<?> catalog = Mockito.mock(CatalogIf.class);
+        Mockito.when(catalog.getId()).thenReturn(1L);
+        Mockito.when(catalog.getName()).thenReturn("internal");
+
+        DatabaseIf<?> db = Mockito.mock(DatabaseIf.class);
+        Mockito.when(db.getId()).thenReturn(2L);
+        Mockito.when(db.getFullName()).thenReturn("partition_compensate_test");
+        Mockito.when(db.getCatalog()).thenReturn(catalog);
+
+        TableIf table = Mockito.mock(TableIf.class);
+        Mockito.when(table.getId()).thenReturn(3L);
+        Mockito.when(table.getName()).thenReturn("t");
+        Mockito.when(table.getDatabase()).thenReturn(db);
+
+        return new BaseTableInfo(table);
     }
 }
