@@ -40,6 +40,7 @@ import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -59,6 +60,15 @@ import java.util.stream.Collectors;
  *
  * output:
  * SELECT * FROM t1 JOIN t3 ON t1.id=t3.id JOIN t2 ON t2.id=t3.id
+ *
+ * NOTICE:
+ * ReorderJoin will extract all filter's conjuncts together, than reorder the joins.
+ * But if the conjuncts contains unique function, when reorder, the result is error,
+ * it may generate more or less expected output rows than the origin expression.
+ * When consider unique function, need insert more filters into the MultiJoin, it will make complicated.
+ * We just only handle the top filter with unique function, but skip the below filters with unique function.
+ * What's more, if the below filters contains unique function, it should exchange their joins with other joins.
+ *
  * </pre>
  * </p>
  * Using the {@link MultiJoin} to complete this task.
@@ -83,24 +93,38 @@ public class ReorderJoin extends OneRewriteRuleFactory {
                         || ((LogicalJoin<?, ?>) ctx.root.child()).isLeadingJoin()) {
                     return null;
                 }
+
                 LogicalFilter<Plan> filter = ctx.root;
+                Set<Expression> uniqueExprConjuncts = Sets.newHashSet();
+                Set<Expression> nonUniqueExprConjuncts = Sets.newHashSetWithExpectedSize(filter.getConjuncts().size());
                 for (Expression conjunct : filter.getConjuncts()) {
                     // after reorder and push down the random() down to lower join,
                     // the rewritten sql may have less rows() than the origin sql
                     if (conjunct.containsUniqueFunction()) {
-                        return null;
+                        uniqueExprConjuncts.add(conjunct);
+                    } else {
+                        nonUniqueExprConjuncts.add(conjunct);
                     }
                 }
+                if (nonUniqueExprConjuncts.isEmpty()) {
+                    return null;
+                }
+                LogicalFilter<Plan> nonUniqueExprFilter = uniqueExprConjuncts.isEmpty() ?
+                        filter : filter.withConjunctsAndChild(nonUniqueExprConjuncts, filter.child());
 
                 Map<Plan, DistributeHint> planToHintType = Maps.newHashMap();
-                Plan plan = joinToMultiJoin(filter, planToHintType);
+                Plan plan = joinToMultiJoin(nonUniqueExprFilter, planToHintType);
                 Preconditions.checkState(plan instanceof MultiJoin, "join to multi join should return MultiJoin,"
                         + " but return plan is " + plan.getType());
                 MultiJoin multiJoin = (MultiJoin) plan;
                 ctx.statementContext.addJoinFilters(multiJoin.getJoinFilter());
                 ctx.statementContext.setMaxNAryInnerJoin(multiJoin.children().size());
                 Plan after = multiJoinToJoin(multiJoin, planToHintType);
-                return after;
+                if (after != null && !after.equals(nonUniqueExprFilter)) {
+                    return PlanUtils.filterOrSelf(uniqueExprConjuncts, after);
+                } else {
+                    return null;
+                }
             }).toRule(RuleType.REORDER_JOIN);
     }
 

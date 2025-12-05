@@ -46,6 +46,9 @@ suite('push_down_filter_through_join_with_unique_function') {
         '''
 
     // sql 'SET disable_join_reorder=false'
+    // Well the reorder join need disable_join_reorder=false,
+    // But if we enable this var, the test is not stable,
+    // the p0 test pipeline may change the two table join order sometimes.
 
     qt_reorder_join_1 '''
          explain shape plan
@@ -61,6 +64,17 @@ suite('push_down_filter_through_join_with_unique_function') {
          where t1.id + rand(1, 100) = t3.id and t1.id * 2 = t2.id * 5
          '''
 
+    // if set disable_join_reorder=false,
+    // | PhysicalResultSink
+    //  --filter((random() > 10.0))                                                                                                              |
+    //  ----NestedLoopJoin[CROSS_JOIN]                                                                                                           | | ------PhysicalProject                                                                                                                    |
+    //  --------hashJoin[INNER_JOIN broadcast] hashCondition=((expr_(cast(id as BIGINT) * 2) = expr_(cast(id as BIGINT) * 5))) otherCondition=() |
+    //  ----------PhysicalProject                                                                                                                |
+    //  ------------PhysicalOlapScan[t1]                                                                                                         |
+    //  ----------PhysicalProject                                                                                                                |
+    //  ------------PhysicalOlapScan[t2(t3)]                                                                                                     |
+    //  ------PhysicalProject                                                                                                                    |
+    //  --------PhysicalOlapScan[t2]                                                                                                            |
     qt_reorder_join_3 '''
          explain shape plan
          select t1.id, t2.id, t3.id
