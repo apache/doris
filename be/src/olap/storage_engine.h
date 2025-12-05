@@ -186,6 +186,7 @@ protected:
 
     std::unique_ptr<ThreadPool> _base_compaction_thread_pool;
     std::unique_ptr<ThreadPool> _cumu_compaction_thread_pool;
+    std::unique_ptr<ThreadPool> _ann_build_thread_pool;
     int _cumu_compaction_thread_pool_used_threads {0};
     int _cumu_compaction_thread_pool_small_tasks_running {0};
 };
@@ -334,6 +335,7 @@ public:
                                       SegCompactionCandidatesSharedPtr segments);
 
     ThreadPool* tablet_publish_txn_thread_pool() { return _tablet_publish_txn_thread_pool.get(); }
+    ThreadPool* ann_build_thread_pool() const { return _ann_build_thread_pool.get(); }
     bool stopped() override { return _stopped; }
 
     Status process_index_change_task(const TAlterInvertedIndexReq& reqest);
