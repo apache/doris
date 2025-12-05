@@ -84,6 +84,7 @@ public class CreateMTMVInfo extends CreateTableInfo {
     private final MTMVRefreshInfo refreshInfo;
     private MTMVRelation relation;
     private MTMVPartitionInfo mvPartitionInfo;
+    private final Map<String, String> sessionVariables;
 
     /**
      * constructor for create MTMV
@@ -99,7 +100,8 @@ public class CreateMTMVInfo extends CreateTableInfo {
             String querySql,
             MTMVRefreshInfo refreshInfo,
             List<SimpleColumnDefinition> simpleColumnDefinitions,
-            MTMVPartitionDefinition mvPartitionDefinition) {
+            MTMVPartitionDefinition mvPartitionDefinition,
+            Map<String, String> sessionVariables) {
         super(
                 ifNotExists,
                 mvName,
@@ -114,6 +116,7 @@ public class CreateMTMVInfo extends CreateTableInfo {
                 .requireNonNull(simpleColumnDefinitions, "require simpleColumnDefinitions object");
         this.mvPartitionDefinition = Objects
                 .requireNonNull(mvPartitionDefinition, "require mtmvPartitionInfo object");
+        this.sessionVariables = sessionVariables;
     }
 
     /**
@@ -330,5 +333,9 @@ public class CreateMTMVInfo extends CreateTableInfo {
 
     public MTMVPartitionInfo getMvPartitionInfo() {
         return mvPartitionInfo;
+    }
+
+    public Map<String, String> getSessionVariables() {
+        return sessionVariables;
     }
 }

@@ -30,6 +30,7 @@ import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.OrderExpression;
+import org.apache.doris.nereids.trees.expressions.SessionVarGuardExpr;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotNotFromChildren;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -45,7 +46,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.ExpressionUtils;
-import org.apache.doris.nereids.util.PlanUtils.CollectNonWindowedAggFuncs;
+import org.apache.doris.nereids.util.PlanUtils.CollectNonWindowedAggFuncsWithSessionVar;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.SqlModeHelper;
 
@@ -160,14 +161,15 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
 
         // collect all trivial-agg
         List<NamedExpression> aggregateOutput = aggregate.getOutputExpressions();
-        List<AggregateFunction> aggFuncs = CollectNonWindowedAggFuncs.collect(aggregateOutput);
+        Map<AggregateFunction, Map<String, String>> aggFuncs =
+                CollectNonWindowedAggFuncsWithSessionVar.collect(aggregateOutput);
 
         // split agg child as two part
         // TRUE part 1: need push down itself, if it contains subquery or window expression
         // FALSE part 2: need push down its input slots, if it DOES NOT contain subquery or window expression
         ImmutableSet.Builder<Expression> needPushDownSelfExprs = ImmutableSet.builder();
         ImmutableSet.Builder<Expression> needPushDownInputs = ImmutableSet.builder();
-        for (AggregateFunction aggFunc : aggFuncs) {
+        for (AggregateFunction aggFunc : aggFuncs.keySet()) {
             if (!aggFunc.isDistinct()) {
                 for (Expression arg : aggFunc.children()) {
                     // should not push down literal under aggregate
@@ -245,8 +247,8 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
                 bottomSlotContext.normalizeToUseSlotRef(groupingByExprs);
 
         // normalize trivial-aggs by bottomProjects
-        List<AggregateFunction> normalizedAggFuncs =
-                bottomSlotContext.normalizeToUseSlotRef(aggFuncs);
+        List<Expression> normalizedAggFuncs =
+                bottomSlotContext.normalizeToUseSlotRef(SessionVarGuardExpr.getExprWithGuard(aggFuncs));
         if (normalizedAggFuncs.stream().anyMatch(agg -> !agg.children().isEmpty()
                 && agg.child(0).containsType(AggregateFunction.class))) {
             throw new AnalysisException(
