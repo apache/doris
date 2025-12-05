@@ -272,30 +272,29 @@ Status AggSinkLocalState::_merge_with_serialized_key_helper(vectorized::Block* b
     SCOPED_TIMER(_merge_timer);
 
     size_t key_size = Base::_shared_state->probe_expr_ctxs.size();
-    vectorized::ColumnRawPtrs key_columns(key_size);
-    std::vector<int> key_locs(key_size);
-
-    for (int i = 0; i < key_size; ++i) {
-        if constexpr (for_spill) {
-            key_columns[i] = block->get_by_position(i).column.get();
-            key_locs[i] = i;
-        } else {
-            int& result_column_id = key_locs[i];
-            RETURN_IF_ERROR(
-                    Base::_shared_state->probe_expr_ctxs[i]->execute(block, &result_column_id));
-            block->replace_by_position_if_const(result_column_id);
-            key_columns[i] = block->get_by_position(result_column_id).column.get();
-        }
-        key_columns[i]->assume_mutable()->replace_float_special_values();
-    }
+    vectorized::Columns key_columns(key_size);
+    vectorized::ColumnRawPtrs key_columns_raw_ptr(key_size);
 
     size_t rows = block->rows();
+    for (int i = 0; i < key_size; ++i) {
+        if constexpr (for_spill) {
+            key_columns[i] = block->get_by_position(i).column;
+            key_columns_raw_ptr[i] = key_columns[i].get();
+        } else {
+            RETURN_IF_ERROR(
+                    Base::_shared_state->probe_expr_ctxs[i]->execute(block, key_columns[i]));
+            key_columns[i] = key_columns[i]->convert_to_full_column_if_const();
+            key_columns_raw_ptr[i] = key_columns[i].get();
+        }
+        key_columns_raw_ptr[i]->assume_mutable()->replace_float_special_values();
+    }
+
     if (_places.size() < rows) {
         _places.resize(rows);
     }
 
     if (limit && !_shared_state->do_sort_limit) {
-        _find_in_hash_table(_places.data(), key_columns, (uint32_t)rows);
+        _find_in_hash_table(_places.data(), key_columns_raw_ptr, (uint32_t)rows);
 
         for (int i = 0; i < Base::_shared_state->aggregate_evaluators.size(); ++i) {
             if (Base::_shared_state->aggregate_evaluators[i]->is_merge()) {
@@ -336,11 +335,11 @@ Status AggSinkLocalState::_merge_with_serialized_key_helper(vectorized::Block* b
     } else {
         bool need_do_agg = true;
         if (limit) {
-            need_do_agg = _emplace_into_hash_table_limit(_places.data(), block, key_locs,
-                                                         key_columns, (uint32_t)rows);
+            need_do_agg = _emplace_into_hash_table_limit(_places.data(), block, key_columns,
+                                                         key_columns_raw_ptr, (uint32_t)rows);
             rows = block->rows();
         } else {
-            _emplace_into_hash_table(_places.data(), key_columns, (uint32_t)rows);
+            _emplace_into_hash_table(_places.data(), key_columns_raw_ptr, (uint32_t)rows);
         }
 
         if (need_do_agg) {
@@ -457,19 +456,16 @@ Status AggSinkLocalState::_execute_with_serialized_key_helper(vectorized::Block*
     DCHECK(!Base::_shared_state->probe_expr_ctxs.empty());
 
     size_t key_size = Base::_shared_state->probe_expr_ctxs.size();
-    vectorized::ColumnRawPtrs key_columns(key_size);
-    std::vector<int> key_locs(key_size);
+    vectorized::Columns key_columns(key_size);
+    vectorized::ColumnRawPtrs key_columns_raw_ptr(key_size);
     {
         SCOPED_TIMER(_expr_timer);
         for (size_t i = 0; i < key_size; ++i) {
-            int& result_column_id = key_locs[i];
             RETURN_IF_ERROR(
-                    Base::_shared_state->probe_expr_ctxs[i]->execute(block, &result_column_id));
-            block->get_by_position(result_column_id).column =
-                    block->get_by_position(result_column_id)
-                            .column->convert_to_full_column_if_const();
-            key_columns[i] = block->get_by_position(result_column_id).column.get();
-            key_columns[i]->assume_mutable()->replace_float_special_values();
+                    Base::_shared_state->probe_expr_ctxs[i]->execute(block, key_columns[i]));
+            key_columns[i] = key_columns[i]->convert_to_full_column_if_const();
+            key_columns_raw_ptr[i] = key_columns[i].get();
+            key_columns_raw_ptr[i]->assume_mutable()->replace_float_special_values();
         }
     }
 
@@ -479,7 +475,7 @@ Status AggSinkLocalState::_execute_with_serialized_key_helper(vectorized::Block*
     }
 
     if (limit && !_shared_state->do_sort_limit) {
-        _find_in_hash_table(_places.data(), key_columns, rows);
+        _find_in_hash_table(_places.data(), key_columns_raw_ptr, rows);
 
         for (int i = 0; i < Base::_shared_state->aggregate_evaluators.size(); ++i) {
             RETURN_IF_ERROR(
@@ -502,12 +498,12 @@ Status AggSinkLocalState::_execute_with_serialized_key_helper(vectorized::Block*
         };
 
         if constexpr (limit) {
-            if (_emplace_into_hash_table_limit(_places.data(), block, key_locs, key_columns,
-                                               rows)) {
+            if (_emplace_into_hash_table_limit(_places.data(), block, key_columns,
+                                               key_columns_raw_ptr, rows)) {
                 RETURN_IF_ERROR(do_aggregate_evaluators());
             }
         } else {
-            _emplace_into_hash_table(_places.data(), key_columns, rows);
+            _emplace_into_hash_table(_places.data(), key_columns_raw_ptr, rows);
             RETURN_IF_ERROR(do_aggregate_evaluators());
 
             if (_should_limit_output && !Base::_shared_state->enable_spill) {
@@ -585,11 +581,10 @@ void AggSinkLocalState::_emplace_into_hash_table(vectorized::AggregateDataPtr* p
                _agg_data->method_variant);
 }
 
-bool AggSinkLocalState::_emplace_into_hash_table_limit(vectorized::AggregateDataPtr* places,
-                                                       vectorized::Block* block,
-                                                       const std::vector<int>& key_locs,
-                                                       vectorized::ColumnRawPtrs& key_columns,
-                                                       uint32_t num_rows) {
+bool AggSinkLocalState::_emplace_into_hash_table_limit(
+        vectorized::AggregateDataPtr* places, vectorized::Block* block,
+        vectorized::Columns& key_columns, vectorized::ColumnRawPtrs& key_columns_raw_ptr,
+        uint32_t num_rows) {
     return std::visit(
             vectorized::Overload {
                     [&](std::monostate& arg) {
@@ -605,7 +600,7 @@ bool AggSinkLocalState::_emplace_into_hash_table_limit(vectorized::AggregateData
                         {
                             SCOPED_TIMER(_hash_table_limit_compute_timer);
                             need_filter =
-                                    _shared_state->do_limit_filter(block, num_rows, &key_locs);
+                                    _shared_state->do_limit_filter(key_columns_raw_ptr, num_rows);
                         }
 
                         auto& need_computes = _shared_state->need_computes;
@@ -613,23 +608,25 @@ bool AggSinkLocalState::_emplace_into_hash_table_limit(vectorized::AggregateData
                                     std::find(need_computes.begin(), need_computes.end(), 1);
                             need_agg != need_computes.end()) {
                             if (need_filter) {
+                                /// TODO: Actually, there's no need to filter the entire block; you only need to filter the columns that will be used next.
                                 vectorized::Block::filter_block_internal(block, need_computes);
-                                for (int i = 0; i < key_locs.size(); ++i) {
-                                    key_columns[i] =
-                                            block->get_by_position(key_locs[i]).column.get();
+                                vectorized::Block::filter_columns_internal(key_columns,
+                                                                           need_computes);
+                                for (int i = 0; i < key_columns.size(); ++i) {
+                                    key_columns_raw_ptr[i] = key_columns[i].get();
                                 }
-                                num_rows = (uint32_t)block->rows();
+                                num_rows = (uint32_t)key_columns[0]->size();
                             }
 
-                            AggState state(key_columns);
-                            agg_method.init_serialized_keys(key_columns, num_rows);
+                            AggState state(key_columns_raw_ptr);
+                            agg_method.init_serialized_keys(key_columns_raw_ptr, num_rows);
                             size_t i = 0;
 
                             auto creator = [&](const auto& ctor, auto& key, auto& origin) {
                                 try {
                                     HashMethodType::try_presis_key_and_origin(key, origin,
                                                                               _agg_arena_pool);
-                                    _shared_state->refresh_top_limit(i, key_columns);
+                                    _shared_state->refresh_top_limit(i, key_columns_raw_ptr);
                                     auto mapped =
                                             _shared_state->aggregate_data_container->append_data(
                                                     origin);
@@ -656,7 +653,7 @@ bool AggSinkLocalState::_emplace_into_hash_table_limit(vectorized::AggregateData
                                 if (!st) {
                                     throw Exception(st.code(), st.to_string());
                                 }
-                                _shared_state->refresh_top_limit(i, key_columns);
+                                _shared_state->refresh_top_limit(i, key_columns_raw_ptr);
                             };
 
                             SCOPED_TIMER(_hash_table_emplace_timer);
