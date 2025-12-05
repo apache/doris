@@ -520,6 +520,12 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                 if (selectedPartitionsRowCount == -1) {
                     selectedPartitionsRowCount = tableRowCount;
                 }
+                if (isRegisteredRowCount(olapScan)) {
+                    // If a row count is injected for the materialized view, use it to fix the issue where
+                    // the materialized view cannot be selected by cbo stable due to selectedPartitionsRowCount being 0,
+                    // which is caused by delayed statistics reporting.
+                    selectedPartitionsRowCount = tableRowCount;
+                }
                 // if estimated mv rowCount is more than actual row count, fall back to base table stats
                 if (selectedPartitionsRowCount >= optStats.get().getRowCount()) {
                     Statistics derivedStats = optStats.get();
