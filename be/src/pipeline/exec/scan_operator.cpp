@@ -826,8 +826,6 @@ Status ScanLocalState<Derived>::_normalize_not_in_and_not_eq_predicate(
         std::vector<std::shared_ptr<ColumnPredicate>>& predicates, ColumnValueRange<T>& range,
         PushDownType* pdt) {
     bool is_fixed_range = range.is_fixed_value_range();
-    auto not_in_range = ColumnValueRange<T>::create_empty_column_value_range(
-            range.column_name(), slot->is_nullable(), range.precision(), range.scale());
     PushDownType temp_pdt = PushDownType::UNACCEPTABLE;
     auto expr = expr_ctx->root()->is_rf_wrapper() ? expr_ctx->root()->get_impl() : expr_ctx->root();
     // 1. Normalize in conjuncts like 'where col in (v1, v2, v3)'
@@ -875,9 +873,6 @@ Status ScanLocalState<Derived>::_normalize_not_in_and_not_eq_predicate(
             if (is_fixed_range) {
                 RETURN_IF_ERROR(_change_value_range<true>(
                         range, value, ColumnValueRange<T>::remove_fixed_value_range, fn_name));
-            } else {
-                RETURN_IF_ERROR(_change_value_range<true>(
-                        not_in_range, value, ColumnValueRange<T>::add_fixed_value_range, fn_name));
             }
             iter->next();
         }
@@ -917,20 +912,12 @@ Status ScanLocalState<Derived>::_normalize_not_in_and_not_eq_predicate(
                     RETURN_IF_ERROR(_change_value_range<true>(
                             range, reinterpret_cast<void*>(&val),
                             ColumnValueRange<T>::remove_fixed_value_range, fn_name));
-                } else {
-                    RETURN_IF_ERROR(_change_value_range<true>(
-                            not_in_range, reinterpret_cast<void*>(&val),
-                            ColumnValueRange<T>::add_fixed_value_range, fn_name));
                 }
             } else {
                 if (is_fixed_range) {
                     RETURN_IF_ERROR(_change_value_range<true>(
                             range, reinterpret_cast<const void*>(value.data),
                             ColumnValueRange<T>::remove_fixed_value_range, fn_name));
-                } else {
-                    RETURN_IF_ERROR(_change_value_range<true>(
-                            not_in_range, reinterpret_cast<const void*>(value.data),
-                            ColumnValueRange<T>::add_fixed_value_range, fn_name));
                 }
             }
         } else {
@@ -941,9 +928,7 @@ Status ScanLocalState<Derived>::_normalize_not_in_and_not_eq_predicate(
         *pdt = PushDownType::UNACCEPTABLE;
         return Status::OK();
     }
-    if (is_fixed_range ||
-        not_in_range.get_fixed_value_size() <=
-                _parent->cast<typename Derived::Parent>()._max_pushdown_conditions_per_column) {
+    if (is_fixed_range) {
         *pdt = temp_pdt;
     }
     return Status::OK();
