@@ -119,8 +119,8 @@ public:
     }
 
     bool evaluate_and(const std::pair<WrapperField*, WrapperField*>& statistic) const override {
-        if (statistic.first->is_null()) {
-            return true;
+        if (statistic.first->is_null() && statistic.second->is_null()) {
+            return false;
         }
 
         T tmp_min_value = get_zone_map_value<Type, T>(statistic.first->cell_ptr());
