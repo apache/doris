@@ -1,34 +1,49 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
 package org.apache.doris.job.extensions.insert.streaming;
 
 import org.apache.doris.catalog.Env;
-import org.apache.doris.common.Status;
 import org.apache.doris.httpv2.entity.ResponseBody;
 import org.apache.doris.httpv2.rest.RestApiStatusCode;
-import org.apache.doris.job.base.Job;
 import org.apache.doris.job.common.DataSourceType;
 import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.offset.SourceOffsetProvider;
 import org.apache.doris.job.offset.jdbc.JdbcOffset;
-import org.apache.doris.job.offset.jdbc.split.SnapshotSplit;
+import org.apache.doris.job.util.StreamingJobUtils;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.proto.InternalService;
+import org.apache.doris.proto.InternalService.PRequestCdcClientResult;
+import org.apache.doris.rpc.BackendServiceProxy;
+import org.apache.doris.system.Backend;
+import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TStatusCode;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.Getter;
 import lombok.extern.log4j.Log4j2;
-import org.apache.http.HttpHeaders;
-import org.apache.http.client.methods.HttpPost;
-import org.apache.http.entity.StringEntity;
-import org.apache.http.impl.client.CloseableHttpClient;
-import org.apache.http.impl.client.HttpClientBuilder;
-import org.apache.http.util.EntityUtils;
+
 import java.io.IOException;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Future;
 
 @Log4j2
 @Getter
@@ -39,19 +54,22 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
     private Map<String, String> sourceProperties;
     private Map<String, String> targetProperties;
     private String targetDb;
+    private StreamingJobProperties jobProperties;
 
     public StreamingMultiTblTask(Long jobId,
-                                long taskId,
-                                DataSourceType dataSourceType,
-                                SourceOffsetProvider offsetProvider,
-                                Map<String, String> sourceProperties,
-                                String targetDb,
-                                Map<String, String> targetProperties) {
+            long taskId,
+            DataSourceType dataSourceType,
+            SourceOffsetProvider offsetProvider,
+            Map<String, String> sourceProperties,
+            String targetDb,
+            Map<String, String> targetProperties,
+            StreamingJobProperties jobProperties) {
         super(jobId, taskId);
         this.dataSourceType = dataSourceType;
         this.offsetProvider = offsetProvider;
         this.sourceProperties = sourceProperties;
         this.targetProperties = targetProperties;
+        this.jobProperties = jobProperties;
     }
 
     @Override
@@ -77,74 +95,39 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
     }
 
     private void sendWriteRequest() throws JobException {
+        Backend backend = StreamingJobUtils.selectBackend(jobId);
         Map<String, Object> params = buildRequestParams();
-
-        String url = "http://127.0.0.1:9096/api/writeRecords";
-        // Prepare request body
-        String requestBody = null;
+        InternalService.PRequestCdcClientRequest request = InternalService.PRequestCdcClientRequest.newBuilder()
+                .setApi("/api/writeRecords")
+                .setParams(GsonUtils.GSON.toJson(params)).build();
+        TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
+        InternalService.PRequestCdcClientResult result = null;
         try {
-            requestBody = objectMapper.writeValueAsString(params);
-        }catch (IOException e) {
-            throw new JobException("Failed to serialize request body: " + e.getMessage(), e);
-        }
-        // Create HTTP POST request
-        HttpPost httpPost = new HttpPost(url);
-        httpPost.addHeader("token", getToken());
-        StringEntity stringEntity = new StringEntity(requestBody, "UTF-8");
-        stringEntity.setContentType("application/json");
-        httpPost.setEntity(stringEntity);
-        // Set request headers
-        httpPost.setHeader(HttpHeaders.CONTENT_TYPE, "application/json");
-
-        // Execute request
-        try (CloseableHttpClient client = HttpClientBuilder.create().build()) {
-            String response = client.execute(httpPost, httpResponse -> {
-                int statusCode = httpResponse.getStatusLine().getStatusCode();
-                String responseBody = EntityUtils.toString(httpResponse.getEntity(), "UTF-8");
-                if (statusCode != 200) {
-                    throw new RuntimeException("Failed to get split from CDC client, HTTP status code: " + statusCode);
-                }
-                return responseBody;
-            });
-
+            Future<PRequestCdcClientResult> future =
+                    BackendServiceProxy.getInstance().requestCdcClient(address, request);
+            result = future.get();
+            TStatusCode code = TStatusCode.findByValue(result.getStatus().getStatusCode());
+            if (code != TStatusCode.OK) {
+                log.error("Failed to get split from backend, {}", result.getStatus().getErrorMsgs(0));
+                throw new JobException(
+                        "Failed to get split from backend," + result.getStatus().getErrorMsgs(0) + ", response: "
+                                + result.getResponse());
+            }
+            String response = result.getResponse();
             ResponseBody<String> responseObj = objectMapper.readValue(
                     response,
-                    new TypeReference<ResponseBody<String>>() {}
+                    new TypeReference<ResponseBody<String>>() {
+                    }
             );
             if (responseObj.getCode() == RestApiStatusCode.OK.code) {
                 log.info("Send write records request successfully, response: {}", responseObj.getData());
                 return;
             }
             throw new JobException("Failed to send write records request , error message: " + responseObj);
-        } catch (Exception ex) {
-            log.error("Send write request: ", ex);
-            throw new JobException("Failed to send write request: " + ex.getMessage(), ex);
+        } catch (ExecutionException | InterruptedException | IOException ex) {
+            log.error("Send write request failed: ", ex);
+            throw new JobException(ex);
         }
-
-        /**
-         Backend backend = selectBackend(jobId);
-         Map<String, Object> params = buildSplitParams(table);
-         InternalService.PRequestCdcClientRequest request = InternalService.PRequestCdcClientRequest.newBuilder()
-         .setApi("/api/fetchSplits")
-         .setParams(GsonUtils.GSON.toJson(params)).build();
-         TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
-         InternalService.PRequestCdcClientResult result = null;
-         try {
-         Future<PRequestCdcClientResult> future =
-         BackendServiceProxy.getInstance().requestCdcClient(address, request);
-         result = future.get();
-         TStatusCode code = TStatusCode.findByValue(result.getStatus().getStatusCode());
-         if (code != TStatusCode.OK) {
-         log.error("Failed to get split from backend, {}", result.getStatus().getErrorMsgs(0));
-         throw new JobException("Failed to get split from backend," + result.getStatus().getErrorMsgs(0) + ", response: " + result.getResponse());
-         }
-         } catch (ExecutionException | InterruptedException ex) {
-         log.error("Get splits error: ", ex);
-         throw new JobException(ex);
-         }
-         log.info("========fetch cdc split {}", result.getResponse());
-         return "";
-         **/
     }
 
     private String getToken() throws JobException {
@@ -159,7 +142,7 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
         return token;
     }
 
-    private Map<String, Object> buildRequestParams() {
+    private Map<String, Object> buildRequestParams() throws JobException {
         JdbcOffset offset = (JdbcOffset) runningOffset;
         Map<String, Object> params = new HashMap<>();
         params.put("jobId", getJobId());
@@ -168,6 +151,11 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
         params.put("meta", offset.getSplit());
         params.put("config", sourceProperties);
         params.put("targetDb", targetDb);
+        params.put("token", getToken());
+        params.put("taskId", getTaskId());
+        params.put("frontendAddress",
+                Env.getCurrentEnv().getMasterHost() + ":" + Env.getCurrentEnv().getMasterHttpPort());
+        params.put("maxInterval", jobProperties.getMaxIntervalSecond());
         return params;
     }
 
@@ -197,7 +185,7 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
     }
 
     public boolean isTimeout() {
-        //todo: need to config
+        // todo: need to config
         return (System.currentTimeMillis() - createTimeMs) > 300 * 1000;
     }
 }

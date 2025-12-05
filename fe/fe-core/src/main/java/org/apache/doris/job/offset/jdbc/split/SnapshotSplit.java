@@ -17,20 +17,15 @@
 
 package org.apache.doris.job.offset.jdbc.split;
 
-import org.apache.doris.persist.gson.GsonUtils;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.google.common.base.Preconditions;
 import com.google.gson.Gson;
 import lombok.EqualsAndHashCode;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
-import java.util.Arrays;
+
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 
 @Getter
 @Setter
@@ -58,50 +53,6 @@ public class SnapshotSplit extends AbstractSourceSplit {
         this.splitStart = splitStart;
         this.splitEnd = splitEnd;
         this.highWatermark = highWatermark;
-    }
-
-    public static SnapshotSplit fromMap(Map<String, String> map) throws JsonProcessingException {
-        if (map == null || map.isEmpty()) {
-            return null;
-        }
-
-        SnapshotSplit split = new SnapshotSplit();
-        String splitId = map.get("splitId");
-        String tableId = map.get("tableId");
-        String splitKeyStr = map.get("splitKey");
-        Preconditions.checkNotNull(splitKeyStr, "splitKey must not be null");
-        List<String> splitKey =
-                objectMapper.readValue(splitKeyStr, new TypeReference<List<String>>() {});
-
-        split.setSplitId(splitId);
-        split.setTableId(tableId);
-        split.setSplitKey(splitKey);
-
-        String splitStartStr = map.get("splitStart");
-        if (splitStartStr != null) {
-            Object[] splitStart = objectMapper.readValue(splitStartStr, Object[].class);
-            split.setSplitStart(splitStart);
-        }
-
-        String splitEndStr = map.get("splitEnd");
-        if (splitEndStr != null) {
-            Object[] splitEnd = objectMapper.readValue(splitEndStr, Object[].class);
-            split.setSplitEnd(splitEnd);
-        }
-
-        String highWatermarkStr = map.get("highWatermark");
-        if (highWatermarkStr != null) {
-            Map<String, String> highWatermark =
-                    objectMapper.readValue(
-                            highWatermarkStr, new TypeReference<Map<String, String>>() {});
-            split.setHighWatermark(highWatermark);
-        }
-
-        return split;
-    }
-
-    public static String getOrEmptyArray(Map<String, String> map, String key) {
-        return Optional.ofNullable(map.get(key)).orElse("[]");
     }
 
     @Override

@@ -113,13 +113,6 @@ public class HttpPutBuilder {
         return this;
     }
 
-    public HttpPutBuilder setSubLabel(String subLabel) {
-        if (subLabel != null) {
-            header.put("sub_label", subLabel);
-        }
-        return this;
-    }
-
     public String getLabel() {
         return header.get("label");
     }

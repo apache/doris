@@ -595,7 +595,7 @@ public class LoadAction extends RestBaseController {
     // AuditlogPlugin should be re-disigned carefully, and blow method focuses on
     // temporarily addressing the users' needs for audit logs.
     // So this function is not widely tested under general scenario
-    private boolean checkClusterToken(String token) {
+    protected boolean checkClusterToken(String token) {
         try {
             return Env.getCurrentEnv().getTokenManager().checkAuthToken(token);
         } catch (UserException e) {

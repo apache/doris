@@ -70,4 +70,6 @@ public interface SourceReader<Split, SplitState> {
     void finishSplitRecords();
 
     Map<String, String> getEndOffset(JobConfig jobConfig);
+
+    int compareOffset(Map<String, String> offsetFirst, Map<String, String> offsetSecond);
 }

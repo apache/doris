@@ -588,22 +588,13 @@ public class BackendServiceProxy {
         return null;
     }
 
-    public Future<InternalService.PRequestCdcClientResult> requestCdcClient(TNetworkAddress address, InternalService.PRequestCdcClientRequest request) {
+    public Future<InternalService.PRequestCdcClientResult> requestCdcClient(TNetworkAddress address,
+            InternalService.PRequestCdcClientRequest request) {
         try {
             final BackendServiceClient client = getProxy(address);
             return client.requestCdcClient(request);
         } catch (Throwable e) {
             LOG.warn("request cdc client failed, address={}:{}", address.getHostname(), address.getPort(), e);
-        }
-        return null;
-    }
-
-    public Future<InternalService.PRequestCdcClientResult> executeCdcScanCommit(TNetworkAddress address, InternalService.PRequestCdcClientRequest request) {
-        try {
-            final BackendServiceClient client = getProxy(address);
-            return client.executeCdcScanCommit(request);
-        } catch (Throwable e) {
-            LOG.warn("execute cdc scan commit failed, address={}:{}", address.getHostname(), address.getPort(), e);
         }
         return null;
     }

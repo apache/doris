@@ -613,6 +613,13 @@ public class MySqlSourceReader implements SourceReader<MySqlSplit, MySqlSplitSta
         }
     }
 
+    @Override
+    public int compareOffset(Map<String, String> offsetFirst, Map<String, String> offsetSecond) {
+        BinlogOffset binlogOffset1 = new BinlogOffset(offsetFirst);
+        BinlogOffset binlogOffset2 = new BinlogOffset(offsetSecond);
+        return binlogOffset1.compareTo(binlogOffset2);
+    }
+
     private Map<TableId, TableChanges.TableChange> getTableSchemas(JobConfig config) {
         Map<TableId, TableChanges.TableChange> schemas = jobRuntimeContext.getTableSchemas();
         if (schemas == null) {

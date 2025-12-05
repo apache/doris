@@ -1,3 +1,20 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
 package org.apache.doris.job.util;
 
 import org.apache.doris.analysis.UserIdentity;
@@ -25,13 +42,15 @@ import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.statistics.ResultRow;
+import org.apache.doris.system.Backend;
+import org.apache.doris.system.BeSelectionPolicy;
+import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.log4j.Log4j2;
 import org.apache.commons.text.StringSubstitutor;
-import static org.apache.doris.job.common.LoadConstants.DRIVER_URL;
-import static org.apache.doris.job.common.LoadConstants.*;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -57,12 +76,15 @@ public class StreamingJobUtils {
             + "UNIQUE KEY(id)\n"
             + "DISTRIBUTED BY HASH(id)\n"
             + "BUCKETS 1\n"
-            + "PROPERTIES ('replication_num' = '1')"; //todo: modify replication num like statistic sys tbl
+            + "PROPERTIES ('replication_num' = '1')"; // todo: modify replication num like statistic sys tbl
     private static final String BATCH_INSERT_INTO_META_TABLE_TEMPLATE =
             "INSERT INTO " + FULL_QUALIFIED_META_TBL_NAME + " values";
 
     private static final String INSERT_INTO_META_TABLE_TEMPLATE =
             "('${id}', '${job_id}', '${table_name}', '${chunk_list}')";
+
+    private static final String SELECT_SPLITS_TABLE_TEMPLATE =
+            "SELECT table_name, chunk_list from " + FULL_QUALIFIED_META_TBL_NAME + " WHERE job_id='%s'";
 
     private static final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -82,16 +104,34 @@ public class StreamingJobUtils {
 
         // double check
         t = database.getTableNullable(INTERNAL_STREAMING_JOB_META_TABLE_NAME);
-        if (t == null){
+        if (t == null) {
             throw new JobException(String.format("Table %s doesn't exist", FULL_QUALIFIED_META_TBL_NAME));
         }
+    }
+
+    public static Map<String, List<SnapshotSplit>> restoreSplitsToJob(Long jobId) throws Exception {
+        List<ResultRow> resultRows = new ArrayList<>();
+        String sql = String.format(SELECT_SPLITS_TABLE_TEMPLATE, jobId);
+        try (AutoCloseConnectContext r = buildConnectContext()) {
+            StmtExecutor stmtExecutor = new StmtExecutor(r.connectContext, sql);
+            resultRows = stmtExecutor.executeInternalQuery();
+        }
+
+        Map<String, List<SnapshotSplit>> tableSplits = new HashMap<>();
+        for (ResultRow row : resultRows) {
+            String tableName = row.get(0);
+            String chunkListStr = row.get(1);
+            List<SnapshotSplit> splits = Arrays.asList(objectMapper.readValue(chunkListStr, SnapshotSplit[].class));
+            tableSplits.put(tableName, splits);
+        }
+        return tableSplits;
     }
 
     public static void insertSplitsToMeta(Long jobId, Map<String, List<SnapshotSplit>> tableSplits) throws Exception {
         List<String> values = new ArrayList<>();
         for (Map.Entry<String, List<SnapshotSplit>> entry : tableSplits.entrySet()) {
             Map<String, String> params = new HashMap<>();
-            params.put("id", UUID.randomUUID().toString().replace("-",""));
+            params.put("id", UUID.randomUUID().toString().replace("-", ""));
             params.put("job_id", jobId + "");
             params.put("table_name", entry.getKey());
             params.put("chunk_list", objectMapper.writeValueAsString(entry.getValue()));
@@ -142,14 +182,15 @@ public class StreamingJobUtils {
         return new AutoCloseConnectContext(connectContext);
     }
 
-    private static JdbcClient getJdbcClient(DataSourceType sourceType, Map<String, String> properties) throws JobException {
+    private static JdbcClient getJdbcClient(DataSourceType sourceType, Map<String, String> properties)
+            throws JobException {
         JdbcClientConfig config = new JdbcClientConfig();
         config.setCatalog(sourceType.name());
-        config.setUser(properties.get(USER));
-        config.setPassword(properties.get(PASSWORD));
-        config.setDriverClass(properties.get(DRIVER_CLASS));
-        config.setDriverUrl(properties.get(DRIVER_URL));
-        config.setJdbcUrl(properties.get(JDBC_URL));
+        config.setUser(properties.get(LoadConstants.USER));
+        config.setPassword(properties.get(LoadConstants.PASSWORD));
+        config.setDriverClass(properties.get(LoadConstants.DRIVER_CLASS));
+        config.setDriverUrl(properties.get(LoadConstants.DRIVER_URL));
+        config.setJdbcUrl(properties.get(LoadConstants.JDBC_URL));
         switch (sourceType) {
             case MYSQL:
                 JdbcClient client = JdbcMySQLClient.createJdbcClient(config);
@@ -159,17 +200,39 @@ public class StreamingJobUtils {
         }
     }
 
-    public static List<CreateTableInfo> generateCreateTableInfos(String targetDb, DataSourceType sourceType, Map<String, String> properties, Map<String, String> targetProperties)
+    public static Backend selectBackend(Long jobId) throws JobException {
+        Backend backend = null;
+        BeSelectionPolicy policy = null;
+
+        policy = new BeSelectionPolicy.Builder()
+                .setEnableRoundRobin(true)
+                .needLoadAvailable().build();
+        List<Long> backendIds;
+        backendIds = Env.getCurrentSystemInfo().selectBackendIdsByPolicy(policy, -1);
+        if (backendIds.isEmpty()) {
+            throw new JobException(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG + ", policy: " + policy);
+        }
+        // jobid % backendSize
+        long index = backendIds.get(jobId.intValue() % backendIds.size());
+        backend = Env.getCurrentSystemInfo().getBackend(index);
+        if (backend == null) {
+            throw new JobException(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG + ", policy: " + policy);
+        }
+        return backend;
+    }
+
+    public static List<CreateTableInfo> generateCreateTableInfos(String targetDb, DataSourceType sourceType,
+            Map<String, String> properties, Map<String, String> targetProperties)
             throws JobException {
         List<CreateTableInfo> createtblInfos = new ArrayList<>();
-        String includeTables = properties.get(INCLUDE_TABLES);
-        String excludeTables = properties.get(EXCLUDE_TABLES);
+        String includeTables = properties.get(LoadConstants.INCLUDE_TABLES);
+        String excludeTables = properties.get(LoadConstants.EXCLUDE_TABLES);
         List<String> includeTablesList = new ArrayList<>();
         if (includeTables != null) {
             includeTablesList = Arrays.asList(includeTables.split(","));
         }
 
-        String database = properties.get(DATABASE);
+        String database = properties.get(LoadConstants.DATABASE);
         JdbcClient jdbcClient = getJdbcClient(sourceType, properties);
         List<String> tablesNameList = jdbcClient.getTablesNameList(database);
         if (tablesNameList.isEmpty()) {
@@ -183,7 +246,7 @@ public class StreamingJobUtils {
                 continue;
             }
 
-            if(excludeTables != null && excludeTables.contains(table)) {
+            if (excludeTables != null && excludeTables.contains(table)) {
                 log.info("Skip table {} in database {} as it in exclude_tables {}", table, database,
                         excludeTables);
                 continue;
@@ -195,7 +258,8 @@ public class StreamingJobUtils {
                     .collect(Collectors.toList());
             if (primaryKeys.isEmpty()) {
                 primaryKeys.add(columns.get(0).getName());
-                log.info("table {} no primary key, use first column {} to primary key", table, columns.get(0).getName());
+                log.info("table {} no primary key, use first column {} to primary key", table,
+                        columns.get(0).getName());
             }
             // Convert Column to ColumnDefinition
             List<ColumnDefinition> columnDefinitions = columns.stream().map(col -> {

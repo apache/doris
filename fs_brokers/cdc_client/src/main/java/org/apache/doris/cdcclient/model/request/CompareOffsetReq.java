@@ -15,8 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.job.common;
+package org.apache.doris.cdcclient.model.request;
 
-public enum DataSourceType {
-    MYSQL
+import java.util.Map;
+import lombok.Getter;
+import lombok.Setter;
+import org.apache.doris.cdcclient.model.JobConfig;
+
+@Getter
+@Setter
+public class CompareOffsetReq extends JobConfig {
+    private Map<String, String> offsetFirst;
+    private Map<String, String> offsetSecond;
 }

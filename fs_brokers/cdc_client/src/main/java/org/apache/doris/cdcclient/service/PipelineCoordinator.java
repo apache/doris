@@ -78,24 +78,27 @@ public class PipelineCoordinator {
                         new ThreadPoolExecutor.AbortPolicy());
     }
 
-    public CompletableFuture<Void> writeRecordsAsync(WriteRecordReq writeRecordReq, String token) {
-        Preconditions.checkNotNull(token, "doris token must not be null");
-        Preconditions.checkNotNull(writeRecordReq.getLabelName(), "labelName must not be null");
+    public CompletableFuture<Void> writeRecordsAsync(WriteRecordReq writeRecordReq) {
+        Preconditions.checkNotNull(writeRecordReq.getToken(), "token must not be null");
+        Preconditions.checkNotNull(writeRecordReq.getTaskId(), "taskId must not be null");
         Preconditions.checkNotNull(writeRecordReq.getTargetDb(), "targetDb must not be null");
         return CompletableFuture.runAsync(
                 () -> {
                     try {
                         LOG.info(
-                                "Start processing async write record, labelName={}",
-                                writeRecordReq.getLabelName());
-                        writeRecords(writeRecordReq, token);
+                                "Start processing async write record, jobId={} taskId={}",
+                                writeRecordReq.getJobId(),
+                                writeRecordReq.getTaskId());
+                        writeRecords(writeRecordReq);
                         LOG.info(
-                                "Successfully processed async write record, labelName={}",
-                                writeRecordReq.getLabelName());
+                                "Successfully processed async write record, jobId={} taskId={}",
+                                writeRecordReq.getJobId(),
+                                writeRecordReq.getTaskId());
                     } catch (Exception ex) {
                         LOG.error(
-                                "Failed to process async write record, labelName={}",
-                                writeRecordReq.getLabelName(),
+                                "Failed to process async write record, jobId={} taskId={}",
+                                writeRecordReq.getJobId(),
+                                writeRecordReq.getTaskId(),
                                 ex);
                     }
                 },
@@ -103,7 +106,7 @@ public class PipelineCoordinator {
     }
 
     /** Read data from SourceReader and write it to Doris, while returning meta information. */
-    public void writeRecords(WriteRecordReq writeRecordReq, String token) throws Exception {
+    public void writeRecords(WriteRecordReq writeRecordReq) throws Exception {
         SourceReader<?, ?> sourceReader = Env.getCurrentEnv().getReader(writeRecordReq);
         DorisBatchStreamLoad batchStreamLoad = null;
         Map<String, String> metaResponse = new HashMap<>();
@@ -112,8 +115,9 @@ public class PipelineCoordinator {
             batchStreamLoad =
                     getOrCreateBatchStreamLoad(
                             writeRecordReq.getJobId(), writeRecordReq.getTargetDb());
-            batchStreamLoad.setCurrentLabel(writeRecordReq.getLabelName());
-            batchStreamLoad.setToken(token);
+            batchStreamLoad.setCurrentTaskId(writeRecordReq.getTaskId());
+            batchStreamLoad.setFrontendAddress(writeRecordReq.getFrontendAddress());
+            batchStreamLoad.setToken(writeRecordReq.getToken());
             boolean readBinlog = readResult.isReadBinlog();
             boolean pureBinlogPhase = readResult.isPureBinlogPhase();
 
@@ -174,11 +178,13 @@ public class PipelineCoordinator {
                 }
                 metaResponse = offsetRes;
             }
-            batchStreamLoad.commitTransaction(metaResponse);
+            // request fe api
+            batchStreamLoad.commitOffset(metaResponse);
+            // batchStreamLoad.commitTransaction(metaResponse);
         } finally {
             sourceReader.finishSplitRecords();
             if (batchStreamLoad != null) {
-                batchStreamLoad.resetLabel();
+                batchStreamLoad.resetTaskId();
             }
         }
     }

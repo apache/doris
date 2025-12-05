@@ -17,7 +17,19 @@
 
 package org.apache.doris.cdcclient.sink;
 
+import org.apache.doris.cdcclient.common.Env;
+import org.apache.doris.cdcclient.exception.StreamLoadException;
+import org.apache.doris.cdcclient.utils.HttpUtil;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import lombok.Setter;
+import org.apache.commons.lang3.StringUtils;
+import org.apache.flink.annotation.VisibleForTesting;
+import org.apache.http.client.methods.CloseableHttpResponse;
+import org.apache.http.entity.StringEntity;
+import org.apache.http.impl.client.CloseableHttpClient;
+import org.apache.http.util.EntityUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.io.Serializable;
 import java.util.ArrayList;
@@ -43,18 +55,6 @@ import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
-import lombok.Setter;
-import org.apache.commons.lang3.StringUtils;
-import org.apache.doris.cdcclient.common.Env;
-import org.apache.doris.cdcclient.exception.StreamLoadException;
-import org.apache.doris.cdcclient.utils.HttpUtil;
-import org.apache.flink.annotation.VisibleForTesting;
-import org.apache.http.client.methods.CloseableHttpResponse;
-import org.apache.http.entity.StringEntity;
-import org.apache.http.impl.client.CloseableHttpClient;
-import org.apache.http.util.EntityUtils;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /** async stream load. */
 public class DorisBatchStreamLoad implements Serializable {
@@ -68,8 +68,9 @@ public class DorisBatchStreamLoad implements Serializable {
     private final int RETRY = 3;
     private final byte[] lineDelimiter = "\n".getBytes();
     private static final String LOAD_URL_PATTERN = "http://%s/api/%s/%s/_stream_load";
-    private static final String COMMIT_URL_PATTERN = "http://%s/api/%s/_stream_load_2pc";
+    private static final String COMMIT_URL_PATTERN = "http://%s/api/streaming/commit_offset";
     private String hostPort;
+    @Setter private String frontendAddress;
     private Map<String, BatchRecordBuffer> bufferMap = new ConcurrentHashMap<>();
     private ExecutorService loadExecutorService;
     private LoadAsyncExecutor loadAsyncExecutor;
@@ -82,8 +83,7 @@ public class DorisBatchStreamLoad implements Serializable {
     private final Lock lock = new ReentrantLock();
     private final Condition block = lock.newCondition();
     private final Map<String, ReadWriteLock> bufferMapLock = new ConcurrentHashMap<>();
-    @Setter private String currentLabel;
-    private List<String> successSubLabels = new ArrayList<>();
+    @Setter private String currentTaskId;
     private String targetDb;
     private long jobId;
     @Setter private String token;
@@ -197,7 +197,7 @@ public class DorisBatchStreamLoad implements Serializable {
             LOG.info("buffer key is not exist {}, skipped", bufferKey);
             return;
         }
-        buffer.setLabelName(UUID.randomUUID().toString());
+        buffer.setLabelName(UUID.randomUUID().toString().replace("-", ""));
         LOG.debug("flush buffer for key {} with label {}", bufferKey, buffer.getLabelName());
         putRecordToFlushQueue(buffer);
     }
@@ -354,13 +354,12 @@ public class DorisBatchStreamLoad implements Serializable {
             BatchBufferHttpEntity entity = new BatchBufferHttpEntity(buffer);
             HttpPutBuilder putBuilder = new HttpPutBuilder();
             String loadUrl = String.format(LOAD_URL_PATTERN, hostPort, targetDb, buffer.getTable());
+            String finalLabel = String.format("%s_%s_%s", jobId, currentTaskId, label);
             putBuilder
                     .setUrl(loadUrl)
                     .addTokenAuth(token)
-                    .setLabel(currentLabel)
-                    .setSubLabel(label)
+                    .setLabel(finalLabel)
                     .formatJson()
-                    .enable2PC()
                     .addCommonHeader()
                     .setEntity(entity)
                     .addHiddenColumns(true)
@@ -379,7 +378,6 @@ public class DorisBatchStreamLoad implements Serializable {
                             RespContent respContent =
                                     OBJECT_MAPPER.readValue(loadResult, RespContent.class);
                             if (DORIS_SUCCESS_STATUS.contains(respContent.getStatus())) {
-                                successSubLabels.add(label);
                                 long cacheByteBeforeFlush =
                                         currentCacheBytes.getAndAdd(-respContent.getLoadBytes());
                                 LOG.info(
@@ -458,33 +456,29 @@ public class DorisBatchStreamLoad implements Serializable {
         }
     }
 
-    public void resetLabel() {
-        this.currentLabel = null;
-        this.successSubLabels.clear();
+    public void resetTaskId() {
+        this.currentTaskId = null;
     }
 
-    /** commit transaction. */
-    public void commitTransaction(Map<String, String> meta) {
+    /** commit offfset to frontends. */
+    public void commitOffset(Map<String, String> meta) {
         try {
-            String url = String.format(COMMIT_URL_PATTERN, hostPort, targetDb);
-
-            Map<String, String> attachment = new HashMap<>();
-            attachment.put("offset", OBJECT_MAPPER.writeValueAsString(meta));
+            String url = String.format(COMMIT_URL_PATTERN, frontendAddress, targetDb);
             Map<String, Object> commitParams = new HashMap<>();
-            commitParams.put("attachment", attachment);
-            commitParams.put("sub_labels", successSubLabels);
+            commitParams.put("offset", OBJECT_MAPPER.writeValueAsString(meta));
+            commitParams.put("jobId", jobId);
+            commitParams.put("taskId", currentTaskId);
             HttpPutBuilder builder =
                     new HttpPutBuilder()
                             .addCommonHeader()
                             .addTokenAuth(token)
-                            .setLabel(currentLabel)
                             .setUrl(url)
                             .commit()
                             .setEntity(
                                     new StringEntity(
                                             OBJECT_MAPPER.writeValueAsString(commitParams)));
 
-            LOG.info("commit transaction with label: {}", currentLabel);
+            LOG.info("commit offset for jobId {} taskId {}", jobId, currentTaskId);
             Throwable resEx = null;
             int retry = 0;
             while (retry <= RETRY) {
@@ -498,24 +492,19 @@ public class DorisBatchStreamLoad implements Serializable {
                                         : "";
                         LOG.info("commit result {}", responseBody);
                         if (statusCode == 200) {
-                            LOG.info("commit transaction success, label: {}", currentLabel);
+                            LOG.info("commit offset for jobId {} taskId {}", jobId, currentTaskId);
                             return;
                         }
                         LOG.error(
-                                "commit transaction failed with {}, reason {}, to retry",
+                                "commit offset failed with {}, reason {}, to retry",
                                 hostPort,
                                 reason);
                         if (retry == RETRY) {
-                            resEx =
-                                    new StreamLoadException(
-                                            "commit transaction failed with: " + reason);
+                            resEx = new StreamLoadException("commit offset failed with: " + reason);
                         }
                     } catch (Exception ex) {
                         resEx = ex;
-                        LOG.error(
-                                "commit transaction error with {}, to retry, cause by",
-                                hostPort,
-                                ex);
+                        LOG.error("commit offset error with {}, to retry, cause by", hostPort, ex);
                     }
                 }
                 retry++;
@@ -531,13 +520,13 @@ public class DorisBatchStreamLoad implements Serializable {
 
             if (retry > RETRY) {
                 throw new StreamLoadException(
-                        "commit transaction error: "
+                        "commit offset error: "
                                 + (resEx != null ? resEx.getMessage() : "unknown error"),
                         resEx);
             }
         } catch (Exception ex) {
-            LOG.error("Failed to commit transaction, jobId={}", jobId, ex);
-            throw new StreamLoadException("Failed to commit transaction", ex);
+            LOG.error("Failed to commit offset, jobId={}", jobId, ex);
+            throw new StreamLoadException("Failed to commit offset", ex);
         }
     }
 }

@@ -157,8 +157,9 @@ public class CreateJobInfo {
         if (streamingJob) {
             if (sourceType.isPresent()) {
                 DataSourceType dataSourceType = DataSourceType.valueOf(sourceType.get());
-                return analyzeAndCreateFromSourceJob(dbName, jobExecutionConfiguration, jobProperties, targetDb, dataSourceType, sourceProperties, targetProperties);
-            }else {
+                return analyzeAndCreateFromSourceJob(dbName, jobExecutionConfiguration,
+                        jobProperties, targetDb, dataSourceType, sourceProperties, targetProperties);
+            } else {
                 return analyzeAndCreateStreamingInsertJob(executeSql, dbName, jobExecutionConfiguration, jobProperties);
             }
         } else {
@@ -257,8 +258,12 @@ public class CreateJobInfo {
      * @throws UserException if there is an error during SQL analysis or job creation
      */
     private AbstractJob analyzeAndCreateFromSourceJob(String currentDbName,
-            JobExecutionConfiguration jobExecutionConfiguration, Map<String, String> jobProperties, String targetDb,
-            DataSourceType dataSourceType, Map<String, String> sourceProperties, Map<String, String> targetProperties) throws UserException {
+            JobExecutionConfiguration jobExecutionConfiguration,
+            Map<String, String> jobProperties,
+            String targetDb,
+            DataSourceType dataSourceType,
+            Map<String, String> sourceProperties,
+            Map<String, String> targetProperties) throws UserException {
         Optional<Database> db = Env.getCurrentEnv().getInternalCatalog().getDb(targetDb);
         if (!db.isPresent()) {
             throw new AnalysisException("Target database " + targetDb + " does not exist");
@@ -272,17 +277,6 @@ public class CreateJobInfo {
                 System.currentTimeMillis(),
                 "",
                 jobProperties, targetDb, dataSourceType, sourceProperties, targetProperties);
-    }
-
-
-    private AbstractJob analyzeAndCreateJob(String sql, String currentDbName,
-                                            JobExecutionConfiguration jobExecutionConfiguration,
-                                            Map<String, String> properties) throws UserException {
-        if (jobExecutionConfiguration.getExecuteType().equals(JobExecuteType.STREAMING)) {
-            return analyzeAndCreateStreamingInsertJob(sql, currentDbName, jobExecutionConfiguration, properties);
-        } else {
-            return analyzeAndCreateInsertJob(sql, currentDbName, jobExecutionConfiguration);
-        }
     }
 
     /**

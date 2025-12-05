@@ -1186,7 +1186,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 ? Maps.newHashMap(visitPropertyItemList(ctx.targetProperties)) : Maps.newHashMap();
         CreateJobInfo createJobInfo = new CreateJobInfo(label, atTime, interval, intervalUnit, startTime,
                 endsTime, immediateStartOptional, comment, executeSql, ctx.STREAMING() != null,
-                jobProperties,sourceType, targetDb, sourceProperties, targetProperties);
+                jobProperties, sourceType, targetDb, sourceProperties, targetProperties);
         return new CreateJobCommand(createJobInfo);
     }
 

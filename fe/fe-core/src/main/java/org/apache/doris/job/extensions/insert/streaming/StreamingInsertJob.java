@@ -40,6 +40,7 @@ import org.apache.doris.job.common.FailureReason;
 import org.apache.doris.job.common.IntervalUnit;
 import org.apache.doris.job.common.JobStatus;
 import org.apache.doris.job.common.JobType;
+import org.apache.doris.job.common.LoadConstants;
 import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.job.common.TaskType;
 import org.apache.doris.job.exception.JobException;
@@ -52,7 +53,6 @@ import org.apache.doris.job.offset.jdbc.JdbcSourceOffsetProvider;
 import org.apache.doris.job.util.StreamingJobUtils;
 import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.load.loadv2.LoadStatistic;
-import org.apache.doris.load.routineload.RoutineLoadTaskInfo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundTVFRelation;
@@ -79,16 +79,7 @@ import com.google.gson.annotations.SerializedName;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.extern.log4j.Log4j2;
-import org.apache.commons.collections4.CollectionUtils;
-import org.apache.commons.lang3.StringUtils;
-import static org.apache.doris.job.common.LoadConstants.DATABASE;
-import static org.apache.doris.job.common.LoadConstants.DRIVER_CLASS;
-import static org.apache.doris.job.common.LoadConstants.DRIVER_URL;
-import static org.apache.doris.job.common.LoadConstants.EXCLUDE_TABLES;
-import static org.apache.doris.job.common.LoadConstants.INCLUDE_TABLES;
-import static org.apache.doris.job.common.LoadConstants.JDBC_URL;
-import static org.apache.doris.job.common.LoadConstants.PASSWORD;
-import static org.apache.doris.job.common.LoadConstants.USER;
+
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -128,6 +119,10 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     @Getter
     AbstractStreamingTask runningStreamTask;
     SourceOffsetProvider offsetProvider;
+    @Getter
+    @SerializedName("opp")
+    // The value to be persisted in offsetProvider
+    private String offsetProviderPersist;
     @Setter
     @Getter
     private long lastScheduleTaskTimestamp = -1L;
@@ -204,25 +199,32 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             checkRequiredSourceProperties();
             List<String> createTbls = createTableIfNotExists();
             this.offsetProvider = new JdbcSourceOffsetProvider();
-            JdbcSourceOffsetProvider rdsOffsetProvider = (JdbcSourceOffsetProvider)this.offsetProvider;
+            JdbcSourceOffsetProvider rdsOffsetProvider = (JdbcSourceOffsetProvider) this.offsetProvider;
             rdsOffsetProvider.setJobId(getJobId());
             rdsOffsetProvider.setSourceType(dataSourceType);
             rdsOffsetProvider.setSourceProperties(sourceProperties);
             rdsOffsetProvider.splitChunks(createTbls);
-        }catch (Exception ex){
+        } catch (Exception ex) {
             log.warn("init streaming job for {} failed", dataSourceType, ex);
             throw new RuntimeException(ex.getMessage());
         }
     }
 
     private void checkRequiredSourceProperties() {
-        Preconditions.checkArgument(sourceProperties.get(JDBC_URL) != null, "jdbc_url is required property");
-        Preconditions.checkArgument(sourceProperties.get(DRIVER_URL) != null, "driver_url is required property");
-        Preconditions.checkArgument(sourceProperties.get(DRIVER_CLASS) != null, "driver_class is required property");
-        Preconditions.checkArgument(sourceProperties.get(USER) != null, "user is required property");
-        Preconditions.checkArgument(sourceProperties.get(PASSWORD) != null, "password is required property");
-        Preconditions.checkArgument(sourceProperties.get(DATABASE) != null, "database is required property");
-        Preconditions.checkArgument(sourceProperties.get(INCLUDE_TABLES) != null || sourceProperties.get(EXCLUDE_TABLES) != null,
+        Preconditions.checkArgument(sourceProperties.get(LoadConstants.JDBC_URL) != null,
+                "jdbc_url is required property");
+        Preconditions.checkArgument(sourceProperties.get(LoadConstants.DRIVER_URL) != null,
+                "driver_url is required property");
+        Preconditions.checkArgument(sourceProperties.get(LoadConstants.DRIVER_CLASS) != null,
+                "driver_class is required property");
+        Preconditions.checkArgument(sourceProperties.get(LoadConstants.USER) != null,
+                "user is required property");
+        Preconditions.checkArgument(sourceProperties.get(LoadConstants.PASSWORD) != null,
+                "password is required property");
+        Preconditions.checkArgument(sourceProperties.get(LoadConstants.DATABASE) != null,
+                "database is required property");
+        Preconditions.checkArgument(sourceProperties.get(LoadConstants.INCLUDE_TABLES) != null
+                        || sourceProperties.get(LoadConstants.EXCLUDE_TABLES) != null,
                 "Either include_tables or exclude_tables must be specified");
     }
 
@@ -420,7 +422,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     protected AbstractStreamingTask createStreamingTask() {
         if (tvfType != null) {
             this.runningStreamTask = createStreamingInsertTask();
-        }else {
+        } else {
             this.runningStreamTask = createStreamingMultiTblTask();
         }
         Env.getCurrentEnv().getJobManager().getStreamingTaskManager().registerTask(runningStreamTask);
@@ -436,7 +438,8 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
      * @return
      */
     private AbstractStreamingTask createStreamingMultiTblTask() {
-        return new StreamingMultiTblTask(getJobId(), Env.getCurrentEnv().getNextId(), dataSourceType, offsetProvider, sourceProperties, targetDb, targetProperties);
+        return new StreamingMultiTblTask(getJobId(), Env.getCurrentEnv().getNextId(),
+                dataSourceType, offsetProvider, sourceProperties, targetDb, targetProperties, jobProperties);
     }
 
     protected AbstractStreamingTask createStreamingInsertTask() {
@@ -537,11 +540,11 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         updateJobStatus(JobStatus.PAUSED);
     }
 
-    public void onStreamTaskSuccess(StreamingInsertTask task) {
+    public void onStreamTaskSuccess(AbstractStreamingTask task) {
         try {
             succeedTaskCount.incrementAndGet();
             Env.getCurrentEnv().getJobManager().getStreamingTaskManager().removeRunningTask(task);
-            AbstractStreamingTask nextTask = createStreamingInsertTask();
+            AbstractStreamingTask nextTask = createStreamingTask();
             this.runningStreamTask = nextTask;
             log.info("Streaming insert job {} create next streaming insert task {} after task {} success",
                     getJobId(), nextTask.getTaskId(), task.getTaskId());
@@ -581,7 +584,11 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     public void onReplayCreate() throws JobException {
         onRegister();
         super.onReplayCreate();
+        if (offsetProvider != null) {
+            this.offsetProvider.replayIfNeed(this);
+        }
     }
+
 
     /**
      * Because the offset statistics of the streamingInsertJob are all stored in txn,
@@ -748,7 +755,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     public static boolean checkPrivilege(ConnectContext ctx, String sql, String targetDb) throws AnalysisException {
         if (StringUtils.isNotEmpty(sql)) {
             return checkPrivilege(ctx, sql);
-        }else if (StringUtils.isNotEmpty(targetDb)) {
+        } else if (StringUtils.isNotEmpty(targetDb)) {
             return checkHasSourceJobPriv(ctx, targetDb);
         } else {
             log.info("insert sql and target db are both empty");
@@ -759,9 +766,9 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     public boolean checkPrivilege(ConnectContext ctx) throws AnalysisException {
         if (StringUtils.isNotEmpty(getExecuteSql())) {
             return checkPrivilege(ctx, getExecuteSql());
-        }else if (StringUtils.isNotEmpty(getTargetDb())){
+        } else if (StringUtils.isNotEmpty(getTargetDb())) {
             return checkHasSourceJobPriv(ctx, targetDb);
-        }else {
+        } else {
             log.info("insert sql and target db are both empty");
             return false;
         }
@@ -780,7 +787,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                         targetTable.get(1),
                         targetTable.get(2),
                         PrivPredicate.LOAD);
-            } else if (StringUtils.isNotEmpty(getTargetDb())){
+            } else if (StringUtils.isNotEmpty(getTargetDb())) {
                 return checkHasSourceJobPriv(ctx, targetDb);
             } else {
                 log.info("insert sql and target db are both empty");
@@ -791,7 +798,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         }
     }
 
-    private static boolean checkHasSourceJobPriv(ConnectContext ctx, String targetDb){
+    private static boolean checkHasSourceJobPriv(ConnectContext ctx, String targetDb) {
         return Env.getCurrentEnv().getAccessManager().checkDbPriv(ctx,
                 InternalCatalog.INTERNAL_CATALOG_NAME,
                 targetDb,
@@ -939,12 +946,10 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
 
     @Override
     public void replayOnAborted(TransactionState txnState) {
-
     }
 
     @Override
     public void afterVisible(TransactionState txnState, boolean txnOperated) {
-        // todo: multi task ，需要创建一个新的task。
     }
 
     @Override
@@ -956,7 +961,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         if (offsetProvider == null) {
             if (tvfType != null) {
                 offsetProvider = SourceOffsetProviderFactory.createSourceOffsetProvider(tvfType);
-            }else {
+            } else {
                 offsetProvider = new JdbcSourceOffsetProvider();
             }
         }
@@ -1009,6 +1014,37 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             }
         } finally {
             writeUnlock();
+        }
+    }
+
+    public void commitOffset(long taskId, String offsetStr) throws JobException {
+        if (!(offsetProvider instanceof JdbcSourceOffsetProvider)) {
+            throw new JobException("Unsupported commit offset for offset provider type: "
+                    + offsetProvider.getClass().getSimpleName());
+        }
+        writeLock();
+        try {
+            Offset offset = offsetProvider.deserializeOffset(offsetStr);
+            offsetProvider.updateOffset(offset);
+            if (this.runningStreamTask != null
+                    && this.runningStreamTask instanceof StreamingMultiTblTask) {
+                if (this.runningStreamTask.getTaskId() != taskId) {
+                    throw new JobException("Task id mismatch when commit offset. expected: "
+                            + this.runningStreamTask.getTaskId() + ", actual: " + taskId);
+                }
+                persistOffsetProviderIfNeed();
+                onStreamTaskSuccess(this.runningStreamTask);
+            }
+        } finally {
+            writeUnlock();
+        }
+    }
+
+    private void persistOffsetProviderIfNeed() {
+        // only for jdbc
+        this.offsetProviderPersist = offsetProvider.getPersistInfo();
+        if (this.offsetProviderPersist != null) {
+            logUpdateOperation();
         }
     }
 }

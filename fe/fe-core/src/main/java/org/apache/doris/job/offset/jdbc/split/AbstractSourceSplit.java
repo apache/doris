@@ -17,11 +17,11 @@
 
 package org.apache.doris.job.offset.jdbc.split;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
+
 import java.io.Serializable;
 
 @Getter

@@ -17,15 +17,17 @@
 
 package org.apache.doris.cdcclient.controller;
 
+import jakarta.servlet.http.HttpServletRequest;
+import java.util.List;
 import org.apache.doris.cdcclient.common.Env;
 import org.apache.doris.cdcclient.model.JobConfig;
+import org.apache.doris.cdcclient.model.request.CompareOffsetReq;
 import org.apache.doris.cdcclient.model.request.FetchRecordReq;
 import org.apache.doris.cdcclient.model.request.FetchTableSplitsReq;
 import org.apache.doris.cdcclient.model.request.WriteRecordReq;
 import org.apache.doris.cdcclient.model.rest.ResponseEntityBuilder;
 import org.apache.doris.cdcclient.service.PipelineCoordinator;
 import org.apache.doris.cdcclient.source.reader.SourceReader;
-import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -34,7 +36,6 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
-import java.util.List;
 
 @RestController
 public class ClientController {
@@ -69,8 +70,8 @@ public class ClientController {
 
     /** Fetch records from source reader and Write records to backend */
     @RequestMapping(path = "/api/writeRecords", method = RequestMethod.POST)
-    public Object writeRecord(@RequestBody WriteRecordReq recordReq, HttpServletRequest request) {
-        pipelineCoordinator.writeRecordsAsync(recordReq, parseToken(request));
+    public Object writeRecord(@RequestBody WriteRecordReq recordReq) {
+        pipelineCoordinator.writeRecordsAsync(recordReq);
         return ResponseEntityBuilder.ok("Request accepted, processing asynchronously");
     }
 
@@ -83,6 +84,15 @@ public class ClientController {
     public Object fetchEndOffset(@RequestBody JobConfig jobConfig) {
         SourceReader<?, ?> reader = Env.getCurrentEnv().getReader(jobConfig);
         return ResponseEntityBuilder.ok(reader.getEndOffset(jobConfig));
+    }
+
+    /** compare datasource Binlog Offset */
+    @RequestMapping(path = "/api/compareOffset", method = RequestMethod.POST)
+    public Object compareOffset(@RequestBody CompareOffsetReq compareOffsetReq) {
+        SourceReader<?, ?> reader = Env.getCurrentEnv().getReader(compareOffsetReq);
+        return ResponseEntityBuilder.ok(
+                reader.compareOffset(
+                        compareOffsetReq.getOffsetFirst(), compareOffsetReq.getOffsetSecond()));
     }
 
     @RequestMapping(path = "/api/close/{jobId}", method = RequestMethod.POST)
