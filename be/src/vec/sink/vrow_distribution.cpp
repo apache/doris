@@ -30,6 +30,7 @@
 #include "common/status.h"
 #include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
+#include "runtime/query_context.h"
 #include "runtime/runtime_state.h"
 #include "service/backend_options.h"
 #include "util/doris_metrics.h"
@@ -103,6 +104,10 @@ Status VRowDistribution::automatic_create_partition() {
     request.__set_partitionValues(_partitions_need_create);
     request.__set_be_endpoint(be_endpoint);
     request.__set_write_single_replica(_write_single_replica);
+    if (_state && _state->get_query_ctx()) {
+        // Pass query_id to FE so it can determine if this is a multi-instance load by checking Coordinator
+        request.__set_query_id(_state->get_query_ctx()->query_id());
+    }
 
     VLOG_NOTICE << "automatic partition rpc begin request " << request;
     TNetworkAddress master_addr = ExecEnv::GetInstance()->cluster_info()->master_fe_addr;

@@ -107,6 +107,7 @@ import org.apache.doris.thrift.TTaskType;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.thrift.TWaitingTxnStatusRequest;
 import org.apache.doris.thrift.TWaitingTxnStatusResult;
+import org.apache.doris.transaction.AutoPartitionCacheManager;
 import org.apache.doris.transaction.BeginTransactionException;
 import org.apache.doris.transaction.GlobalTransactionMgrIface;
 import org.apache.doris.transaction.SubTransactionState;
@@ -208,6 +209,12 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     private Map<Long, Map<Long, Long>> lastTxnIdMap = Maps.newConcurrentMap();
     // dbId -> txnId -> signature
     private Map<Long, Map<Long, Long>> txnLastSignatureMap = Maps.newConcurrentMap();
+
+    private final AutoPartitionCacheManager autoPartitionCacheManager = new AutoPartitionCacheManager();
+
+    public AutoPartitionCacheManager getAutoPartitionCacheMgr() {
+        return autoPartitionCacheManager;
+    }
 
     public CloudGlobalTransactionMgr() {
         this.callbackFactory = new TxnStateCallbackFactory();
@@ -1621,6 +1628,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         List<Table> tablesToUnlock = getTablesNeedCommitLock(tableList);
         decreaseWaitingLockCount(tablesToUnlock);
         MetaLockUtils.commitUnlockTables(tablesToUnlock);
+        autoPartitionCacheManager.clearAutoPartitionInfo(transactionId);
     }
 
     @Override
@@ -1682,6 +1690,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     @Override
     public void abortTransaction(Long dbId, Long transactionId, String reason) throws UserException {
         cleanSubTransactions(transactionId);
+        autoPartitionCacheManager.clearAutoPartitionInfo(transactionId);
         abortTransaction(dbId, transactionId, reason, null, null);
     }
 
