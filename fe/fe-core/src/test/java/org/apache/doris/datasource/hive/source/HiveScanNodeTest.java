@@ -20,7 +20,9 @@ package org.apache.doris.datasource.hive.source;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.FileSplit;
+import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HiveMetaStoreCache;
 import org.apache.doris.datasource.hive.HivePartition;
@@ -61,8 +63,18 @@ public class HiveScanNodeTest {
     @Test
     public void testMaxFileSplitsNum() throws UserException, IOException {
         TupleDescriptor desc = new TupleDescriptor(new TupleId(3));
-        Mockito.when(desc.getTable()).thenReturn(hmsTable);
-        Mockito.when(hmsTable.isHiveTransactionalTable()).thenReturn(false);
+        // Use reflection to set the table field
+        try {
+            java.lang.reflect.Field tableField = TupleDescriptor.class.getDeclaredField("table");
+            tableField.setAccessible(true);
+            tableField.set(desc, hmsTable);
+        } catch (NoSuchFieldException | IllegalAccessException e) {
+            throw new RuntimeException(e);
+        }
+        // Mock required for constructor
+        org.apache.doris.datasource.hive.HMSExternalCatalog mockCatalog = Mockito.mock(org.apache.doris.datasource.hive.HMSExternalCatalog.class);
+        Mockito.when(hmsTable.getCatalog()).thenReturn(mockCatalog);
+        Mockito.when(mockCatalog.bindBrokerName()).thenReturn(null);
 
         HiveScanNode hiveScanNode = new HiveScanNode(new PlanNodeId(1), desc, false, sv, directoryLister);
 
@@ -74,7 +86,7 @@ public class HiveScanNodeTest {
         long fileSize3 = 324L * 1024 * 1024; // 324MB
 
         HiveMetaStoreCache.HiveFileStatus fileStatus1 = new HiveMetaStoreCache.HiveFileStatus();
-        fileStatus1.setPath("file:///test/f1.parquet");
+        fileStatus1.setPath(LocationPath.of("file:///test/f1.parquet"));
         fileStatus1.setLength(fileSize1);
         fileStatus1.setBlockSize(128L * 1024 * 1024); // 128MB block size
         fileStatus1.setModificationTime(System.currentTimeMillis());
@@ -82,7 +94,7 @@ public class HiveScanNodeTest {
         fileStatus1.setBlockLocations(null);
 
         HiveMetaStoreCache.HiveFileStatus fileStatus2 = new HiveMetaStoreCache.HiveFileStatus();
-        fileStatus2.setPath("file:///test/f2.parquet");
+        fileStatus2.setPath(LocationPath.of("file:///test/f2.parquet"));
         fileStatus2.setLength(fileSize2);
         fileStatus2.setBlockSize(128L * 1024 * 1024);
         fileStatus2.setModificationTime(System.currentTimeMillis());
@@ -90,7 +102,7 @@ public class HiveScanNodeTest {
         fileStatus2.setBlockLocations(null);
 
         HiveMetaStoreCache.HiveFileStatus fileStatus3 = new HiveMetaStoreCache.HiveFileStatus();
-        fileStatus3.setPath("file:///test/f3.parquet");
+        fileStatus3.setPath(LocationPath.of("file:///test/f3.parquet"));
         fileStatus3.setLength(fileSize3);
         fileStatus3.setBlockSize(128L * 1024 * 1024);
         fileStatus3.setModificationTime(System.currentTimeMillis());
@@ -98,7 +110,6 @@ public class HiveScanNodeTest {
         fileStatus3.setBlockLocations(null);
 
         HiveMetaStoreCache.FileCacheValue fileCacheValue = new HiveMetaStoreCache.FileCacheValue();
-        fileCacheValue.setFiles(new ArrayList<>());
         fileCacheValue.getFiles().add(fileStatus1);
         fileCacheValue.getFiles().add(fileStatus2);
         fileCacheValue.getFiles().add(fileStatus3);
@@ -108,22 +119,24 @@ public class HiveScanNodeTest {
         List<HiveMetaStoreCache.FileCacheValue> fileCaches = new ArrayList<>();
         fileCaches.add(fileCacheValue);
 
-        HivePartition partition = new HivePartition();
+        NameMapping nameMapping = NameMapping.createForTest("test_db", "test_table");
+        HivePartition partition = new HivePartition(nameMapping, false, "org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat",
+                "file:///test", Collections.emptyList(), Collections.emptyMap());
         List<HivePartition> partitions = Collections.singletonList(partition);
 
-        // Mock SessionVariable behavior
+        // Base split size for testing
         long baseSplitSize = 10L * 1024 * 1024; // 10MB, small split size
-        Mockito.when(sv.getFileSplitSize()).thenReturn(baseSplitSize);
-        Mockito.when(sv.getParallelExecInstanceNum()).thenReturn(1);
-        Mockito.when(hmsTable.getCatalog()).thenReturn(Mockito.mock(org.apache.doris.datasource.hive.HMSExternalCatalog.class));
-        Mockito.when(hmsTable.getCatalog().bindBrokerName()).thenReturn(null);
-        Mockito.when(hmsTable.getFormatType()).thenReturn(TFileFormatType.FORMAT_PARQUET);
 
         // Use reflection to access protected method adjustSplitSizeForTotalLimit
         HiveScanNode spyHiveScanNode = Mockito.spy(hiveScanNode);
-        java.lang.reflect.Method adjustMethod = org.apache.doris.datasource.FileQueryScanNode.class
-                .getDeclaredMethod("adjustSplitSizeForTotalLimit", List.class, long.class);
-        adjustMethod.setAccessible(true);
+        java.lang.reflect.Method adjustMethod;
+        try {
+            adjustMethod = org.apache.doris.datasource.FileQueryScanNode.class
+                    .getDeclaredMethod("adjustSplitSizeForTotalLimit", List.class, long.class);
+            adjustMethod.setAccessible(true);
+        } catch (NoSuchMethodException e) {
+            throw new RuntimeException(e);
+        }
 
         // Test case 1: max_file_splits_num = 50 (should limit split count)
         Mockito.when(sv.getMaxFileSplitsNum()).thenReturn(50);
@@ -133,7 +146,12 @@ public class HiveScanNodeTest {
         fileSizes.add(fileSize2);
         fileSizes.add(fileSize3);
         long minExpectedSplitSize1 = (totalFileSize + 50 - 1) / 50;
-        long adjustedSplitSize1 = (Long) adjustMethod.invoke(spyHiveScanNode, fileSizes, baseSplitSize);
+        long adjustedSplitSize1;
+        try {
+            adjustedSplitSize1 = (Long) adjustMethod.invoke(spyHiveScanNode, fileSizes, baseSplitSize);
+        } catch (IllegalAccessException | java.lang.reflect.InvocationTargetException e) {
+            throw new RuntimeException(e);
+        }
         Assert.assertTrue("Split size should be adjusted to limit split count. Expected at least: "
                         + minExpectedSplitSize1 + ", got: " + adjustedSplitSize1,
                 adjustedSplitSize1 >= minExpectedSplitSize1);
@@ -141,23 +159,37 @@ public class HiveScanNodeTest {
         // Test case 2: max_file_splits_num = 20 (should further limit split count)
         Mockito.when(sv.getMaxFileSplitsNum()).thenReturn(20);
         long minExpectedSplitSize2 = (totalFileSize + 20 - 1) / 20;
-        long adjustedSplitSize2 = (Long) adjustMethod.invoke(spyHiveScanNode, fileSizes, baseSplitSize);
+        long adjustedSplitSize2;
+        try {
+            adjustedSplitSize2 = (Long) adjustMethod.invoke(spyHiveScanNode, fileSizes, baseSplitSize);
+        } catch (IllegalAccessException | java.lang.reflect.InvocationTargetException e) {
+            throw new RuntimeException(e);
+        }
         Assert.assertTrue("Split size should be adjusted to limit split count. Expected at least: "
                         + minExpectedSplitSize2 + ", got: " + adjustedSplitSize2,
                 adjustedSplitSize2 >= minExpectedSplitSize2);
 
         // Test case 3: max_file_splits_num = 0 (no limit)
         Mockito.when(sv.getMaxFileSplitsNum()).thenReturn(0);
-        long adjustedSplitSize3 = (Long) adjustMethod.invoke(spyHiveScanNode, fileSizes, baseSplitSize);
+        long adjustedSplitSize3;
+        try {
+            adjustedSplitSize3 = (Long) adjustMethod.invoke(spyHiveScanNode, fileSizes, baseSplitSize);
+        } catch (IllegalAccessException | java.lang.reflect.InvocationTargetException e) {
+            throw new RuntimeException(e);
+        }
         Assert.assertEquals("Without limit, should use base split size",
                 baseSplitSize, adjustedSplitSize3);
 
         // Test case 4: max_file_splits_num = 200 (large limit, should not adjust)
         Mockito.when(sv.getMaxFileSplitsNum()).thenReturn(200);
-        long adjustedSplitSize4 = (Long) adjustMethod.invoke(spyHiveScanNode, fileSizes, baseSplitSize);
+        long adjustedSplitSize4;
+        try {
+            adjustedSplitSize4 = (Long) adjustMethod.invoke(spyHiveScanNode, fileSizes, baseSplitSize);
+        } catch (IllegalAccessException | java.lang.reflect.InvocationTargetException e) {
+            throw new RuntimeException(e);
+        }
         // With large limit, should use original split size
         Assert.assertEquals("With large limit, should use base split size",
                 baseSplitSize, adjustedSplitSize4);
     }
 }
-
