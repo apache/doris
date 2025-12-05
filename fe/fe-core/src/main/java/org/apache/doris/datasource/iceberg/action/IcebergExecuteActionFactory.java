@@ -103,7 +103,9 @@ public class IcebergExecuteActionFactory {
                 CHERRYPICK_SNAPSHOT,
                 FAST_FORWARD,
                 EXPIRE_SNAPSHOTS,
-                REWRITE_DATA_FILES
+                REWRITE_DATA_FILES,
+                PUBLISH_CHANGES,
+              
         };
     }
 }
