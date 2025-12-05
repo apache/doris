@@ -161,6 +161,14 @@ public class IcebergTableSink extends BaseExternalTableDataSink {
         if (insertCtx.isPresent()) {
             IcebergInsertCommandContext context = (IcebergInsertCommandContext) insertCtx.get();
             tSink.setOverwrite(context.isOverwrite());
+
+            // Pass static partition values to BE for static partition overwrite
+            if (context.isStaticPartitionOverwrite()) {
+                Map<String, String> staticPartitionValues = context.getStaticPartitionValues();
+                if (staticPartitionValues != null && !staticPartitionValues.isEmpty()) {
+                    tSink.setStaticPartitionValues(staticPartitionValues);
+                }
+            }
         }
         tDataSink = new TDataSink(TDataSinkType.ICEBERG_TABLE_SINK);
         tDataSink.setIcebergTableSink(tSink);

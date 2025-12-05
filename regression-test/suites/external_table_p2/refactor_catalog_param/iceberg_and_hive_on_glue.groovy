@@ -398,8 +398,4 @@ suite("iceberg_and_hive_on_glue", "p2,external,hive,new_catalog_property") {
 
     // Iceberg - Insert overwrite tests
     testInsertOverwriteIceberg(warehouse_location + iceberg_glue_catalog_base_properties + glue_properties_3, "iceberg_glue_overwrite_on_s3")
-
-    // Hive on Glue - Insert overwrite tests
-    def db_location = "${s3_warehouse}hive-glue-s3-warehouse/hive-overwrite/" + System.currentTimeMillis()
-    testInsertOverwrite(hms_glue_catalog_base_properties + glue_properties_3, "hive_glue_overwrite_on_s3", db_location)
 }

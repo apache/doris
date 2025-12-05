@@ -15,17 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_decimal_sum") {
-    sql "set enable_agg_state=true"
-    sql """ DROP TABLE IF EXISTS t01; """
-    sql """
-        create table t01(id int, decimal_col agg_state<sum(decimal(20,6))> generic)  properties ("replication_num" = "1");
-        """
+package org.apache.doris.nereids.trees.expressions;
 
-    sql """insert into t01 values (1, sum_state(10.1)), (1, sum_state(20.1)), (2, sum_state(10.2)), (2, sum_state(11.0));
-"""
-
-
-    qt_select """ select sum_merge(decimal_col) from t01 group by id order by id;
-             """
+/**
+ * expressions that need session variables guard
+ * e.g. multiply/divide need session variables guard
+ * because datatype of multiply/divide depends on the sessionVariable enableDecimal256.
+ * An expression need implement NeedSessionVarGuard is the expression value depends on the value of session var.
+ * In this way, when creating persistent SQL objects like views, SessionVarGuard can be used during query execution
+ * to ensure that expression evaluation maintains the behavior consistent with the session variable values
+ * at the time of view creation.
+ * */
+public interface NeedSessionVarGuard {
 }

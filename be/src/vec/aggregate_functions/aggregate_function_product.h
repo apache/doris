@@ -136,7 +136,16 @@ struct AggregateFunctionProductData<T> {
 };
 
 template <PrimitiveType T, PrimitiveType TResult, typename Data>
-class AggregateFunctionProduct final
+class AggregateFunctionProduct;
+
+template <PrimitiveType T, PrimitiveType TResult>
+constexpr static bool is_valid_product_types =
+        (is_same_or_wider_decimalv3(T, TResult) || (is_decimalv2(T) && is_decimalv2(TResult)) ||
+         (is_float_or_double(T) && is_float_or_double(TResult)) ||
+         (is_int_or_bool(T) && is_int(TResult)));
+template <PrimitiveType T, PrimitiveType TResult, typename Data>
+    requires(is_valid_product_types<T, TResult>)
+class AggregateFunctionProduct<T, TResult, Data> final
         : public IAggregateFunctionDataHelper<Data, AggregateFunctionProduct<T, TResult, Data>>,
           UnaryExpression,
           NullableAggregateFunction {
