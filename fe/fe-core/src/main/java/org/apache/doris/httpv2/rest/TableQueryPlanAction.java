@@ -253,7 +253,6 @@ public class TableQueryPlanAction extends RestBaseController {
             context.setQueryId(queryId);
             context.setStartTime();
             context.setSqlHash(DigestUtils.md5Hex(sql));
-            context.getState().setIsQuery(true);
 
             NereidsPlanner nereidsPlanner = new NereidsPlanner(context.getStatementContext());
             LogicalPlan rewrittenPlan = (LogicalPlan) nereidsPlanner.planWithLock(parsedPlan,
@@ -383,7 +382,7 @@ public class TableQueryPlanAction extends RestBaseController {
                 .setStmtId(ctx.getStmtId())
                 .setSqlHash(ctx.getSqlHash())
                 .setIsQuery(true)
-                .setIsNereids(false)
+                .setIsNereids(true)
                 .setisInternal(false)
                 .setCloudCluster(Strings.isNullOrEmpty(cluster) ? "UNKNOWN" : cluster)
                 .setWorkloadGroup(ctx.getWorkloadGroupName());
