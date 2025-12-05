@@ -177,7 +177,9 @@ struct RowsetWriterContext {
 
         bool is_s3_fs = fs->type() == io::FileSystemType::S3;
 
-        if (!encrypt_algorithm.has_value()) {
+        auto algorithm = encrypt_algorithm;
+
+        if (!algorithm.has_value()) {
 #ifndef BE_TEST
             constexpr std::string_view msg =
                     "RowsetWriterContext::determine_encryption is not called when creating this "
@@ -187,13 +189,13 @@ struct RowsetWriterContext {
             LOG(WARNING) << st;
             DCHECK(false) << st;
 #else
-            encrypt_algorithm = EncryptionAlgorithmPB::PLAINTEXT;
+            algorithm = EncryptionAlgorithmPB::PLAINTEXT;
 #endif
         }
 
         // Apply encryption if needed
-        if (encrypt_algorithm.has_value()) {
-            fs = io::make_file_system(fs, encrypt_algorithm.value());
+        if (algorithm.has_value()) {
+            fs = io::make_file_system(fs, algorithm.value());
         }
 
         // Apply packed file system for write path if enabled
