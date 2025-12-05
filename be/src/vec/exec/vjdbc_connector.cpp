@@ -68,23 +68,51 @@ JdbcConnector::~JdbcConnector() {
 
 Status JdbcConnector::close(Status /*unused*/) {
     SCOPED_RAW_TIMER(&_jdbc_statistic._connector_close_timer);
-    _closed = true;
-    if (!_is_open) {
+    if (_closed) {
         return Status::OK();
     }
-    if (_is_in_transaction) {
-        RETURN_IF_ERROR(abort_trans());
+    if (!_is_open) {
+        _closed = true;
+        return Status::OK();
     }
+
     JNIEnv* env = nullptr;
-    RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
+    Status status = JniUtil::GetJNIEnv(&env);
+    if (!status.ok() || env == nullptr) {
+        LOG(WARNING) << "Failed to get JNIEnv in close(): " << status.to_string();
+        _closed = true;
+        return status;
+    }
+
+    // Try to abort transaction and call Java close(), but don't block cleanup
+    if (_is_in_transaction) {
+        Status abort_status = abort_trans();
+        if (!abort_status.ok()) {
+            LOG(WARNING) << "Failed to abort transaction: " << abort_status.to_string();
+        }
+    }
+
     env->CallNonvirtualVoidMethod(_executor_obj, _executor_clazz, _executor_close_id);
-    RETURN_ERROR_IF_EXC(env);
-    env->DeleteGlobalRef(_executor_factory_clazz);
-    RETURN_ERROR_IF_EXC(env);
-    env->DeleteGlobalRef(_executor_clazz);
-    RETURN_IF_ERROR(JniUtil::GetJniExceptionMsg(env));
-    env->DeleteGlobalRef(_executor_obj);
-    RETURN_ERROR_IF_EXC(env);
+    if (env->ExceptionCheck()) {
+        LOG(WARNING) << "Java close() failed: " << JniUtil::GetJniExceptionMsg(env).to_string();
+        env->ExceptionClear();
+    }
+
+    // Always delete Global References to allow Java GC
+    if (_executor_factory_clazz != nullptr) {
+        env->DeleteGlobalRef(_executor_factory_clazz);
+        _executor_factory_clazz = nullptr;
+    }
+    if (_executor_clazz != nullptr) {
+        env->DeleteGlobalRef(_executor_clazz);
+        _executor_clazz = nullptr;
+    }
+    if (_executor_obj != nullptr) {
+        env->DeleteGlobalRef(_executor_obj);
+        _executor_obj = nullptr;
+    }
+
+    _closed = true;
     return Status::OK();
 }
 
