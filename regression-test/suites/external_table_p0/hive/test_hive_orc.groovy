@@ -255,7 +255,7 @@ suite("test_hive_orc", "all_types,p0,external,hive,external_docker,external_dock
             }
 
             test {
-                sql " select * from `test_hive_orc_mapping_varbinary`.`default`.`orc_all_types` where a.binary_col = X'AB'; "
+                sql " select * from `test_hive_orc_mapping_varbinary`.`default`.`orc_all_types` where binary_col = X'AB'; "
                 exception " could not used in ComparisonPredicate now"
             }
 
