@@ -21,18 +21,11 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.LocationPath;
-import org.apache.doris.datasource.FileSplit;
-import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HiveMetaStoreCache;
-import org.apache.doris.datasource.hive.HivePartition;
 import org.apache.doris.fs.DirectoryLister;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.qe.SessionVariable;
-import org.apache.doris.spi.Split;
-import org.apache.doris.thrift.TFileCompressType;
-import org.apache.doris.thrift.TFileFormatType;
-import org.apache.doris.thrift.TPushAggOp;
 
 import org.junit.Assert;
 import org.junit.Test;
@@ -118,11 +111,6 @@ public class HiveScanNodeTest {
 
         List<HiveMetaStoreCache.FileCacheValue> fileCaches = new ArrayList<>();
         fileCaches.add(fileCacheValue);
-
-        NameMapping nameMapping = NameMapping.createForTest("test_db", "test_table");
-        HivePartition partition = new HivePartition(nameMapping, false, "org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat",
-                "file:///test", Collections.emptyList(), Collections.emptyMap());
-        List<HivePartition> partitions = Collections.singletonList(partition);
 
         // Base split size for testing
         long baseSplitSize = 10L * 1024 * 1024; // 10MB, small split size
