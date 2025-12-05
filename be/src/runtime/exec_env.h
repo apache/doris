@@ -64,7 +64,7 @@ struct WriteCooldownMetaExecutors;
 namespace io {
 class FileCacheFactory;
 class HdfsMgr;
-class MergeFileManager;
+class PackedFileManager;
 } // namespace io
 namespace segment_v2 {
 class InvertedIndexSearcherCache;
@@ -292,7 +292,7 @@ public:
 
     kerberos::KerberosTicketMgr* kerberos_ticket_mgr() { return _kerberos_ticket_mgr; }
     io::HdfsMgr* hdfs_mgr() { return _hdfs_mgr; }
-    io::MergeFileManager* merge_file_manager() { return _merge_file_manager; }
+    io::PackedFileManager* packed_file_manager() { return _packed_file_manager; }
     IndexPolicyMgr* index_policy_mgr() { return _index_policy_mgr; }
 
 #ifdef BE_TEST
@@ -548,7 +548,7 @@ private:
 
     kerberos::KerberosTicketMgr* _kerberos_ticket_mgr = nullptr;
     io::HdfsMgr* _hdfs_mgr = nullptr;
-    io::MergeFileManager* _merge_file_manager = nullptr;
+    io::PackedFileManager* _packed_file_manager = nullptr;
 };
 
 template <>

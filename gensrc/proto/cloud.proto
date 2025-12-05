@@ -2122,7 +2122,7 @@ message CloneInstanceResponse {
     optional string image_url = 3;
 }
 
-message MergedSmallFilePB {
+message PackedSlicePB {
     optional string path = 1;
     optional int64 offset = 2;
     optional int64 size = 3;
@@ -2133,30 +2133,30 @@ message MergedSmallFilePB {
     optional bool corrected = 8;
 }
 
-message MergedFileInfoPB {
-    enum MergeFileState {
+message PackedFileInfoPB {
+    enum PackedFileState {
         NORMAL = 0;
         RECYCLING = 1;
     }
     optional int64 ref_cnt = 1;
-    optional int64 total_file_num = 2;
-    optional int64 total_file_bytes = 3;
-    optional int64 left_file_bytes = 4;
+    optional int64 total_slice_num = 2;
+    optional int64 total_slice_bytes = 3;
+    optional int64 remaining_slice_bytes = 4;
     optional int64 created_at_sec = 5;
     optional bool corrected = 6;
-    optional MergeFileState state = 7 [default = NORMAL];
-    repeated MergedSmallFilePB small_files = 8;
+    optional PackedFileState state = 7 [default = NORMAL];
+    repeated PackedSlicePB slices = 8;
     optional string resource_id = 9;
 }
 
-message UpdateMergeFileInfoRequest {
+message UpdatePackedFileInfoRequest {
     optional string cloud_unique_id = 1; // For auth
     optional string request_ip = 2;
-    optional string merge_file_path = 3; // The path of the merge file
-    optional MergedFileInfoPB merge_file_info = 4;
+    optional string packed_file_path = 3; // The path of the packed file
+    optional PackedFileInfoPB packed_file_info = 4;
 }
 
-message UpdateMergeFileInfoResponse {
+message UpdatePackedFileInfoResponse {
     optional MetaServiceResponseStatus status = 1;
 }
 
@@ -2255,7 +2255,7 @@ service MetaService {
     rpc list_snapshot(ListSnapshotRequest) returns (ListSnapshotResponse);
     rpc clone_instance(CloneInstanceRequest) returns (CloneInstanceResponse);
 
-    rpc update_merge_file_info(UpdateMergeFileInfoRequest) returns (UpdateMergeFileInfoResponse);
+    rpc update_packed_file_info(UpdatePackedFileInfoRequest) returns (UpdatePackedFileInfoResponse);
 };
 
 service RecyclerService {

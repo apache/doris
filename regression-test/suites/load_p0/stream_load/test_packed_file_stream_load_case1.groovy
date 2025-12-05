@@ -15,14 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_merge_file_stream_load_case1", "p0,nonConcurrent") {
+suite("test_packed_file_stream_load_case1", "p0,nonConcurrent") {
     if (!isCloudMode()) {
-        log.info("skip merge file cases in non cloud mode")
+        log.info("skip packed_file cases in non cloud mode")
         return
     }
 
-    final String tableName = "merge_file_case1"
-    final String dataFile = "cloud_p0/merge_file/merge_file_stream_load.csv"
+    final String tableName = "packed_file_case1"
+    final String dataFile = "cloud_p0/packed_file/merge_file_stream_load.csv"
     final int rowsPerLoad = 200
 
     def createTable = {

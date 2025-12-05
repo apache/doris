@@ -24,23 +24,23 @@
 #include "common/status.h"
 #include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/file_writer.h"
-#include "io/fs/merge_file_manager.h"
+#include "io/fs/packed_file_manager.h"
 #include "io/fs/path.h"
 #include "util/slice.h"
 
 namespace doris::io {
 
-// FileWriter wrapper that buffers small files and writes them to merge file
+// FileWriter wrapper that buffers small files and writes them to packed file
 // If file size exceeds threshold, it directly writes to inner writer
-// Otherwise, it buffers data and writes to MergeFileManager on close
-class MergeFileWriter final : public FileWriter {
+// Otherwise, it buffers data and writes to PackedFileManager on close
+class PackedFileWriter final : public FileWriter {
 public:
-    MergeFileWriter(FileWriterPtr inner_writer, Path path,
-                    MergeFileAppendInfo append_info = MergeFileAppendInfo {});
-    ~MergeFileWriter() override;
+    PackedFileWriter(FileWriterPtr inner_writer, Path path,
+                     PackedAppendContext append_info = PackedAppendContext {});
+    ~PackedFileWriter() override;
 
-    MergeFileWriter(const MergeFileWriter&) = delete;
-    const MergeFileWriter& operator=(const MergeFileWriter&) = delete;
+    PackedFileWriter(const PackedFileWriter&) = delete;
+    const PackedFileWriter& operator=(const PackedFileWriter&) = delete;
 
     Status appendv(const Slice* data, size_t data_cnt) override;
 
@@ -55,7 +55,7 @@ public:
     // Get merge file segment index information
     // This method should be called after close(true) to get the index information
     // Returns empty index if file is not in merge file
-    Status get_merge_file_index(MergeFileSegmentIndex* index) const;
+    Status get_packed_slice_location(PackedSliceLocation* location) const;
 
 private:
     // Async close: submit data without waiting
@@ -68,23 +68,22 @@ private:
     Status _switch_to_direct_write();
 
     // Send buffered data to merge file manager
-    Status _send_to_merge_manager();
+    Status _send_to_packed_manager();
 
-    // Wait for merge file to be uploaded to S3
-    Status _wait_merge_upload();
+    // Wait for packed file to be uploaded to S3
+    Status _wait_packed_upload();
 
     FileWriterPtr _inner_writer;
-    std::string _file_path; // Store file path as string for merge file manager
+    std::string _file_path; // Store file path as string for packed file manager
 
     // Buffer for small files
     std::string _buffer;
     size_t _bytes_appended = 0;
     State _state = State::OPENED;
-    bool _is_direct_write = false;                   // Whether to use direct write mode
-    MergeFileManager* _merge_file_manager = nullptr; // Merge file manager instance
-    mutable MergeFileSegmentIndex
-            _merge_file_index; // Merge file index information (mutable for lazy init in const getter)
-    MergeFileAppendInfo _append_info;
+    bool _is_direct_write = false;                      // Whether to use direct write mode
+    PackedFileManager* _packed_file_manager = nullptr;  // Packed file manager instance
+    mutable PackedSliceLocation _packed_slice_location; // Packed slice info (mutable for lazy init)
+    PackedAppendContext _append_info;
     std::optional<std::chrono::steady_clock::time_point> _first_append_timestamp;
     bool _close_latency_recorded = false;
 };

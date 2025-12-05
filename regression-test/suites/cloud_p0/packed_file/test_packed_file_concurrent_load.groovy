@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_merge_file_concurrent_load", "p0, nonConcurrent") {
+suite("test_packed_file_concurrent_load", "p0, nonConcurrent") {
     if (!isCloudMode()) {
         return;
     }

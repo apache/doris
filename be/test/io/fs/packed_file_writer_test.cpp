@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "io/fs/merge_file_writer.h"
+#include "io/fs/packed_file_writer.h"
 
 #include <gtest/gtest.h>
 
@@ -26,7 +26,7 @@
 #include "common/config.h"
 #include "common/status.h"
 #include "io/fs/file_writer.h"
-#include "io/fs/merge_file_manager.h"
+#include "io/fs/packed_file_manager.h"
 #include "io/fs/path.h"
 #include "util/slice.h"
 
@@ -34,7 +34,7 @@ namespace doris::io {
 
 using doris::Status;
 
-// Mock FileWriter for testing MergeFileWriter
+// Mock FileWriter for testing PackedFileWriter
 class MockFileWriterForMerge : public FileWriter {
 public:
     explicit MockFileWriterForMerge(std::string path) : _path(std::move(path)) {}
@@ -85,17 +85,17 @@ private:
     FileWriter::State _state = FileWriter::State::OPENED;
 };
 
-// Test fixture for MergeFileWriter
-class MergeFileWriterTest : public testing::Test {
+// Test fixture for PackedFileWriter
+class PackedFileWriterTest : public testing::Test {
 protected:
     void SetUp() override {
         _old_small_threshold = config::small_file_threshold_bytes;
-        _old_merge_threshold = config::merge_file_size_threshold_bytes;
+        _old_merge_threshold = config::packed_file_size_threshold_bytes;
         config::small_file_threshold_bytes = 100;
-        config::merge_file_size_threshold_bytes = 1024;
+        config::packed_file_size_threshold_bytes = 1024;
 
-        // Initialize MergeFileManager for testing
-        auto* manager = MergeFileManager::instance();
+        // Initialize PackedFileManager for testing
+        auto* manager = PackedFileManager::instance();
         static_cast<void>(manager->init());
 
         _inner_writer = std::make_unique<MockFileWriterForMerge>("test_file");
@@ -107,20 +107,20 @@ protected:
 
     void TearDown() override {
         config::small_file_threshold_bytes = _old_small_threshold;
-        config::merge_file_size_threshold_bytes = _old_merge_threshold;
+        config::packed_file_size_threshold_bytes = _old_merge_threshold;
     }
 
     int64_t _old_small_threshold = 0;
     int64_t _old_merge_threshold = 0;
     std::unique_ptr<MockFileWriterForMerge> _inner_writer;
-    MergeFileAppendInfo _append_info;
+    PackedAppendContext _append_info;
 };
 
-TEST_F(MergeFileWriterTest, SmallFileBuffered) {
+TEST_F(PackedFileWriterTest, SmallFileBuffered) {
     Path file_path("small_file");
     // Save pointer before move
     auto* inner_writer_ptr = _inner_writer.get();
-    MergeFileWriter writer(std::move(_inner_writer), file_path, _append_info);
+    PackedFileWriter writer(std::move(_inner_writer), file_path, _append_info);
 
     std::string data = "small data";
     Slice slice(data);
@@ -132,11 +132,11 @@ TEST_F(MergeFileWriterTest, SmallFileBuffered) {
     EXPECT_EQ(inner_writer_ptr->append_calls(), 0);
 }
 
-TEST_F(MergeFileWriterTest, LargeFileDirectWrite) {
+TEST_F(PackedFileWriterTest, LargeFileDirectWrite) {
     Path file_path("large_file");
     // Save pointer before move
     auto* inner_writer_ptr = _inner_writer.get();
-    MergeFileWriter writer(std::move(_inner_writer), file_path, _append_info);
+    PackedFileWriter writer(std::move(_inner_writer), file_path, _append_info);
 
     // Write data larger than threshold
     std::string data(150, 'x');
@@ -149,11 +149,11 @@ TEST_F(MergeFileWriterTest, LargeFileDirectWrite) {
     EXPECT_GT(inner_writer_ptr->append_calls(), 0);
 }
 
-TEST_F(MergeFileWriterTest, SwitchToDirectWrite) {
+TEST_F(PackedFileWriterTest, SwitchToDirectWrite) {
     Path file_path("switch_file");
     // Save pointer before move
     auto* inner_writer_ptr = _inner_writer.get();
-    MergeFileWriter writer(std::move(_inner_writer), file_path, _append_info);
+    PackedFileWriter writer(std::move(_inner_writer), file_path, _append_info);
 
     // First write small data (buffered)
     std::string small_data(50, 'a');
@@ -172,9 +172,9 @@ TEST_F(MergeFileWriterTest, SwitchToDirectWrite) {
     EXPECT_GT(inner_writer_ptr->append_calls(), 0);
 }
 
-TEST_F(MergeFileWriterTest, CloseAsync) {
+TEST_F(PackedFileWriterTest, CloseAsync) {
     Path file_path("async_file");
-    MergeFileWriter writer(std::move(_inner_writer), file_path, _append_info);
+    PackedFileWriter writer(std::move(_inner_writer), file_path, _append_info);
 
     std::string data = "test data";
     Slice slice(data);
@@ -192,9 +192,9 @@ TEST_F(MergeFileWriterTest, CloseAsync) {
     // If it fails, state may remain OPENED, which is acceptable
 }
 
-TEST_F(MergeFileWriterTest, CloseSync) {
+TEST_F(PackedFileWriterTest, CloseSync) {
     Path file_path("sync_file");
-    MergeFileWriter writer(std::move(_inner_writer), file_path, _append_info);
+    PackedFileWriter writer(std::move(_inner_writer), file_path, _append_info);
 
     std::string data = "test data";
     Slice slice(data);
@@ -208,11 +208,11 @@ TEST_F(MergeFileWriterTest, CloseSync) {
     }
 }
 
-TEST_F(MergeFileWriterTest, PathAndBytesAppended) {
+TEST_F(PackedFileWriterTest, PathAndBytesAppended) {
     Path file_path("test_path");
-    MergeFileWriter writer(std::move(_inner_writer), file_path, _append_info);
+    PackedFileWriter writer(std::move(_inner_writer), file_path, _append_info);
 
-    // MergeFileWriter::path() returns _inner_writer->path(), which is "test_file" from SetUp
+    // PackedFileWriter::path() returns _inner_writer->path(), which is "test_file" from SetUp
     EXPECT_EQ(writer.path().native(), "test_file");
     EXPECT_EQ(writer.bytes_appended(), 0);
 
@@ -223,9 +223,9 @@ TEST_F(MergeFileWriterTest, PathAndBytesAppended) {
     EXPECT_EQ(writer.bytes_appended(), data.size());
 }
 
-TEST_F(MergeFileWriterTest, MultipleAppends) {
+TEST_F(PackedFileWriterTest, MultipleAppends) {
     Path file_path("multi_append_file");
-    MergeFileWriter writer(std::move(_inner_writer), file_path, _append_info);
+    PackedFileWriter writer(std::move(_inner_writer), file_path, _append_info);
 
     std::string data1 = "first";
     std::string data2 = "second";
@@ -245,9 +245,9 @@ TEST_F(MergeFileWriterTest, MultipleAppends) {
     EXPECT_EQ(writer.bytes_appended(), data1.size() + data2.size() + data3.size());
 }
 
-TEST_F(MergeFileWriterTest, EmptyAppend) {
+TEST_F(PackedFileWriterTest, EmptyAppend) {
     Path file_path("empty_file");
-    MergeFileWriter writer(std::move(_inner_writer), file_path, _append_info);
+    PackedFileWriter writer(std::move(_inner_writer), file_path, _append_info);
 
     std::string empty_data;
     Slice slice(empty_data);

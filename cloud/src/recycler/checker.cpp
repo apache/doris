@@ -280,9 +280,9 @@ int Checker::start() {
                 }
             }
 
-            if (config::enable_merge_file_check) {
-                log_progress("do_merge_file_check");
-                if (int ret = checker->do_merge_file_check(); ret != 0) {
+            if (config::enable_packed_file_check) {
+                log_progress("do_packed_file_check");
+                if (int ret = checker->do_packed_file_check(); ret != 0) {
                     success = false;
                 }
             }
@@ -651,8 +651,8 @@ int InstanceChecker::do_check() {
         for (int i = 0; i < rs_meta.num_segments(); ++i) {
             auto path = segment_path(rs_meta.tablet_id(), rs_meta.rowset_id_v2(), i);
 
-            // Skip check if segment is merged into a larger file
-            const auto& index_map = rs_meta.merge_file_segment_index();
+            // Skip check if segment is already packed into a larger file
+            const auto& index_map = rs_meta.packed_slice_locations();
             if (index_map.find(path) != index_map.end()) {
                 continue;
             }
@@ -711,7 +711,7 @@ int InstanceChecker::do_check() {
             }
         }
         if (!index_ids.empty()) {
-            const auto& index_map = rs_meta.merge_file_segment_index();
+            const auto& index_map = rs_meta.packed_slice_locations();
             for (int i = 0; i < rs_meta.num_segments(); ++i) {
                 std::vector<std::string> index_path_v;
                 if (rs_meta.tablet_schema().inverted_index_storage_format() ==
@@ -731,7 +731,7 @@ int InstanceChecker::do_check() {
                 }
 
                 if (std::ranges::all_of(index_path_v, [&](const auto& idx_file_path) {
-                        // Skip check if inverted index file is merged into a larger file
+                        // Skip check if inverted index file is already packed into a larger file
                         if (index_map.find(idx_file_path) != index_map.end()) {
                             return true;
                         }
@@ -2716,37 +2716,37 @@ void InstanceChecker::get_all_accessor(std::vector<StorageVaultAccessor*>* acces
     }
 }
 
-int InstanceChecker::do_merge_file_check() {
-    LOG(INFO) << "begin to check merge files, instance_id=" << instance_id_;
+int InstanceChecker::do_packed_file_check() {
+    LOG(INFO) << "begin to check packed files, instance_id=" << instance_id_;
     int check_ret = 0;
     long num_scanned_rowsets = 0;
-    long num_scanned_merge_files = 0;
-    long num_merged_file_loss = 0;
-    long num_merged_file_leak = 0;
+    long num_scanned_packed_files = 0;
+    long num_packed_file_loss = 0;
+    long num_packed_file_leak = 0;
     long num_ref_count_mismatch = 0;
     long num_small_file_ref_mismatch = 0;
     using namespace std::chrono;
     auto start_time = steady_clock::now();
     DORIS_CLOUD_DEFER {
         auto cost = duration<float>(steady_clock::now() - start_time).count();
-        LOG(INFO) << "check merge files finished, cost=" << cost
+        LOG(INFO) << "check packed files finished, cost=" << cost
                   << "s. instance_id=" << instance_id_
                   << " num_scanned_rowsets=" << num_scanned_rowsets
-                  << " num_scanned_merge_files=" << num_scanned_merge_files
-                  << " num_merged_file_loss=" << num_merged_file_loss
-                  << " num_merged_file_leak=" << num_merged_file_leak
+                  << " num_scanned_packed_files=" << num_scanned_packed_files
+                  << " num_packed_file_loss=" << num_packed_file_loss
+                  << " num_packed_file_leak=" << num_packed_file_leak
                   << " num_ref_count_mismatch=" << num_ref_count_mismatch
                   << " num_small_file_ref_mismatch=" << num_small_file_ref_mismatch;
     };
 
-    // Map to track expected reference count for each merged file
-    // merged_file_path -> expected_ref_count (from rowset metas)
+    // Map to track expected reference count for each packed file
+    // packed_file_path -> expected_ref_count (from rowset metas)
     std::unordered_map<std::string, int64_t> expected_ref_counts;
-    // Map to track small files referenced in merged files
-    // merged_file_path -> set of small_file_paths
-    std::unordered_map<std::string, std::unordered_set<std::string>> merged_file_small_files;
+    // Map to track small files referenced in packed files
+    // packed_file_path -> set of small_file_paths
+    std::unordered_map<std::string, std::unordered_set<std::string>> packed_file_small_files;
 
-    // Step 1: Scan all rowset metas to collect merge_file_segment_index references
+    // Step 1: Scan all rowset metas to collect packed_slice_locations references
     // Use efficient range scan instead of iterating through each tablet_id
     {
         std::string start_key = meta_rowset_key({instance_id_, 0, 0});
@@ -2761,7 +2761,7 @@ int InstanceChecker::do_merge_file_check() {
             std::unique_ptr<Transaction> txn;
             TxnErrorCode err = txn_kv_->create_txn(&txn);
             if (err != TxnErrorCode::TXN_OK) {
-                LOG(WARNING) << "failed to create txn for merge file check";
+                LOG(WARNING) << "failed to create txn for packed file check";
                 return -1;
             }
 
@@ -2787,27 +2787,27 @@ int InstanceChecker::do_merge_file_check() {
 
                 num_scanned_rowsets++;
 
-                // Check merge_file_segment_index in rowset meta
-                const auto& index_map = rs_meta.merge_file_segment_index();
+                // Check packed_slice_locations in rowset meta
+                const auto& index_map = rs_meta.packed_slice_locations();
                 for (const auto& [small_file_path, index_pb] : index_map) {
-                    if (!index_pb.has_merge_file_path() || index_pb.merge_file_path().empty()) {
+                    if (!index_pb.has_packed_file_path() || index_pb.packed_file_path().empty()) {
                         continue;
                     }
-                    const std::string& merged_file_path = index_pb.merge_file_path();
-                    expected_ref_counts[merged_file_path]++;
-                    merged_file_small_files[merged_file_path].insert(small_file_path);
+                    const std::string& packed_file_path = index_pb.packed_file_path();
+                    expected_ref_counts[packed_file_path]++;
+                    packed_file_small_files[packed_file_path].insert(small_file_path);
                 }
             }
             start_key.push_back('\x00'); // Update to next smallest key for iteration
         } while (it->more() && !stopped());
     }
 
-    // Step 2: Scan all merged file metadata and verify
-    // Also collect all merge file paths from metadata for Step 3
-    // Map: resource_id -> set of merge_file_paths
-    std::unordered_map<std::string, std::unordered_set<std::string>> merge_files_in_metadata;
-    std::string begin = merge_file_key({instance_id_, ""});
-    std::string end = merge_file_key({instance_id_, "\xff"});
+    // Step 2: Scan all packed file metadata and verify
+    // Also collect all packed file paths from metadata for Step 3
+    // Map: resource_id -> set of packed_file_paths
+    std::unordered_map<std::string, std::unordered_set<std::string>> packed_files_in_metadata;
+    std::string begin = packed_file_key({instance_id_, ""});
+    std::string end = packed_file_key({instance_id_, "\xff"});
     std::string scan_begin = begin;
 
     while (true) {
@@ -2818,14 +2818,14 @@ int InstanceChecker::do_merge_file_check() {
         std::unique_ptr<Transaction> txn;
         TxnErrorCode err = txn_kv_->create_txn(&txn);
         if (err != TxnErrorCode::TXN_OK) {
-            LOG(WARNING) << "failed to create txn for scanning merged files";
+            LOG(WARNING) << "failed to create txn for scanning packed files";
             return -1;
         }
 
         std::unique_ptr<RangeGetIterator> it;
         err = txn->get(scan_begin, end, &it);
         if (err != TxnErrorCode::TXN_OK) {
-            LOG(WARNING) << "failed to scan merged file keys, err=" << err;
+            LOG(WARNING) << "failed to scan packed file keys, err=" << err;
             return -1;
         }
         if (!it->has_next()) {
@@ -2836,57 +2836,57 @@ int InstanceChecker::do_merge_file_check() {
         while (it->has_next()) {
             auto [k, v] = it->next();
             last_key.assign(k.data(), k.size());
-            num_scanned_merge_files++;
+            num_scanned_packed_files++;
 
-            std::string merged_file_path;
-            if (!InstanceRecycler::decode_merged_file_key(k, &merged_file_path)) {
-                LOG(WARNING) << "failed to decode merged file key, key=" << hex(k);
+            std::string packed_file_path;
+            if (!InstanceRecycler::decode_packed_file_key(k, &packed_file_path)) {
+                LOG(WARNING) << "failed to decode packed file key, key=" << hex(k);
                 check_ret = -1;
                 continue;
             }
 
-            cloud::MergedFileInfoPB merged_info;
-            if (!merged_info.ParseFromArray(v.data(), v.size())) {
-                LOG(WARNING) << "failed to parse merged file info, merged_file_path="
-                             << merged_file_path;
+            cloud::PackedFileInfoPB packed_info;
+            if (!packed_info.ParseFromArray(v.data(), v.size())) {
+                LOG(WARNING) << "failed to parse packed file info, packed_file_path="
+                             << packed_file_path;
                 check_ret = -1;
                 continue;
             }
 
-            // Step 2.1: Verify merged file exists in storage
-            if (!merged_info.resource_id().empty()) {
-                // Collect merge file path for Step 3
-                merge_files_in_metadata[merged_info.resource_id()].insert(merged_file_path);
+            // Step 2.1: Verify packed file exists in storage
+            if (!packed_info.resource_id().empty()) {
+                // Collect packed file path for Step 3
+                packed_files_in_metadata[packed_info.resource_id()].insert(packed_file_path);
 
-                auto* accessor = get_accessor(merged_info.resource_id());
+                auto* accessor = get_accessor(packed_info.resource_id());
                 if (accessor == nullptr) {
-                    LOG(WARNING) << "accessor not found for merged file, resource_id="
-                                 << merged_info.resource_id()
-                                 << ", merged_file_path=" << merged_file_path;
+                    LOG(WARNING) << "accessor not found for packed file, resource_id="
+                                 << packed_info.resource_id()
+                                 << ", packed_file_path=" << packed_file_path;
                     check_ret = -1;
                     continue;
                 }
 
-                int ret = accessor->exists(merged_file_path);
+                int ret = accessor->exists(packed_file_path);
                 if (ret < 0) {
-                    LOG(WARNING) << "failed to check merged file existence, merged_file_path="
-                                 << merged_file_path << ", ret=" << ret;
+                    LOG(WARNING) << "failed to check packed file existence, packed_file_path="
+                                 << packed_file_path << ", ret=" << ret;
                     check_ret = -1;
                     continue;
                 }
 
                 if (ret != 0) {
                     // ret == 1 means file not found, ret > 1 means other error
-                    // When merge file doesn't exist in storage, ref_cnt must be 0 and state must be RECYCLING
-                    bool ref_cnt_valid = (merged_info.ref_cnt() == 0);
-                    bool state_valid = (merged_info.state() == cloud::MergedFileInfoPB::RECYCLING);
+                    // When packed file doesn't exist in storage, ref_cnt must be 0 and state must be RECYCLING
+                    bool ref_cnt_valid = (packed_info.ref_cnt() == 0);
+                    bool state_valid = (packed_info.state() == cloud::PackedFileInfoPB::RECYCLING);
                     if (!ref_cnt_valid || !state_valid) {
-                        LOG(WARNING) << "merged file not found in storage but metadata is invalid, "
-                                        "merged_file_path="
-                                     << merged_file_path << ", ref_cnt=" << merged_info.ref_cnt()
-                                     << " (expected=0), state=" << merged_info.state()
+                        LOG(WARNING) << "packed file not found in storage but metadata is invalid, "
+                                        "packed_file_path="
+                                     << packed_file_path << ", ref_cnt=" << packed_info.ref_cnt()
+                                     << " (expected=0), state=" << packed_info.state()
                                      << " (expected=RECYCLING), ret=" << ret;
-                        num_merged_file_loss++;
+                        num_packed_file_loss++;
                         check_ret = 1; // Data inconsistency identified
                     }
                     // If ref_cnt == 0 and state == RECYCLING, this is expected (file is being recycled)
@@ -2895,30 +2895,30 @@ int InstanceChecker::do_merge_file_check() {
             }
 
             // Step 2.2: Verify reference count matches expected count
-            int64_t expected_ref = expected_ref_counts[merged_file_path];
-            if (merged_info.ref_cnt() != expected_ref) {
-                LOG(WARNING) << "merged file ref count mismatch, merged_file_path="
-                             << merged_file_path << ", expected=" << expected_ref
-                             << ", actual=" << merged_info.ref_cnt();
+            int64_t expected_ref = expected_ref_counts[packed_file_path];
+            if (packed_info.ref_cnt() != expected_ref) {
+                LOG(WARNING) << "packed file ref count mismatch, packed_file_path="
+                             << packed_file_path << ", expected=" << expected_ref
+                             << ", actual=" << packed_info.ref_cnt();
                 num_ref_count_mismatch++;
                 check_ret = 1; // Data inconsistency identified
             }
 
-            // Step 2.3: Verify small files in merged_info match rowset references
+            // Step 2.3: Verify small files in packed_info match rowset references
             std::unordered_set<std::string> small_files_in_meta;
-            for (const auto& small_file : merged_info.small_files()) {
+            for (const auto& small_file : packed_info.slices()) {
                 if (!small_file.deleted()) {
                     small_files_in_meta.insert(small_file.path());
                 }
             }
 
-            const auto& expected_small_files = merged_file_small_files[merged_file_path];
+            const auto& expected_small_files = packed_file_small_files[packed_file_path];
             if (small_files_in_meta != expected_small_files) {
                 // Check for missing small files
                 for (const auto& expected_path : expected_small_files) {
                     if (small_files_in_meta.find(expected_path) == small_files_in_meta.end()) {
-                        LOG(WARNING) << "small file missing in merged file info, merged_file_path="
-                                     << merged_file_path << ", small_file_path=" << expected_path;
+                        LOG(WARNING) << "small file missing in packed file info, packed_file_path="
+                                     << packed_file_path << ", small_file_path=" << expected_path;
                         num_small_file_ref_mismatch++;
                         check_ret = 1;
                     }
@@ -2926,9 +2926,9 @@ int InstanceChecker::do_merge_file_check() {
                 // Check for extra small files (may be deleted, so less critical)
                 for (const auto& meta_path : small_files_in_meta) {
                     if (expected_small_files.find(meta_path) == expected_small_files.end()) {
-                        LOG(INFO) << "small file in merged file info not found in rowset metas, "
-                                     "may be deleted, merged_file_path="
-                                  << merged_file_path << ", small_file_path=" << meta_path;
+                        LOG(INFO) << "small file in packed file info not found in rowset metas, "
+                                     "may be deleted, packed_file_path="
+                                  << packed_file_path << ", small_file_path=" << meta_path;
                     }
                 }
             }
@@ -2941,8 +2941,8 @@ int InstanceChecker::do_merge_file_check() {
         scan_begin.push_back('\x00');
     }
 
-    // Step 3: Check for leaked merged files (exist in storage but not in metadata)
-    // Scan all storage vaults to find merge files and verify they are in metadata
+    // Step 3: Check for leaked packed files (exist in storage but not in metadata)
+    // Scan all storage vaults to find packed files and verify they are in metadata
     {
         std::vector<StorageVaultAccessor*> accessors;
         get_all_accessor(&accessors);
@@ -2965,20 +2965,20 @@ int InstanceChecker::do_merge_file_check() {
                 continue;
             }
 
-            // List all files under data/merge_file/ directory
+            // List all files under data/packed_file/ directory
             std::unique_ptr<ListIterator> list_it;
-            int ret = accessor->list_directory("data/merge_file", &list_it);
+            int ret = accessor->list_directory("data/packed_file", &list_it);
             if (ret != 0) {
                 // Directory may not exist, which is fine
                 if (ret < 0) {
-                    LOG(WARNING) << "failed to list merge_file directory, resource_id="
+                    LOG(WARNING) << "failed to list packed_file directory, resource_id="
                                  << resource_id << ", ret=" << ret;
                     check_ret = -1;
                 }
                 continue;
             }
 
-            const auto& expected_merge_files = merge_files_in_metadata[resource_id];
+            const auto& expected_packed_files = packed_files_in_metadata[resource_id];
             while (list_it->has_next()) {
                 if (stopped()) {
                     return -1;
@@ -2990,26 +2990,26 @@ int InstanceChecker::do_merge_file_check() {
                 }
 
                 const std::string& file_path = file_meta->path;
-                // Only check files (not directories), and ensure it's a merge file
-                // Skip directories (paths ending with '/') and non-merge-file paths
+                // Only check files (not directories), and ensure it's a packed file
+                // Skip directories (paths ending with '/') and non-packed-file paths
                 if (file_path.empty() || file_path.back() == '/' ||
-                    !file_path.starts_with("data/merge_file/")) {
+                    !file_path.starts_with("data/packed_file/")) {
                     continue;
                 }
 
-                // Check if this merge file is in metadata
-                if (expected_merge_files.find(file_path) == expected_merge_files.end()) {
-                    LOG(WARNING) << "merge file found in storage but not in metadata, "
+                // Check if this packed file is in metadata
+                if (expected_packed_files.find(file_path) == expected_packed_files.end()) {
+                    LOG(WARNING) << "packed file found in storage but not in metadata, "
                                     "resource_id="
-                                 << resource_id << ", merged_file_path=" << file_path;
-                    num_merged_file_leak++;
+                                 << resource_id << ", packed_file_path=" << file_path;
+                    num_packed_file_leak++;
                     check_ret = 1; // Data leak identified
                 }
             }
         }
     }
 
-    if (num_merged_file_loss > 0 || num_merged_file_leak > 0 || num_ref_count_mismatch > 0 ||
+    if (num_packed_file_loss > 0 || num_packed_file_leak > 0 || num_ref_count_mismatch > 0 ||
         num_small_file_ref_mismatch > 0) {
         return 1; // Data loss or inconsistency identified
     }

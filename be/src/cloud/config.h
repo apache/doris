@@ -174,16 +174,16 @@ DECLARE_mInt64(warm_up_rowset_sync_wait_max_timeout_ms);
 
 DECLARE_mBool(enable_warmup_immediately_on_new_rowset);
 
-// Merge file manager config
-DECLARE_mBool(enable_merge_file);
-DECLARE_mInt64(merge_file_size_threshold_bytes);
-DECLARE_mInt64(merge_file_time_threshold_ms);
-DECLARE_mInt64(merge_file_try_lock_timeout_ms);
-DECLARE_mInt64(merge_file_small_file_count_threshold);
+// Packed file manager config
+DECLARE_mBool(enable_packed_file);
+DECLARE_mInt64(packed_file_size_threshold_bytes);
+DECLARE_mInt64(packed_file_time_threshold_ms);
+DECLARE_mInt64(packed_file_try_lock_timeout_ms);
+DECLARE_mInt64(packed_file_small_file_count_threshold);
 DECLARE_mInt64(small_file_threshold_bytes);
 DECLARE_mInt64(uploaded_file_retention_seconds);
 DECLARE_mInt64(index_retention_seconds);
-DECLARE_mInt64(merge_file_cleanup_interval_seconds);
+DECLARE_mInt64(packed_file_cleanup_interval_seconds);
 
 DECLARE_mBool(enable_standby_passive_compaction);
 

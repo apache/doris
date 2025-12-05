@@ -15,17 +15,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_merge_file_stream_load_case3", "p0,nonConcurrent") {
+suite("test_packed_file_stream_load_case2", "p0,nonConcurrent") {
     if (!isCloudMode()) {
-        log.info("skip merge file cases in non cloud mode")
+        log.info("skip packed_file cases in non cloud mode")
         return
     }
 
-    final String tableName = "merge_file_case3"
-    final String dataFile = "cloud_p0/merge_file/merge_file_stream_load.csv"
+    final String tableName = "packed_file_case2"
+    final String dataFile = "cloud_p0/packed_file/merge_file_stream_load.csv"
     final int rowsPerLoad = 200
-    final int rowsInP1 = 100
-    final int rowsInP2 = rowsPerLoad - rowsInP1
 
     def createTable = {
         sql """ DROP TABLE IF EXISTS ${tableName} """
@@ -36,10 +34,6 @@ suite("test_merge_file_stream_load_case3", "p0,nonConcurrent") {
                 INDEX idx_name(`name`) USING INVERTED PROPERTIES("parser" = "english")
             ) ENGINE=OLAP
             DUPLICATE KEY(`id`)
-            PARTITION BY RANGE(`id`) (
-                PARTITION p1 VALUES LESS THAN (101),
-                PARTITION p2 VALUES LESS THAN (201)
-            )
             DISTRIBUTED BY HASH(`id`) BUCKETS 20
             PROPERTIES (
                 "replication_allocation" = "tag.location.default: 1"
@@ -82,8 +76,5 @@ suite("test_merge_file_stream_load_case3", "p0,nonConcurrent") {
     def successLoads = runLoads(20)
     assertEquals(20, successLoads)
     assertRowCount(successLoads * rowsPerLoad)
-    sql """ ALTER TABLE ${tableName} DROP PARTITION p1 """
-    sql "sync"
-    assertRowCount(successLoads * rowsInP2)
     sql """ DROP TABLE IF EXISTS ${tableName} """
 }

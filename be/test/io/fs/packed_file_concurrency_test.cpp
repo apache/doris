@@ -65,10 +65,10 @@
 #include "io/fs/file_reader.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
-#include "io/fs/merge_file_manager.h"
-#include "io/fs/merge_file_reader.h"
-#include "io/fs/merge_file_system.h"
-#include "io/fs/merge_file_writer.h"
+#include "io/fs/packed_file_manager.h"
+#include "io/fs/packed_file_reader.h"
+#include "io/fs/packed_file_system.h"
+#include "io/fs/packed_file_writer.h"
 #include "io/fs/path.h"
 #include "io/fs/s3_file_system.h"
 #include "io/io_common.h"
@@ -79,6 +79,13 @@
 #include "util/threadpool.h"
 
 namespace doris::io {
+
+using PackedFileManager = PackedFileManager;
+using PackedFileSystem = PackedFileSystem;
+using PackedFileWriter = PackedFileWriter;
+using PackedFileReader = PackedFileReader;
+using PackedSliceLocation = PackedSliceLocation;
+using PackedAppendContext = PackedAppendContext;
 
 namespace {
 
@@ -368,7 +375,7 @@ void install_mock_environment() {
 
     auto* sp = SyncPoint::get_instance();
     sp->enable_processing();
-    sp->set_call_back("MergeFileManager::update_meta_service", [](std::vector<std::any>&& args) {
+    sp->set_call_back("PackedFileManager::update_meta_service", [](std::vector<std::any>&& args) {
         auto pair = try_any_cast_ret<Status>(args);
         pair->first = Status::OK();
         pair->second = true;
@@ -380,7 +387,7 @@ void remove_mock_environment() {
     g_mock_obj_client.reset();
 
     auto* sp = SyncPoint::get_instance();
-    sp->clear_call_back("MergeFileManager::update_meta_service");
+    sp->clear_call_back("PackedFileManager::update_meta_service");
     sp->disable_processing();
 }
 
@@ -529,15 +536,12 @@ private:
     std::string _prefix;
 };
 
-void reset_manager_state(MergeFileManager* manager) {
+void reset_manager_state(PackedFileManager* manager) {
     manager->stop_background_manager();
-    manager->_current_merge_files.clear();
-    manager->_uploading_merge_files.clear();
-    manager->_uploaded_merge_files.clear();
-    manager->_global_index_map.clear();
-    manager->_file_systems.clear();
-    manager->_default_file_system.reset();
-    manager->reset_merge_file_bvars_for_test();
+    manager->clear_state_for_test();
+    manager->file_systems_for_test().clear();
+    manager->default_file_system_for_test().reset();
+    manager->reset_packed_file_bvars_for_test();
 }
 
 void create_file_cache_once(const std::string& base_path) {
@@ -595,7 +599,7 @@ protected:
                 &mock_s3_store(), _s3_fs->bucket(), _s3_fs->prefix());
 
         std::string cache_path =
-                (std::filesystem::current_path() / "ut_dir/merge_file_cache").string();
+                (std::filesystem::current_path() / "ut_dir/packed_file_cache").string();
         create_file_cache_once(cache_path);
     }
 
@@ -610,28 +614,28 @@ protected:
     void SetUp() override {
         reset_mock_s3_store();
         _old_small_threshold = config::small_file_threshold_bytes;
-        _old_merge_threshold = config::merge_file_size_threshold_bytes;
+        _old_merge_threshold = config::packed_file_size_threshold_bytes;
         _old_cleanup_seconds = config::uploaded_file_retention_seconds;
-        _old_time_threshold = config::merge_file_time_threshold_ms;
+        _old_time_threshold = config::packed_file_time_threshold_ms;
         _old_enable_file_cache = config::enable_file_cache;
 
         config::small_file_threshold_bytes = kLargeThreshold;
-        config::merge_file_size_threshold_bytes = kLargeThreshold * 2;
+        config::packed_file_size_threshold_bytes = kLargeThreshold * 2;
         config::uploaded_file_retention_seconds = 10;
-        config::merge_file_time_threshold_ms = 1;
+        config::packed_file_time_threshold_ms = 1;
         config::enable_file_cache = true;
 
-        reset_manager_state(MergeFileManager::instance());
-        MergeFileManager::instance()->start_background_manager();
+        reset_manager_state(PackedFileManager::instance());
+        PackedFileManager::instance()->start_background_manager();
     }
 
     void TearDown() override {
         config::small_file_threshold_bytes = _old_small_threshold;
-        config::merge_file_size_threshold_bytes = _old_merge_threshold;
+        config::packed_file_size_threshold_bytes = _old_merge_threshold;
         config::uploaded_file_retention_seconds = _old_cleanup_seconds;
-        config::merge_file_time_threshold_ms = _old_time_threshold;
+        config::packed_file_time_threshold_ms = _old_time_threshold;
         config::enable_file_cache = _old_enable_file_cache;
-        reset_manager_state(MergeFileManager::instance());
+        reset_manager_state(PackedFileManager::instance());
     }
 
     static std::shared_ptr<S3FileSystem> _s3_fs;
@@ -647,7 +651,7 @@ private:
 std::shared_ptr<S3FileSystem> MergeFileConcurrencyTest::_s3_fs;
 
 TEST_F(MergeFileConcurrencyTest, ConcurrentWriteReadCorrectness) {
-    auto* manager = MergeFileManager::instance();
+    auto* manager = PackedFileManager::instance();
     ASSERT_NE(_s3_fs, nullptr);
     ASSERT_NE(g_remote_file_system, nullptr);
 
@@ -656,7 +660,7 @@ TEST_F(MergeFileConcurrencyTest, ConcurrentWriteReadCorrectness) {
     for (int i = 0; i < kThreadCount; ++i) {
         auto id = fmt::format("resource-{}", i);
         resource_ids.emplace_back(id);
-        manager->_file_systems[id] = _s3_fs;
+        manager->file_systems_for_test()[id] = _s3_fs;
     }
 
     std::atomic<int> success_count {0};
@@ -675,16 +679,16 @@ TEST_F(MergeFileConcurrencyTest, ConcurrentWriteReadCorrectness) {
             for (int iter = 0; iter < kIterationPerThread; ++iter) {
                 std::string path = fmt::format("/tablet_{}/rowset_{}/file_{}", tid, iter, iter);
 
-                MergeFileAppendInfo append_info;
+                PackedAppendContext append_info;
                 append_info.resource_id = resource_ids[tid];
                 append_info.tablet_id = 1000 + tid;
                 append_info.rowset_id = fmt::format("rowset-{}-{}", tid, iter);
                 append_info.txn_id = (tid + 1) * 100000 + iter + 1;
 
-                MergeFileSystem writer_fs(_s3_fs, append_info);
+                PackedFileSystem writer_fs(_s3_fs, append_info);
                 FileWriterPtr writer;
                 ASSERT_TRUE(writer_fs.create_file(Path(path), &writer, nullptr).ok());
-                auto* merge_writer = dynamic_cast<MergeFileWriter*>(writer.get());
+                auto* merge_writer = dynamic_cast<PackedFileWriter*>(writer.get());
                 ASSERT_NE(merge_writer, nullptr);
 
                 const int seg_count = seg_cnt_dist(rng);
@@ -703,18 +707,18 @@ TEST_F(MergeFileConcurrencyTest, ConcurrentWriteReadCorrectness) {
                 ASSERT_TRUE(writer->close(true).ok());
                 ASSERT_TRUE(writer->close(false).ok());
 
-                MergeFileSegmentIndex index;
-                ASSERT_TRUE(merge_writer->get_merge_file_index(&index).ok());
+                PackedSliceLocation index;
+                ASSERT_TRUE(merge_writer->get_packed_slice_location(&index).ok());
 
-                std::unordered_map<std::string, MergeFileSegmentIndex> index_map;
+                std::unordered_map<std::string, PackedSliceLocation> index_map;
                 index_map[path] = index;
-                MergeFileSystem reader_fs(g_remote_file_system, index_map, append_info);
+                PackedFileSystem reader_fs(g_remote_file_system, index_map, append_info);
                 FileReaderSPtr reader;
                 FileReaderOptions opts;
                 opts.cache_type = FileCachePolicy::FILE_BLOCK_CACHE;
                 opts.is_doris_table = true;
                 ASSERT_TRUE(reader_fs.open_file(Path(path), &reader, &opts).ok());
-                auto* merge_reader = dynamic_cast<MergeFileReader*>(reader.get());
+                auto* merge_reader = dynamic_cast<PackedFileReader*>(reader.get());
                 ASSERT_NE(merge_reader, nullptr);
                 auto* cached_reader =
                         dynamic_cast<CachedRemoteFileReader*>(merge_reader->_inner_reader.get());

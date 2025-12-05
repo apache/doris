@@ -29,16 +29,16 @@ namespace doris::io {
 
 struct IOContext;
 
-// FileReader wrapper that reads data from merge file using offset and size
-// It wraps an inner reader that points to the merge file,
-// and adjusts read offsets based on the small file's position in the merge file
-class MergeFileReader final : public FileReader {
+// FileReader wrapper that reads data from packed file using offset and size
+// It wraps an inner reader that points to the packed file,
+// and adjusts read offsets based on the slice's position in the packed file
+class PackedFileReader final : public FileReader {
 public:
-    MergeFileReader(FileReaderSPtr inner_reader, Path path, int64_t offset, int64_t size);
-    ~MergeFileReader() override;
+    PackedFileReader(FileReaderSPtr inner_reader, Path path, int64_t offset, int64_t size);
+    ~PackedFileReader() override;
 
-    MergeFileReader(const MergeFileReader&) = delete;
-    const MergeFileReader& operator=(const MergeFileReader&) = delete;
+    PackedFileReader(const PackedFileReader&) = delete;
+    const PackedFileReader& operator=(const PackedFileReader&) = delete;
 
     Status close() override;
 
@@ -55,8 +55,8 @@ protected:
 private:
     FileReaderSPtr _inner_reader;
     Path _path;
-    int64_t _merge_file_offset; // Offset in merge file where this small file starts
-    int64_t _file_size;         // Size of the small file
+    int64_t _packed_file_offset; // Offset in packed file where this slice starts
+    int64_t _file_size;          // Size of the slice
     bool _closed = false;
 };
 

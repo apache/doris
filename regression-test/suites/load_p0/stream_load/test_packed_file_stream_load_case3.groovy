@@ -15,17 +15,19 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_merge_file_stream_load_case4", "p0,nonConcurrent") {
+suite("test_packed_file_stream_load_case3", "p0,nonConcurrent") {
     if (!isCloudMode()) {
-        log.info("skip merge file cases in non cloud mode")
+        log.info("skip packed_file cases in non cloud mode")
         return
     }
 
-    final String dataFile = "cloud_p0/merge_file/merge_file_stream_load.csv"
+    final String tableName = "packed_file_case3"
+    final String dataFile = "cloud_p0/packed_file/merge_file_stream_load.csv"
     final int rowsPerLoad = 200
-    final String tablePrefix = "merge_file_case4_"
+    final int rowsInP1 = 100
+    final int rowsInP2 = rowsPerLoad - rowsInP1
 
-    def createTable = { String tableName ->
+    def createTable = {
         sql """ DROP TABLE IF EXISTS ${tableName} """
         sql """
             CREATE TABLE IF NOT EXISTS ${tableName} (
@@ -34,19 +36,23 @@ suite("test_merge_file_stream_load_case4", "p0,nonConcurrent") {
                 INDEX idx_name(`name`) USING INVERTED PROPERTIES("parser" = "english")
             ) ENGINE=OLAP
             DUPLICATE KEY(`id`)
-            DISTRIBUTED BY HASH(`id`) BUCKETS 2
+            PARTITION BY RANGE(`id`) (
+                PARTITION p1 VALUES LESS THAN (101),
+                PARTITION p2 VALUES LESS THAN (201)
+            )
+            DISTRIBUTED BY HASH(`id`) BUCKETS 20
             PROPERTIES (
                 "replication_allocation" = "tag.location.default: 1"
             );
         """
     }
 
-    def assertRowCount = { String tableName, long expected ->
+    def assertRowCount = { long expected ->
         def count = sql """ select count(*) from ${tableName} """
         assertEquals(expected, (count[0][0] as long))
     }
 
-    def runLoads = { String tableName, int iterations ->
+    def runLoads = { int iterations ->
         int success = 0
         for (int i = 0; i < iterations; i++) {
             streamLoad {
@@ -68,24 +74,16 @@ suite("test_merge_file_stream_load_case4", "p0,nonConcurrent") {
                 }
             }
         }
+        sql "sync"
         return success
     }
 
-    def tables = (0..<10).collect { idx -> "${tablePrefix}${idx}" }
-    tables.each { createTable(it) }
-
-    def results = Collections.synchronizedMap([:])
-    def threads = tables.collect { tbl ->
-        Thread.start {
-            results[tbl] = runLoads(tbl, 20)
-        }
-    }
-    threads*.join()
+    createTable()
+    def successLoads = runLoads(20)
+    assertEquals(20, successLoads)
+    assertRowCount(successLoads * rowsPerLoad)
+    sql """ ALTER TABLE ${tableName} DROP PARTITION p1 """
     sql "sync"
-    results.each { tbl, cnt ->
-        assertEquals(20, cnt)
-        assertRowCount(tbl, cnt * rowsPerLoad)
-    }
-
-    tables.take(5).each { tbl -> sql """ DROP TABLE IF EXISTS ${tbl} """ }
+    assertRowCount(successLoads * rowsInP2)
+    sql """ DROP TABLE IF EXISTS ${tableName} """
 }

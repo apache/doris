@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "io/fs/merge_file_writer.h"
+#include "io/fs/packed_file_writer.h"
 
 #include <bvar/recorder.h>
 #include <bvar/window.h>
@@ -29,28 +29,28 @@
 
 namespace doris::io {
 
-bvar::IntRecorder merge_file_writer_first_append_to_close_ms_recorder;
-bvar::Window<bvar::IntRecorder> merge_file_writer_first_append_to_close_ms_window(
-        "merge_file_writer_first_append_to_close_ms",
-        &merge_file_writer_first_append_to_close_ms_recorder, /*window_size=*/10);
+bvar::IntRecorder packed_file_writer_first_append_to_close_ms_recorder;
+bvar::Window<bvar::IntRecorder> packed_file_writer_first_append_to_close_ms_window(
+        "packed_file_writer_first_append_to_close_ms",
+        &packed_file_writer_first_append_to_close_ms_recorder, /*window_size=*/10);
 
-MergeFileWriter::MergeFileWriter(FileWriterPtr inner_writer, Path path,
-                                 MergeFileAppendInfo append_info)
+PackedFileWriter::PackedFileWriter(FileWriterPtr inner_writer, Path path,
+                                   PackedAppendContext append_info)
         : _inner_writer(std::move(inner_writer)),
           _file_path(path.native()),
-          _merge_file_manager(MergeFileManager::instance()),
+          _packed_file_manager(PackedFileManager::instance()),
           _append_info(std::move(append_info)) {
     DCHECK(_inner_writer != nullptr);
     DCHECK(!_file_path.empty());
 }
 
-MergeFileWriter::~MergeFileWriter() {
+PackedFileWriter::~PackedFileWriter() {
     if (_state == State::OPENED) {
-        LOG(WARNING) << "MergeFileWriter destroyed without being closed, file: " << _file_path;
+        LOG(WARNING) << "PackedFileWriter destroyed without being closed, file: " << _file_path;
     }
 }
 
-Status MergeFileWriter::appendv(const Slice* data, size_t data_cnt) {
+Status PackedFileWriter::appendv(const Slice* data, size_t data_cnt) {
     if (_state != State::OPENED) {
         return Status::InternalError("Cannot append to closed or closing writer for file: " +
                                      _file_path);
@@ -90,7 +90,7 @@ Status MergeFileWriter::appendv(const Slice* data, size_t data_cnt) {
     return Status::OK();
 }
 
-Status MergeFileWriter::close(bool non_block) {
+Status PackedFileWriter::close(bool non_block) {
     if (_state == State::CLOSED) {
         return Status::OK();
     }
@@ -103,8 +103,8 @@ Status MergeFileWriter::close(bool non_block) {
         auto latency_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
                                   now - *_first_append_timestamp)
                                   .count();
-        merge_file_writer_first_append_to_close_ms_recorder << latency_ms;
-        if (auto* sampler = merge_file_writer_first_append_to_close_ms_recorder.get_sampler()) {
+        packed_file_writer_first_append_to_close_ms_recorder << latency_ms;
+        if (auto* sampler = packed_file_writer_first_append_to_close_ms_recorder.get_sampler()) {
             sampler->take_sample();
         }
         _close_latency_recorded = true;
@@ -115,7 +115,7 @@ Status MergeFileWriter::close(bool non_block) {
             return Status::InternalError("Don't submit async close multi times");
         }
         if (!_is_direct_write) {
-            RETURN_IF_ERROR(_wait_merge_upload());
+            RETURN_IF_ERROR(_wait_packed_upload());
         } else {
             RETURN_IF_ERROR(_inner_writer->close(false));
         }
@@ -133,10 +133,10 @@ Status MergeFileWriter::close(bool non_block) {
     }
 }
 
-Status MergeFileWriter::_close_async() {
+Status PackedFileWriter::_close_async() {
     if (!_is_direct_write) {
-        // Send small file data to merge manager
-        RETURN_IF_ERROR(_send_to_merge_manager());
+        // Send small file data to packed manager
+        RETURN_IF_ERROR(_send_to_packed_manager());
     } else {
         // For large files, just close the inner writer asynchronously
         RETURN_IF_ERROR(_inner_writer->close(true));
@@ -145,11 +145,11 @@ Status MergeFileWriter::_close_async() {
     return Status::OK();
 }
 
-Status MergeFileWriter::_close_sync() {
+Status PackedFileWriter::_close_sync() {
     if (!_is_direct_write) {
-        // Send small file data to merge manager and wait for upload
-        RETURN_IF_ERROR(_send_to_merge_manager());
-        RETURN_IF_ERROR(_wait_merge_upload());
+        // Send small file data to pack manager and wait for upload
+        RETURN_IF_ERROR(_send_to_packed_manager());
+        RETURN_IF_ERROR(_wait_packed_upload());
     } else {
         // For large files, close the inner writer synchronously
         RETURN_IF_ERROR(_inner_writer->close(false));
@@ -161,8 +161,9 @@ Status MergeFileWriter::_close_sync() {
             auto latency_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
                                       now - *_first_append_timestamp)
                                       .count();
-            merge_file_writer_first_append_to_close_ms_recorder << latency_ms;
-            if (auto* sampler = merge_file_writer_first_append_to_close_ms_recorder.get_sampler()) {
+            packed_file_writer_first_append_to_close_ms_recorder << latency_ms;
+            if (auto* sampler =
+                        packed_file_writer_first_append_to_close_ms_recorder.get_sampler()) {
                 sampler->take_sample();
             }
             _close_latency_recorded = true;
@@ -171,16 +172,16 @@ Status MergeFileWriter::_close_sync() {
     return Status::OK();
 }
 
-Status MergeFileWriter::_wait_merge_upload() {
+Status PackedFileWriter::_wait_packed_upload() {
     DCHECK(!_is_direct_write);
-    // Only wait if we have data that was sent to merge manager
-    if (_bytes_appended > 0 && _merge_file_manager != nullptr) {
-        return _merge_file_manager->wait_write_done(_file_path);
+    // Only wait if we have data that was sent to packed manager
+    if (_bytes_appended > 0 && _packed_file_manager != nullptr) {
+        return _packed_file_manager->wait_upload_done(_file_path);
     }
     return Status::OK();
 }
 
-Status MergeFileWriter::_switch_to_direct_write() {
+Status PackedFileWriter::_switch_to_direct_write() {
     DCHECK(!_is_direct_write);
 
     // If we have buffered data, write it to inner writer first
@@ -193,38 +194,40 @@ Status MergeFileWriter::_switch_to_direct_write() {
     return Status::OK();
 }
 
-Status MergeFileWriter::_send_to_merge_manager() {
+Status PackedFileWriter::_send_to_packed_manager() {
     DCHECK(!_is_direct_write);
 
-    if (_merge_file_manager == nullptr) {
-        return Status::InternalError("MergeFileManager is not available");
+    if (_packed_file_manager == nullptr) {
+        return Status::InternalError("PackedFileManager is not available");
     }
-    LOG(INFO) << "send_to_merge_manager: " << _file_path << " buffer size: " << _buffer.size();
+    LOG(INFO) << "send_to_packed_manager: " << _file_path << " buffer size: " << _buffer.size();
 
     if (_append_info.resource_id.empty()) {
-        return Status::InternalError("Missing resource id for merge file append");
+        return Status::InternalError("Missing resource id for packed file append");
     }
 
     if (_append_info.txn_id <= 0) {
-        return Status::InvalidArgument("Missing valid txn id for merge file append: " + _file_path);
+        return Status::InvalidArgument("Missing valid txn id for packed file append: " +
+                                       _file_path);
     }
 
     Slice data_slice(_buffer.data(), _buffer.size());
-    RETURN_IF_ERROR(_merge_file_manager->append(_file_path, data_slice, _append_info));
+    RETURN_IF_ERROR(_packed_file_manager->append_small_file(_file_path, data_slice, _append_info));
     _buffer.clear();
     return Status::OK();
 }
 
-Status MergeFileWriter::get_merge_file_index(MergeFileSegmentIndex* index) const {
+Status PackedFileWriter::get_packed_slice_location(PackedSliceLocation* location) const {
     DCHECK(_state == State::CLOSED)
             << " file_path: " << _file_path << " bytes_appended: " << _bytes_appended;
     if (_is_direct_write) {
-        *index = MergeFileSegmentIndex {};
+        *location = PackedSliceLocation {};
         return Status::OK();
     }
-    RETURN_IF_ERROR(_merge_file_manager->get_merge_file_index(_file_path, index));
-    LOG(INFO) << "get_merge_file_index: " << _file_path << " index: " << index->merge_file_path
-              << " " << index->offset << " " << index->size;
+    RETURN_IF_ERROR(_packed_file_manager->get_packed_slice_location(_file_path, location));
+    LOG(INFO) << "get_packed_slice_location: " << _file_path
+              << " packed_path: " << location->packed_file_path << " " << location->offset << " "
+              << location->size;
     return Status::OK();
 }
 } // namespace doris::io

@@ -22,50 +22,50 @@
 
 #include "common/status.h"
 #include "io/fs/file_system.h"
-#include "io/fs/merge_file_manager.h"
+#include "io/fs/packed_file_manager.h"
 
 namespace doris::io {
 
-// FileSystem wrapper that handles merge file logic for small files
-// When creating a file, it wraps the writer with MergeFileWriter
-// When opening a file, it checks if the file is in a merge file and wraps with MergeFileReader
-class MergeFileSystem final : public FileSystem {
+// FileSystem wrapper that handles packed file logic for small files
+// When creating a file, it wraps the writer with PackedFileWriter
+// When opening a file, it checks if the file is in a packed file and wraps with PackedFileReader
+class PackedFileSystem final : public FileSystem {
 public:
-    MergeFileSystem(FileSystemSPtr inner_fs, MergeFileAppendInfo append_info = {});
+    PackedFileSystem(FileSystemSPtr inner_fs, PackedAppendContext append_info = {});
 
-    MergeFileSystem(FileSystemSPtr inner_fs,
-                    std::unordered_map<std::string, MergeFileSegmentIndex> index_map,
-                    MergeFileAppendInfo append_info = {});
+    PackedFileSystem(FileSystemSPtr inner_fs,
+                     std::unordered_map<std::string, PackedSliceLocation> index_map,
+                     PackedAppendContext append_info = {});
 
-    ~MergeFileSystem() override = default;
+    ~PackedFileSystem() override = default;
 
-    MergeFileSystem(const MergeFileSystem&) = delete;
-    MergeFileSystem& operator=(const MergeFileSystem&) = delete;
+    PackedFileSystem(const PackedFileSystem&) = delete;
+    PackedFileSystem& operator=(const PackedFileSystem&) = delete;
 
 protected:
-    // Create file and wrap writer with MergeFileWriter
+    // Create file and wrap writer with PackedFileWriter
     Status create_file_impl(const Path& file, FileWriterPtr* writer,
                             const FileWriterOptions* opts) override;
 
-    // Open file and wrap reader with MergeFileReader if file is in merge file
+    // Open file and wrap reader with PackedFileReader if file is in packed file
     Status open_file_impl(const Path& file, FileReaderSPtr* reader,
                           const FileReaderOptions* opts) override;
 
-    // Other operations not supported for MergeFileSystem
+    // Other operations not supported for PackedFileSystem
     Status create_directory_impl(const Path& dir, bool failed_if_exists = false) override {
-        return Status::InternalError("MergeFileSystem does not support create_directory");
+        return Status::InternalError("PackedFileSystem does not support create_directory");
     }
 
     Status delete_file_impl(const Path& file) override {
-        return Status::InternalError("MergeFileSystem does not support delete_file");
+        return Status::InternalError("PackedFileSystem does not support delete_file");
     }
 
     Status batch_delete_impl(const std::vector<Path>& files) override {
-        return Status::InternalError("MergeFileSystem does not support batch_delete");
+        return Status::InternalError("PackedFileSystem does not support batch_delete");
     }
 
     Status delete_directory_impl(const Path& dir) override {
-        return Status::InternalError("MergeFileSystem does not support delete_directory");
+        return Status::InternalError("PackedFileSystem does not support delete_directory");
     }
 
     Status exists_impl(const Path& path, bool* res) const override;
@@ -74,11 +74,11 @@ protected:
 
     Status list_impl(const Path& dir, bool only_file, std::vector<FileInfo>* files,
                      bool* exists) override {
-        return Status::InternalError("MergeFileSystem does not support list");
+        return Status::InternalError("PackedFileSystem does not support list");
     }
 
     Status rename_impl(const Path& orig_name, const Path& new_name) override {
-        return Status::InternalError("MergeFileSystem does not support rename");
+        return Status::InternalError("PackedFileSystem does not support rename");
     }
 
     Status absolute_path(const Path& path, Path& abs_path) const override {
@@ -88,10 +88,10 @@ protected:
 
 private:
     FileSystemSPtr _inner_fs;
-    // Map from small file path to merge file segment index
-    std::unordered_map<std::string, MergeFileSegmentIndex> _index_map;
+    // Map from small file path to packed file slice location
+    std::unordered_map<std::string, PackedSliceLocation> _index_map;
     bool _index_map_initialized = false;
-    MergeFileAppendInfo _append_info;
+    PackedAppendContext _append_info;
 };
 
 } // namespace doris::io

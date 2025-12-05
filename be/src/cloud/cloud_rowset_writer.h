@@ -34,10 +34,10 @@ public:
 private:
     Status _build_rowset_meta(RowsetMeta* rowset_meta, bool check_segment_num = false) override;
 
-    Status _collect_all_merge_file_indices(RowsetMeta* rowset_meta);
+    Status _collect_all_packed_slice_locations(RowsetMeta* rowset_meta);
 
-    Status _collect_merge_file_index(io::FileWriter* file_writer, const std::string& file_path,
-                                     RowsetMeta* rowset_meta);
+    Status _collect_packed_slice_location(io::FileWriter* file_writer, const std::string& file_path,
+                                          RowsetMeta* rowset_meta);
 };
 
 } // namespace doris

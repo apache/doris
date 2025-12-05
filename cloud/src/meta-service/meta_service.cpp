@@ -5520,11 +5520,11 @@ void MetaServiceImpl::get_schema_dict(::google::protobuf::RpcController* control
     response->mutable_schema_dict()->Swap(&schema_dict);
 }
 
-void MetaServiceImpl::update_merge_file_info(::google::protobuf::RpcController* controller,
-                                             const UpdateMergeFileInfoRequest* request,
-                                             UpdateMergeFileInfoResponse* response,
-                                             ::google::protobuf::Closure* done) {
-    RPC_PREPROCESS(update_merge_file_info);
+void MetaServiceImpl::update_packed_file_info(::google::protobuf::RpcController* controller,
+                                              const UpdatePackedFileInfoRequest* request,
+                                              UpdatePackedFileInfoResponse* response,
+                                              ::google::protobuf::Closure* done) {
+    RPC_PREPROCESS(update_packed_file_info);
 
     // Validate request parameters
     if (!request->has_cloud_unique_id() || request->cloud_unique_id().empty()) {
@@ -5533,15 +5533,15 @@ void MetaServiceImpl::update_merge_file_info(::google::protobuf::RpcController* 
         return;
     }
 
-    if (!request->has_merge_file_path() || request->merge_file_path().empty()) {
+    if (!request->has_packed_file_path() || request->packed_file_path().empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
-        msg = "merge_file_path is required";
+        msg = "packed_file_path is required";
         return;
     }
 
-    if (!request->has_merge_file_info()) {
+    if (!request->has_packed_file_info()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
-        msg = "merge_file_info is required";
+        msg = "packed_file_info is required";
         return;
     }
 
@@ -5553,7 +5553,7 @@ void MetaServiceImpl::update_merge_file_info(::google::protobuf::RpcController* 
         return;
     }
 
-    RPC_RATE_LIMIT(update_merge_file_info)
+    RPC_RATE_LIMIT(update_packed_file_info)
 
     // Create transaction
     TxnErrorCode err = txn_kv_->create_txn(&txn);
@@ -5563,20 +5563,20 @@ void MetaServiceImpl::update_merge_file_info(::google::protobuf::RpcController* 
         return;
     }
 
-    // Generate merge file key
-    MergeFileKeyInfo key_info {instance_id, request->merge_file_path()};
-    std::string merge_file_key_str = merge_file_key(key_info);
+    // Generate packed file key
+    PackedFileKeyInfo key_info {instance_id, request->packed_file_path()};
+    std::string packed_file_key_str = packed_file_key(key_info);
 
-    // Serialize merge file info
-    std::string merge_file_info_val;
-    if (!request->merge_file_info().SerializeToString(&merge_file_info_val)) {
+    // Serialize packed file info
+    std::string packed_file_info_val;
+    if (!request->packed_file_info().SerializeToString(&packed_file_info_val)) {
         code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
-        msg = "failed to serialize merge_file_info";
+        msg = "failed to serialize packed_file_info";
         return;
     }
 
-    // Put merge file info
-    txn->put(merge_file_key_str, merge_file_info_val);
+    // Put packed file info
+    txn->put(packed_file_key_str, packed_file_info_val);
 
     // Commit transaction
     err = txn->commit();
@@ -5586,12 +5586,12 @@ void MetaServiceImpl::update_merge_file_info(::google::protobuf::RpcController* 
         return;
     }
 
-    LOG(INFO) << "successfully updated merge file info"
+    LOG(INFO) << "successfully updated packed file info"
               << ", instance_id=" << instance_id
-              << ", merge_file_path=" << request->merge_file_path()
-              << ", total_file_num=" << request->merge_file_info().total_file_num()
-              << ", ref_cnt=" << request->merge_file_info().ref_cnt()
-              << ", key=" << hex(merge_file_key_str);
+              << ", packed_file_path=" << request->packed_file_path()
+              << ", total_slice_num=" << request->packed_file_info().total_slice_num()
+              << ", ref_cnt=" << request->packed_file_info().ref_cnt()
+              << ", key=" << hex(packed_file_key_str);
 }
 
 std::string hide_access_key(const std::string& ak) {

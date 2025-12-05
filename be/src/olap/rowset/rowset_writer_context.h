@@ -30,7 +30,7 @@
 #include "io/fs/encrypted_fs_factory.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
-#include "io/fs/merge_file_system.h"
+#include "io/fs/packed_file_system.h"
 #include "olap/olap_define.h"
 #include "olap/partial_update_info.h"
 #include "olap/storage_policy.h"
@@ -120,17 +120,17 @@ struct RowsetWriterContext {
 
     // Intent flag: caller can actively turn merge-file feature on/off for this rowset.
     // This describes whether we *want* to try small-file merging.
-    bool enable_merge_file = true;
+    bool allow_packed_file = true;
 
     // Effective flag: whether this context actually ends up using MergeFileSystem for writes.
     // This is decided inside fs() based on enable_merge_file plus other conditions
     // (cloud mode, S3 filesystem, V1 inverted index, global config, etc.), and once
     // set to true it remains stable even if config::enable_merge_file changes later.
-    mutable bool merge_file_active = false;
+    mutable bool packed_file_active = false;
 
     // Cached FileSystem instance to ensure consistency across multiple fs() calls.
     // This prevents creating multiple MergeFileSystem instances and ensures
-    // merge_file_active flag remains consistent.
+    // packed_file_active flag remains consistent.
     mutable io::FileSystemSPtr _cached_fs = nullptr;
 
     // For collect segment statistics for compaction
@@ -196,7 +196,7 @@ struct RowsetWriterContext {
             fs = io::make_file_system(fs, encrypt_algorithm.value());
         }
 
-        // Apply merge file system for write path if enabled
+        // Apply packed file system for write path if enabled
         // Create empty index_map for write path
         // Index information will be populated after write completes
         bool has_v1_inverted_index = tablet_schema != nullptr &&
@@ -204,23 +204,23 @@ struct RowsetWriterContext {
                                      tablet_schema->get_inverted_index_storage_format() ==
                                              InvertedIndexStorageFormatPB::V1;
 
-        if (has_v1_inverted_index && enable_merge_file && config::enable_merge_file) {
+        if (has_v1_inverted_index && allow_packed_file && config::enable_packed_file) {
             static constexpr std::string_view kMsg =
-                    "Disable merge file for V1 inverted index tablet to avoid missing index "
+                    "Disable packed file for V1 inverted index tablet to avoid missing index "
                     "metadata (temporary workaround)";
             LOG(INFO) << kMsg << ", tablet_id=" << tablet_id << ", rowset_id=" << rowset_id;
         }
 
         // Only enable merge file for S3 file system, not for HDFS or other remote file systems
-        merge_file_active = enable_merge_file && config::is_cloud_mode() &&
-                            config::enable_merge_file && !has_v1_inverted_index && is_s3_fs;
+        packed_file_active = allow_packed_file && config::is_cloud_mode() &&
+                             config::enable_packed_file && !has_v1_inverted_index && is_s3_fs;
 
-        if (merge_file_active) {
-            io::MergeFileAppendInfo append_info;
+        if (packed_file_active) {
+            io::PackedAppendContext append_info;
             append_info.tablet_id = tablet_id;
             append_info.rowset_id = rowset_id.to_string();
             append_info.txn_id = txn_id;
-            fs = std::make_shared<io::MergeFileSystem>(fs, append_info);
+            fs = std::make_shared<io::PackedFileSystem>(fs, append_info);
         }
 
         // Cache the result to ensure consistency across multiple calls

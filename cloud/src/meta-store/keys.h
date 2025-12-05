@@ -48,7 +48,7 @@
 // 0x01 "meta" ${instance_id} "delete_bitmap" ${tablet_id} ${rowset_id} ${version} ${segment_id} -> roaringbitmap
 // 0x01 "meta" ${instance_id} "tablet_schema_pb_dict" ${index_id}                                -> SchemaCloudDictionary
 // 0x01 "meta" ${instance_id} "mow_tablet_job" ${table_id} ${initiator_id}                      -> MowTabletJobPB
-// 0x01 "meta" ${instance_id} "merge_file" ${merge_file_path}                                   -> MergedFileInfoPB
+// 0x01 "meta" ${instance_id} "packed_file" ${packed_file_path}                                   -> PackedFileInfoPB
 //
 // 0x01 "stats" ${instance_id} "tablet" ${table_id} ${index_id} ${partition_id} ${tablet_id}               -> TabletStatsPB
 // 0x01 "stats" ${instance_id} "tablet" ${table_id} ${index_id} ${partition_id} ${tablet_id} "data_size"   -> int64
@@ -242,8 +242,8 @@ using MetaSchemaPBDictionaryInfo = BasicKeyInfo<__LINE__ , std::tuple<std::strin
 //                                                        0:instance_id 1:table_id 2:initiator
 using MowTabletJobInfo = BasicKeyInfo<__LINE__ , std::tuple<std::string, int64_t, int64_t>>;
 
-//                                                        0:instance_id  1:merge_file_path
-using MergeFileKeyInfo = BasicKeyInfo<30 , std::tuple<std::string, std::string>>;
+//                                                        0:instance_id  1:packed_file_path
+using PackedFileKeyInfo = BasicKeyInfo<30, std::tuple<std::string, std::string>>;
 
 namespace versioned {
 
@@ -374,7 +374,7 @@ void meta_delete_bitmap_update_lock_key(const MetaDeleteBitmapUpdateLockInfo& in
 void meta_pending_delete_bitmap_key(const MetaPendingDeleteBitmapInfo& in, std::string* out);
 void meta_schema_pb_dictionary_key(const MetaSchemaPBDictionaryInfo& in, std::string* out);
 void mow_tablet_job_key(const MowTabletJobInfo& in, std::string* out);
-void merge_file_key(const MergeFileKeyInfo& in, std::string* out);
+void packed_file_key(const PackedFileKeyInfo& in, std::string* out);
 static inline std::string meta_rowset_key(const MetaRowsetKeyInfo& in) { std::string s; meta_rowset_key(in, &s); return s; }
 static inline std::string meta_rowset_tmp_key(const MetaRowsetTmpKeyInfo& in) { std::string s; meta_rowset_tmp_key(in, &s); return s; }
 static inline std::string meta_tablet_idx_key(const MetaTabletIdxKeyInfo& in) { std::string s; meta_tablet_idx_key(in, &s); return s; }
@@ -385,7 +385,11 @@ static inline std::string meta_delete_bitmap_update_lock_key(const MetaDeleteBit
 static inline std::string meta_pending_delete_bitmap_key(const MetaPendingDeleteBitmapInfo& in) { std::string s; meta_pending_delete_bitmap_key(in, &s); return s; }
 static inline std::string meta_schema_pb_dictionary_key(const MetaSchemaPBDictionaryInfo& in) { std::string s; meta_schema_pb_dictionary_key(in, &s); return s; }
 static inline std::string mow_tablet_job_key(const MowTabletJobInfo& in) { std::string s; mow_tablet_job_key(in, &s); return s; }
-static inline std::string merge_file_key(const MergeFileKeyInfo& in) { std::string s; merge_file_key(in, &s); return s; }
+static inline std::string packed_file_key(const PackedFileKeyInfo& in) {
+    std::string s;
+    packed_file_key(in, &s);
+    return s;
+}
 
 std::string recycle_key_prefix(std::string_view instance_id);
 void recycle_index_key(const RecycleIndexKeyInfo& in, std::string* out);

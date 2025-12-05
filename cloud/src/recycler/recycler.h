@@ -236,13 +236,13 @@ public:
 
 class InstanceRecycler {
 public:
-    struct MergedFileRecycleStats {
-        int64_t num_scanned = 0;          // merged-file kv scanned
-        int64_t num_corrected = 0;        // merged-file kv corrected
-        int64_t num_deleted = 0;          // merged-file kv deleted
-        int64_t num_failed = 0;           // merged-file kv failed
-        int64_t bytes_deleted = 0;        // merged-file kv bytes deleted from txn-kv
-        int64_t num_object_deleted = 0;   // merged-file objects deleted from storage (vault/HDFS)
+    struct PackedFileRecycleStats {
+        int64_t num_scanned = 0;          // packed-file kv scanned
+        int64_t num_corrected = 0;        // packed-file kv corrected
+        int64_t num_deleted = 0;          // packed-file kv deleted
+        int64_t num_failed = 0;           // packed-file kv failed
+        int64_t bytes_deleted = 0;        // packed-file kv bytes deleted from txn-kv
+        int64_t num_object_deleted = 0;   // packed-file objects deleted from storage (vault/HDFS)
         int64_t bytes_object_deleted = 0; // bytes deleted from storage objects
         int64_t rowset_scan_count = 0;    // rowset metas scanned during correction
     };
@@ -350,11 +350,11 @@ public:
     int recycle_restore_jobs();
 
     /**
-     * Scan merged-file metadata, correct reference counters, and recycle unused merged files.
+     * Scan packed-file metadata, correct reference counters, and recycle unused packed files.
      *
      * @return 0 on success, non-zero error code otherwise
      */
-    int recycle_merged_files();
+    int recycle_packed_files();
 
     // scan and recycle snapshots
     // returns 0 for success otherwise error
@@ -385,13 +385,13 @@ public:
     int scan_and_statistics_restore_jobs();
 
     /**
-     * Decode the key of a merged-file metadata record into the persisted object path.
+     * Decode the key of a packed-file metadata record into the persisted object path.
      *
      * @param key raw key persisted in txn-kv
-     * @param merged_path output object storage path referenced by the key
+     * @param packed_path output object storage path referenced by the key
      * @return true if decoding succeeds, false otherwise
      */
-    static bool decode_merged_file_key(std::string_view key, std::string* merged_path);
+    static bool decode_packed_file_key(std::string_view key, std::string* packed_path);
 
     void TEST_add_accessor(std::string_view id, std::shared_ptr<StorageVaultAccessor> accessor) {
         accessor_map_.insert({std::string(id), std::move(accessor)});
@@ -433,11 +433,11 @@ private:
                            RowsetRecyclingState type, RecyclerMetricsContext& metrics_context);
 
     // return 0 for success otherwise error
-    int process_merged_file_segment_index(const doris::RowsetMetaCloudPB& rs_meta_pb);
+    int decrement_packed_file_ref_counts(const doris::RowsetMetaCloudPB& rs_meta_pb);
 
-    int delete_merged_file_and_kv(const std::string& merged_file_path,
-                                  const std::string& merged_key,
-                                  const cloud::MergedFileInfoPB& merge_info);
+    int delete_packed_file_and_kv(const std::string& packed_file_path,
+                                  const std::string& packed_key,
+                                  const cloud::PackedFileInfoPB& packed_info);
 
     /**
      * Get stage storage info from instance and init StorageVaultAccessor
@@ -474,42 +474,42 @@ private:
     int has_cluster_snapshots(bool* any);
 
     /**
-     * Parse the path of a merged-file fragment and output the owning tablet and rowset identifiers.
+     * Parse the path of a packed-file fragment and output the owning tablet and rowset identifiers.
      *
-     * @param path merged-file fragment path to decode
+     * @param path packed-file fragment path to decode
      * @param tablet_id output tablet identifier extracted from the path
      * @param rowset_id output rowset identifier extracted from the path
      * @return true if both identifiers are successfully parsed, false otherwise
      */
-    static bool parse_merge_small_file_path(std::string_view path, int64_t* tablet_id,
-                                            std::string* rowset_id);
-    // Check whether a rowset referenced by a merged file still exists in metadata.
+    static bool parse_packed_slice_path(std::string_view path, int64_t* tablet_id,
+                                        std::string* rowset_id);
+    // Check whether a rowset referenced by a packed file still exists in metadata.
     // @param stats optional recycle statistics collector.
     int check_rowset_exists(int64_t tablet_id, const std::string& rowset_id, bool* exists,
-                            MergedFileRecycleStats* stats = nullptr);
+                            PackedFileRecycleStats* stats = nullptr);
     int check_recycle_and_tmp_rowset_exists(int64_t tablet_id, const std::string& rowset_id,
                                             int64_t txn_id, bool* recycle_exists, bool* tmp_exists);
     /**
-     * Resolve which storage accessor should be used for a merged file.
+     * Resolve which storage accessor should be used for a packed file.
      *
      * @param hint preferred storage resource identifier persisted with the file
      * @return pair of the resolved resource identifier and accessor; the accessor can be null if unavailable
      */
-    std::pair<std::string, std::shared_ptr<StorageVaultAccessor>> resolve_merged_file_accessor(
+    std::pair<std::string, std::shared_ptr<StorageVaultAccessor>> resolve_packed_file_accessor(
             const std::string& hint);
-    // Recompute merged-file counters and lifecycle state after validating contained fragments.
+    // Recompute packed-file counters and lifecycle state after validating contained fragments.
     // @param stats optional recycle statistics collector.
-    int correct_merged_file_info(cloud::MergedFileInfoPB* merged_info, bool* changed,
-                                 const std::string& merged_file_path,
-                                 MergedFileRecycleStats* stats = nullptr);
-    // Correct and recycle a single merged-file record, updating metadata and accounting statistics.
+    int correct_packed_file_info(cloud::PackedFileInfoPB* packed_info, bool* changed,
+                                 const std::string& packed_file_path,
+                                 PackedFileRecycleStats* stats = nullptr);
+    // Correct and recycle a single packed-file record, updating metadata and accounting statistics.
     // @param stats optional recycle statistics collector.
-    int process_single_merged_file(const std::string& merged_key,
-                                   const std::string& merged_file_path,
-                                   MergedFileRecycleStats* stats);
-    // Process a merged-file KV while scanning and aggregate recycling statistics.
-    int handle_merged_file_kv(std::string_view key, std::string_view value,
-                              MergedFileRecycleStats* stats, int* ret);
+    int process_single_packed_file(const std::string& packed_key,
+                                   const std::string& packed_file_path,
+                                   PackedFileRecycleStats* stats);
+    // Process a packed-file KV while scanning and aggregate recycling statistics.
+    int handle_packed_file_kv(std::string_view key, std::string_view value,
+                              PackedFileRecycleStats* stats, int* ret);
 
 private:
     std::atomic_bool stopped_ {false};

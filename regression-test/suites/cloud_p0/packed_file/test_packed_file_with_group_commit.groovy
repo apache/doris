@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_merge_file_with_group_commit", "p0, nonConcurrent") {
+suite("test_packed_file_with_group_commit", "p0, nonConcurrent") {
     if (!isCloudMode()) {
         return;
     }
@@ -158,4 +158,3 @@ suite("test_merge_file_with_group_commit", "p0, nonConcurrent") {
                    "This verifies that merge file logic works correctly when group commit is enabled.")
     }
 }
-

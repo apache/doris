@@ -135,9 +135,9 @@ public:
     int do_mvcc_meta_key_check();
 
     // Return 0 if success.
-    // Return 1 if merge file metadata leak or loss is identified.
+    // Return 1 if packed file metadata leak or loss is identified.
     // Return negative if a temporary error occurred during the check process.
-    int do_merge_file_check();
+    int do_packed_file_check();
 
     StorageVaultAccessor* get_accessor(const std::string& id);
 

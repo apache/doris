@@ -15,17 +15,17 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_merge_file_stream_load_case2", "p0,nonConcurrent") {
+suite("test_packed_file_stream_load_case4", "p0,nonConcurrent") {
     if (!isCloudMode()) {
-        log.info("skip merge file cases in non cloud mode")
+        log.info("skip packed_file cases in non cloud mode")
         return
     }
 
-    final String tableName = "merge_file_case2"
-    final String dataFile = "cloud_p0/merge_file/merge_file_stream_load.csv"
+    final String dataFile = "cloud_p0/packed_file/merge_file_stream_load.csv"
     final int rowsPerLoad = 200
+    final String tablePrefix = "packed_file_case4_"
 
-    def createTable = {
+    def createTable = { String tableName ->
         sql """ DROP TABLE IF EXISTS ${tableName} """
         sql """
             CREATE TABLE IF NOT EXISTS ${tableName} (
@@ -34,19 +34,19 @@ suite("test_merge_file_stream_load_case2", "p0,nonConcurrent") {
                 INDEX idx_name(`name`) USING INVERTED PROPERTIES("parser" = "english")
             ) ENGINE=OLAP
             DUPLICATE KEY(`id`)
-            DISTRIBUTED BY HASH(`id`) BUCKETS 20
+            DISTRIBUTED BY HASH(`id`) BUCKETS 2
             PROPERTIES (
                 "replication_allocation" = "tag.location.default: 1"
             );
         """
     }
 
-    def assertRowCount = { long expected ->
+    def assertRowCount = { String tableName, long expected ->
         def count = sql """ select count(*) from ${tableName} """
         assertEquals(expected, (count[0][0] as long))
     }
 
-    def runLoads = { int iterations ->
+    def runLoads = { String tableName, int iterations ->
         int success = 0
         for (int i = 0; i < iterations; i++) {
             streamLoad {
@@ -68,13 +68,24 @@ suite("test_merge_file_stream_load_case2", "p0,nonConcurrent") {
                 }
             }
         }
-        sql "sync"
         return success
     }
 
-    createTable()
-    def successLoads = runLoads(20)
-    assertEquals(20, successLoads)
-    assertRowCount(successLoads * rowsPerLoad)
-    sql """ DROP TABLE IF EXISTS ${tableName} """
+    def tables = (0..<10).collect { idx -> "${tablePrefix}${idx}" }
+    tables.each { createTable(it) }
+
+    def results = Collections.synchronizedMap([:])
+    def threads = tables.collect { tbl ->
+        Thread.start {
+            results[tbl] = runLoads(tbl, 20)
+        }
+    }
+    threads*.join()
+    sql "sync"
+    results.each { tbl, cnt ->
+        assertEquals(20, cnt)
+        assertRowCount(tbl, cnt * rowsPerLoad)
+    }
+
+    tables.take(5).each { tbl -> sql """ DROP TABLE IF EXISTS ${tbl} """ }
 }

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "io/fs/merge_file_reader.h"
+#include "io/fs/packed_file_reader.h"
 
 #include <gtest/gtest.h>
 
@@ -32,7 +32,7 @@ namespace doris::io {
 
 using doris::Status;
 
-// Mock FileReader for testing MergeFileReader
+// Mock FileReader for testing PackedFileReader
 class MockFileReader : public FileReader {
 public:
     explicit MockFileReader(std::string content) : _content(std::move(content)) {}
@@ -76,25 +76,25 @@ private:
     Status _read_status = Status::OK();
 };
 
-// Test fixture for MergeFileReader
-class MergeFileReaderTest : public testing::Test {
+// Test fixture for PackedFileReader
+class PackedFileReaderTest : public testing::Test {
 protected:
     void SetUp() override {
-        _merge_file_content = "0123456789abcdefghijklmnopqrstuvwxyz";
-        _inner_reader = std::make_shared<MockFileReader>(_merge_file_content);
-        _merge_file_offset = 10;
+        _packed_file_content = "0123456789abcdefghijklmnopqrstuvwxyz";
+        _inner_reader = std::make_shared<MockFileReader>(_packed_file_content);
+        _packed_file_offset = 10;
         _file_size = 20;
     }
 
-    std::string _merge_file_content;
+    std::string _packed_file_content;
     FileReaderSPtr _inner_reader;
-    int64_t _merge_file_offset;
+    int64_t _packed_file_offset;
     int64_t _file_size;
 };
 
-TEST_F(MergeFileReaderTest, ReadFromMergeFile) {
+TEST_F(PackedFileReaderTest, ReadFromMergeFile) {
     Path file_path("test_file");
-    MergeFileReader reader(_inner_reader, file_path, _merge_file_offset, _file_size);
+    PackedFileReader reader(_inner_reader, file_path, _packed_file_offset, _file_size);
 
     char buffer[100];
     Slice result(buffer, sizeof(buffer));
@@ -106,13 +106,13 @@ TEST_F(MergeFileReaderTest, ReadFromMergeFile) {
     EXPECT_EQ(bytes_read, _file_size);
 
     // Verify content matches expected portion of merge file
-    std::string expected = _merge_file_content.substr(_merge_file_offset, _file_size);
+    std::string expected = _packed_file_content.substr(_packed_file_offset, _file_size);
     EXPECT_EQ(std::string(buffer, bytes_read), expected);
 }
 
-TEST_F(MergeFileReaderTest, ReadPartialData) {
+TEST_F(PackedFileReaderTest, ReadPartialData) {
     Path file_path("test_file");
-    MergeFileReader reader(_inner_reader, file_path, _merge_file_offset, _file_size);
+    PackedFileReader reader(_inner_reader, file_path, _packed_file_offset, _file_size);
 
     char buffer[10];
     Slice result(buffer, sizeof(buffer));
@@ -122,13 +122,13 @@ TEST_F(MergeFileReaderTest, ReadPartialData) {
     EXPECT_TRUE(st.ok());
     EXPECT_EQ(bytes_read, 10);
 
-    std::string expected = _merge_file_content.substr(_merge_file_offset, 10);
+    std::string expected = _packed_file_content.substr(_packed_file_offset, 10);
     EXPECT_EQ(std::string(buffer, bytes_read), expected);
 }
 
-TEST_F(MergeFileReaderTest, ReadAtOffset) {
+TEST_F(PackedFileReaderTest, ReadAtOffset) {
     Path file_path("test_file");
-    MergeFileReader reader(_inner_reader, file_path, _merge_file_offset, _file_size);
+    PackedFileReader reader(_inner_reader, file_path, _packed_file_offset, _file_size);
 
     char buffer[10];
     Slice result(buffer, sizeof(buffer));
@@ -139,13 +139,13 @@ TEST_F(MergeFileReaderTest, ReadAtOffset) {
     EXPECT_TRUE(st.ok());
     EXPECT_EQ(bytes_read, 10);
 
-    std::string expected = _merge_file_content.substr(_merge_file_offset + 5, 10);
+    std::string expected = _packed_file_content.substr(_packed_file_offset + 5, 10);
     EXPECT_EQ(std::string(buffer, bytes_read), expected);
 }
 
-TEST_F(MergeFileReaderTest, ReadBeyondFileSize) {
+TEST_F(PackedFileReaderTest, ReadBeyondFileSize) {
     Path file_path("test_file");
-    MergeFileReader reader(_inner_reader, file_path, _merge_file_offset, _file_size);
+    PackedFileReader reader(_inner_reader, file_path, _packed_file_offset, _file_size);
 
     char buffer[100];
     Slice result(buffer, sizeof(buffer));
@@ -158,9 +158,9 @@ TEST_F(MergeFileReaderTest, ReadBeyondFileSize) {
     EXPECT_EQ(bytes_read, _file_size);
 }
 
-TEST_F(MergeFileReaderTest, ReadAtEndOfFile) {
+TEST_F(PackedFileReaderTest, ReadAtEndOfFile) {
     Path file_path("test_file");
-    MergeFileReader reader(_inner_reader, file_path, _merge_file_offset, _file_size);
+    PackedFileReader reader(_inner_reader, file_path, _packed_file_offset, _file_size);
 
     char buffer[10];
     Slice result(buffer, sizeof(buffer));
@@ -172,13 +172,13 @@ TEST_F(MergeFileReaderTest, ReadAtEndOfFile) {
     // Should only read remaining bytes (5 bytes)
     EXPECT_EQ(bytes_read, 5);
 
-    std::string expected = _merge_file_content.substr(_merge_file_offset + 15, 5);
+    std::string expected = _packed_file_content.substr(_packed_file_offset + 15, 5);
     EXPECT_EQ(std::string(buffer, bytes_read), expected);
 }
 
-TEST_F(MergeFileReaderTest, ReadBeyondFileBoundary) {
+TEST_F(PackedFileReaderTest, ReadBeyondFileBoundary) {
     Path file_path("test_file");
-    MergeFileReader reader(_inner_reader, file_path, _merge_file_offset, _file_size);
+    PackedFileReader reader(_inner_reader, file_path, _packed_file_offset, _file_size);
 
     char buffer[10];
     Slice result(buffer, sizeof(buffer));
@@ -197,9 +197,9 @@ TEST_F(MergeFileReaderTest, ReadBeyondFileBoundary) {
     EXPECT_LE(bytes_read, result.get_size());
 }
 
-TEST_F(MergeFileReaderTest, Close) {
+TEST_F(PackedFileReaderTest, Close) {
     Path file_path("test_file");
-    MergeFileReader reader(_inner_reader, file_path, _merge_file_offset, _file_size);
+    PackedFileReader reader(_inner_reader, file_path, _packed_file_offset, _file_size);
 
     EXPECT_FALSE(reader.closed());
     Status st = reader.close();
@@ -207,9 +207,9 @@ TEST_F(MergeFileReaderTest, Close) {
     EXPECT_TRUE(reader.closed());
 }
 
-TEST_F(MergeFileReaderTest, CloseMultipleTimes) {
+TEST_F(PackedFileReaderTest, CloseMultipleTimes) {
     Path file_path("test_file");
-    MergeFileReader reader(_inner_reader, file_path, _merge_file_offset, _file_size);
+    PackedFileReader reader(_inner_reader, file_path, _packed_file_offset, _file_size);
 
     Status st1 = reader.close();
     EXPECT_TRUE(st1.ok());
@@ -221,17 +221,17 @@ TEST_F(MergeFileReaderTest, CloseMultipleTimes) {
     EXPECT_TRUE(reader.closed());
 }
 
-TEST_F(MergeFileReaderTest, PathAndSize) {
+TEST_F(PackedFileReaderTest, PathAndSize) {
     Path file_path("test_path");
-    MergeFileReader reader(_inner_reader, file_path, _merge_file_offset, _file_size);
+    PackedFileReader reader(_inner_reader, file_path, _packed_file_offset, _file_size);
 
     EXPECT_EQ(reader.path().native(), "test_path");
     EXPECT_EQ(reader.size(), _file_size);
 }
 
-TEST_F(MergeFileReaderTest, ReadWithZeroOffset) {
+TEST_F(PackedFileReaderTest, ReadWithZeroOffset) {
     Path file_path("test_file");
-    MergeFileReader reader(_inner_reader, file_path, _merge_file_offset, _file_size);
+    PackedFileReader reader(_inner_reader, file_path, _packed_file_offset, _file_size);
 
     char buffer[5];
     Slice result(buffer, sizeof(buffer));
@@ -241,13 +241,13 @@ TEST_F(MergeFileReaderTest, ReadWithZeroOffset) {
     EXPECT_TRUE(st.ok());
     EXPECT_EQ(bytes_read, 5);
 
-    std::string expected = _merge_file_content.substr(_merge_file_offset, 5);
+    std::string expected = _packed_file_content.substr(_packed_file_offset, 5);
     EXPECT_EQ(std::string(buffer, bytes_read), expected);
 }
 
-TEST_F(MergeFileReaderTest, ReadWithSmallBuffer) {
+TEST_F(PackedFileReaderTest, ReadWithSmallBuffer) {
     Path file_path("test_file");
-    MergeFileReader reader(_inner_reader, file_path, _merge_file_offset, _file_size);
+    PackedFileReader reader(_inner_reader, file_path, _packed_file_offset, _file_size);
 
     char buffer[3];
     Slice result(buffer, sizeof(buffer));
@@ -264,7 +264,7 @@ TEST_F(MergeFileReaderTest, ReadWithSmallBuffer) {
     }
 
     // Should have read all file content
-    std::string expected = _merge_file_content.substr(_merge_file_offset, _file_size);
+    std::string expected = _packed_file_content.substr(_packed_file_offset, _file_size);
     EXPECT_EQ(all_read, expected);
 }
 

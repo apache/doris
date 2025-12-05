@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "io/fs/merge_file_system.h"
+#include "io/fs/packed_file_system.h"
 
 #include <gtest/gtest.h>
 
@@ -37,7 +37,7 @@ namespace doris::io {
 
 using doris::Status;
 
-// Mock FileReader for testing MergeFileSystem
+// Mock FileReader for testing PackedFileSystem
 class MockFileReader : public FileReader {
 public:
     explicit MockFileReader(std::string content) : _content(std::move(content)) {}
@@ -73,7 +73,7 @@ private:
     bool _closed = false;
 };
 
-// Mock FileWriter for testing MergeFileSystem
+// Mock FileWriter for testing PackedFileSystem
 class MockFileWriterForMerge : public FileWriter {
 public:
     explicit MockFileWriterForMerge(std::string path) : _path(std::move(path)) {}
@@ -108,14 +108,14 @@ public:
 private:
     Path _path;
     size_t _bytes_appended = 0;
-    size_t _append_calls = 0; // Add to match merge_file_writer_test.cpp
+    size_t _append_calls = 0; // Add to match packed_file_writer_test.cpp
     std::string _written;
-    Status _append_status = Status::OK(); // Add to match merge_file_writer_test.cpp
-    Status _close_status = Status::OK();  // Add to match merge_file_writer_test.cpp
+    Status _append_status = Status::OK(); // Add to match packed_file_writer_test.cpp
+    Status _close_status = Status::OK();  // Add to match packed_file_writer_test.cpp
     FileWriter::State _state = FileWriter::State::OPENED;
 };
 
-// Mock FileSystem for testing MergeFileSystem
+// Mock FileSystem for testing PackedFileSystem
 class MockFileSystemForMerge : public FileSystem {
 public:
     MockFileSystemForMerge() : FileSystem("mock_fs", FileSystemType::LOCAL) {}
@@ -196,8 +196,8 @@ private:
     MockFileReader* _last_reader = nullptr;
 };
 
-// Test fixture for MergeFileSystem
-class MergeFileSystemTest : public testing::Test {
+// Test fixture for PackedFileSystem
+class PackedFileSystemTest : public testing::Test {
 protected:
     void SetUp() override {
         _old_small_threshold = config::small_file_threshold_bytes;
@@ -213,11 +213,11 @@ protected:
 
     int64_t _old_small_threshold = 0;
     std::shared_ptr<MockFileSystemForMerge> _inner_fs;
-    MergeFileAppendInfo _append_info;
+    PackedAppendContext _append_info;
 };
 
-TEST_F(MergeFileSystemTest, CreateFileWrapsWithMergeFileWriter) {
-    MergeFileSystem merge_fs(_inner_fs, _append_info);
+TEST_F(PackedFileSystemTest, CreateFileWrapsWithPackedFileWriter) {
+    PackedFileSystem merge_fs(_inner_fs, _append_info);
 
     Path file_path("test_file");
     FileWriterPtr writer;
@@ -225,15 +225,15 @@ TEST_F(MergeFileSystemTest, CreateFileWrapsWithMergeFileWriter) {
     EXPECT_TRUE(st.ok());
     EXPECT_NE(writer, nullptr);
 
-    // Writer should be a MergeFileWriter (we can't easily check type, but it should work)
+    // Writer should be a PackedFileWriter (we can't easily check type, but it should work)
     std::string data = "test";
     Slice slice(data);
     st = writer->appendv(&slice, 1);
     EXPECT_TRUE(st.ok());
 }
 
-TEST_F(MergeFileSystemTest, OpenFileNotInMergeFile) {
-    MergeFileSystem merge_fs(_inner_fs, _append_info);
+TEST_F(PackedFileSystemTest, OpenFileNotInMergeFile) {
+    PackedFileSystem merge_fs(_inner_fs, _append_info);
 
     Path file_path("regular_file");
     FileReaderSPtr reader;
@@ -242,15 +242,15 @@ TEST_F(MergeFileSystemTest, OpenFileNotInMergeFile) {
     EXPECT_NE(reader, nullptr);
 }
 
-TEST_F(MergeFileSystemTest, OpenFileInMergeFile) {
-    std::unordered_map<std::string, MergeFileSegmentIndex> index_map;
-    MergeFileSegmentIndex index;
-    index.merge_file_path = "merge_file_path";
+TEST_F(PackedFileSystemTest, OpenFileInMergeFile) {
+    std::unordered_map<std::string, PackedSliceLocation> index_map;
+    PackedSliceLocation index;
+    index.packed_file_path = "packed_file_path";
     index.offset = 10;
     index.size = 20;
     index_map["test_file"] = index;
 
-    MergeFileSystem merge_fs(_inner_fs, index_map, _append_info);
+    PackedFileSystem merge_fs(_inner_fs, index_map, _append_info);
 
     Path file_path("test_file");
     FileReaderSPtr reader;
@@ -260,15 +260,15 @@ TEST_F(MergeFileSystemTest, OpenFileInMergeFile) {
     EXPECT_EQ(reader->size(), index.size);
 }
 
-TEST_F(MergeFileSystemTest, ExistsForMergeFile) {
-    std::unordered_map<std::string, MergeFileSegmentIndex> index_map;
-    MergeFileSegmentIndex index;
-    index.merge_file_path = "merge_file_path";
+TEST_F(PackedFileSystemTest, ExistsForMergeFile) {
+    std::unordered_map<std::string, PackedSliceLocation> index_map;
+    PackedSliceLocation index;
+    index.packed_file_path = "packed_file_path";
     index.offset = 10;
     index.size = 20;
     index_map["test_file"] = index;
 
-    MergeFileSystem merge_fs(_inner_fs, index_map, _append_info);
+    PackedFileSystem merge_fs(_inner_fs, index_map, _append_info);
     _inner_fs->set_exists_result(true);
 
     Path file_path("test_file");
@@ -278,9 +278,9 @@ TEST_F(MergeFileSystemTest, ExistsForMergeFile) {
     EXPECT_TRUE(exists);
 }
 
-TEST_F(MergeFileSystemTest, ExistsForRegularFile) {
-    std::unordered_map<std::string, MergeFileSegmentIndex> index_map;
-    MergeFileSystem merge_fs(_inner_fs, index_map, _append_info);
+TEST_F(PackedFileSystemTest, ExistsForRegularFile) {
+    std::unordered_map<std::string, PackedSliceLocation> index_map;
+    PackedFileSystem merge_fs(_inner_fs, index_map, _append_info);
     _inner_fs->set_exists_result(true);
 
     Path file_path("regular_file");
@@ -290,9 +290,9 @@ TEST_F(MergeFileSystemTest, ExistsForRegularFile) {
     EXPECT_TRUE(exists);
 }
 
-TEST_F(MergeFileSystemTest, ExistsForNonExistentFile) {
-    std::unordered_map<std::string, MergeFileSegmentIndex> index_map;
-    MergeFileSystem merge_fs(_inner_fs, index_map, _append_info);
+TEST_F(PackedFileSystemTest, ExistsForNonExistentFile) {
+    std::unordered_map<std::string, PackedSliceLocation> index_map;
+    PackedFileSystem merge_fs(_inner_fs, index_map, _append_info);
     _inner_fs->set_exists_result(false);
 
     Path file_path("non_existent_file");
@@ -302,15 +302,15 @@ TEST_F(MergeFileSystemTest, ExistsForNonExistentFile) {
     EXPECT_FALSE(exists);
 }
 
-TEST_F(MergeFileSystemTest, FileSizeForMergeFile) {
-    std::unordered_map<std::string, MergeFileSegmentIndex> index_map;
-    MergeFileSegmentIndex index;
-    index.merge_file_path = "merge_file_path";
+TEST_F(PackedFileSystemTest, FileSizeForMergeFile) {
+    std::unordered_map<std::string, PackedSliceLocation> index_map;
+    PackedSliceLocation index;
+    index.packed_file_path = "packed_file_path";
     index.offset = 10;
     index.size = 30;
     index_map["test_file"] = index;
 
-    MergeFileSystem merge_fs(_inner_fs, index_map, _append_info);
+    PackedFileSystem merge_fs(_inner_fs, index_map, _append_info);
 
     Path file_path("test_file");
     int64_t file_size = 0;
@@ -319,9 +319,9 @@ TEST_F(MergeFileSystemTest, FileSizeForMergeFile) {
     EXPECT_EQ(file_size, index.size);
 }
 
-TEST_F(MergeFileSystemTest, FileSizeForRegularFile) {
-    std::unordered_map<std::string, MergeFileSegmentIndex> index_map;
-    MergeFileSystem merge_fs(_inner_fs, index_map, _append_info);
+TEST_F(PackedFileSystemTest, FileSizeForRegularFile) {
+    std::unordered_map<std::string, PackedSliceLocation> index_map;
+    PackedFileSystem merge_fs(_inner_fs, index_map, _append_info);
     _inner_fs->set_file_size(100);
 
     Path file_path("regular_file");
@@ -331,32 +331,32 @@ TEST_F(MergeFileSystemTest, FileSizeForRegularFile) {
     EXPECT_EQ(file_size, 100);
 }
 
-TEST_F(MergeFileSystemTest, UnsupportedCreateDirectory) {
-    MergeFileSystem merge_fs(_inner_fs, _append_info);
+TEST_F(PackedFileSystemTest, UnsupportedCreateDirectory) {
+    PackedFileSystem merge_fs(_inner_fs, _append_info);
 
     Path dir_path("test_dir");
     Status st = merge_fs.create_directory(dir_path);
     EXPECT_FALSE(st.ok());
 }
 
-TEST_F(MergeFileSystemTest, UnsupportedDeleteFile) {
-    MergeFileSystem merge_fs(_inner_fs, _append_info);
+TEST_F(PackedFileSystemTest, UnsupportedDeleteFile) {
+    PackedFileSystem merge_fs(_inner_fs, _append_info);
 
     Path file_path("test_file");
     Status st = merge_fs.delete_file(file_path);
     EXPECT_FALSE(st.ok());
 }
 
-TEST_F(MergeFileSystemTest, UnsupportedDeleteDirectory) {
-    MergeFileSystem merge_fs(_inner_fs, _append_info);
+TEST_F(PackedFileSystemTest, UnsupportedDeleteDirectory) {
+    PackedFileSystem merge_fs(_inner_fs, _append_info);
 
     Path dir_path("test_dir");
     Status st = merge_fs.delete_directory(dir_path);
     EXPECT_FALSE(st.ok());
 }
 
-TEST_F(MergeFileSystemTest, UnsupportedList) {
-    MergeFileSystem merge_fs(_inner_fs, _append_info);
+TEST_F(PackedFileSystemTest, UnsupportedList) {
+    PackedFileSystem merge_fs(_inner_fs, _append_info);
 
     Path dir_path("test_dir");
     std::vector<FileInfo> files;
@@ -365,8 +365,8 @@ TEST_F(MergeFileSystemTest, UnsupportedList) {
     EXPECT_FALSE(st.ok());
 }
 
-TEST_F(MergeFileSystemTest, UnsupportedRename) {
-    MergeFileSystem merge_fs(_inner_fs, _append_info);
+TEST_F(PackedFileSystemTest, UnsupportedRename) {
+    PackedFileSystem merge_fs(_inner_fs, _append_info);
 
     Path orig_path("orig");
     Path new_path("new");
@@ -374,8 +374,8 @@ TEST_F(MergeFileSystemTest, UnsupportedRename) {
     EXPECT_FALSE(st.ok());
 }
 
-TEST_F(MergeFileSystemTest, AbsolutePath) {
-    MergeFileSystem merge_fs(_inner_fs, _append_info);
+TEST_F(PackedFileSystemTest, AbsolutePath) {
+    PackedFileSystem merge_fs(_inner_fs, _append_info);
 
     Path path("test_path");
     Path abs_path;
@@ -384,22 +384,22 @@ TEST_F(MergeFileSystemTest, AbsolutePath) {
     EXPECT_EQ(abs_path.native(), path.native());
 }
 
-TEST_F(MergeFileSystemTest, MultipleFilesInMergeFile) {
-    std::unordered_map<std::string, MergeFileSegmentIndex> index_map;
+TEST_F(PackedFileSystemTest, MultipleFilesInMergeFile) {
+    std::unordered_map<std::string, PackedSliceLocation> index_map;
 
-    MergeFileSegmentIndex index1;
-    index1.merge_file_path = "merge_file_path";
+    PackedSliceLocation index1;
+    index1.packed_file_path = "packed_file_path";
     index1.offset = 0;
     index1.size = 10;
     index_map["file1"] = index1;
 
-    MergeFileSegmentIndex index2;
-    index2.merge_file_path = "merge_file_path";
+    PackedSliceLocation index2;
+    index2.packed_file_path = "packed_file_path";
     index2.offset = 10;
     index2.size = 20;
     index_map["file2"] = index2;
 
-    MergeFileSystem merge_fs(_inner_fs, index_map, _append_info);
+    PackedFileSystem merge_fs(_inner_fs, index_map, _append_info);
 
     // Test file1
     Path file1_path("file1");
@@ -416,8 +416,8 @@ TEST_F(MergeFileSystemTest, MultipleFilesInMergeFile) {
     EXPECT_EQ(file2_size, index2.size);
 }
 
-TEST_F(MergeFileSystemTest, ExistsWithoutIndexMapInitialized) {
-    MergeFileSystem merge_fs(_inner_fs, _append_info);
+TEST_F(PackedFileSystemTest, ExistsWithoutIndexMapInitialized) {
+    PackedFileSystem merge_fs(_inner_fs, _append_info);
 
     Path file_path("test_file");
     bool exists = false;
@@ -426,8 +426,8 @@ TEST_F(MergeFileSystemTest, ExistsWithoutIndexMapInitialized) {
     EXPECT_FALSE(st.ok());
 }
 
-TEST_F(MergeFileSystemTest, FileSizeWithoutIndexMapInitialized) {
-    MergeFileSystem merge_fs(_inner_fs, _append_info);
+TEST_F(PackedFileSystemTest, FileSizeWithoutIndexMapInitialized) {
+    PackedFileSystem merge_fs(_inner_fs, _append_info);
 
     Path file_path("test_file");
     int64_t file_size = 0;

@@ -17,14 +17,14 @@
 
 import java.net.URLEncoder
 
-suite("test_merge_file_stream_load_case6", "p0,nonConcurrent") {
+suite("test_packed_file_stream_load_case5", "p0,nonConcurrent") {
     if (!isCloudMode()) {
-        log.info("skip merge file cases in non cloud mode")
+        log.info("skip packed_file cases in non cloud mode")
         return
     }
 
-    final String tableName = "merge_file_case6"
-    final String dataFile = "cloud_p0/merge_file/merge_file_stream_load.csv"
+    final String tableName = "packed_file_case5"
+    final String dataFile = "cloud_p0/packed_file/merge_file_stream_load.csv"
     final int rowsPerLoad = 200
 
     def createTable = {
@@ -143,6 +143,5 @@ suite("test_merge_file_stream_load_case6", "p0,nonConcurrent") {
         assertTrue(successLoads > 0 && successLoads < 100,
                    "expected partial successes, got=${successLoads}")
         assertRowCount(successLoads * rowsPerLoad)
-        sql """ DROP TABLE IF EXISTS ${tableName} """
     }
 }

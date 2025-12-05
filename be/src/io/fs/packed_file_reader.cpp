@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "io/fs/merge_file_reader.h"
+#include "io/fs/packed_file_reader.h"
 
 #include <algorithm>
 #include <utility>
@@ -26,29 +26,29 @@
 
 namespace doris::io {
 
-MergeFileReader::MergeFileReader(FileReaderSPtr inner_reader, Path path, int64_t offset,
-                                 int64_t size)
+PackedFileReader::PackedFileReader(FileReaderSPtr inner_reader, Path path, int64_t offset,
+                                   int64_t size)
         : _inner_reader(std::move(inner_reader)),
           _path(std::move(path)),
-          _merge_file_offset(offset),
+          _packed_file_offset(offset),
           _file_size(size) {
     DCHECK(_inner_reader != nullptr);
 }
 
-MergeFileReader::~MergeFileReader() {
+PackedFileReader::~PackedFileReader() {
     if (!_closed) {
         static_cast<void>(close());
     }
 }
 
-Status MergeFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_read,
-                                     const IOContext* io_ctx) {
+Status PackedFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_read,
+                                      const IOContext* io_ctx) {
     if (_closed) {
         return Status::InternalError("FileReader is already closed");
     }
 
-    // Calculate the actual offset in merge file
-    size_t actual_offset = _merge_file_offset + offset;
+    // Calculate the actual offset in packed file
+    size_t actual_offset = _packed_file_offset + offset;
 
     // Calculate the maximum bytes we can read
     size_t max_read = std::min(result.get_size(), static_cast<size_t>(_file_size - offset));
@@ -56,14 +56,14 @@ Status MergeFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_
     // Adjust result slice to the actual size we can read
     Slice adjusted_result(result.get_data(), max_read);
 
-    // Read from merge file at the adjusted offset
+    // Read from packed file at the adjusted offset
     auto s = _inner_reader->read_at(actual_offset, adjusted_result, bytes_read, io_ctx);
     if (!s.ok()) {
-        LOG(WARNING) << "failed to read merge file: " << _path.native() << ", offset: " << offset
+        LOG(WARNING) << "failed to read packed file: " << _path.native() << ", offset: " << offset
                      << ", actual offset: " << actual_offset
                      << ", result size: " << adjusted_result.get_size()
                      << ", error: " << s.to_string()
-                     << ", merge file offset: " << _merge_file_offset
+                     << ", packed file offset: " << _packed_file_offset
                      << ", file size: " << _file_size;
         return s;
     }
@@ -71,7 +71,7 @@ Status MergeFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_
     return Status::OK();
 }
 
-Status MergeFileReader::close() {
+Status PackedFileReader::close() {
     if (_closed) {
         return Status::OK();
     }

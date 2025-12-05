@@ -129,7 +129,7 @@
 //  /doris/thirdparty/installed/include/hadoop_hdfs/hdfs.h:61:19: note: expanded from macro 'EINTERNAL'
 //  #define EINTERNAL 255
 #include "io/fs/hdfs/hdfs_mgr.h"
-#include "io/fs/merge_file_manager.h"
+#include "io/fs/packed_file_manager.h"
 // clang-format on
 
 namespace doris {
@@ -398,11 +398,11 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     _workload_sched_mgr = new WorkloadSchedPolicyMgr();
     _workload_sched_mgr->start(this);
 
-    // Initialize merge file manager
-    _merge_file_manager = io::MergeFileManager::instance();
+    // Initialize packed file manager
+    _packed_file_manager = io::PackedFileManager::instance();
     if (config::is_cloud_mode()) {
-        RETURN_IF_ERROR(_merge_file_manager->init());
-        _merge_file_manager->start_background_manager();
+        RETURN_IF_ERROR(_packed_file_manager->init());
+        _packed_file_manager->start_background_manager();
     }
 
     _index_policy_mgr = new IndexPolicyMgr();
@@ -900,10 +900,10 @@ void ExecEnv::destroy() {
     SAFE_DELETE(_dns_cache);
     SAFE_DELETE(_kerberos_ticket_mgr);
     SAFE_DELETE(_hdfs_mgr);
-    // MergeFileManager is a singleton, just stop its background thread
-    if (_merge_file_manager) {
-        _merge_file_manager->stop_background_manager();
-        _merge_file_manager = nullptr;
+    // PackedFileManager is a singleton, just stop its background thread
+    if (_packed_file_manager) {
+        _packed_file_manager->stop_background_manager();
+        _packed_file_manager = nullptr;
     }
 
     SAFE_DELETE(_process_profile);
