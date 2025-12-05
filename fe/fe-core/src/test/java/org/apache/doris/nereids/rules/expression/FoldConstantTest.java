@@ -60,6 +60,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Cot;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Csc;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateFormat;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateTrunc;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.DayHourAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DaySecondAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Degrees;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Dexp;
@@ -412,6 +413,21 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
                 new VarcharLiteral("-1 -1:1:1"));
         rewritten = executor.rewrite(daySecondAdd, context);
         Assertions.assertEquals(daySecondAdd, rewritten);
+
+        DayHourAdd dayHourAdd = new DayHourAdd(
+                DateTimeV2Literal.fromJavaDateType(LocalDateTime.of(1, 1, 1, 1, 1, 1), 0),
+                new VarcharLiteral("1 1"));
+        rewritten = executor.rewrite(dayHourAdd, context);
+        Assertions.assertEquals(new DateTimeV2Literal("0001-01-02 02:01:01"), rewritten);
+        // fail to fold, because the result is out of range
+        dayHourAdd = new DayHourAdd(DateTimeV2Literal.fromJavaDateType(LocalDateTime.of(9999, 12, 31, 23, 59, 1), 0),
+                new VarcharLiteral("1 1"));
+        rewritten = executor.rewrite(dayHourAdd, context);
+        Assertions.assertEquals(dayHourAdd, rewritten);
+        dayHourAdd = new DayHourAdd(DateTimeV2Literal.fromJavaDateType(LocalDateTime.of(0, 1, 1, 0, 1, 1), 0),
+                new VarcharLiteral("-1 -1"));
+        rewritten = executor.rewrite(dayHourAdd, context);
+        Assertions.assertEquals(dayHourAdd, rewritten);
     }
 
     @Test

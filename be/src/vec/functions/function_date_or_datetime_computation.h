@@ -221,6 +221,72 @@ struct AddDaySecondImpl {
 };
 
 template <PrimitiveType PType>
+struct AddDayHourImpl {
+    static constexpr PrimitiveType ArgPType = PType;
+    static constexpr PrimitiveType ReturnType = PType;
+    static constexpr PrimitiveType IntervalPType = PrimitiveType ::TYPE_STRING;
+    using InputNativeType = typename PrimitiveTypeTraits<PType>::DataType ::FieldType;
+    using ReturnNativeType = InputNativeType;
+    using IntervalDataType = typename PrimitiveTypeTraits<IntervalPType>::DataType;
+    using IntervalNativeType = IntervalDataType::FieldType; // string
+    using ConvertedType = typename PrimitiveTypeTraits<TYPE_BIGINT>::DataType::FieldType;
+
+    static constexpr auto name = "day_hour_add";
+    static constexpr auto is_nullable = false;
+
+    static inline ReturnNativeType execute(const InputNativeType& t, IntervalNativeType delta) {
+        long seconds = parse_day_hour_string_to_seconds(delta);
+        return date_time_add<TimeUnit::SECOND, PType, ConvertedType>(t, seconds);
+    }
+
+    static DataTypes get_variadic_argument_types() {
+        return {std ::make_shared<typename PrimitiveTypeTraits<PType>::DataType>(),
+                std ::make_shared<typename PrimitiveTypeTraits<IntervalPType>::DataType>()};
+    }
+
+    static long parse_day_hour_string_to_seconds(IntervalNativeType time_str_ref) {
+        bool is_negative = false;
+        auto time_str = StringRef {time_str_ref.data(), time_str_ref.length()}.trim();
+        // string format: "d h"
+        size_t space_pos = time_str.find_first_of(' ');
+        if (space_pos == std::string::npos) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "Invalid time format, missing space in '{}'",
+                            std::string_view {time_str.data, time_str.size});
+        }
+        // day
+        StringRef days_sub = time_str.substring(0, space_pos).trim();
+        StringParser::ParseResult success;
+        int days = StringParser::string_to_int_internal<int32_t, true>(days_sub.data, days_sub.size,
+                                                                       &success);
+        if (success != StringParser::PARSE_SUCCESS) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT, "Invalid days format in '{}'",
+                            std::string_view {time_str.data, time_str.size});
+        }
+        if (days < 0) {
+            is_negative = true;
+        }
+
+        // hour
+        StringRef hours_sub = time_str.substring(space_pos + 1).trim();
+        int hours = StringParser::string_to_int_internal<int32_t, true>(hours_sub.data,
+                                                                        hours_sub.size, &success);
+        if (success != StringParser::PARSE_SUCCESS) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT, "Invalid hours format in '{}'",
+                            std::string_view {time_str.data, time_str.size});
+        }
+
+        long part0 = days * 24 * 3600;
+        // NOTE: Compatible with MySQL
+        long part1 = std::abs(hours) * 3600;
+        if (is_negative) {
+            part1 *= -1;
+        }
+        return part0 + part1;
+    }
+};
+
+template <PrimitiveType PType>
 struct AddQuartersImpl {
     static constexpr PrimitiveType ArgPType = PType;
     static constexpr PrimitiveType ReturnType = PType;

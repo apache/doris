@@ -47,6 +47,14 @@ public class DateTimeArithmetic {
     }
 
     /**
+     * datetime arithmetic function day_hour-add.
+     */
+    @ExecFunction(name = "day_hour_add")
+    public static Expression dayHourAdd(DateTimeV2Literal date, VarcharLiteral dayHour) {
+        return date.plusDayHour(dayHour);
+    }
+
+    /**
      * datetime arithmetic function date-sub.
      */
     @ExecFunction(name = "date_sub")
