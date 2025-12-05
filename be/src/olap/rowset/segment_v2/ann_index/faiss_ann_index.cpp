@@ -62,6 +62,15 @@ namespace doris::segment_v2 {
 
 namespace {
 
+static int get_omp_threads_limit() {
+    if (config::omp_threads_limit > 0) {
+        return config::omp_threads_limit;
+    }
+    int core_cap = std::max(1, CpuInfo::num_cores());
+    // Use at most 80% of the available CPU cores.
+    return std::max(1, core_cap * 4 / 5);
+}
+
 // Temporarily rename the current thread so FAISS build phases are easier to spot in debuggers.
 class ScopedThreadName {
 public:
@@ -216,7 +225,7 @@ doris::Status FaissVectorIndex::train(vectorized::Int64 n, const float* vec) {
     auto future = promise.get_future();
     RETURN_IF_ERROR(_ann_threadpool->submit_func([&, n, vec]() {
         ScopedThreadName scoped_name("faiss_train_idx");
-        omp_set_num_threads(config::omp_threads_limit);
+        omp_set_num_threads(get_omp_threads_limit());
         try {
             _index->train(n, vec);
             promise.set_value(Status::OK());
@@ -245,7 +254,7 @@ doris::Status FaissVectorIndex::add(vectorized::Int64 n, const float* vec) {
     auto future = promise.get_future();
     RETURN_IF_ERROR(_ann_threadpool->submit_func([&, n, vec]() {
         ScopedThreadName scoped_name("faiss_build_idx");
-        omp_set_num_threads(config::omp_threads_limit);
+        omp_set_num_threads(get_omp_threads_limit());
         try {
             DorisMetrics::instance()->ann_index_construction->increment(1);
             _index->add(n, vec);
