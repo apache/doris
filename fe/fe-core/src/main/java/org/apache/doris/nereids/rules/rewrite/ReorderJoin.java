@@ -62,12 +62,11 @@ import java.util.stream.Collectors;
  * SELECT * FROM t1 JOIN t3 ON t1.id=t3.id JOIN t2 ON t2.id=t3.id
  *
  * NOTICE:
- * ReorderJoin will extract all filter's conjuncts together, than reorder the joins.
- * But if the conjuncts contains unique function, when reorder, the result is error,
+ * ReorderJoin will extract all filter's conjuncts together, then reorder the joins.
+ * But if the conjuncts contains unique function, after reordering, the result is error,
  * it may generate more or less expected output rows than the origin expression.
- * When consider unique function, need insert more filters into the MultiJoin, it will make complicated.
- * We just only handle the top filter with unique function, but skip the below filters with unique function.
- * What's more, if the below filters contains unique function, it should exchange their joins with other joins.
+ * We handle the top filter with unique function, but skip the below filters with unique function.
+ * For the below filters contains unique function, it should not reorder their joins with other joins.
  *
  * </pre>
  * </p>
@@ -109,8 +108,8 @@ public class ReorderJoin extends OneRewriteRuleFactory {
                 if (nonUniqueExprConjuncts.isEmpty()) {
                     return null;
                 }
-                LogicalFilter<Plan> nonUniqueExprFilter = uniqueExprConjuncts.isEmpty() ?
-                        filter : filter.withConjunctsAndChild(nonUniqueExprConjuncts, filter.child());
+                LogicalFilter<Plan> nonUniqueExprFilter = uniqueExprConjuncts.isEmpty()
+                        ? filter : filter.withConjunctsAndChild(nonUniqueExprConjuncts, filter.child());
 
                 Map<Plan, DistributeHint> planToHintType = Maps.newHashMap();
                 Plan plan = joinToMultiJoin(nonUniqueExprFilter, planToHintType);
