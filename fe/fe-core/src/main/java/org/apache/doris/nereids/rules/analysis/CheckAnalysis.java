@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunctio
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScalarFunction;
 import org.apache.doris.nereids.trees.expressions.typecoercion.TypeCheckResult;
+import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitors;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
@@ -46,6 +47,7 @@ import com.google.common.collect.ImmutableSet;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -79,10 +81,8 @@ public class CheckAnalysis implements AnalysisRuleFactory {
             .put(LogicalProject.class, ImmutableSet.of(
                     TableGeneratingFunction.class))
             .put(LogicalSort.class, ImmutableSet.of(
-                    AggregateFunction.class,
                     GroupingScalarFunction.class,
-                    TableGeneratingFunction.class,
-                    WindowExpression.class))
+                    TableGeneratingFunction.class))
             .put(LogicalWindow.class, ImmutableSet.of(
                     GroupingScalarFunction.class,
                     TableGeneratingFunction.class
@@ -99,6 +99,9 @@ public class CheckAnalysis implements AnalysisRuleFactory {
                     return null;
                 })
             ),
+            RuleType.CHECK_ANALYSIS.build(
+                logicalSort().then(this::checkNotContainsNonWindowAggregateFunc)
+            ),
             RuleType.CHECK_AGGREGATE_ANALYSIS.build(
                 logicalAggregate().then(agg -> {
                     checkAggregate(agg);
@@ -109,14 +112,18 @@ public class CheckAnalysis implements AnalysisRuleFactory {
     }
 
     private void checkUnexpectedExpressions(Plan plan) {
-        Set<Class<? extends Expression>> unexpectedExpressionTypes
-                = UNEXPECTED_EXPRESSION_TYPE_MAP.getOrDefault(plan.getClass(), Collections.emptySet());
-        if (unexpectedExpressionTypes.isEmpty()) {
+        Class[] unexpectedExpressionTypes = UNEXPECTED_EXPRESSION_TYPE_MAP
+                .getOrDefault(plan.getClass(), Collections.emptySet())
+                .toArray(new Class[]{});
+        if (unexpectedExpressionTypes.length == 0) {
             return;
         }
         for (Expression expr : plan.getExpressions()) {
+            if (!expr.containsType(unexpectedExpressionTypes)) {
+                continue;
+            }
             expr.foreachUp(e -> {
-                for (Class<? extends Expression> type : unexpectedExpressionTypes) {
+                for (Class<?> type : unexpectedExpressionTypes) {
                     if (type.isInstance(e)) {
                         throw new AnalysisException(plan.getType() + " can not contains "
                                 + type.getSimpleName() + " expression: " + ((Expression) e).toSql());
@@ -124,6 +131,17 @@ public class CheckAnalysis implements AnalysisRuleFactory {
                 }
             });
         }
+    }
+
+    private Plan checkNotContainsNonWindowAggregateFunc(Plan plan) {
+        for (Expression expr : plan.getExpressions()) {
+            Optional<AggregateFunction> aggOpt = expr.accept(ExpressionVisitors.NON_WINDOW_AGGREGATE_GETTER, null);
+            if (aggOpt.isPresent()) {
+                throw new AnalysisException(plan.getType() + " can not contains "
+                        + AggregateFunction.class.getSimpleName() + " expression: " + aggOpt.get().toSql());
+            }
+        }
+        return null;
     }
 
     private void checkExpressionInputTypes(Plan plan) {
