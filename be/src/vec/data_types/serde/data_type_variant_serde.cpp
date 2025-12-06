@@ -17,6 +17,8 @@
 
 #include "data_type_variant_serde.h"
 
+#include <arrow/array/builder_binary.h>
+
 #include <cstdint>
 #include <string>
 
@@ -129,21 +131,34 @@ Status DataTypeVariantSerDe::write_column_to_arrow(const IColumn& column, const 
                                                    int64_t start, int64_t end,
                                                    const cctz::time_zone& ctz) const {
     const auto* var = check_and_get_column<ColumnVariant>(column);
-    auto& builder = assert_cast<arrow::StringBuilder&>(*array_builder);
-    for (size_t i = start; i < end; ++i) {
-        if (null_map && (*null_map)[i]) {
-            RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), column.get_name(),
-                                             array_builder->type()->name()));
-        } else {
-            std::string serialized_value;
-            var->serialize_one_row_to_string(i, &serialized_value);
-            RETURN_IF_ERROR(
-                    checkArrowStatus(builder.Append(serialized_value.data(),
-                                                    static_cast<int>(serialized_value.size())),
-                                     column.get_name(), array_builder->type()->name()));
+
+    auto write_impl = [&](auto& builder) -> Status {
+        for (size_t i = start; i < end; ++i) {
+            if (null_map && (*null_map)[i]) {
+                RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), column.get_name(),
+                                                 array_builder->type()->name()));
+            } else {
+                std::string serialized_value;
+                var->serialize_one_row_to_string(i, &serialized_value);
+                RETURN_IF_ERROR(
+                        checkArrowStatus(builder.Append(serialized_value.data(),
+                                                        static_cast<int>(serialized_value.size())),
+                                         column.get_name(), array_builder->type()->name()));
+            }
         }
+        return Status::OK();
+    };
+
+    if (array_builder->type()->id() == arrow::Type::LARGE_STRING) {
+        auto& builder = assert_cast<arrow::LargeStringBuilder&>(*array_builder);
+        return write_impl(builder);
+    } else if (array_builder->type()->id() == arrow::Type::STRING) {
+        auto& builder = assert_cast<arrow::StringBuilder&>(*array_builder);
+        return write_impl(builder);
     }
-    return Status::OK();
+
+    return Status::InvalidArgument("Unsupported arrow type for variant column: {}",
+                                   array_builder->type()->name());
 }
 
 void DataTypeVariantSerDe::to_string(const IColumn& column, size_t row_num,
