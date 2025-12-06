@@ -633,4 +633,58 @@ public abstract class FileQueryScanNode extends FileScanNode {
         }
         return realSplitSize;
     }
+
+    /**
+     * Estimate the total number of splits based on file sizes and split size,
+     * and adjust the split size if the estimated total exceeds the limit.
+     *
+     * @param fileSizes list of file sizes in bytes
+     * @param baseSplitSize the base split size to use (from getRealFileSplitSize)
+     * @return the adjusted split size that ensures total split count doesn't exceed maxFileSplitsNum
+     */
+    protected long adjustSplitSizeForTotalLimit(List<Long> fileSizes, long baseSplitSize) {
+        int maxFileSplitsNum = sessionVariable.getMaxFileSplitsNum();
+        if (maxFileSplitsNum <= 0 || fileSizes.isEmpty()) {
+            return baseSplitSize;
+        }
+
+        // Estimate total split count with current split size
+        long estimatedTotalSplits = 0;
+        for (long fileSize : fileSizes) {
+            if (fileSize > 0) {
+                // Estimate splits for this file: ceil(fileSize / splitSize)
+                long splitsForFile = (fileSize + baseSplitSize - 1) / baseSplitSize;
+                estimatedTotalSplits += splitsForFile;
+            }
+        }
+
+        // If estimated total is within limit, use the base split size
+        if (estimatedTotalSplits <= maxFileSplitsNum) {
+            return baseSplitSize;
+        }
+
+        // Calculate total file size
+        long totalFileSize = 0;
+        for (long fileSize : fileSizes) {
+            totalFileSize += fileSize;
+        }
+
+        if (totalFileSize <= 0) {
+            return baseSplitSize;
+        }
+
+        // Calculate the minimum split size needed to stay within the limit
+        // minSplitSize = ceil(totalFileSize / maxFileSplitsNum)
+        long minSplitSize = (totalFileSize + maxFileSplitsNum - 1) / maxFileSplitsNum;
+
+        // Use the larger of the base split size and the minimum required split size
+        long adjustedSplitSize = Math.max(baseSplitSize, minSplitSize);
+
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("Estimated total splits: {}, max allowed: {}, adjusted split size from {} to {}",
+                    estimatedTotalSplits, maxFileSplitsNum, baseSplitSize, adjustedSplitSize);
+        }
+
+        return adjustedSplitSize;
+    }
 }

@@ -47,6 +47,7 @@ import org.apache.doris.thrift.TPushAggOp;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.paimon.data.BinaryRow;
@@ -293,8 +294,26 @@ public class PaimonScanNode extends FileQueryScanNode {
         // partition data.
         // And for counting the number of selected partitions for this paimon table.
         Map<BinaryRow, Map<String, String>> partitionInfoMaps = new HashMap<>();
-        // if applyCountPushdown is true, we can't split the DataSplit
-        long realFileSplitSize = getRealFileSplitSize(applyCountPushdown ? Long.MAX_VALUE : 0);
+
+        // Collect file sizes for split size adjustment (only for native reader files that need splitting)
+        List<Long> fileSizes = Lists.newArrayList();
+        if (!applyCountPushdown) {
+            for (DataSplit dataSplit : dataSplits) {
+                Optional<List<RawFile>> optRawFiles = dataSplit.convertToRawFiles();
+                if (!forceJniScanner && supportNativeReader(optRawFiles)) {
+                    List<RawFile> rawFiles = optRawFiles.get();
+                    for (RawFile file : rawFiles) {
+                        fileSizes.add(file.length());
+                    }
+                }
+            }
+        }
+
+        // Calculate base split size and adjust if needed to limit total split count
+        long baseSplitSize = applyCountPushdown ? Long.MAX_VALUE : getRealFileSplitSize(0);
+        long adjustedSplitSize = applyCountPushdown ? Long.MAX_VALUE
+                : adjustSplitSizeForTotalLimit(fileSizes, baseSplitSize);
+
         for (DataSplit dataSplit : dataSplits) {
             SplitStat splitStat = new SplitStat();
             splitStat.setRowCount(dataSplit.rowCount());
@@ -335,7 +354,7 @@ public class PaimonScanNode extends FileQueryScanNode {
                     try {
                         List<Split> dorisSplits = FileSplitter.splitFile(
                                 locationPath,
-                                realFileSplitSize,
+                                adjustedSplitSize,
                                 null,
                                 file.length(),
                                 -1,
@@ -384,7 +403,7 @@ public class PaimonScanNode extends FileQueryScanNode {
 
         // We need to set the target size for all splits so that we can calculate the
         // proportion of each split later.
-        splits.forEach(s -> s.setTargetSplitSize(realFileSplitSize));
+        splits.forEach(s -> s.setTargetSplitSize(adjustedSplitSize));
 
         this.selectedPartitionNum = partitionInfoMaps.size();
         return splits;
