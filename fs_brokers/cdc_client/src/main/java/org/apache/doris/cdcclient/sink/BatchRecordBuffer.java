@@ -18,6 +18,7 @@
 package org.apache.doris.cdcclient.sink;
 
 import java.util.LinkedList;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

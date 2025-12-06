@@ -19,6 +19,7 @@ package org.apache.doris.cdcclient.source.split;
 
 import java.util.List;
 import java.util.Map;
+
 import lombok.EqualsAndHashCode;
 import lombok.Getter;
 import lombok.NoArgsConstructor;

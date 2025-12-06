@@ -17,15 +17,17 @@
 
 package org.apache.doris.cdcclient.sink;
 
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Properties;
 import org.apache.doris.cdcclient.constants.LoadConstants;
+
 import org.apache.flink.util.Preconditions;
 import org.apache.http.HttpEntity;
 import org.apache.http.HttpHeaders;
 import org.apache.http.client.methods.HttpPut;
 import org.apache.http.entity.StringEntity;
+
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Properties;
 
 /** Builder for HttpPut. */
 public class HttpPutBuilder {

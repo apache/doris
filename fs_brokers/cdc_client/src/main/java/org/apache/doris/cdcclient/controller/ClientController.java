@@ -17,8 +17,6 @@
 
 package org.apache.doris.cdcclient.controller;
 
-import jakarta.servlet.http.HttpServletRequest;
-import java.util.List;
 import org.apache.doris.cdcclient.common.Env;
 import org.apache.doris.cdcclient.model.JobConfig;
 import org.apache.doris.cdcclient.model.request.CompareOffsetReq;
@@ -28,6 +26,10 @@ import org.apache.doris.cdcclient.model.request.WriteRecordReq;
 import org.apache.doris.cdcclient.model.rest.ResponseEntityBuilder;
 import org.apache.doris.cdcclient.service.PipelineCoordinator;
 import org.apache.doris.cdcclient.source.reader.SourceReader;
+
+import java.util.List;
+
+import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;

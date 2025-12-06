@@ -17,9 +17,10 @@
 
 package org.apache.doris.cdcclient.source.reader;
 
-import java.util.Iterator;
 import org.apache.flink.cdc.connectors.mysql.source.split.SourceRecords;
 import org.apache.kafka.connect.source.SourceRecord;
+
+import java.util.Iterator;
 
 public class SplitRecords {
     private final String splitId;

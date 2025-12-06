@@ -18,6 +18,7 @@
 package org.apache.doris.cdcclient.source.split;
 
 import java.io.Serializable;
+
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;

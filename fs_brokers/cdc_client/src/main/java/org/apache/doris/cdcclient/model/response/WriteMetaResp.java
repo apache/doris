@@ -18,6 +18,7 @@
 package org.apache.doris.cdcclient.model.response;
 
 import java.util.Map;
+
 import lombok.Data;
 
 @Data

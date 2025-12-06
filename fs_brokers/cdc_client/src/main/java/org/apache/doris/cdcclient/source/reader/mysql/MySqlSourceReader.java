@@ -17,30 +17,6 @@
 
 package org.apache.doris.cdcclient.source.reader.mysql;
 
-import static org.apache.flink.cdc.connectors.mysql.source.assigners.MySqlBinlogSplitAssigner.BINLOG_SPLIT_ID;
-
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.github.shyiko.mysql.binlog.BinaryLogClient;
-import io.debezium.connector.mysql.MySqlConnection;
-import io.debezium.connector.mysql.MySqlPartition;
-import io.debezium.document.Array;
-import io.debezium.relational.Column;
-import io.debezium.relational.TableId;
-import io.debezium.relational.history.HistoryRecord;
-import io.debezium.relational.history.TableChanges;
-import java.io.IOException;
-import java.sql.SQLException;
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.HashMap;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Map;
-import java.util.NoSuchElementException;
-import java.util.Optional;
-import java.util.concurrent.ConcurrentHashMap;
-import org.apache.commons.collections.CollectionUtils;
 import org.apache.doris.cdcclient.constants.LoadConstants;
 import org.apache.doris.cdcclient.model.JobConfig;
 import org.apache.doris.cdcclient.model.request.FetchRecordReq;
@@ -56,6 +32,8 @@ import org.apache.doris.cdcclient.source.split.AbstractSourceSplit;
 import org.apache.doris.cdcclient.source.split.BinlogSplit;
 import org.apache.doris.cdcclient.source.split.SnapshotSplit;
 import org.apache.doris.cdcclient.utils.ConfigUtil;
+
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.cdc.common.utils.Preconditions;
 import org.apache.flink.cdc.connectors.mysql.debezium.DebeziumUtils;
@@ -80,6 +58,31 @@ import org.apache.flink.cdc.connectors.mysql.table.StartupMode;
 import org.apache.flink.cdc.debezium.history.FlinkJsonTableChangeSerializer;
 import org.apache.flink.table.types.logical.RowType;
 import org.apache.kafka.connect.source.SourceRecord;
+
+import java.io.IOException;
+import java.sql.SQLException;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.NoSuchElementException;
+import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
+
+import static org.apache.flink.cdc.connectors.mysql.source.assigners.MySqlBinlogSplitAssigner.BINLOG_SPLIT_ID;
+
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.shyiko.mysql.binlog.BinaryLogClient;
+import io.debezium.connector.mysql.MySqlConnection;
+import io.debezium.connector.mysql.MySqlPartition;
+import io.debezium.document.Array;
+import io.debezium.relational.Column;
+import io.debezium.relational.TableId;
+import io.debezium.relational.history.HistoryRecord;
+import io.debezium.relational.history.TableChanges;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

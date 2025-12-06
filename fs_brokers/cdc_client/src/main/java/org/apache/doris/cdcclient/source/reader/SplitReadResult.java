@@ -17,9 +17,11 @@
 
 package org.apache.doris.cdcclient.source.reader;
 
-import java.util.Iterator;
-import lombok.Data;
 import org.apache.kafka.connect.source.SourceRecord;
+
+import java.util.Iterator;
+
+import lombok.Data;
 
 /**
  * The result of reading a split with iterator.

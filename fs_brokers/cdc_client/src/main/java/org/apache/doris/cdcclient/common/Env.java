@@ -17,16 +17,18 @@
 
 package org.apache.doris.cdcclient.common;
 
-import java.util.Locale;
-import java.util.Map;
-import java.util.Objects;
-import java.util.concurrent.ConcurrentHashMap;
-import lombok.Getter;
-import lombok.Setter;
 import org.apache.doris.cdcclient.model.JobConfig;
 import org.apache.doris.cdcclient.source.factory.DataSource;
 import org.apache.doris.cdcclient.source.factory.SourceReaderFactory;
 import org.apache.doris.cdcclient.source.reader.SourceReader;
+
+import java.util.Locale;
+import java.util.Map;
+import java.util.Objects;
+import java.util.concurrent.ConcurrentHashMap;
+
+import lombok.Getter;
+import lombok.Setter;
 
 public class Env {
     private static volatile Env INSTANCE;

@@ -17,18 +17,21 @@
 
 package org.apache.doris.cdcclient.utils;
 
-import com.mysql.cj.conf.ConnectionUrl;
-import java.util.Map;
-import java.util.Properties;
-import org.apache.commons.lang3.StringUtils;
 import org.apache.doris.cdcclient.constants.LoadConstants;
 import org.apache.doris.cdcclient.model.JobConfig;
+
+import org.apache.commons.lang3.StringUtils;
 import org.apache.flink.cdc.connectors.mysql.source.config.MySqlSourceConfig;
 import org.apache.flink.cdc.connectors.mysql.source.config.MySqlSourceConfigFactory;
 import org.apache.flink.cdc.connectors.mysql.source.config.MySqlSourceOptions;
 import org.apache.flink.cdc.connectors.mysql.source.offset.BinlogOffset;
 import org.apache.flink.cdc.connectors.mysql.source.offset.BinlogOffsetBuilder;
 import org.apache.flink.cdc.connectors.mysql.table.StartupOptions;
+
+import java.util.Map;
+import java.util.Properties;
+
+import com.mysql.cj.conf.ConnectionUrl;
 
 public class ConfigUtil {
 

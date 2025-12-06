@@ -17,9 +17,20 @@
 
 package org.apache.doris.cdcclient.service;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.google.common.base.Preconditions;
-import io.debezium.data.Envelope;
+import org.apache.doris.cdcclient.common.Env;
+import org.apache.doris.cdcclient.exception.StreamLoadException;
+import org.apache.doris.cdcclient.model.request.WriteRecordReq;
+import org.apache.doris.cdcclient.sink.DorisBatchStreamLoad;
+import org.apache.doris.cdcclient.source.deserialize.DebeziumJsonDeserializer;
+import org.apache.doris.cdcclient.source.deserialize.SourceRecordDeserializer;
+import org.apache.doris.cdcclient.source.reader.SourceReader;
+import org.apache.doris.cdcclient.source.reader.SplitReadResult;
+
+import org.apache.commons.collections.CollectionUtils;
+import org.apache.flink.cdc.connectors.mysql.source.utils.RecordUtils;
+import org.apache.kafka.connect.data.Struct;
+import org.apache.kafka.connect.source.SourceRecord;
+
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
@@ -29,18 +40,10 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
-import org.apache.commons.collections.CollectionUtils;
-import org.apache.doris.cdcclient.common.Env;
-import org.apache.doris.cdcclient.exception.StreamLoadException;
-import org.apache.doris.cdcclient.model.request.WriteRecordReq;
-import org.apache.doris.cdcclient.sink.DorisBatchStreamLoad;
-import org.apache.doris.cdcclient.source.deserialize.DebeziumJsonDeserializer;
-import org.apache.doris.cdcclient.source.deserialize.SourceRecordDeserializer;
-import org.apache.doris.cdcclient.source.reader.SourceReader;
-import org.apache.doris.cdcclient.source.reader.SplitReadResult;
-import org.apache.flink.cdc.connectors.mysql.source.utils.RecordUtils;
-import org.apache.kafka.connect.data.Struct;
-import org.apache.kafka.connect.source.SourceRecord;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.base.Preconditions;
+import io.debezium.data.Envelope;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;

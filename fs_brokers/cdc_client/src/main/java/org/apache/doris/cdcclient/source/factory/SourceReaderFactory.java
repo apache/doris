@@ -17,12 +17,14 @@
 
 package org.apache.doris.cdcclient.source.factory;
 
+import org.apache.doris.cdcclient.source.reader.SourceReader;
+import org.apache.doris.cdcclient.source.reader.mysql.MySqlSourceReader;
+
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Supplier;
-import org.apache.doris.cdcclient.source.reader.SourceReader;
-import org.apache.doris.cdcclient.source.reader.mysql.MySqlSourceReader;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

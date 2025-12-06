@@ -17,11 +17,12 @@
 
 package org.apache.doris.cdcclient.sink;
 
+import org.apache.flink.annotation.VisibleForTesting;
+
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.apache.flink.annotation.VisibleForTesting;
 
 @JsonIgnoreProperties(ignoreUnknown = true)
 public class RespContent {

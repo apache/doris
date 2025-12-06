@@ -17,10 +17,12 @@
 
 package org.apache.doris.cdcclient.model.request;
 
+import org.apache.doris.cdcclient.model.JobConfig;
+
 import java.util.Map;
+
 import lombok.Getter;
 import lombok.Setter;
-import org.apache.doris.cdcclient.model.JobConfig;
 
 @Getter
 @Setter

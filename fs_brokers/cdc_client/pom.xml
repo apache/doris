@@ -199,6 +199,10 @@
                             <style>AOSP</style>
                         </googleJavaFormat>
 
+                        <importOrder>
+                            <order>org.apache.doris,org.apache,javax,java,scala,\#
+                            </order>
+                        </importOrder>
                         <removeUnusedImports/>
                     </java>
                 </configuration>
