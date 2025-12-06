@@ -116,7 +116,9 @@ void IDictionary::load_values(const std::vector<ColumnPtr>& values_column) {
                     using ValueRealDataType = std::decay_t<decltype(type)>;
                     auto& att = _values_data[i];
                     auto init_column_with_type = [&](auto& column_with_type) {
-                        column_with_type.column = value_column_without_nullable;
+                        using Type = std::decay_t<decltype(column_with_type)>::RealColumnType;
+                        column_with_type.column =
+                                cast_to_column<Type>(value_column_without_nullable);
                         // if original value is nullable, the null_map must be not null
                         if (values_column[i]->is_nullable()) {
                             column_with_type.null_map =
