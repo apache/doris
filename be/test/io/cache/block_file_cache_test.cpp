@@ -1043,8 +1043,7 @@ TEST_F(BlockFileCacheTest, max_ttl_size) {
     context.stats = &rstats;
     context.cache_type = io::FileCacheType::TTL;
     context.query_id = query_id;
-    int64_t cur_time = UnixSeconds();
-    context.expiration_time = cur_time + 120;
+    context.expiration_time = 120;
     auto key1 = io::BlockFileCache::hash("key5");
     io::BlockFileCache cache(cache_base_path, settings);
     ASSERT_TRUE(cache.initialize());
@@ -1128,8 +1127,7 @@ TEST_F(BlockFileCacheTest, max_ttl_size_with_other_cache_exist) {
     // then get started with TTL
     context.cache_type = io::FileCacheType::TTL;
     context.query_id = query_id;
-    int64_t cur_time = UnixSeconds();
-    context.expiration_time = cur_time + 120;
+    context.expiration_time = 120;
     offset = 0;
     for (; offset < 100000000; offset += 100000) {
         auto holder = cache.get_or_set(key1, offset, 100000, context);
@@ -1169,8 +1167,7 @@ TEST_F(BlockFileCacheTest, max_ttl_size_memory_storage) {
     context.stats = &rstats;
     context.cache_type = io::FileCacheType::TTL;
     context.query_id = query_id;
-    int64_t cur_time = UnixSeconds();
-    context.expiration_time = cur_time + 120;
+    context.expiration_time = 120;
     auto key1 = io::BlockFileCache::hash("key5");
     io::BlockFileCache cache(cache_base_path, settings);
     ASSERT_TRUE(cache.initialize());
@@ -2103,9 +2100,8 @@ TEST_F(BlockFileCacheTest, ttl_normal) {
     context.stats = &rstats;
     context.cache_type = io::FileCacheType::TTL;
     context.query_id = query_id;
-    int64_t cur_time = UnixSeconds();
-    context.expiration_time = cur_time + 120;
-    int64_t modify_time = cur_time + 5;
+    context.expiration_time = 120;
+    int64_t modify_time = 5;
     auto key1 = io::BlockFileCache::hash("key5");
     auto key2 = io::BlockFileCache::hash("key6");
     io::BlockFileCache cache(cache_base_path, settings);
@@ -2202,9 +2198,8 @@ TEST_F(BlockFileCacheTest, ttl_modify) {
     context.stats = &rstats;
     context.cache_type = io::FileCacheType::TTL;
     context.query_id = query_id;
-    int64_t cur_time = UnixSeconds();
-    context.expiration_time = cur_time + 120;
-    int64_t modify_time = cur_time + 5;
+    context.expiration_time = 120;
+    int64_t modify_time = 5;
     auto key1 = io::BlockFileCache::hash("key5");
     auto key2 = io::BlockFileCache::hash("key6");
     io::BlockFileCache cache(cache_base_path, settings);
@@ -2284,9 +2279,8 @@ TEST_F(BlockFileCacheTest, ttl_modify_memory_storage) {
     context.stats = &rstats;
     context.cache_type = io::FileCacheType::TTL;
     context.query_id = query_id;
-    int64_t cur_time = UnixSeconds();
-    context.expiration_time = cur_time + 120;
-    int64_t modify_time = cur_time + 5;
+    context.expiration_time = 120;
+    int64_t modify_time = 5;
     auto key1 = io::BlockFileCache::hash("key5");
     auto key2 = io::BlockFileCache::hash("key6");
     io::BlockFileCache cache(cache_base_path, settings);
@@ -2362,8 +2356,7 @@ TEST_F(BlockFileCacheTest, ttl_change_to_normal) {
     context.stats = &rstats;
     context.cache_type = io::FileCacheType::TTL;
     context.query_id = query_id;
-    int64_t cur_time = UnixSeconds();
-    context.expiration_time = cur_time + 180;
+    context.expiration_time = 180;
     auto key2 = io::BlockFileCache::hash("key2");
     io::BlockFileCache cache(cache_base_path, settings);
     ASSERT_TRUE(cache.initialize());
@@ -2424,8 +2417,7 @@ TEST_F(BlockFileCacheTest, ttl_change_to_normal_memory_storage) {
     context.stats = &rstats;
     context.cache_type = io::FileCacheType::TTL;
     context.query_id = query_id;
-    int64_t cur_time = UnixSeconds();
-    context.expiration_time = cur_time + 180;
+    context.expiration_time = 180;
     auto key2 = io::BlockFileCache::hash("key2");
     io::BlockFileCache cache(cache_base_path, settings);
     ASSERT_TRUE(cache.initialize());
@@ -2482,9 +2474,8 @@ TEST_F(BlockFileCacheTest, ttl_change_expiration_time) {
     context.stats = &rstats;
     context.cache_type = io::FileCacheType::TTL;
     context.query_id = query_id;
-    int64_t cur_time = UnixSeconds();
-    context.expiration_time = cur_time + 180;
-    int64_t change_time = cur_time + 120;
+    context.expiration_time = 180;
+    int64_t change_time = 120;
     auto key2 = io::BlockFileCache::hash("key2");
     io::BlockFileCache cache(cache_base_path, settings);
     ASSERT_TRUE(cache.initialize());
@@ -2554,9 +2545,8 @@ TEST_F(BlockFileCacheTest, ttl_change_expiration_time_memory_storage) {
     context.stats = &rstats;
     context.cache_type = io::FileCacheType::TTL;
     context.query_id = query_id;
-    int64_t cur_time = UnixSeconds();
-    context.expiration_time = cur_time + 180;
-    int64_t change_time = cur_time + 120;
+    context.expiration_time = 180;
+    int64_t change_time = 120;
     auto key2 = io::BlockFileCache::hash("key2");
     io::BlockFileCache cache(cache_base_path, settings);
     ASSERT_TRUE(cache.initialize());
@@ -2794,7 +2784,7 @@ TEST_F(BlockFileCacheTest, remove_directly_when_normal_change_to_ttl) {
     }
 
     context.cache_type = io::FileCacheType::TTL;
-    context.expiration_time = UnixSeconds() + 3600;
+    context.expiration_time = 3600;
     {
         auto holder = cache.get_or_set(key1, 0, 5, context);
         auto blocks = fromHolder(holder);
@@ -2847,8 +2837,7 @@ TEST_F(BlockFileCacheTest, ttl_gc) {
     context.stats = &rstats;
     context.cache_type = io::FileCacheType::TTL;
     context.query_id = query_id;
-    int64_t cur_time = UnixSeconds();
-    context.expiration_time = cur_time + 2;
+    context.expiration_time = 2;
 
     for (int64_t i = 0; i < 12; ++i) {
         auto key = io::BlockFileCache::hash(fmt::format("key{}", i));
@@ -2965,7 +2954,7 @@ TEST_F(BlockFileCacheTest, recyle_cache_async_ttl) {
     auto key2 = io::BlockFileCache::hash("key2");
     io::BlockFileCache cache(cache_base_path, settings);
     context.cache_type = io::FileCacheType::TTL;
-    context.expiration_time = UnixSeconds() + 3600;
+    context.expiration_time = 3600;
     FileBlocksHolder* holder;
     auto sp = SyncPoint::get_instance();
     SyncPoint::CallbackGuard guard1;
@@ -3050,7 +3039,7 @@ TEST_F(BlockFileCacheTest, remove_directly) {
     auto key2 = io::BlockFileCache::hash("key2");
     io::BlockFileCache cache(cache_base_path, settings);
     context.cache_type = io::FileCacheType::TTL;
-    context.expiration_time = UnixSeconds() + 3600;
+    context.expiration_time = 3600;
     ASSERT_TRUE(cache.initialize());
     for (int i = 0; i < 100; i++) {
         if (cache.get_async_open_success()) {
@@ -3281,7 +3270,7 @@ TEST_F(BlockFileCacheTest, test_cache_context) {
     }
     {
         io::IOContext io_ctx;
-        int64_t expiration_time = UnixSeconds() + 120;
+        int64_t expiration_time = 120;
         io_ctx.expiration_time = expiration_time;
         CacheContext cache_context;
         cache_context.cache_type = FileCacheType::TTL;
@@ -4151,7 +4140,7 @@ TEST_F(BlockFileCacheTest, test_hot_data) {
     context.stats = &rstats;
     auto key1 = io::BlockFileCache::hash("key1");
     auto key2 = io::BlockFileCache::hash("key2");
-    int64_t expiration_time = UnixSeconds() + 300;
+    int64_t expiration_time = 300;
     io::BlockFileCache cache(cache_base_path, settings);
     ASSERT_TRUE(cache.initialize());
     for (int i = 0; i < 100; i++) {
@@ -4916,8 +4905,7 @@ TEST_F(BlockFileCacheTest, reset_capacity) {
                      io::FileBlock::State::DOWNLOADED);
     }
     context.cache_type = io::FileCacheType::TTL;
-    int64_t cur_time = UnixSeconds();
-    context.expiration_time = cur_time + 120;
+    context.expiration_time = 120;
     for (int64_t offset = 45; offset < 90; offset += 5) {
         auto holder = cache.get_or_set(key2, offset, 5, context);
         auto segments = fromHolder(holder);
@@ -4961,9 +4949,8 @@ TEST_F(BlockFileCacheTest, change_cache_type1) {
     context.stats = &rstats;
     context.cache_type = io::FileCacheType::TTL;
     context.query_id = query_id;
-    int64_t cur_time = UnixSeconds();
-    context.expiration_time = cur_time + 120;
-    int64_t modify_time = cur_time + 5;
+    context.expiration_time = 120;
+    int64_t modify_time = 5;
     auto key1 = io::BlockFileCache::hash("key1");
     io::BlockFileCache cache(cache_base_path, settings);
     ASSERT_TRUE(cache.initialize());
@@ -5036,7 +5023,6 @@ TEST_F(BlockFileCacheTest, change_cache_type2) {
     ReadStatistics rstats;
     context.stats = &rstats;
     context.query_id = query_id;
-    int64_t cur_time = UnixSeconds();
     context.cache_type = io::FileCacheType::NORMAL;
     context.expiration_time = 0;
     auto key1 = io::BlockFileCache::hash("key1");
@@ -5062,7 +5048,7 @@ TEST_F(BlockFileCacheTest, change_cache_type2) {
         EXPECT_EQ(segments[0]->expiration_time(), 0);
     }
     context.cache_type = io::FileCacheType::TTL;
-    context.expiration_time = cur_time + 120;
+    context.expiration_time = 120;
     {
         auto holder = cache.get_or_set(key1, 50, 10, context); /// Add range [50, 59]
         auto segments = fromHolder(holder);
@@ -5110,8 +5096,7 @@ TEST_F(BlockFileCacheTest, change_cache_type2) {
      }
      fs::create_directories(cache_base_path);
      test_file_cache(FileCacheType::NORMAL);
-     int64_t cur_time = UnixSeconds();
-     int64_t expiration_time = cur_time + 120;
+     int64_t expiration_time = 120;
      auto key1 = io::BlockFileCache::hash("key1");
      ASSERT_TRUE(global_local_filesystem()
                          ->rename(cache_base_path + "/" + key1.to_string().substr(0, 3) + "/" +
@@ -5420,7 +5405,7 @@ TEST_F(BlockFileCacheTest, DISABLE_check_file_cache_consistency) {
         blocks[0]->_key.meta.type = io::FileCacheType::INDEX;
     }
 
-    int64_t expiration_time = UnixSeconds() + 120;
+    int64_t expiration_time = 120;
     {
         cache_context.cache_type = FileCacheType::TTL;
         cache_context.expiration_time = expiration_time;
@@ -5494,8 +5479,7 @@ TEST_F(BlockFileCacheTest, populate_empty_cache_with_disposable) {
     context.stats = &rstats;
     context.cache_type = io::FileCacheType::DISPOSABLE;
     context.query_id = query_id;
-    // int64_t cur_time = UnixSeconds();
-    // context.expiration_time = cur_time + 120;
+    // context.expiration_time = 120;
     auto key1 = io::BlockFileCache::hash("key1");
     io::BlockFileCache cache(cache_base_path, settings);
     ASSERT_TRUE(cache.initialize());
@@ -5601,8 +5585,7 @@ TEST_F(BlockFileCacheTest, populate_empty_cache_with_normal) {
     context.stats = &rstats;
     context.cache_type = io::FileCacheType::NORMAL;
     context.query_id = query_id;
-    // int64_t cur_time = UnixSeconds();
-    // context.expiration_time = cur_time + 120;
+    // context.expiration_time = 120;
     auto key1 = io::BlockFileCache::hash("key1");
     io::BlockFileCache cache(cache_base_path, settings);
     ASSERT_TRUE(cache.initialize());
@@ -5707,8 +5690,7 @@ TEST_F(BlockFileCacheTest, populate_empty_cache_with_index) {
     context.stats = &rstats;
     context.cache_type = io::FileCacheType::INDEX;
     context.query_id = query_id;
-    // int64_t cur_time = UnixSeconds();
-    // context.expiration_time = cur_time + 120;
+    // context.expiration_time = 120;
     auto key1 = io::BlockFileCache::hash("key1");
     io::BlockFileCache cache(cache_base_path, settings);
     ASSERT_TRUE(cache.initialize());
@@ -5813,8 +5795,7 @@ TEST_F(BlockFileCacheTest, populate_empty_cache_with_ttl) {
     context.stats = &rstats;
     context.cache_type = io::FileCacheType::TTL;
     context.query_id = query_id;
-    int64_t cur_time = UnixSeconds();
-    context.expiration_time = cur_time + 120;
+    context.expiration_time = 120;
     auto key1 = io::BlockFileCache::hash("key1");
     io::BlockFileCache cache(cache_base_path, settings);
     ASSERT_TRUE(cache.initialize());
@@ -6090,8 +6071,7 @@ TEST_F(BlockFileCacheTest, seize_after_full) {
         context1.cache_type = args.first_type;
         context1.query_id = query_id;
         if (args.first_type == io::FileCacheType::TTL) {
-            int64_t cur_time = UnixSeconds();
-            context1.expiration_time = cur_time + 120;
+            context1.expiration_time = 120;
         }
         auto key1 = io::BlockFileCache::hash("key1");
 
@@ -6118,8 +6098,7 @@ TEST_F(BlockFileCacheTest, seize_after_full) {
         context2.cache_type = args.second_type;
         context2.query_id = query_id;
         if (context2.cache_type == io::FileCacheType::TTL) {
-            int64_t cur_time = UnixSeconds();
-            context2.expiration_time = cur_time + 120;
+            context2.expiration_time = 120;
         }
         auto key2 = io::BlockFileCache::hash("key2");
         offset = 0;
@@ -6251,7 +6230,7 @@ TEST_F(BlockFileCacheTest, evict_privilege_order_for_disposable) {
     context3.stats = &rstats;
     context3.cache_type = io::FileCacheType::TTL;
     context3.query_id = query_id;
-    context3.expiration_time = UnixSeconds() + 120;
+    context3.expiration_time = 120;
     auto key3 = io::BlockFileCache::hash("key3");
 
     offset = 0;
@@ -6430,7 +6409,7 @@ TEST_F(BlockFileCacheTest, evict_privilege_order_for_normal) {
     context3.stats = &rstats;
     context3.cache_type = io::FileCacheType::TTL;
     context3.query_id = query_id;
-    context3.expiration_time = UnixSeconds() + 120;
+    context3.expiration_time = 120;
     auto key3 = io::BlockFileCache::hash("key3");
 
     offset = 0;
@@ -6608,7 +6587,7 @@ TEST_F(BlockFileCacheTest, evict_privilege_order_for_index) {
     context3.stats = &rstats;
     context3.cache_type = io::FileCacheType::TTL;
     context3.query_id = query_id;
-    context3.expiration_time = UnixSeconds() + 120;
+    context3.expiration_time = 120;
     auto key3 = io::BlockFileCache::hash("key3");
 
     offset = 0;
@@ -6814,7 +6793,7 @@ TEST_F(BlockFileCacheTest, evict_privilege_order_for_ttl) {
     context4.stats = &rstats;
     context4.cache_type = io::FileCacheType::TTL;
     context4.query_id = query_id;
-    context4.expiration_time = UnixSeconds() + 120;
+    context4.expiration_time = 120;
     auto key4 = io::BlockFileCache::hash("key4");
 
     offset = 0;
@@ -6917,8 +6896,7 @@ TEST_F(BlockFileCacheTest, evict_in_advance) {
     context.stats = &rstats;
     context.cache_type = io::FileCacheType::NORMAL;
     context.query_id = query_id;
-    // int64_t cur_time = UnixSeconds();
-    // context.expiration_time = cur_time + 120;
+    // context.expiration_time = 120;
     auto key1 = io::BlockFileCache::hash("key1");
     io::BlockFileCache cache(cache_base_path, settings);
     ASSERT_TRUE(cache.initialize());
@@ -7520,8 +7498,7 @@ TEST_F(BlockFileCacheTest, DISABLE_test_upgrade_cache_dir_version) {
     context.stats = &rstats;
     context.cache_type = io::FileCacheType::NORMAL;
     context.query_id = query_id;
-    // int64_t cur_time = UnixSeconds();
-    // context.expiration_time = cur_time + 120;
+    // context.expiration_time = 120;
     LOG(INFO) << "start from empty";
     auto key1 = io::BlockFileCache::hash("key1");
     config::ignore_file_cache_dir_upgrade_failure = true;
@@ -7874,8 +7851,7 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader_ttl_index) {
         IOContext io_ctx;
         FileCacheStatistics stats;
         io_ctx.file_cache_stats = &stats;
-        int64_t cur_time = UnixSeconds();
-        io_ctx.expiration_time = cur_time + 120;
+        io_ctx.expiration_time = 120;
         size_t bytes_read {0};
         EXPECT_TRUE(
                 reader.read_at(0, Slice(buffer.data(), buffer.size()), &bytes_read, &io_ctx).ok());
@@ -7958,8 +7934,7 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader_normal_index) {
         FileCacheStatistics stats;
         io_ctx.file_cache_stats = &stats;
         io_ctx.is_index_data = true;
-        // int64_t cur_time = UnixSeconds();
-        // io_ctx.expiration_time = cur_time + 120;
+        // io_ctx.expiration_time = 120;
         size_t bytes_read {0};
         EXPECT_TRUE(
                 reader.read_at(0, Slice(buffer.data(), buffer.size()), &bytes_read, &io_ctx).ok());

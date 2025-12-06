@@ -407,12 +407,7 @@ void CloudTablet::add_rowsets(std::vector<RowsetSharedPtr> to_add, bool version_
                         continue;
                     }
 
-                    int64_t expiration_time =
-                            _tablet_meta->ttl_seconds() == 0 ||
-                                            rowset_meta->newest_write_timestamp() <= 0
-                                    ? 0
-                                    : rowset_meta->newest_write_timestamp() +
-                                              _tablet_meta->ttl_seconds();
+                    int64_t expiration_time = _tablet_meta->ttl_seconds();
                     g_file_cache_cloud_tablet_submitted_segment_num << 1;
                     if (rs->rowset_meta()->segment_file_size(seg_id) > 0) {
                         g_file_cache_cloud_tablet_submitted_segment_size
@@ -1536,16 +1531,12 @@ Status CloudTablet::sync_meta() {
     auto new_ttl_seconds = tablet_meta->ttl_seconds();
     if (_tablet_meta->ttl_seconds() != new_ttl_seconds) {
         _tablet_meta->set_ttl_seconds(new_ttl_seconds);
-        int64_t cur_time = UnixSeconds();
         std::shared_lock rlock(_meta_lock);
         for (auto& [_, rs] : _rs_version_map) {
             for (int seg_id = 0; seg_id < rs->num_segments(); ++seg_id) {
-                int64_t new_expiration_time =
-                        new_ttl_seconds + rs->rowset_meta()->newest_write_timestamp();
-                new_expiration_time = new_expiration_time > cur_time ? new_expiration_time : 0;
                 auto file_key = Segment::file_cache_key(rs->rowset_id().to_string(), seg_id);
                 auto* file_cache = io::FileCacheFactory::instance()->get_by_path(file_key);
-                file_cache->modify_expiration_time(file_key, new_expiration_time);
+                file_cache->modify_expiration_time(file_key, new_ttl_seconds);
             }
         }
     }

@@ -139,6 +139,7 @@ FileBlocksHolderPtr FileCacheAllocatorBuilder::allocate_cache_holder(size_t offs
     ctx.cache_type = _expiration_time == 0 ? FileCacheType::NORMAL : FileCacheType::TTL;
     ctx.expiration_time = _expiration_time;
     ctx.is_cold_data = _is_cold_data;
+    ctx.tablet_id = tablet_id;
     ReadStatistics stats;
     ctx.stats = &stats;
     auto holder = _cache->get_or_set(_cache_hash, offset, size, ctx);

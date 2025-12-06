@@ -27,6 +27,7 @@
 #include <optional>
 #include <thread>
 
+#include "io/cache/block_file_cache_ttl_mgr.h"
 #include "io/cache/cache_lru_dumper.h"
 #include "io/cache/file_block.h"
 #include "io/cache/file_cache_common.h"
@@ -139,9 +140,6 @@ public:
         if (_cache_background_monitor_thread.joinable()) {
             _cache_background_monitor_thread.join();
         }
-        if (_cache_background_ttl_gc_thread.joinable()) {
-            _cache_background_ttl_gc_thread.join();
-        }
         if (_cache_background_gc_thread.joinable()) {
             _cache_background_gc_thread.join();
         }
@@ -209,6 +207,8 @@ public:
     std::string reset_capacity(size_t new_capacity);
 
     std::map<size_t, FileBlockSPtr> get_blocks_by_key(const UInt128Wrapper& hash);
+    /// Adjust expiration time for every block sharing the specified hash key.
+    void modify_expiration_time(const UInt128Wrapper& hash, uint64_t expiration_time);
     /// For debug and UT
     std::string dump_structure(const UInt128Wrapper& hash);
     std::string dump_single_cache_type(const UInt128Wrapper& hash, size_t offset);
@@ -226,9 +226,6 @@ public:
     // remove all blocks that belong to the key
     void remove_if_cached(const UInt128Wrapper& key);
     void remove_if_cached_async(const UInt128Wrapper& key);
-
-    // modify the expiration time about the key
-    void modify_expiration_time(const UInt128Wrapper& key, uint64_t new_expiration_time);
 
     // Shrink the block size. old_size is always larged than new_size.
     void reset_range(const UInt128Wrapper&, size_t offset, size_t old_size, size_t new_size,
@@ -413,11 +410,7 @@ private:
 
     bool need_to_move(FileCacheType cell_type, FileCacheType query_type) const;
 
-    bool remove_if_ttl_file_blocks(const UInt128Wrapper& file_key, bool remove_directly,
-                                   std::lock_guard<std::mutex>&, bool sync);
-
     void run_background_monitor();
-    void run_background_ttl_gc();
     void run_background_gc();
     void run_background_lru_log_replay();
     void run_background_lru_dump();
@@ -441,9 +434,6 @@ private:
 
     void remove_file_blocks(std::vector<FileBlockCell*>&, std::lock_guard<std::mutex>&, bool sync,
                             std::string& reason);
-
-    void remove_file_blocks_and_clean_time_maps(std::vector<FileBlockCell*>&,
-                                                std::lock_guard<std::mutex>&);
 
     void find_evict_candidates(LRUQueue& queue, size_t size, size_t cur_cache_size,
                                size_t& removed_size, std::vector<FileBlockCell*>& to_evict,
@@ -474,7 +464,6 @@ private:
     std::mutex _close_mtx;
     std::condition_variable _close_cv;
     std::thread _cache_background_monitor_thread;
-    std::thread _cache_background_ttl_gc_thread;
     std::thread _cache_background_gc_thread;
     std::thread _cache_background_evict_in_advance_thread;
     std::thread _cache_background_lru_dump_thread;
@@ -511,6 +500,7 @@ private:
 
     std::unique_ptr<LRUQueueRecorder> _lru_recorder;
     std::unique_ptr<CacheLRUDumper> _lru_dumper;
+    std::unique_ptr<BlockFileCacheTtlMgr> _ttl_mgr;
 
     // metrics
     std::shared_ptr<bvar::Status<size_t>> _cache_capacity_metrics;
