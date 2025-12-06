@@ -142,6 +142,7 @@ if ! OPTS="$(getopt \
     -l 'spark-dpp' \
     -l 'hive-udf' \
     -l 'be-java-extensions' \
+    -l 'be-cdc-client' \
     -l 'be-extension-ignore:' \
     -l 'clean' \
     -l 'coverage' \
@@ -165,6 +166,7 @@ BUILD_INDEX_TOOL='OFF'
 BUILD_BENCHMARK='OFF'
 BUILD_TASK_EXECUTOR_SIMULATOR='OFF'
 BUILD_BE_JAVA_EXTENSIONS=0
+BUILD_BE_CDC_CLIENT=0
 BUILD_HIVE_UDF=0
 CLEAN=0
 HELP=0
@@ -187,6 +189,7 @@ if [[ "$#" == 1 ]]; then
     BUILD_BENCHMARK='OFF'
     BUILD_HIVE_UDF=1
     BUILD_BE_JAVA_EXTENSIONS=1
+    BUILD_BE_CDC_CLIENT=1
     CLEAN=0
 else
     while true; do
@@ -200,6 +203,7 @@ else
         --be)
             BUILD_BE=1
             BUILD_BE_JAVA_EXTENSIONS=1
+            BUILD_BE_CDC_CLIENT=1
             shift
             ;;
         --cloud)
@@ -245,6 +249,10 @@ else
             BUILD_BE_JAVA_EXTENSIONS=1
             shift
             ;;
+        --be-cdc-client)
+            BUILD_BE_CDC_CLIENT=1
+            shift
+            ;;    
         --clean)
             CLEAN=1
             shift
@@ -296,6 +304,7 @@ else
 	BUILD_TASK_EXECUTOR_SIMULATOR='OFF'
         BUILD_HIVE_UDF=1
         BUILD_BE_JAVA_EXTENSIONS=1
+        BUILD_BE_CDC_CLIENT=1
         CLEAN=0
     fi
 fi
@@ -426,6 +435,14 @@ if [[ -n "${DISABLE_BE_JAVA_EXTENSIONS}" ]]; then
     fi
 fi
 
+if [[ -n "${DISABLE_BE_CDC_CLIENT}" ]]; then
+    if [[ "${DISABLE_BE_CDC_CLIENT}" == "ON" ]]; then
+        BUILD_BE_CDC_CLIENT=0
+    else
+        BUILD_BE_CDC_CLIENT=1
+    fi
+fi
+
 if [[ -n "${DISABLE_BUILD_UI}" ]]; then
     if [[ "${DISABLE_BUILD_UI}" == "ON" ]]; then
         BUILD_UI=0
@@ -492,6 +509,7 @@ echo "Get params:
     BUILD_BENCHMARK                     -- ${BUILD_BENCHMARK}
     BUILD_TASK_EXECUTOR_SIMULATOR       -- ${BUILD_TASK_EXECUTOR_SIMULATOR}
     BUILD_BE_JAVA_EXTENSIONS            -- ${BUILD_BE_JAVA_EXTENSIONS}
+    BUILD_BE_CDC_CLIENT                 -- ${BUILD_BE_CDC_CLIENT}
     BUILD_HIVE_UDF                      -- ${BUILD_HIVE_UDF}
     PARALLEL                            -- ${PARALLEL}
     CLEAN                               -- ${CLEAN}
@@ -972,6 +990,15 @@ if [[ "${BUILD_BROKER}" -eq 1 ]]; then
     rm -rf "${DORIS_OUTPUT}/apache_hdfs_broker"/*
     cp -r -p "${DORIS_HOME}/fs_brokers/apache_hdfs_broker/output/apache_hdfs_broker"/* "${DORIS_OUTPUT}/apache_hdfs_broker"/
     copy_common_files "${DORIS_OUTPUT}/apache_hdfs_broker/"
+    cd "${DORIS_HOME}"
+fi
+
+if [[ "${BUILD_BE_CDC_CLIENT}" -eq 1 ]]; then
+    install -d "${DORIS_OUTPUT}/be/lib/cdc_client"
+    cd "${DORIS_HOME}/fs_brokers/cdc_client"
+     "${MVN_CMD}" package -DskipTests
+    rm -rf "${DORIS_OUTPUT}/be/lib/cdc_client"/*
+    cp -r -p "${DORIS_HOME}/fs_brokers/cdc_client/target/cdc-client.jar" "${DORIS_OUTPUT}/be/lib/cdc_client/"
     cd "${DORIS_HOME}"
 fi
 
