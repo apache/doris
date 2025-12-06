@@ -524,8 +524,6 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
     for (auto i : including_cids) {
         full_block.replace_by_position(i, data.block->get_by_position(input_id++).column);
     }
-    RETURN_IF_ERROR(_olap_data_convertor->set_source_content_with_specifid_columns(
-            &full_block, data.row_pos, data.num_rows, including_cids));
 
     bool have_input_seq_column = false;
     // write including columns
@@ -533,6 +531,8 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
     vectorized::IOlapColumnDataAccessor* seq_column = nullptr;
     uint32_t segment_start_pos = 0;
     for (auto cid : including_cids) {
+        RETURN_IF_ERROR(_olap_data_convertor->set_source_content_with_specifid_columns(
+            &full_block, data.row_pos, data.num_rows, std::vector<uint32_t> {cid}));
         // here we get segment column row num before append data.
         segment_start_pos = cast_set<uint32_t>(_column_writers[cid]->get_next_rowid());
         // olap data convertor alway start from id = 0
@@ -550,6 +550,7 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
         RETURN_IF_ERROR(_column_writers[cid]->append(column->get_nullmap(), column->get_data(),
                                                      data.num_rows));
         RETURN_IF_ERROR(_finalize_column_writer_and_update_meta(cid));
+        _olap_data_convertor->clear_source_content(cid);
     }
 
     bool has_default_or_nullable = false;
@@ -625,9 +626,9 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
 
     // convert missing columns and send to column writer
     const auto& missing_cids = _opts.rowset_ctx->partial_update_info->missing_cids;
-    RETURN_IF_ERROR(_olap_data_convertor->set_source_content_with_specifid_columns(
-            &full_block, data.row_pos, data.num_rows, missing_cids));
     for (auto cid : missing_cids) {
+        RETURN_IF_ERROR(_olap_data_convertor->set_source_content_with_specifid_columns(
+            &full_block, data.row_pos, data.num_rows, std::vector<uint32_t> {cid}));
         auto [status, column] = _olap_data_convertor->convert_column_data(cid);
         if (!status.ok()) {
             return status;
@@ -640,6 +641,7 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
         RETURN_IF_ERROR(_column_writers[cid]->append(column->get_nullmap(), column->get_data(),
                                                      data.num_rows));
         RETURN_IF_ERROR(_finalize_column_writer_and_update_meta(cid));
+        _olap_data_convertor->clear_source_content(cid);
     }
 
     _num_rows_updated += stats.num_rows_updated;
