@@ -113,8 +113,8 @@ void MaterializationSharedState::_update_profile_info(int64_t backend_id,
     auto& info_map = backend_profile_info_string[backend_id];
 
     auto update_profile_info_key = [&](const std::string& info_key) {
-        const auto* info_value = response_profile->get_info_string(info_key);
-        if (info_value == nullptr) [[unlikely]] {
+        const auto info_value = response_profile->get_info_string(info_key);
+        if (!info_value.has_value()) [[unlikely]] {
             LOG(WARNING) << "Get row id fetch rpc profile success, but no info key :" << info_key;
             return;
         }

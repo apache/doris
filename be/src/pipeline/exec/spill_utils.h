@@ -71,14 +71,16 @@ protected:
                   std::function<Status()> spill_exec_func,
                   std::function<Status()> spill_fin_cb = {})
             : _state(state),
-              _custom_profile(operator_profile->get_child("CustomCounters")),
               _spill_context(std::move(spill_context)),
               _is_write_task(is_write),
               _spill_exec_func(std::move(spill_exec_func)),
               _spill_fin_cb(std::move(spill_fin_cb)) {
-        RuntimeProfile* common_profile = operator_profile->get_child("CommonCounters");
-        DCHECK(common_profile != nullptr);
-        DCHECK(_custom_profile != nullptr);
+        auto custom_profile_opt = operator_profile->get_child("CustomCounters");
+        DCHECK(custom_profile_opt.has_value());
+        _custom_profile = *custom_profile_opt;
+        auto common_profile_opt = operator_profile->get_child("CommonCounters");
+        DCHECK(common_profile_opt.has_value());
+        RuntimeProfile* common_profile = *common_profile_opt;
         _spill_total_timer = _custom_profile->get_counter("SpillTotalTime");
 
         if (is_write) {
@@ -185,8 +187,9 @@ public:
                          std::function<Status()> spill_fin_cb = {})
             : SpillRunnable(state, nullptr, operator_profile, false, spill_exec_func,
                             spill_fin_cb) {
-        RuntimeProfile* custom_profile = operator_profile->get_child("CustomCounters");
-        DCHECK(custom_profile != nullptr);
+        auto custom_profile_opt = operator_profile->get_child("CustomCounters");
+        DCHECK(custom_profile_opt.has_value());
+        RuntimeProfile* custom_profile = *custom_profile_opt;
         _spill_revover_timer = custom_profile->get_counter("SpillRecoverTime");
         _read_wait_in_queue_task_count =
                 custom_profile->get_counter("SpillReadTaskWaitInQueueCount");

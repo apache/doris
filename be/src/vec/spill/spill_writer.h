@@ -42,9 +42,9 @@ public:
         // Directory path format specified in SpillStreamManager::register_spill_stream:
         // storage_root/spill/query_id/partitioned_hash_join-node_id-task_id-stream_id/0
         file_path_ = dir + "/0";
-        RuntimeProfile* common_profile = profile->get_child("CommonCounters");
-        DCHECK(common_profile != nullptr);
-        _memory_used_counter = common_profile->get_counter("MemoryUsage");
+        auto common_profile_opt = profile->get_child("CommonCounters");
+        DCHECK(common_profile_opt.has_value());
+        _memory_used_counter = (*common_profile_opt)->get_counter("MemoryUsage");
     }
 
     Status open();
@@ -60,7 +60,9 @@ public:
     const std::string& get_file_path() const { return file_path_; }
 
     void set_counters(RuntimeProfile* operator_profile) {
-        RuntimeProfile* custom_profile = operator_profile->get_child("CustomCounters");
+        auto custom_profile_opt = operator_profile->get_child("CustomCounters");
+        DCHECK(custom_profile_opt.has_value());
+        RuntimeProfile* custom_profile = *custom_profile_opt;
         _write_file_timer = custom_profile->get_counter("SpillWriteFileTime");
         _serialize_timer = custom_profile->get_counter("SpillWriteSerializeBlockTime");
         _write_block_counter = custom_profile->get_counter("SpillWriteBlockCount");
