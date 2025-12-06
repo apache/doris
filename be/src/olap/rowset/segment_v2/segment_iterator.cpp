@@ -2352,10 +2352,8 @@ Status SegmentIterator::_read_columns_by_rowids(std::vector<ColumnId>& read_colu
 }
 
 Status SegmentIterator::next_batch(vectorized::Block* block) {
-    RETURN_IF_ERROR(block->check_type_and_column("1111"));
     // Replace virtual columns with ColumnNothing at the begining of each next_batch call.
     _init_virtual_columns(block);
-    RETURN_IF_ERROR(block->check_type_and_column("2222"));
     auto status = [&]() {
         RETURN_IF_CATCH_EXCEPTION({
             auto res = _next_batch_internal(block);
@@ -2455,7 +2453,7 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
 
     RETURN_IF_ERROR(_lazy_init(block));
 
-    RETURN_IF_ERROR(block->check_type_and_column("33333"));
+    RETURN_IF_ERROR(block->check_type_and_column("11111"));
 
     SCOPED_RAW_TIMER(&_opts.stats->block_load_ns);
 
@@ -2474,6 +2472,7 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
     })
 
     RETURN_IF_ERROR(_init_current_block(block, _current_return_columns, nrows_read_limit));
+    RETURN_IF_ERROR(block->check_type_and_column("22222"));
     _converted_column_ids.assign(_schema->columns().size(), false);
 
     _selected_size = 0;
@@ -2568,6 +2567,8 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
     // step5: output columns
     RETURN_IF_ERROR(_output_non_pred_columns(block));
     RETURN_IF_ERROR(_materialization_of_virtual_column(block));
+
+    RETURN_IF_ERROR(block->check_type_and_column("3333"));
     // shrink char_type suffix zero data
     block->shrink_char_type_column_suffix_zero(_char_type_idx);
     return _check_output_block(block);
