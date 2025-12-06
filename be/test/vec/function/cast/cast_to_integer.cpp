@@ -1586,7 +1586,7 @@ struct FunctionCastToIntTest : public FunctionCastTest {
                     auto decimal_num = decimal_ctor(i, 0, FromScale);
                     data_set.push_back({{decimal_num}, Null()});
                     check_function_for_cast<DataTypeNumber<ToPT>, true>(input_types, data_set, -1,
-                                                                        -1, true, true);
+                                                                        -1, true);
                 }
             }
             return;
@@ -1628,7 +1628,7 @@ struct FunctionCastToIntTest : public FunctionCastTest {
                         data_set.push_back({{decimal_num}, Null()});
                     }
                     check_function_for_cast<DataTypeNumber<ToPT>, true>(input_types, data_set, -1,
-                                                                        -1, true, true);
+                                                                        -1, true);
                 }
             }
         }

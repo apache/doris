@@ -82,7 +82,7 @@ public:
 };
 
 // cast date and datetime to float/double, will not overflow
-// only support in non-strict mode
+// only support in non-strict mode. strict mode it's illegal!
 template <typename FromDataType, typename ToDataType>
     requires(IsDataTypeFloat<ToDataType> &&
              (IsDatelikeV1Types<FromDataType> || IsDatelikeV2Types<FromDataType> ||
