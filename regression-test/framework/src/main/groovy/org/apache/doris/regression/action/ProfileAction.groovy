@@ -36,6 +36,11 @@ class ProfileAction implements SuiteAction {
         this.tag = Objects.requireNonNull(tag, "tag can not be null")
     }
 
+    ProfileAction(SuiteContext context) {
+        this.context = context
+        this.tag = null
+    }
+
     void run(@ClosureParams(value = FromString, options = []) Runnable run) {
         runCallback = run
     }
@@ -43,6 +48,61 @@ class ProfileAction implements SuiteAction {
     void check(
         @ClosureParams(value = FromString, options = ["String, Throwable"]) Closure check) {
         this.check = check
+    }
+
+    List getProfileList() {
+        def httpCli = new HttpCliAction(context)
+        def addr = context.getFeHttpAddress()
+        httpCli.endpoint("${addr.hostString}:${addr.port}")
+        httpCli.uri("/rest/v1/query_profile")
+        httpCli.op("get")
+        httpCli.printResponse(false)
+
+        if (context.config.isCloudMode()) {
+            httpCli.basicAuthorization(context.config.feCloudHttpUser, context.config.feCloudHttpPassword)
+        } else {
+            httpCli.basicAuthorization(context.config.feHttpUser, context.config.feHttpPassword)
+        }
+        List profileData = []
+        httpCli.check { code, body ->
+            if (code != 200) {
+                throw new IllegalStateException("Get profile list failed, code: ${code}, body:\n${body}")
+            }
+
+            def jsonSlurper = new JsonSlurper()
+            profileData = jsonSlurper.parseText(body).data.rows
+        }
+        httpCli.run()
+        return profileData
+    }
+
+    String getProfile(String profileId) {
+        def profileCli = new HttpCliAction(context)
+        def addr = context.getFeHttpAddress()
+        profileCli.endpoint("${addr.hostString}:${addr.port}")
+        profileCli.uri("/rest/v1/query_profile/${profileId}")
+        profileCli.op("get")
+        profileCli.printResponse(false)
+
+        if (context.config.isCloudMode()) {
+            profileCli.basicAuthorization(context.config.feCloudHttpUser, context.config.feCloudHttpPassword)
+        } else {
+            profileCli.basicAuthorization(context.config.feHttpUser, context.config.feHttpPassword)
+        }
+        def result = [text: ""]
+        profileCli.check { profileCode, profileResp ->
+            if (profileCode != 200) {
+                throw new IllegalStateException("Get profile failed, url: ${"/rest/v1/query_profile/${profileId}"}, code: ${profileCode}, body:\n${profileResp}")
+            }
+
+            def jsonSlurper2 = new JsonSlurper()
+            def profileText = jsonSlurper2.parseText(profileResp).data
+            profileText = profileText.replace("&nbsp;", " ")
+            profileText = profileText.replace("</br>", "\n")
+            result.text = profileText
+        }
+        profileCli.run()
+        return result.text
     }
 
     @Override

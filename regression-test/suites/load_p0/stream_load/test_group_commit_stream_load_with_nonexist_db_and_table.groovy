@@ -25,6 +25,9 @@ suite("test_group_commit_stream_load_with_nonexist_db_and_table") {
                 " -H column_separator:," +
                 " -T ${context.config.dataPath}/load_p0/stream_load/test_stream_load1.csv" +
                 " http://${context.config.feHttpAddress}/api/${tableName}/${tableName}/_stream_load"
+        if ((context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false) {
+            command = command.replace("http://", "https://") + " --cert " + context.config.otherConfigs.get("trustCert") + " --cacert " + context.config.otherConfigs.get("trustCACert") + " --key " + context.config.otherConfigs.get("trustCAKey")
+        }
         log.info("stream load command: ${command}")
 
         def process = command.execute()

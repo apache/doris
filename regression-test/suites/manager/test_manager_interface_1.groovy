@@ -32,10 +32,18 @@ suite('test_manager_interface_1',"p0") {
 
     sql """ switch internal """
 
-
     String jdbcUrl = context.config.jdbcUrl
     def tokens = context.config.jdbcUrl.split('/')
     jdbcUrl=tokens[0] + "//" + tokens[2] + "/" + "?"
+    if ((context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false ){
+        String useSslconfig = "useSSL=true&requireSSL=true&verifyServerCertificate=true"
+        String clientCAKey = "clientCertificateKeyStoreUrl=file:" + context.config.otherConfigs.get("keyStorePath")
+        String clientCAPwd = "clientCertificateKeyStorePassword=" + context.config.otherConfigs.get("keyStorePassword")
+        String trustCAKey = "trustCertificateKeyStoreUrl=file:" + context.config.otherConfigs.get("trustStorePath")
+        String trustCAPwd = "trustCertificateKeyStorePassword=" + context.config.otherConfigs.get("trustStorePassword")
+        String tlsUrl = useSslconfig + "&" + clientCAKey + "&" + clientCAPwd + "&" +  trustCAKey + "&" + trustCA
+        jdbcUrl += tlsUrl
+    }
     String jdbcUser = context.config.jdbcUser
     String jdbcPassword = context.config.jdbcPassword
     String s3_endpoint = getS3Endpoint()

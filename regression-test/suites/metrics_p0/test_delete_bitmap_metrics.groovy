@@ -71,6 +71,9 @@ suite("test_delete_bitmap_metrics", "p0") {
         sb.append(tablet_id)
 
         String command = sb.toString()
+        if ((context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false) {
+            command = command.replace("http://", "https://") + " --cert " + context.config.otherConfigs.get("trustCert") + " --cacert " + context.config.otherConfigs.get("trustCACert") + " --key " + context.config.otherConfigs.get("trustCAKey")
+        }
         logger.info(command)
         def process = command.execute()
         def code = process.waitFor()
