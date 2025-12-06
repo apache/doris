@@ -55,6 +55,7 @@ public class IcebergGlueMetaStoreProperties extends AbstractIcebergProperties {
     public void initNormalizeAndCheckProps() {
         super.initNormalizeAndCheckProps();
         glueProperties = AWSGlueMetaStoreBaseProperties.of(origProps);
+        glueProperties.requireExplicitGlueCredentials();
         s3Properties = S3Properties.of(origProps);
     }
 

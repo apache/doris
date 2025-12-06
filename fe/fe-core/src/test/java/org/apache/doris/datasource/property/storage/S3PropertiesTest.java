@@ -20,6 +20,7 @@ package org.apache.doris.datasource.property.storage;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.property.common.DefaultDorisAwsCredentialsProviderChain;
 
 import com.google.common.collect.Maps;
 import mockit.Expectations;
@@ -29,7 +30,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import software.amazon.awssdk.auth.credentials.AnonymousCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
-import software.amazon.awssdk.auth.credentials.AwsCredentialsProviderChain;
 import software.amazon.awssdk.auth.credentials.InstanceProfileCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.services.sts.StsClient;
@@ -222,9 +222,10 @@ public class S3PropertiesTest {
         Assertions.assertEquals("arn:aws:iam::123456789012:role/MyTestRole", backendProperties.get("AWS_ROLE_ARN"));
     }
 
+
     @Test
     public void testGetAwsCredentialsProviderWithIamRoleAndExternalId(@Mocked StsClientBuilder mockBuilder,
-                                                                      @Mocked StsClient mockStsClient, @Mocked InstanceProfileCredentialsProvider mockInstanceCreds) {
+                                                                      @Mocked StsClient mockStsClient) {
 
         new Expectations() {
             {
@@ -234,8 +235,6 @@ public class S3PropertiesTest {
                 result = mockBuilder;
                 mockBuilder.build();
                 result = mockStsClient;
-                InstanceProfileCredentialsProvider.create();
-                result = mockInstanceCreds;
             }
         };
 
@@ -247,6 +246,17 @@ public class S3PropertiesTest {
         AwsCredentialsProvider provider = s3Props.getAwsCredentialsProvider();
         Assertions.assertNotNull(provider);
         Assertions.assertTrue(provider instanceof StsAssumeRoleCredentialsProvider);
+        origProps.remove("s3.external_id");
+        origProps.remove("s3.role_arn");
+        s3Props = (S3Properties) StorageProperties.createPrimary(origProps);
+        provider = s3Props.getAwsCredentialsProvider();
+        Assertions.assertNotNull(provider);
+        Assertions.assertTrue(provider instanceof DefaultDorisAwsCredentialsProviderChain);
+        origProps.put("s3.credentials_provider_type", "instance_profile");
+        s3Props = (S3Properties) StorageProperties.createPrimary(origProps);
+        provider = s3Props.getAwsCredentialsProvider();
+        Assertions.assertNotNull(provider);
+        Assertions.assertTrue(provider instanceof InstanceProfileCredentialsProvider);
     }
 
     @Test
@@ -420,7 +430,7 @@ public class S3PropertiesTest {
         Assertions.assertEquals(AnonymousCredentialsProvider.class, provider.getClass());
         Config.aws_credentials_provider_version = "v2";
         provider = s3Properties.getAwsCredentialsProvider();
-        Assertions.assertEquals(AwsCredentialsProviderChain.class, provider.getClass());
+        Assertions.assertEquals(DefaultDorisAwsCredentialsProviderChain.class, provider.getClass());
         Config.aws_credentials_provider_version = "v2";
     }
 
