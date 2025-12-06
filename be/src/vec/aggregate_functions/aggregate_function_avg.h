@@ -136,7 +136,6 @@ public:
     // an implicit cast to float.
 
     using DataType = typename Data::ResultType;
-    using ResultType = std::conditional_t<is_decimal(T), DataType, Float64>;
 
     // consistent with fe/fe-common/src/main/java/org/apache/doris/catalog/ScalarType.java
     static constexpr uint32_t DEFAULT_MIN_AVG_DECIMAL128_SCALE = 4;
