@@ -96,19 +96,11 @@ Status Writer::_channel_add_rows(RuntimeState* state,
     uint32_t offset = 0;
     for (size_t i = 0; i < partition_count; ++i) {
         uint32_t size = _partition_rows_histogram[i];
-        if (!channels[i]->is_receiver_eof() && size > 0) {
-            status = channels[i]->add_rows(block, _row_idx.data(), offset, size, false);
+        if (!channels[i]->is_receiver_eof() && (size > 0 || eos)) {
+            status = channels[i]->add_rows(block, _row_idx.data(), offset, size, eos);
             HANDLE_CHANNEL_STATUS(state, channels[i], status);
         }
         offset += size;
-    }
-    if (eos) {
-        for (int i = 0; i < partition_count; ++i) {
-            if (!channels[i]->is_receiver_eof()) {
-                status = channels[i]->add_rows(block, _row_idx.data(), 0, 0, true);
-                HANDLE_CHANNEL_STATUS(state, channels[i], status);
-            }
-        }
     }
     return Status::OK();
 }
