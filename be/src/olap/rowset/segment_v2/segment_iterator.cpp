@@ -2453,8 +2453,6 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
 
     RETURN_IF_ERROR(_lazy_init(block));
 
-    RETURN_IF_ERROR(block->check_type_and_column("11111"));
-
     SCOPED_RAW_TIMER(&_opts.stats->block_load_ns);
 
     // If the row bitmap size is smaller than nrows_read_limit, there's no need to reserve that many column rows.
@@ -2472,7 +2470,7 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
     })
 
     RETURN_IF_ERROR(_init_current_block(block, _current_return_columns, nrows_read_limit));
-    RETURN_IF_ERROR(block->check_type_and_column("22222"));
+    RETURN_IF_ERROR(block->check_type_and_column("111111111111111"));
     _converted_column_ids.assign(_schema->columns().size(), false);
 
     _selected_size = 0;
@@ -2509,19 +2507,23 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
                 // when lazy materialization enables, _predicate_column_ids = distinct(_short_cir_pred_column_ids + _vec_pred_column_ids)
                 // see _vec_init_lazy_materialization
                 // todo(wb) need to tell input columnids from output columnids
+                RETURN_IF_ERROR(block->check_type_and_column("22222222222"));
                 RETURN_IF_ERROR(_output_column_by_sel_idx(block, _predicate_column_ids,
                                                           _sel_rowid_idx.data(), _selected_size));
+                RETURN_IF_ERROR(block->check_type_and_column("333333333"));
 
                 // step 3.2: read remaining expr column and evaluate it.
                 if (_is_need_expr_eval) {
                     // The predicate column contains the remaining expr column, no need second read.
                     if (_common_expr_column_ids.size() > 0) {
+                        RETURN_IF_ERROR(block->check_type_and_column("44444444444"));
                         SCOPED_RAW_TIMER(&_opts.stats->non_predicate_read_ns);
                         RETURN_IF_ERROR(_read_columns_by_rowids(
                                 _common_expr_column_ids, _block_rowids, _sel_rowid_idx.data(),
                                 _selected_size, &_current_return_columns));
                         _replace_version_col_if_needed(_common_expr_column_ids, _selected_size);
                         RETURN_IF_ERROR(_process_columns(_common_expr_column_ids, block));
+                        RETURN_IF_ERROR(block->check_type_and_column("555555555555"));
                     }
 
                     DCHECK(block->columns() > _schema_block_id_map[*_common_expr_columns.begin()]);
@@ -2565,10 +2567,12 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
     }
 
     // step5: output columns
+    RETURN_IF_ERROR(block->check_type_and_column("before output non pred columns"));
     RETURN_IF_ERROR(_output_non_pred_columns(block));
     RETURN_IF_ERROR(_materialization_of_virtual_column(block));
 
-    RETURN_IF_ERROR(block->check_type_and_column("3333"));
+    RETURN_IF_ERROR(block->check_type_and_column("after materialization of virtual column"));
+
     // shrink char_type suffix zero data
     block->shrink_char_type_column_suffix_zero(_char_type_idx);
     return _check_output_block(block);
@@ -2661,6 +2665,8 @@ Status SegmentIterator::_process_common_expr(uint16_t* sel_rowid_idx, uint16_t& 
     // Here we just use col0 as row_number indicator. when reach here, we will calculate the predicates first.
     //  then use the result to reduce our data read(that is, expr push down). there's now row in block means the first
     //  column is not in common expr. so it's safe to replace it temporarily to provide correct `selected_size`.
+
+    RETURN_IF_ERROR(block->check_type_and_column("before common expr"));
     VLOG_DEBUG << fmt::format("Execute common expr. block rows {}, selected size {}", block->rows(),
                               _selected_size);
 
@@ -2680,6 +2686,8 @@ Status SegmentIterator::_process_common_expr(uint16_t* sel_rowid_idx, uint16_t& 
     if (need_mock_col) {
         block->replace_by_position(0, std::move(col0));
     }
+
+    RETURN_IF_ERROR(block->check_type_and_column("after common expr"));
 
     VLOG_DEBUG << fmt::format("Execute common expr end. block rows {}, selected size {}",
                               block->rows(), _selected_size);
