@@ -849,6 +849,9 @@ message SnapshotPB {
     optional string upload_file = 15;
     optional string upload_id = 16;
 
+    optional int64 image_file_size = 17;
+    optional int64 snapshot_data_size = 18;
+
     // TODO: add the referenced resources
 }
 
@@ -2037,6 +2040,8 @@ message CommitSnapshotRequest {
     optional string image_url = 3;
     optional int64 last_journal_id = 4;
     optional string request_ip = 5;
+    optional int64 image_file_size = 6;
+    optional int64 snapshot_data_size = 7;
 }
 
 message CommitSnapshotResponse {
@@ -2071,6 +2076,8 @@ message SnapshotInfoPB {
     optional string reason = 14;
 
     repeated string derived_instance_ids = 15;
+    optional int64 image_file_size = 16;
+    optional int64 snapshot_data_size = 17;
 }
 
 message ListSnapshotRequest {
