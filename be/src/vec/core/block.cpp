@@ -287,8 +287,14 @@ Status Block::check_type_and_column(std::string debug_str) const {
 
         const auto& type = elem.type;
         const auto& column = elem.column;
-
-        RETURN_IF_ERROR(column->column_self_check());
+        {
+            auto st = column->column_self_check();
+            if (!st.ok()) {
+                return Status::InternalError(
+                        "Column {} in block failed self check: {}, debug str :{}", elem.name,
+                        st.msg(), debug_str);
+            }
+        }
 
         auto st = type->check_column(*column);
         if (!st.ok()) {
