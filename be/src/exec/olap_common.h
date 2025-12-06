@@ -425,6 +425,7 @@ public:
               _end_include(true),
               _is_convertible(true) {}
 
+    // TODO(gabriel): use ColumnPredicate to extend scan key
     template <PrimitiveType primitive_type>
     Status extend_scan_key(ColumnValueRange<primitive_type>& range, int32_t max_scan_key_num,
                            bool* exact_value, bool* eos, bool* should_break);

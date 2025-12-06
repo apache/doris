@@ -283,7 +283,7 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
 
             AndBlockColumnPredicate and_predicate;
             and_predicate.add_column_predicate(
-                    SingleColumnBlockPredicate::create_unique(runtime_predicate.get()));
+                    SingleColumnBlockPredicate::create_unique(runtime_predicate));
             std::shared_ptr<ColumnReader> reader;
             Status st = get_column_reader(
                     read_options.tablet_schema->column(runtime_predicate->column_id()), &reader,
@@ -340,7 +340,7 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
             options_with_pruned_predicates.column_predicates = pruned_predicates;
             //because column_predicates is changed, we need to rebuild col_id_to_predicates so that inverted index will not go through it.
             options_with_pruned_predicates.col_id_to_predicates.clear();
-            for (auto* pred : options_with_pruned_predicates.column_predicates) {
+            for (auto pred : options_with_pruned_predicates.column_predicates) {
                 if (!options_with_pruned_predicates.col_id_to_predicates.contains(
                             pred->column_id())) {
                     options_with_pruned_predicates.col_id_to_predicates.insert(

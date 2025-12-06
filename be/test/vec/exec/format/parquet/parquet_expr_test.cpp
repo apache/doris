@@ -1250,8 +1250,8 @@ TEST_F(ParquetExprTest, test_expr_push_down_and) {
     ASSERT_TRUE(p_reader->check_expr_can_push_down(and_expr));
 
     p_reader->_enable_filter_by_min_max = true;
-    std::map<int, std::vector<std::unique_ptr<ColumnPredicate>>> push_down_simple_predicates;
-    push_down_simple_predicates.emplace(2, std::vector<std::unique_ptr<ColumnPredicate>> {});
+    std::map<int, std::vector<std::shared_ptr<ColumnPredicate>>> push_down_simple_predicates;
+    push_down_simple_predicates.emplace(2, std::vector<std::shared_ptr<ColumnPredicate>> {});
     p_reader->_push_down_predicates.push_back(AndBlockColumnPredicate::create_unique());
     ASSERT_TRUE(p_reader->convert_predicates({and_expr}, push_down_simple_predicates[2],
                                              p_reader->_push_down_predicates.back(),
@@ -1746,8 +1746,7 @@ TEST_F(ParquetExprTest, test_in_list_predicate_uses_bloom_filter) {
         set->insert(&v);
     }
 
-    InListPredicateBase<TYPE_BIGINT, PredicateType::IN_LIST, HybridSet<PrimitiveType::TYPE_BIGINT>>
-            in_pred(col_idx, set);
+    InListPredicateBase<TYPE_BIGINT, PredicateType::IN_LIST, 3> in_pred(col_idx, set, false);
 
     ParquetPredicate::ColumnStat stat;
     stat.ctz = &ctz;
@@ -1800,8 +1799,7 @@ TEST_F(ParquetExprTest, test_in_list_predicate_no_loader_on_range_miss) {
         set->insert(&v);
     }
 
-    InListPredicateBase<TYPE_BIGINT, PredicateType::IN_LIST, HybridSet<PrimitiveType::TYPE_BIGINT>>
-            in_pred(col_idx, set);
+    InListPredicateBase<TYPE_BIGINT, PredicateType::IN_LIST, 2> in_pred(col_idx, set, false);
 
     ParquetPredicate::ColumnStat stat;
     stat.ctz = &ctz;

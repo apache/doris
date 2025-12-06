@@ -339,7 +339,7 @@ private:
     // Since the filtering conditions for topn are dynamic, the filtering is delayed until create next row group reader.
     VExprSPtrs _top_runtime_vexprs;
     std::vector<std::unique_ptr<MutilColumnBlockPredicate>> _push_down_predicates;
-    std::vector<std::unique_ptr<ColumnPredicate>> _useless_predicates;
+    std::vector<std::shared_ptr<ColumnPredicate>> _useless_predicates;
     Arena _arena;
 };
 #include "common/compile_check_end.h"
