@@ -107,6 +107,7 @@ BvarLatencyRecorderWithTag g_bvar_ms_abort_snapshot("ms", "abort_snapshot");
 BvarLatencyRecorderWithTag g_bvar_ms_drop_snapshot("ms", "drop_snapshot");
 BvarLatencyRecorderWithTag g_bvar_ms_list_snapshot("ms", "list_snapshot");
 BvarLatencyRecorderWithTag g_bvar_ms_clone_instance("ms", "clone_instance");
+BvarLatencyRecorderWithTag g_bvar_ms_update_packed_file_info("ms", "update_packed_file_info");
 bvar::Adder<int64_t> g_bvar_update_delete_bitmap_fail_counter;
 bvar::Window<bvar::Adder<int64_t> > g_bvar_update_delete_bitmap_fail_counter_minute("ms", "update_delete_bitmap_fail", &g_bvar_update_delete_bitmap_fail_counter, 60);
 bvar::Adder<int64_t> g_bvar_get_delete_bitmap_fail_counter;
@@ -158,6 +159,22 @@ mBvarIntAdder g_bvar_recycler_instance_recycle_round("recycler_instance_recycle_
 mBvarStatus<double> g_bvar_recycler_instance_recycle_time_per_resource("recycler_instance_recycle_time_per_resource", {"instance_id", "resource_type"});
 // represents the bytes of resources that can be recycled per ms
 mBvarStatus<double> g_bvar_recycler_instance_recycle_bytes_per_ms("recycler_instance_recycle_bytes_per_ms", {"instance_id", "resource_type"});
+BvarStatusWithTag<int64_t> g_bvar_recycler_packed_file_recycled_kv_num("recycler",
+                                                                       "packed_file_recycled_kv_num");
+BvarStatusWithTag<int64_t> g_bvar_recycler_packed_file_recycled_kv_bytes(
+        "recycler", "packed_file_recycled_kv_bytes");
+BvarStatusWithTag<int64_t> g_bvar_recycler_packed_file_recycle_cost_ms(
+        "recycler", "packed_file_recycle_cost_ms");
+BvarStatusWithTag<int64_t> g_bvar_recycler_packed_file_scanned_kv_num(
+        "recycler", "packed_file_scanned_kv_num");
+BvarStatusWithTag<int64_t> g_bvar_recycler_packed_file_corrected_kv_num(
+        "recycler", "packed_file_corrected_kv_num");
+BvarStatusWithTag<int64_t> g_bvar_recycler_packed_file_recycled_object_num(
+        "recycler", "packed_file_recycled_object_num");
+BvarStatusWithTag<int64_t> g_bvar_recycler_packed_file_bytes_object_deleted(
+        "recycler", "packed_file_bytes_object_deleted");
+BvarStatusWithTag<int64_t> g_bvar_recycler_packed_file_rowset_scanned_num(
+        "recycler", "packed_file_rowset_scanned_num");
 
 // txn_kv's bvars
 bvar::LatencyRecorder g_bvar_txn_kv_get("txn_kv", "get");
