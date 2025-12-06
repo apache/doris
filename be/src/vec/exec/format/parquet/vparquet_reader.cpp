@@ -327,13 +327,16 @@ void ParquetReader::_init_file_description() {
 }
 
 Status ParquetReader::init_reader(
-        const std::vector<std::string>& all_column_names, const VExprContextSPtrs& conjuncts,
-        const TupleDescriptor* tuple_descriptor, const RowDescriptor* row_descriptor,
+        const std::vector<std::string>& all_column_names,
+        std::unordered_map<std::string, uint32_t>* col_name_to_block_idx,
+        const VExprContextSPtrs& conjuncts, const TupleDescriptor* tuple_descriptor,
+        const RowDescriptor* row_descriptor,
         const std::unordered_map<std::string, int>* colname_to_slot_id,
         const VExprContextSPtrs* not_single_slot_filter_conjuncts,
         const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts,
         std::shared_ptr<TableSchemaChangeHelper::Node> table_info_node_ptr, bool filter_groups,
         const std::set<uint64_t>& column_ids, const std::set<uint64_t>& filter_column_ids) {
+    _col_name_to_block_idx = col_name_to_block_idx;
     _tuple_descriptor = tuple_descriptor;
     _row_descriptor = row_descriptor;
     _colname_to_slot_id = colname_to_slot_id;
@@ -799,6 +802,7 @@ Status ParquetReader::_next_row_group_reader() {
 
     _current_group_reader->set_current_row_group_idx(_current_row_group_index);
     _current_group_reader->set_row_id_column_iterator(_row_id_column_iterator_pair);
+    _current_group_reader->set_col_name_to_block_idx(_col_name_to_block_idx);
 
     _current_group_reader->_table_info_node_ptr = _table_info_node_ptr;
     return _current_group_reader->init(_file_metadata->schema(), candidate_row_ranges, _col_offsets,

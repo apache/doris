@@ -256,6 +256,14 @@ public:
      */
     Status close();
 
+    /**
+     * Set column name to block index map from FileScanner to avoid repeated map creation.
+     */
+    void set_col_name_to_block_idx(
+            const std::unordered_map<std::string, uint32_t>* col_name_to_block_idx) {
+        _col_name_to_block_idx = col_name_to_block_idx;
+    }
+
     static std::string get_jni_type(const DataTypePtr& data_type);
     static std::string get_jni_type_with_different_string(const DataTypePtr& data_type);
 
@@ -317,6 +325,9 @@ private:
 
     int _predicates_length = 0;
     std::unique_ptr<char[]> _predicates;
+
+    // Column name to block index map, passed from FileScanner to avoid repeated map creation
+    const std::unordered_map<std::string, uint32_t>* _col_name_to_block_idx = nullptr;
 
     /**
      * Set the address of meta information, which is returned by org.apache.doris.common.jni.JniScanner#getNextBatchMeta

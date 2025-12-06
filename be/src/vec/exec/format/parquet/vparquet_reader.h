@@ -117,8 +117,10 @@ public:
 #endif
 
     Status init_reader(
-            const std::vector<std::string>& all_column_names, const VExprContextSPtrs& conjuncts,
-            const TupleDescriptor* tuple_descriptor, const RowDescriptor* row_descriptor,
+            const std::vector<std::string>& all_column_names,
+            std::unordered_map<std::string, uint32_t>* col_name_to_block_idx,
+            const VExprContextSPtrs& conjuncts, const TupleDescriptor* tuple_descriptor,
+            const RowDescriptor* row_descriptor,
             const std::unordered_map<std::string, int>* colname_to_slot_id,
             const VExprContextSPtrs* not_single_slot_filter_conjuncts,
             const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts,
@@ -335,6 +337,8 @@ private:
 
     std::set<uint64_t> _column_ids;
     std::set<uint64_t> _filter_column_ids;
+
+    std::unordered_map<std::string, uint32_t>* _col_name_to_block_idx = nullptr;
 
     // Since the filtering conditions for topn are dynamic, the filtering is delayed until create next row group reader.
     VExprSPtrs _top_runtime_vexprs;
