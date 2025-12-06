@@ -244,7 +244,7 @@ public abstract class ExternalCatalog
         // After 4.0, all external catalogs will use meta cache by default.
         catalogProperty.addProperty(USE_META_CACHE, String.valueOf(DEFAULT_USE_META_CACHE));
         if (catalogProperty.getOrDefault(CatalogProperty.ENABLE_MAPPING_VARBINARY, "").isEmpty()) {
-            catalogProperty.setEnableMappingVarbinary(false);
+            catalogProperty.setEnableMappingVarbinary(true); // true for test
         }
     }
 
