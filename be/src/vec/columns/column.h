@@ -477,7 +477,8 @@ public:
       * nan_direction_hint - see above.
       */
     virtual void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
-                                 Permutation& res) const {
+                                 Permutation& res,
+                                 std::pair<uint32_t, uint32_t>& extremum_range) const {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "get_permutation for " + get_name());
     }
@@ -637,7 +638,7 @@ public:
      */
     virtual void sort_column(const ColumnSorter* sorter, EqualFlags& flags,
                              IColumn::Permutation& perms, EqualRange& range,
-                             bool last_column) const;
+                             std::pair<uint32_t, uint32_t>& extremum_range, bool last_column) const;
 
     virtual ~IColumn() = default;
     IColumn() = default;
