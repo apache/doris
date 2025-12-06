@@ -193,6 +193,12 @@ void MetaServiceImpl::commit_index(::google::protobuf::RpcController* controller
         return;
     }
 
+    if (!request->has_db_id()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "missing db_id for commit_index";
+        return;
+    }
+
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::CREATE>(err);
@@ -332,6 +338,12 @@ void MetaServiceImpl::drop_index(::google::protobuf::RpcController* controller,
     if (request->index_ids().empty() || !request->has_table_id()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "empty index_ids or table_id";
+        return;
+    }
+
+    if (!request->has_db_id()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "missing db_id for drop_index";
         return;
     }
 
@@ -603,6 +615,12 @@ void MetaServiceImpl::commit_partition(::google::protobuf::RpcController* contro
         return;
     }
 
+    if (!request->has_db_id()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "missing db_id for commit_partition";
+        return;
+    }
+
     constexpr size_t BATCH_COMMIT_SIZE = 1000;
     for (size_t i = 0; i < request->partition_ids_size(); i += BATCH_COMMIT_SIZE) {
         std::vector<int64_t> partition_ids;
@@ -787,6 +805,12 @@ void MetaServiceImpl::drop_partition(::google::protobuf::RpcController* controll
         !request->has_table_id()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "empty partition_ids or index_ids or table_id";
+        return;
+    }
+
+    if (!request->has_db_id()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "missing db_id for drop_partition";
         return;
     }
 
