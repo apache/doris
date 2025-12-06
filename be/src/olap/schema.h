@@ -80,7 +80,7 @@ public:
             columns.push_back(std::make_shared<TabletColumn>(column));
         }
         _delete_sign_idx = tablet_schema->delete_sign_idx();
-        if (tablet_schema->has_sequence_col()) {
+        if (tablet_schema->has_sequence_col() || tablet_schema->has_seq_map()) {
             _has_sequence_col = true;
         }
         _init(columns, col_ids, num_key_columns);

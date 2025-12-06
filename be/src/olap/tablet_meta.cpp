@@ -191,6 +191,16 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
     schema->set_num_short_key_columns(tablet_schema.short_key_column_count);
     schema->set_num_rows_per_row_block(config::default_num_rows_per_column_file_block);
     schema->set_sequence_col_idx(tablet_schema.sequence_col_idx);
+    auto p_seq_map = schema->mutable_seq_map(); // ColumnGroupsPB
+
+    for (auto& it : tablet_schema.seq_map) { // std::vector< ::doris::TColumnGroup>
+        uint32_t key = it.sequence_column;
+        ColumnGroupPB* cg_pb = p_seq_map->add_cg(); // ColumnGroupPB {key: {v1, v2, v3}}
+        cg_pb->set_sequence_column(key);
+        for (auto v : it.columns_in_group) {
+            cg_pb->add_columns_in_group(v);
+        }
+    }
     switch (tablet_schema.keys_type) {
     case TKeysType::DUP_KEYS:
         schema->set_keys_type(KeysType::DUP_KEYS);

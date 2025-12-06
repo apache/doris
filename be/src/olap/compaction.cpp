@@ -204,7 +204,8 @@ Status Compaction::merge_input_rowsets() {
     {
         SCOPED_TIMER(_merge_rowsets_latency_timer);
         // 1. Merge segment files and write bkd inverted index
-        if (_is_vertical) {
+        // TODO implement vertical compaction for seq map
+        if (_is_vertical && !_tablet->tablet_schema()->has_seq_map()) {
             if (!_tablet->tablet_schema()->cluster_key_uids().empty()) {
                 RETURN_IF_ERROR(update_delete_bitmap());
             }
