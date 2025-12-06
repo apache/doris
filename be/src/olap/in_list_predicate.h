@@ -233,8 +233,8 @@ public:
     }
 
     bool evaluate_and(const std::pair<WrapperField*, WrapperField*>& statistic) const override {
-        if (statistic.first->is_null()) {
-            return true;
+        if (statistic.first->is_null() && statistic.second->is_null()) {
+            return false;
         }
         if constexpr (PT == PredicateType::IN_LIST) {
             return Compare::less_equal(get_zone_map_value<Type, T>(statistic.first->cell_ptr()),
