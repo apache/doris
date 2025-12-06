@@ -356,6 +356,10 @@ Status StorageEngine::start_bg_threads(std::shared_ptr<WorkloadGroup> wg_sptr) {
             &_check_delete_bitmap_score_thread));
     LOG(INFO) << "check tablet delete bitmap score thread started";
 
+    RETURN_IF_ERROR(ThreadPoolBuilder("AnnBuildThreadPool")
+                            .set_max_threads(1)
+                            .build(&_ann_build_thread_pool));
+
     LOG(INFO) << "all storage engine's background threads are started.";
     return Status::OK();
 }
