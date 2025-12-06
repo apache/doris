@@ -349,8 +349,8 @@ Status DataTypeArraySerDe::read_column_from_arrow(IColumn& column, const arrow::
 
 Status DataTypeArraySerDe::write_column_to_mysql_binary(const IColumn& column,
                                                         MysqlRowBinaryBuffer& result,
-                                                        int64_t row_idx_of_mysql, bool col_const,
-                                                        const FormatOptions& options) const {
+                                                        int64_t row_idx_of_mysql,
+                                                        bool col_const) const {
     return Status::NotSupported("Array type does not support write to mysql binary format");
 }
 
