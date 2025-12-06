@@ -325,6 +325,12 @@ public class SlotTypeReplacer extends DefaultPlanRewriter<Void> {
 
         Pair<Boolean, List<Function>> replacedGenerators
                 = replaceExpressions(generate.getGenerators(), false, false);
+        for (int i = 0; i < replacedGenerators.second.size(); i++) {
+            DataType dataType = replacedGenerators.second.get(i).getDataType();
+            replacedDataTypes.put(generate.getGeneratorOutput().get(i).getExprId().asInt(),
+                    new AccessPathInfo(dataType, null, null)
+            );
+        }
         Pair<Boolean, List<Slot>> replacedGeneratorOutput
                 = replaceExpressions(generate.getGeneratorOutput(), false, false);
         if (replacedGenerators.first || replacedGeneratorOutput.first) {

@@ -449,9 +449,14 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
         public void setType(TAccessPathType type) {
             this.type = type;
         }
+
+        public AccessPathBuilder getAccessPathBuilder() {
+            return accessPathBuilder;
+        }
     }
 
-    private static class AccessPathBuilder {
+    /** AccessPathBuilder */
+    public static class AccessPathBuilder {
         private LinkedList<String> accessPath;
 
         public AccessPathBuilder() {
@@ -460,6 +465,16 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
 
         public AccessPathBuilder addPrefix(String prefix) {
             accessPath.addFirst(prefix);
+            return this;
+        }
+
+        public AccessPathBuilder addSuffix(String suffix) {
+            accessPath.addLast(suffix);
+            return this;
+        }
+
+        public AccessPathBuilder addSuffix(List<String> suffix) {
+            accessPath.addAll(suffix);
             return this;
         }
 
