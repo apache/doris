@@ -1221,6 +1221,14 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
         return;
     }
 
+    if (rs_meta.has_recycled_marked() && rs_meta.recycled_marked()) {
+        SS << "rowset has already been marked as recycled, tablet_id=" << tablet_id
+           << " txn_id=" << rs_meta.txn_id();
+        msg = ss.str();
+        code = MetaServiceCode::TXN_ALREADY_ABORTED;
+        return;
+    }
+
     txn->remove(tmp_rowset_key);
     INSTANCE_LOG(INFO) << "remove tmp rowset meta, tablet_id=" << tablet_id
                        << " tmp_rowset_key=" << hex(tmp_rowset_key);
@@ -1805,6 +1813,15 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
             msg = ss.str();
             return;
         }
+
+        if (tmp_rowset_meta.has_recycled_marked() && tmp_rowset_meta.recycled_marked()) {
+            SS << "rowset has already been marked as recycled, tablet_id=" << new_tablet_id
+               << " txn_id=" << tmp_rowset_meta.txn_id();
+            msg = ss.str();
+            code = MetaServiceCode::TXN_ALREADY_ABORTED;
+            return;
+        }
+
         using namespace std::chrono;
         auto rowset_visible_time =
                 duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();

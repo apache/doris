@@ -1105,6 +1105,39 @@ int64_t calculate_restore_job_expired_time(
     return final_expiration;
 }
 
+int mark_rowset_as_recycled(TxnKv* txn_kv, const std::string& instance_id, std::string_view key,
+                            RowsetMetaCloudPB& rs_meta) {
+    bool need_write_back = false;
+    if (!rs_meta.has_recycled_marked()) {
+        rs_meta.set_recycled_marked(false);
+        need_write_back = true;
+    } else if (!rs_meta.recycled_marked()) {
+        rs_meta.set_recycled_marked(true);
+        need_write_back = true;
+    }
+
+    if (need_write_back) {
+        std::unique_ptr<Transaction> txn;
+        TxnErrorCode err = txn_kv->create_txn(&txn);
+        if (err != TxnErrorCode::TXN_OK) {
+            LOG(WARNING) << "failed to create txn, instance_id=" << instance_id;
+            return -1;
+        }
+        std::string val;
+        if (!rs_meta.SerializeToString(&val)) {
+            LOG(WARNING) << "failed to serialize rs_meta, instance_id=" << instance_id;
+            return -1;
+        }
+        txn->put(key, val);
+        err = txn->commit();
+        if (err != TxnErrorCode::TXN_OK) {
+            LOG(WARNING) << "failed to commit txn, instance_id=" << instance_id;
+            return -1;
+        }
+    }
+    return need_write_back ? 1 : 0;
+}
+
 int InstanceRecycler::recycle_indexes() {
     const std::string task_name = "recycle_indexes";
     int64_t num_scanned = 0;
@@ -3072,6 +3105,7 @@ int InstanceRecycler::recycle_rowsets() {
             return -1;
         }
 
+        auto* rowset_meta = rowset.mutable_rowset_meta();
         int64_t current_time = ::time(nullptr);
         int64_t expiration = calculate_rowset_expired_time(instance_id_, rowset, &earlest_ts);
 
@@ -3083,6 +3117,18 @@ int InstanceRecycler::recycle_rowsets() {
         }
         ++num_expired;
         expired_rowset_size += v.size();
+
+        int mark_ret = mark_rowset_as_recycled(txn_kv_.get(), instance_id_, k, *rowset_meta);
+        if (mark_ret == -1) {
+            LOG(WARNING) << "failed to mark rowset as recycled, instance_id=" << instance_id_
+                         << " key=" << hex(k);
+            return -1;
+        } else if (mark_ret == 1) {
+            LOG(INFO) << "rowset already marked as recycled, instance_id=" << instance_id_
+                      << " key=" << hex(k);
+            return 0;
+        }
+
         if (!rowset.has_type()) {                         // old version `RecycleRowsetPB`
             if (!rowset.has_resource_id()) [[unlikely]] { // impossible
                 // in old version, keep this key-value pair and it needs to be checked manually
@@ -3120,7 +3166,6 @@ int InstanceRecycler::recycle_rowsets() {
             return 0;
         }
         // TODO(plat1ko): check rowset not referenced
-        auto rowset_meta = rowset.mutable_rowset_meta();
         if (!rowset_meta->has_resource_id()) [[unlikely]] { // impossible
             if (rowset.type() != RecycleRowsetPB::PREPARE && rowset_meta->num_segments() == 0) {
                 LOG_INFO("recycle rowset that has empty resource id");
@@ -3795,16 +3840,14 @@ int InstanceRecycler::recycle_tmp_rowsets() {
             return 0;
         }
 
-        DCHECK_GT(rowset.txn_id(), 0)
-                << "txn_id=" << rowset.txn_id() << " rowset=" << rowset.ShortDebugString();
-        if (!is_txn_finished(txn_kv_, instance_id_, rowset.txn_id())) {
-            LOG(INFO) << "txn is not finished, skip recycle tmp rowset, instance_id="
-                      << instance_id_ << " tablet_id=" << rowset.tablet_id()
-                      << " rowset_id=" << rowset.rowset_id_v2() << " version=["
-                      << rowset.start_version() << '-' << rowset.end_version()
-                      << "] txn_id=" << rowset.txn_id()
-                      << " creation_time=" << rowset.creation_time() << " expiration=" << expiration
-                      << " txn_expiration=" << rowset.txn_expiration();
+        int mark_ret = mark_rowset_as_recycled(txn_kv_.get(), instance_id_, k, rowset);
+        if (mark_ret == -1) {
+            LOG(WARNING) << "failed to mark rowset as recycled, instance_id=" << instance_id_
+                         << " key=" << hex(k);
+            return -1;
+        } else if (mark_ret == 1) {
+            LOG(INFO) << "rowset already marked as recycled, instance_id=" << instance_id_
+                      << " key=" << hex(k);
             return 0;
         }
 
