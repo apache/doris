@@ -81,7 +81,17 @@ ProcessHashTableProbe<JoinOpType>::ProcessHashTableProbe(HashJoinProbeLocalState
           _probe_side_output_timer(parent->_probe_side_output_timer),
           _finish_probe_phase_timer(parent->_finish_probe_phase_timer),
           _right_col_idx(_parent_operator->_right_col_idx),
-          _right_col_len(_parent_operator->_right_table_data_types.size()) {}
+          _right_col_len(_parent_operator->_right_table_data_types.size()) {
+    constexpr int CALCULATE_ALL_MATCH_ONE_THRESHOLD = 2;
+    int probe_output_non_lazy_materialized_count = 0;
+    for (int i = 0; i < _left_output_slot_flags.size(); i++) {
+        if (_left_output_slot_flags[i] && !_parent_operator->is_lazy_materialized_column(i)) {
+            probe_output_non_lazy_materialized_count++;
+        }
+    }
+    _need_calculate_all_match_one =
+            probe_output_non_lazy_materialized_count >= CALCULATE_ALL_MATCH_ONE_THRESHOLD;
+}
 
 template <int JoinOpType>
 void ProcessHashTableProbe<JoinOpType>::build_side_output_column(vectorized::MutableColumns& mcol,
@@ -98,7 +108,6 @@ void ProcessHashTableProbe<JoinOpType>::build_side_output_column(vectorized::Mut
     }
 
     if (!build_index_has_zero && _build_column_has_null.empty()) {
-        _need_calculate_build_index_has_zero = false;
         _build_column_has_null.resize(_right_output_slot_flags.size());
         for (int i = 0; i < _right_col_len; i++) {
             const auto& column = *_build_block->safe_get_by_position(i).column;
@@ -107,7 +116,6 @@ void ProcessHashTableProbe<JoinOpType>::build_side_output_column(vectorized::Mut
                 const auto& nullable = assert_cast<const vectorized::ColumnNullable&>(column);
                 _build_column_has_null[i] = !simd::contain_byte(
                         nullable.get_null_map_data().data() + 1, nullable.size() - 1, 1);
-                _need_calculate_build_index_has_zero |= _build_column_has_null[i];
             }
         }
     }
@@ -147,7 +155,8 @@ template <int JoinOpType>
 void ProcessHashTableProbe<JoinOpType>::probe_side_output_column(vectorized::MutableColumns& mcol) {
     SCOPED_TIMER(_probe_side_output_timer);
     auto& probe_block = _parent->_probe_block;
-    bool all_match_one = check_all_match_one(_probe_indexs.get_data());
+    bool all_match_one =
+            _need_calculate_all_match_one ? check_all_match_one(_probe_indexs.get_data()) : false;
 
     for (int i = 0; i < _left_output_slot_flags.size(); ++i) {
         if (_left_output_slot_flags[i]) {
