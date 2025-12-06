@@ -30,6 +30,7 @@ import org.apache.doris.nereids.util.ExpressionUtils;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
+import java.util.LinkedHashSet;
 import java.util.List;
 
 /** MultiDistinctCount */
@@ -51,7 +52,8 @@ public class MultiDistinctCount extends NotNullableAggregateFunction
     }
 
     private MultiDistinctCount(boolean distinct, List<Expression> children) {
-        super("multi_distinct_count", false, children);
+        super("multi_distinct_count", false, new LinkedHashSet<>(children)
+                .stream().collect(ImmutableList.toImmutableList()));
         if (super.children().size() > 1) {
             throw new AnalysisException("MultiDistinctCount's children size must be 1");
         }
