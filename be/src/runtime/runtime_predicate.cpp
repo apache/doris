@@ -196,6 +196,12 @@ bool RuntimePredicate::_init(PrimitiveType type) {
         _get_value_fn = get_normal_value<TYPE_IPV6>;
         break;
     }
+    case doris::PrimitiveType::TYPE_VARBINARY: {
+        _get_value_fn = [](const Field& field) {
+            return field.get<StringViewField>().get_string();
+        };
+        break;
+    }
     default:
         return false;
     }

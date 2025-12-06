@@ -719,6 +719,10 @@ std::string_view Field::as_string_view() const {
         const auto& s = get<String>();
         return {s.data(), s.size()};
     }
+    if (type == PrimitiveType::TYPE_VARBINARY) {
+        const auto& svf = get<StringViewField>();
+        return {svf.data(), svf.size()};
+    }
     // MATCH_PRIMITIVE_TYPE(INVALID_TYPE);
     // MATCH_PRIMITIVE_TYPE(TYPE_NULL);
     MATCH_PRIMITIVE_TYPE(TYPE_BOOLEAN);
@@ -783,6 +787,10 @@ std::string Field::to_string() const {
         type == PrimitiveType::TYPE_CHAR) {
         const auto& s = get<String>();
         return {s.data(), s.size()};
+    }
+    if (type == PrimitiveType::TYPE_VARBINARY) {
+        const auto& svf = get<StringViewField>();
+        return {svf.data(), svf.size()};
     }
     MATCH_DECIMAL_TYPE(TYPE_DECIMAL32);
     MATCH_DECIMAL_TYPE(TYPE_DECIMAL64);
