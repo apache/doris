@@ -67,6 +67,7 @@ public class StructLiteral extends LiteralExpr {
             }
             children.add(expr);
         }
+        setNullableFromNereids(false);
     }
 
     protected StructLiteral(StructLiteral other) {

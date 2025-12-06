@@ -148,6 +148,7 @@ public class CastExpr extends Expr {
 
     @Override
     public boolean isNullable() {
+        Preconditions.checkState(nullableFromNereids.isPresent(), "nullableFromNereids is null");
         return children.get(0).isNullable()
                 || (children.get(0).getType().isStringType() && !getType().isStringType())
                 || (!children.get(0).getType().isDateType() && getType().isDateType());

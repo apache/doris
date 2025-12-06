@@ -81,6 +81,7 @@ public class LargeIntLiteral extends NumericLiteralExpr {
         }
         this.value = bigInt;
         type = Type.LARGEINT;
+        setNullableFromNereids(false);
         analysisDone();
     }
 

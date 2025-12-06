@@ -319,12 +319,12 @@ public class PlanTranslatorContext {
                     + "." + String.join(".", slotReference.getSubPath()));
         }
         slotRef.setLabel(slotReference.getName());
+        slotRef.setNullableFromNereids(slotReference.nullable());
         if (column.isPresent()) {
             slotDescriptor.setAutoInc(column.get().isAutoInc());
         }
         this.addExprIdSlotRefPair(slotReference.getExprId(), slotRef);
         slotDescriptor.setIsNullable(slotReference.nullable());
-
         if (slotReference.getAllAccessPaths().isPresent()) {
             slotDescriptor.setAllAccessPaths(slotReference.getAllAccessPaths().get());
             slotDescriptor.setPredicateAccessPaths(slotReference.getPredicateAccessPaths().get());

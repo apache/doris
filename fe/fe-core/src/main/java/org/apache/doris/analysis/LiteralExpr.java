@@ -193,6 +193,7 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
 
     @Override
     public boolean isNullable() {
+        Preconditions.checkState(nullableFromNereids.isPresent(), "nullableFromNereids is null");
         // TODO: use base class's isNullLiteral() to replace this
         return this instanceof NullLiteral;
     }

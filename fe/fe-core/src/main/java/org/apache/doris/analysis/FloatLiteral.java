@@ -51,6 +51,7 @@ public class FloatLiteral extends NumericLiteralExpr {
     public FloatLiteral(Double value, Type type) {
         this.value = value.doubleValue();
         this.type = type;
+        setNullableFromNereids(false);
         analysisDone();
     }
 

@@ -590,6 +590,7 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable {
      * overwrite this method to plan correct
      */
     public boolean isNullable() {
+        Preconditions.checkState(nullableFromNereids.isPresent(), "nullableFromNereids is null");
         return isNullable(fn, children);
     }
 

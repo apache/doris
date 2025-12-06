@@ -58,6 +58,7 @@ public class DecimalLiteral extends NumericLiteralExpr {
     public DecimalLiteral(BigDecimal value, Type type) {
         this.value = value;
         this.type = type;
+        setNullableFromNereids(false);
         analysisDone();
     }
 

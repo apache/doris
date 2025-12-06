@@ -52,6 +52,7 @@ public class StringLiteral extends LiteralExpr {
         super();
         this.value = value;
         type = Type.VARCHAR;
+        setNullableFromNereids(false);
         analysisDone();
     }
 

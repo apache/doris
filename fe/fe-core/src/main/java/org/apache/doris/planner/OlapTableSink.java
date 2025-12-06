@@ -668,6 +668,7 @@ public class OlapTableSink extends DataSink {
             // set start keys. min value is a REAL value. should be legal.
             if (range.hasLowerBound() && !range.lowerEndpoint().isMinValue()) {
                 for (int i = 0; i < partColNum; i++) {
+                    range.lowerEndpoint().getKeys().get(i).setNullableFromNereids(false);
                     tPartition.addToStartKeys(range.lowerEndpoint().getKeys().get(i).treeToThrift().getNodes().get(0));
                 }
             }
@@ -676,6 +677,7 @@ public class OlapTableSink extends DataSink {
             // see VOlapTablePartition's ctor in tablet_info.h
             if (range.hasUpperBound() && !range.upperEndpoint().isMaxValue()) {
                 for (int i = 0; i < partColNum; i++) {
+                    range.upperEndpoint().getKeys().get(i).setNullableFromNereids(false);
                     tPartition.addToEndKeys(range.upperEndpoint().getKeys().get(i).treeToThrift().getNodes().get(0));
                 }
             }
