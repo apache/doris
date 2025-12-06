@@ -2352,8 +2352,10 @@ Status SegmentIterator::_read_columns_by_rowids(std::vector<ColumnId>& read_colu
 }
 
 Status SegmentIterator::next_batch(vectorized::Block* block) {
+    RETURN_IF_ERROR(block->check_type_and_column("1111"));
     // Replace virtual columns with ColumnNothing at the begining of each next_batch call.
     _init_virtual_columns(block);
+    RETURN_IF_ERROR(block->check_type_and_column("2222"));
     auto status = [&]() {
         RETURN_IF_CATCH_EXCEPTION({
             auto res = _next_batch_internal(block);
@@ -2394,7 +2396,7 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
                             block->get_by_position(i).column->permute(permutation, num_rows);
             }
 
-            RETURN_IF_ERROR(block->check_type_and_column());
+            RETURN_IF_ERROR(block->check_type_and_column("4444"));
 
             return Status::OK();
         });
@@ -2452,6 +2454,8 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
     DCHECK(is_mem_reuse);
 
     RETURN_IF_ERROR(_lazy_init(block));
+
+    RETURN_IF_ERROR(block->check_type_and_column("33333"));
 
     SCOPED_RAW_TIMER(&_opts.stats->block_load_ns);
 

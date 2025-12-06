@@ -269,7 +269,7 @@ void Block::check_number_of_rows(bool allow_null_columns) const {
     }
 }
 
-Status Block::check_type_and_column() const {
+Status Block::check_type_and_column(std::string debug_str) const {
 #ifndef NDEBUG
     for (const auto& elem : data) {
         if (!elem.column) {
@@ -288,12 +288,14 @@ Status Block::check_type_and_column() const {
         const auto& type = elem.type;
         const auto& column = elem.column;
 
+        RETURN_IF_ERROR(column->column_self_check());
+
         auto st = type->check_column(*column);
         if (!st.ok()) {
             return Status::InternalError(
                     "Column {} in block is not compatible with its column type :{}, data type :{}, "
-                    "error: {}",
-                    elem.name, column->get_name(), type->get_name(), st.msg());
+                    "error: {} , debug str :{}",
+                    elem.name, column->get_name(), type->get_name(), st.msg(), debug_str);
         }
     }
 #endif

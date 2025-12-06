@@ -183,7 +183,7 @@ public:
     /// Checks that every column in block is not nullptr and has same number of elements.
     void check_number_of_rows(bool allow_null_columns = false) const;
 
-    Status check_type_and_column() const;
+    Status check_type_and_column(std::string debug_str = "") const;
 
     /// Approximate number of bytes in memory - for profiling and limits.
     size_t bytes() const;

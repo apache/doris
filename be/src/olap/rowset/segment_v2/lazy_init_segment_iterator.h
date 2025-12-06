@@ -45,6 +45,8 @@ public:
             DCHECK(_inner_iterator != nullptr);
         }
 
+        RETURN_IF_ERROR(block->check_type_and_column());
+
         return _inner_iterator->next_batch(block);
     }
 
