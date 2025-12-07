@@ -99,27 +99,23 @@ Status GetResultBatchCtx::on_data(const std::shared_ptr<TFetchDataResult>& t_res
     return Status::OK();
 }
 
-template <bool is_binary_format>
-VMysqlResultWriter<is_binary_format>::VMysqlResultWriter(
-        std::shared_ptr<ResultBlockBufferBase> sinker, const VExprContextSPtrs& output_vexpr_ctxs,
-        RuntimeProfile* parent_profile)
+VMysqlResultWriter::VMysqlResultWriter(std::shared_ptr<ResultBlockBufferBase> sinker,
+                                       const VExprContextSPtrs& output_vexpr_ctxs,
+                                       RuntimeProfile* parent_profile, bool is_binary_format)
         : ResultWriter(),
           _sinker(std::dynamic_pointer_cast<MySQLResultBlockBuffer>(sinker)),
           _output_vexpr_ctxs(output_vexpr_ctxs),
-          _parent_profile(parent_profile) {}
+          _parent_profile(parent_profile),
+          _is_binary_format(is_binary_format) {}
 
-template <bool is_binary_format>
-Status VMysqlResultWriter<is_binary_format>::init(RuntimeState* state) {
+Status VMysqlResultWriter::init(RuntimeState* state) {
     _init_profile();
     set_output_object_data(state->return_object_data_as_binary());
     _is_dry_run = state->query_options().dry_run_query;
-
-    RETURN_IF_ERROR(_set_options(state->query_options().serde_dialect));
     return Status::OK();
 }
 
-template <bool is_binary_format>
-void VMysqlResultWriter<is_binary_format>::_init_profile() {
+void VMysqlResultWriter::_init_profile() {
     if (_parent_profile != nullptr) {
         // for PointQueryExecutor, _parent_profile is null
         _append_row_batch_timer = ADD_TIMER(_parent_profile, "AppendBatchTime");
@@ -131,53 +127,7 @@ void VMysqlResultWriter<is_binary_format>::_init_profile() {
     }
 }
 
-template <bool is_binary_format>
-Status VMysqlResultWriter<is_binary_format>::_set_options(
-        const TSerdeDialect::type& serde_dialect) {
-    switch (serde_dialect) {
-    case TSerdeDialect::DORIS:
-        // eg:
-        //  array: ["abc", "def", "", null]
-        //  map: {"k1":null, "k2":"v3"}
-        _options.nested_string_wrapper = "\"";
-        _options.wrapper_len = 1;
-        _options.map_key_delim = ':';
-        _options.null_format = "null";
-        _options.null_len = 4;
-        _options.mysql_collection_delim = ", ";
-        _options.is_bool_value_num = true;
-        break;
-    case TSerdeDialect::PRESTO:
-        // eg:
-        //  array: [abc, def, , NULL]
-        //  map: {k1=NULL, k2=v3}
-        _options.nested_string_wrapper = "";
-        _options.wrapper_len = 0;
-        _options.map_key_delim = '=';
-        _options.null_format = "NULL";
-        _options.null_len = 4;
-        _options.mysql_collection_delim = ", ";
-        _options.is_bool_value_num = true;
-        break;
-    case TSerdeDialect::HIVE:
-        // eg:
-        //  array: ["abc","def","",null]
-        //  map: {"k1":null,"k2":"v3"}
-        _options.nested_string_wrapper = "\"";
-        _options.wrapper_len = 1;
-        _options.map_key_delim = ':';
-        _options.null_format = "null";
-        _options.null_len = 4;
-        _options.mysql_collection_delim = ",";
-        _options.is_bool_value_num = false;
-        break;
-    default:
-        return Status::InternalError("unknown serde dialect: {}", serde_dialect);
-    }
-    return Status::OK();
-}
-template <bool is_binary_format>
-Status VMysqlResultWriter<is_binary_format>::_write_one_block(RuntimeState* state, Block& block) {
+Status VMysqlResultWriter::_write_one_block(RuntimeState* state, Block& block) {
     Status status = Status::OK();
     int num_rows = cast_set<int>(block.rows());
     // convert one batch
@@ -237,7 +187,7 @@ Status VMysqlResultWriter<is_binary_format>::_write_one_block(RuntimeState* stat
         size_t write_buffer_index = 0;
         // For non-binary format, we need to call different serialization interfaces
         // write_column_to_mysql/presto/hive text
-        if (!is_binary_format) {
+        if (!_is_binary_format) {
             const auto& serde_dialect = state->query_options().serde_dialect;
             auto write_to_text = [serde_dialect](DataTypeSerDeSPtr& serde, const IColumn* column,
                                                  BufferWriter& write_buffer, size_t col_index) {
@@ -298,7 +248,7 @@ Status VMysqlResultWriter<is_binary_format>::_write_one_block(RuntimeState* stat
                     } else {
                         RETURN_IF_ERROR(arguments[col_idx].serde->write_column_to_mysql_binary(
                                 *(arguments[col_idx].column), row_buffer, row_idx,
-                                arguments[col_idx].is_const, _options));
+                                arguments[col_idx].is_const));
                     }
                 }
 
@@ -327,8 +277,7 @@ Status VMysqlResultWriter<is_binary_format>::_write_one_block(RuntimeState* stat
     return status;
 }
 
-template <bool is_binary_format>
-Status VMysqlResultWriter<is_binary_format>::write(RuntimeState* state, Block& input_block) {
+Status VMysqlResultWriter::write(RuntimeState* state, Block& input_block) {
     SCOPED_TIMER(_append_row_batch_timer);
     Status status = Status::OK();
     if (UNLIKELY(input_block.rows() == 0)) {
@@ -368,14 +317,10 @@ Status VMysqlResultWriter<is_binary_format>::write(RuntimeState* state, Block& i
     return _write_one_block(state, block);
 }
 
-template <bool is_binary_format>
-Status VMysqlResultWriter<is_binary_format>::close(Status) {
+Status VMysqlResultWriter::close(Status) {
     COUNTER_SET(_sent_rows_counter, _written_rows);
     COUNTER_UPDATE(_bytes_sent_counter, _bytes_sent);
     return Status::OK();
 }
-
-template class VMysqlResultWriter<true>;
-template class VMysqlResultWriter<false>;
 
 } // namespace doris::vectorized
