@@ -119,10 +119,18 @@ Status VectorizedFnCall::prepare(RuntimeState* state, const RowDescriptor& desc,
         }
     } else if (_fn.binary_type == TFunctionBinaryType::PYTHON_UDF) {
         if (config::enable_python_udf_support) {
-            _function = PythonFunctionCall::create(_fn, argument_template, _data_type);
-            LOG(INFO) << fmt::format(
-                    "create python function call: {}, runtime version: {}, function code: {}",
-                    _fn.name.function_name, _fn.runtime_version, _fn.function_code);
+            if (_fn.is_udtf_function) {
+                // fake function. it's no use and can't execute.
+                // Python UDTF is executed via PythonUDTFFunction in table function path
+                auto builder =
+                        std::make_shared<DefaultFunctionBuilder>(FunctionFake<UDTFImpl>::create());
+                _function = builder->build(argument_template, std::make_shared<DataTypeUInt8>());
+            } else {
+                _function = PythonFunctionCall::create(_fn, argument_template, _data_type);
+                LOG(INFO) << fmt::format(
+                        "create python function call: {}, runtime version: {}, function code: {}",
+                        _fn.name.function_name, _fn.runtime_version, _fn.function_code);
+            }
         } else {
             return Status::InternalError(
                     "Python UDF is not enabled, you can change be config enable_python_udf_support "

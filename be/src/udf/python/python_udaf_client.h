@@ -19,14 +19,7 @@
 
 #include <arrow/status.h>
 
-#include <memory>
-#include <mutex>
-
-#include "arrow/flight/client.h"
-#include "common/status.h"
-#include "udf/python/python_udf_meta.h"
-#include "udf/python/python_udf_runtime.h"
-#include "util/arrow/utils.h"
+#include "udf/python/python_client.h"
 
 namespace doris {
 
@@ -53,13 +46,8 @@ using PythonUDAFClientPtr = std::shared_ptr<PythonUDAFClient>;
  * 6. RESET: Reset state to initial value
  * 7. DESTROY: Clean up resources
  */
-class PythonUDAFClient {
+class PythonUDAFClient : public PythonClient {
 public:
-    using FlightDescriptor = arrow::flight::FlightDescriptor;
-    using FlightClient = arrow::flight::FlightClient;
-    using FlightStreamWriter = arrow::flight::FlightStreamWriter;
-    using FlightStreamReader = arrow::flight::FlightStreamReader;
-
     // UDAF operation types
     enum class UDAFOperation : uint8_t {
         CREATE = 0,     // Create new aggregate state
@@ -72,12 +60,10 @@ public:
     };
 
     PythonUDAFClient() = default;
-    ~PythonUDAFClient() = default;
+    ~PythonUDAFClient() override = default;
 
     static Status create(const PythonUDFMeta& func_meta, ProcessPtr process,
                          PythonUDAFClientPtr* client);
-
-    Status init(const PythonUDFMeta& func_meta, ProcessPtr process);
 
     /**
      * Create aggregate state for a place
@@ -145,16 +131,17 @@ public:
      */
     Status destroy_all();
 
+    /**
+     * Close client connection and cleanup
+     * Overrides base class to destroy all states first
+     * @return Status
+     */
     Status close();
-
-    std::string print_process() const { return _process->to_string(); }
 
     static std::string print_operation(UDAFOperation op);
 
 private:
     DISALLOW_COPY_AND_ASSIGN(PythonUDAFClient);
-
-    Status _handle_error(arrow::Status status);
 
     /**
      * Helper to execute a UDAF operation (CREATE, RESET, DESTROY, etc.)
@@ -186,13 +173,6 @@ private:
      */
     Status _send_operation(const arrow::RecordBatch* input,
                            std::shared_ptr<arrow::RecordBatch>* output);
-
-    bool _inited = false;
-    bool _begin = false; // Track if Begin() has been called
-    std::unique_ptr<FlightClient> _arrow_client;
-    std::unique_ptr<FlightStreamWriter> _writer;
-    std::unique_ptr<FlightStreamReader> _reader;
-    ProcessPtr _process;
 
     // Track created states for cleanup
     std::unordered_set<int64_t> _created_states;

@@ -25,7 +25,7 @@
 #include <vector>
 
 #include "common/status.h"
-#include "udf/python/python_udf_server.h"
+#include "udf/python/python_server.h"
 #include "util/string_util.h"
 
 namespace doris {
@@ -283,7 +283,7 @@ Status PythonVersionManager::init(PythonEnvType env_type, const fs::path& python
     std::vector<PythonVersion> versions;
     RETURN_IF_ERROR(_env_scanner->scan());
     RETURN_IF_ERROR(_env_scanner->get_versions(&versions));
-    RETURN_IF_ERROR(PythonUDFServerManager::instance().init(versions));
+    RETURN_IF_ERROR(PythonServerManager::instance().init(versions));
     return Status::OK();
 }
 

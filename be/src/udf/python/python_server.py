@@ -33,6 +33,7 @@ from typing import Any, Callable, Optional, Tuple, get_origin, Dict
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
+from logging.handlers import RotatingFileHandler
 
 import pandas as pd
 import pyarrow as pa
@@ -48,7 +49,8 @@ class ServerState:
 
     @staticmethod
     def setup_logging():
-        """Setup logging configuration for the UDF server."""
+        """Setup logging configuration for the UDF server with rotation."""
+
         doris_home = os.getenv("DORIS_HOME")
         if not doris_home:
             # Fallback to current directory if DORIS_HOME is not set
@@ -56,17 +58,37 @@ class ServerState:
 
         log_dir = os.path.join(doris_home, "lib", "udf", "python")
         os.makedirs(log_dir, exist_ok=True)
+
+        # Use shared log file with process ID in each log line
         log_file = os.path.join(log_dir, "python_udf_output.log")
+        max_bytes = 128 * 1024 * 1024  # 128MB
+        backup_count = 5
+
+        # Use RotatingFileHandler to automatically manage log file size
+        file_handler = RotatingFileHandler(
+            log_file, maxBytes=max_bytes, backupCount=backup_count, encoding="utf-8"
+        )
+
+        # Include process ID in log format
+        file_handler.setFormatter(
+            logging.Formatter(
+                "[%(asctime)s] [PID:%(process)d] [%(levelname)s] [%(filename)s:%(lineno)d] %(message)s"
+            )
+        )
 
         logging.basicConfig(
             level=logging.INFO,
-            format="[%(asctime)s] [%(levelname)s] [%(filename)s:%(lineno)d] %(message)s",
             handlers=[
-                logging.FileHandler(log_file, mode="a", encoding="utf-8"),
+                file_handler,
                 logging.StreamHandler(sys.stderr),  # Also log to stderr for debugging
             ],
         )
-        logging.info("Logging initialized. Log file: %s", log_file)
+        logging.info(
+            "Logging initialized. Log file: %s (max_size=%dMB, backups=%d)",
+            log_file,
+            max_bytes // (1024 * 1024),
+            backup_count,
+        )
 
     @staticmethod
     def extract_base_unix_socket_path(unix_socket_uri: str) -> str:
@@ -592,7 +614,6 @@ class InlineUDFLoader(UDFLoader):
             )
             raise ValueError(f"'{symbol}' is not a callable function.")
 
-        logging.info("Successfully loaded function '%s' from inline code", symbol)
         return AdaptivePythonUDF(self.python_udf_meta, func)
 
 
@@ -981,7 +1002,7 @@ class UDAFClassLoader:
     @staticmethod
     def validate_udaf_class(udaf_class: type):
         """
-        Validate that the UDAF class follows the required Snowflake pattern.
+        Validate that the UDAF class implements required methods.
 
         Args:
             udaf_class: The class to validate
@@ -1042,7 +1063,7 @@ class UDAFStateManager:
         Set the UDAF class to use for creating instances.
 
         Args:
-            udaf_class: The UDAF class (must follow Snowflake pattern)
+            udaf_class: The UDAF class
 
         Note:
             Validation is performed by UDAFClassLoader before calling this method.
@@ -1285,18 +1306,14 @@ class UDAFStateManager:
                 )
                 logging.error(error_msg)
                 raise RuntimeError(error_msg)
-            
+
             if self.udaf_class is None:
-                raise RuntimeError(
-                    "UDAF class not set. Call set_udaf_class() first."
-                )
+                raise RuntimeError("UDAF class not set. Call set_udaf_class() first.")
 
             try:
                 self.states[place_id] = self.udaf_class()
             except Exception as e:
-                logging.error(
-                    "Error resetting state for place_id %s: %s", place_id, e
-                )
+                logging.error("Error resetting state for place_id %s: %s", place_id, e)
                 raise RuntimeError(f"Error resetting state: {e}") from e
 
     def destroy(self, place_id: int) -> None:
@@ -1318,7 +1335,7 @@ class UDAFStateManager:
                 )
                 logging.error(error_msg)
                 raise RuntimeError(error_msg)
-            
+
             del self.states[place_id]
 
     def clear_all(self) -> None:
@@ -1330,7 +1347,7 @@ class UDAFStateManager:
 
 
 class FlightServer(flight.FlightServerBase):
-    """Arrow Flight server for executing Python UDFs and UDAFs."""
+    """Arrow Flight server for executing Python UDFs, UDAFs, and UDTFs."""
 
     def __init__(self, location: str):
         """
@@ -1719,7 +1736,7 @@ class FlightServer(flight.FlightServerBase):
             [pa.array([success], type=pa.bool_())], ["success"]
         )
 
-    def _do_exchange_udf(
+    def _handle_exchange_udf(
         self,
         python_udf_meta: PythonUDFMeta,
         reader: flight.MetadataRecordBatchReader,
@@ -1761,7 +1778,7 @@ class FlightServer(flight.FlightServerBase):
                 started = True
             writer.write_batch(result_batch)
 
-    def _do_exchange_udaf(
+    def _handle_exchange_udaf(
         self,
         python_udaf_meta: PythonUDFMeta,
         reader: flight.MetadataRecordBatchReader,
@@ -1853,6 +1870,164 @@ class FlightServer(flight.FlightServerBase):
 
             writer.write_batch(unified_response)
 
+    def _handle_exchange_udtf(
+        self,
+        python_udtf_meta: PythonUDFMeta,
+        reader: flight.MetadataRecordBatchReader,
+        writer: flight.MetadataRecordBatchWriter,
+    ) -> None:
+        """
+        Handle bidirectional streaming for UDTF execution.
+
+        Protocol (ListArray-based):
+        - Input: RecordBatch with input columns
+        - Output: RecordBatch with a single ListArray column
+          * ListArray automatically manages offsets internally
+          * Each list element contains the outputs for one input row
+
+        Example:
+          Input: 3 rows
+          UDTF yields: Row 0 -> 5 outputs, Row 1 -> 2 outputs, Row 2 -> 3 outputs
+          Output: ListArray with 3 elements (one per input row)
+            - Element 0: List of 5 structs
+            - Element 1: List of 2 structs
+            - Element 2: List of 3 structs
+        """
+        loader = UDFLoaderFactory.get_loader(python_udtf_meta)
+        adaptive_udtf = loader.load()
+        udtf_func = adaptive_udtf._eval_func
+        started = False
+
+        for chunk in reader:
+            if not chunk.data:
+                logging.info("Empty chunk received, skipping")
+                continue
+
+            input_batch = chunk.data
+
+            # Validate input schema
+            check_schema_result, error_msg = self.check_schema(
+                input_batch, python_udtf_meta.input_types
+            )
+            if not check_schema_result:
+                logging.error("Schema mismatch: %s", error_msg)
+                raise ValueError(f"Schema mismatch: {error_msg}")
+
+            # Process all input rows and build ListArray
+            try:
+                response_batch = self._process_udtf_with_list_array(
+                    udtf_func, input_batch, python_udtf_meta.output_type
+                )
+
+                # Send the response batch
+                if not started:
+                    writer.begin(response_batch.schema)
+                    started = True
+
+                writer.write_batch(response_batch)
+
+            except Exception as e:
+                logging.error(
+                    "Error in UDTF execution: %s\nTraceback: %s",
+                    e,
+                    traceback.format_exc(),
+                )
+                raise RuntimeError(f"Error in UDTF execution: {e}") from e
+
+    def _process_udtf_with_list_array(
+        self,
+        udtf_func: Callable,
+        input_batch: pa.RecordBatch,
+        expected_output_type: pa.DataType,
+    ) -> pa.RecordBatch:
+        """
+        Process UDTF function on all input rows and generate a ListArray.
+
+        Args:
+            udtf_func: The UDTF function to call
+            input_batch: Input RecordBatch with N rows
+            expected_output_type: Expected Arrow type for output data
+
+        Returns:
+            RecordBatch with a single ListArray column where each element
+            is a list of outputs for the corresponding input row
+        """
+        all_results = []  # List of lists: one list per input row
+
+        # Check if output is single-field or multi-field
+        # For single-field output, we allow yielding scalar values directly
+        is_single_field = not pa.types.is_struct(expected_output_type)
+
+        # Process each input row
+        for row_idx in range(input_batch.num_rows):
+            # Extract row as tuple of arguments
+            row_args = tuple(
+                input_batch.column(col_idx)[row_idx].as_py()
+                for col_idx in range(input_batch.num_columns)
+            )
+
+            # Call UDTF function - it can yield tuples or scalar values (for single-field output)
+            result = udtf_func(*row_args)
+
+            # Collect output rows for this input row
+            row_outputs = []
+            if inspect.isgenerator(result):
+                for output_value in result:
+                    if is_single_field:
+                        # Single-field output: accept both scalar and tuple
+                        if isinstance(output_value, tuple):
+                            # User provided tuple (e.g., (value,)) - extract scalar
+                            if len(output_value) != 1:
+                                raise ValueError(
+                                    f"Single-field UDTF should yield 1-tuples or scalars, got {len(output_value)}-tuple"
+                                )
+                            row_outputs.append(output_value[0])  # Extract scalar from tuple
+                        else:
+                            # User provided scalar - use directly
+                            row_outputs.append(output_value)
+                    else:
+                        # Multi-field output: must be tuple
+                        if not isinstance(output_value, tuple):
+                            raise ValueError(
+                                f"Multi-field UDTF must yield tuples, got {type(output_value)}"
+                            )
+                        row_outputs.append(output_value)
+            elif result is not None:
+                # Function returned a single value instead of yielding
+                if is_single_field:
+                    # Single-field: accept scalar or tuple
+                    if isinstance(result, tuple):
+                        if len(result) != 1:
+                            raise ValueError(
+                                f"Single-field UDTF should return 1-tuple or scalar, got {len(result)}-tuple"
+                            )
+                        row_outputs.append(result[0])  # Extract scalar from tuple
+                    else:
+                        row_outputs.append(result)
+                else:
+                    # Multi-field: must be tuple
+                    if not isinstance(result, tuple):
+                        raise ValueError(
+                            f"Multi-field UDTF must return tuples, got {type(result)}"
+                        )
+                    row_outputs.append(result)
+
+            all_results.append(row_outputs)
+
+        try:
+            list_array = pa.array(all_results, type=pa.list_(expected_output_type))
+        except Exception as e:
+            logging.error(
+                "Failed to create ListArray: %s, element_type: %s", e, expected_output_type
+            )
+            raise RuntimeError(f"Failed to create ListArray: {e}") from e
+
+        # Create RecordBatch with single ListArray column
+        schema = pa.schema([pa.field("results", pa.list_(expected_output_type))])
+        response_batch = pa.RecordBatch.from_arrays([list_array], schema=schema)
+
+        return response_batch
+
     def do_exchange(
         self,
         context: flight.ServerCallContext,
@@ -1861,30 +2036,20 @@ class FlightServer(flight.FlightServerBase):
         writer: flight.MetadataRecordBatchWriter,
     ) -> None:
         """
-        Handle bidirectional streaming for both UDF and UDAF execution.
+        Handle bidirectional streaming for UDF, UDAF, and UDTF execution.
 
         Determines operation type (UDF vs UDAF vs UDTF) from descriptor metadata.
         """
-        logging.info("Received exchange request: %s", descriptor)
-
         python_udf_meta = self.parse_python_udf_meta(descriptor)
         if not python_udf_meta:
             raise ValueError("Invalid or missing metadata in descriptor")
 
-        # Route to appropriate handler based on client_type
-        logging.info(
-            "Handling %s operation for: %s",
-            python_udf_meta.client_type.name,
-            python_udf_meta.name,
-        )
-
         if python_udf_meta.is_udf():
-            self._do_exchange_udf(python_udf_meta, reader, writer)
+            self._handle_exchange_udf(python_udf_meta, reader, writer)
         elif python_udf_meta.is_udaf():
-            self._do_exchange_udaf(python_udf_meta, reader, writer)
+            self._handle_exchange_udaf(python_udf_meta, reader, writer)
         elif python_udf_meta.is_udtf():
-            # TODO: Implement UDTF support
-            raise NotImplementedError("UDTF is not yet supported")
+            self._handle_exchange_udtf(python_udf_meta, reader, writer)
         else:
             raise ValueError(f"Unsupported client type: {python_udf_meta.client_type}")
 
@@ -1939,11 +2104,13 @@ def main(unix_socket_path: str) -> None:
         current_pid = os.getpid()
         ServerState.unix_socket_path = f"{unix_socket_path}_{current_pid}.sock"
 
-        # Start unified server that handles both UDF and UDAF
+        # Start unified server that handles UDF, UDAF, and UDTF
         server = FlightServer(ServerState.unix_socket_path)
 
         print(ServerState.PYTHON_SERVER_START_SUCCESS_MSG, flush=True)
-        logging.info("##### PYTHON UDF/UDAF SERVER STARTED AT %s #####", datetime.now())
+        logging.info(
+            "##### PYTHON UDF/UDAF/UDTF SERVER STARTED AT %s #####", datetime.now()
+        )
         server.wait()
 
     except Exception as e:
@@ -1959,8 +2126,8 @@ def main(unix_socket_path: str) -> None:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Run an Arrow Flight UDF/UDAF server over Unix socket. "
-        "The server handles both UDF and UDAF operations dynamically."
+        description="Run an Arrow Flight UDF/UDAF/UDTF server over Unix socket. "
+        "The server handles UDF, UDAF, and UDTF operations dynamically."
     )
     parser.add_argument(
         "unix_socket_path",

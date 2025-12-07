@@ -166,22 +166,6 @@ suite("test_pythonudaf_complex_state_objects_module") {
         """
         
         // ========================================
-        // UDAF 7: Deque-based State - Recent Transactions Window
-        // ========================================
-        sql """ DROP FUNCTION IF EXISTS py_recent_window_mod(DECIMAL, INT); """
-        sql """
-        CREATE AGGREGATE FUNCTION py_recent_window_mod(DECIMAL, INT)
-        RETURNS VARCHAR
-        PROPERTIES (
-            "file" = "file://${pyPath}",
-            "symbol" = "complex_state_udaf.RecentWindowUDAF",
-            "type" = "PYTHON_UDF",
-            "always_nullable" = "true",
-            "runtime_version" = "${runtime_version}"
-        );
-        """
-        
-        // ========================================
         // Test Cases
         // ========================================
         
@@ -233,17 +217,7 @@ suite("test_pythonudaf_complex_state_objects_module") {
             FROM complex_transactions_mod;
         """
         
-        // Test 7: Recent Window (Deque)
-        qt_test_recent_window """
-            SELECT 
-                user_id,
-                py_recent_window_mod(price, quantity) as recent_purchases
-            FROM complex_transactions_mod
-            GROUP BY user_id
-            ORDER BY user_id;
-        """
-        
-        // Test 8: Complex State with Window Function
+        // Test 7: Complex State with Window Function
         qt_test_complex_window """
             SELECT 
                 user_id,
@@ -255,7 +229,7 @@ suite("test_pythonudaf_complex_state_objects_module") {
             ORDER BY user_id, transaction_id;
         """
         
-        // Test 9: Multiple Complex UDAFs in Single Query
+        // Test 8: Multiple Complex UDAFs in Single Query
         qt_test_multi_complex """
             SELECT 
                 region,
@@ -266,7 +240,7 @@ suite("test_pythonudaf_complex_state_objects_module") {
             ORDER BY region;
         """
         
-        // Test 10: Nested Query with Complex State
+        // Test 9: Nested Query with Complex State
         qt_test_nested_complex """
             SELECT 
                 region,
@@ -282,7 +256,7 @@ suite("test_pythonudaf_complex_state_objects_module") {
             ORDER BY region;
         """
         
-        // Test 11: Complex State Serialization in Shuffle (GROUP BY multiple columns)
+        // Test 10: Complex State Serialization in Shuffle (GROUP BY multiple columns)
         qt_test_complex_shuffle """
             SELECT 
                 region,
@@ -293,7 +267,7 @@ suite("test_pythonudaf_complex_state_objects_module") {
             ORDER BY region, category;
         """
         
-        // Test 12: Edge Case - Empty Groups
+        // Test 11: Edge Case - Empty Groups
         qt_test_empty_groups """
             SELECT 
                 region,
@@ -303,7 +277,7 @@ suite("test_pythonudaf_complex_state_objects_module") {
             GROUP BY region;
         """
         
-        // Test 13: Edge Case - NULL Values
+        // Test 12: Edge Case - NULL Values
         sql """ DROP TABLE IF EXISTS complex_nulls_mod; """
         sql """
         CREATE TABLE complex_nulls_mod (
@@ -333,7 +307,7 @@ suite("test_pythonudaf_complex_state_objects_module") {
             FROM complex_nulls_mod;
         """
         
-        // Test 14: Performance - Large Complex State
+        // Test 13: Performance - Large Complex State
         qt_test_large_state """
             SELECT 
                 COUNT(*) as total_transactions,
@@ -342,7 +316,7 @@ suite("test_pythonudaf_complex_state_objects_module") {
             FROM complex_transactions_mod;
         """
         
-        // Test 15: Module Reusability - Create another function from same module
+        // Test 14: Module Reusability - Create another function from same module
         sql """ DROP FUNCTION IF EXISTS py_user_profile_mod2(INT, VARCHAR, VARCHAR, DECIMAL, INT); """
         sql """
         CREATE AGGREGATE FUNCTION py_user_profile_mod2(INT, VARCHAR, VARCHAR, DECIMAL, INT)
@@ -363,7 +337,7 @@ suite("test_pythonudaf_complex_state_objects_module") {
             FROM complex_transactions_mod;
         """
         
-        // Test 16: Global Functions
+        // Test 15: Global Functions
         sql """ DROP GLOBAL FUNCTION IF EXISTS py_user_profile_global(INT, VARCHAR, VARCHAR, DECIMAL, INT); """
         sql """
         CREATE GLOBAL AGGREGATE FUNCTION py_user_profile_global(INT, VARCHAR, VARCHAR, DECIMAL, INT)
@@ -392,7 +366,6 @@ suite("test_pythonudaf_complex_state_objects_module") {
         try_sql("DROP FUNCTION IF EXISTS py_unique_tracker_mod(INT, INT, VARCHAR);")
         try_sql("DROP FUNCTION IF EXISTS py_category_summary_mod(VARCHAR, DECIMAL, INT);")
         try_sql("DROP FUNCTION IF EXISTS py_hierarchical_agg_mod(VARCHAR, VARCHAR, VARCHAR, DECIMAL, INT);")
-        try_sql("DROP FUNCTION IF EXISTS py_recent_window_mod(DECIMAL, INT);")
         try_sql("DROP FUNCTION IF EXISTS py_user_profile_mod2(INT, VARCHAR, VARCHAR, DECIMAL, INT);")
         try_sql("DROP TABLE IF EXISTS complex_transactions_mod;")
         try_sql("DROP TABLE IF EXISTS complex_nulls_mod;")

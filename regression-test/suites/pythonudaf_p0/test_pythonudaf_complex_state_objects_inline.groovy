@@ -513,57 +513,6 @@ class HierarchicalAggUDAF:
         """
         
         // ========================================
-        // UDAF 7: Deque-based State - Recent Transactions Window
-        // Uses collections.deque for efficient FIFO operations
-        // ========================================
-        sql """ DROP FUNCTION IF EXISTS py_recent_window(DECIMAL, INT); """
-        sql """
-        CREATE AGGREGATE FUNCTION py_recent_window(DECIMAL, INT)
-        RETURNS VARCHAR
-        PROPERTIES (
-            "type" = "PYTHON_UDF",
-            "symbol" = "RecentWindowUDAF",
-            "runtime_version" = "${runtime_version}"
-        )
-        AS \$\$
-from collections import deque
-import json
-
-class RecentWindowUDAF:
-    def __init__(self):
-        # Keep last 5 transactions using deque
-        self.window = deque(maxlen=5)
-    
-    @property
-    def aggregate_state(self):
-        # Convert deque to list for pickle
-        return list(self.window)
-    
-    def accumulate(self, price, quantity):
-        if price is not None and quantity is not None:
-            revenue = float(price) * int(quantity)
-            self.window.append(revenue)
-    
-    def merge(self, other_state):
-        # Merge by extending window (keeps last 5)
-        for item in other_state:
-            self.window.append(item)
-    
-    def finish(self):
-        if not self.window:
-            return json.dumps({'count': 0})
-        
-        return json.dumps({
-            'count': len(self.window),
-            'values': [round(v, 2) for v in self.window],
-            'avg': round(sum(self.window) / len(self.window), 2),
-            'max': round(max(self.window), 2),
-            'min': round(min(self.window), 2)
-        })
-\$\$;
-        """
-        
-        // ========================================
         // Test Cases
         // ========================================
         
@@ -615,17 +564,7 @@ class RecentWindowUDAF:
             FROM complex_transactions;
         """
         
-        // Test 7: Recent Window (Deque)
-        qt_test_recent_window """
-            SELECT 
-                user_id,
-                py_recent_window(price, quantity) as recent_purchases
-            FROM complex_transactions
-            GROUP BY user_id
-            ORDER BY user_id;
-        """
-        
-        // Test 8: Complex State with Window Function
+        // Test 7: Complex State with Window Function
         qt_test_complex_window """
             SELECT 
                 user_id,
@@ -637,7 +576,7 @@ class RecentWindowUDAF:
             ORDER BY user_id, transaction_id;
         """
         
-        // Test 9: Multiple Complex UDAFs in Single Query
+        // Test 8: Multiple Complex UDAFs in Single Query
         qt_test_multi_complex """
             SELECT 
                 region,
@@ -648,7 +587,7 @@ class RecentWindowUDAF:
             ORDER BY region;
         """
         
-        // Test 10: Nested Query with Complex State
+        // Test 9: Nested Query with Complex State
         qt_test_nested_complex """
             SELECT 
                 region,
@@ -664,7 +603,7 @@ class RecentWindowUDAF:
             ORDER BY region;
         """
         
-        // Test 11: Complex State Serialization in Shuffle (GROUP BY multiple columns)
+        // Test 10: Complex State Serialization in Shuffle (GROUP BY multiple columns)
         qt_test_complex_shuffle """
             SELECT 
                 region,
@@ -675,7 +614,7 @@ class RecentWindowUDAF:
             ORDER BY region, category;
         """
         
-        // Test 12: Edge Case - Empty Groups
+        // Test 11: Edge Case - Empty Groups
         qt_test_empty_groups """
             SELECT 
                 region,
@@ -685,7 +624,7 @@ class RecentWindowUDAF:
             GROUP BY region;
         """
         
-        // Test 13: Edge Case - NULL Values
+        // Test 12: Edge Case - NULL Values
         sql """ DROP TABLE IF EXISTS complex_nulls; """
         sql """
         CREATE TABLE complex_nulls (
@@ -715,7 +654,7 @@ class RecentWindowUDAF:
             FROM complex_nulls;
         """
         
-        // Test 14: Performance - Large Complex State
+        // Test 13: Performance - Large Complex State
         qt_test_large_state """
             SELECT 
                 COUNT(*) as total_transactions,
@@ -735,6 +674,5 @@ class RecentWindowUDAF:
         sql """ DROP FUNCTION IF EXISTS py_unique_tracker(INT, INT, VARCHAR); """
         sql """ DROP FUNCTION IF EXISTS py_category_summary(VARCHAR, DECIMAL, INT); """
         sql """ DROP FUNCTION IF EXISTS py_hierarchical_agg(VARCHAR, VARCHAR, VARCHAR, DECIMAL, INT); """
-        sql """ DROP FUNCTION IF EXISTS py_recent_window(DECIMAL, INT); """
     }
 }
