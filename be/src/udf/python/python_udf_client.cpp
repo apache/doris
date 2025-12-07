@@ -17,14 +17,7 @@
 
 #include "udf/python/python_udf_client.h"
 
-#include <utility>
-
-#include "arrow/flight/client.h"
-#include "arrow/flight/server.h"
 #include "common/status.h"
-#include "udf/python/python_udf_meta.h"
-#include "udf/python/python_udf_runtime.h"
-#include "util/arrow/utils.h"
 
 namespace doris {
 
@@ -36,89 +29,12 @@ Status PythonUDFClient::create(const PythonUDFMeta& func_meta, ProcessPtr proces
     return Status::OK();
 }
 
-Status PythonUDFClient::init(const PythonUDFMeta& func_meta, ProcessPtr process) {
-    if (_inited) {
-        return Status::InternalError("PythonUDFClient has already been initialized");
-    }
-    arrow::flight::Location location;
-    RETURN_DORIS_STATUS_IF_RESULT_ERROR(location,
-                                        arrow::flight::Location::Parse(process->get_uri()));
-    RETURN_DORIS_STATUS_IF_RESULT_ERROR(_arrow_client, FlightClient::Connect(location));
-    std::string command;
-    RETURN_IF_ERROR(func_meta.serialize_to_json(&command));
-    FlightDescriptor descriptor = FlightDescriptor::Command(command);
-    arrow::flight::FlightClient::DoExchangeResult exchange_res;
-    RETURN_DORIS_STATUS_IF_RESULT_ERROR(exchange_res, _arrow_client->DoExchange(descriptor));
-    _reader = std::move(exchange_res.reader);
-    _writer = std::move(exchange_res.writer);
-    _process = std::move(process);
-    _inited = true;
-    return Status::OK();
-}
-
 Status PythonUDFClient::evaluate(const arrow::RecordBatch& input,
                                  std::shared_ptr<arrow::RecordBatch>* output) {
-    if (!_process->is_alive()) {
-        return Status::RuntimeError("Python UDF process is not alive");
-    }
-
-    // Step 1: Begin exchange with schema (only once)
-    if (UNLIKELY(!_begin)) {
-        auto begin_res = _writer->Begin(input.schema());
-        if (!begin_res.ok()) {
-            return handle_error(begin_res);
-        }
-        _begin = true;
-    }
-
-    // Step 2: Write the record batch to server
-    auto write_res = _writer->WriteRecordBatch(input);
-    if (!write_res.ok()) {
-        return handle_error(write_res);
-    }
-
-    // Step 3: Read response from server
-    auto read_res = _reader->Next();
-    if (!read_res.ok()) {
-        return handle_error(read_res.status());
-    }
-
-    arrow::flight::FlightStreamChunk chunk = std::move(*read_res);
-    if (!chunk.data) {
-        _process->shutdown();
-        return Status::InternalError("Received empty RecordBatch from Python UDF server");
-    }
-    *output = std::move(chunk.data);
-    return Status::OK();
-}
-
-Status PythonUDFClient::handle_error(arrow::Status status) {
-    DCHECK(!status.ok());
-    _writer.reset();
-    _reader.reset();
-    _process->shutdown();
-    std::string msg = status.message();
-    size_t pos = msg.find("The above exception was the direct cause");
-    if (pos != std::string::npos) {
-        msg = msg.substr(0, pos);
-    }
-    return Status::RuntimeError(trim(msg));
-}
-
-Status PythonUDFClient::close() {
-    if (!_inited || !_writer) return Status::OK();
-    auto writer_res = _writer->Close();
-    if (!writer_res.ok()) {
-        return handle_error(writer_res);
-    }
-    _inited = false;
-    _begin = false;
-    _arrow_client.reset();
-    _writer.reset();
-    _reader.reset();
-    if (auto* pool = _process->pool(); pool) {
-        pool->return_process(std::move(_process));
-    }
+    RETURN_IF_ERROR(check_process_alive());
+    RETURN_IF_ERROR(begin_stream(input.schema()));
+    RETURN_IF_ERROR(write_batch(input));
+    RETURN_IF_ERROR(read_batch(output));
     return Status::OK();
 }
 

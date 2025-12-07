@@ -27,8 +27,8 @@
 #include "common/logging.h"
 #include "runtime/user_function_cache.h"
 #include "udf/python/python_env.h"
+#include "udf/python/python_server.h"
 #include "udf/python/python_udf_runtime.h"
-#include "udf/python/python_udf_server.h"
 #include "util/arrow/block_convertor.h"
 #include "util/arrow/row_batch.h"
 #include "util/timezone_utils.h"
@@ -342,8 +342,8 @@ Status AggregatePythonUDAF::_init_shared_client() const {
         return Status::OK();
     }
 
-    RETURN_IF_ERROR(PythonUDFServerManager::instance().get_client(_func_meta, _python_version,
-                                                                  &_shared_client));
+    RETURN_IF_ERROR(PythonServerManager::instance().get_client(_func_meta, _python_version,
+                                                               &_shared_client));
     LOG(INFO) << "Initialized shared Python UDAF client for function: " << _func_meta.name;
     return Status::OK();
 }
