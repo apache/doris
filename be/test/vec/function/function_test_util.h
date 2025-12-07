@@ -61,6 +61,7 @@
 #include "vec/data_types/data_type_time.h"
 #include "vec/data_types/data_type_varbinary.h"
 #include "vec/functions/simple_function_factory.h"
+#include "vec/functions/function_helpers.h"
 
 namespace doris::vectorized {
 
@@ -364,11 +365,15 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
 
     // 2. execute function
     auto get_key_value_type=[&](){
-        // cannot used to complex type
-        DataTypeFactory&factory = DataTypeFactory::instance();
-        DataTypePtr key_type = factory.create_data_type(any_cast<PrimitiveType>(input_types[1]), true);
-        DataTypePtr value_type = factory.create_data_type(any_cast<PrimitiveType>(input_types[2]), true);
-        return std::make_pair(key_type,value_type);
+        const DataTypeMap*map_type = nullptr;
+        if (descs[0].data_type->is_nullable()){
+            auto*data_type_nullable = assert_cast<const DataTypeNullable*>(descs[0].data_type.get());
+            map_type = check_and_get_data_type<const DataTypeMap>(data_type_nullable->get_nested_type().get());
+        } else {
+            map_type = check_and_get_data_type<const DataTypeMap>(descs[0].data_type.get());
+        }
+        assert(map_type);
+        return std::make_pair(map_type->get_key_type(),map_type->get_value_type());
     };
     auto return_type = [&]() {
         if constexpr (IsDataTypeDecimal<ResultType>) { // decimal

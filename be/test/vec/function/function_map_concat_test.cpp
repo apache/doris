@@ -262,71 +262,71 @@ TEST(FunctionMapConcatTest, TestWithNULL){
     }
 }
 
-// TEST(FunctionMapConcatTest, TestComplexTypes) {
-//     const std::string func_name = "map_concat";
+TEST(FunctionMapConcatTest, TestComplexTypes) {
+    const std::string func_name = "map_concat";
     
-//     // // Test with nested types (array as value)
-//     // {
-//     //     InputTypeSet input_types = {
-//     //         PrimitiveType::TYPE_MAP, PrimitiveType::TYPE_STRING, PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_INT, PrimitiveType::TYPE_INT,
-//     //         PrimitiveType::TYPE_MAP, PrimitiveType::TYPE_STRING, PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_INT, PrimitiveType::TYPE_INT
-//     //     };
-//     //     DataSet data_set = {
-//     //         {
-//     //             TestArray({
-//     //                 TestArray({
-//     //                     std::string("A"), 
-//     //                     TestArray({std::int32_t(1), std::int32_t(2)}),
-//     //                     std::string("B"),
-//     //                     std::int32_t(3)
-//     //                 }),
-//     //                 TestArray({
-//     //                     std::string("C"),
-//     //                     TestArray({std::int32_t(4), std::int32_t(5)})
-//     //                 })
-//     //             }),
-//     //             TestArray({
-//     //                 std::string("A"), TestArray({std::int32_t(1), std::int32_t(2)}),
-//     //                 std::string("B"), std::int32_t(3),
-//     //                 std::string("C"), TestArray({std::int32_t(4), std::int32_t(5)})
-//     //             })
-//     //         }
-//     //     };
+    // // Test with nested types (array as value)
+    // {
+    //     InputTypeSet input_types = {
+    //         PrimitiveType::TYPE_MAP, PrimitiveType::TYPE_STRING, PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_INT, PrimitiveType::TYPE_INT,
+    //         PrimitiveType::TYPE_MAP, PrimitiveType::TYPE_STRING, PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_INT, PrimitiveType::TYPE_INT
+    //     };
+    //     DataSet data_set = {
+    //         {
+    //             TestArray({
+    //                 TestArray({
+    //                     std::string("A"), 
+    //                     TestArray({std::int32_t(1), std::int32_t(2)}),
+    //                     std::string("B"),
+    //                     std::int32_t(3)
+    //                 }),
+    //                 TestArray({
+    //                     std::string("C"),
+    //                     TestArray({std::int32_t(4), std::int32_t(5)})
+    //                 })
+    //             }),
+    //             TestArray({
+    //                 std::string("A"), TestArray({std::int32_t(1), std::int32_t(2)}),
+    //                 std::string("B"), std::int32_t(3),
+    //                 std::string("C"), TestArray({std::int32_t(4), std::int32_t(5)})
+    //             })
+    //         }
+    //     };
         
-//     //     Status status = check_function<DataTypeMap, true>(func_name, input_types, data_set);
-//     //     EXPECT_TRUE(status.ok()) << "Function test failed 1: " << status.to_string();
-//     // }
+    //     Status status = check_function<DataTypeMap, true>(func_name, input_types, data_set);
+    //     EXPECT_TRUE(status.ok()) << "Function test failed 1: " << status.to_string();
+    // }
     
-//     // Test with map as value
-//     {
-//         InputTypeSet input_types = {
-//             PrimitiveType::TYPE_MAP, PrimitiveType::TYPE_STRING, PrimitiveType::TYPE_MAP, PrimitiveType::TYPE_STRING, PrimitiveType::TYPE_INT,
-//             PrimitiveType::TYPE_MAP, PrimitiveType::TYPE_STRING, PrimitiveType::TYPE_MAP, PrimitiveType::TYPE_STRING, PrimitiveType::TYPE_INT
-//         };
-//         DataSet data_set = {
-//             {
-//                 TestArray({
-//                     TestArray({
-//                         std::string("outer1"),
-//                         TestArray({TestArray({std::string("inner1"), std::int32_t(1)})}),
-//                         std::string("outer2"),
-//                         TestArray({TestArray({std::string("inner2"), std::int32_t(2)})})
-//                     }),
-//                     TestArray({
-//                         std::string("outer3"),
-//                         TestArray({TestArray({std::string("inner3"), std::int32_t(3)})})
-//                     })
-//                 }),
-//                 TestArray({
-//                     std::string("outer1"), TestArray({TestArray({std::string("inner1"), std::int32_t(1)})}),
-//                     std::string("outer2"), TestArray({TestArray({std::string("inner2"), std::int32_t(2)})}),
-//                     std::string("outer3"), TestArray({TestArray({std::string("inner3"), std::int32_t(3)})})
-//                 })
-//             }
-//         };
+    // Test with map as value
+    {
+        InputTypeSet input_types = {
+            PrimitiveType::TYPE_MAP, PrimitiveType::TYPE_STRING, PrimitiveType::TYPE_MAP, PrimitiveType::TYPE_STRING, PrimitiveType::TYPE_INT,
+            PrimitiveType::TYPE_MAP, PrimitiveType::TYPE_STRING, PrimitiveType::TYPE_MAP, PrimitiveType::TYPE_STRING, PrimitiveType::TYPE_INT
+        };
+        DataSet data_set = {
+            {
+                TestArray({
+                    TestArray({
+                        std::string("outer1"),
+                        TestArray({TestArray({std::string("inner1"), std::int32_t(1)})}),
+                        std::string("outer2"),
+                        TestArray({TestArray({std::string("inner2"), std::int32_t(2)})})
+                    }),
+                    TestArray({
+                        std::string("outer3"),
+                        TestArray({TestArray({std::string("inner3"), std::int32_t(3)})})
+                    })
+                }),
+                TestArray({
+                    std::string("outer1"), TestArray({TestArray({std::string("inner1"), std::int32_t(1)})}),
+                    std::string("outer2"), TestArray({TestArray({std::string("inner2"), std::int32_t(2)})}),
+                    std::string("outer3"), TestArray({TestArray({std::string("inner3"), std::int32_t(3)})})
+                })
+            }
+        };
         
-//         Status status = check_function<DataTypeMap, true>(func_name, input_types, data_set);
-//         EXPECT_TRUE(status.ok()) << "Function test failed 2: " << status.to_string();
-//     }
-// }
+        Status status = check_function<DataTypeMap, true>(func_name, input_types, data_set);
+        EXPECT_TRUE(status.ok()) << "Function test failed 2: " << status.to_string();
+    }
+}
 }
