@@ -814,9 +814,10 @@ public:
                         const uint32_t result, size_t input_rows_count) const override {
         auto result_col = block.get_by_position(result).type->create_column();
         ColumnMap* result_map_column = nullptr;
+        ColumnNullable* result_nullable_column = nullptr;
         if (result_col->is_nullable()){
-            auto nullable_column = reinterpret_cast<ColumnNullable*>(result_col.get());
-            result_map_column = check_and_get_column<ColumnMap>(nullable_column->get_nested_column());
+            result_nullable_column = reinterpret_cast<ColumnNullable*>(result_col.get());
+            result_map_column = check_and_get_column<ColumnMap>(result_nullable_column->get_nested_column());
         } else {
             result_map_column = check_and_get_column<ColumnMap>(result_col.get());
         }
@@ -827,19 +828,26 @@ public:
         ColumnArray::Offsets64& column_offsets = result_map_column->get_offsets();
         column_offsets.resize(input_rows_count);
 
+        // Initialize null map if result is nullable
+        // reference to ColumnNullable::size()
+        if (result_nullable_column) {
+            auto& null_map_data = result_nullable_column->get_null_map_data();
+            null_map_data.resize_fill(input_rows_count, 0);
+        }
+
         size_t off = 0;
-        for(int row = 0; row < input_rows_count ; row++) {
-            for(size_t col:arguments){
-                const ColumnMap*map_column = nullptr;
+        for(size_t row = 0; row < input_rows_count ; row++) {
+            for(size_t col: arguments){
+                const ColumnMap* map_column = nullptr;
                 auto src_column = 
                         block.get_by_position(col).column->convert_to_full_column_if_const();
                 if (src_column->is_nullable()){
                     auto nullable_column = reinterpret_cast<const ColumnNullable*>(src_column.get());
                     map_column = check_and_get_column<ColumnMap>(nullable_column->get_nested_column());
-                }else{
+                } else {
                     map_column = check_and_get_column<ColumnMap>(*src_column.get());
                 }
-                if (!src_column){
+                if (!map_column){
                     return Status::RuntimeError("unsupported types for function {}({})", get_name(),
                                         block.get_by_position(col).type->get_name());
                 }
@@ -855,7 +863,6 @@ public:
         }
         RETURN_IF_ERROR(result_map_column->deduplicate_keys());
         block.replace_by_position(result, std::move(result_col));
-
         return Status::OK();
     }
 };
