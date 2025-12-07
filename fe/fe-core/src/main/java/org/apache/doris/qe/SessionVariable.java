@@ -18,7 +18,6 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.analysis.SetVar;
-import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
@@ -29,12 +28,10 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.nereids.StatementContext;
-import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.metrics.Event;
 import org.apache.doris.nereids.metrics.EventSwitchParser;
 import org.apache.doris.nereids.parser.Dialect;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.rules.exploration.mv.PreMaterializedViewRewriter.PreRewriteStrategy;
 import org.apache.doris.nereids.rules.expression.ExpressionRuleType;
 import org.apache.doris.planner.GroupCommitBlockSink;
 import org.apache.doris.qe.VariableMgr.VarAttr;
@@ -1931,7 +1928,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean enableCommonExprPushdown = true;
 
     @VariableMgr.VarAttr(name = ENABLE_LOCAL_EXCHANGE, fuzzy = false, flag = VariableMgr.INVISIBLE,
-            varType = VariableAnnotation.DEPRECATED)
+            varType = VariableAnnotation.DEPRECATED, needForward = true)
     public boolean enableLocalExchange = true;
 
     /**
@@ -3303,20 +3300,6 @@ public class SessionVariable implements Serializable, Writable {
             this.enableReserveMemory = randomInt % 5 != 0;
         }
 
-        // random pre materialized view rewrite strategy
-        randomInt = random.nextInt(3);
-        switch (randomInt % 3) {
-            case 0:
-                this.preMaterializedViewRewriteStrategy = PreRewriteStrategy.NOT_IN_RBO.name();
-                break;
-            case 1:
-                this.preMaterializedViewRewriteStrategy = PreRewriteStrategy.TRY_IN_RBO.name();
-                break;
-            case 2:
-            default:
-                this.preMaterializedViewRewriteStrategy = PreRewriteStrategy.FORCE_IN_RBO.name();
-                break;
-        }
         setFuzzyForCatalog(random);
     }
 
@@ -4440,15 +4423,7 @@ public class SessionVariable implements Serializable, Writable {
         if (connectContext == null) {
             return true;
         }
-        SessionVariable sessionVariable = connectContext.getSessionVariable();
-        StatementContext statementContext = connectContext.getStatementContext();
-        if (statementContext != null) {
-            StatementBase parsedStatement = statementContext.getParsedStatement();
-            if (!(parsedStatement instanceof LogicalPlanAdapter)) {
-                return false;
-            }
-        }
-        return sessionVariable.enableNereidsDistributePlanner;
+        return connectContext.getSessionVariable().enableNereidsDistributePlanner;
     }
 
     public boolean isEnableNereidsDistributePlanner() {

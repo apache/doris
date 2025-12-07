@@ -38,8 +38,7 @@ void DataTypeVarbinarySerDe::read_one_cell_from_jsonb(IColumn& column,
 
 Status DataTypeVarbinarySerDe::write_column_to_mysql_binary(const IColumn& column,
                                                             MysqlRowBinaryBuffer& result,
-                                                            int64_t row_idx, bool col_const,
-                                                            const FormatOptions& options) const {
+                                                            int64_t row_idx, bool col_const) const {
     auto col_index = index_check_const(row_idx, col_const);
     auto data = assert_cast<const ColumnVarbinary&>(column).get_data()[col_index];
 

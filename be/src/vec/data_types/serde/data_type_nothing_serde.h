@@ -92,8 +92,7 @@ public:
     }
 
     Status write_column_to_mysql_binary(const IColumn& column, MysqlRowBinaryBuffer& row_buffer,
-                                        int64_t row_idx, bool col_const,
-                                        const FormatOptions& options) const override {
+                                        int64_t row_idx, bool col_const) const override {
         return Status::NotSupported("write_column_to_mysql with type " + column.get_name());
     }
 
