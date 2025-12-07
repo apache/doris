@@ -63,7 +63,15 @@ suite('scanner_profile') {
     """
     def profileAction = new ProfileAction(context)
     def getProfileByToken = { pattern ->
-        profileAction.getProfileList().find { it["Sql Statement"]?.contains(pattern) }
+        List profileData = profileAction.getProfileList()
+        def profileContent = ""
+        for (final def profileItem in profileData) {
+            if (profileItem["Sql Statement"].toString().contains(pattern)) {
+                profileContent = profileAction.getProfile(profileItem["Profile ID"].toString())
+                break
+            }
+        }
+        return profileContent        
     }
 
     List profileData = profileAction.getProfileList()

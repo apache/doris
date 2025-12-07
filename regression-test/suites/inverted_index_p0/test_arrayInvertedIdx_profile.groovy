@@ -38,7 +38,7 @@ suite("test_arrayInvertedIdx_profile", "nonConcurrent"){
         def profileAction = new ProfileAction(context)
         def profiles = profileAction.getProfileList()
         log.debug("profiles:{}", profiles);
-        assertEquals(0, profiles.code)
+        assertTrue(profiles.size() > 0)
 
         def profileId = null;
         for (def profile in profiles["data"]["rows"]) {
