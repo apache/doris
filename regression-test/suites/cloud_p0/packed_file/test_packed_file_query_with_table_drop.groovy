@@ -25,7 +25,7 @@ suite("test_packed_file_query_with_table_drop", "p0, nonConcurrent") {
     getBackendIpHttpAndBrpcPort(backendId_to_backendIP, backendId_to_backendHttpPort, backendId_to_backendBrpcPort)
 
     setBeConfigTemporary([
-        "enable_merge_file": "true",
+        "enable_packed_file": "true",
         "small_file_threshold_bytes": "102400"  // 100KB threshold
     ]) {
         // Create main table that will be queried
