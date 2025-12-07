@@ -1795,11 +1795,11 @@ TEST(RecyclerTest, recycle_tablet_packed_file_ref_count) {
     const int64_t kSmallFileSize = 64;
     const std::string packed_file_path =
             fmt::format("data/merge_file/{}/{}.dat", tablet_id, merged_rowset.rowset_id_v2());
-    auto merged_index_map = merged_rowset.mutable_merge_file_segment_index();
+    auto merged_index_map = merged_rowset.mutable_packed_slice_locations();
     for (int i = 0; i < merged_rowset.num_segments(); ++i) {
         std::string small_path = segment_path(tablet_id, merged_rowset.rowset_id_v2(), i);
         auto& index_pb = (*merged_index_map)[small_path];
-        index_pb.set_merge_file_path(packed_file_path);
+        index_pb.set_packed_file_path(packed_file_path);
         index_pb.set_offset(i * kSmallFileSize);
         index_pb.set_size(kSmallFileSize);
     }
@@ -1828,20 +1828,22 @@ TEST(RecyclerTest, recycle_tablet_packed_file_ref_count) {
 
     PackedFileInfoPB merged_info;
     merged_info.set_ref_cnt(merged_rowset.num_segments());
-    merged_info.set_total_file_num(merged_rowset.num_segments());
-    merged_info.set_total_file_bytes(kSmallFileSize * merged_rowset.num_segments());
-    merged_info.set_left_file_bytes(kSmallFileSize * merged_rowset.num_segments());
+    merged_info.set_total_slice_num(merged_rowset.num_segments());
+    merged_info.set_total_slice_bytes(kSmallFileSize * merged_rowset.num_segments());
+    merged_info.set_remaining_slice_bytes(kSmallFileSize * merged_rowset.num_segments());
     merged_info.set_state(PackedFileInfoPB::NORMAL);
     merged_info.set_resource_id(std::string(kResourceId));
     for (const auto& [small_path, _] : *merged_index_map) {
-        auto* small_file = merged_info.add_small_files();
+        auto* small_file = merged_info.add_slices();
         small_file->set_path(small_path);
+        small_file->set_offset((*merged_index_map)[small_path].offset());
         small_file->set_size(kSmallFileSize);
         small_file->set_deleted(false);
         small_file->set_txn_id(next_small_file_txn_id());
         small_file->set_rowset_id(merged_rowset.rowset_id_v2());
+        small_file->set_tablet_id(tablet_id);
     }
-    std::string merged_key = merge_file_key({instance_id, packed_file_path});
+    std::string merged_key = packed_file_key({instance_id, packed_file_path});
     txn->put(merged_key, merged_info.SerializeAsString());
     ASSERT_EQ(TxnErrorCode::TXN_OK, txn->commit());
 
@@ -5430,14 +5432,14 @@ TEST(RecyclerTest, delete_rowset_data_packed_file_single_rowset) {
     auto rowset = create_rowset(std::string(kResourceId), 9527, 1024, 2, schema, 6001);
     ASSERT_EQ(0, create_tmp_rowset(txn_kv.get(), accessor.get(), rowset, true));
 
-    auto merged_map = rowset.mutable_merge_file_segment_index();
+    auto merged_map = rowset.mutable_packed_slice_locations();
     std::string packed_file_path =
             fmt::format("merge/{}/{}.dat", rowset.tablet_id(), rowset.rowset_id_v2());
     constexpr int64_t kSmallFileSize = 128;
     for (int i = 0; i < rowset.num_segments(); ++i) {
         std::string small_path = segment_path(rowset.tablet_id(), rowset.rowset_id_v2(), i);
         auto& index_pb = (*merged_map)[small_path];
-        index_pb.set_merge_file_path(packed_file_path);
+        index_pb.set_packed_file_path(packed_file_path);
         index_pb.set_offset(i * kSmallFileSize);
         index_pb.set_size(kSmallFileSize);
     }
@@ -5445,20 +5447,23 @@ TEST(RecyclerTest, delete_rowset_data_packed_file_single_rowset) {
     accessor->put_file(packed_file_path, "");
     PackedFileInfoPB merged_info;
     merged_info.set_ref_cnt(rowset.num_segments());
-    merged_info.set_total_file_num(rowset.num_segments());
-    merged_info.set_total_file_bytes(kSmallFileSize * rowset.num_segments());
-    merged_info.set_left_file_bytes(kSmallFileSize * rowset.num_segments());
+    merged_info.set_total_slice_num(rowset.num_segments());
+    merged_info.set_total_slice_bytes(kSmallFileSize * rowset.num_segments());
+    merged_info.set_remaining_slice_bytes(kSmallFileSize * rowset.num_segments());
     merged_info.set_state(PackedFileInfoPB::NORMAL);
     merged_info.set_resource_id(std::string(kResourceId));
     for (const auto& [small_path, _] : *merged_map) {
-        auto* small_file = merged_info.add_small_files();
+        auto* small_file = merged_info.add_slices();
         small_file->set_path(small_path);
+        small_file->set_offset((*merged_map)[small_path].offset());
         small_file->set_size(kSmallFileSize);
         small_file->set_deleted(false);
         small_file->set_txn_id(next_small_file_txn_id());
+        small_file->set_rowset_id(rowset.rowset_id_v2());
+        small_file->set_tablet_id(rowset.tablet_id());
     }
 
-    std::string merged_key = merge_file_key({instance_id, packed_file_path});
+    std::string merged_key = packed_file_key({instance_id, packed_file_path});
     {
         std::unique_ptr<Transaction> txn;
         ASSERT_EQ(TxnErrorCode::TXN_OK, txn_kv->create_txn(&txn));
@@ -5504,12 +5509,12 @@ TEST(RecyclerTest, delete_rowset_data_packed_file_batch_rowsets) {
     schema.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V1);
 
     auto rowset = create_rowset(std::string(kResourceId), 8642, 512, 1, schema);
-    auto merged_map = rowset.mutable_merge_file_segment_index();
+    auto merged_map = rowset.mutable_packed_slice_locations();
     std::string packed_file_path =
             fmt::format("merge/{}/{}_batch.dat", rowset.tablet_id(), rowset.rowset_id_v2());
     std::string small_path = segment_path(rowset.tablet_id(), rowset.rowset_id_v2(), 0);
     auto& index_pb = (*merged_map)[small_path];
-    index_pb.set_merge_file_path(packed_file_path);
+    index_pb.set_packed_file_path(packed_file_path);
     index_pb.set_offset(0);
     index_pb.set_size(256);
 
@@ -5518,18 +5523,21 @@ TEST(RecyclerTest, delete_rowset_data_packed_file_batch_rowsets) {
 
     PackedFileInfoPB merged_info;
     merged_info.set_ref_cnt(1);
-    merged_info.set_total_file_num(1);
-    merged_info.set_total_file_bytes(256);
-    merged_info.set_left_file_bytes(256);
+    merged_info.set_total_slice_num(1);
+    merged_info.set_total_slice_bytes(256);
+    merged_info.set_remaining_slice_bytes(256);
     merged_info.set_state(PackedFileInfoPB::NORMAL);
     merged_info.set_resource_id(std::string(kResourceId));
-    auto* small_file = merged_info.add_small_files();
+    auto* small_file = merged_info.add_slices();
     small_file->set_path(small_path);
+    small_file->set_offset(index_pb.offset());
     small_file->set_size(256);
     small_file->set_deleted(false);
     small_file->set_txn_id(next_small_file_txn_id());
+    small_file->set_rowset_id(rowset.rowset_id_v2());
+    small_file->set_tablet_id(rowset.tablet_id());
 
-    std::string merged_key = merge_file_key({instance_id, packed_file_path});
+    std::string merged_key = packed_file_key({instance_id, packed_file_path});
     {
         std::unique_ptr<Transaction> txn;
         ASSERT_EQ(TxnErrorCode::TXN_OK, txn_kv->create_txn(&txn));
@@ -5605,21 +5613,24 @@ TEST(RecyclerTest, delete_rowset_data_packed_file_multiple_groups) {
                                     kSegmentsPerRowset, schema, 1000 + i);
         ASSERT_EQ(0, create_tmp_rowset(txn_kv.get(), accessor.get(), rowset, true, false, true));
 
-        auto merged_map = rowset.mutable_merge_file_segment_index();
+        auto merged_map = rowset.mutable_packed_slice_locations();
         for (int seg = 0; seg < kSegmentsPerRowset; ++seg) {
             std::string small_path = segment_path(kTabletId, rowset.rowset_id_v2(), seg);
             const std::string& merged_path = merged_paths[segment_seq % merged_paths.size()];
             auto& index_pb = (*merged_map)[small_path];
-            index_pb.set_merge_file_path(merged_path);
+            index_pb.set_packed_file_path(merged_path);
             index_pb.set_offset(segment_seq * kSmallFileSize);
             index_pb.set_size(kSmallFileSize);
 
             auto& merged_info = merged_infos[merged_path];
-            auto* small_file = merged_info.add_small_files();
+            auto* small_file = merged_info.add_slices();
             small_file->set_path(small_path);
+            small_file->set_offset(index_pb.offset());
             small_file->set_size(kSmallFileSize);
             small_file->set_deleted(false);
             small_file->set_txn_id(rowset.txn_id());
+            small_file->set_rowset_id(rowset.rowset_id_v2());
+            small_file->set_tablet_id(rowset.tablet_id());
 
             segment_paths.push_back(small_path);
             index_paths.push_back(inverted_index_path_v1(kTabletId, rowset.rowset_id_v2(), seg,
@@ -5634,11 +5645,11 @@ TEST(RecyclerTest, delete_rowset_data_packed_file_multiple_groups) {
 
     for (auto& [merged_path, merged_info] : merged_infos) {
         accessor->put_file(merged_path, "");
-        int small_count = merged_info.small_files_size();
+        int small_count = merged_info.slices_size();
         merged_info.set_ref_cnt(small_count);
-        merged_info.set_total_file_num(small_count);
-        merged_info.set_total_file_bytes(small_count * kSmallFileSize);
-        merged_info.set_left_file_bytes(small_count * kSmallFileSize);
+        merged_info.set_total_slice_num(small_count);
+        merged_info.set_total_slice_bytes(small_count * kSmallFileSize);
+        merged_info.set_remaining_slice_bytes(small_count * kSmallFileSize);
         merged_info.set_state(PackedFileInfoPB::NORMAL);
         merged_info.set_resource_id(std::string(kResourceId));
         expected_small_file_counts.emplace(merged_path, small_count);
@@ -5647,7 +5658,7 @@ TEST(RecyclerTest, delete_rowset_data_packed_file_multiple_groups) {
         ASSERT_EQ(TxnErrorCode::TXN_OK, txn_kv->create_txn(&txn));
         std::string merged_val;
         ASSERT_TRUE(merged_info.SerializeToString(&merged_val));
-        txn->put(merge_file_key({instance_id, merged_path}), merged_val);
+        txn->put(packed_file_key({instance_id, merged_path}), merged_val);
         ASSERT_EQ(TxnErrorCode::TXN_OK, txn->commit());
     }
 
@@ -5659,7 +5670,7 @@ TEST(RecyclerTest, delete_rowset_data_packed_file_multiple_groups) {
         ASSERT_EQ(TxnErrorCode::TXN_OK, txn_kv->create_txn(&txn));
         std::string updated_val;
         EXPECT_EQ(TxnErrorCode::TXN_KEY_NOT_FOUND,
-                  txn->get(merge_file_key({instance_id, merged_path}), &updated_val));
+                  txn->get(packed_file_key({instance_id, merged_path}), &updated_val));
         EXPECT_EQ(1, accessor->exists(merged_path));
     }
 
@@ -5699,14 +5710,15 @@ TEST(RecyclerTest, recycle_packed_files_correct_and_delete) {
 
     PackedFileInfoPB merged_info;
     merged_info.set_ref_cnt(1);
-    merged_info.set_total_file_num(1);
-    merged_info.set_total_file_bytes(64);
-    merged_info.set_left_file_bytes(64);
+    merged_info.set_total_slice_num(1);
+    merged_info.set_total_slice_bytes(64);
+    merged_info.set_remaining_slice_bytes(64);
     merged_info.set_corrected(false);
     merged_info.set_state(PackedFileInfoPB::NORMAL);
     merged_info.set_created_at_sec(::time(nullptr) - 3600);
-    auto* small_file = merged_info.add_small_files();
+    auto* small_file = merged_info.add_slices();
     small_file->set_path("data/9527/nonexistent_rowset_0.dat");
+    small_file->set_offset(0);
     small_file->set_size(64);
     small_file->set_deleted(false);
     small_file->set_tablet_id(9527);
@@ -5719,13 +5731,13 @@ TEST(RecyclerTest, recycle_packed_files_correct_and_delete) {
 
     std::unique_ptr<Transaction> txn;
     ASSERT_EQ(TxnErrorCode::TXN_OK, txn_kv->create_txn(&txn));
-    std::string merged_key = merge_file_key({instance_id, packed_file_path});
+    std::string merged_key = packed_file_key({instance_id, packed_file_path});
 
     PackedFileInfoPB expected_info = merged_info;
-    auto* expected_small_file = expected_info.mutable_small_files(0);
+    auto* expected_small_file = expected_info.mutable_slices(0);
     expected_small_file->set_deleted(true);
     expected_small_file->set_corrected(true);
-    expected_info.set_left_file_bytes(0);
+    expected_info.set_remaining_slice_bytes(0);
     expected_info.set_ref_cnt(0);
     expected_info.set_corrected(true);
     expected_info.set_state(PackedFileInfoPB::RECYCLING);
@@ -5823,16 +5835,16 @@ TEST(RecyclerTest, recycle_packed_files_correct_partial_missing_references) {
 
     PackedFileInfoPB merged_info;
     merged_info.set_ref_cnt(7);
-    merged_info.set_total_file_num(kTotalFiles);
-    merged_info.set_total_file_bytes(145);
-    merged_info.set_left_file_bytes(112);
+    merged_info.set_total_slice_num(kTotalFiles);
+    merged_info.set_total_slice_bytes(145);
+    merged_info.set_remaining_slice_bytes(112);
     merged_info.set_corrected(false);
     merged_info.set_state(PackedFileInfoPB::NORMAL);
     merged_info.set_created_at_sec(::time(nullptr) - 3600);
     merged_info.set_resource_id(obj_info->id());
 
     for (int i = 0; i < kTotalFiles; ++i) {
-        auto* small_file = merged_info.add_small_files();
+        auto* small_file = merged_info.add_slices();
         small_file->set_path(
                 fmt::format("data/{}/{}_{}.dat", tablet_ids[i], rowset_ids[i], sizes[i]));
         small_file->set_size(sizes[i]);
@@ -5865,7 +5877,7 @@ TEST(RecyclerTest, recycle_packed_files_correct_partial_missing_references) {
 
     std::unique_ptr<Transaction> txn;
     ASSERT_EQ(TxnErrorCode::TXN_OK, txn_kv->create_txn(&txn));
-    std::string merged_key = merge_file_key({instance_id, packed_file_path});
+    std::string merged_key = packed_file_key({instance_id, packed_file_path});
     txn->put(merged_key, merged_val);
     ASSERT_EQ(TxnErrorCode::TXN_OK, txn->commit());
 
@@ -5918,9 +5930,9 @@ TEST(RecyclerTest, recycle_packed_files_correct_partial_missing_references) {
     ASSERT_TRUE(updated_info.ParseFromString(value));
     EXPECT_TRUE(updated_info.corrected());
     EXPECT_EQ(kValidCountAfterCorrection, updated_info.ref_cnt());
-    EXPECT_EQ(42, updated_info.left_file_bytes());
+    EXPECT_EQ(42, updated_info.remaining_slice_bytes());
     EXPECT_EQ(PackedFileInfoPB::NORMAL, updated_info.state());
-    EXPECT_EQ(kTotalFiles, updated_info.small_files_size());
+    EXPECT_EQ(kTotalFiles, updated_info.slices_size());
 
     auto is_valid_rowset = [&](const std::string& rowset_id) {
         return rowset_id == rowset_ids[valid_indices[0]] ||
@@ -5928,8 +5940,8 @@ TEST(RecyclerTest, recycle_packed_files_correct_partial_missing_references) {
                rowset_id == rowset_ids[valid_indices[2]];
     };
     int deleted_count = 0;
-    for (int i = 0; i < updated_info.small_files_size(); ++i) {
-        const auto& file = updated_info.small_files(i);
+    for (int i = 0; i < updated_info.slices_size(); ++i) {
+        const auto& file = updated_info.slices(i);
         bool expected_corrected = !initially_deleted[i];
         EXPECT_EQ(expected_corrected, file.corrected())
                 << "small file index=" << i << " rowset_id=" << file.rowset_id();
@@ -5985,13 +5997,13 @@ TEST(RecyclerTest, recycle_packed_files_skip_recent) {
 
     PackedFileInfoPB merged_info;
     merged_info.set_ref_cnt(1);
-    merged_info.set_total_file_num(1);
-    merged_info.set_total_file_bytes(64);
-    merged_info.set_left_file_bytes(64);
+    merged_info.set_total_slice_num(1);
+    merged_info.set_total_slice_bytes(64);
+    merged_info.set_remaining_slice_bytes(64);
     merged_info.set_corrected(false);
     merged_info.set_state(PackedFileInfoPB::NORMAL);
     merged_info.set_created_at_sec(::time(nullptr));
-    auto* small_file = merged_info.add_small_files();
+    auto* small_file = merged_info.add_slices();
     small_file->set_path(fmt::format("data/{}/{}_0.dat", tablet_id, rowset_id));
     small_file->set_size(64);
     small_file->set_deleted(false);
@@ -6004,7 +6016,7 @@ TEST(RecyclerTest, recycle_packed_files_skip_recent) {
     ASSERT_TRUE(merged_info.SerializeToString(&merged_val));
 
     ASSERT_EQ(TxnErrorCode::TXN_OK, txn_kv->create_txn(&txn));
-    std::string merged_key = merge_file_key({instance_id, packed_file_path});
+    std::string merged_key = packed_file_key({instance_id, packed_file_path});
     txn->put(merged_key, merged_val);
     ASSERT_EQ(TxnErrorCode::TXN_OK, txn->commit());
 
@@ -6102,15 +6114,15 @@ TEST(RecyclerTest, recycle_packed_files_respect_recycle_and_tmp_refs) {
 
     PackedFileInfoPB merged_info;
     merged_info.set_ref_cnt(3);
-    merged_info.set_total_file_num(3);
-    merged_info.set_total_file_bytes(60);
-    merged_info.set_left_file_bytes(60);
+    merged_info.set_total_slice_num(3);
+    merged_info.set_total_slice_bytes(60);
+    merged_info.set_remaining_slice_bytes(60);
     merged_info.set_corrected(false);
     merged_info.set_state(PackedFileInfoPB::NORMAL);
     merged_info.set_created_at_sec(::time(nullptr) - 3600);
     merged_info.set_resource_id(obj_info->id());
 
-    auto* recycle_file = merged_info.add_small_files();
+    auto* recycle_file = merged_info.add_slices();
     recycle_file->set_path(
             segment_path(recycle_rowset.tablet_id(), recycle_rowset.rowset_id_v2(), 0));
     recycle_file->set_size(10);
@@ -6119,7 +6131,7 @@ TEST(RecyclerTest, recycle_packed_files_respect_recycle_and_tmp_refs) {
     recycle_file->set_rowset_id(recycle_rowset.rowset_id_v2());
     recycle_file->set_txn_id(next_small_file_txn_id());
 
-    auto* tmp_file = merged_info.add_small_files();
+    auto* tmp_file = merged_info.add_slices();
     tmp_file->set_path(segment_path(tmp_rowset.tablet_id(), tmp_rowset.rowset_id_v2(), 0));
     tmp_file->set_size(20);
     tmp_file->set_deleted(false);
@@ -6127,7 +6139,7 @@ TEST(RecyclerTest, recycle_packed_files_respect_recycle_and_tmp_refs) {
     tmp_file->set_rowset_id(tmp_rowset.rowset_id_v2());
     tmp_file->set_txn_id(tmp_txn_id);
 
-    auto* orphan_file = merged_info.add_small_files();
+    auto* orphan_file = merged_info.add_slices();
     orphan_file->set_path("data/orphan_rowset_0.dat");
     orphan_file->set_size(30);
     orphan_file->set_deleted(false);
@@ -6140,7 +6152,7 @@ TEST(RecyclerTest, recycle_packed_files_respect_recycle_and_tmp_refs) {
 
     std::unique_ptr<Transaction> txn;
     ASSERT_EQ(TxnErrorCode::TXN_OK, txn_kv->create_txn(&txn));
-    std::string merged_key = merge_file_key({instance_id, packed_file_path});
+    std::string merged_key = packed_file_key({instance_id, packed_file_path});
     txn->put(merged_key, merged_val);
     ASSERT_EQ(TxnErrorCode::TXN_OK, txn->commit());
 
@@ -6159,17 +6171,17 @@ TEST(RecyclerTest, recycle_packed_files_respect_recycle_and_tmp_refs) {
     ASSERT_TRUE(updated_info.ParseFromString(persisted_val));
 
     EXPECT_FALSE(updated_info.corrected());
-    EXPECT_EQ(30, updated_info.left_file_bytes());
+    EXPECT_EQ(30, updated_info.remaining_slice_bytes());
     EXPECT_EQ(2, updated_info.ref_cnt());
     EXPECT_EQ(PackedFileInfoPB::NORMAL, updated_info.state());
 
-    ASSERT_EQ(3, updated_info.small_files_size());
-    EXPECT_FALSE(updated_info.small_files(0).deleted());
-    EXPECT_FALSE(updated_info.small_files(1).deleted());
-    EXPECT_TRUE(updated_info.small_files(2).deleted());
-    EXPECT_FALSE(updated_info.small_files(0).corrected());
-    EXPECT_TRUE(updated_info.small_files(1).corrected());
-    EXPECT_TRUE(updated_info.small_files(2).corrected());
+    ASSERT_EQ(3, updated_info.slices_size());
+    EXPECT_FALSE(updated_info.slices(0).deleted());
+    EXPECT_FALSE(updated_info.slices(1).deleted());
+    EXPECT_TRUE(updated_info.slices(2).deleted());
+    EXPECT_FALSE(updated_info.slices(0).corrected());
+    EXPECT_TRUE(updated_info.slices(1).corrected());
+    EXPECT_TRUE(updated_info.slices(2).corrected());
 }
 
 TEST(RecyclerTest, delete_rowset_data_without_inverted_index_storage_format) {
