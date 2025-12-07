@@ -29,6 +29,7 @@
 #include <type_traits>
 
 #include "common/config.h"
+#include "common/defer.h"
 #include "common/logging.h"
 #include "common/util.h"
 #include "cpp/sync_point.h"
@@ -123,7 +124,7 @@ void put_schema_kv(MetaServiceCode& code, std::string& msg, Transaction* txn,
         code = cast_as<ErrCategory::READ>(err);
         return;
     }
-    LOG_INFO("put schema kv").tag("key", hex(schema_key));
+    LOG_INFO("put schema kv").tag("key", hex(schema_key)).tag("schema", schema.DebugString());
     uint8_t ver = config::meta_schema_value_version;
     if (ver > 0) {
         cloud::blob_put(txn, schema_key, schema, ver);
