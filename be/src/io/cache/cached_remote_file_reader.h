@@ -54,6 +54,18 @@ public:
 
     static std::pair<size_t, size_t> s_align_size(size_t offset, size_t size, size_t length);
 
+    // Asynchronously prefetch a range of file cache blocks.
+    // This method triggers file cache get_or_set in dryrun mode to warm up the cache
+    // without actually reading the data into user buffers.
+    //
+    // Parameters:
+    //   offset: Starting offset in the file
+    //   size: Number of bytes to prefetch
+    //   io_ctx: IO context (can be nullptr, will create a dryrun context internally)
+    //
+    // Note: This is a best-effort operation. Errors are logged but not returned.
+    void prefetch_range(size_t offset, size_t size, const IOContext* io_ctx = nullptr);
+
 protected:
     Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
                         const IOContext* io_ctx) override;

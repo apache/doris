@@ -171,6 +171,8 @@ public:
     Status seek_to_first(OrdinalPageIndexIterator* iter, const ColumnIteratorOptions& iter_opts);
     Status seek_at_or_before(ordinal_t ordinal, OrdinalPageIndexIterator* iter,
                              const ColumnIteratorOptions& iter_opts);
+    Status get_ordinal_index_reader(OrdinalIndexReader*& reader,
+                                    OlapReaderStatistics* index_load_stats);
 
     // read a page from file into a page handle
     Status read_page(const ColumnIteratorOptions& iter_opts, const PagePointer& pp,

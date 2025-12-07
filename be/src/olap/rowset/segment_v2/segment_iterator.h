@@ -42,6 +42,7 @@
 #include "olap/row_cursor_cell.h"
 #include "olap/rowset/segment_v2/common.h"
 #include "olap/rowset/segment_v2/segment.h"
+#include "olap/rowset/segment_v2/segment_prefetcher.h"
 #include "olap/schema.h"
 #include "util/runtime_profile.h"
 #include "util/slice.h"
@@ -379,6 +380,8 @@ private:
 
     void _clear_iterators();
 
+    void _init_segment_prefetchers();
+
     class BitmapRangeIterator;
     class BackwardBitmapRangeIterator;
 
@@ -484,6 +487,10 @@ private:
 
     std::unordered_map<ColumnId, std::unordered_map<const vectorized::VExpr*, bool>>
             _common_expr_inverted_index_status;
+
+    // Segment prefetch related members
+    std::unordered_map<ColumnId, std::unique_ptr<SegmentPrefetcher>> _column_prefetchers;
+    bool _enable_prefetch = false;
 };
 
 } // namespace segment_v2

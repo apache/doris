@@ -439,4 +439,50 @@ void CachedRemoteFileReader::_update_stats(const ReadStatistics& read_stats,
     g_skip_cache_sum << read_stats.skip_cache;
 }
 
+void CachedRemoteFileReader::prefetch_range(size_t offset, size_t size, const IOContext* io_ctx) {
+    if (offset >= this->size() || size == 0) {
+        return; // Out of bounds or empty range
+    }
+
+    // Clamp size to file boundary
+    size = std::min(size, this->size() - offset);
+
+    // Get the segment prefetch thread pool from ExecEnv
+    ThreadPool* pool = ExecEnv::GetInstance()->segment_prefetch_thread_pool();
+    if (pool == nullptr) {
+        return; // Thread pool not available
+    }
+
+    // Create a dryrun IO context to trigger cache warming without actual reads
+    IOContext dryrun_ctx;
+    if (io_ctx != nullptr) {
+        dryrun_ctx = *io_ctx;
+    }
+    dryrun_ctx.is_dryrun = true;
+    dryrun_ctx.query_id = nullptr;
+    dryrun_ctx.file_cache_stats = nullptr;
+    dryrun_ctx.file_reader_stats = nullptr;
+
+    LOG_INFO("[verbose] Submitting prefetch task for offset={} size={}, file={}", offset, size,
+             path().filename().native());
+
+    // Submit async task to prefetch thread pool
+    // Note: We use a dummy buffer pointer since dryrun mode doesn't actually write data
+    auto st = pool->submit_func([this, offset, size, dryrun_ctx]() {
+        size_t bytes_read;
+        // Use a dummy buffer in dryrun mode - the data won't actually be written
+        Slice dummy_buffer((char*)nullptr, size);
+        // This will trigger cache get_or_set and potentially download blocks
+        (void)this->read_at_impl(offset, dummy_buffer, &bytes_read, &dryrun_ctx);
+        LOG_INFO("[verbose] Prefetch task completed for offset={} size={}, file={}", offset, size,
+                 path().filename().native());
+    });
+
+    // Best-effort: if submission fails, just skip the prefetch
+    if (!st.ok()) {
+        VLOG_DEBUG << "Failed to submit prefetch task for offset=" << offset << " size=" << size
+                   << " error=" << st.to_string();
+    }
+}
+
 } // namespace doris::io
