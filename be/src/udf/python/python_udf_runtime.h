@@ -30,7 +30,7 @@ static const char* UNIX_SOCKET_PREFIX = "grpc+unix://";
 static const char* BASE_UNIX_SOCKET_PATH_TEMPLATE = "{}{}/lib/udf/python/python_udf";
 static const char* UNIX_SOCKET_PATH_TEMPLATE = "{}_{}.sock";
 static const char* FLIGHT_SERVER_PATH_TEMPLATE = "{}/plugins/python_udf/{}";
-static const char* FLIGHT_SERVER_FILENAME = "python_udf_server.py";
+static const char* FLIGHT_SERVER_FILENAME = "python_server.py";
 static const char* EXECUTABLE_PYTHON_FILENAME = "python";
 static const char* PYTHON_SERVER_START_SUCCESS_MSG = "Start python server successfully";
 

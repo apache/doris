@@ -196,31 +196,6 @@ Status PythonUDAFClient::create(const PythonUDFMeta& func_meta, ProcessPtr proce
     return Status::OK();
 }
 
-Status PythonUDAFClient::init(const PythonUDFMeta& func_meta, ProcessPtr process) {
-    if (_inited) {
-        return Status::InternalError("PythonUDAFClient has already been initialized");
-    }
-
-    arrow::flight::Location location;
-    RETURN_DORIS_STATUS_IF_RESULT_ERROR(location,
-                                        arrow::flight::Location::Parse(process->get_uri()));
-    RETURN_DORIS_STATUS_IF_RESULT_ERROR(_arrow_client, FlightClient::Connect(location));
-
-    std::string command;
-    RETURN_IF_ERROR(func_meta.serialize_to_json(&command));
-
-    FlightDescriptor descriptor = FlightDescriptor::Command(command);
-    arrow::flight::FlightClient::DoExchangeResult exchange_res;
-    RETURN_DORIS_STATUS_IF_RESULT_ERROR(exchange_res, _arrow_client->DoExchange(descriptor));
-
-    _reader = std::move(exchange_res.reader);
-    _writer = std::move(exchange_res.writer);
-    _process = std::move(process);
-    _inited = true;
-
-    return Status::OK();
-}
-
 Status PythonUDAFClient::create(int64_t place_id) {
     RETURN_IF_ERROR(
             (_execute_operation<UDAFOperation::CREATE, true>(place_id, nullptr, nullptr, nullptr)));
@@ -232,7 +207,7 @@ Status PythonUDAFClient::accumulate(int64_t place_id, bool is_single_place,
                                     const arrow::RecordBatch& input, int64_t row_start,
                                     int64_t row_end, const int64_t* places, int64_t place_offset) {
     if (UNLIKELY(!_process->is_alive())) {
-        return Status::RuntimeError("Python UDAF process is not alive");
+        return Status::RuntimeError("{} process is not alive", _operation_name);
     }
 
     // Validate input parameters
@@ -394,7 +369,7 @@ Status PythonUDAFClient::reset(int64_t place_id) {
 
 Status PythonUDAFClient::destroy(int64_t place_id) {
     if (UNLIKELY(!_process->is_alive())) {
-        return Status::RuntimeError("Python UDAF process is not alive");
+        return Status::RuntimeError("{} process is not alive", _operation_name);
     }
 
     // Create unified batch for DESTROY operation
@@ -438,22 +413,8 @@ Status PythonUDAFClient::close() {
     // Destroy all remaining states
     RETURN_IF_ERROR(destroy_all());
 
-    auto writer_res = _writer->Close();
-    if (!writer_res.ok()) {
-        return _handle_error(writer_res);
-    }
-
-    _inited = false;
-    _begin = false;
-    _arrow_client.reset();
-    _writer.reset();
-    _reader.reset();
-
-    if (auto* pool = _process->pool(); pool) {
-        pool->return_process(std::move(_process));
-    }
-
-    return Status::OK();
+    // Call base class close which handles cleanup
+    return PythonClient::close();
 }
 
 std::string PythonUDAFClient::print_operation(UDAFOperation op) {
@@ -483,7 +444,7 @@ Status PythonUDAFClient::_execute_operation(int64_t place_id,
                                             const std::shared_ptr<arrow::Buffer>& data,
                                             std::shared_ptr<arrow::RecordBatch>* output) {
     if (UNLIKELY(!_process->is_alive())) {
-        return Status::RuntimeError("Python UDAF process is not alive");
+        return Status::RuntimeError("{} process is not alive", _operation_name);
     }
 
     // Create unified batch for the operation
@@ -529,7 +490,7 @@ Status PythonUDAFClient::_send_operation(const arrow::RecordBatch* input,
         // Always use the unified schema for all operations
         auto begin_res = _writer->Begin(kUnifiedUDAFSchema);
         if (!begin_res.ok()) {
-            return _handle_error(begin_res);
+            return handle_error(begin_res);
         }
         _begin = true;
     }
@@ -537,20 +498,21 @@ Status PythonUDAFClient::_send_operation(const arrow::RecordBatch* input,
     // Step 2: Write the record batch to server
     auto write_res = _writer->WriteRecordBatch(*input);
     if (!write_res.ok()) {
-        return _handle_error(write_res);
+        return handle_error(write_res);
     }
 
     // Step 3: Read response from server (if output is expected)
     if (output != nullptr) {
         auto read_res = _reader->Next();
         if (!read_res.ok()) {
-            return _handle_error(read_res.status());
+            return handle_error(read_res.status());
         }
 
         arrow::flight::FlightStreamChunk chunk = std::move(*read_res);
         if (!chunk.data) {
             _process->shutdown();
-            return Status::InternalError("Received empty RecordBatch from Python UDAF server");
+            return Status::InternalError("Received empty RecordBatch from {} server",
+                                         _operation_name);
         }
 
         // The response is in unified format: [result_data: binary]
@@ -579,21 +541,6 @@ Status PythonUDAFClient::_send_operation(const arrow::RecordBatch* input,
     }
 
     return Status::OK();
-}
-
-Status PythonUDAFClient::_handle_error(arrow::Status status) {
-    DCHECK(!status.ok());
-    _writer.reset();
-    _reader.reset();
-    _process->shutdown();
-
-    std::string msg = status.message();
-    // Remove Python traceback noise
-    size_t pos = msg.find("The above exception was the direct cause");
-    if (pos != std::string::npos) {
-        msg = msg.substr(0, pos);
-    }
-    return Status::RuntimeError(trim(msg));
 }
 
 } // namespace doris
