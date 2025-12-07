@@ -364,6 +364,7 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
 
     // 2. execute function
     auto get_key_value_type=[&](){
+        // cannot used to complex type
         DataTypeFactory&factory = DataTypeFactory::instance();
         DataTypePtr key_type = factory.create_data_type(any_cast<PrimitiveType>(input_types[1]), true);
         DataTypePtr value_type = factory.create_data_type(any_cast<PrimitiveType>(input_types[2]), true);
