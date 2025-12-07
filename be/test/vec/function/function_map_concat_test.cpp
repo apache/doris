@@ -98,14 +98,14 @@ TEST(FunctionMapConcatTest, TestEdgeCases) {
                 TestArray({TestArray({}), TestArray({})}),
                 TestArray({})
             },
-            // {
-            //     TestArray({TestArray({std::int32_t(1), std::string("A")}), TestArray({})}),
-            //     TestArray({std::int32_t(1), std::string("A")})
-            // },
-            // {
-            //     TestArray({TestArray({}), TestArray({std::int32_t(2), std::string("B")})}),
-            //     TestArray({std::int32_t(2), std::string("B")})
-            // }
+            {
+                TestArray({TestArray({std::int32_t(1), std::string("A")}), TestArray({})}),
+                TestArray({std::int32_t(1), std::string("A")})
+            },
+            {
+                TestArray({TestArray({}), TestArray({std::int32_t(2), std::string("B")})}),
+                TestArray({std::int32_t(2), std::string("B")})
+            }
         };
         
         Status status = check_function<DataTypeMap, true>(func_name, input_types, data_set);
