@@ -179,6 +179,30 @@ suite("analyze_agg") {
         exception " HAVING expression 'w_rank' must not contain window functions: rank() OVER()"
     }
 
+    qt_window_1 '''explain  shape plan
+        select sum(1) over()
+        '''
+
+    qt_window_2 '''explain  shape plan
+        select sum(id) over() from t1
+        '''
+
+    qt_distinct_1 '''explain  shape plan
+        select distinct sum(1) over()
+        '''
+
+    qt_distinct_2 '''explain  shape plan
+        select distinct sum(sum(1)) over()
+        '''
+
+    qt_distinct_3 '''explain  shape plan
+        select distinct sum(id) over() from t1
+        '''
+
+    qt_distinct_4 '''explain  shape plan
+        select distinct sum(sum(id)) over() from t1
+        '''
+
     // having need before windows
     qt_having_with_window_1 '''explain shape plan
         select sum(id) over ()
