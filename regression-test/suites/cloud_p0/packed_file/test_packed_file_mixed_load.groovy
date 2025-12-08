@@ -44,23 +44,23 @@ suite("test_packed_file_mixed_load", "p0, nonConcurrent") {
         }
     }
 
-    // Get packed file total small file count metric from all backends
-    def get_packed_file_total_small_file_count = {
+    // Get merge file total small file count metric from all backends
+    def get_merge_file_total_small_file_count = {
         long total_count = 0
         for (String backend_id: backendId_to_backendIP.keySet()) {
             def ip = backendId_to_backendIP.get(backend_id)
             def brpc_port = backendId_to_backendBrpcPort.get(backend_id)
             try {
-                def count = getBrpcMetrics(ip, brpc_port, "packed_file_total_small_file_num")
+                def count = getBrpcMetrics(ip, brpc_port, "merge_file_total_small_file_num")
                 if (count > 0) {
                     total_count += count
-                    logger.info("BE ${ip}:${brpc_port} packed_file_total_small_file_num = ${count}")
+                    logger.info("BE ${ip}:${brpc_port} merge_file_total_small_file_num = ${count}")
                 }
             } catch (Exception e) {
                 logger.warn("Failed to get metrics from BE ${ip}:${brpc_port}: ${e.getMessage()}")
             }
         }
-        logger.info("Total packed_file_total_small_file_num across all backends: ${total_count}")
+        logger.info("Total merge_file_total_small_file_num across all backends: ${total_count}")
         return total_count
     }
 
@@ -199,10 +199,10 @@ suite("test_packed_file_mixed_load", "p0, nonConcurrent") {
         }
     }
 
-    // Enable packed file feature and set small file threshold using framework's temporary config function
+    // Enable merge file feature and set small file threshold using framework's temporary config function
     // This will automatically restore configs after test completes
     setBeConfigTemporary([
-        "enable_packed_file": "true",
+        "enable_merge_file": "true",
         "small_file_threshold_bytes": "102400"  // 100KB threshold
     ]) {
         // Test case 1: Mixed load (small and large files) - check query results

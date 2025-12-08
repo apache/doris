@@ -29,12 +29,10 @@
 
 namespace doris::io {
 
-bvar::IntRecorder g_packed_file_writer_first_append_to_close_ms_recorder;
-bvar::Window<bvar::IntRecorder> g_packed_file_writer_first_append_to_close_ms_window(
+bvar::IntRecorder packed_file_writer_first_append_to_close_ms_recorder;
+bvar::Window<bvar::IntRecorder> packed_file_writer_first_append_to_close_ms_window(
         "packed_file_writer_first_append_to_close_ms",
-        &g_packed_file_writer_first_append_to_close_ms_recorder, /*window_size=*/10);
-bvar::Adder<int64_t> g_packed_file_writer_buffer_capacity_bytes(
-        "packed_file_writer_buffer_capacity_bytes");
+        &packed_file_writer_first_append_to_close_ms_recorder, /*window_size=*/10);
 
 PackedFileWriter::PackedFileWriter(FileWriterPtr inner_writer, Path path,
                                    PackedAppendContext append_info)
@@ -49,12 +47,6 @@ PackedFileWriter::PackedFileWriter(FileWriterPtr inner_writer, Path path,
 PackedFileWriter::~PackedFileWriter() {
     if (_state == State::OPENED) {
         LOG(WARNING) << "PackedFileWriter destroyed without being closed, file: " << _file_path;
-    }
-    // Clean up bvar if buffer still has data to avoid memory leak
-    // This can happen if the writer is destroyed without proper close
-    if (!_is_direct_write && _buffer.size() > 0) {
-        size_t buffer_size = _buffer.size();
-        g_packed_file_writer_buffer_capacity_bytes << -static_cast<int64_t>(buffer_size);
     }
 }
 
@@ -92,10 +84,9 @@ Status PackedFileWriter::appendv(const Slice* data, size_t data_cnt) {
         for (size_t i = 0; i < data_cnt; ++i) {
             _buffer.append(data[i].data, data[i].size);
         }
-        _bytes_appended += total_size;
-        g_packed_file_writer_buffer_capacity_bytes << total_size;
     }
 
+    _bytes_appended += total_size;
     return Status::OK();
 }
 
@@ -112,8 +103,8 @@ Status PackedFileWriter::close(bool non_block) {
         auto latency_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
                                   now - *_first_append_timestamp)
                                   .count();
-        g_packed_file_writer_first_append_to_close_ms_recorder << latency_ms;
-        if (auto* sampler = g_packed_file_writer_first_append_to_close_ms_recorder.get_sampler()) {
+        packed_file_writer_first_append_to_close_ms_recorder << latency_ms;
+        if (auto* sampler = packed_file_writer_first_append_to_close_ms_recorder.get_sampler()) {
             sampler->take_sample();
         }
         _close_latency_recorded = true;
@@ -170,9 +161,9 @@ Status PackedFileWriter::_close_sync() {
             auto latency_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
                                       now - *_first_append_timestamp)
                                       .count();
-            g_packed_file_writer_first_append_to_close_ms_recorder << latency_ms;
+            packed_file_writer_first_append_to_close_ms_recorder << latency_ms;
             if (auto* sampler =
-                        g_packed_file_writer_first_append_to_close_ms_recorder.get_sampler()) {
+                        packed_file_writer_first_append_to_close_ms_recorder.get_sampler()) {
                 sampler->take_sample();
             }
             _close_latency_recorded = true;
@@ -195,11 +186,9 @@ Status PackedFileWriter::_switch_to_direct_write() {
 
     // If we have buffered data, write it to inner writer first
     if (_buffer.size() > 0) {
-        size_t buffer_size = _buffer.size();
-        Slice buffer_slice(_buffer.data(), buffer_size);
+        Slice buffer_slice(_buffer.data(), _buffer.size());
         RETURN_IF_ERROR(_inner_writer->appendv(&buffer_slice, 1));
         _buffer.clear();
-        g_packed_file_writer_buffer_capacity_bytes << -static_cast<int64_t>(buffer_size);
     }
 
     return Status::OK();
@@ -222,12 +211,9 @@ Status PackedFileWriter::_send_to_packed_manager() {
                                        _file_path);
     }
 
-    size_t buffer_size = _buffer.size();
-    Slice data_slice(_buffer.data(), buffer_size);
+    Slice data_slice(_buffer.data(), _buffer.size());
     RETURN_IF_ERROR(_packed_file_manager->append_small_file(_file_path, data_slice, _append_info));
     _buffer.clear();
-    // Update bvar: subtract released buffer size
-    g_packed_file_writer_buffer_capacity_bytes << -static_cast<int64_t>(buffer_size);
     return Status::OK();
 }
 

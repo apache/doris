@@ -36,38 +36,38 @@ suite("test_packed_file_with_group_commit", "p0, nonConcurrent") {
         }
     }
 
-    // Get packed file total small file count metric from all backends
-    def get_packed_file_total_small_file_count = {
+    // Get merge file total small file count metric from all backends
+    def get_merge_file_total_small_file_count = {
         long total_count = 0
         for (String backend_id: backendId_to_backendIP.keySet()) {
             def ip = backendId_to_backendIP.get(backend_id)
             def brpc_port = backendId_to_backendBrpcPort.get(backend_id)
             try {
-                def count = getBrpcMetrics(ip, brpc_port, "packed_file_total_small_file_num")
+                def count = getBrpcMetrics(ip, brpc_port, "merge_file_total_small_file_num")
                 if (count > 0) {
                     total_count += count
-                    logger.info("BE ${ip}:${brpc_port} packed_file_total_small_file_num = ${count}")
+                    logger.info("BE ${ip}:${brpc_port} merge_file_total_small_file_num = ${count}")
                 }
             } catch (Exception e) {
                 logger.warn("Failed to get metrics from BE ${ip}:${brpc_port}: ${e.getMessage()}")
             }
         }
-        logger.info("Total packed_file_total_small_file_num across all backends: ${total_count}")
+        logger.info("Total merge_file_total_small_file_num across all backends: ${total_count}")
         return total_count
     }
 
-    // Enable packed file feature and set small file threshold using framework's temporary config function
+    // Enable merge file feature and set small file threshold using framework's temporary config function
     // This will automatically restore configs after test completes
     setBeConfigTemporary([
-        "enable_packed_file": "true",
+        "enable_merge_file": "true",
         "small_file_threshold_bytes": "102400"
     ]) {
-        // Get initial packed file count
-        def initial_packed_file_count = get_packed_file_total_small_file_count()
-        logger.info("Initial packed_file_total_small_file_count: ${initial_packed_file_count}")
+        // Get initial merge file count
+        def initial_merge_file_count = get_merge_file_total_small_file_count()
+        logger.info("Initial merge_file_total_small_file_count: ${initial_merge_file_count}")
 
-        // Test case: Packed file with group commit enabled
-        // This test verifies that packed file logic works correctly when group commit is enabled
+        // Test case: Merge file with group commit enabled
+        // This test verifies that merge file logic works correctly when group commit is enabled
         def tableName = "test_merge_file_with_group_commit"
         sql """ DROP TABLE IF EXISTS ${tableName} """
         sql """
@@ -84,8 +84,8 @@ suite("test_packed_file_with_group_commit", "p0, nonConcurrent") {
             );
         """
 
-        def count_before_test = get_packed_file_total_small_file_count()
-        logger.info("packed_file_total_small_file_count before test (with group commit): ${count_before_test}")
+        def count_before_test = get_merge_file_total_small_file_count()
+        logger.info("merge_file_total_small_file_count before test (with group commit): ${count_before_test}")
 
         def load_threads = []
         def load_count = 8
@@ -148,13 +148,13 @@ suite("test_packed_file_with_group_commit", "p0, nonConcurrent") {
         assertEquals(expected_rows, result[0][0] as int, 
                     "Expected exactly ${expected_rows} rows for DUPLICATE KEY table with group commit, got ${result[0][0]}")
 
-        def count_after_test = get_packed_file_total_small_file_count()
-        logger.info("packed_file_total_small_file_count after test (with group commit): ${count_after_test} (before: ${count_before_test})")
+        def count_after_test = get_merge_file_total_small_file_count()
+        logger.info("merge_file_total_small_file_count after test (with group commit): ${count_after_test} (before: ${count_before_test})")
         
-        // The count must increase after test, verifying that packed file works with group commit
+        // The count must increase after test, verifying that merge file works with group commit
         assertTrue(count_after_test > count_before_test,
-                   "packed_file_total_small_file_count must increase after test (with group commit). " +
+                   "merge_file_total_small_file_count must increase after test (with group commit). " +
                    "Before: ${count_before_test}, After: ${count_after_test}. " +
-                   "This verifies that packed file logic works correctly when group commit is enabled.")
+                   "This verifies that merge file logic works correctly when group commit is enabled.")
     }
 }
