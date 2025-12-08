@@ -19,7 +19,7 @@
 
 #include <stdint.h>
 
-#include "operator.h"
+#include "pipeline/pipeline_x/operator.h"
 #include "runtime/result_queue_mgr.h"
 
 namespace doris::pipeline {
