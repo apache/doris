@@ -34,7 +34,7 @@ import org.apache.doris.qe.ConnectContext;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 import lombok.Getter;
-import org.apache.commons.collections.MapUtils;
+import org.apache.commons.collections4.MapUtils;
 
 import java.util.Map;
 import java.util.Optional;
