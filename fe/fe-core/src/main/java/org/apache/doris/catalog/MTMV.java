@@ -404,17 +404,22 @@ public class MTMV extends OlapTable {
         // Generate cache if not exists
         // Concurrent situations may result in duplicate cache generation,
         // but we tolerate this in order to prevent nested use of readLock and write MvLock for the table
-        MTMVCache mtmvCache = MTMVCache.from(this.getQuerySql(),
+        MTMVCache mtmvCacheWithGuard = MTMVCache.from(this.getQuerySql(),
                 MTMVPlanUtil.createMTMVContext(this, MTMVPlanUtil.DISABLE_RULES_WHEN_GENERATE_MTMV_CACHE),
-                true, false, connectionContext, !sessionVarsMatch);
+                true, false, connectionContext, true);
+        MTMVCache mtmvCacheWithoutGuard = MTMVCache.from(this.getQuerySql(),
+                MTMVPlanUtil.createMTMVContext(this, MTMVPlanUtil.DISABLE_RULES_WHEN_GENERATE_MTMV_CACHE),
+                true, false, connectionContext, false);
         writeMvLock();
+        // The getOrGenerateCache method may be invoked for each query, but this.cacheWithoutGuard is globally
+        // shared and reused across all queries. It must be guaranteed to be generated without svGuard nodes.
         try {
+            this.cacheWithGuard = mtmvCacheWithGuard;
+            this.cacheWithoutGuard = mtmvCacheWithoutGuard;
             if (sessionVarsMatch) {
-                this.cacheWithoutGuard = mtmvCache;
-            } else {
-                this.cacheWithGuard = mtmvCache;
+                return this.cacheWithoutGuard;
             }
-            return mtmvCache;
+            return cacheWithGuard;
         } finally {
             writeMvUnlock();
         }
