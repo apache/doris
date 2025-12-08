@@ -22,11 +22,15 @@
 
 #include <functional>
 #include <optional>
+#include <string_view>
+#include <unordered_map>
 
+#include "cloud/config.h"
 #include "common/status.h"
 #include "io/fs/encrypted_fs_factory.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
+#include "io/fs/packed_file_system.h"
 #include "olap/olap_define.h"
 #include "olap/partial_update_info.h"
 #include "olap/storage_policy.h"
@@ -114,6 +118,21 @@ struct RowsetWriterContext {
 
     bool is_transient_rowset_writer = false;
 
+    // Intent flag: caller can actively turn merge-file feature on/off for this rowset.
+    // This describes whether we *want* to try small-file merging.
+    bool allow_packed_file = true;
+
+    // Effective flag: whether this context actually ends up using MergeFileSystem for writes.
+    // This is decided inside fs() based on enable_merge_file plus other conditions
+    // (cloud mode, S3 filesystem, V1 inverted index, global config, etc.), and once
+    // set to true it remains stable even if config::enable_merge_file changes later.
+    mutable bool packed_file_active = false;
+
+    // Cached FileSystem instance to ensure consistency across multiple fs() calls.
+    // This prevents creating multiple MergeFileSystem instances and ensures
+    // packed_file_active flag remains consistent.
+    mutable io::FileSystemSPtr _cached_fs = nullptr;
+
     // For collect segment statistics for compaction
     std::vector<RowsetReaderSharedPtr> input_rs_readers;
 
@@ -142,7 +161,12 @@ struct RowsetWriterContext {
         }
     }
 
-    io::FileSystemSPtr fs() {
+    io::FileSystemSPtr fs() const {
+        // Return cached instance if available to ensure consistency across multiple calls
+        if (_cached_fs != nullptr) {
+            return _cached_fs;
+        }
+
         auto fs = [this]() -> io::FileSystemSPtr {
             if (is_local_rowset()) {
                 return io::global_local_filesystem();
@@ -151,7 +175,11 @@ struct RowsetWriterContext {
             }
         }();
 
-        if (!encrypt_algorithm.has_value()) {
+        bool is_s3_fs = fs->type() == io::FileSystemType::S3;
+
+        auto algorithm = encrypt_algorithm;
+
+        if (!algorithm.has_value()) {
 #ifndef BE_TEST
             constexpr std::string_view msg =
                     "RowsetWriterContext::determine_encryption is not called when creating this "
@@ -161,14 +189,48 @@ struct RowsetWriterContext {
             LOG(WARNING) << st;
             DCHECK(false) << st;
 #else
-            encrypt_algorithm = EncryptionAlgorithmPB::PLAINTEXT;
+            algorithm = EncryptionAlgorithmPB::PLAINTEXT;
 #endif
-            return fs;
         }
-        return io::make_file_system(fs, encrypt_algorithm.value());
+
+        // Apply encryption if needed
+        if (algorithm.has_value()) {
+            fs = io::make_file_system(fs, algorithm.value());
+        }
+
+        // Apply packed file system for write path if enabled
+        // Create empty index_map for write path
+        // Index information will be populated after write completes
+        bool has_v1_inverted_index = tablet_schema != nullptr &&
+                                     tablet_schema->has_inverted_index() &&
+                                     tablet_schema->get_inverted_index_storage_format() ==
+                                             InvertedIndexStorageFormatPB::V1;
+
+        if (has_v1_inverted_index && allow_packed_file && config::enable_packed_file) {
+            static constexpr std::string_view kMsg =
+                    "Disable packed file for V1 inverted index tablet to avoid missing index "
+                    "metadata (temporary workaround)";
+            LOG(INFO) << kMsg << ", tablet_id=" << tablet_id << ", rowset_id=" << rowset_id;
+        }
+
+        // Only enable merge file for S3 file system, not for HDFS or other remote file systems
+        packed_file_active = allow_packed_file && config::is_cloud_mode() &&
+                             config::enable_packed_file && !has_v1_inverted_index && is_s3_fs;
+
+        if (packed_file_active) {
+            io::PackedAppendContext append_info;
+            append_info.tablet_id = tablet_id;
+            append_info.rowset_id = rowset_id.to_string();
+            append_info.txn_id = txn_id;
+            fs = std::make_shared<io::PackedFileSystem>(fs, append_info);
+        }
+
+        // Cache the result to ensure consistency across multiple calls
+        _cached_fs = fs;
+        return fs;
     }
 
-    io::FileSystem& fs_ref() { return *fs(); }
+    io::FileSystem& fs_ref() const { return *fs(); }
 
     io::FileWriterOptions get_file_writer_options() {
         io::FileWriterOptions opts {
