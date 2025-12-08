@@ -72,6 +72,7 @@ int main(int argc, char** argv) {
 
     config::label_keep_max_second = 0;
     config::force_immediate_recycle = true;
+    config::enable_check_create_tablet_db_id = false;
 
     if (!doris::cloud::init_glog("txn_lazy_commit_test")) {
         std::cerr << "failed to init glog" << std::endl;
@@ -419,7 +420,7 @@ TEST(TxnLazyCommitTest, CreateTabletWithDbIdTest) {
     }
 }
 
-TEST(TxnLazyCommitTest, DISABLED_CreateTabletWithoutDbIdTest) {
+TEST(TxnLazyCommitTest, CreateTabletWithoutDbIdTest) {
     auto txn_kv = get_mem_txn_kv();
     auto meta_service = get_meta_service(txn_kv, true);
     int table_id = 3131;

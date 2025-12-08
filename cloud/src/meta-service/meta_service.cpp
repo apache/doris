@@ -889,7 +889,7 @@ void MetaServiceImpl::create_tablets(::google::protobuf::RpcController* controll
         LOG(INFO) << msg << ", cloud_unique_id=" << request->cloud_unique_id();
         return;
     }
-    if (!request->has_db_id()) {
+    if (config::enable_check_create_tablet_db_id && !request->has_db_id()) {
         msg = "missing db_id for create_tablets";
         code = MetaServiceCode::INVALID_ARGUMENT;
         return;

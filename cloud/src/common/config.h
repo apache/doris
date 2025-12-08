@@ -392,4 +392,6 @@ CONF_Validator(aws_credentials_provider_version,
 CONF_mBool(enable_notify_instance_update, "true");
 CONF_Bool(enable_instance_update_watcher, "true");
 
+CONF_Bool(enable_check_create_tablet_db_id, "true");
+
 } // namespace doris::cloud::config
