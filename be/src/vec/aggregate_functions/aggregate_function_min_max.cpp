@@ -138,10 +138,10 @@ AggregateFunctionPtr create_aggregate_function_single_value(const String& name,
 // any_value
 template <template <typename> class Data>
 AggregateFunctionPtr create_aggregate_function_single_value_any_value_function(
-        const String& name, const DataTypes& argument_types, const bool result_is_nullable,
-        const AggregateFunctionAttr& attr) {
+        const String& name, const DataTypes& argument_types, const DataTypePtr& result_type,
+        const bool result_is_nullable, const AggregateFunctionAttr& attr) {
     AggregateFunctionPtr res = create_aggregate_function_single_value<Data>(
-            name, argument_types, result_is_nullable, attr);
+            name, argument_types, result_type, result_is_nullable, attr);
     if (res) {
         return res;
     }
