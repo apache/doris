@@ -92,9 +92,7 @@ public class ClientController {
     @RequestMapping(path = "/api/compareOffset", method = RequestMethod.POST)
     public Object compareOffset(@RequestBody CompareOffsetReq compareOffsetReq) {
         SourceReader<?, ?> reader = Env.getCurrentEnv().getReader(compareOffsetReq);
-        return ResponseEntityBuilder.ok(
-                reader.compareOffset(
-                        compareOffsetReq.getOffsetFirst(), compareOffsetReq.getOffsetSecond()));
+        return ResponseEntityBuilder.ok(reader.compareOffset(compareOffsetReq));
     }
 
     @RequestMapping(path = "/api/close/{jobId}", method = RequestMethod.POST)

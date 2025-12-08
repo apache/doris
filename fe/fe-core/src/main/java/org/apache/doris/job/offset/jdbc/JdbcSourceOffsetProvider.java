@@ -37,7 +37,6 @@ import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TStatusCode;
-
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -48,7 +47,6 @@ import lombok.Setter;
 import lombok.extern.log4j.Log4j2;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.collections4.MapUtils;
-
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -63,15 +61,14 @@ import java.util.stream.Collectors;
 @Setter
 @Log4j2
 public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
-    public static final String BINLOG_SPLIT_ID = "binlog-split";
     public static final String SPLIT_ID = "splitId";
     private static final ObjectMapper objectMapper = new ObjectMapper();
     private Long jobId;
     private DataSourceType sourceType;
     private Map<String, String> sourceProperties = new HashMap<>();
 
-    List<SnapshotSplit> remainingSplits;
-    List<SnapshotSplit> finishedSplits;
+    List<SnapshotSplit> remainingSplits = new ArrayList<>();
+    List<SnapshotSplit> finishedSplits = new ArrayList<>();
 
     JdbcOffset currentOffset;
     Map<String, String> endBinlogOffset;
@@ -79,8 +76,15 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
     @SerializedName("chw")
     // tableID -> splitId -> chunk of highWatermark
     Map<String, Map<String, Map<String, String>>> chunkHighWatermarkMap;
-    @SerializedName("chw")
+    @SerializedName("bop")
     Map<String, String> binlogOffsetPersist;
+
+    public JdbcSourceOffsetProvider(Long jobId, DataSourceType sourceType, Map<String, String> sourceProperties) {
+        this.jobId = jobId;
+        this.sourceType = sourceType;
+        this.sourceProperties = sourceProperties;
+        this.chunkHighWatermarkMap = new HashMap<>();
+    }
 
     @Override
     public String getSourceType() {
@@ -95,16 +99,15 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
             SnapshotSplit snapshotSplit = remainingSplits.get(0);
             nextOffset.setSplit(snapshotSplit);
             return nextOffset;
-        } else if (currentOffset.getSplit().snapshotSplit()) {
+        } else if (currentOffset != null && currentOffset.getSplit().snapshotSplit()) {
             // snapshot to binlog
             BinlogSplit binlogSplit = new BinlogSplit();
-            binlogSplit.setSplitId(BINLOG_SPLIT_ID);
             binlogSplit.setFinishedSplits(finishedSplits);
             nextOffset.setSplit(binlogSplit);
             return nextOffset;
         } else {
             // only binlog
-            return currentOffset;
+            return currentOffset == null ? new JdbcOffset(new BinlogSplit()) : currentOffset;
         }
     }
 
@@ -113,10 +116,22 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
         if (this.currentOffset != null) {
             AbstractSourceSplit split = this.currentOffset.getSplit();
             if (split.snapshotSplit()) {
-                return new Gson().toJson(split);
+                SnapshotSplit snsplit = (SnapshotSplit) split;
+                Map<String, Object> splitShow = new HashMap<>();
+                splitShow.put("splitId", snsplit.getSplitId());
+                splitShow.put("tableId", snsplit.getTableId());
+                splitShow.put("splitKey", snsplit.getSplitKey());
+                splitShow.put("splitStart", snsplit.getSplitStart());
+                splitShow.put("splitEnd", snsplit.getSplitEnd());
+                return new Gson().toJson(splitShow);
             } else {
                 BinlogSplit binlogSplit = (BinlogSplit) split;
-                return new Gson().toJson(binlogSplit.getStartingOffset());
+                HashMap<String, Object> showMap = new HashMap<>();
+                showMap.put(SPLIT_ID, BinlogSplit.BINLOG_SPLIT_ID);
+                if (binlogSplit.getStartingOffset() != null) {
+                    showMap.putAll(binlogSplit.getStartingOffset());
+                }
+                return new Gson().toJson(showMap);
             }
         }
         return null;
@@ -162,7 +177,7 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
         } else {
             BinlogSplit binlogSplit = (BinlogSplit) split;
             binlogOffsetPersist = new HashMap<>(binlogSplit.getStartingOffset());
-            binlogOffsetPersist.put(SPLIT_ID, BINLOG_SPLIT_ID);
+            binlogOffsetPersist.put(SPLIT_ID, BinlogSplit.BINLOG_SPLIT_ID);
         }
     }
 
@@ -172,7 +187,7 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
         Map<String, Object> params = buildBaseParams();
         InternalService.PRequestCdcClientRequest request = InternalService.PRequestCdcClientRequest.newBuilder()
                 .setApi("/api/fetchEndOffset")
-                .setParams(GsonUtils.GSON.toJson(params)).build();
+                .setParams(new Gson().toJson(params)).build();
         TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
         InternalService.PRequestCdcClientResult result = null;
         try {
@@ -201,20 +216,31 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
 
     @Override
     public boolean hasMoreDataToConsume() {
-        if (!remainingSplits.isEmpty()) {
+        if (currentOffset == null) {
             return true;
         }
-        if (currentOffset != null && !currentOffset.getSplit().snapshotSplit()) {
-            BinlogSplit binlogSplit = (BinlogSplit) currentOffset.getSplit();
-            Map<String, String> startingOffset = binlogSplit.getStartingOffset();
-            try {
-                return compareOffset(startingOffset, endBinlogOffset);
-            } catch (Exception ex) {
-                log.info("Compare offset error: ", ex);
-                return false;
-            }
+
+        if (CollectionUtils.isNotEmpty(remainingSplits)) {
+            return true;
         }
-        return true;
+        if (MapUtils.isEmpty(endBinlogOffset)) {
+            return false;
+        }
+        try {
+            if (!currentOffset.getSplit().snapshotSplit()) {
+                BinlogSplit binlogSplit = (BinlogSplit) currentOffset.getSplit();
+                return compareOffset(endBinlogOffset, new HashMap<>(binlogSplit.getStartingOffset()));
+            } else {
+                SnapshotSplit snapshotSplit = (SnapshotSplit) currentOffset.getSplit();
+                if (MapUtils.isNotEmpty(snapshotSplit.getHighWatermark())) {
+                    return compareOffset(endBinlogOffset, new HashMap<>(snapshotSplit.getHighWatermark()));
+                }
+            }
+        } catch (Exception ex) {
+            log.info("Compare offset error: ", ex);
+            return false;
+        }
+        return false;
     }
 
     private boolean compareOffset(Map<String, String> offsetFirst, Map<String, String> offsetSecond)
@@ -223,7 +249,7 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
         Map<String, Object> params = buildCompareOffsetParams(offsetFirst, offsetSecond);
         InternalService.PRequestCdcClientRequest request = InternalService.PRequestCdcClientRequest.newBuilder()
                 .setApi("/api/compareOffset")
-                .setParams(GsonUtils.GSON.toJson(params)).build();
+                .setParams(new Gson().toJson(params)).build();
         TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
         InternalService.PRequestCdcClientResult result = null;
         try {
@@ -257,7 +283,7 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
             Map<String, String> offsetMeta = objectMapper.readValue(offset, new TypeReference<Map<String, String>>() {
             });
             String splitId = offsetMeta.remove(SPLIT_ID);
-            if (BINLOG_SPLIT_ID.equals(splitId)) {
+            if (BinlogSplit.BINLOG_SPLIT_ID.equals(splitId)) {
                 BinlogSplit binlogSplit = new BinlogSplit();
                 binlogSplit.setSplitId(splitId);
                 binlogSplit.setStartingOffset(offsetMeta);
@@ -285,13 +311,13 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
      */
     @Override
     public void replayIfNeed(StreamingInsertJob job) {
-        if (remainingSplits == null
-                && checkNeedSplitChunks(job.getSourceProperties())) {
+        if (checkNeedSplitChunks(job.getSourceProperties())) {
             try {
                 Map<String, List<SnapshotSplit>> snapshotSplits = StreamingJobUtils.restoreSplitsToJob(job.getJobId());
                 String offsetProviderPersist = job.getOffsetProviderPersist();
                 JdbcSourceOffsetProvider replayFromPersist = GsonUtils.GSON.fromJson(offsetProviderPersist,
                         JdbcSourceOffsetProvider.class);
+                // need a flag to check pure binlog?
                 this.chunkHighWatermarkMap = replayFromPersist.getChunkHighWatermarkMap();
                 if (MapUtils.isNotEmpty(chunkHighWatermarkMap) && MapUtils.isNotEmpty(snapshotSplits)) {
                     replaySnapshotSplits(chunkHighWatermarkMap, snapshotSplits);
@@ -299,7 +325,7 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
                 this.binlogOffsetPersist = replayFromPersist.getBinlogOffsetPersist();
                 if (MapUtils.isNotEmpty(binlogOffsetPersist)) {
                     currentOffset = new JdbcOffset();
-                    currentOffset.setSplit(new BinlogSplit(BINLOG_SPLIT_ID, binlogOffsetPersist));
+                    currentOffset.setSplit(new BinlogSplit(binlogOffsetPersist));
                 }
             } catch (Exception ex) {
                 log.error("Failed to restore splits for job {}", job.getJobId(), ex);
@@ -383,7 +409,7 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
         Map<String, Object> params = buildSplitParams(table);
         InternalService.PRequestCdcClientRequest request = InternalService.PRequestCdcClientRequest.newBuilder()
                 .setApi("/api/fetchSplits")
-                .setParams(GsonUtils.GSON.toJson(params)).build();
+                .setParams(new Gson().toJson(params)).build();
         TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
         InternalService.PRequestCdcClientResult result = null;
         try {

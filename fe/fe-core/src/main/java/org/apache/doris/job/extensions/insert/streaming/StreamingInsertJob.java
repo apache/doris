@@ -32,6 +32,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.httpv2.rest.StreamingJobAction.CommitOffsetRequest;
 import org.apache.doris.job.base.AbstractJob;
 import org.apache.doris.job.base.JobExecutionConfiguration;
 import org.apache.doris.job.base.TimerDefinition;
@@ -73,7 +74,6 @@ import org.apache.doris.thrift.TRow;
 import org.apache.doris.transaction.TransactionException;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TxnStateChangeCallback;
-
 import com.google.common.base.Preconditions;
 import com.google.gson.annotations.SerializedName;
 import lombok.Getter;
@@ -81,7 +81,6 @@ import lombok.Setter;
 import lombok.extern.log4j.Log4j2;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
-
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -200,11 +199,8 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             init();
             checkRequiredSourceProperties();
             List<String> createTbls = createTableIfNotExists();
-            this.offsetProvider = new JdbcSourceOffsetProvider();
+            this.offsetProvider = new JdbcSourceOffsetProvider(getJobId(), dataSourceType, sourceProperties);
             JdbcSourceOffsetProvider rdsOffsetProvider = (JdbcSourceOffsetProvider) this.offsetProvider;
-            rdsOffsetProvider.setJobId(getJobId());
-            rdsOffsetProvider.setSourceType(dataSourceType);
-            rdsOffsetProvider.setSourceProperties(sourceProperties);
             rdsOffsetProvider.splitChunks(createTbls);
         } catch (Exception ex) {
             log.warn("init streaming job for {} failed", dataSourceType, ex);
@@ -575,6 +571,15 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         this.jobStatistic.setFileNumber(attachment.getNumFiles());
         this.jobStatistic.setFileSize(attachment.getFileBytes());
         offsetProvider.updateOffset(offsetProvider.deserializeOffset(attachment.getOffset()));
+    }
+
+    private void updateJobStatisticAndOffset(CommitOffsetRequest offsetRequest) {
+        if (this.jobStatistic == null) {
+            this.jobStatistic = new StreamingJobStatistic();
+        }
+        this.jobStatistic.setScannedRows(this.jobStatistic.getScannedRows() + offsetRequest.getScannedRows());
+        this.jobStatistic.setLoadBytes(this.jobStatistic.getLoadBytes() + offsetRequest.getScannedBytes());
+        offsetProvider.updateOffset(offsetProvider.deserializeOffset(offsetRequest.getOffset()));
     }
 
     @Override
@@ -964,7 +969,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             if (tvfType != null) {
                 offsetProvider = SourceOffsetProviderFactory.createSourceOffsetProvider(tvfType);
             } else {
-                offsetProvider = new JdbcSourceOffsetProvider();
+                offsetProvider = new JdbcSourceOffsetProvider(getJobId(), dataSourceType, sourceProperties);
             }
         }
 
@@ -1002,7 +1007,8 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         writeLock();
         try {
             StreamingMultiTblTask runningMultiTask = (StreamingMultiTblTask) this.runningStreamTask;
-            if (runningMultiTask.isTimeout()) {
+            if (TaskStatus.RUNNING.equals(runningMultiTask.getStatus())
+                    && runningMultiTask.isTimeout()) {
                 runningMultiTask.cancel(false);
                 runningMultiTask.setErrMsg("task cancelled cause timeout");
 
@@ -1019,23 +1025,22 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         }
     }
 
-    public void commitOffset(long taskId, String offsetStr) throws JobException {
+    public void commitOffset(CommitOffsetRequest offsetRequest) throws JobException {
         if (!(offsetProvider instanceof JdbcSourceOffsetProvider)) {
             throw new JobException("Unsupported commit offset for offset provider type: "
                     + offsetProvider.getClass().getSimpleName());
         }
         writeLock();
         try {
-            Offset offset = offsetProvider.deserializeOffset(offsetStr);
-            offsetProvider.updateOffset(offset);
+            updateJobStatisticAndOffset(offsetRequest);
             if (this.runningStreamTask != null
                     && this.runningStreamTask instanceof StreamingMultiTblTask) {
-                if (this.runningStreamTask.getTaskId() != taskId) {
+                if (this.runningStreamTask.getTaskId() != offsetRequest.getTaskId()) {
                     throw new JobException("Task id mismatch when commit offset. expected: "
-                            + this.runningStreamTask.getTaskId() + ", actual: " + taskId);
+                            + this.runningStreamTask.getTaskId() + ", actual: " + offsetRequest.getTaskId());
                 }
                 persistOffsetProviderIfNeed();
-                onStreamTaskSuccess(this.runningStreamTask);
+                ((StreamingMultiTblTask) this.runningStreamTask).successCallback(offsetRequest);
             }
         } finally {
             writeUnlock();

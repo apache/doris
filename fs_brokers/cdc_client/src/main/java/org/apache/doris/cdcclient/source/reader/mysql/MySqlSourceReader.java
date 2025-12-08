@@ -19,6 +19,7 @@ package org.apache.doris.cdcclient.source.reader.mysql;
 
 import org.apache.doris.cdcclient.constants.LoadConstants;
 import org.apache.doris.cdcclient.model.JobConfig;
+import org.apache.doris.cdcclient.model.request.CompareOffsetReq;
 import org.apache.doris.cdcclient.model.request.FetchRecordReq;
 import org.apache.doris.cdcclient.model.request.FetchTableSplitsReq;
 import org.apache.doris.cdcclient.model.request.JobBaseRecordReq;
@@ -32,7 +33,16 @@ import org.apache.doris.cdcclient.source.split.AbstractSourceSplit;
 import org.apache.doris.cdcclient.source.split.BinlogSplit;
 import org.apache.doris.cdcclient.source.split.SnapshotSplit;
 import org.apache.doris.cdcclient.utils.ConfigUtil;
-
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.shyiko.mysql.binlog.BinaryLogClient;
+import io.debezium.connector.mysql.MySqlConnection;
+import io.debezium.connector.mysql.MySqlPartition;
+import io.debezium.document.Array;
+import io.debezium.relational.Column;
+import io.debezium.relational.TableId;
+import io.debezium.relational.history.HistoryRecord;
+import io.debezium.relational.history.TableChanges;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.cdc.common.utils.Preconditions;
@@ -41,6 +51,7 @@ import org.apache.flink.cdc.connectors.mysql.debezium.reader.BinlogSplitReader;
 import org.apache.flink.cdc.connectors.mysql.debezium.reader.DebeziumReader;
 import org.apache.flink.cdc.connectors.mysql.debezium.reader.SnapshotSplitReader;
 import org.apache.flink.cdc.connectors.mysql.debezium.task.context.StatefulTaskContext;
+import static org.apache.flink.cdc.connectors.mysql.source.assigners.MySqlBinlogSplitAssigner.BINLOG_SPLIT_ID;
 import org.apache.flink.cdc.connectors.mysql.source.assigners.MySqlSnapshotSplitAssigner;
 import org.apache.flink.cdc.connectors.mysql.source.config.MySqlSourceConfig;
 import org.apache.flink.cdc.connectors.mysql.source.offset.BinlogOffset;
@@ -58,7 +69,8 @@ import org.apache.flink.cdc.connectors.mysql.table.StartupMode;
 import org.apache.flink.cdc.debezium.history.FlinkJsonTableChangeSerializer;
 import org.apache.flink.table.types.logical.RowType;
 import org.apache.kafka.connect.source.SourceRecord;
-
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.sql.SQLException;
 import java.util.ArrayList;
@@ -70,21 +82,6 @@ import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
-
-import static org.apache.flink.cdc.connectors.mysql.source.assigners.MySqlBinlogSplitAssigner.BINLOG_SPLIT_ID;
-
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.github.shyiko.mysql.binlog.BinaryLogClient;
-import io.debezium.connector.mysql.MySqlConnection;
-import io.debezium.connector.mysql.MySqlPartition;
-import io.debezium.document.Array;
-import io.debezium.relational.Column;
-import io.debezium.relational.TableId;
-import io.debezium.relational.history.HistoryRecord;
-import io.debezium.relational.history.TableChanges;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 public class MySqlSourceReader implements SourceReader<MySqlSplit, MySqlSplitState> {
     private static final Logger LOG = LoggerFactory.getLogger(MySqlSourceReader.class);
@@ -243,7 +240,7 @@ public class MySqlSourceReader implements SourceReader<MySqlSplit, MySqlSplitSta
                 Map<String, String> lastMeta = RecordUtils.getBinlogPosition(element).getOffset();
                 if (readBinlog) {
                     lastMeta.put(SPLIT_ID, BINLOG_SPLIT_ID);
-                    lastMeta.put(PURE_BINLOG_PHASE, String.valueOf(pureBinlogPhase));
+                    // lastMeta.put(PURE_BINLOG_PHASE, String.valueOf(pureBinlogPhase));
                     recordResponse.setMeta(lastMeta);
                 }
                 if (count >= fetchRecord.getFetchSize()) {
@@ -271,7 +268,7 @@ public class MySqlSourceReader implements SourceReader<MySqlSplit, MySqlSplitSta
                     offsetRes = split.asBinlogSplit().getStartingOffset().getOffset();
                 }
                 offsetRes.put(SPLIT_ID, BINLOG_SPLIT_ID);
-                offsetRes.put(PURE_BINLOG_PHASE, String.valueOf(pureBinlogPhase));
+                // offsetRes.put(PURE_BINLOG_PHASE, String.valueOf(pureBinlogPhase));
                 recordResponse.setMeta(offsetRes);
             } else {
                 SnapshotSplit snapshotSplit =
@@ -474,7 +471,7 @@ public class MySqlSourceReader implements SourceReader<MySqlSplit, MySqlSplitSta
         currentReader.submitSplit(split);
         currentSplitId = split.splitId();
         // make split record available
-        Thread.sleep(100);
+        Thread.sleep(1000);
         dataIt = currentReader.pollSplitRecords();
         if (currentReader instanceof SnapshotSplitReader) {
             closeSnapshotReader();
@@ -581,7 +578,7 @@ public class MySqlSourceReader implements SourceReader<MySqlSplit, MySqlSplitSta
         MySqlSplit mysqlSplit = (MySqlSplit) split;
         Map<String, String> offsetRes = mysqlSplit.asBinlogSplit().getStartingOffset().getOffset();
         offsetRes.put(SPLIT_ID, BINLOG_SPLIT_ID);
-        offsetRes.put(PURE_BINLOG_PHASE, String.valueOf(pureBinlogPhase));
+        // offsetRes.put(PURE_BINLOG_PHASE, String.valueOf(pureBinlogPhase));
         return offsetRes;
     }
 
@@ -617,7 +614,19 @@ public class MySqlSourceReader implements SourceReader<MySqlSplit, MySqlSplitSta
     }
 
     @Override
-    public int compareOffset(Map<String, String> offsetFirst, Map<String, String> offsetSecond) {
+    public int compareOffset(CompareOffsetReq compareOffsetReq) {
+        Map<String, String> offsetFirst = compareOffsetReq.getOffsetFirst();
+        Map<String, String> offsetSecond = compareOffsetReq.getOffsetSecond();
+        // make server id is equals
+        String serverId1 = offsetFirst.get("server_id");
+        String serverId2 = offsetSecond.get("server_id");
+        if (serverId1 == null && serverId2 != null) {
+            offsetFirst.put("server_id", serverId2);
+        }
+        if (serverId2 == null && serverId1 != null) {
+            offsetSecond.put("server_id", serverId1);
+        }
+
         BinlogOffset binlogOffset1 = new BinlogOffset(offsetFirst);
         BinlogOffset binlogOffset2 = new BinlogOffset(offsetSecond);
         return binlogOffset1.compareTo(binlogOffset2);

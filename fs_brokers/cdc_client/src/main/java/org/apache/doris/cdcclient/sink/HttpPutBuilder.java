@@ -49,6 +49,11 @@ public class HttpPutBuilder {
         return this;
     }
 
+    public HttpPutBuilder addBodyContentType() {
+        header.put(HttpHeaders.CONTENT_TYPE, "application/json;charset=UTF-8");
+        return this;
+    }
+
     public HttpPutBuilder addHiddenColumns(boolean add) {
         if (add) {
             header.put("hidden_columns", LoadConstants.DELETE_SIGN_KEY);

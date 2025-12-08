@@ -18,7 +18,6 @@
 package org.apache.doris.job.util;
 
 import org.apache.doris.analysis.UserIdentity;
-import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -47,14 +46,13 @@ import org.apache.doris.system.Backend;
 import org.apache.doris.system.BeSelectionPolicy;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TUniqueId;
-
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import lombok.extern.log4j.Log4j2;
 import org.apache.commons.text.StringSubstitutor;
-
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -264,12 +262,7 @@ public class StreamingJobUtils {
             // Convert Column to ColumnDefinition
             List<ColumnDefinition> columnDefinitions = columns.stream().map(col -> {
                 DataType dataType = DataType.fromCatalogType(col.getType());
-                boolean isKey = col.isKey();
-                AggregateType aggType = col.getAggregationType();
-                boolean isNullable = col.isAllowNull();
-                String comment = col.getComment() != null ? col.getComment() : "";
-                return new ColumnDefinition(col.getName(), dataType, isKey, aggType, isNullable,
-                        Optional.empty(), comment);
+                return new ColumnDefinition(col.getName(), dataType, col.isKey(), col.isAllowNull(), col.getComment());
             }).collect(Collectors.toList());
 
             // Create DistributionDescriptor
@@ -289,17 +282,17 @@ public class StreamingJobUtils {
                     targetDb, // dbName
                     table, // tableName
                     columnDefinitions, // columns
-                    Collections.emptyList(), // indexes
+                    ImmutableList.of(), // indexes
                     "olap", // engineName
                     KeysType.UNIQUE_KEYS, // keysType
                     primaryKeys, // keys
                     "", // comment
                     PartitionTableInfo.EMPTY, // partitionTableInfo
                     distribution, // distribution
-                    Collections.emptyList(), // rollups
+                    ImmutableList.of(), // rollups
                     tableCreateProperties, // properties
-                    new HashMap<>(), // extProperties
-                    Collections.emptyList() // clusterKeyColumnNames
+                    ImmutableMap.of(), // extProperties
+                    ImmutableList.of() // clusterKeyColumnNames
             );
             createtblInfo.analyzeEngine();
             createtblInfos.add(createtblInfo);

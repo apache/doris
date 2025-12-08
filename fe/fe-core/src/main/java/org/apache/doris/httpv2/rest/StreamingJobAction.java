@@ -26,18 +26,21 @@ import org.apache.doris.job.extensions.insert.streaming.StreamingInsertJob;
 import com.google.common.base.Strings;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.Getter;
+import lombok.NoArgsConstructor;
 import lombok.Setter;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
+import org.springframework.web.bind.annotation.RestController;
 
-public class StreamingJobAction extends LoadAction {
+@RestController
+public class StreamingJobAction extends RestBaseController {
     private static final Logger LOG = LogManager.getLogger(StreamingJobAction.class);
 
     @RequestMapping(path = "/api/streaming/commit_offset", method = RequestMethod.PUT)
-    public Object streamLoad(HttpServletRequest request, @RequestBody CommitOffsetRequest offsetRequest) {
+    public Object commitOffset(@RequestBody CommitOffsetRequest offsetRequest, HttpServletRequest request) {
         String authToken = request.getHeader("token");
         // if auth token is not null, check it first
         if (!Strings.isNullOrEmpty(authToken)) {
@@ -64,7 +67,7 @@ public class StreamingJobAction extends LoadAction {
 
         StreamingInsertJob streamingJob = (StreamingInsertJob) job;
         try {
-            streamingJob.commitOffset(offsetRequest.getTaskId(), offsetRequest.getOffset());
+            streamingJob.commitOffset(offsetRequest);
             return ResponseEntityBuilder.ok("Offset committed successfully");
         } catch (Exception e) {
             LOG.warn("Failed to commit offset for job {}, offset {}: {}", offsetRequest.getJobId(),
@@ -75,9 +78,12 @@ public class StreamingJobAction extends LoadAction {
 
     @Getter
     @Setter
+    @NoArgsConstructor
     public static class CommitOffsetRequest {
         public long jobId;
         public long taskId;
         public String offset;
+        public long scannedRows;
+        public long scannedBytes;
     }
 }

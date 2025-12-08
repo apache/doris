@@ -20,25 +20,29 @@ package org.apache.doris.job.extensions.insert.streaming;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.httpv2.entity.ResponseBody;
 import org.apache.doris.httpv2.rest.RestApiStatusCode;
+import org.apache.doris.httpv2.rest.StreamingJobAction.CommitOffsetRequest;
+import org.apache.doris.job.base.Job;
 import org.apache.doris.job.common.DataSourceType;
 import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.offset.SourceOffsetProvider;
 import org.apache.doris.job.offset.jdbc.JdbcOffset;
+import org.apache.doris.job.offset.jdbc.JdbcSourceOffsetProvider;
+import org.apache.doris.job.offset.jdbc.split.BinlogSplit;
+import org.apache.doris.job.offset.jdbc.split.SnapshotSplit;
 import org.apache.doris.job.util.StreamingJobUtils;
-import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.InternalService.PRequestCdcClientResult;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TStatusCode;
-
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.gson.Gson;
 import lombok.Getter;
 import lombok.extern.log4j.Log4j2;
-
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
@@ -55,6 +59,8 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
     private Map<String, String> targetProperties;
     private String targetDb;
     private StreamingJobProperties jobProperties;
+    private long scannedRows = 0L;
+    private long scannedBytes = 0L;
 
     public StreamingMultiTblTask(Long jobId,
             long taskId,
@@ -70,6 +76,7 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
         this.sourceProperties = sourceProperties;
         this.targetProperties = targetProperties;
         this.jobProperties = jobProperties;
+        this.targetDb = targetDb;
     }
 
     @Override
@@ -99,7 +106,7 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
         Map<String, Object> params = buildRequestParams();
         InternalService.PRequestCdcClientRequest request = InternalService.PRequestCdcClientRequest.newBuilder()
                 .setApi("/api/writeRecords")
-                .setParams(GsonUtils.GSON.toJson(params)).build();
+                .setParams(new Gson().toJson(params)).build();
         TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
         InternalService.PRequestCdcClientResult result = null;
         try {
@@ -166,6 +173,52 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
         }
         log.info("streaming multi task {} send write request run successfully.", getTaskId());
         return false;
+    }
+
+    /**
+     * Callback function for offset commit success.
+     */
+    public void successCallback(CommitOffsetRequest offsetRequest) {
+        if (getIsCanceled().get()) {
+            return;
+        }
+        this.status = TaskStatus.SUCCESS;
+        this.finishTimeMs = System.currentTimeMillis();
+        JdbcOffset runOffset = (JdbcOffset) this.runningOffset;
+
+        // set end offset to running offset
+        Map<String, String> offsetMeta;
+        try {
+            offsetMeta = objectMapper.readValue(offsetRequest.getOffset(), new TypeReference<Map<String, String>>() {
+            });
+        } catch (JsonProcessingException e) {
+            log.warn("Failed to parse offset meta from request: {}", offsetRequest.getOffset(), e);
+            throw new RuntimeException(e);
+        }
+        String splitId = offsetMeta.remove(JdbcSourceOffsetProvider.SPLIT_ID);
+        if (runOffset.getSplit().snapshotSplit()
+                && !BinlogSplit.BINLOG_SPLIT_ID.equals(splitId)) {
+            SnapshotSplit split = (SnapshotSplit) runOffset.getSplit();
+            split.setHighWatermark(offsetMeta);
+        } else if (!runOffset.getSplit().snapshotSplit()
+                && BinlogSplit.BINLOG_SPLIT_ID.equals(splitId)) {
+            BinlogSplit split = (BinlogSplit) runOffset.getSplit();
+            split.setEndingOffset(offsetMeta);
+        } else {
+            log.warn("Split id is not consistent, task running split id {},"
+                    + " offset commit request split id {}", runOffset.getSplit().getSplitId(), splitId);
+            throw new RuntimeException("Split id is not consistent");
+        }
+        if (!isCallable()) {
+            return;
+        }
+        Job job = Env.getCurrentEnv().getJobManager().getJob(getJobId());
+        if (null == job) {
+            log.info("job is null, job id is {}", jobId);
+            return;
+        }
+        StreamingInsertJob streamingInsertJob = (StreamingInsertJob) job;
+        streamingInsertJob.onStreamTaskSuccess(this);
     }
 
     @Override

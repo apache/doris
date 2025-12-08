@@ -27,16 +27,20 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 
-import lombok.Getter;
 import lombok.Setter;
 
 public class Env {
     private static volatile Env INSTANCE;
     private final Map<Long, JobContext> jobContexts;
-    @Getter @Setter private String backendHostPort;
+    @Setter private int backendHttpPort;
 
     private Env() {
         this.jobContexts = new ConcurrentHashMap<>();
+    }
+
+    public String getBackendHostPort() {
+        return "127.0.0.1:" + backendHttpPort;
+        // return "10.16.10.6:28949";
     }
 
     public static Env getCurrentEnv() {

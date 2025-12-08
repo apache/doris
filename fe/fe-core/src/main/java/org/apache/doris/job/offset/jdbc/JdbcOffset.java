@@ -19,11 +19,15 @@ package org.apache.doris.job.offset.jdbc;
 
 import org.apache.doris.job.offset.Offset;
 import org.apache.doris.job.offset.jdbc.split.AbstractSourceSplit;
-
+import org.apache.doris.job.offset.jdbc.split.BinlogSplit;
+import com.google.gson.Gson;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
+import org.apache.commons.collections4.CollectionUtils;
+import org.apache.commons.collections4.MapUtils;
+import java.util.HashMap;
 
 @Getter
 @Setter
@@ -50,6 +54,22 @@ public class JdbcOffset implements Offset {
 
     @Override
     public String showRange() {
-        return null;
+        if (split.snapshotSplit()) {
+            // need to show hw
+            return new Gson().toJson(split);
+        }else {
+            BinlogSplit binlogSplit = (BinlogSplit) split;
+            HashMap<String, Object> showMap = new HashMap<>();
+            showMap.put(JdbcSourceOffsetProvider.SPLIT_ID, BinlogSplit.BINLOG_SPLIT_ID);
+            if (binlogSplit.getStartingOffset() != null) {
+                showMap.put("startOffset", binlogSplit.getStartingOffset());
+            } else if (CollectionUtils.isNotEmpty(binlogSplit.getFinishedSplits())) {
+                showMap.put("finishedSplitSize", binlogSplit.getFinishedSplits().size());
+            }
+            if (MapUtils.isNotEmpty(binlogSplit.getEndingOffset())) {
+                showMap.put("endOffset", binlogSplit.getEndingOffset());
+            }
+            return new Gson().toJson(showMap);
+        }
     }
 }

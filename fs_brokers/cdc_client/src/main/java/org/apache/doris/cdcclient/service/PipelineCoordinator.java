@@ -25,12 +25,16 @@ import org.apache.doris.cdcclient.source.deserialize.DebeziumJsonDeserializer;
 import org.apache.doris.cdcclient.source.deserialize.SourceRecordDeserializer;
 import org.apache.doris.cdcclient.source.reader.SourceReader;
 import org.apache.doris.cdcclient.source.reader.SplitReadResult;
-
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.base.Preconditions;
+import io.debezium.data.Envelope;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.flink.cdc.connectors.mysql.source.utils.RecordUtils;
 import org.apache.kafka.connect.data.Struct;
 import org.apache.kafka.connect.source.SourceRecord;
-
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Component;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
@@ -40,13 +44,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
-
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.google.common.base.Preconditions;
-import io.debezium.data.Envelope;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.stereotype.Component;
 
 /** Pipeline coordinator. */
 @Component
@@ -129,6 +126,8 @@ public class PipelineCoordinator {
             long startTime = System.currentTimeMillis();
             long maxIntervalMillis = writeRecordReq.getMaxInterval() * 1000;
 
+            long scannedRows = 0L;
+            long scannedBytes = 0L;
             // Use iterators to read and write.
             Iterator<SourceRecord> iterator = readResult.getRecordIterator();
             while (iterator != null && iterator.hasNext()) {
@@ -141,17 +140,22 @@ public class PipelineCoordinator {
                         String table = extractTable(element);
                         hasData = true;
                         for (String record : serializedRecords) {
-                            batchStreamLoad.writeRecord(database, table, record.getBytes());
+                            scannedRows++;
+                            byte[] dataBytes = record.getBytes();
+                            scannedBytes += dataBytes.length;
+                            batchStreamLoad.writeRecord(database, table, dataBytes);
                         }
 
                         Map<String, String> lastMeta =
                                 RecordUtils.getBinlogPosition(element).getOffset();
                         if (readBinlog && sourceReader.getSplitId(readResult.getSplit()) != null) {
                             lastMeta.put(SPLIT_ID, sourceReader.getSplitId(readResult.getSplit()));
-                            lastMeta.put(PURE_BINLOG_PHASE, String.valueOf(pureBinlogPhase));
+                            // lastMeta.put(PURE_BINLOG_PHASE, String.valueOf(pureBinlogPhase));
                         }
                         metaResponse = lastMeta;
                     }
+                } else {
+                    LOG.info("Skip non-data record: {}", element.valueSchema());
                 }
                 // Check if maxInterval has been exceeded
                 long elapsedTime = System.currentTimeMillis() - startTime;
@@ -182,7 +186,7 @@ public class PipelineCoordinator {
                 metaResponse = offsetRes;
             }
             // request fe api
-            batchStreamLoad.commitOffset(metaResponse);
+            batchStreamLoad.commitOffset(metaResponse, scannedRows, scannedBytes);
             // batchStreamLoad.commitTransaction(metaResponse);
         } finally {
             sourceReader.finishSplitRecords();

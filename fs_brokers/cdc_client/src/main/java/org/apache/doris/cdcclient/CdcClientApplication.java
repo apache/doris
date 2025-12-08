@@ -17,8 +17,6 @@
 
 package org.apache.doris.cdcclient;
 
-import org.apache.doris.cdcclient.common.Env;
-
 import java.util.Arrays;
 
 import org.slf4j.Logger;
@@ -37,7 +35,6 @@ public class CdcClientApplication extends SpringBootServletInitializer {
 
     public static void main(String[] args) {
         LOG.info("args: {}, log.path: {}", Arrays.asList(args), System.getProperty("log.path"));
-        Env.getCurrentEnv().setBackendHostPort("10.16.10.6:28747");
         SpringApplication.run(CdcClientApplication.class, args);
     }
 }

@@ -356,6 +356,7 @@ public class DorisBatchStreamLoad implements Serializable {
         public void load(String label, BatchRecordBuffer buffer) throws IOException {
             BatchBufferHttpEntity entity = new BatchBufferHttpEntity(buffer);
             HttpPutBuilder putBuilder = new HttpPutBuilder();
+
             String loadUrl = String.format(LOAD_URL_PATTERN, hostPort, targetDb, buffer.getTable());
             String finalLabel = String.format("%s_%s_%s", jobId, currentTaskId, label);
             putBuilder
@@ -371,6 +372,7 @@ public class DorisBatchStreamLoad implements Serializable {
             Throwable resEx = new Throwable();
             int retry = 0;
             while (retry <= RETRY) {
+                LOG.info("stream load started for {} on host {}", putBuilder.getLabel(), hostPort);
                 try (CloseableHttpClient httpClient = HttpUtil.getHttpClient()) {
                     try (CloseableHttpResponse response = httpClient.execute(putBuilder.build())) {
                         int statusCode = response.getStatusLine().getStatusCode();
@@ -464,24 +466,28 @@ public class DorisBatchStreamLoad implements Serializable {
     }
 
     /** commit offfset to frontends. */
-    public void commitOffset(Map<String, String> meta) {
+    public void commitOffset(Map<String, String> meta, long scannedRows, long scannedBytes) {
         try {
             String url = String.format(COMMIT_URL_PATTERN, frontendAddress, targetDb);
             Map<String, Object> commitParams = new HashMap<>();
             commitParams.put("offset", OBJECT_MAPPER.writeValueAsString(meta));
             commitParams.put("jobId", jobId);
             commitParams.put("taskId", currentTaskId);
+            commitParams.put("scannedRows", scannedRows);
+            commitParams.put("scannedBytes", scannedBytes);
+            String param = OBJECT_MAPPER.writeValueAsString(commitParams);
+
             HttpPutBuilder builder =
                     new HttpPutBuilder()
                             .addCommonHeader()
+                            .addBodyContentType()
                             .addTokenAuth(token)
                             .setUrl(url)
                             .commit()
-                            .setEntity(
-                                    new StringEntity(
-                                            OBJECT_MAPPER.writeValueAsString(commitParams)));
+                            .setEntity(new StringEntity(param));
 
-            LOG.info("commit offset for jobId {} taskId {}", jobId, currentTaskId);
+            LOG.info(
+                    "commit offset for jobId {} taskId {}, params {}", jobId, currentTaskId, param);
             Throwable resEx = null;
             int retry = 0;
             while (retry <= RETRY) {

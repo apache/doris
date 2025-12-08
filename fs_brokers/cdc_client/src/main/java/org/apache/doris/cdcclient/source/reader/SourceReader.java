@@ -18,6 +18,7 @@
 package org.apache.doris.cdcclient.source.reader;
 
 import org.apache.doris.cdcclient.model.JobConfig;
+import org.apache.doris.cdcclient.model.request.CompareOffsetReq;
 import org.apache.doris.cdcclient.model.request.FetchRecordReq;
 import org.apache.doris.cdcclient.model.request.FetchTableSplitsReq;
 import org.apache.doris.cdcclient.model.request.JobBaseRecordReq;
@@ -72,5 +73,5 @@ public interface SourceReader<Split, SplitState> {
 
     Map<String, String> getEndOffset(JobConfig jobConfig);
 
-    int compareOffset(Map<String, String> offsetFirst, Map<String, String> offsetSecond);
+    int compareOffset(CompareOffsetReq compareOffsetReq);
 }

@@ -19,7 +19,7 @@ package org.apache.doris.cdcclient.utils;
 
 import org.apache.doris.cdcclient.constants.LoadConstants;
 import org.apache.doris.cdcclient.model.JobConfig;
-
+import com.mysql.cj.conf.ConnectionUrl;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.flink.cdc.connectors.mysql.source.config.MySqlSourceConfig;
 import org.apache.flink.cdc.connectors.mysql.source.config.MySqlSourceConfigFactory;
@@ -27,13 +27,14 @@ import org.apache.flink.cdc.connectors.mysql.source.config.MySqlSourceOptions;
 import org.apache.flink.cdc.connectors.mysql.source.offset.BinlogOffset;
 import org.apache.flink.cdc.connectors.mysql.source.offset.BinlogOffsetBuilder;
 import org.apache.flink.cdc.connectors.mysql.table.StartupOptions;
-
 import java.util.Map;
 import java.util.Properties;
 
-import com.mysql.cj.conf.ConnectionUrl;
-
 public class ConfigUtil {
+
+    public static String getServerId(long jobId) {
+        return String.valueOf(Math.abs(String.valueOf(jobId).hashCode()));
+    }
 
     public static MySqlSourceConfig generateMySqlConfig(JobConfig config) {
         Map<String, String> cdcConfig = config.getConfig();
@@ -47,7 +48,7 @@ public class ConfigUtil {
         configFactory.password(cdcConfig.get(LoadConstants.PASSWORD));
         String databaseName = cdcConfig.get(LoadConstants.DATABASE);
         configFactory.databaseList(databaseName);
-        configFactory.serverId(String.valueOf(Math.abs(config.getJobId().hashCode())));
+        configFactory.serverId(getServerId(config.getJobId()));
 
         configFactory.includeSchemaChanges(false);
 
