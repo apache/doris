@@ -256,6 +256,7 @@ Status VExprContext::execute_conjuncts(const VExprContextSPtrs& ctxs,
                 }
             }
         } else if (const auto* const_column = check_and_get_column<ColumnConst>(*filter_column)) {
+            DCHECK(!accept_null);
             // filter all
             if (!const_column->get_bool(0)) {
                 *can_filter_all = true;
