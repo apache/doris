@@ -71,15 +71,15 @@ public:
      * Get process information for debugging
      * @return Process string representation
      */
-    std::string print_process() const { return _process->to_string(); }
+    std::string print_process() const { return _process ? _process->to_string() : "null"; }
+
+    /**
+     * Get the underlying Python process
+     * @return Process pointer
+     */
+    ProcessPtr get_process() const { return _process; }
 
 protected:
-    /**
-     * Check if process is alive
-     * @return Status
-     */
-    Status check_process_alive() const;
-
     /**
      * Begin Flight stream with schema (called only once per stream)
      * @param schema Input schema

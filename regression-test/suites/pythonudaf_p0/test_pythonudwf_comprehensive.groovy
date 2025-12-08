@@ -19,7 +19,7 @@ suite("test_pythonudwf_comprehensive") {
     // Comprehensive test suite for Python User-Defined Window Functions (UDWF)
     // Tests cover: PARTITION BY, ORDER BY, frame specifications, edge cases, and complex scenarios
     
-    def runtime_version = "3.10.12"
+    def runtime_version = "3.8.10"
     
     try {
         // ========================================

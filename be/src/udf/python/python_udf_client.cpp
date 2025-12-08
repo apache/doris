@@ -31,7 +31,6 @@ Status PythonUDFClient::create(const PythonUDFMeta& func_meta, ProcessPtr proces
 
 Status PythonUDFClient::evaluate(const arrow::RecordBatch& input,
                                  std::shared_ptr<arrow::RecordBatch>* output) {
-    RETURN_IF_ERROR(check_process_alive());
     RETURN_IF_ERROR(begin_stream(input.schema()));
     RETURN_IF_ERROR(write_batch(input));
     RETURN_IF_ERROR(read_batch(output));

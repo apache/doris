@@ -25,7 +25,7 @@ suite("test_pythonudaf_complex_state_objects_inline") {
     // 5. Named tuples
     // 6. Mixed complex structures
     
-    def runtime_version = "3.10.12"
+    def runtime_version = "3.8.10"
     
     try {
         // ========================================

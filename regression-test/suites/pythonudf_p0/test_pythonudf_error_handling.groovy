@@ -18,7 +18,7 @@
 suite("test_pythonudf_error_handling") {
     // Test error handling and exception cases for Python UDF
     
-    def runtime_version = "3.10.12"
+    def runtime_version = "3.8.10"
     try {
         // Test 1: Division by zero error handling
         sql """ DROP FUNCTION IF EXISTS py_safe_divide(DOUBLE, DOUBLE); """

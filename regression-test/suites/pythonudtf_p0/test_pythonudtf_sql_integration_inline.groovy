@@ -19,7 +19,7 @@ suite("test_pythonudtf_sql_integration_inline") {
     // Test Python UDTF Integration with SQL Operations
     // Coverage: WHERE, JOIN, GROUP BY, ORDER BY, LIMIT, Subqueries, CTEs
     
-    def runtime_version = "3.10.12"
+    def runtime_version = "3.8.10"
     
     try {
         // ========================================
@@ -34,7 +34,7 @@ suite("test_pythonudtf_sql_integration_inline") {
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "split_with_position",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 def split_with_position(text, delimiter):
@@ -54,7 +54,7 @@ def split_with_position(text, delimiter):
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "generate_range",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 def generate_range(start, end):
@@ -73,7 +73,7 @@ def generate_range(start, end):
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "explode_with_index",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 def explode_with_index(arr):
@@ -299,7 +299,7 @@ def explode_with_index(arr):
             FROM test_group_by
             LATERAL VIEW udtf_split(tags, ',') tmp AS position, value
             GROUP BY category, tmp.value
-            ORDER BY category, tag_count DESC;
+            ORDER BY category, tag_count DESC, tag;
         """
         
         // Test 3.3: Aggregation with HAVING clause

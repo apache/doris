@@ -2888,8 +2888,8 @@ public class Config extends ConfigBase {
 
     @ConfField(description = {
         "开启python_udf, 默认为true。如果该配置为false，则禁止创建和使用python_udf。在一些场景下关闭该配置可防止命令注入攻击。",
-        "Used to enable python_udf, default is true. if this configuration is false, creation and use of python_udf is "
-            + "disabled. in some scenarios it may be necessary to disable this configuration to prevent "
+        "Used to enable python_udf, default is true. if this configuration is false, creation and use of python_udf "
+            + "is disabled. in some scenarios it may be necessary to disable this configuration to prevent "
             + "command injection attacks."
     })
     public static boolean enable_python_udf = true;

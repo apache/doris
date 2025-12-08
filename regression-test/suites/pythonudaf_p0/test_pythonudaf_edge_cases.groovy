@@ -19,7 +19,7 @@ suite("test_pythonudaf_edge_cases") {
     // Test Python UDAFs with edge cases and boundary values
     // Including: very large numbers, very small numbers, negative numbers, zero, duplicates
     
-    def runtime_version = "3.10.12"
+    def runtime_version = "3.8.10"
     
     try {
         // Create test table with edge cases
@@ -65,7 +65,7 @@ suite("test_pythonudaf_edge_cases") {
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "SumLargeUDAF",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 class SumLargeUDAF:
@@ -103,7 +103,7 @@ class SumLargeUDAF:
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "MinValUDAF",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 class MinValUDAF:
@@ -141,7 +141,7 @@ class MinValUDAF:
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "MaxValUDAF",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 class MaxValUDAF:
@@ -179,7 +179,7 @@ class MaxValUDAF:
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "CountDistinctUDAF",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 class CountDistinctUDAF:
@@ -218,7 +218,7 @@ class CountDistinctUDAF:
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "ProductUDAF",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 class ProductUDAF:
@@ -261,7 +261,7 @@ class ProductUDAF:
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "AbsSumUDAF",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 class AbsSumUDAF:
@@ -299,7 +299,7 @@ class AbsSumUDAF:
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "SafeAvgUDAF",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 class SafeAvgUDAF:
@@ -343,7 +343,7 @@ class SafeAvgUDAF:
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "SignSummaryUDAF",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 class SignSummaryUDAF:

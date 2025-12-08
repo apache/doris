@@ -18,7 +18,7 @@
 suite("test_pythonudf_always_nullable") {
     // Test different configurations of always_nullable parameter
     
-    def runtime_version = "3.10.12"
+    def runtime_version = "3.8.10"
     try {
         // Test 1: always_nullable = true (default value)
         sql """ DROP FUNCTION IF EXISTS py_nullable_true(INT); """

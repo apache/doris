@@ -34,34 +34,26 @@ namespace doris::vectorized {
  * 
  * Python UDAF state is managed remotely (in Python server).
  * We cache serialized state for shuffle/merge operations (similar to Java UDAF).
- * 
- * All places within the same AggregatePythonUDAF share a single
- * PythonUDAFClient (one Python process), distinguished by place_id.
- * This is similar to Java UDAF's design where all places share one UdafExecutor.
- * 
- * The client pointer is set during create() and points to the shared client
- * owned by AggregatePythonUDAF. This data structure does NOT own the client.
  */
 struct AggregatePythonUDAFData {
-    mutable std::string serialize_data; // Cached serialized state
-    PythonUDAFClient* client = nullptr; // Pointer to shared client (not owned)
+    std::string serialize_data;
+    PythonUDAFClientPtr client;
 
     AggregatePythonUDAFData() = default;
 
-    // Copy constructor needed for aggregation framework
     AggregatePythonUDAFData(const AggregatePythonUDAFData& other)
             : serialize_data(other.serialize_data), client(other.client) {}
 
     ~AggregatePythonUDAFData() = default;
 
-    // Set client pointer (called once during create)
-    void set_client(PythonUDAFClient* cli) { client = cli; }
-
-    // All methods use the member client pointer
     Status create(int64_t place);
 
     Status add(int64_t place_id, const IColumn** columns, int64_t row_num_start,
                int64_t row_num_end, const DataTypes& argument_types);
+
+    Status add_batch(AggregateDataPtr* places, size_t place_offset, size_t num_rows,
+                     const IColumn** columns, const DataTypes& argument_types, size_t start,
+                     size_t end);
 
     Status merge(const AggregatePythonUDAFData& rhs, int64_t place);
 
@@ -97,20 +89,9 @@ public:
 
     AggregatePythonUDAF(const TFunction& fn, const DataTypes& argument_types_,
                         const DataTypePtr& return_type)
-            : IAggregateFunctionDataHelper(argument_types_),
-              _fn(fn),
-              _return_type(return_type),
-              _client_initialized(false) {}
+            : IAggregateFunctionDataHelper(argument_types_), _fn(fn), _return_type(return_type) {}
 
-    ~AggregatePythonUDAF() override {
-        // Clean up shared client when aggregate function is destroyed
-        if (_shared_client) {
-            Status st = _shared_client->close();
-            if (!st.ok()) {
-                LOG(WARNING) << "Failed to close shared Python UDAF client: " << st.to_string();
-            }
-        }
-    }
+    ~AggregatePythonUDAF() override = default;
 
     static AggregateFunctionPtr create(const TFunction& fn, const DataTypes& argument_types_,
                                        const DataTypePtr& return_type) {
@@ -122,7 +103,7 @@ public:
     DataTypePtr get_return_type() const override { return _return_type; }
 
     /**
-     * Initialize function metadata (but not client - each data instance creates its own)
+     * Initialize function metadata
      */
     Status open();
 
@@ -188,27 +169,16 @@ public:
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override;
 
 private:
-    /**
-     * Initialize shared client (called lazily on first create())
-     */
-    Status _init_shared_client() const;
-
-    /**
-     * Get the shared client, initializing if necessary
-     */
-    PythonUDAFClient* _get_shared_client() const;
-
     TFunction _fn;
     DataTypePtr _return_type;
-
-    // Function metadata initialized in open()
     PythonUDFMeta _func_meta;
     PythonVersion _python_version;
-
-    // Shared client for all places (similar to Java UDAF's _exec_place)
-    mutable PythonUDAFClientPtr _shared_client;
-    mutable bool _client_initialized;
-    mutable std::mutex _client_init_mutex;
+    // Arrow Flight schema: [argument_types..., places: int64, binary_data: binary]
+    // Used for all UDAF RPC operations
+    // - places column is always present (NULL in single-place mode, actual place_id values in GROUP BY mode)
+    // - binary_data column contains serialized data for MERGE operations (NULL for ACCUMULATE)
+    mutable std::shared_ptr<arrow::Schema> _schema;
+    mutable std::once_flag _schema_init_flag;
 };
 
 } // namespace doris::vectorized

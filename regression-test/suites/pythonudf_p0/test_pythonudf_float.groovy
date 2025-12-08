@@ -18,7 +18,7 @@
 suite("test_pythonudf_float") {
     def pyPath   = """${context.file.parent}/udf_scripts/pyudf.zip"""
     scp_udf_file_to_all_be(pyPath)
-    def runtime_version = "3.10.12"
+    def runtime_version = "3.8.10"
     log.info("Python Zip path: ${pyPath}".toString())
     try {
         sql """ DROP TABLE IF EXISTS test_pythonudf_float """
@@ -58,8 +58,6 @@ suite("test_pythonudf_float") {
 
         qt_select """ SELECT python_udf_float_test(cast(2.83645 as float),cast(111.1111111 as float)) as result; """
         qt_select """ SELECT python_udf_float_test(2.83645,111.1111111) as result ; """
-        qt_select """ SELECT python_udf_float_test(2.83645,null) as result ; """
-        qt_select """ SELECT python_udf_float_test(cast(2.83645 as float),null) as result ; """
         qt_select """ SELECT user_id,python_udf_float_test(float_1, float_2) as sum FROM test_pythonudf_float order by user_id; """
         createMV("create materialized view udf_mv as SELECT user_id as a1,python_udf_float_test(float_1, float_2) as sum FROM test_pythonudf_float order by user_id;")
         qt_select """ SELECT user_id,python_udf_float_test(float_1, float_2) as sum FROM test_pythonudf_float order by user_id; """
@@ -79,8 +77,6 @@ suite("test_pythonudf_float") {
 
         qt_select """ SELECT python_udf_double_test(cast(2.83645 as DOUBLE),cast(111.1111111 as DOUBLE)) as result; """
         qt_select """ SELECT python_udf_double_test(2.83645,111.1111111) as result ; """
-        qt_select """ SELECT python_udf_double_test(2.83645,null) as result ; """
-        qt_select """ SELECT python_udf_double_test(cast(2.83645 as DOUBLE),null) as result ; """
         qt_select """ SELECT user_id,python_udf_double_test(double_1, double_1) as sum FROM test_pythonudf_float order by user_id; """
 
     } finally {

@@ -19,7 +19,7 @@ suite("test_pythonudtf_basic_inline") {
     // Basic Python UDTF tests following Snowflake syntax
     // UDTF (User-Defined Table Function) returns table (multiple rows) from scalar/table input
     
-    def runtime_version = "3.10.12"
+    def runtime_version = "3.8.10"
     
     try {
         // ========================================
@@ -34,7 +34,7 @@ suite("test_pythonudtf_basic_inline") {
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "split_string_udtf",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 def split_string_udtf(input_str):
@@ -79,7 +79,7 @@ def split_string_udtf(input_str):
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "generate_series_udtf",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 def generate_series_udtf(start, end):
@@ -131,7 +131,7 @@ def generate_series_udtf(start, end):
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "running_sum_udtf",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 def running_sum_udtf(value):
@@ -180,7 +180,7 @@ def running_sum_udtf(value):
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "explode_json_udtf",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 import json
@@ -230,7 +230,7 @@ def explode_json_udtf(json_str):
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "top_n_udtf",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 def top_n_udtf(value, n):
@@ -282,7 +282,7 @@ def top_n_udtf(value, n):
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "duplicate_udtf",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 def duplicate_udtf(text, n):
@@ -326,7 +326,7 @@ def duplicate_udtf(text, n):
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "filter_positive_udtf",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 def filter_positive_udtf(value):
@@ -370,7 +370,7 @@ def filter_positive_udtf(value):
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "cartesian_udtf",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 def cartesian_udtf(list1, list2):
@@ -419,7 +419,7 @@ def cartesian_udtf(list1, list2):
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "filter_negative_udtf",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 def filter_negative_udtf(value):
@@ -513,7 +513,7 @@ def filter_negative_udtf(value):
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "nullable_processor_udtf",
-            "runtime_version" = "3.10.12",
+            "runtime_version" = "3.8.10",
             "always_nullable" = "true"
         )
         AS \$\$
@@ -562,7 +562,7 @@ def nullable_processor_udtf(value):
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "non_nullable_processor_udtf",
-            "runtime_version" = "3.10.12",
+            "runtime_version" = "3.8.10",
             "always_nullable" = "false"
         )
         AS \$\$
@@ -644,7 +644,7 @@ def non_nullable_processor_udtf(value):
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "default_nullable_udtf",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 def default_nullable_udtf(text):
@@ -690,7 +690,7 @@ def default_nullable_udtf(text):
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "nullable_explode_udtf",
-            "runtime_version" = "3.10.12",
+            "runtime_version" = "3.8.10",
             "always_nullable" = "true"
         )
         AS \$\$
@@ -747,7 +747,7 @@ def nullable_explode_udtf(csv_string):
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "scalar_int_udtf",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 def scalar_int_udtf(start, end):
@@ -773,7 +773,7 @@ def scalar_int_udtf(start, end):
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "scalar_string_udtf",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 def scalar_string_udtf(text):
@@ -799,7 +799,7 @@ def scalar_string_udtf(text):
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "mixed_style_udtf",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 def mixed_style_udtf(n):
@@ -829,7 +829,7 @@ def mixed_style_udtf(n):
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "return_scalar_udtf",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 def return_scalar_udtf(text):
@@ -853,7 +853,7 @@ def return_scalar_udtf(text):
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "multi_field_udtf",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 def multi_field_udtf(n):
@@ -884,7 +884,7 @@ def multi_field_udtf(n):
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "process_value_udtf",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 def process_value_udtf(value):
@@ -939,7 +939,7 @@ def process_value_udtf(value):
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "split_words_udtf",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 def split_words_udtf(text):
@@ -996,7 +996,7 @@ def split_words_udtf(text):
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "expand_range_udtf",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 def expand_range_udtf(n):
@@ -1052,7 +1052,7 @@ def expand_range_udtf(n):
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "parse_csv_udtf",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 def parse_csv_udtf(csv_line):

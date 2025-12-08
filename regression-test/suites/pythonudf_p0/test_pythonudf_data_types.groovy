@@ -17,7 +17,7 @@
 
 suite("test_pythonudf_data_types") {
     // Test various data types supported by Python UDF
-    def runtime_version = "3.10.12"
+    def runtime_version = "3.8.10"
     
     try {
         // Test 1: TINYINT type
@@ -94,7 +94,8 @@ def evaluate(x):
 def evaluate(x):
     if x is None:
         return None
-    return x * 1.1
+    from decimal import Decimal
+    return x * Decimal('1.1')
 \$\$;
         """
         

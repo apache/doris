@@ -59,12 +59,24 @@ Status FromBlockToRecordBatchConverter::convert(std::shared_ptr<arrow::RecordBat
         return Status::InvalidArgument("number fields not match");
     }
 
+    // Calculate actual row range to convert
+    size_t actual_start = _row_range_start;
+    size_t actual_rows = _row_range_end > 0 ? (_row_range_end - _row_range_start)
+                                            : (_block.rows() - _row_range_start);
+
+    // Validate range
+    if (actual_start + actual_rows > _block.rows()) {
+        return Status::InvalidArgument(
+                "Row range out of bounds: start={}, num_rows={}, block_rows={}", actual_start,
+                actual_rows, _block.rows());
+    }
+
     _arrays.resize(num_fields);
 
     for (int idx = 0; idx < num_fields; ++idx) {
         _cur_field_idx = idx;
-        _cur_start = 0;
-        _cur_rows = _block.rows();
+        _cur_start = actual_start;
+        _cur_rows = actual_rows;
         _cur_col = _block.get_by_position(idx).column;
         _cur_type = _block.get_by_position(idx).type;
         auto column = _cur_col->convert_to_full_column_if_const();
@@ -92,7 +104,7 @@ Status FromBlockToRecordBatchConverter::convert(std::shared_ptr<arrow::RecordBat
             return to_doris_status(arrow_st);
         }
     }
-    *out = arrow::RecordBatch::Make(_schema, _block.rows(), std::move(_arrays));
+    *out = arrow::RecordBatch::Make(_schema, actual_rows, std::move(_arrays));
     return Status::OK();
 }
 
@@ -125,6 +137,16 @@ Status convert_to_arrow_batch(const vectorized::Block& block,
                               std::shared_ptr<arrow::RecordBatch>* result,
                               const cctz::time_zone& timezone_obj) {
     FromBlockToRecordBatchConverter converter(block, schema, pool, timezone_obj);
+    return converter.convert(result);
+}
+
+Status convert_to_arrow_batch(const vectorized::Block& block,
+                              const std::shared_ptr<arrow::Schema>& schema, arrow::MemoryPool* pool,
+                              std::shared_ptr<arrow::RecordBatch>* result,
+                              const cctz::time_zone& timezone_obj, size_t start_row,
+                              size_t end_row) {
+    FromBlockToRecordBatchConverter converter(block, schema, pool, timezone_obj, start_row,
+                                              end_row);
     return converter.convert(result);
 }
 

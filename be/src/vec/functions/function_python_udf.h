@@ -23,7 +23,6 @@
 #include <memory>
 
 #include "common/status.h"
-#include "udf/udf.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
 #include "vec/core/columns_with_type_and_name.h"

@@ -18,7 +18,7 @@
 suite("test_pythonudf_inline_complex") {
     // Test complex Python UDF using Inline mode
     
-    def runtime_version = "3.10.12"
+    def runtime_version = "3.8.10"
     try {
         // Test 1: Array processing
         sql """ DROP FUNCTION IF EXISTS py_array_sum(ARRAY<INT>); """

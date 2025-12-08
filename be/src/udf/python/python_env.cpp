@@ -162,8 +162,10 @@ Status PythonEnvironment::scan_from_venv_root_path(
 
         if (!fs::exists(env_base_path) || !fs::exists(python_path)) {
             fs::create_directories(env_base_path);
-            std::string create_venv_cmd =
-                    fmt::format("{} -m venv {}", interpreter_path, env_base_path);
+            // Use --system-site-packages to inherit packages from system Python
+            // This ensures pandas and pyarrow are available if installed in system
+            std::string create_venv_cmd = fmt::format("{} -m venv --system-site-packages {}",
+                                                      interpreter_path, env_base_path);
 
             if (system(create_venv_cmd.c_str()) != 0 || !fs::exists(python_path)) {
                 return Status::RuntimeError("Failed to create python virtual environment, cmd: {}",
@@ -283,7 +285,6 @@ Status PythonVersionManager::init(PythonEnvType env_type, const fs::path& python
     std::vector<PythonVersion> versions;
     RETURN_IF_ERROR(_env_scanner->scan());
     RETURN_IF_ERROR(_env_scanner->get_versions(&versions));
-    RETURN_IF_ERROR(PythonServerManager::instance().init(versions));
     return Status::OK();
 }
 

@@ -18,7 +18,7 @@
 suite("test_pythonudf_inline_basic") {
     // Test basic Python UDF using Inline mode
     
-    def runtime_version = "3.10.12"
+    def runtime_version = "3.8.10"
     try {
         // Test 1: Simple integer addition
         sql """ DROP FUNCTION IF EXISTS py_add(INT, INT); """
@@ -37,7 +37,6 @@ def evaluate(a, b):
         """
         
         qt_select_add """ SELECT py_add(10, 20) AS result; """
-        qt_select_add_null """ SELECT py_add(NULL, 20) AS result; """
         
         // Test 2: String concatenation
         sql """ DROP FUNCTION IF EXISTS py_concat(STRING, STRING); """

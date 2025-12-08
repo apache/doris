@@ -19,7 +19,7 @@ suite("test_pythonudaf_data_types") {
     // Test Python UDAFs with various data types
     // Including: TINYINT, SMALLINT, INT, BIGINT, FLOAT, DOUBLE, DECIMAL, STRING, DATE, DATETIME
     
-    def runtime_version = "3.10.12"
+    def runtime_version = "3.8.10"
     
     try {
         // Create test table with various data types
@@ -64,7 +64,7 @@ suite("test_pythonudaf_data_types") {
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "SumTinyIntUDAF",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 class SumTinyIntUDAF:
@@ -99,7 +99,7 @@ class SumTinyIntUDAF:
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "SumSmallIntUDAF",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 class SumSmallIntUDAF:
@@ -134,7 +134,7 @@ class SumSmallIntUDAF:
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "SumBigIntUDAF",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 class SumBigIntUDAF:
@@ -169,7 +169,7 @@ class SumBigIntUDAF:
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "SumFloatUDAF",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 class SumFloatUDAF:
@@ -204,7 +204,7 @@ class SumFloatUDAF:
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "SumDecimalUDAF",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 class SumDecimalUDAF:
@@ -239,7 +239,7 @@ class SumDecimalUDAF:
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "ConcatStrUDAF",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 class ConcatStrUDAF:
@@ -277,7 +277,7 @@ class ConcatStrUDAF:
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "CountTrueUDAF",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 class CountTrueUDAF:
@@ -327,7 +327,7 @@ class CountTrueUDAF:
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "IntToDoubleSumUDAF",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 class IntToDoubleSumUDAF:

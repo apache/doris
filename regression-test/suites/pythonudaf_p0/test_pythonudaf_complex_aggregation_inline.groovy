@@ -19,7 +19,7 @@ suite("test_pythonudaf_complex_aggregation_inline") {
     // Test complex aggregation scenarios with Python UDAFs
     // Including: variance, standard deviation, median, percentile, collect_list
     
-    def runtime_version = "3.10.12"
+    def runtime_version = "3.8.10"
     
     try {
         // Create test table with statistical data
@@ -68,7 +68,7 @@ suite("test_pythonudaf_complex_aggregation_inline") {
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "VarianceUDAF",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 class VarianceUDAF:
@@ -116,7 +116,7 @@ class VarianceUDAF:
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "StdDevUDAF",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 import math
@@ -166,7 +166,7 @@ class StdDevUDAF:
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "MedianUDAF",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 class MedianUDAF:
@@ -211,7 +211,7 @@ class MedianUDAF:
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "CollectListUDAF",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 class CollectListUDAF:
@@ -251,7 +251,7 @@ class CollectListUDAF:
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "RangeUDAF",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 class RangeUDAF:
@@ -300,7 +300,7 @@ class RangeUDAF:
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "GeometricMeanUDAF",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 import math
@@ -345,7 +345,7 @@ class GeometricMeanUDAF:
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "WeightedAvgUDAF",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 class WeightedAvgUDAF:
