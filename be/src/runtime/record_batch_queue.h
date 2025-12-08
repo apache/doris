@@ -18,7 +18,6 @@
 #pragma once
 
 #include <sys/types.h>
-#include <util/spinlock.h>
 
 #include <memory>
 #include <mutex>
@@ -33,6 +32,10 @@ class RecordBatch;
 
 namespace doris {
 
+namespace pipeline {
+class Dependency;
+}
+
 // The RecordBatchQueue is created and managed by the ResultQueueMgr to
 // cache external query results, as well as query status. Where both
 // BlockingGet and BlockingPut operations block if the queue is empty or
@@ -42,15 +45,13 @@ public:
     RecordBatchQueue(u_int32_t max_elements) : _queue(max_elements) {}
 
     Status status() {
-        std::lock_guard<SpinLock> l(_status_lock);
+        std::lock_guard<std::mutex> l(_status_lock);
         return _status;
     }
 
     void update_status(const Status& status);
 
-    bool blocking_get(std::shared_ptr<arrow::RecordBatch>* result) {
-        return _queue.blocking_get(result);
-    }
+    bool blocking_get(std::shared_ptr<arrow::RecordBatch>* result);
 
     bool blocking_put(const std::shared_ptr<arrow::RecordBatch>& val) {
         return _queue.blocking_put(val);
@@ -60,11 +61,13 @@ public:
     void shutdown();
 
     size_t size() { return _queue.get_size(); }
+    void set_dep(std::shared_ptr<pipeline::Dependency> dep) { _dep = dep; }
 
 private:
     BlockingQueue<std::shared_ptr<arrow::RecordBatch>> _queue;
-    SpinLock _status_lock;
+    std::mutex _status_lock;
     Status _status;
+    std::shared_ptr<pipeline::Dependency> _dep = nullptr;
 };
 
 } // namespace doris
