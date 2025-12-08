@@ -25,11 +25,11 @@
 namespace doris::pipeline {
 
 class MemoryScratchSinkOperatorX;
-class MemoryScratchSinkLocalState final : public PipelineXSinkLocalState<FakeSharedState> {
+class MemoryScratchSinkLocalState final : public PipelineXSinkLocalState<BasicSharedState> {
     ENABLE_FACTORY_CREATOR(MemoryScratchSinkLocalState);
 
 public:
-    using Base = PipelineXSinkLocalState<FakeSharedState>;
+    using Base = PipelineXSinkLocalState<BasicSharedState>;
     MemoryScratchSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
             : Base(parent, state) {}
 
