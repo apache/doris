@@ -17,38 +17,20 @@
 
 import groovy.json.JsonOutput
 import groovy.json.JsonSlurper
-
-def getProfileList = {
-    def dst = 'http://' + context.config.feHttpAddress
-    def conn = new URL(dst + "/rest/v1/query_profile").openConnection()
-    conn.setRequestMethod("GET")
-    def encoding = Base64.getEncoder().encodeToString((context.config.feHttpUser + ":" + 
-            (context.config.feHttpPassword == null ? "" : context.config.feHttpPassword)).getBytes("UTF-8"))
-    conn.setRequestProperty("Authorization", "Basic ${encoding}")
-    return conn.getInputStream().getText()
-}
-
-def getProfile = { id ->
-        def dst = 'http://' + context.config.feHttpAddress
-        def conn = new URL(dst + "/rest/v1/query_profile/$id").openConnection()
-        conn.setRequestMethod("GET")
-        def encoding = Base64.getEncoder().encodeToString((context.config.feHttpUser + ":" + 
-                (context.config.feHttpPassword == null ? "" : context.config.feHttpPassword)).getBytes("UTF-8"))
-        conn.setRequestProperty("Authorization", "Basic ${encoding}")
-        return conn.getInputStream().getText()
-    }
+import org.apache.doris.regression.action.ProfileAction
 
 suite('test_profile') {
     // TODO: more test for normal situation
 
     // invalidProfileId
-    def invalidProfileString = getProfile("ABCD")
+    def profileAction = new ProfileAction(context)
+    def invalidProfileString = profileAction.getProfile("ABCD")
     logger.info("invalidProfileString:{}", invalidProfileString);
     def json = new JsonSlurper().parseText(invalidProfileString)
     assertEquals(500, json.code)
     
     // notExistingProfileId
-    def notExistingProfileString = getProfile("-100")
+    def notExistingProfileString = profileAction.getProfile("-100")
     logger.info("notExistingProfileString:{}", notExistingProfileString)
     def json2 = new JsonSlurper().parseText(notExistingProfileString)
     assertEquals("Profile -100 not found", json2.data)
@@ -69,7 +51,7 @@ suite('test_profile') {
     def simpleSql = "select count(*) from test_profile"
     sql "${simpleSql}"
     def isRecorded = false
-    def wholeString = getProfileList()
+    def wholeString = profileAction.getProfileList()
     List profileData = new JsonSlurper().parseText(wholeString).data.rows
     for (final def profileItem in profileData) {
         if (profileItem["Sql Statement"].toString() == simpleSql) {
