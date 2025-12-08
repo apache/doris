@@ -101,8 +101,8 @@ Status start_cdc_client(PRequestCdcClientResult* result) {
     
     const std::string cdc_jar_path = std::string(doris_home) + "/lib/cdc_client/cdc-client.jar";
     const std::string cdc_jar_port = "--server.port=" + std::to_string(doris::config::cdc_client_port);
-    const std::string backend_http_port = std::to_string(config::webserver_port);
-    const std::string java_opts = "-Xmx2048m -Dlog.path=" + std::string(log_dir);
+    const std::string backend_http_port = "--backend.http.port=" + std::to_string(config::webserver_port);
+    const std::string java_opts = "-Dlog.path=" + std::string(log_dir);
     
     // check cdc jar exists
     struct stat buffer;
@@ -160,7 +160,7 @@ Status start_cdc_client(PRequestCdcClientResult* result) {
                   << std::endl;
         std::cout << "Cdc client child process ready to start." << std::endl;
         std::string java_bin = path + "/bin/java";
-        // java -jar -Dlog.path=xx cdc-client.jar --server.port=9096 8040
+        // java -jar -Dlog.path=xx cdc-client.jar --server.port=9096 --backend.http.port=8040
         execlp(java_bin.c_str(), "java", java_opts.c_str(), "-jar", cdc_jar_path.c_str(),
                cdc_jar_port.c_str(), backend_http_port.c_str(),(char*)NULL);
         std::cerr << "Cdc client child process error." << std::endl;
