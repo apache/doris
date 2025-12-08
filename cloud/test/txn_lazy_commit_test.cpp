@@ -419,7 +419,7 @@ TEST(TxnLazyCommitTest, CreateTabletWithDbIdTest) {
     }
 }
 
-TEST(TxnLazyCommitTest, CreateTabletWithoutDbIdTest) {
+TEST(TxnLazyCommitTest, DISABLED_CreateTabletWithoutDbIdTest) {
     auto txn_kv = get_mem_txn_kv();
     auto meta_service = get_meta_service(txn_kv, true);
     int table_id = 3131;

@@ -9607,6 +9607,7 @@ TEST(MetaServiceTest, CreateTabletsVaultsTest) {
     // try to use default vault
     {
         CreateTabletsRequest req;
+        req.set_db_id(1);
         req.set_cloud_unique_id("test_cloud_unique_id");
         req.set_storage_vault_name("");
         req.add_tablet_metas();

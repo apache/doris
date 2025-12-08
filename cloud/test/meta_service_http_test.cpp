@@ -264,11 +264,12 @@ static void add_tablet(CreateTabletsRequest& req, int64_t table_id, int64_t inde
     first_rowset->mutable_tablet_schema()->CopyFrom(*schema);
 }
 
-static void create_tablet(MetaService* meta_service, int64_t table_id, int64_t index_id,
-                          int64_t partition_id, int64_t tablet_id) {
+static void create_tablet(MetaService* meta_service, int64_t db_id, int64_t table_id,
+                          int64_t index_id, int64_t partition_id, int64_t tablet_id) {
     brpc::Controller cntl;
     CreateTabletsRequest req;
     CreateTabletsResponse res;
+    req.set_db_id(db_id);
     add_tablet(req, table_id, index_id, partition_id, tablet_id);
     meta_service->create_tablets(&cntl, &req, &res, nullptr);
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << tablet_id;
@@ -1298,9 +1299,10 @@ TEST(MetaServiceHttpTest, GetTabletStatsTest) {
     HttpContext ctx(true);
     auto& meta_service = ctx.meta_service_;
 
-    constexpr auto table_id = 10001, index_id = 10002, partition_id = 10003, tablet_id = 10004;
+    constexpr auto db_id = 1000, table_id = 10001, index_id = 10002, partition_id = 10003,
+                   tablet_id = 10004;
     ASSERT_NO_FATAL_FAILURE(
-            create_tablet(meta_service.get(), table_id, index_id, partition_id, tablet_id));
+            create_tablet(meta_service.get(), db_id, table_id, index_id, partition_id, tablet_id));
     GetTabletStatsResponse res;
     get_tablet_stats(meta_service.get(), table_id, index_id, partition_id, tablet_id, res);
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
