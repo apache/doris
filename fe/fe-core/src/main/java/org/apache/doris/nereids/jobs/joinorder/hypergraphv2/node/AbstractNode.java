@@ -15,40 +15,50 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.jobs.joinorder.hypergraph.edge;
+package org.apache.doris.nereids.jobs.joinorder.hypergraphv2.node;
 
-import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.jobs.joinorder.hypergraphv2.HyperElement;
+import org.apache.doris.nereids.jobs.joinorder.hypergraphv2.bitmap.LongBitmap;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 
-import java.util.BitSet;
-import java.util.List;
 import java.util.Set;
 
 /**
- * Edge represents a filter
+ * HyperGraph Node.
  */
-public class FilterEdge extends Edge {
-    private final LogicalFilter<? extends Plan> filter;
+public class AbstractNode implements HyperElement {
+    // The node is stored in HyperGraph's nodes member, use nodes.get(index) to get this node
+    protected final int index;
+    protected final Plan plan;
 
-    public FilterEdge(LogicalFilter<? extends Plan> filter, int index,
-                      BitSet childEdges, long subTreeNodes, long childRequireNodes) {
-        super(index, childEdges, new BitSet(), subTreeNodes, childRequireNodes, 0L);
-        this.filter = filter;
+    protected AbstractNode(Plan plan, int index) {
+        this.index = index;
+        this.plan = plan;
     }
 
     @Override
-    public Set<Slot> getInputSlots() {
-        return filter.getInputSlots();
+    public long getReferenceNodes() {
+        return getNodeMap();
     }
 
-    @Override
-    public List<? extends Expression> getExpressions() {
-        return filter.getExpressions();
+    public int getIndex() {
+        return index;
     }
 
-    public FilterEdge clear() {
-        return new FilterEdge(filter, getIndex(), getLeftChildEdges(), getSubTreeNodes(), getLeftRequiredNodes());
+    public long getNodeMap() {
+        return LongBitmap.newBitmap(index);
+    }
+
+    public Plan getPlan() {
+        return plan;
+    }
+
+    public String getName() {
+        return getPlan().getType().name() + index;
+    }
+
+    public Set<Slot> getOutput() {
+        return plan.getOutputSet();
     }
 }

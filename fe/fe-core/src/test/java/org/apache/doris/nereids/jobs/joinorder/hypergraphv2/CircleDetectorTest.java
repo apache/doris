@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.jobs.joinorder.hypergraph;
+package org.apache.doris.nereids.jobs.joinorder.hypergraphv2;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;

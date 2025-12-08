@@ -15,11 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.jobs.joinorder.hypergraph;
+package org.apache.doris.nereids.jobs.joinorder.hypergraphv2;
 
-import org.apache.doris.nereids.jobs.joinorder.hypergraph.edge.Edge;
-import org.apache.doris.nereids.jobs.joinorder.hypergraph.node.DPhyperNode;
-import org.apache.doris.nereids.jobs.joinorder.hypergraph.receiver.Counter;
+import org.apache.doris.nereids.jobs.joinorder.hypergraphv2.edge.Edge;
+import org.apache.doris.nereids.jobs.joinorder.hypergraphv2.node.DPhyperNode;
+import org.apache.doris.nereids.jobs.joinorder.hypergraphv2.receiver.Counter;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.plans.JoinType;
@@ -84,7 +84,7 @@ class GraphSimplifierTest {
                 .addEdge(JoinType.INNER_JOIN, 0, 2)
                 .addEdge(JoinType.INNER_JOIN, 0, 3)
                 .addEdge(JoinType.INNER_JOIN, 0, 4)
-                .build();
+                .buildv2();
         GraphSimplifier graphSimplifier = new GraphSimplifier(hyperGraph);
         while (graphSimplifier
                 .applySimplificationStep() != GraphSimplifier.SimplificationResult.NO_SIMPLIFICATION_POSSIBLE) {
@@ -112,7 +112,7 @@ class GraphSimplifierTest {
                 .addEdge(JoinType.INNER_JOIN, 0, 3)
                 .addEdge(JoinType.INNER_JOIN, 1, 2)
                 .addEdge(JoinType.INNER_JOIN, 2, 3)
-                .build();
+                .buildv2();
         GraphSimplifier graphSimplifier = new GraphSimplifier(hyperGraph);
         while (graphSimplifier
                 .applySimplificationStep() != GraphSimplifier.SimplificationResult.NO_SIMPLIFICATION_POSSIBLE) {
@@ -141,7 +141,7 @@ class GraphSimplifierTest {
                 .addEdge(JoinType.INNER_JOIN, 1, 2)
                 .addEdge(JoinType.INNER_JOIN, 1, 3)
                 .addEdge(JoinType.INNER_JOIN, 2, 3)
-                .build();
+                .buildv2();
         GraphSimplifier graphSimplifier = new GraphSimplifier(hyperGraph);
         while (graphSimplifier
                 .applySimplificationStep() != GraphSimplifier.SimplificationResult.NO_SIMPLIFICATION_POSSIBLE) {
@@ -175,7 +175,7 @@ class GraphSimplifierTest {
                 .addEdge(JoinType.INNER_JOIN, 0, 9)
                 .addEdge(JoinType.INNER_JOIN, 0, 10)
                 .addEdge(JoinType.INNER_JOIN, 0, 11)
-                .build();
+                .buildv2();
         GraphSimplifier graphSimplifier = new GraphSimplifier(hyperGraph);
         while (graphSimplifier
                 .applySimplificationStep() != GraphSimplifier.SimplificationResult.NO_SIMPLIFICATION_POSSIBLE) {
@@ -201,7 +201,7 @@ class GraphSimplifierTest {
                 .addEdge(JoinType.INNER_JOIN, 1, 5)
                 .addEdge(JoinType.INNER_JOIN, 1, 4)
                 .addEdge(JoinType.INNER_JOIN, 0, 2)
-                .build();
+                .buildv2();
         GraphSimplifier graphSimplifier = new GraphSimplifier(hyperGraph);
         while (graphSimplifier
                 .applySimplificationStep() != GraphSimplifier.SimplificationResult.NO_SIMPLIFICATION_POSSIBLE) {
@@ -218,7 +218,7 @@ class GraphSimplifierTest {
     @Test
     void testRandomQuery() {
         for (int i = 0; i < 10; i++) {
-            HyperGraph hyperGraph = new HyperGraphBuilder().randomBuildWith(6, 6);
+            HyperGraph hyperGraph = new HyperGraphBuilder().randomBuildWithv2(6, 6);
             GraphSimplifier graphSimplifier = new GraphSimplifier(hyperGraph);
             while (graphSimplifier
                     .applySimplificationStep() != GraphSimplifier.SimplificationResult.NO_SIMPLIFICATION_POSSIBLE) {
@@ -235,7 +235,7 @@ class GraphSimplifierTest {
         int tableNum = 10;
         int edgeNum = 20;
         for (int limit = 1000; limit < 10000; limit += 100) {
-            HyperGraph hyperGraph = new HyperGraphBuilder().randomBuildWith(tableNum, edgeNum);
+            HyperGraph hyperGraph = new HyperGraphBuilder().randomBuildWithv2(tableNum, edgeNum);
             GraphSimplifier graphSimplifier = new GraphSimplifier(hyperGraph);
             graphSimplifier.simplifyGraph(limit);
             Counter counter = new Counter();
@@ -249,7 +249,7 @@ class GraphSimplifierTest {
     @Test
     void test64Clique() {
         HyperGraph hyperGraph = new HyperGraphBuilder(Sets.newHashSet(JoinType.INNER_JOIN))
-                .randomBuildWith(64, 67);
+                .randomBuildWithv2(64, 67);
         Counter counter = new Counter();
         SubgraphEnumerator subgraphEnumerator = new SubgraphEnumerator(counter, hyperGraph);
         GraphSimplifier graphSimplifier = new GraphSimplifier(hyperGraph);
@@ -279,7 +279,7 @@ class GraphSimplifierTest {
 
     double benchGraphSimplifier(int tableNum, int edgeNum, int limit) {
         HyperGraph hyperGraph = new HyperGraphBuilder(Sets.newHashSet(JoinType.INNER_JOIN))
-                .randomBuildWith(tableNum, edgeNum);
+                .randomBuildWithv2(tableNum, edgeNum);
         double now = System.currentTimeMillis();
         GraphSimplifier graphSimplifier = new GraphSimplifier(hyperGraph);
         graphSimplifier.simplifyGraph(limit);
