@@ -965,7 +965,7 @@ Status MapFileColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr
                                          bool* has_null) {
     if (_reading_flag == ReadingFlag::SKIP_READING) {
         DLOG(INFO) << "Map column iterator column " << _column_name << " skip reading.";
-        dst->resize(dst->size() + *n);
+        dst->insert_many_defaults(*n);
         return Status::OK();
     }
 
@@ -1025,7 +1025,7 @@ Status MapFileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t
                                              vectorized::MutableColumnPtr& dst) {
     if (_reading_flag == ReadingFlag::SKIP_READING) {
         DLOG(INFO) << "File column iterator column " << _column_name << " skip reading.";
-        dst->resize(count);
+        dst->insert_many_defaults(count);
         return Status::OK();
     }
     if (count == 0) {
@@ -1259,7 +1259,7 @@ Status StructFileColumnIterator::next_batch(size_t* n, vectorized::MutableColumn
                                             bool* has_null) {
     if (_reading_flag == ReadingFlag::SKIP_READING) {
         DLOG(INFO) << "Struct column iterator column " << _column_name << " skip reading.";
-        dst->resize(dst->size() + *n);
+        dst->insert_many_defaults(*n);
         return Status::OK();
     }
 
@@ -1317,7 +1317,7 @@ Status StructFileColumnIterator::read_by_rowids(const rowid_t* rowids, const siz
                                                 vectorized::MutableColumnPtr& dst) {
     if (_reading_flag == ReadingFlag::SKIP_READING) {
         DLOG(INFO) << "Struct column iterator column " << _column_name << " skip reading.";
-        dst->resize(count);
+        dst->insert_many_defaults(count);
         return Status::OK();
     }
 
@@ -1519,7 +1519,7 @@ Status ArrayFileColumnIterator::next_batch(size_t* n, vectorized::MutableColumnP
                                            bool* has_null) {
     if (_reading_flag == ReadingFlag::SKIP_READING) {
         DLOG(INFO) << "Array column iterator column " << _column_name << " skip reading.";
-        dst->resize(dst->size() + *n);
+        dst->insert_many_defaults(*n);
         return Status::OK();
     }
 
@@ -1573,7 +1573,7 @@ Status ArrayFileColumnIterator::read_by_rowids(const rowid_t* rowids, const size
                                                vectorized::MutableColumnPtr& dst) {
     if (_reading_flag == ReadingFlag::SKIP_READING) {
         DLOG(INFO) << "Array column iterator column " << _column_name << " skip reading.";
-        dst->resize(count);
+        dst->insert_many_defaults(count);
         return Status::OK();
     }
 
@@ -1736,7 +1736,7 @@ Status FileColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr& d
                                       bool* has_null) {
     if (_reading_flag == ReadingFlag::SKIP_READING) {
         DLOG(INFO) << "File column iterator column " << _column_name << " skip reading.";
-        dst->resize(dst->size() + *n);
+        dst->insert_many_defaults(*n);
         return Status::OK();
     }
 
@@ -1798,7 +1798,7 @@ Status FileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t co
                                           vectorized::MutableColumnPtr& dst) {
     if (_reading_flag == ReadingFlag::SKIP_READING) {
         DLOG(INFO) << "File column iterator column " << _column_name << " skip reading.";
-        dst->resize(count);
+        dst->insert_many_defaults(count);
         return Status::OK();
     }
 
