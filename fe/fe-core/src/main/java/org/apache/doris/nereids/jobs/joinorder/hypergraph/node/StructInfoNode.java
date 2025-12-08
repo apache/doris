@@ -84,7 +84,7 @@ public class StructInfoNode extends AbstractNode {
         plan.accept(new DefaultPlanVisitor<Void, Pair<Boolean, ImmutableList.Builder<Set<Expression>>>>() {
             @Override
             public Void visitLogicalAggregate(LogicalAggregate<? extends Plan> aggregate,
-                    Pair<Boolean, ImmutableList.Builder<Set<Expression>>> collector) {
+                                              Pair<Boolean, ImmutableList.Builder<Set<Expression>>> collector) {
                 if (!collector.key()) {
                     return null;
                 }
@@ -94,7 +94,7 @@ public class StructInfoNode extends AbstractNode {
 
             @Override
             public Void visitLogicalFilter(LogicalFilter<? extends Plan> filter,
-                    Pair<Boolean, ImmutableList.Builder<Set<Expression>>> collector) {
+                                           Pair<Boolean, ImmutableList.Builder<Set<Expression>>> collector) {
                 if (!collector.key()) {
                     return null;
                 }
@@ -104,7 +104,7 @@ public class StructInfoNode extends AbstractNode {
 
             @Override
             public Void visitGroupPlan(GroupPlan groupPlan,
-                    Pair<Boolean, ImmutableList.Builder<Set<Expression>>> collector) {
+                                       Pair<Boolean, ImmutableList.Builder<Set<Expression>>> collector) {
                 if (!collector.key()) {
                     return null;
                 }
@@ -114,7 +114,7 @@ public class StructInfoNode extends AbstractNode {
 
             @Override
             public Void visitLogicalWindow(LogicalWindow<? extends Plan> window,
-                    Pair<Boolean, Builder<Set<Expression>>> context) {
+                                           Pair<Boolean, Builder<Set<Expression>>> context) {
                 collector.value().add(ImmutableSet.copyOf(window.getActualWindowExpressions()));
                 return super.visit(window, context);
             }

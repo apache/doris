@@ -15,24 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.jobs.joinorder.hypergraph.receiver;
-
-import org.apache.doris.nereids.jobs.joinorder.hypergraph.edge.JoinEdge;
-import org.apache.doris.nereids.memo.Group;
-
-import java.util.List;
+package org.apache.doris.nereids.jobs.joinorder.hypergraphv2;
 
 /**
- * A interface of receiver
- */
-public interface AbstractReceiver {
-    boolean emitCsgCmp(long csg, long cmp, List<JoinEdge> edges);
+ * This is the common base class for all
+ * */
+public interface HyperElement {
 
-    void addGroup(long bitSet, Group group);
-
-    boolean contain(long bitSet);
-
-    void reset();
-
-    Group getBestPlan(long bitSet);
+    // Get the references nodes
+    long getReferenceNodes();
 }

@@ -19,22 +19,51 @@ package org.apache.doris.nereids.jobs.joinorder.hypergraph.node;
 
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.HyperElement;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.bitmap.LongBitmap;
+import org.apache.doris.nereids.jobs.joinorder.hypergraph.edge.Edge;
+import org.apache.doris.nereids.jobs.joinorder.hypergraph.edge.FilterEdge;
+import org.apache.doris.nereids.jobs.joinorder.hypergraph.edge.JoinEdge;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 
+import com.google.common.collect.ImmutableList;
+
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Set;
 
 /**
  * HyperGraph Node.
  */
 public class AbstractNode implements HyperElement {
-    // The node is stored in HyperGraph's nodes member, use nodes.get(index) to get this node
     protected final int index;
+    protected final List<JoinEdge> joinEdges;
+    protected final List<FilterEdge> filterEdges;
     protected final Plan plan;
 
-    protected AbstractNode(Plan plan, int index) {
+    protected AbstractNode(Plan plan, int index, List<Edge> edges) {
         this.index = index;
+        this.joinEdges = new ArrayList<>();
+        this.filterEdges = new ArrayList<>();
         this.plan = plan;
+        edges.forEach(e -> {
+            if (e instanceof JoinEdge) {
+                joinEdges.add((JoinEdge) e);
+            } else if (e instanceof FilterEdge) {
+                filterEdges.add((FilterEdge) e);
+            }
+        });
+    }
+
+    public List<JoinEdge> getJoinEdges() {
+        return ImmutableList.copyOf(joinEdges);
+    }
+
+    public List<Edge> getEdges() {
+        return ImmutableList
+                .<Edge>builder()
+                .addAll(joinEdges)
+                .addAll(filterEdges)
+                .build();
     }
 
     @Override
@@ -52,6 +81,32 @@ public class AbstractNode implements HyperElement {
 
     public Plan getPlan() {
         return plan;
+    }
+
+    /**
+     * Attach all edge in this node if the edge references this node
+     *
+     * @param edge the edge that references this node
+     */
+    public void attachEdge(Edge edge) {
+        if (edge instanceof JoinEdge) {
+            joinEdges.add((JoinEdge) edge);
+        } else if (edge instanceof FilterEdge) {
+            filterEdges.add((FilterEdge) edge);
+        }
+    }
+
+    /**
+     * Remove the edge when the edge is modified
+     *
+     * @param edge The edge should be removed
+     */
+    public void removeEdge(Edge edge) {
+        if (edge instanceof JoinEdge) {
+            joinEdges.remove(edge);
+        } else if (edge instanceof FilterEdge) {
+            filterEdges.remove(edge);
+        }
     }
 
     public String getName() {

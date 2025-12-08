@@ -15,13 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.jobs.joinorder.hypergraph.receiver;
-
-import org.apache.doris.nereids.jobs.joinorder.hypergraph.bitmap.LongBitmap;
-import org.apache.doris.nereids.jobs.joinorder.hypergraph.edge.JoinEdge;
-import org.apache.doris.nereids.memo.Group;
+package org.apache.doris.nereids.jobs.joinorder.hypergraphv2.receiver;
 
 import com.google.common.base.Preconditions;
+import org.apache.doris.nereids.jobs.joinorder.hypergraphv2.bitmap.LongBitmap;
+import org.apache.doris.nereids.jobs.joinorder.hypergraphv2.edge.Edge;
+import org.apache.doris.nereids.memo.Group;
 
 import java.util.HashMap;
 import java.util.List;
@@ -29,7 +28,7 @@ import java.util.List;
 /**
  * The Receiver is used for cached the plan that has been emitted and build the new plan
  */
-public class Counter implements AbstractReceiver {
+public class Counter extends AbstractReceiver {
     // limit define the max number of csg-cmp pair in this Receiver
     private final int limit;
     private int emitCount = 0;
@@ -51,12 +50,15 @@ public class Counter implements AbstractReceiver {
      * @param edges the join operator
      * @return the left and the right can be connected by the edge
      */
-    public boolean emitCsgCmp(long left, long right, List<JoinEdge> edges) {
+    public EmitState emitCsgCmp(long left, long right, List<Edge> edges) {
         Preconditions.checkArgument(counter.containsKey(left));
         Preconditions.checkArgument(counter.containsKey(right));
+        if (!checkConflictRule(left, right, edges)) {
+            return EmitState.CONTINUE;
+        }
         emitCount += 1;
         if (emitCount > limit) {
-            return false;
+            return EmitState.FAIL;
         }
         long bitmap = LongBitmap.newBitmapUnion(left, right);
         if (!counter.containsKey(bitmap)) {
@@ -64,7 +66,7 @@ public class Counter implements AbstractReceiver {
         } else {
             counter.put(bitmap, counter.get(bitmap) + counter.get(left) * counter.get(right));
         }
-        return true;
+        return EmitState.SUCCESS;
     }
 
     public void addGroup(long bitmap, Group group) {

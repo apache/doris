@@ -23,12 +23,12 @@ import org.apache.doris.nereids.jobs.Job;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.JobType;
 import org.apache.doris.nereids.jobs.cascades.DeriveStatsJob;
-import org.apache.doris.nereids.jobs.joinorder.hypergraph.GraphSimplifier;
-import org.apache.doris.nereids.jobs.joinorder.hypergraph.HyperGraph;
-import org.apache.doris.nereids.jobs.joinorder.hypergraph.SubgraphEnumerator;
-import org.apache.doris.nereids.jobs.joinorder.hypergraph.node.AbstractNode;
-import org.apache.doris.nereids.jobs.joinorder.hypergraph.node.DPhyperNode;
-import org.apache.doris.nereids.jobs.joinorder.hypergraph.receiver.PlanReceiver;
+import org.apache.doris.nereids.jobs.joinorder.hypergraphv2.GraphSimplifier;
+import org.apache.doris.nereids.jobs.joinorder.hypergraphv2.HyperGraph;
+import org.apache.doris.nereids.jobs.joinorder.hypergraphv2.SubgraphEnumerator;
+import org.apache.doris.nereids.jobs.joinorder.hypergraphv2.node.AbstractNode;
+import org.apache.doris.nereids.jobs.joinorder.hypergraphv2.node.DPhyperNode;
+import org.apache.doris.nereids.jobs.joinorder.hypergraphv2.receiver.PlanReceiver;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 
@@ -85,7 +85,7 @@ public class JoinOrderJob extends Job {
         if (this.context.getCascadesContext().getConnectContext() != null) {
             limit = this.context.getCascadesContext().getConnectContext().getSessionVariable().dphyperLimit;
         }
-        limit = 20;
+//        limit = 1;
         PlanReceiver planReceiver = new PlanReceiver(this.context, limit, hyperGraph);
         if (!tryEnumerateJoin(hyperGraph, planReceiver, limit)) {
             return group;

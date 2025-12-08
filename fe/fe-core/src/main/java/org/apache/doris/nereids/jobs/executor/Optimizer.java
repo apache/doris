@@ -92,7 +92,7 @@ public class Optimizer {
 //                && isDpHyp;
 //        cascadesContext.getStatementContext().setDpHyp(finalEnableDpHyp);
 //        return finalEnableDpHyp;
-        return true;
+          return true;
     }
 
     private void dpHypOptimize() {

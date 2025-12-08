@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.jobs.joinorder.hypergraph.bitmap;
+package org.apache.doris.nereids.jobs.joinorder.hypergraphv2.bitmap;
 
 import org.apache.doris.nereids.trees.plans.RelationId;
 
@@ -32,6 +32,10 @@ public class LongBitmap {
 
     public static boolean isSubset(long bitmap1, long bitmap2) {
         return (bitmap1 | bitmap2) == bitmap2;
+    }
+
+    public static boolean isTrueSubset(long bitmap1, long bitmap2) {
+        return (bitmap1 | bitmap2) == bitmap2 && bitmap1 != bitmap2;
     }
 
     public static long newBitmap(int... values) {

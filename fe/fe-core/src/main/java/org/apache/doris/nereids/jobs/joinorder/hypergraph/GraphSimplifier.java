@@ -26,6 +26,7 @@ import org.apache.doris.nereids.jobs.joinorder.hypergraph.node.DPhyperNode;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.receiver.Counter;
 import org.apache.doris.nereids.stats.JoinEstimation;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.util.JoinUtils;
@@ -41,8 +42,9 @@ import java.util.Collection;
 import java.util.Deque;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Optional;
 import java.util.PriorityQueue;
-import java.util.Queue;
+import java.util.Set;
 import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 
@@ -54,130 +56,65 @@ import javax.annotation.Nullable;
  * - [Rad19] Radke and Neumann: “LinDP++: Generalizing Linearized DP to Crossproducts and Non-Inner Joins”.
  */
 public class GraphSimplifier {
-    public enum SimplificationResult {
-        NO_SIMPLIFICATION_POSSIBLE,
-        APPLIED_SIMPLIFICATION,
-        APPLIED_NOOP,
-        APPLIED_REDO_STEP
-    }
-
-    private static int MAX_SIMPLIFICATION_STEPS = 1000000;
-
-    private Deque<SimplificationStep> appliedSteps = new ArrayDeque<>();
-    private Deque<SimplificationStep> unAppliedSteps = new ArrayDeque<>();
+    // Note that each index in the graph simplifier is the half of the actual index
+    private final int edgeSize;
+    // Detect the circle when order join
+    private final CircleDetector circleDetector;
+    // This is used for cache the intermediate results when calculate the benefit
+    // Note that we store it for the after. Because if we put B after A (t1 Join_A t2 Join_B t3),
+    // B is changed. Therefore, Any step that involves B need to be recalculated.
+    private final List<BestSimplification> simplifications = new ArrayList<>();
+    private final PriorityQueue<BestSimplification> priorityQueue = new PriorityQueue<>();
+    // The graph we are simplifying
+    private final HyperGraph graph;
     // It cached the plan stats in simplification. we don't store it in hyper graph,
     // because it's just used for simulating join. In fact, the graph simplifier
     // just generate the partial order of join operator.
     private final HashMap<Long, Statistics> cacheStats = new HashMap<>();
     private final HashMap<Long, Double> cacheCost = new HashMap<>();
-    private HyperGraph graph;
-    private CircleDetector cycles;
-    private List<BestSimplification> simplifications;
-    private PriorityQueue<BestSimplification> priorityQueue = new PriorityQueue<>();
+    private final Deque<SimplificationStep> appliedSteps = new ArrayDeque<>();
+    private final Deque<SimplificationStep> unAppliedSteps = new ArrayDeque<>();
 
+    private final Set<Edge> validEdges;
+
+    /**
+     * Create a graph simplifier
+     *
+     * @param graph create a graph simplifier to simplify the graph
+     */
     public GraphSimplifier(HyperGraph graph) {
         this.graph = graph;
-        int edgeCount = graph.getJoinEdges().size();
-
-        // init join dependency
-        this.cycles = new CircleDetector(edgeCount);
-        extractJoinDependencies(cycles);
-
-        // init simplifications with empty values
-        this.simplifications = new ArrayList<>(edgeCount);
-        for (int i = 0; i < edgeCount; i++) {
-            simplifications.add(new BestSimplification());
+        edgeSize = graph.getJoinEdges().size();
+        for (int i = 0; i < edgeSize; i++) {
+            BestSimplification bestSimplification = new BestSimplification();
+            simplifications.add(bestSimplification);
         }
-
-        // init cacheStats and cacheCost
         for (AbstractNode node : graph.getNodes()) {
             DPhyperNode dPhyperNode = (DPhyperNode) node;
             cacheStats.put(node.getNodeMap(), dPhyperNode.getGroup().getStatistics());
             cacheCost.put(node.getNodeMap(), dPhyperNode.getRowCount());
         }
-
-        //
-        for (int edgeIdx = 0; edgeIdx < edgeCount; edgeIdx++) {
-            recalculateNeighbors(edgeIdx, edgeIdx + 1, edgeCount);
-        }
-    }
-
-    private void extractJoinDependencies(CircleDetector circleDetector) {
-        int edgeCount = graph.getJoinEdges().size();
-        for (int i = 0; i < edgeCount; i++) {
-            Edge edge1 = graph.getJoinEdge(i);
-            for (int j = i + 1; j < edgeCount; j++) {
-                Edge edge2 = graph.getJoinEdge(j);
-                if (edge1.isSub(edge2)) {
-                    Preconditions.checkArgument(circleDetector.addEdge(i, j),
-                            "Edge %s violates Edge %s", edge1, edge2);
-                } else if (edge2.isSub(edge1)) {
-                    Preconditions.checkArgument(circleDetector.addEdge(j, i),
-                            "Edge %s violates Edge %s", edge2, edge1);
-                }
-            }
-        }
-    }
-
-    public boolean simplifyGraph(int limit) {
-        Preconditions.checkArgument(limit >= 1);
-        int lowerBound = 0;
-        int upperBound = 1;
-
-        // Try to probe the largest number of steps to satisfy the limit
-        Counter counter = new Counter(limit);
-        SubgraphEnumerator enumerator = new SubgraphEnumerator(counter, graph);
-        while (true) {
-            boolean hitUpperLimit = false;
-            while (numStepsDone() < upperBound) {
-                if (applySimplificationStep() == SimplificationResult.NO_SIMPLIFICATION_POSSIBLE) {
-                    // If we have done all steps but still has more sub graphs
-                    // Just return
-                    if (!enumerator.enumerate()) {
-                        return false;
+        validEdges = graph.getJoinEdges().stream()
+                .filter(e -> {
+                    for (Slot slot : e.getJoin().getConditionSlot()) {
+                        boolean contains = false;
+                        for (int nodeIdx : LongBitmap.getIterator(e.getReferenceNodes())) {
+                            if (graph.getNode(nodeIdx).getOutput().contains(slot)) {
+                                contains = true;
+                                break;
+                            }
+                        }
+                        if (!contains) {
+                            return false;
+                        }
                     }
-                    upperBound = numStepsDone();
-                    hitUpperLimit = true;
-                    break;
-                }
-            }
-            if (hitUpperLimit) {
-                break;
-            }
-            if (enumerator.enumerate()) {
-                break;
-            }
-            lowerBound = upperBound;
-            upperBound *= 2;
-            if (upperBound > MAX_SIMPLIFICATION_STEPS) {
-                return false;
-            }
-        }
+                    return true;
+                })
+                .collect(Collectors.toSet());
+        circleDetector = new CircleDetector(edgeSize);
 
-        // Try to search the lowest number of steps to satisfy the limit
-        while (upperBound - lowerBound > 1) {
-            int mid = (upperBound + lowerBound) / 2;
-            applyStepsWithNum(mid);
-            if (enumerator.enumerate()) {
-                upperBound = mid;
-            } else {
-                lowerBound = mid;
-            }
-        }
-        applyStepsWithNum(upperBound);
-        if (!isTotalOrder()) {
-            return false;
-        }
-        return true;
-    }
-
-    /**
-     * Check whether all edge has been ordered
-     *
-     * @return if true, all edges has a total order
-     */
-    public boolean isTotalOrder() {
-        return cycles.getOrder().length == graph.getJoinEdges().size() && graphIsJoinable(graph, cycles);
+        // init first simplification step
+        initFirstStep();
     }
 
     private boolean isOverlap(Edge edge1, Edge edge2) {
@@ -187,21 +124,148 @@ public class GraphSimplifier {
                 && LongBitmap.isOverlap(edge1.getRightExtendedNodes(), edge2.getLeftExtendedNodes()));
     }
 
+    private void initFirstStep() {
+        extractJoinDependencies();
+        for (int i = 0; i < edgeSize; i += 1) {
+            processNeighbors(i, i + 1, edgeSize);
+        }
+    }
+
+    /**
+     * Check whether all edge has been ordered
+     *
+     * @return if true, all edges has a total order
+     */
+    public boolean isTotalOrder() {
+        for (int i = 0; i < edgeSize; i++) {
+            for (int j = i + 1; j < edgeSize; j++) {
+                Edge edge1 = graph.getJoinEdge(i);
+                Edge edge2 = graph.getJoinEdge(j);
+                List<Long> superset = new ArrayList<>();
+                tryGetSuperset(edge1.getLeftExtendedNodes(), edge2.getLeftExtendedNodes(), superset);
+                tryGetSuperset(edge1.getLeftExtendedNodes(), edge2.getRightExtendedNodes(), superset);
+                tryGetSuperset(edge1.getRightExtendedNodes(), edge2.getLeftExtendedNodes(), superset);
+                tryGetSuperset(edge1.getRightExtendedNodes(), edge2.getRightExtendedNodes(), superset);
+                if (edge2.isSub(edge1) || edge1.isSub(edge2) || superset.isEmpty() || isOverlap(edge1, edge2)) {
+                    continue;
+                }
+                if (!(circleDetector.checkCircleWithEdge(i, j) || circleDetector.checkCircleWithEdge(j, i))) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    /**
+     * This function will repeatedly apply simplification steps util the number of csg-cmp pair
+     * is under the limit.
+     * In hyper graph, counting the csg-cmp pair is more expensive than the apply simplification step, therefore
+     * we use binary search to find the least step we should apply.
+     *
+     * @param limit the limit number of the csg-cmp pair
+     */
+    public boolean simplifyGraph(int limit) {
+        Preconditions.checkArgument(limit >= 1);
+        int lowerBound = 0;
+        int upperBound = 1;
+
+        // Try to probe the largest number of steps to satisfy the limit
+        int numApplySteps = 0;
+        Counter counter = new Counter(limit);
+        SubgraphEnumerator enumerator = new SubgraphEnumerator(counter, graph);
+        while (true) {
+            while (numApplySteps < upperBound) {
+                if (!applySimplificationStep()) {
+                    // If we have done all steps but still has more sub graphs
+                    // Just return
+                    if (!enumerator.enumerate()) {
+                        return false;
+                    }
+                    break;
+                }
+                numApplySteps += 1;
+            }
+            if (numApplySteps < upperBound || enumerator.enumerate()) {
+                break;
+            }
+            upperBound *= 2;
+        }
+
+        // Try to search the lowest number of steps to satisfy the limit
+        upperBound = numApplySteps + 1;
+        while (lowerBound < upperBound) {
+            int mid = lowerBound + (upperBound - lowerBound) / 2;
+            applyStepsWithNum(mid);
+            if (enumerator.enumerate()) {
+                upperBound = mid;
+            } else {
+                lowerBound = mid + 1;
+            }
+        }
+        applyStepsWithNum(upperBound);
+        return true;
+    }
+
+    /**
+     * This function apply a simplification step
+     *
+     * @return If there is no other steps, return false.
+     */
+    public boolean applySimplificationStep() {
+        boolean needProcessNeighbor = unAppliedSteps.isEmpty();
+        SimplificationStep bestStep = fetchSimplificationStep();
+        if (bestStep == null) {
+            return false;
+        }
+        appliedSteps.push(bestStep);
+        Preconditions.checkArgument(
+                cacheStats.containsKey(bestStep.newLeft) && cacheStats.containsKey(bestStep.newRight),
+                "<%s - %s> must has been stats derived", bestStep.newLeft, bestStep.newRight);
+        graph.modifyEdge(bestStep.afterIndex, bestStep.newLeft, bestStep.newRight);
+        if (needProcessNeighbor) {
+            processNeighbors(bestStep.afterIndex, 0, edgeSize);
+        }
+        return true;
+    }
+
     private boolean unApplySimplificationStep() {
         Preconditions.checkArgument(!appliedSteps.isEmpty(),
                 "try to unapply a simplification step but there is no step applied");
-        SimplificationStep bestStep = appliedSteps.poll();
+        SimplificationStep bestStep = appliedSteps.pop();
         unAppliedSteps.push(bestStep);
-        graph.modifyEdge(bestStep.afterEdgeIdx, bestStep.oldEdgeLeft, bestStep.oldEdgeRight);
+        graph.modifyEdge(bestStep.afterIndex, bestStep.oldLeft, bestStep.oldRight);
         // Note we don't need to delete this edge in circleDetector, because we don't need to
         // recalculate neighbors until all steps applied
         return true;
     }
 
+    private @Nullable SimplificationStep fetchSimplificationStep() {
+        if (!unAppliedSteps.isEmpty()) {
+            return unAppliedSteps.pop();
+        }
+        if (priorityQueue.isEmpty()) {
+            return null;
+        }
+        BestSimplification bestSimplification = priorityQueue.poll();
+        bestSimplification.isInQueue = false;
+        SimplificationStep bestStep = bestSimplification.getStep();
+        while (bestSimplification.bestNeighbor == -1
+                || !circleDetector.tryAddDirectedEdge(bestStep.beforeIndex, bestStep.afterIndex)) {
+            processNeighbors(bestStep.afterIndex, 0, edgeSize);
+            if (priorityQueue.isEmpty()) {
+                return null;
+            }
+            bestSimplification = priorityQueue.poll();
+            bestSimplification.isInQueue = false;
+            bestStep = bestSimplification.getStep();
+        }
+        return bestStep;
+    }
+
     private void applyStepsWithNum(int num) {
         while (appliedSteps.size() < num) {
-            SimplificationResult result = applySimplificationStep();
-            Preconditions.checkState(result != SimplificationResult.NO_SIMPLIFICATION_POSSIBLE);
+            applySimplificationStep();
         }
         while (appliedSteps.size() > num) {
             unApplySimplificationStep();
@@ -212,113 +276,82 @@ public class GraphSimplifier {
         if (appliedSteps.isEmpty()) {
             return null;
         }
-        return Pair.of(appliedSteps.peek().newEdgeLeft, appliedSteps.peek().newEdgeRight);
+        return Pair.of(appliedSteps.peek().newLeft, appliedSteps.peek().newRight);
     }
 
-    public int numStepsDone() {
-        return appliedSteps.size();
-    }
-
-    public int numStepsUndone() {
-        return unAppliedSteps.size();
-    }
-
-    public SimplificationResult applySimplificationStep() {
-        if (!unAppliedSteps.isEmpty()) {
-            SimplificationStep step = unAppliedSteps.poll();
-            graph.modifyEdge(step.afterEdgeIdx, step.newEdgeLeft, step.newEdgeRight);
-            appliedSteps.push(step);
-            return SimplificationResult.APPLIED_REDO_STEP;
-        }
-
-        BestSimplification cacheNode = priorityQueue.peek();
-        if (cacheNode == null) {
-            return SimplificationResult.NO_SIMPLIFICATION_POSSIBLE;
-        }
-        ProposedSimplificationStep bestStep = cacheNode.bestStep;
-        boolean forced = false;
-        if (cycles.edgeWouldCreateCycle(bestStep.beforeEdgeIdx, bestStep.afterEdgeIdx)) {
-            int tmp = bestStep.beforeEdgeIdx;
-            bestStep.beforeEdgeIdx = bestStep.afterEdgeIdx;
-            bestStep.afterEdgeIdx = tmp;
-            forced = true;
-        }
-
-        SimplificationStep fullStep = concretizeSimplificationStep(bestStep);
-
-        boolean added = cycles.addEdge(bestStep.beforeEdgeIdx, bestStep.afterEdgeIdx);
-        Preconditions.checkState(added, "Cycle detected");
-        graph.modifyEdge(bestStep.afterEdgeIdx, fullStep.newEdgeLeft, fullStep.newEdgeRight);
-
-        if (!graphIsJoinable(graph, cycles)) {
-            // Undo change
-            cycles.deleteEdge(bestStep.beforeEdgeIdx, bestStep.afterEdgeIdx);
-            graph.modifyEdge(bestStep.afterEdgeIdx, fullStep.oldEdgeLeft, fullStep.oldEdgeRight);
-
-            // Insert opposite constraint and try again
-            if (!cycles.addEdge(fullStep.afterEdgeIdx, fullStep.beforeEdgeIdx)) {
-                priorityQueue.poll();
-                cacheNode.isInPriorityQueue = false;
+    /**
+     * Process all neighbors and try to make simplification step
+     * Note that when a given ordering is less advantageous and dropped out,
+     * we need to call this function recursively to update all relative steps.
+     *
+     * @param edgeIndex1 The index of join operator that we need to process its neighbors
+     * @param beginIndex The beginning index of the processing join operators
+     * @param endIndex The end index of the processing join operators
+     */
+    private void processNeighbors(int edgeIndex1, int beginIndex, int endIndex) {
+        // Go through the neighbors with lower index, where the best simplification is stored
+        // Because the best simplification is stored in the edge with lower index, we need to update it recursively
+        // when we can't reset that best simplification
+        for (int edgeIndex2 = beginIndex; edgeIndex2 < Integer.min(endIndex, edgeIndex1); edgeIndex2 += 1) {
+            BestSimplification bestSimplification = simplifications.get(edgeIndex2);
+            Optional<SimplificationStep> optionalStep = makeSimplificationStep(edgeIndex1, edgeIndex2);
+            if (optionalStep.isPresent() && trySetSimplificationStep(optionalStep.get(), bestSimplification, edgeIndex2,
+                    edgeIndex1)) {
+                continue;
             }
-            return applySimplificationStep();
+            if (bestSimplification.bestNeighbor == edgeIndex1) {
+                processNeighbors(edgeIndex2, 0, edgeSize);
+            }
         }
-        recalculateNeighbors(bestStep.afterEdgeIdx, 0, graph.getJoinEdges().size());
-        appliedSteps.push(fullStep);
-        return forced ? SimplificationResult.APPLIED_NOOP : SimplificationResult.APPLIED_SIMPLIFICATION;
+
+        // Go through the neighbors with higher index, we only need to recalculate all related steps
+        BestSimplification bestSimplification = simplifications.get(edgeIndex1);
+        bestSimplification.bestNeighbor = -1;
+        for (int edgeIndex2 = Integer.max(beginIndex, edgeIndex1 + 1); edgeIndex2 < endIndex; edgeIndex2 += 1) {
+            Optional<SimplificationStep> optionalStep = makeSimplificationStep(edgeIndex1, edgeIndex2);
+            if (optionalStep.isPresent()) {
+                trySetSimplificationStep(optionalStep.get(), bestSimplification, edgeIndex1, edgeIndex2);
+            }
+        }
     }
 
-    private void updatePQ(int edgeIdx) {
-        BestSimplification cacheNode = simplifications.get(edgeIdx);
-        Preconditions.checkState(!Double.isNaN(cacheNode.bestStep.benefit), "bestStep has invalid benefit value");
-        if (!cacheNode.isInPriorityQueue) {
-            if (cacheNode.bestNeighbor != -1) {
-                priorityQueue.add(cacheNode);
-                cacheNode.isInPriorityQueue = true;
+    private boolean trySetSimplificationStep(SimplificationStep step, BestSimplification bestSimplification,
+                                             int index, int neighborIndex) {
+        if (bestSimplification.bestNeighbor == -1 || !bestSimplification.isInQueue
+                || bestSimplification.getBenefit() <= step.getBenefit()) {
+            bestSimplification.bestNeighbor = neighborIndex;
+            bestSimplification.setStep(step);
+            updatePriorityQueue(index);
+            return true;
+        }
+        return false;
+    }
+
+    private void updatePriorityQueue(int index) {
+        BestSimplification bestSimplification = simplifications.get(index);
+        if (!bestSimplification.isInQueue) {
+            if (bestSimplification.bestNeighbor != -1) {
+                priorityQueue.add(bestSimplification);
+                bestSimplification.isInQueue = true;
             }
         } else {
-            if (cacheNode.bestNeighbor == -1) {
-                priorityQueue.remove(cacheNode);
-                cacheNode.isInPriorityQueue = false;
+            priorityQueue.remove(bestSimplification);
+            if (bestSimplification.bestNeighbor == -1) {
+                bestSimplification.isInQueue = false;
+            } else {
+                priorityQueue.add(bestSimplification);
             }
         }
     }
 
-    private void recalculateNeighbors(int edge1Idx, int begin, int end) {
-        for (int edge2Idx = begin; edge2Idx < Math.min(edge1Idx, end); edge2Idx++) {
-            BestSimplification otherCache = simplifications.get(edge2Idx);
-            ProposedSimplificationStep step = new ProposedSimplificationStep();
-            if (edgesAreNeighboring(edge2Idx, edge1Idx, step)) {
-                if (otherCache.bestNeighbor == -1 || step.benefit >= otherCache.bestStep.benefit) {
-                    otherCache.bestNeighbor = edge1Idx;
-                    otherCache.bestStep = step;
-                    updatePQ(edge2Idx);
-                    continue;
-                }
-            }
-            if (otherCache.bestNeighbor == edge1Idx) {
-                recalculateNeighbors(edge2Idx, 0, graph.getJoinEdges().size());
-            }
-        }
-        BestSimplification cacheNode = simplifications.get(edge1Idx);
-        cacheNode.bestNeighbor = -1;
-        cacheNode.bestStep.benefit = Double.NEGATIVE_INFINITY;
-        for (int edge2Idx = Math.max(begin, edge1Idx + 1); edge2Idx < end; edge2Idx++) {
-            ProposedSimplificationStep step = new ProposedSimplificationStep();
-            if (edgesAreNeighboring(edge1Idx, edge2Idx, step)) {
-                if (cacheNode.bestNeighbor == -1 || step.benefit > cacheNode.bestStep.benefit) {
-                    cacheNode.bestNeighbor = edge2Idx;
-                    cacheNode.bestStep = step;
-                }
-            }
-        }
-        updatePQ(edge1Idx);
-    }
-
-    private boolean edgesAreNeighboring(int edge1Idx, int edge2Idx, ProposedSimplificationStep step) {
-        JoinEdge edge1 = graph.getJoinEdge(edge1Idx);
-        JoinEdge edge2 = graph.getJoinEdge(edge2Idx);
-        if (edge1.isSub(edge2) || edge2.isSub(edge1)) {
-            return false;
+    private Optional<SimplificationStep> makeSimplificationStep(int edgeIndex1, int edgeIndex2) {
+        JoinEdge edge1 = graph.getJoinEdge(edgeIndex1);
+        JoinEdge edge2 = graph.getJoinEdge(edgeIndex2);
+        if (edge1.isSub(edge2) || edge2.isSub(edge1)
+                || circleDetector.checkCircleWithEdge(edgeIndex1, edgeIndex2)
+                || circleDetector.checkCircleWithEdge(edgeIndex2, edgeIndex1)
+                || !validEdges.contains(edge1) || !validEdges.contains(edge2)) {
+            return Optional.empty();
         }
         long left1 = edge1.getLeftExtendedNodes();
         long right1 = edge1.getRightExtendedNodes();
@@ -326,7 +359,7 @@ public class GraphSimplifier {
         long right2 = edge2.getRightExtendedNodes();
         if (!cacheStats.containsKey(left1) || !cacheStats.containsKey(right1)
                 || !cacheStats.containsKey(left2) || !cacheStats.containsKey(right2)) {
-            return false;
+            return Optional.empty();
         }
         JoinEdge edge1Before2;
         JoinEdge edge2Before1;
@@ -352,48 +385,16 @@ public class GraphSimplifier {
             // left1 Join1 (left2 Join2 common)
             edge2Before1 = threeRightJoin(left1, edge1, left2, edge2, superBitset.get(0));
         } else {
-            return false;
+            return Optional.empty();
         }
 
         if (edge1Before2 == null || edge2Before1 == null) {
-            return false;
+            return Optional.empty();
         }
 
-        double cost1Before2 = calCost(edge1Before2,
-                edge1Before2.getLeftExtendedNodes(), edge1Before2.getRightExtendedNodes());
-        double cost2Before1 = calCost(edge2Before1,
-                edge2Before1.getLeftExtendedNodes(), edge2Before1.getRightExtendedNodes());
-        double benefit = Double.MAX_VALUE;
-        // Choose the plan with smaller cost and make the simplification step to replace the old edge by it.
-        if (cost1Before2 < cost2Before1) {
-            if (cost1Before2 != 0) {
-                benefit = cost2Before1 / cost1Before2;
-            }
-            // choose edge1Before2
-            step.benefit = benefit;
-            step.beforeEdgeIdx = edge1Idx;
-            step.afterEdgeIdx = edge2Idx;
-        } else {
-            if (cost2Before1 != 0) {
-                benefit = cost1Before2 / cost2Before1;
-            }
-            // choose edge2Before1
-            step.benefit = benefit;
-            step.beforeEdgeIdx = edge2Idx;
-            step.afterEdgeIdx = edge1Idx;
-        }
-        return true;
-    }
-
-    private boolean tryGetSuperset(long bitmap1, long bitmap2, List<Long> superset) {
-        if (LongBitmap.isSubset(bitmap1, bitmap2)) {
-            superset.add(bitmap2);
-            return true;
-        } else if (LongBitmap.isSubset(bitmap2, bitmap1)) {
-            superset.add(bitmap1);
-            return true;
-        }
-        return false;
+        // edge1 is not the neighborhood of edge2
+        SimplificationStep simplificationStep = orderJoin(edge1Before2, edge2Before1, edgeIndex1, edgeIndex2);
+        return Optional.of(simplificationStep);
     }
 
     private JoinEdge constructEdge(long leftNodes, JoinEdge edge, long rightNodes) {
@@ -415,8 +416,8 @@ public class GraphSimplifier {
             join = edge.getJoin().withJoinConjuncts(hashConditions, otherConditions, null);
         }
 
-        JoinEdge newEdge = new JoinEdge(join, edge.getIndex(), edge.getLeftChildEdges(), edge.getRightChildEdges(),
-                edge.getLeftSubtreeNodes(), edge.getRightSubtreeNodes(),
+        JoinEdge newEdge = new JoinEdge(join, edge.getIndex(),
+                edge.getLeftChildEdges(), edge.getRightChildEdges(), edge.getSubTreeNodes(),
                 edge.getLeftRequiredNodes(), edge.getRightRequiredNodes(), ImmutableSet.of(), ImmutableSet.of());
         newEdge.addLeftExtendNode(leftNodes);
         newEdge.addRightExtendNode(rightNodes);
@@ -441,7 +442,7 @@ public class GraphSimplifier {
     private double calCost(JoinEdge edge, long leftBitmap, long rightBitmap) {
         long bitmap = LongBitmap.newBitmapUnion(leftBitmap, rightBitmap);
         Preconditions.checkArgument(cacheStats.containsKey(leftBitmap) && cacheStats.containsKey(rightBitmap)
-                && cacheStats.containsKey(bitmap),
+                        && cacheStats.containsKey(bitmap),
                 "graph simplifier meet an edge %s that have not been derived stats", edge);
         LogicalJoin<? extends Plan, ? extends Plan> join = edge.getJoin();
         Statistics leftStats = cacheStats.get(leftBitmap);
@@ -482,7 +483,7 @@ public class GraphSimplifier {
     }
 
     private @Nullable JoinEdge threeRightJoin(long bitmap1, JoinEdge edge1, long bitmap2,
-            JoinEdge edge2, long bitmap3) {
+                                              JoinEdge edge2, long bitmap3) {
         Preconditions.checkArgument(cacheStats.containsKey(bitmap1)
                 && cacheStats.containsKey(bitmap2) && cacheStats.containsKey(bitmap3));
         // plan1 edge1 (plan2 edge2 plan3)
@@ -499,176 +500,133 @@ public class GraphSimplifier {
         return newEdge;
     }
 
-    private SimplificationStep concretizeSimplificationStep(ProposedSimplificationStep step) {
-        JoinEdge e1 = graph.getJoinEdges().get(step.beforeEdgeIdx);
-        JoinEdge e2 = graph.getJoinEdges().get(step.afterEdgeIdx);
-
-        SimplificationStep fullStep = new SimplificationStep();
-        fullStep.beforeEdgeIdx = step.beforeEdgeIdx;
-        fullStep.afterEdgeIdx = step.afterEdgeIdx;
-        fullStep.oldEdgeLeft = e2.getLeftExtendedNodes();
-        fullStep.oldEdgeRight = e2.getRightExtendedNodes();
-        fullStep.newEdgeLeft = fullStep.oldEdgeLeft;
-        fullStep.newEdgeRight = fullStep.oldEdgeRight;
-        long e1Left = e1.getLeftExtendedNodes();
-        long e1Right = e1.getRightExtendedNodes();
-        long e2Left = e2.getLeftExtendedNodes();
-        long e2Right = e2.getRightExtendedNodes();
-        if (LongBitmap.isSubset(e1Left, e2Left) || LongBitmap.isSubset(e2Left, e1Left) ||
-                LongBitmap.isSubset(e1Right, e2Left) || LongBitmap.isSubset(e2Left, e1Right)) {
-            if (!LongBitmap.isOverlap(e2Right, e1Left | e1Right)) {
-                fullStep.newEdgeLeft |= (e1Left | e1Right);
-            } else {
-                fullStep.newEdgeLeft |= (e1Left | e1Right) & ~e2Right;
+    private SimplificationStep orderJoin(JoinEdge edge1Before2,
+                                         JoinEdge edge2Before1, int edgeIndex1, int edgeIndex2) {
+        double cost1Before2 = calCost(edge1Before2,
+                edge1Before2.getLeftExtendedNodes(), edge1Before2.getRightExtendedNodes());
+        double cost2Before1 = calCost(edge2Before1,
+                edge2Before1.getLeftExtendedNodes(), edge2Before1.getRightExtendedNodes());
+        double benefit = Double.MAX_VALUE;
+        SimplificationStep step;
+        // Choose the plan with smaller cost and make the simplification step to replace the old edge by it.
+        if (cost1Before2 < cost2Before1) {
+            if (cost1Before2 != 0) {
+                benefit = cost2Before1 / cost1Before2;
             }
+            // choose edge1Before2
+            step = new SimplificationStep(benefit, edgeIndex1, edgeIndex2,
+                    edge1Before2.getLeftExtendedNodes(),
+                    edge1Before2.getRightExtendedNodes(),
+                    graph.getJoinEdge(edgeIndex2).getLeftExtendedNodes(),
+                    graph.getJoinEdge(edgeIndex2).getRightExtendedNodes());
         } else {
-            if (!LongBitmap.isOverlap(e2Left, e1Left | e1Right)) {
-                fullStep.newEdgeRight |= (e1Left | e1Right);
-            } else {
-                fullStep.newEdgeLeft |= (e1Left | e1Right) & ~e2Left;
+            if (cost2Before1 != 0) {
+                benefit = cost1Before2 / cost2Before1;
+            }
+            // choose edge2Before1
+            step = new SimplificationStep(benefit, edgeIndex2, edgeIndex1, edge2Before1.getLeftExtendedNodes(),
+                    edge2Before1.getRightExtendedNodes(), graph.getJoinEdge(edgeIndex1).getLeftExtendedNodes(),
+                    graph.getJoinEdge(edgeIndex1).getRightExtendedNodes());
+        }
+        return step;
+    }
+
+    private boolean tryGetSuperset(long bitmap1, long bitmap2, List<Long> superset) {
+        if (LongBitmap.isSubset(bitmap1, bitmap2)) {
+            superset.add(bitmap2);
+            return true;
+        } else if (LongBitmap.isSubset(bitmap2, bitmap1)) {
+            superset.add(bitmap1);
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * Put join dependencies into circle detector.
+     */
+    private void extractJoinDependencies() {
+        for (int i = 0; i < edgeSize; i++) {
+            Edge edge1 = graph.getJoinEdge(i);
+            for (int j = i + 1; j < edgeSize; j++) {
+                Edge edge2 = graph.getJoinEdge(j);
+                if (edge1.isSub(edge2)) {
+                    Preconditions.checkArgument(circleDetector.tryAddDirectedEdge(i, j),
+                            "Edge %s violates Edge %s", edge1, edge2);
+                } else if (edge2.isSub(edge1)) {
+                    Preconditions.checkArgument(circleDetector.tryAddDirectedEdge(j, i),
+                            "Edge %s violates Edge %s", edge2, edge1);
+                }
             }
         }
-        return fullStep;
     }
 
-    // --- Supporting classes ---
+    static class SimplificationStep {
+        double benefit;
+        int beforeIndex;
+        int afterIndex;
+        long newLeft;
+        long newRight;
+        long oldLeft;
+        long oldRight;
 
-    private static class SimplificationStep {
-        public int beforeEdgeIdx;
-        public int afterEdgeIdx;
-        public long oldEdgeLeft;
-        public long oldEdgeRight;
-        public long newEdgeLeft;
-        public long newEdgeRight;
+        SimplificationStep(double benefit, int beforeIndex, int afterIndex, long newLeft, long newRight,
+                           long oldLeft, long oldRight) {
+            this.afterIndex = afterIndex;
+            this.beforeIndex = beforeIndex;
+            this.benefit = benefit;
+            this.oldLeft = oldLeft;
+            this.oldRight = oldRight;
+            this.newLeft = newLeft;
+            this.newRight = newRight;
+        }
+
+        public void reverse() {
+            int temp = beforeIndex;
+            beforeIndex = afterIndex;
+            afterIndex = temp;
+        }
+
+        public double getBenefit() {
+            return benefit;
+        }
+
+        @Override
+        public String toString() {
+            return String.format("%d -> %d", beforeIndex, afterIndex);
+        }
     }
 
-    private static class ProposedSimplificationStep {
-        public double benefit = Double.NEGATIVE_INFINITY;
-        public int beforeEdgeIdx;
-        public int afterEdgeIdx;
-    }
-
-    private static class BestSimplification implements Comparable<BestSimplification> {
-        public int bestNeighbor = -1;
-        public ProposedSimplificationStep bestStep = new ProposedSimplificationStep();
-        public boolean isInPriorityQueue = false;
+    static class BestSimplification implements Comparable<BestSimplification> {
+        int bestNeighbor = -1;
+        Optional<SimplificationStep> step = Optional.empty();
+        // This data whether to be added to the queue
+        boolean isInQueue = false;
 
         @Override
         public int compareTo(GraphSimplifier.BestSimplification o) {
-            return Double.compare(o.bestStep.benefit, bestStep.benefit);
+            Preconditions.checkArgument(step.isPresent());
+            return Double.compare(o.getBenefit(), getBenefit());
         }
-    }
 
-    /**
-     * Checks if the current hypergraph is joinable, i.e., all tables can be connected via joins.
-     */
-    private static boolean graphIsJoinable(HyperGraph graph, CircleDetector cycles) {
-        int nodeCount = graph.getNodes().size();
-        long[] components = new long[nodeCount];
-        int[] inComponent = new int[nodeCount];
-
-        for (int nodeIdx = 0; nodeIdx < nodeCount; nodeIdx++) {
-            components[nodeIdx] = LongBitmap.newBitmap(nodeIdx);
-            inComponent[nodeIdx] = nodeIdx;
+        public double getBenefit() {
+            return step.get().getBenefit();
         }
-        return connectComponentsThroughJoins(graph, cycles, components, inComponent) == nodeCount;
-    }
 
-    /**
-     * Connects components through join edges, calling callback on each join.
-     */
-    private static int connectComponentsThroughJoins(
-            HyperGraph graph,
-            CircleDetector cycles,
-            long[] components,
-            int[] inComponent) {
-        int nodeCount = graph.getNodes().size();
-        int numInComponent = 1;
-        boolean didAnything;
-        int usedEdges = 0;
-        int edgeCount = cycles.getOrder().length;
-        do {
-            didAnything = false;
-            for (int edgeIdx : cycles.getOrder()) {
-                JoinEdge e = graph.getJoinEdge(edgeIdx);
-                long rightNodes = e.getRightExtendedNodes();
-                int leftComponent = getComponent(components, inComponent, e.getLeftExtendedNodes());
-                if (leftComponent == -1) {
-                    continue;
-                }
-                if (LongBitmap.isOverlap(rightNodes, components[leftComponent])) {
-                    //TODO return ???
-                    return -1;
-//                    continue;
-                }
-                int rightComponent = getComponent(components, inComponent, e.getRightExtendedNodes());
-                if (rightComponent == -1
-                        || combiningWouldViolateConflictRules(e.getConflictRules(), inComponent, leftComponent,
-                                rightComponent)) {
-                    continue;
-                }
+        public SimplificationStep getStep() {
+            return step.get();
+        }
 
-                if (rightComponent < leftComponent) {
-                    int tmp = leftComponent;
-                    leftComponent = rightComponent;
-                    rightComponent = tmp;
-                }
-                int numChanged = 0;
-                for (int tableIdx : LongBitmap.getIterator(components[rightComponent])) {
-                    inComponent[tableIdx] = leftComponent;
-                    ++numChanged;
-                }
+        public void setStep(SimplificationStep step) {
+            this.step = Optional.of(step);
+        }
 
-                long combinedNodes = components[leftComponent] | components[rightComponent];
-                components[leftComponent] = combinedNodes;
-                usedEdges++;
-                if (leftComponent == 0) {
-                    numInComponent += numChanged;
-                    if (numInComponent == nodeCount && usedEdges == edgeCount) {
-                        return numInComponent;
-                    }
-                }
-                didAnything = true;
+        @Override
+        public String toString() {
+            if (step.isPresent()) {
+                return String.format("[%s, %s, %d]", step.get(), isInQueue, bestNeighbor);
             }
-        } while (didAnything);
-        return numInComponent;
-    }
-
-    private static int getComponent(long[] components, int[] inComponent, long tables) {
-        if (tables == 0) {
-            return -1;
+            return String.format("[%s, empty, %d]", isInQueue, bestNeighbor);
         }
-        int idx = Long.numberOfTrailingZeros(tables);
-        int component = inComponent[idx];
-        if (component >= 0 && (tables & ~components[component]) == 0) {
-            return component;
-        }
-        return -1;
-    }
-
-    private static boolean combiningWouldViolateConflictRules(
-            List<Pair<Long, Long>> conflictRules,
-            int[] inComponent,
-            int leftComponent,
-            int rightComponent) {
-        for (Pair<Long, Long> cr : conflictRules) {
-            boolean applies = false;
-            for (int nodeIdx : LongBitmap.getIterator(cr.first)) {
-                if (inComponent[nodeIdx] == leftComponent
-                        || inComponent[nodeIdx] == rightComponent) {
-                    applies = true;
-                    break;
-                }
-            }
-            if (applies) {
-                for (int nodeIdx : LongBitmap.getIterator(cr.second)) {
-                    if (inComponent[nodeIdx] != leftComponent
-                            && inComponent[nodeIdx] != rightComponent) {
-                        return true;
-                    }
-                }
-            }
-        }
-        return false;
     }
 }
