@@ -16,6 +16,20 @@ PhysicalResultSink
 ----------------------PhysicalOlapScan[t1]
 
 -- !having_with_window_2 --
+PhysicalResultSink
+--PhysicalProject
+----PhysicalQuickSort[MERGE_SORT]
+------PhysicalQuickSort[LOCAL_SORT]
+--------PhysicalProject
+----------PhysicalWindow
+------------PhysicalWindow
+--------------PhysicalQuickSort[LOCAL_SORT]
+----------------PhysicalProject
+------------------filter((sum((cast(id as BIGINT) + random(1, 100))) > 1))
+--------------------hashAgg[GLOBAL]
+----------------------PhysicalProject
+------------------------filter(((cast(id as BIGINT) + random(1, 100)) > 0) and (t1.__DORIS_DELETE_SIGN__ = 0))
+--------------------------PhysicalOlapScan[t1]
 
 -- !test_sum0 --
 0	0

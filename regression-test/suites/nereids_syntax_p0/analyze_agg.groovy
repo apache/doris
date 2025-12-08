@@ -158,6 +158,27 @@ suite("analyze_agg") {
         exception "LOGICAL_HAVING can not contains WindowExpression expression: sum(id) OVER()"
     }
 
+    test {
+        sql '''SELECT 1 AS a, COUNT(*), SUM(2), AVG(1), RANK() OVER() AS w_rank
+            WHERE 1 = 1
+            GROUP BY a
+            HAVING COUNT(*) IN (1, 2) AND w_rank = 1
+            ORDER BY a;
+            '''
+
+        exception " HAVING expression 'w_rank' must not contain window functions: rank() OVER()"
+    }
+
+    test {
+        sql '''SELECT 1 AS a, COUNT(*), SUM(2), AVG(1), RANK() OVER() AS w_rank
+            WHERE 1 = 1
+            HAVING COUNT(*) IN (1, 2) AND w_rank = 1
+            ORDER BY a;
+            '''
+
+        exception " HAVING expression 'w_rank' must not contain window functions: rank() OVER()"
+    }
+
     // having need before windows
     qt_having_with_window_1 '''explain shape plan
         select sum(id) over ()
@@ -168,7 +189,7 @@ suite("analyze_agg") {
         order by id + random(1, 1), sum(id + random(1, 1)), sum(id + random(1, 1)) over ()
         '''
 
-    qt_having_with_window_2 '''
+    qt_having_with_window_2 '''explain shape plan
         select sum(id) over (partition by a)
         from t1
         where id + random(1, 100) > 0
