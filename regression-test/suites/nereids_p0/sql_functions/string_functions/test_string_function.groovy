@@ -33,6 +33,21 @@ suite("test_string_function") {
     qt_sql "select ascii('A');"
     qt_sql "select ascii('!');"
 
+    qt_sql "select bin(0)";
+    qt_sql "select bin(-0)";
+    qt_sql "select bin(1)";
+    qt_sql "select bin(-1)";
+    qt_sql "select bin(NULL)";
+    qt_sql "select bin('123')";
+    qt_sql "select bin('123abc')";
+    qt_sql "select bin('abc123')";
+    qt_sql "select bin('   123')";
+    qt_sql "select bin('  -123')";
+    qt_sql "select bin('  -123abc')";
+    qt_sql "select bin('1a2b3c')";
+    qt_sql "select bin('0x123')";
+    qt_sql "select bin('0123')";
+
     qt_sql "select bit_length(\"abc\");"
 
     qt_sql "select char_length(\"abc\");"
