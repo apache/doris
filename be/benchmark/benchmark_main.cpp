@@ -37,16 +37,20 @@ enum class DataPattern {
     SMALL_RANDOM
 };
 
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+
+
 class SortDataGenerator {
 public:
-    static std::vector<int64_t> generate(DataPattern pattern, size_t size) {
-        std::vector<int64_t> data;
+    static std::vector<int32_t> generate(DataPattern pattern, size_t size) {
+        std::vector<int32_t> data;
         data.reserve(size);
         std::default_random_engine rng(42);
 
         switch (pattern) {
         case DataPattern::RANDOM: {
-            std::uniform_int_distribution<int64_t> dist(0, size);
+            std::uniform_int_distribution<int32_t> dist(0, size);
             for (size_t i = 0; i < size; ++i) {
                 data.push_back(dist(rng));
             }
@@ -73,7 +77,7 @@ public:
             for (size_t i = 0; i < size; ++i) {
                 data.push_back(i);
             }
-            std::uniform_int_distribution<size_t> dist(0, size - 1);
+            std::uniform_int_distribution<int32_t> dist(0, size - 1);
             // 随机交换20%的元素
             for (size_t i = 0; i < size / 5; ++i) {
                 size_t pos1 = dist(rng);
@@ -88,7 +92,7 @@ public:
             for (size_t i = 0; i < ordered_size; ++i) {
                 data.push_back(i);
             }
-            std::uniform_int_distribution<int64_t> dist(0, size);
+            std::uniform_int_distribution<int32_t> dist(0, size);
             for (size_t i = ordered_size; i < size; ++i) {
                 data.push_back(dist(rng));
             }
@@ -100,7 +104,7 @@ public:
             for (size_t i = 0; i < half; ++i) {
                 data.push_back(i);
             }
-            std::uniform_int_distribution<int64_t> dist(0, size);
+            std::uniform_int_distribution<int32_t> dist(0, size);
             for (size_t i = half; i < size; ++i) {
                 data.push_back(dist(rng));
             }
@@ -160,11 +164,11 @@ static void BM_PdqSort(benchmark::State& state) {
     DataPattern pattern = static_cast<DataPattern>(state.range(1));
 
     // 预生成测试数据（不计入性能统计）
-    std::vector<int64_t> original_data = SortDataGenerator::generate(pattern, size);
+    std::vector<int32_t> original_data = SortDataGenerator::generate(pattern, size);
 
     for (auto _ : state) {
         // 为每次迭代复制数据
-        std::vector<int64_t> data = original_data;
+        std::vector<int32_t> data = original_data;
         benchmark::DoNotOptimize(data.data());
 
         // 执行排序
@@ -182,11 +186,11 @@ static void BM_TimSort(benchmark::State& state) {
     DataPattern pattern = static_cast<DataPattern>(state.range(1));
 
     // 预生成测试数据（不计入性能统计）
-    std::vector<int64_t> original_data = SortDataGenerator::generate(pattern, size);
+    std::vector<int32_t> original_data = SortDataGenerator::generate(pattern, size);
 
     for (auto _ : state) {
         // 为每次迭代复制数据
-        std::vector<int64_t> data = original_data;
+        std::vector<int32_t> data = original_data;
         benchmark::DoNotOptimize(data.data());
 
         // 执行排序
