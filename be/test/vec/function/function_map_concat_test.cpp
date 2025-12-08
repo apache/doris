@@ -27,8 +27,8 @@ TEST(FunctionMapConcatTest, TestBase) {
             }
         };
         
-        Status status = check_function<DataTypeMap, true>(func_name, input_types, data_set);
-        EXPECT_TRUE(status.ok()) << "Function test failed: " << status.to_string();
+        check_function_all_arg_comb<DataTypeMap, true>(func_name, input_types, data_set);
+        // EXPECT_TRUE(status.ok()) << "Function test failed: " << status.to_string();
     }
     {
         // two maps concatenation with string keys
@@ -48,8 +48,7 @@ TEST(FunctionMapConcatTest, TestBase) {
                 })
             }
         };
-        Status status = check_function<DataTypeMap, true>(func_name, input_types, data_set);
-        EXPECT_TRUE(status.ok()) << "Function test failed: " << status.to_string();
+        check_function_all_arg_comb<DataTypeMap, true>(func_name, input_types, data_set);
     }
     {
         // two maps concatenation with string keys
@@ -79,8 +78,7 @@ TEST(FunctionMapConcatTest, TestBase) {
                 })
             }
         };
-        Status status = check_function<DataTypeMap, true>(func_name, input_types, data_set);
-        EXPECT_TRUE(status.ok()) << "Function test failed: " << status.to_string();
+        check_function_all_arg_comb<DataTypeMap, true>(func_name, input_types, data_set);
     }
 }
 
@@ -108,8 +106,7 @@ TEST(FunctionMapConcatTest, TestEdgeCases) {
             }
         };
         
-        Status status = check_function<DataTypeMap, true>(func_name, input_types, data_set);
-        EXPECT_TRUE(status.ok()) << "Function test failed one: " << status.to_string();
+        check_function_all_arg_comb<DataTypeMap, true>(func_name, input_types, data_set);
     }
     
     // Test key conflicts (later map should override earlier)
@@ -132,8 +129,7 @@ TEST(FunctionMapConcatTest, TestEdgeCases) {
             }
         };
         
-        Status status = check_function<DataTypeMap, true>(func_name, input_types, data_set);
-        EXPECT_TRUE(status.ok()) << "Function test failed two: " << status.to_string();
+        check_function_all_arg_comb<DataTypeMap, true>(func_name, input_types, data_set);
     }
     
     // Test multiple maps (more than 2)
@@ -158,8 +154,7 @@ TEST(FunctionMapConcatTest, TestEdgeCases) {
             }
         };
         
-        Status status = check_function<DataTypeMap, true>(func_name, input_types, data_set);
-        EXPECT_TRUE(status.ok()) << "Function test failed three: " << status.to_string();
+        check_function_all_arg_comb<DataTypeMap, true>(func_name, input_types, data_set);
     }
     
     // Test different value types
@@ -183,8 +178,7 @@ TEST(FunctionMapConcatTest, TestEdgeCases) {
             }
         };
         
-        Status status = check_function<DataTypeMap, true>(func_name, input_types, data_set);
-        EXPECT_TRUE(status.ok()) << "Function test failed four: " << status.to_string();
+        check_function_all_arg_comb<DataTypeMap, true>(func_name, input_types, data_set);
     }
     
     
@@ -233,8 +227,7 @@ TEST(FunctionMapConcatTest, TestWithNULL){
             }
         };
         
-        Status status = check_function<DataTypeMap, true>(func_name, input_types, data_set);
-        EXPECT_TRUE(status.ok()) << "Function test failed seven: " << status.to_string();
+        check_function_all_arg_comb<DataTypeMap, true>(func_name, input_types, data_set);
     }
 
     // Test with null values
@@ -257,8 +250,7 @@ TEST(FunctionMapConcatTest, TestWithNULL){
             }
         };
         
-        Status status = check_function<DataTypeMap, true>(func_name, input_types, data_set);
-        EXPECT_TRUE(status.ok()) << "Function test failed five: " << status.to_string();
+        check_function_all_arg_comb<DataTypeMap, true>(func_name, input_types, data_set);
     }
 }
 
@@ -293,8 +285,7 @@ TEST(FunctionMapConcatTest, TestComplexTypes) {
             }
         };
         
-        Status status = check_function<DataTypeMap, true>(func_name, input_types, data_set);
-        EXPECT_TRUE(status.ok()) << "Function test failed 1: " << status.to_string();
+        check_function_all_arg_comb<DataTypeMap, true>(func_name, input_types, data_set);
     }
     
     // Test with map as value
@@ -325,8 +316,7 @@ TEST(FunctionMapConcatTest, TestComplexTypes) {
             }
         };
         
-        Status status = check_function<DataTypeMap, true>(func_name, input_types, data_set);
-        EXPECT_TRUE(status.ok()) << "Function test failed 2: " << status.to_string();
+        check_function_all_arg_comb<DataTypeMap, true>(func_name, input_types, data_set);
     }
 }
 }
