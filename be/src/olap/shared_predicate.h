@@ -48,9 +48,10 @@ public:
                               : nullptr) {}
     ~SharedPredicate() override = default;
     std::string debug_string() const override {
+        auto n = _nested;
         fmt::memory_buffer debug_string_buffer;
         fmt::format_to(debug_string_buffer, "SharedPredicate({}, nested={})",
-                       ColumnPredicate::debug_string(), _nested ? _nested->debug_string() : "null");
+                       ColumnPredicate::debug_string(), n ? n->debug_string() : "null");
         return fmt::to_string(debug_string_buffer);
     }
     std::shared_ptr<ColumnPredicate> clone(uint32_t column_id) const override {
