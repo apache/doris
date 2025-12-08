@@ -2336,8 +2336,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // and LocalShuffleUnion need `local` channels to do random local shuffle, so we need check
         // `enable_local_exchange`
         if (setOperation instanceof PhysicalUnion
-                && context.getConnectContext().getSessionVariable().getEnableLocalExchange()
-                && SessionVariable.canUseNereidsDistributePlanner()) {
+                && context.getConnectContext().getSessionVariable().getEnableLocalExchange()) {
             boolean isLocalShuffleUnion = false;
             if (setOperation.getPhysicalProperties().getDistributionSpec() instanceof DistributionSpecExecutionAny) {
                 Map<Integer, ExchangeNode> exchangeIdToExchangeNode = new IdentityHashMap<>();
