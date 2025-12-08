@@ -319,10 +319,10 @@ public abstract class DataType {
             case "datetime":
                 switch (types.size()) {
                     case 1:
-                        dataType = DateTimeType.INSTANCE;
+                        dataType = TimeStampTzType.SYSTEM_DEFAULT;
                         break;
                     case 2:
-                        dataType = DateTimeV2Type.of(Integer.parseInt(types.get(1)));
+                        dataType = TimeStampTzType.of(Integer.parseInt(types.get(1)));
                         break;
                     default:
                         throw new AnalysisException("Nereids do not support type: " + type);
@@ -342,10 +342,10 @@ public abstract class DataType {
             case "datetimev2":
                 switch (types.size()) {
                     case 1:
-                        dataType = DateTimeV2Type.SYSTEM_DEFAULT;
+                        dataType = TimeStampTzType.SYSTEM_DEFAULT;
                         break;
                     case 2:
-                        dataType = DateTimeV2Type.of(Integer.parseInt(types.get(1)));
+                        dataType = TimeStampTzType.of(Integer.parseInt(types.get(1)));
                         break;
                     default:
                         throw new AnalysisException("Nereids do not support type: " + type);
