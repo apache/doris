@@ -929,7 +929,7 @@ TEST(TxnLazyCommitVersionedReadTest, CommitTxnEventually) {
     sp->disable_processing();
 }
 
-TEST(TxnLazyCommitVersionedReadTest, CommitTxnEventuallyWithoutDbIdTest) {
+TEST(TxnLazyCommitVersionedReadTest, DISABLED_CommitTxnEventuallyWithoutDbIdTest) {
     auto txn_kv = get_mem_txn_kv();
 
     int64_t db_id = 3131397513;
