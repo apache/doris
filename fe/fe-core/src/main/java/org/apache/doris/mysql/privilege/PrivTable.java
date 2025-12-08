@@ -74,24 +74,25 @@ public abstract class PrivTable {
             }
         }
 
-        PrivEntry existingEntry = getExistingEntry(newEntry);
-        if (existingEntry == null) {
+        int idx = Collections.binarySearch(entries, newEntry);
+        if (idx < 0) {
             if (errOnNonExist) {
                 throw new DdlException("entry does not exist");
             }
-            entries.add(newEntry);
-            Collections.sort(entries);
+            int insertPos = -idx - 1;
+            entries.add(insertPos, newEntry);
             LOG.info("add priv entry: {}", newEntry);
             return newEntry;
-        } else {
-            if (errOnExist) {
-                throw new DdlException("entry already exist");
-            } else {
-                mergePriv(existingEntry, newEntry);
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("merge priv entry: {}", existingEntry);
-                }
-            }
+        }
+
+        PrivEntry existingEntry = entries.get(idx);
+        if (errOnExist) {
+            throw new DdlException("entry already exist");
+        }
+
+        mergePriv(existingEntry, newEntry);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("merge priv entry: {}", existingEntry);
         }
         return existingEntry;
     }
@@ -155,12 +156,8 @@ public abstract class PrivTable {
 
     // Get existing entry which is the keys match the given entry
     protected PrivEntry getExistingEntry(PrivEntry entry) {
-        for (PrivEntry existingEntry : entries) {
-            if (existingEntry.keyMatch(entry)) {
-                return existingEntry;
-            }
-        }
-        return null;
+        int idx = Collections.binarySearch(entries, entry);
+        return idx >= 0 ? entries.get(idx) : null;
     }
 
     private void mergePriv(
