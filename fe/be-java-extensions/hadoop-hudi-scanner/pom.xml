@@ -53,6 +53,7 @@ under the License.
             <groupId>org.apache.doris</groupId>
             <artifactId>hadoop-deps</artifactId>
             <version>1.2-SNAPSHOT</version>
+            <scope>provided</scope>
         </dependency>
       
         <!-- https://mvnrepository.com/artifact/org.apache.hudi/hudi-common -->
@@ -92,13 +93,6 @@ under the License.
             <groupId>org.apache.hudi</groupId>
             <artifactId>hudi-hadoop-mr</artifactId>
             <version>${hudi.version}</version>
-        </dependency>
-
-        <!-- https://mvnrepository.com/artifact/org.apache.parquet/parquet-hadoop -->
-        <dependency>
-            <groupId>org.apache.parquet</groupId>
-            <artifactId>parquet-hadoop-bundle</artifactId>
-            <version>${parquet.version}</version>
         </dependency>
 
         <!-- https://mvnrepository.com/artifact/org.apache.parquet/parquet-avro -->
