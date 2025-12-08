@@ -49,7 +49,6 @@
 #include "exec/schema_scanner/schema_processlist_scanner.h"
 #include "exec/schema_scanner/schema_profiling_scanner.h"
 #include "exec/schema_scanner/schema_routine_load_job_scanner.h"
-#include "exec/schema_scanner/schema_routine_scanner.h"
 #include "exec/schema_scanner/schema_rowsets_scanner.h"
 #include "exec/schema_scanner/schema_schema_privileges_scanner.h"
 #include "exec/schema_scanner/schema_schemata_scanner.h"
@@ -222,8 +221,6 @@ std::unique_ptr<SchemaScanner> SchemaScanner::create(TSchemaTableType::type type
         return SchemaWorkloadGroupsScanner::create_unique();
     case TSchemaTableType::SCH_PROCESSLIST:
         return SchemaProcessListScanner::create_unique();
-    case TSchemaTableType::SCH_PROCEDURES:
-        return SchemaRoutinesScanner::create_unique();
     case TSchemaTableType::SCH_USER:
         return SchemaUserScanner::create_unique();
     case TSchemaTableType::SCH_WORKLOAD_POLICY:
