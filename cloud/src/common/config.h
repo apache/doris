@@ -79,6 +79,8 @@ CONF_String(custom_conf_path, "");
 // recycler config
 CONF_mInt64(recycle_interval_seconds, "3600");
 CONF_mInt64(retention_seconds, "259200"); // 72h, global retention time
+CONF_mInt64(packed_file_correction_delay_seconds,
+            "259200"); // seconds to wait before correcting packed files
 CONF_Int32(recycle_concurrency, "16");
 CONF_mInt32(recycle_job_lease_expired_ms, "60000");
 CONF_mInt64(compacted_rowset_retention_seconds, "1800");   // 0.5h
@@ -133,6 +135,7 @@ CONF_mBool(enable_version_key_check, "false");
 CONF_mBool(enable_meta_rowset_key_check, "false");
 CONF_mBool(enable_snapshot_check, "false");
 CONF_mBool(enable_mvcc_meta_key_check, "false");
+CONF_mBool(enable_packed_file_check, "false");
 CONF_mBool(enable_mvcc_meta_check, "false");
 
 CONF_mInt64(mow_job_key_check_expiration_diff_seconds, "600"); // 10min

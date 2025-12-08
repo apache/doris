@@ -29,6 +29,8 @@
 #include <string>
 #include <string_view>
 #include <thread>
+#include <unordered_map>
+#include <unordered_set>
 #include <utility>
 
 #include "common/bvars.h"
@@ -234,6 +236,17 @@ public:
 
 class InstanceRecycler {
 public:
+    struct PackedFileRecycleStats {
+        int64_t num_scanned = 0;          // packed-file kv scanned
+        int64_t num_corrected = 0;        // packed-file kv corrected
+        int64_t num_deleted = 0;          // packed-file kv deleted
+        int64_t num_failed = 0;           // packed-file kv failed
+        int64_t bytes_deleted = 0;        // packed-file kv bytes deleted from txn-kv
+        int64_t num_object_deleted = 0;   // packed-file objects deleted from storage (vault/HDFS)
+        int64_t bytes_object_deleted = 0; // bytes deleted from storage objects
+        int64_t rowset_scan_count = 0;    // rowset metas scanned during correction
+    };
+
     explicit InstanceRecycler(std::shared_ptr<TxnKv> txn_kv, const InstanceInfoPB& instance,
                               RecyclerThreadPoolGroup thread_pool_group,
                               std::shared_ptr<TxnLazyCommitter> txn_lazy_committer);
@@ -336,6 +349,13 @@ public:
     // returns 0 for success otherwise error
     int recycle_restore_jobs();
 
+    /**
+     * Scan packed-file metadata, correct reference counters, and recycle unused packed files.
+     *
+     * @return 0 on success, non-zero error code otherwise
+     */
+    int recycle_packed_files();
+
     // scan and recycle snapshots
     // returns 0 for success otherwise error
     int recycle_cluster_snapshots();
@@ -363,6 +383,15 @@ public:
     int scan_and_statistics_versions();
 
     int scan_and_statistics_restore_jobs();
+
+    /**
+     * Decode the key of a packed-file metadata record into the persisted object path.
+     *
+     * @param key raw key persisted in txn-kv
+     * @param packed_path output object storage path referenced by the key
+     * @return true if decoding succeeds, false otherwise
+     */
+    static bool decode_packed_file_key(std::string_view key, std::string* packed_path);
 
     void TEST_add_accessor(std::string_view id, std::shared_ptr<StorageVaultAccessor> accessor) {
         accessor_map_.insert({std::string(id), std::move(accessor)});
@@ -403,6 +432,13 @@ private:
     int delete_rowset_data(const std::map<std::string, doris::RowsetMetaCloudPB>& rowsets,
                            RowsetRecyclingState type, RecyclerMetricsContext& metrics_context);
 
+    // return 0 for success otherwise error
+    int decrement_packed_file_ref_counts(const doris::RowsetMetaCloudPB& rs_meta_pb);
+
+    int delete_packed_file_and_kv(const std::string& packed_file_path,
+                                  const std::string& packed_key,
+                                  const cloud::PackedFileInfoPB& packed_info);
+
     /**
      * Get stage storage info from instance and init StorageVaultAccessor
      * @return 0 if accessor is successfully inited, 1 if stage not found, negative for error
@@ -436,6 +472,44 @@ private:
 
     // Whether the instance has any snapshots, return 0 for success otherwise error.
     int has_cluster_snapshots(bool* any);
+
+    /**
+     * Parse the path of a packed-file fragment and output the owning tablet and rowset identifiers.
+     *
+     * @param path packed-file fragment path to decode
+     * @param tablet_id output tablet identifier extracted from the path
+     * @param rowset_id output rowset identifier extracted from the path
+     * @return true if both identifiers are successfully parsed, false otherwise
+     */
+    static bool parse_packed_slice_path(std::string_view path, int64_t* tablet_id,
+                                        std::string* rowset_id);
+    // Check whether a rowset referenced by a packed file still exists in metadata.
+    // @param stats optional recycle statistics collector.
+    int check_rowset_exists(int64_t tablet_id, const std::string& rowset_id, bool* exists,
+                            PackedFileRecycleStats* stats = nullptr);
+    int check_recycle_and_tmp_rowset_exists(int64_t tablet_id, const std::string& rowset_id,
+                                            int64_t txn_id, bool* recycle_exists, bool* tmp_exists);
+    /**
+     * Resolve which storage accessor should be used for a packed file.
+     *
+     * @param hint preferred storage resource identifier persisted with the file
+     * @return pair of the resolved resource identifier and accessor; the accessor can be null if unavailable
+     */
+    std::pair<std::string, std::shared_ptr<StorageVaultAccessor>> resolve_packed_file_accessor(
+            const std::string& hint);
+    // Recompute packed-file counters and lifecycle state after validating contained fragments.
+    // @param stats optional recycle statistics collector.
+    int correct_packed_file_info(cloud::PackedFileInfoPB* packed_info, bool* changed,
+                                 const std::string& packed_file_path,
+                                 PackedFileRecycleStats* stats = nullptr);
+    // Correct and recycle a single packed-file record, updating metadata and accounting statistics.
+    // @param stats optional recycle statistics collector.
+    int process_single_packed_file(const std::string& packed_key,
+                                   const std::string& packed_file_path,
+                                   PackedFileRecycleStats* stats);
+    // Process a packed-file KV while scanning and aggregate recycling statistics.
+    int handle_packed_file_kv(std::string_view key, std::string_view value,
+                              PackedFileRecycleStats* stats, int* ret);
 
 private:
     std::atomic_bool stopped_ {false};
