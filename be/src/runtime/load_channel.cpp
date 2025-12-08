@@ -89,12 +89,12 @@ LoadChannel::~LoadChannel() {
 
 void LoadChannel::_init_profile(int64_t sender_id) {
     _profile = std::make_unique<RuntimeProfile>("LoadChannels");
+    _mgr_add_batch_timer = ADD_TIMER(_profile, "LoadChannelMgrAddBatchTime");
+    _handle_mem_limit_timer = ADD_TIMER(_profile, "HandleMemLimitTime");
     _self_profile =
             _profile->create_child(fmt::format("LoadChannel load_id={} (sender_ip={}/id={}, backend_id={})",
                                                _load_id.to_string(), _sender_ip, sender_id, _backend_id),
                                    true, true);
-    _mgr_add_batch_timer = ADD_TIMER(_self_profile, "LoadChannelMgrAddBatchTime");
-    _handle_mem_limit_timer = ADD_TIMER(_self_profile, "HandleMemLimitTime");
     _add_batch_number_counter = ADD_COUNTER(_self_profile, "NumberBatchAdded", TUnit::UNIT);
     _add_batch_timer = ADD_TIMER(_self_profile, "AddBatchTime");
     _handle_eos_timer = ADD_CHILD_TIMER(_self_profile, "HandleEosTime", "AddBatchTime");

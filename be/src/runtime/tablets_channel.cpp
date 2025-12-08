@@ -103,7 +103,7 @@ Status BaseTabletsChannel::_get_current_seq(int64_t& cur_seq,
 
 void BaseTabletsChannel::_init_profile(RuntimeProfile* profile) {
     _profile =
-            profile->create_child(fmt::format("TabletsChannel {}", _key.to_string()), true, true);
+            profile->create_child(fmt::format("TabletsChannel index_id={}", _index_id), true, true);
     _add_batch_number_counter = ADD_COUNTER(_profile, "NumberBatchAdded", TUnit::UNIT);
 
     auto* memory_usage = _profile->create_child("PeakMemoryUsage", true, true);
