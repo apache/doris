@@ -354,6 +354,31 @@ ${sanEntries}
             logger.info("=== All nodes are alive ===")
         }
 
+        def checkNodesAliveWithSql = {
+            logger.info("=== Checking FE and BE alive status ===")
+
+            try {
+                def frontendResult = sql "SHOW FRONTENDS"
+                frontendResult.each { row ->
+                    def host = row[1]
+                    def alive = row[11]
+                    logger.info("FE: ${host} - Alive: ${alive}")
+                    assertEquals(alive, "true")
+                }
+
+                def backendResult = sql "SHOW BACKENDS"
+                backendResult.each { row ->
+                    def host = row[1]
+                    def alive = row[9]
+                    logger.info("BE: ${host} - Alive: ${alive}")
+                    assertEquals(alive, "true")
+                }
+            } catch (Exception e) {
+                logger.error("Failed to check nodes alive status: ${e.message}")
+                assertTrue(false)
+            }
+        }
+
         // Step 1: Update configuration files to enable TLS
         logger.info("=== Updating configuration files to enable TLS ===")
 
@@ -450,7 +475,7 @@ ${sanEntries}
         // Generate sample data before running tests
         generateSampleData()
 
-        def basicTest = { String certDir, boolean checkStreamLoad ->
+        def basicTest = { String certDir, boolean checkStreamLoad, boolean checkAlive ->
             def keystorePassword = "doris123"
             def keystorePath = "${certDir}/keystore.p12"
             def truststorePath = "${certDir}/truststore.p12"
@@ -466,6 +491,9 @@ ${sanEntries}
 
             logger.info("Reconnecting with mTLS JDBC URL: ${tlsJdbcUrl}")
             context.connect(context.config.jdbcUser, context.config.jdbcPassword, tlsJdbcUrl) {
+                if (checkAlive) {
+                    checkNodesAliveWithSql()
+                }
                 def tableName = "${testName}"
                 // Create table
                 sql """ DROP TABLE IF EXISTS ${tableName}; """
@@ -525,7 +553,8 @@ ${sanEntries}
                 sql """ truncate table ${tableName} """
             }
         }
-        basicTest("${certFileDir[0]}", true)
+        sleep(60000)
+        basicTest("${certFileDir[0]}", true, true)
 
         // Test 1: Certificate to be replaced is incorrect/corrupted
         logger.info("=== Test 1: Corrupt Certificate ===")
@@ -544,7 +573,7 @@ ${sanEntries}
 
             // Continue running basicTest while attempting to update
             try {
-                basicTest("${certFileDir[0]}", false)
+                basicTest("${certFileDir[0]}", false, false)
             } catch (Exception e) {
                 logger.info("Expected error during corrupt cert test: ${e.message}")
             }
@@ -555,7 +584,7 @@ ${sanEntries}
 
             // Verify that system works with restored cert
             logger.info("Verifying system works after restoring from corrupt cert")
-            basicTest("${certFileDir[0]}", true)
+            basicTest("${certFileDir[0]}", true, true)
 
             checkNodesAlive("${certFileDir[0]}")
         }
@@ -582,7 +611,7 @@ ${sanEntries}
             }
             // Continue running basicTest while attempting to update
             try {
-                basicTest("${certFileDir[0]}", false)
+                basicTest("${certFileDir[0]}", false, false)
             } catch (Exception e) {
                 logger.info("Expected error during partial cert test: ${e.message}")
             }
@@ -591,7 +620,7 @@ ${sanEntries}
             updateAllCertificate("${certFileDir[0]}")
             sleep(10000)
             logger.info("Verifying system still works after partial cert attempt")
-            basicTest("${certFileDir[0]}", true)
+            basicTest("${certFileDir[0]}", true, true)
 
             checkNodesAlive("${certFileDir[0]}")
         }
@@ -608,12 +637,12 @@ ${sanEntries}
                 updateAllCertificate("${certFileDir[0]}")
             }
 
-            basicTest("${certFileDir[0]}", true)
+            basicTest("${certFileDir[0]}", true, true)
             thread.join()
             sleep(10000)
 
             logger.info("Verifying system works after replacing with same cert")
-            basicTest("${certFileDir[0]}", true)
+            basicTest("${certFileDir[0]}", true, true)
         }
         testSameCert()
 
@@ -629,7 +658,7 @@ ${sanEntries}
             sleep(5000) // Wait for some deletions to occur
             // Run basicTest and expect failures
             try {
-                basicTest("${certFileDir[0]}", false)
+                basicTest("${certFileDir[0]}", false, false)
             } catch (Exception e) {
                 logger.info("Expected error when certificate files are missing: ${e.message}")
             }
@@ -638,7 +667,7 @@ ${sanEntries}
             sleep(10000)
 
             logger.info("Verifying system works after restoring certificates")
-            basicTest("${certFileDir[0]}", true)
+            basicTest("${certFileDir[0]}", true, true)
 
             checkNodesAlive("${certFileDir[0]}")
         }
@@ -670,7 +699,7 @@ ${sanEntries}
             }
             // Try to run basicTest with old cert during update
             try {
-                basicTest("${certFileDir[4]}", false)
+                basicTest("${certFileDir[4]}", false, false)
             } catch (Exception e) {
                 logger.info("Expected failures during CA transition: ${e.message}")
             }
@@ -683,7 +712,7 @@ ${sanEntries}
             sleep(10000)
 
             logger.info("All nodes updated with new CA, verifying system works")
-            basicTest("${certFileDir[4]}", true)
+            basicTest("${certFileDir[4]}", true, true)
 
             checkNodesAlive("${certFileDir[4]}")
         }
@@ -713,12 +742,12 @@ ${sanEntries}
             }
 
             // Run basicTest during high frequency reloads
-            basicTest("${certFileDir[4]}", true)
+            basicTest("${certFileDir[4]}", true, true)
             thread.join()
             sleep(10000)
 
             logger.info("Verifying system still works after high frequency reloads")
-            basicTest("${certFileDir[4]}", true)
+            basicTest("${certFileDir[4]}", true, true)
             checkNodesAlive("${certFileDir[4]}")
         }
         testHighFreqReload()
@@ -741,7 +770,7 @@ ${sanEntries}
 
             // Try to run basicTest and expect failures due to permission issues
             try {
-                basicTest("${certFileDir[4]}", false)
+                basicTest("${certFileDir[4]}", false, false)
             } catch (Exception e) {
                 logger.info("Expected error when certificate files are unreadable: ${e.message}")
             }
@@ -751,7 +780,7 @@ ${sanEntries}
 
             // Try again and should still fail
             try {
-                basicTest("${certFileDir[4]}", false)
+                basicTest("${certFileDir[4]}", false, false)
                 logger.warn("Unexpected success - should have failed with unreadable certificates")
             } catch (Exception e) {
                 logger.info("Expected continued failure with unreadable certificates: ${e.message}")
@@ -770,7 +799,7 @@ ${sanEntries}
             sleep(10000)
 
             logger.info("Verifying system works after restoring permissions")
-            basicTest("${certFileDir[4]}", true)
+            basicTest("${certFileDir[4]}", true, true)
 
             checkNodesAlive("${certFileDir[4]}")
         }
