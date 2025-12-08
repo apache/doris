@@ -45,7 +45,8 @@ public class AgentTaskCleanupDaemon extends MasterDaemon {
     protected void runAfterCatalogReady() {
         LOG.info("Begin to clean up inactive agent tasks");
         SystemInfoService infoService = Env.getCurrentSystemInfo();
-        infoService.getAllClusterBackends(false)
+        infoService.getAllClusterBackendsNoException()
+                .values()
                 .forEach(backend -> {
                     long id = backend.getId();
                     if (backend.isAlive()) {
