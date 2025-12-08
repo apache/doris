@@ -552,6 +552,15 @@ bool ScanLocalState<Derived>::_is_predicate_acting_on_slot(
         child_contains_slot->data_type()->get_scale() != src_slot_desc->type()->get_scale()) {
         return _ignore_cast(src_slot_desc, child_contains_slot.get());
     }
+    if ((child_contains_slot->data_type()->get_primitive_type() ==
+                 PrimitiveType::TYPE_DATETIME ||
+         child_contains_slot->data_type()->get_primitive_type() ==
+                 PrimitiveType::TYPE_DATETIMEV2) &&
+        child_contains_slot->node_type() == doris::TExprNodeType::CAST_EXPR) {
+        // Expr `CAST(CAST(datetime_col AS DATE) AS DATETIME) = datetime_literal` should not be
+        // push down.
+        return false;
+    }
     return true;
 }
 
