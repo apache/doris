@@ -916,9 +916,7 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
         FunctionParams exprs = new FunctionParams(udf.children().stream()
                 .map(expression -> expression.accept(this, context))
                 .collect(Collectors.toList()));
-        FunctionCallExpr functionCallExpr = new FunctionCallExpr(udf.getCatalogFunction(), exprs);
-        functionCallExpr.setNullableFromNereids(udf.nullable());
-        return functionCallExpr;
+        return new FunctionCallExpr(udf.getCatalogFunction(), exprs, udf.nullable());
     }
 
     @Override
@@ -926,9 +924,7 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
         FunctionParams exprs = new FunctionParams(udaf.isDistinct(), udaf.children().stream()
                 .map(expression -> expression.accept(this, context))
                 .collect(Collectors.toList()));
-        FunctionCallExpr functionCallExpr = new FunctionCallExpr(udaf.getCatalogFunction(), exprs);
-        functionCallExpr.setNullableFromNereids(udaf.nullable());
-        return functionCallExpr;
+        return new FunctionCallExpr(udaf.getCatalogFunction(), exprs, udaf.nullable());
     }
 
     @Override
@@ -936,9 +932,7 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
         FunctionParams exprs = new FunctionParams(udtf.children().stream()
                 .map(expression -> expression.accept(this, context))
                 .collect(Collectors.toList()));
-        FunctionCallExpr functionCallExpr = new FunctionCallExpr(udtf.getCatalogFunction(), exprs);
-        functionCallExpr.setNullableFromNereids(udtf.nullable());
-        return functionCallExpr;
+        return new FunctionCallExpr(udtf.getCatalogFunction(), exprs, udtf.nullable());
     }
 
     // TODO: Supports for `distinct`

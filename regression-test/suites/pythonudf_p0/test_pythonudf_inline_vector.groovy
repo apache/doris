@@ -18,7 +18,7 @@
 suite("test_pythonudf_inline_vector") {
     // Test vectorized Python UDF using Inline mode with pandas.Series
     
-    def runtime_version = "3.10.12"
+    def runtime_version = "3.8.10"
     try {
         // Create test table
         sql """ DROP TABLE IF EXISTS vector_udf_test_table; """

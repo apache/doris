@@ -18,7 +18,7 @@
 suite("test_pythonudf_int") {
     def pyPath = """${context.file.parent}/udf_scripts/pyudf.zip"""
     scp_udf_file_to_all_be(pyPath)
-    def runtime_version = "3.10.12"
+    def runtime_version = "3.8.10"
     log.info("Python Zip path: ${pyPath}".toString())
     try {
         sql """ DROP TABLE IF EXISTS test_pythonudf_int """

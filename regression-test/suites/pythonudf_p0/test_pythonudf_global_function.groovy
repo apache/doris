@@ -18,7 +18,7 @@
 suite("test_pythonudf_global_function") {
     // Test creating global Python UDF with GLOBAL keyword
     
-    def runtime_version = "3.10.12"
+    def runtime_version = "3.8.10"
     try {
         // Test 1: Create GLOBAL function
         sql """ DROP GLOBAL FUNCTION IF EXISTS py_global_multiply(INT, INT); """

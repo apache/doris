@@ -2,9 +2,6 @@
 -- !select_add --
 30
 
--- !select_add_null --
-\N
-
 -- !select_concat --
 Hello World
 

@@ -20,7 +20,7 @@ suite("test_pythonudf_schema_check") {
     // Users can specify compatible types instead of exact matching types
     // For example: TINYINT can be used where INT is expected
     
-    def runtime_version = "3.10.12"
+    def runtime_version = "3.8.10"
     
     try {
         // Create test table with various integer types

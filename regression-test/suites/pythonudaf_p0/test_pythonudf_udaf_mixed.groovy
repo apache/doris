@@ -19,7 +19,7 @@ suite("test_pythonudf_udaf_mixed") {
     // Test mixing Python scalar UDFs and aggregate UDAFs in the same query
     // This verifies that UDFs and UDAFs can coexist and work correctly together
     
-    def runtime_version = "3.10.12"
+    def runtime_version = "3.8.10"
     
     try {
         // Create test table

@@ -19,7 +19,7 @@ suite("test_pythonudaf_window_functions") {
     // Test Python UDAFs with window functions (OVER clause)
     // This tests PARTITION BY, ORDER BY, and frame specifications
     
-    def runtime_version = "3.10.12"
+    def runtime_version = "3.8.10"
     
     try {
         // Create sales data table for window function tests
@@ -72,7 +72,7 @@ suite("test_pythonudaf_window_functions") {
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "RunningSumUDAF",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 class RunningSumUDAF:
@@ -105,7 +105,7 @@ class RunningSumUDAF:
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "RunningCountUDAF",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 class RunningCountUDAF:
@@ -138,7 +138,7 @@ class RunningCountUDAF:
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "RunningAvgUDAF",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 class RunningAvgUDAF:
@@ -408,7 +408,7 @@ class RunningAvgUDAF:
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "WindowFirstUDAF",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 class WindowFirstUDAF:

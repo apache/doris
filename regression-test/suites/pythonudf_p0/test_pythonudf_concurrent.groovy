@@ -18,7 +18,7 @@
 suite("test_pythonudf_concurrent") {
     // Test multiple Python UDFs executing concurrently in the same SQL query
     
-    def runtime_version = "3.10.12"
+    def runtime_version = "3.8.10"
     
     try {
         // Create test table

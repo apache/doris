@@ -19,7 +19,7 @@ suite("test_pythonudaf_null_handling") {
     // Test NULL handling in Python UDAFs
     // This is critical for data quality and edge cases
     
-    def runtime_version = "3.10.12"
+    def runtime_version = "3.8.10"
     
     try {
         // Create test table with NULLs
@@ -63,7 +63,7 @@ suite("test_pythonudaf_null_handling") {
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "CountNonNullUDAF",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 class CountNonNullUDAF:
@@ -100,7 +100,7 @@ class CountNonNullUDAF:
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "SumNullUDAF",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 class SumNullUDAF:
@@ -141,7 +141,7 @@ class SumNullUDAF:
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "FirstNonNullUDAF",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 class FirstNonNullUDAF:
@@ -179,7 +179,7 @@ class FirstNonNullUDAF:
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "CountNullUDAF",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 class CountNullUDAF:
@@ -216,7 +216,7 @@ class CountNullUDAF:
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "AvgCoalesceUDAF",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 class AvgCoalesceUDAF:

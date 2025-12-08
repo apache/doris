@@ -21,7 +21,7 @@ suite("test_pythonudtf_sql_integration_module") {
     
     def pyPath = """${context.file.parent}/udtf_scripts/pyudtf.zip"""
     scp_udf_file_to_all_be(pyPath)
-    def runtime_version = "3.10.12"
+    def runtime_version = "3.8.10"
     log.info("Python zip path: ${pyPath}".toString())
     
     try {
@@ -282,7 +282,7 @@ suite("test_pythonudtf_sql_integration_module") {
             FROM test_group_by_module
             LATERAL VIEW udtf_split_module(tags, ',') tmp AS position, value
             GROUP BY category, tmp.value
-            ORDER BY category, tag_count DESC;
+            ORDER BY category, tag_count DESC, tag;
         """
         
         // Test 3.3: Aggregation with HAVING clause

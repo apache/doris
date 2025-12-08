@@ -17,14 +17,14 @@
 
 #pragma once
 
+#include <atomic>
+#include <condition_variable>
 #include <memory>
+#include <thread>
 
 #include "common/status.h"
-#include "udf/python/python_udaf_client.h"
-#include "udf/python/python_udf_client.h"
 #include "udf/python/python_udf_meta.h"
 #include "udf/python/python_udf_runtime.h"
-#include "udf/python/python_udtf_client.h"
 
 namespace doris {
 
@@ -32,27 +32,43 @@ class PythonServerManager {
 public:
     PythonServerManager() = default;
 
-    ~PythonServerManager() = default;
+    ~PythonServerManager() { shutdown(); }
 
     static PythonServerManager& instance() {
         static PythonServerManager instance;
         return instance;
     }
 
-    Status init(const std::vector<PythonVersion>& versions);
-
     template <typename T>
     Status get_client(const PythonUDFMeta& func_meta, const PythonVersion& version,
-                      std::shared_ptr<T>* client);
+                      std::shared_ptr<T>* client,
+                      const std::shared_ptr<arrow::Schema>& data_schema = nullptr);
 
-    Status fork(PythonUDFProcessPool* pool, ProcessPtr* process);
+    Status fork(const PythonVersion& version, ProcessPtr* process);
+
+    Status get_process(const PythonVersion& version, ProcessPtr* process);
+
+    Status ensure_pool_initialized(const PythonVersion& version);
 
     void shutdown();
 
 private:
-    std::unordered_map<PythonVersion, PythonUDFProcessPoolPtr> _pools;
-    // protect _pools
+    /**
+     * Start health check background thread (called once by ensure_pool_initialized)
+     * Thread periodically checks process health and recreates dead processes
+     */
+    void _start_health_check_thread();
+
+    std::unordered_map<PythonVersion, std::vector<ProcessPtr>> _process_pools;
+    // Protects _process_pools access
     std::mutex _pools_mutex;
+    // Track which versions have been initialized
+    std::unordered_set<PythonVersion> _initialized_versions;
+    // Health check background thread
+    std::unique_ptr<std::thread> _health_check_thread;
+    std::atomic<bool> _shutdown_flag {false};
+    std::condition_variable _health_check_cv;
+    std::mutex _health_check_mutex;
 };
 
 } // namespace doris

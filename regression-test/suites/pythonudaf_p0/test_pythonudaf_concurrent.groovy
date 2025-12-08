@@ -58,7 +58,7 @@ suite("test_pythonudaf_concurrent") {
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "SumUDAF",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 class SumUDAF:
@@ -89,7 +89,7 @@ class SumUDAF:
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "CountUDAF",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 class CountUDAF:
@@ -120,7 +120,7 @@ class CountUDAF:
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "AvgUDAF",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 class AvgUDAF:
@@ -157,7 +157,7 @@ class AvgUDAF:
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "MaxUDAF",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 class MaxUDAF:
@@ -191,7 +191,7 @@ class MaxUDAF:
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "MinUDAF",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 class MinUDAF:
@@ -225,7 +225,7 @@ class MinUDAF:
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "SumDoubleUDAF",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 class SumDoubleUDAF:

@@ -19,7 +19,7 @@ suite("test_pythonudtf_data_types_inline") {
     // Test Python UDTF with Various Data Types
     // Coverage: Basic types, numeric types, date/time types, complex types
     
-    def runtime_version = "3.10.12"
+    def runtime_version = "3.8.10"
     
     try {
         // ========================================
@@ -32,7 +32,7 @@ suite("test_pythonudtf_data_types_inline") {
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "process_tinyint",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 def process_tinyint(v):
@@ -74,7 +74,7 @@ def process_tinyint(v):
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "process_smallint",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 def process_smallint(v):
@@ -116,7 +116,7 @@ def process_smallint(v):
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "process_bigint",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 def process_bigint(v):
@@ -158,7 +158,7 @@ def process_bigint(v):
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "process_float",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 def process_float(v):
@@ -200,7 +200,7 @@ def process_float(v):
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "process_double",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 import math
@@ -244,7 +244,7 @@ def process_double(v):
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "process_boolean",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 def process_boolean(v):
@@ -286,7 +286,7 @@ def process_boolean(v):
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "process_string",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 def process_string(v):
@@ -328,7 +328,7 @@ def process_string(v):
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "process_date",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 def process_date(v):
@@ -371,7 +371,7 @@ def process_date(v):
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "process_datetime",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 def process_datetime(v):
@@ -417,7 +417,7 @@ def process_datetime(v):
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "process_array_int",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 def process_array_int(arr):
@@ -464,7 +464,7 @@ def process_array_int(arr):
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "process_array_string",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 def process_array_string(arr):
@@ -510,7 +510,7 @@ def process_array_string(arr):
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "process_struct",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 def process_struct(person):
@@ -560,7 +560,7 @@ def process_struct(person):
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "process_multi_types",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 def process_multi_types(num, text):
@@ -603,7 +603,7 @@ def process_multi_types(num, text):
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "process_decimal",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 from decimal import Decimal
@@ -651,7 +651,7 @@ def process_decimal(v):
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "process_map_string",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 def process_map_string(map_str):
@@ -700,7 +700,7 @@ def process_map_string(map_str):
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "process_nested_array",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 def process_nested_array(nested_str):
@@ -752,7 +752,7 @@ def process_nested_array(nested_str):
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "process_array_structs",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 def process_array_structs(data):
@@ -801,7 +801,7 @@ def process_array_structs(data):
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "process_struct_array",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 def process_struct_array(data):
@@ -845,7 +845,7 @@ def process_struct_array(data):
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "extract_json_fields",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 import json
@@ -895,7 +895,7 @@ def extract_json_fields(json_str):
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "process_complex_struct",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 def process_complex_struct(data):

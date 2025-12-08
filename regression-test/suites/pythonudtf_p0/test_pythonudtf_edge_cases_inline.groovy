@@ -19,7 +19,7 @@ suite("test_pythonudtf_edge_cases_inline") {
     // Test Python UDTF Edge Cases and Boundary Conditions
     // Coverage: NULL handling, extreme cases, special values
     
-    def runtime_version = "3.10.12"
+    def runtime_version = "3.8.10"
     
     try {
         // ========================================
@@ -34,7 +34,7 @@ suite("test_pythonudtf_edge_cases_inline") {
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "handle_null_int",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 def handle_null_int(value):
@@ -76,7 +76,7 @@ def handle_null_int(value):
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "handle_null_string",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 def handle_null_string(value):
@@ -120,7 +120,7 @@ def handle_null_string(value):
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "handle_empty_array",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 def handle_empty_array(arr):
@@ -167,7 +167,7 @@ def handle_empty_array(arr):
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "handle_null_struct",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 def handle_null_struct(person):
@@ -231,7 +231,7 @@ def handle_null_struct(person):
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "process_empty_table",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 def process_empty_table(value):
@@ -268,7 +268,7 @@ def process_empty_table(value):
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "process_single_row",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 def process_single_row(value):
@@ -309,7 +309,7 @@ def process_single_row(value):
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "process_long_string",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 def process_long_string(text):
@@ -354,7 +354,7 @@ def process_long_string(text):
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "process_large_array",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 def process_large_array(arr):
@@ -400,7 +400,7 @@ def process_large_array(arr):
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "output_explosion",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 def output_explosion(n):
@@ -446,7 +446,7 @@ def output_explosion(n):
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "process_special_numbers",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 def process_special_numbers(value):
@@ -504,7 +504,7 @@ def process_special_numbers(value):
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "process_special_doubles",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 import math
@@ -566,7 +566,7 @@ def process_special_doubles(value):
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "process_special_strings",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 def process_special_strings(text):
@@ -627,7 +627,7 @@ def process_special_strings(text):
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "process_boundary_dates",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 def process_boundary_dates(dt):

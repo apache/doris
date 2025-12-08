@@ -19,7 +19,7 @@ suite("test_pythonudtf_io_patterns_inline") {
     // Test Python UDTF Input/Output Patterns
     // Testing different cardinality patterns: 1-to-1, 1-to-N, 1-to-0, N-to-M
     
-    def runtime_version = "3.10.12"
+    def runtime_version = "3.8.10"
     
     try {
         // ========================================
@@ -33,7 +33,7 @@ suite("test_pythonudtf_io_patterns_inline") {
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "one_to_one",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 def one_to_one(value):
@@ -57,6 +57,7 @@ def one_to_one(value):
         sql """
         INSERT INTO test_one_to_one VALUES (1, 10), (2, 20), (3, 30);
         """
+        sql """ sync """
         
         qt_one_to_one """
             SELECT tmp.input, tmp.doubled
@@ -76,7 +77,7 @@ def one_to_one(value):
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "one_to_many",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 def one_to_many(n):
@@ -101,6 +102,7 @@ def one_to_many(n):
         sql """
         INSERT INTO test_one_to_many VALUES (1, 3), (2, 2), (3, 4);
         """
+        sql """ sync """
         
         qt_one_to_many """
             SELECT id, tmp.value
@@ -120,7 +122,7 @@ def one_to_many(n):
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "one_to_zero",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 def one_to_zero(value):
@@ -145,6 +147,7 @@ def one_to_zero(value):
         sql """
         INSERT INTO test_one_to_zero VALUES (1, 1), (2, 2), (3, 3), (4, 4), (5, 5), (6, 6);
         """
+        sql """ sync """
         
         qt_one_to_zero """
             SELECT tmp.value
@@ -164,7 +167,7 @@ def one_to_zero(value):
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "one_to_variable",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 def one_to_variable(text):
@@ -199,6 +202,7 @@ def one_to_variable(text):
         (3, ''),                -- 0 outputs
         (4, 'a b c');           -- 3 outputs
         """
+        sql """ sync """
         
         qt_one_to_variable """
             SELECT id, tmp.word
@@ -219,7 +223,7 @@ def one_to_variable(text):
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "aggregate_pattern",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 def aggregate_pattern(value):
@@ -250,6 +254,7 @@ def aggregate_pattern(value):
         INSERT INTO test_aggregate_pattern VALUES 
         (1, 5), (2, 50), (3, 500), (4, 8), (5, 80), (6, 800);
         """
+        sql """ sync """
         
         qt_aggregate_pattern """
             SELECT tmp.category, COUNT(*) as count
@@ -270,7 +275,7 @@ def aggregate_pattern(value):
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "explosive",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 def explosive(all_rows, all_cols):
@@ -297,6 +302,7 @@ def explosive(all_rows, all_cols):
         sql """
         INSERT INTO test_explosive VALUES (1, 2, 3);
         """
+        sql """ sync """
         
         qt_explosive """
             SELECT tmp.row_id, tmp.col_id
@@ -316,7 +322,7 @@ def explosive(all_rows, all_cols):
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "conditional",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 def conditional(value):
@@ -350,6 +356,7 @@ def conditional(value):
         sql """
         INSERT INTO test_conditional VALUES (1, 10), (2, -5), (3, 0), (4, 7);
         """
+        sql """ sync """
         
         qt_conditional """
             SELECT tmp.value, tmp.type
@@ -369,7 +376,7 @@ def conditional(value):
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "all_or_nothing",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 def all_or_nothing(text, min_length):
@@ -402,6 +409,7 @@ def all_or_nothing(text, min_length):
         (2, 'hi', 5),       -- 0 outputs (length=2 < 5)
         (3, 'world', 4);    -- 5 outputs (length=5 >= 4)
         """
+        sql """ sync """
         
         qt_all_or_nothing """
             SELECT id, tmp.char, tmp.pos
@@ -421,7 +429,7 @@ def all_or_nothing(text, min_length):
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "empty_input",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 def empty_input(value):
@@ -461,7 +469,7 @@ def empty_input(value):
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "batch_process",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 def batch_process(value):
@@ -486,6 +494,7 @@ def batch_process(value):
         sql """
         INSERT INTO test_batch_process VALUES (1, 10), (2, 20);
         """
+        sql """ sync """
         
         qt_batch_process """
             SELECT tmp.original, tmp.factor, tmp.result

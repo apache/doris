@@ -19,7 +19,7 @@ suite("test_pythonudtf_exceptions_inline") {
     // Test Python UDTF Exception Handling
     // Coverage: Runtime errors, type errors, logic errors, edge cases
     
-    def runtime_version = "3.10.12"
+    def runtime_version = "3.8.10"
     
     try {
         // ========================================
@@ -34,7 +34,7 @@ suite("test_pythonudtf_exceptions_inline") {
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "safe_divide",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 def safe_divide(a, b):
@@ -85,7 +85,7 @@ def safe_divide(a, b):
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "check_overflow",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 def check_overflow(value):
@@ -145,7 +145,7 @@ def check_overflow(value):
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "parse_number",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 def parse_number(text):
@@ -197,7 +197,7 @@ def parse_number(text):
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "check_type",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 def check_type(value):
@@ -252,7 +252,7 @@ def check_type(value):
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "safe_array_access",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 def safe_array_access(arr, position):
@@ -304,7 +304,7 @@ def safe_array_access(arr, position):
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "compute_stats",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 def compute_stats(arr):
@@ -359,7 +359,7 @@ def compute_stats(arr):
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "access_struct_fields",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 def access_struct_fields(person):
@@ -416,7 +416,7 @@ def access_struct_fields(person):
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "slice_string",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 def slice_string(text, start, end):
@@ -477,7 +477,7 @@ def slice_string(text, start, end):
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "check_text_encoding",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 def check_text_encoding(text):
@@ -532,7 +532,7 @@ def check_text_encoding(text):
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "process_conditional",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 def process_conditional(value):
@@ -589,7 +589,7 @@ def process_conditional(value):
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "conditional_yield",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 def conditional_yield(value):
@@ -640,7 +640,7 @@ def conditional_yield(value):
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "classify_number_range",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 import math
@@ -702,7 +702,7 @@ def classify_number_range(value):
         PROPERTIES (
             "type" = "PYTHON_UDF",
             "symbol" = "validate_date",
-            "runtime_version" = "3.10.12"
+            "runtime_version" = "3.8.10"
         )
         AS \$\$
 def validate_date(dt):
