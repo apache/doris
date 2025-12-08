@@ -83,6 +83,7 @@ import org.apache.doris.proto.Types.PTypeDesc;
 import org.apache.doris.proto.Types.PTypeNode;
 import org.apache.doris.proto.Types.PValues;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TExpr;
@@ -319,6 +320,7 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
             tQueryOptions.setBeExecVersion(Config.be_exec_version);
             tQueryOptions.setEnableDecimal256(context.getSessionVariable().isEnableDecimal256());
             tQueryOptions.setNewVersionUnixTimestamp(true);
+            tQueryOptions.setEnableStrictCast(SessionVariable.enableStrictCast());
 
             TFoldConstantParams tParams = new TFoldConstantParams(paramMap, queryGlobals);
             tParams.setVecExec(true);
