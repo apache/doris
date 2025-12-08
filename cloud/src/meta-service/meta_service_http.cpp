@@ -103,6 +103,7 @@ std::tuple<int, std::string_view> convert_ms_code_to_http_code(MetaServiceCode r
     case PROTOBUF_PARSE_ERR:
         return {400, "INVALID_ARGUMENT"};
     case CLUSTER_NOT_FOUND:
+    case TABLET_NOT_FOUND:
         return {404, "NOT_FOUND"};
     case ALREADY_EXISTED:
         return {409, "ALREADY_EXISTED"};
@@ -616,7 +617,7 @@ static HttpResponse process_fix_tablet_stats(MetaServiceImpl* service, brpc::Con
 
 static HttpResponse process_fix_tablet_db_id(MetaServiceImpl* service, brpc::Controller* ctrl) {
     auto& uri = ctrl->http_request().uri();
-    std::string cloud_unique_id(http_query(uri, "cloud_unique_id"));
+    std::string instance_id(http_query(uri, "instance_id"));
     std::string tablet_id_str(http_query(uri, "tablet_id"));
     std::string db_id_str(http_query(uri, "db_id"));
 
@@ -638,7 +639,7 @@ static HttpResponse process_fix_tablet_db_id(MetaServiceImpl* service, brpc::Con
         return http_json_reply(MetaServiceCode::INVALID_ARGUMENT, msg);
     }
 
-    auto [code, msg] = service->fix_tablet_db_id(cloud_unique_id, tablet_id, db_id);
+    auto [code, msg] = service->fix_tablet_db_id(instance_id, tablet_id, db_id);
     return http_text_reply(code, msg, "");
 }
 

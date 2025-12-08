@@ -803,7 +803,12 @@ void internal_create_tablet(const CreateTabletsRequest* request, MetaServiceCode
     }
     txn->put(key1, val1);
     LOG(INFO) << "put tablet_idx tablet_id=" << tablet_id << " key=" << hex(key1);
-    if (request->has_db_id() && is_versioned_write) {
+    if (is_versioned_write) {
+        if (!request->has_db_id()) {
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            msg = "db_id is required for versioned write";
+            return;
+        }
         int64_t db_id = request->db_id();
         std::string tablet_idx_key = versioned::tablet_index_key({instance_id, tablet_id});
         std::string tablet_inverted_idx_key = versioned::tablet_inverted_index_key(
@@ -5484,14 +5489,7 @@ MetaServiceResponseStatus MetaServiceImpl::fix_tablet_stats(std::string cloud_un
 }
 
 std::pair<MetaServiceCode, std::string> MetaServiceImpl::fix_tablet_db_id(
-        std::string cloud_unique_id, int64_t tablet_id, int64_t db_id) {
-    std::string instance_id = get_instance_id(resource_mgr_, cloud_unique_id);
-    if (instance_id.empty()) {
-        std::string msg = "empty instance_id";
-        LOG(INFO) << msg << ", cloud_unique_id=" << cloud_unique_id;
-        return {MetaServiceCode::INVALID_ARGUMENT, msg};
-    }
-
+        const std::string& instance_id, int64_t tablet_id, int64_t db_id) {
     std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
@@ -5502,7 +5500,10 @@ std::pair<MetaServiceCode, std::string> MetaServiceImpl::fix_tablet_db_id(
     std::string key = meta_tablet_idx_key({instance_id, tablet_id});
     std::string value;
     err = txn->get(key, &value);
-    if (err != TxnErrorCode::TXN_OK) {
+    if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+        std::string msg = fmt::format("tablet index pb not found, key={}", hex(key));
+        return {MetaServiceCode::TABLET_NOT_FOUND, msg};
+    } else if (err != TxnErrorCode::TXN_OK) {
         std::string msg =
                 fmt::format("failed to get tablet index pb, key={}, err={}", hex(key), err);
         return {cast_as<ErrCategory::READ>(err), msg};
