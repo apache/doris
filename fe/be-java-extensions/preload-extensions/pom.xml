@@ -121,10 +121,6 @@ under the License.
             <groupId>com.zaxxer</groupId>
             <artifactId>HikariCP</artifactId>
         </dependency>
-        <dependency>
-            <groupId>org.apache.doris</groupId>
-            <artifactId>hive-catalog-shade</artifactId>
-        </dependency>
         <!-- For BE CosN Access -->
         <dependency>
             <groupId>com.qcloud.cos</groupId>
