@@ -299,7 +299,7 @@ def explode_with_index(arr):
             FROM test_group_by
             LATERAL VIEW udtf_split(tags, ',') tmp AS position, value
             GROUP BY category, tmp.value
-            ORDER BY category, tag_count DESC;
+            ORDER BY category, tag_count DESC, tag;
         """
         
         // Test 3.3: Aggregation with HAVING clause

@@ -283,7 +283,6 @@ Status PythonVersionManager::init(PythonEnvType env_type, const fs::path& python
     std::vector<PythonVersion> versions;
     RETURN_IF_ERROR(_env_scanner->scan());
     RETURN_IF_ERROR(_env_scanner->get_versions(&versions));
-    RETURN_IF_ERROR(PythonServerManager::instance().init(versions));
     return Status::OK();
 }
 

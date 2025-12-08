@@ -282,7 +282,7 @@ suite("test_pythonudtf_sql_integration_module") {
             FROM test_group_by_module
             LATERAL VIEW udtf_split_module(tags, ',') tmp AS position, value
             GROUP BY category, tmp.value
-            ORDER BY category, tag_count DESC;
+            ORDER BY category, tag_count DESC, tag;
         """
         
         // Test 3.3: Aggregation with HAVING clause

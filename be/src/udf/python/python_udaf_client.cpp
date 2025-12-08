@@ -17,13 +17,16 @@
 
 #include "udf/python/python_udaf_client.h"
 
-#include "arrow/builder.h"
-#include "arrow/flight/client.h"
-#include "arrow/flight/server.h"
-#include "arrow/io/memory.h"
-#include "arrow/ipc/writer.h"
-#include "arrow/record_batch.h"
-#include "arrow/type.h"
+#include <arrow/array/builder_base.h>
+#include <arrow/array/builder_binary.h>
+#include <arrow/array/builder_primitive.h>
+#include <arrow/flight/client.h>
+#include <arrow/flight/server.h>
+#include <arrow/io/memory.h>
+#include <arrow/ipc/writer.h>
+#include <arrow/record_batch.h>
+#include <arrow/type.h>
+
 #include "common/compiler_util.h"
 #include "common/status.h"
 #include "udf/python/python_udf_meta.h"
@@ -32,184 +35,69 @@
 
 namespace doris {
 
-// Unified Schema for ALL UDAF operations
-// This ensures gRPC Flight Stream uses the same schema for all RecordBatches
-// Fields: [operation: int8, place_id: int64, metadata: binary, data: binary]
-// - operation: UDAFOperation enum value
-// - place_id: Aggregate state identifier
-// - metadata: Serialized metadata (e.g., is_single_place, row_start, row_end, place_offset)
-// - data: Serialized operation-specific data (e.g., input RecordBatch, serialized_state)
-static const std::shared_ptr<arrow::Schema> kUnifiedUDAFSchema = arrow::schema({
-        arrow::field("operation", arrow::int8()),
-        arrow::field("place_id", arrow::int64()),
-        arrow::field("metadata", arrow::binary()),
-        arrow::field("data", arrow::binary()),
+// Unified response structure for UDAF operations
+// Arrow Schema: [success: bool, rows_processed: int64, data: binary]
+// Different operations use different fields:
+// - CREATE/MERGE/RESET/DESTROY: use success only
+// - ACCUMULATE: use success + rows_processed (number of rows processed)
+// - SERIALIZE: use success + data (serialized_state)
+// - FINALIZE: use success + data (serialized result, may be null)
+//
+// This unified schema allows all operations to return consistent format,
+// solving Arrow Flight's limitation that all responses must have the same schema.
+static const std::shared_ptr<arrow::Schema> kUnifiedUDAFResponseSchema = arrow::schema({
+        arrow::field("success", arrow::boolean()),
+        arrow::field("rows_processed", arrow::int64()),
+        arrow::field("serialized_data", arrow::binary()),
 });
-
-// Metadata Schema for ACCUMULATE operation
-// Fields: [is_single_place: bool, row_start: int64, row_end: int64, place_offset: int64]
-static const std::shared_ptr<arrow::Schema> kAccumulateMetadataSchema = arrow::schema({
-        arrow::field("is_single_place", arrow::boolean()),
-        arrow::field("row_start", arrow::int64()),
-        arrow::field("row_end", arrow::int64()),
-        arrow::field("place_offset", arrow::int64()),
-});
-
-// Helper function to serialize RecordBatch to binary
-static Status serialize_record_batch(const arrow::RecordBatch& batch,
-                                     std::shared_ptr<arrow::Buffer>* out) {
-    auto output_stream_result = arrow::io::BufferOutputStream::Create();
-    if (UNLIKELY(!output_stream_result.ok())) {
-        return Status::InternalError("Failed to create buffer output stream: {}",
-                                     output_stream_result.status().message());
-    }
-    auto output_stream = std::move(output_stream_result).ValueOrDie();
-
-    auto writer_result = arrow::ipc::MakeStreamWriter(output_stream, batch.schema());
-    if (UNLIKELY(!writer_result.ok())) {
-        return Status::InternalError("Failed to create IPC writer: {}",
-                                     writer_result.status().message());
-    }
-    auto writer = std::move(writer_result).ValueOrDie();
-
-    RETURN_DORIS_STATUS_IF_ERROR(writer->WriteRecordBatch(batch));
-    RETURN_DORIS_STATUS_IF_ERROR(writer->Close());
-
-    auto buffer_result = output_stream->Finish();
-    if (UNLIKELY(!buffer_result.ok())) {
-        return Status::InternalError("Failed to finish buffer: {}",
-                                     buffer_result.status().message());
-    }
-    *out = std::move(buffer_result).ValueOrDie();
-    return Status::OK();
-}
-
-// Helper function to deserialize RecordBatch from binary
-static Status deserialize_record_batch(const std::shared_ptr<arrow::Buffer>& buffer,
-                                       std::shared_ptr<arrow::RecordBatch>* out) {
-    // Create BufferReader from the input buffer
-    auto input_stream = std::make_shared<arrow::io::BufferReader>(buffer);
-
-    // Open IPC stream reader
-    auto reader_result = arrow::ipc::RecordBatchStreamReader::Open(input_stream);
-    if (UNLIKELY(!reader_result.ok())) {
-        return Status::InternalError("Failed to open IPC reader: {}",
-                                     reader_result.status().message());
-    }
-    auto reader = std::move(reader_result).ValueOrDie();
-
-    // Read the first (and only) RecordBatch
-    auto batch_result = reader->Next();
-    if (UNLIKELY(!batch_result.ok())) {
-        return Status::InternalError("Failed to read RecordBatch: {}",
-                                     batch_result.status().message());
-    }
-
-    *out = std::move(batch_result).ValueOrDie();
-    if (UNLIKELY(!*out)) {
-        return Status::InternalError("Deserialized RecordBatch is null");
-    }
-
-    return Status::OK();
-}
-
-// Helper function to validate and cast Arrow column to expected type
-template <typename ArrowArrayType>
-static Status validate_and_cast_column(const std::shared_ptr<arrow::RecordBatch>& batch,
-                                       const std::string& operation_name,
-                                       std::shared_ptr<ArrowArrayType>* out) {
-    if (UNLIKELY(batch->num_columns() <= 0)) {
-        return Status::InternalError("{} response: expected at least 1 column", operation_name);
-    }
-
-    auto column = batch->column(0);
-
-    // Create expected type instance for comparison
-    std::shared_ptr<arrow::DataType> expected_type;
-    if constexpr (std::is_same_v<ArrowArrayType, arrow::BooleanArray>) {
-        expected_type = arrow::boolean();
-    } else if constexpr (std::is_same_v<ArrowArrayType, arrow::Int64Array>) {
-        expected_type = arrow::int64();
-    } else if constexpr (std::is_same_v<ArrowArrayType, arrow::BinaryArray>) {
-        expected_type = arrow::binary();
-    } else {
-        return Status::InternalError("{} response: unsupported array type", operation_name);
-    }
-
-    if (UNLIKELY(!column->type()->Equals(expected_type))) {
-        return Status::InternalError(
-                "{} response: expected column 0 to be of type {}, but got type {}", operation_name,
-                expected_type->ToString(), column->type()->ToString());
-    }
-
-    *out = std::static_pointer_cast<ArrowArrayType>(column);
-    return Status::OK();
-}
-
-// Helper function to create a unified operation batch
-static Status create_unified_batch(PythonUDAFClient::UDAFOperation operation, int64_t place_id,
-                                   const std::shared_ptr<arrow::Buffer>& metadata,
-                                   const std::shared_ptr<arrow::Buffer>& data,
-                                   std::shared_ptr<arrow::RecordBatch>* out) {
-    arrow::Int8Builder op_builder;
-    arrow::Int64Builder place_builder;
-    arrow::BinaryBuilder metadata_builder;
-    arrow::BinaryBuilder data_builder;
-
-    RETURN_DORIS_STATUS_IF_ERROR(op_builder.Append(static_cast<int8_t>(operation)));
-    RETURN_DORIS_STATUS_IF_ERROR(place_builder.Append(place_id));
-
-    if (metadata) {
-        RETURN_DORIS_STATUS_IF_ERROR(
-                metadata_builder.Append(metadata->data(), static_cast<int32_t>(metadata->size())));
-    } else {
-        RETURN_DORIS_STATUS_IF_ERROR(metadata_builder.AppendNull());
-    }
-
-    if (data) {
-        RETURN_DORIS_STATUS_IF_ERROR(
-                data_builder.Append(data->data(), static_cast<int32_t>(data->size())));
-    } else {
-        RETURN_DORIS_STATUS_IF_ERROR(data_builder.AppendNull());
-    }
-
-    std::shared_ptr<arrow::Array> op_array;
-    std::shared_ptr<arrow::Array> place_array;
-    std::shared_ptr<arrow::Array> metadata_array;
-    std::shared_ptr<arrow::Array> data_array;
-
-    RETURN_DORIS_STATUS_IF_ERROR(op_builder.Finish(&op_array));
-    RETURN_DORIS_STATUS_IF_ERROR(place_builder.Finish(&place_array));
-    RETURN_DORIS_STATUS_IF_ERROR(metadata_builder.Finish(&metadata_array));
-    RETURN_DORIS_STATUS_IF_ERROR(data_builder.Finish(&data_array));
-
-    *out = arrow::RecordBatch::Make(kUnifiedUDAFSchema, 1,
-                                    {op_array, place_array, metadata_array, data_array});
-    return Status::OK();
-}
 
 Status PythonUDAFClient::create(const PythonUDFMeta& func_meta, ProcessPtr process,
+                                const std::shared_ptr<arrow::Schema>& data_schema,
                                 PythonUDAFClientPtr* client) {
     PythonUDAFClientPtr python_udaf_client = std::make_shared<PythonUDAFClient>();
-    RETURN_IF_ERROR(python_udaf_client->init(func_meta, std::move(process)));
+    RETURN_IF_ERROR(python_udaf_client->init(func_meta, std::move(process), data_schema));
     *client = std::move(python_udaf_client);
     return Status::OK();
 }
 
+Status PythonUDAFClient::init(const PythonUDFMeta& func_meta, ProcessPtr process,
+                              const std::shared_ptr<arrow::Schema>& data_schema) {
+    _schema = data_schema;
+    return PythonClient::init(func_meta, std::move(process));
+}
+
 Status PythonUDAFClient::create(int64_t place_id) {
-    RETURN_IF_ERROR(
-            (_execute_operation<UDAFOperation::CREATE, true>(place_id, nullptr, nullptr, nullptr)));
-    _created_states.insert(place_id);
+    std::shared_ptr<arrow::RecordBatch> request_batch;
+    RETURN_IF_ERROR(_get_empty_request_batch(&request_batch));
+
+    UDAFMetadata metadata {
+            .operation = static_cast<uint8_t>(UDAFOperation::CREATE),
+            .place_id = place_id,
+            .is_single_place = 0,
+            .row_start = 0,
+            .row_end = 0,
+    };
+
+    std::shared_ptr<arrow::RecordBatch> response_batch;
+    RETURN_IF_ERROR(_send_request(metadata, request_batch, &response_batch));
+
+    // Parse unified response_batch: [success: bool, rows_processed: int64, serialized_data: binary]
+    if (response_batch->num_rows() != 1) {
+        return Status::InternalError("Invalid CREATE response_batch: expected 1 row");
+    }
+
+    auto success_array = std::static_pointer_cast<arrow::BooleanArray>(response_batch->column(0));
+    if (!success_array->Value(0)) {
+        return Status::InternalError("CREATE operation failed for place_id={}", place_id);
+    }
+
+    _created_place_id = place_id;
     return Status::OK();
 }
 
 Status PythonUDAFClient::accumulate(int64_t place_id, bool is_single_place,
                                     const arrow::RecordBatch& input, int64_t row_start,
-                                    int64_t row_end, const int64_t* places, int64_t place_offset) {
-    if (UNLIKELY(!_process->is_alive())) {
-        return Status::RuntimeError("{} process is not alive", _operation_name);
-    }
-
+                                    int64_t row_end) {
     // Validate input parameters
     if (UNLIKELY(row_start < 0 || row_end < row_start || row_end > input.num_rows())) {
         return Status::InvalidArgument(
@@ -217,90 +105,45 @@ Status PythonUDAFClient::accumulate(int64_t place_id, bool is_single_place,
                 row_end, input.num_rows());
     }
 
-    // If there are multiple aggregate functions, places array is required
-    if (UNLIKELY(!is_single_place && places == nullptr)) {
+    // In multi-place mode, input RecordBatch must contain "places" column as last column
+    if (UNLIKELY(!is_single_place &&
+                 (input.num_columns() == 0 ||
+                  input.schema()->field(input.num_columns() - 1)->name() != "places"))) {
         return Status::InternalError(
-                "places array must not be null when is_single_place=false (GROUP BY aggregation)");
+                "In multi-place mode, input RecordBatch must contain 'places' column as the "
+                "last column");
     }
 
-    // Build metadata RecordBatch
-    // Schema: [is_single_place: bool, row_start: int64, row_end: int64, place_offset: int64]
-    arrow::BooleanBuilder single_place_builder;
-    arrow::Int64Builder row_start_builder;
-    arrow::Int64Builder row_end_builder;
-    arrow::Int64Builder offset_builder;
+    // Create request batch: input data + NULL binary_data column
+    std::shared_ptr<arrow::RecordBatch> request_batch;
+    RETURN_IF_ERROR(_create_data_request_batch(input, &request_batch));
 
-    RETURN_DORIS_STATUS_IF_ERROR(single_place_builder.Append(is_single_place));
-    RETURN_DORIS_STATUS_IF_ERROR(row_start_builder.Append(row_start));
-    RETURN_DORIS_STATUS_IF_ERROR(row_end_builder.Append(row_end));
-    RETURN_DORIS_STATUS_IF_ERROR(offset_builder.Append(place_offset));
+    // Create metadata structure
+    UDAFMetadata metadata {
+            .operation = static_cast<uint8_t>(UDAFOperation::ACCUMULATE),
+            .place_id = place_id,
+            .is_single_place = static_cast<uint8_t>(is_single_place ? 1 : 0),
+            .row_start = row_start,
+            .row_end = row_end,
+    };
 
-    std::shared_ptr<arrow::Array> single_place_array;
-    std::shared_ptr<arrow::Array> row_start_array;
-    std::shared_ptr<arrow::Array> row_end_array;
-    std::shared_ptr<arrow::Array> offset_array;
+    // Send to server with metadata in app_metadata
+    std::shared_ptr<arrow::RecordBatch> response;
+    RETURN_IF_ERROR(_send_request(metadata, request_batch, &response));
 
-    RETURN_DORIS_STATUS_IF_ERROR(single_place_builder.Finish(&single_place_array));
-    RETURN_DORIS_STATUS_IF_ERROR(row_start_builder.Finish(&row_start_array));
-    RETURN_DORIS_STATUS_IF_ERROR(row_end_builder.Finish(&row_end_array));
-    RETURN_DORIS_STATUS_IF_ERROR(offset_builder.Finish(&offset_array));
-
-    auto metadata_batch = arrow::RecordBatch::Make(
-            kAccumulateMetadataSchema, 1,
-            {single_place_array, row_start_array, row_end_array, offset_array});
-
-    // Serialize metadata
-    std::shared_ptr<arrow::Buffer> metadata_buffer;
-    RETURN_IF_ERROR(serialize_record_batch(*metadata_batch, &metadata_buffer));
-
-    // Build data RecordBatch (input columns + optional places array)
-    std::vector<std::shared_ptr<arrow::Field>> data_fields;
-    std::vector<std::shared_ptr<arrow::Array>> data_arrays;
-
-    // Add input columns
-    for (int i = 0; i < input.num_columns(); ++i) {
-        data_fields.push_back(input.schema()->field(i));
-        data_arrays.push_back(input.column(i));
+    // Parse unified response: [success: bool, rows_processed: int64, serialized_data: binary]
+    if (response->num_rows() != 1) {
+        return Status::InternalError("Invalid ACCUMULATE response: expected 1 row");
     }
 
-    // Add places array if in multi-place mode
-    if (!is_single_place) {
-        arrow::Int64Builder places_builder;
-        for (int64_t i = 0; i < input.num_rows(); ++i) {
-            RETURN_DORIS_STATUS_IF_ERROR(places_builder.Append(places[i]));
-        }
-        std::shared_ptr<arrow::Array> places_array;
-        RETURN_DORIS_STATUS_IF_ERROR(places_builder.Finish(&places_array));
+    auto success_array = std::static_pointer_cast<arrow::BooleanArray>(response->column(0));
+    auto rows_processed_array = std::static_pointer_cast<arrow::Int64Array>(response->column(1));
 
-        data_fields.push_back(arrow::field("places", arrow::int64()));
-        data_arrays.push_back(places_array);
+    if (!success_array->Value(0)) {
+        return Status::InternalError("ACCUMULATE operation failed for place_id={}", place_id);
     }
 
-    auto data_schema = arrow::schema(data_fields);
-    auto data_batch = arrow::RecordBatch::Make(data_schema, input.num_rows(), data_arrays);
-
-    // Serialize data
-    std::shared_ptr<arrow::Buffer> data_buffer;
-    RETURN_IF_ERROR(serialize_record_batch(*data_batch, &data_buffer));
-
-    // Create unified batch
-    std::shared_ptr<arrow::RecordBatch> batch;
-    RETURN_IF_ERROR(create_unified_batch(UDAFOperation::ACCUMULATE, place_id, metadata_buffer,
-                                         data_buffer, &batch));
-
-    // Send to server and check rows_processed
-    std::shared_ptr<arrow::RecordBatch> output;
-    RETURN_IF_ERROR(_send_operation(batch.get(), &output));
-
-    // Validate response: [rows_processed: int64]
-    if (output->num_columns() != 1 || output->num_rows() != 1) {
-        return Status::InternalError("Invalid ACCUMULATE response from Python UDAF server");
-    }
-
-    std::shared_ptr<arrow::Int64Array> int64_array;
-    RETURN_IF_ERROR(validate_and_cast_column(output, "ACCUMULATE", &int64_array));
-
-    int64_t rows_processed = int64_array->Value(0);
+    int64_t rows_processed = rows_processed_array->Value(0);
     int64_t expected_rows = row_end - row_start;
 
     if (rows_processed < expected_rows) {
@@ -308,238 +151,364 @@ Status PythonUDAFClient::accumulate(int64_t place_id, bool is_single_place,
                 "ACCUMULATE operation only processed {} out of {} rows for place_id={}",
                 rows_processed, expected_rows, place_id);
     }
-
     return Status::OK();
 }
 
 Status PythonUDAFClient::serialize(int64_t place_id,
                                    std::shared_ptr<arrow::Buffer>* serialized_state) {
-    // Execute SERIALIZE operation
-    std::shared_ptr<arrow::RecordBatch> output;
-    RETURN_IF_ERROR((_execute_operation<UDAFOperation::SERIALIZE, false>(place_id, nullptr, nullptr,
-                                                                         &output)));
+    std::shared_ptr<arrow::RecordBatch> request_batch;
+    RETURN_IF_ERROR(_get_empty_request_batch(&request_batch));
 
-    // Extract serialized state from output (should be a binary column)
-    if (output->num_columns() != 1 || output->num_rows() != 1) {
-        return Status::InternalError("Invalid SERIALIZE response from Python UDAF server");
-    }
+    UDAFMetadata metadata {
+            .operation = static_cast<uint8_t>(UDAFOperation::SERIALIZE),
+            .place_id = place_id,
+            .is_single_place = 0,
+            .row_start = 0,
+            .row_end = 0,
+    };
 
-    std::shared_ptr<arrow::BinaryArray> binary_array;
-    RETURN_IF_ERROR(validate_and_cast_column(output, "SERIALIZE", &binary_array));
+    std::shared_ptr<arrow::RecordBatch> response;
+    RETURN_IF_ERROR(_send_request(metadata, request_batch, &response));
 
-    int32_t length;
-    const uint8_t* data = binary_array->GetValue(0, &length);
+    // Parse unified response: [success: bool, rows_processed: int64, serialized_data: binary]
+    auto success_array = std::static_pointer_cast<arrow::BooleanArray>(response->column(0));
+    auto data_array = std::static_pointer_cast<arrow::BinaryArray>(response->column(2));
 
-    // Check if serialization succeeded (non-empty binary)
-    if (length == 0) {
+    if (!success_array->Value(0)) {
         return Status::InternalError("SERIALIZE operation failed for place_id={}", place_id);
     }
 
-    *serialized_state = arrow::Buffer::Wrap(data, length);
+    int32_t length;
+    const uint8_t* data = data_array->GetValue(0, &length);
 
+    if (length == 0) {
+        return Status::InternalError("SERIALIZE operation returned empty data for place_id={}",
+                                     place_id);
+    }
+
+    *serialized_state = arrow::Buffer::Wrap(data, length);
     return Status::OK();
 }
 
 Status PythonUDAFClient::merge(int64_t place_id,
                                const std::shared_ptr<arrow::Buffer>& serialized_state) {
-    return _execute_operation<UDAFOperation::MERGE, true>(place_id, nullptr, serialized_state,
-                                                          nullptr);
+    std::shared_ptr<arrow::RecordBatch> request_batch;
+    RETURN_IF_ERROR(_create_binary_request_batch(serialized_state, &request_batch));
+
+    UDAFMetadata metadata {
+            .operation = static_cast<uint8_t>(UDAFOperation::MERGE),
+            .place_id = place_id,
+            .is_single_place = 0,
+            .row_start = 0,
+            .row_end = 0,
+    };
+
+    std::shared_ptr<arrow::RecordBatch> response;
+    RETURN_IF_ERROR(_send_request(metadata, request_batch, &response));
+
+    // Parse unified response: [success: bool, rows_processed: int64, serialized_data: binary]
+    if (response->num_rows() != 1) {
+        return Status::InternalError("Invalid MERGE response: expected 1 row");
+    }
+
+    auto success_array = std::static_pointer_cast<arrow::BooleanArray>(response->column(0));
+    if (!success_array->Value(0)) {
+        return Status::InternalError("MERGE operation failed for place_id={}", place_id);
+    }
+
+    return Status::OK();
 }
 
 Status PythonUDAFClient::finalize(int64_t place_id, std::shared_ptr<arrow::RecordBatch>* output) {
-    // Execute FINALIZE operation
-    RETURN_IF_ERROR((_execute_operation<UDAFOperation::FINALIZE, false>(place_id, nullptr, nullptr,
-                                                                        output)));
+    std::shared_ptr<arrow::RecordBatch> request_batch;
+    RETURN_IF_ERROR(_get_empty_request_batch(&request_batch));
 
-    // Validate basic response structure (but allow NULL values)
-    if (!output || !(*output) || (*output)->num_columns() != 1 || (*output)->num_rows() != 1) {
-        return Status::InternalError(
-                "Invalid FINALIZE response: expected 1 column and 1 row, got {} columns and {} "
-                "rows",
-                output && (*output) ? (*output)->num_columns() : 0,
-                output && (*output) ? (*output)->num_rows() : 0);
+    UDAFMetadata metadata {
+            .operation = static_cast<uint8_t>(UDAFOperation::FINALIZE),
+            .place_id = place_id,
+            .is_single_place = 0,
+            .row_start = 0,
+            .row_end = 0,
+    };
+
+    std::shared_ptr<arrow::RecordBatch> response_batch;
+    RETURN_IF_ERROR(_send_request(metadata, request_batch, &response_batch));
+
+    // Parse unified response_batch: [success: bool, rows_processed: int64, serialized_data: binary]
+    auto success_array = std::static_pointer_cast<arrow::BooleanArray>(response_batch->column(0));
+    auto data_array = std::static_pointer_cast<arrow::BinaryArray>(response_batch->column(2));
+
+    if (!success_array->Value(0)) {
+        return Status::InternalError("FINALIZE operation failed for place_id={}", place_id);
     }
+
+    // Deserialize data column to get actual result
+    int32_t length;
+    const uint8_t* data = data_array->GetValue(0, &length);
+
+    if (length == 0) {
+        return Status::InternalError("FINALIZE operation returned empty data for place_id={}",
+                                     place_id);
+    }
+
+    auto buffer = arrow::Buffer::Wrap(data, length);
+    auto input_stream = std::make_shared<arrow::io::BufferReader>(buffer);
+
+    auto reader_result = arrow::ipc::RecordBatchStreamReader::Open(input_stream);
+    if (UNLIKELY(!reader_result.ok())) {
+        return Status::InternalError("Failed to deserialize FINALIZE result: {}",
+                                     reader_result.status().message());
+    }
+    auto reader = std::move(reader_result).ValueOrDie();
+
+    auto batch_result = reader->Next();
+    if (UNLIKELY(!batch_result.ok())) {
+        return Status::InternalError("Failed to read FINALIZE result: {}",
+                                     batch_result.status().message());
+    }
+
+    *output = std::move(batch_result).ValueOrDie();
 
     return Status::OK();
 }
 
 Status PythonUDAFClient::reset(int64_t place_id) {
-    return _execute_operation<UDAFOperation::RESET, true>(place_id, nullptr, nullptr, nullptr);
-}
+    std::shared_ptr<arrow::RecordBatch> request_batch;
+    RETURN_IF_ERROR(_get_empty_request_batch(&request_batch));
 
-Status PythonUDAFClient::destroy(int64_t place_id) {
-    if (UNLIKELY(!_process->is_alive())) {
-        return Status::RuntimeError("{} process is not alive", _operation_name);
+    UDAFMetadata metadata {
+            .operation = static_cast<uint8_t>(UDAFOperation::RESET),
+            .place_id = place_id,
+            .is_single_place = 0,
+            .row_start = 0,
+            .row_end = 0,
+    };
+
+    std::shared_ptr<arrow::RecordBatch> response;
+    RETURN_IF_ERROR(_send_request(metadata, request_batch, &response));
+
+    // Parse unified response: [success: bool, rows_processed: int64, serialized_data: binary]
+    if (response->num_rows() != 1) {
+        return Status::InternalError("Invalid RESET response: expected 1 row");
     }
 
-    // Create unified batch for DESTROY operation
-    std::shared_ptr<arrow::RecordBatch> batch;
-    RETURN_IF_ERROR(
-            create_unified_batch(UDAFOperation::DESTROY, place_id, nullptr, nullptr, &batch));
-
-    // Send to server and check response
-    std::shared_ptr<arrow::RecordBatch> output;
-    RETURN_IF_ERROR(_send_operation(batch.get(), &output));
-
-    // Validate response: [success: bool]
-    if (output->num_columns() != 1 || output->num_rows() != 1) {
-        return Status::InternalError("Invalid DESTROY response from Python UDAF server");
+    auto success_array = std::static_pointer_cast<arrow::BooleanArray>(response->column(0));
+    if (!success_array->Value(0)) {
+        return Status::InternalError("RESET operation failed for place_id={}", place_id);
     }
 
-    std::shared_ptr<arrow::BooleanArray> bool_array;
-    RETURN_IF_ERROR(validate_and_cast_column(output, "DESTROY", &bool_array));
-
-    if (!bool_array->Value(0)) {
-        return Status::InternalError("DESTROY operation failed for place_id={}", place_id);
-    }
-
-    _created_states.erase(place_id);
     return Status::OK();
 }
 
-Status PythonUDAFClient::destroy_all() {
-    // Destroy all tracked states
-    for (int64_t place_id : _created_states) {
-        // Ignore errors during cleanup
-        static_cast<void>(destroy(place_id));
+Status PythonUDAFClient::destroy(int64_t place_id) {
+    std::shared_ptr<arrow::RecordBatch> request_batch;
+    RETURN_IF_ERROR(_get_empty_request_batch(&request_batch));
+
+    UDAFMetadata metadata {
+            .operation = static_cast<uint8_t>(UDAFOperation::DESTROY),
+            .place_id = place_id,
+            .is_single_place = 0,
+            .row_start = 0,
+            .row_end = 0,
+    };
+
+    std::shared_ptr<arrow::RecordBatch> response;
+    Status st = _send_request(metadata, request_batch, &response);
+
+    // Always clear tracking, even if RPC failed
+    _created_place_id.reset();
+
+    if (!st.ok()) {
+        LOG(WARNING) << "Failed to destroy place_id=" << place_id << ": " << st.to_string();
+        return st;
     }
-    _created_states.clear();
+
+    // Parse unified response: [success: bool, rows_processed: int64, serialized_data: binary]
+    if (response->num_rows() != 1) {
+        return Status::InternalError("Invalid DESTROY response: expected 1 row");
+    }
+
+    auto success_array = std::static_pointer_cast<arrow::BooleanArray>(response->column(0));
+
+    if (!success_array->Value(0)) {
+        LOG(WARNING) << "DESTROY operation failed for place_id=" << place_id;
+        return Status::InternalError("DESTROY operation failed for place_id={}", place_id);
+    }
+
     return Status::OK();
 }
 
 Status PythonUDAFClient::close() {
     if (!_inited || !_writer) return Status::OK();
 
-    // Destroy all remaining states
-    RETURN_IF_ERROR(destroy_all());
+    // Destroy the place if it exists (cleanup on client destruction)
+    if (_created_place_id.has_value()) {
+        int64_t place_id = _created_place_id.value();
+        Status st = destroy(place_id);
+        if (!st.ok()) {
+            LOG(WARNING) << "Failed to destroy place_id=" << place_id
+                         << " during close: " << st.to_string();
+            // Clear tracking even on failure to prevent issues in base class close
+            _created_place_id.reset();
+        }
+    }
 
-    // Call base class close which handles cleanup
     return PythonClient::close();
 }
 
-std::string PythonUDAFClient::print_operation(UDAFOperation op) {
-    switch (op) {
-    case UDAFOperation::CREATE:
-        return "CREATE";
-    case UDAFOperation::ACCUMULATE:
-        return "ACCUMULATE";
-    case UDAFOperation::SERIALIZE:
-        return "SERIALIZE";
-    case UDAFOperation::MERGE:
-        return "MERGE";
-    case UDAFOperation::FINALIZE:
-        return "FINALIZE";
-    case UDAFOperation::RESET:
-        return "RESET";
-    case UDAFOperation::DESTROY:
-        return "DESTROY";
-    default:
-        return "UNKNOWN";
-    }
-}
+Status PythonUDAFClient::_send_request(const UDAFMetadata& metadata,
+                                       const std::shared_ptr<arrow::RecordBatch>& request_batch,
+                                       std::shared_ptr<arrow::RecordBatch>* response_batch) {
+    DCHECK(response_batch != nullptr);
 
-template <PythonUDAFClient::UDAFOperation operation, bool validate_response>
-Status PythonUDAFClient::_execute_operation(int64_t place_id,
-                                            const std::shared_ptr<arrow::Buffer>& metadata,
-                                            const std::shared_ptr<arrow::Buffer>& data,
-                                            std::shared_ptr<arrow::RecordBatch>* output) {
-    if (UNLIKELY(!_process->is_alive())) {
-        return Status::RuntimeError("{} process is not alive", _operation_name);
-    }
+    // Create app_metadata buffer from metadata struct
+    auto app_metadata =
+            arrow::Buffer::Wrap(reinterpret_cast<const uint8_t*>(&metadata), sizeof(metadata));
 
-    // Create unified batch for the operation
-    std::shared_ptr<arrow::RecordBatch> batch;
-    RETURN_IF_ERROR(create_unified_batch(operation, place_id, metadata, data, &batch));
-
-    // Send to server
-    std::shared_ptr<arrow::RecordBatch> result;
-    RETURN_IF_ERROR(_send_operation(batch.get(), &result));
-
-    // Validate response if requested (compile-time branch)
-    if constexpr (validate_response) {
-        if (result->num_columns() != 1 || result->num_rows() != 1) {
-            return Status::InternalError("Invalid {} response from Python UDAF server",
-                                         print_operation(operation));
-        }
-
-        std::shared_ptr<arrow::BooleanArray> bool_array;
-        RETURN_IF_ERROR(validate_and_cast_column(result, print_operation(operation), &bool_array));
-
-        if (!bool_array->Value(0)) {
-            return Status::InternalError("{} operation failed for place_id={}",
-                                         print_operation(operation), place_id);
-        }
-    }
-
-    // Set output if provided
-    if (output != nullptr) {
-        *output = std::move(result);
-    }
-
-    return Status::OK();
-}
-
-Status PythonUDAFClient::_send_operation(const arrow::RecordBatch* input,
-                                         std::shared_ptr<arrow::RecordBatch>* output) {
-    // CRITICAL: Lock here to protect Arrow Flight RPC operations (write/read)
-    // Arrow Flight Client does NOT support concurrent read/write operations
     std::lock_guard<std::mutex> lock(_operation_mutex);
 
-    // Step 1: Begin exchange with unified schema (only once, now protected by mutex)
+    // Check if writer/reader are still valid (they could be reset by handle_error)
+    if (UNLIKELY(!_writer || !_reader)) {
+        return Status::InternalError("{} writer/reader have been closed due to previous error",
+                                     _operation_name);
+    }
+
+    // Begin stream on first call (using data schema: argument_types + places + binary_data)
     if (UNLIKELY(!_begin)) {
-        // Always use the unified schema for all operations
-        auto begin_res = _writer->Begin(kUnifiedUDAFSchema);
+        auto begin_res = _writer->Begin(_schema);
         if (!begin_res.ok()) {
             return handle_error(begin_res);
         }
         _begin = true;
     }
 
-    // Step 2: Write the record batch to server
-    auto write_res = _writer->WriteRecordBatch(*input);
+    // Write batch with metadata in app_metadata
+    auto write_res = _writer->WriteWithMetadata(*request_batch, app_metadata);
     if (!write_res.ok()) {
         return handle_error(write_res);
     }
 
-    // Step 3: Read response from server (if output is expected)
-    if (output != nullptr) {
-        auto read_res = _reader->Next();
-        if (!read_res.ok()) {
-            return handle_error(read_res.status());
-        }
-
-        arrow::flight::FlightStreamChunk chunk = std::move(*read_res);
-        if (!chunk.data) {
-            _process->shutdown();
-            return Status::InternalError("Received empty RecordBatch from {} server",
-                                         _operation_name);
-        }
-
-        // The response is in unified format: [result_data: binary]
-        // Extract and deserialize the actual result
-        auto unified_response = chunk.data;
-        if (unified_response->num_columns() != 1 || unified_response->num_rows() != 1) {
-            return Status::InternalError(
-                    "Invalid unified response format: expected 1 column and 1 row, got {} columns "
-                    "and {} rows",
-                    unified_response->num_columns(), unified_response->num_rows());
-        }
-
-        std::shared_ptr<arrow::BinaryArray> binary_array;
-        RETURN_IF_ERROR(
-                validate_and_cast_column(unified_response, "UNIFIED_RESPONSE", &binary_array));
-
-        int32_t length;
-        const uint8_t* data = binary_array->GetValue(0, &length);
-
-        if (length == 0) {
-            return Status::InternalError("Received empty result_data from Python UDAF server");
-        }
-
-        auto result_buffer = arrow::Buffer::Wrap(data, length);
-        RETURN_IF_ERROR(deserialize_record_batch(result_buffer, output));
+    // Read unified response: [success: bool, rows_processed: int64, serialized_data: binary]
+    auto read_res = _reader->Next();
+    if (!read_res.ok()) {
+        return handle_error(read_res.status());
     }
 
+    arrow::flight::FlightStreamChunk chunk = std::move(*read_res);
+    if (!chunk.data) {
+        return Status::InternalError("Received empty RecordBatch from {} server", _operation_name);
+    }
+
+    // Validate unified response schema
+    if (!chunk.data->schema()->Equals(kUnifiedUDAFResponseSchema)) {
+        return Status::InternalError(
+                "Invalid response schema: expected [success: bool, rows_processed: int64, "
+                "serialized_data: binary], got {}",
+                chunk.data->schema()->ToString());
+    }
+
+    *response_batch = std::move(chunk.data);
+    return Status::OK();
+}
+
+Status PythonUDAFClient::_create_data_request_batch(const arrow::RecordBatch& input_data,
+                                                    std::shared_ptr<arrow::RecordBatch>* out) {
+    // Determine if input has places column
+    int num_input_columns = input_data.num_columns();
+    bool has_places = false;
+    if (num_input_columns > 0 &&
+        input_data.schema()->field(num_input_columns - 1)->name() == "places") {
+        has_places = true;
+    }
+
+    // Expected schema structure: [argument_types..., places, binary_data]
+    // - Input in single-place mode: [argument_types...]
+    // - Input in multi-place mode: [argument_types..., places]
+    std::vector<std::shared_ptr<arrow::Array>> columns;
+    // Copy argument_types columns
+    int num_arg_columns = has_places ? (num_input_columns - 1) : num_input_columns;
+
+    for (int i = 0; i < num_arg_columns; ++i) {
+        columns.push_back(input_data.column(i));
+    }
+
+    // Add places column
+    if (has_places) {
+        // Use existing places column from input
+        columns.push_back(input_data.column(num_input_columns - 1));
+    } else {
+        // Create NULL places column for single-place mode
+        arrow::Int64Builder places_builder;
+        std::shared_ptr<arrow::Array> places_array;
+        RETURN_DORIS_STATUS_IF_ERROR(places_builder.AppendNulls(input_data.num_rows()));
+        RETURN_DORIS_STATUS_IF_ERROR(places_builder.Finish(&places_array));
+        columns.push_back(places_array);
+    }
+
+    // Add NULL binary_data column
+    arrow::BinaryBuilder binary_builder;
+    std::shared_ptr<arrow::Array> binary_array;
+    RETURN_DORIS_STATUS_IF_ERROR(binary_builder.AppendNulls(input_data.num_rows()));
+    RETURN_DORIS_STATUS_IF_ERROR(binary_builder.Finish(&binary_array));
+    columns.push_back(binary_array);
+
+    *out = arrow::RecordBatch::Make(_schema, input_data.num_rows(), columns);
+    return Status::OK();
+}
+
+Status PythonUDAFClient::_create_binary_request_batch(
+        const std::shared_ptr<arrow::Buffer>& binary_data,
+        std::shared_ptr<arrow::RecordBatch>* out) {
+    std::vector<std::shared_ptr<arrow::Array>> columns;
+
+    // Create NULL arrays for data columns (all columns except the last binary_data column)
+    // Schema: [argument_types..., places, binary_data]
+    int num_data_columns = _schema->num_fields() - 1;
+    for (int i = 0; i < num_data_columns; ++i) {
+        std::unique_ptr<arrow::ArrayBuilder> builder;
+        std::shared_ptr<arrow::Array> null_array;
+        RETURN_DORIS_STATUS_IF_ERROR(arrow::MakeBuilder(arrow::default_memory_pool(),
+                                                        _schema->field(i)->type(), &builder));
+        RETURN_DORIS_STATUS_IF_ERROR(builder->AppendNull());
+        RETURN_DORIS_STATUS_IF_ERROR(builder->Finish(&null_array));
+        columns.push_back(null_array);
+    }
+
+    // Create binary_data column
+    arrow::BinaryBuilder binary_builder;
+    std::shared_ptr<arrow::Array> binary_array;
+    RETURN_DORIS_STATUS_IF_ERROR(
+            binary_builder.Append(binary_data->data(), static_cast<int32_t>(binary_data->size())));
+    RETURN_DORIS_STATUS_IF_ERROR(binary_builder.Finish(&binary_array));
+    columns.push_back(binary_array);
+
+    *out = arrow::RecordBatch::Make(_schema, 1, columns);
+    return Status::OK();
+}
+
+Status PythonUDAFClient::_get_empty_request_batch(std::shared_ptr<arrow::RecordBatch>* out) {
+    // Return cached batch if already created
+    if (_empty_request_batch) {
+        *out = _empty_request_batch;
+        return Status::OK();
+    }
+
+    // Create empty batch on first use (all columns NULL, 1 row)
+    std::vector<std::shared_ptr<arrow::Array>> columns;
+
+    for (int i = 0; i < _schema->num_fields(); ++i) {
+        auto field = _schema->field(i);
+        std::unique_ptr<arrow::ArrayBuilder> builder;
+        std::shared_ptr<arrow::Array> null_array;
+        RETURN_DORIS_STATUS_IF_ERROR(
+                arrow::MakeBuilder(arrow::default_memory_pool(), field->type(), &builder));
+        RETURN_DORIS_STATUS_IF_ERROR(builder->AppendNull());
+        RETURN_DORIS_STATUS_IF_ERROR(builder->Finish(&null_array));
+        columns.push_back(null_array);
+    }
+
+    _empty_request_batch = arrow::RecordBatch::Make(_schema, 1, columns);
+    *out = _empty_request_batch;
     return Status::OK();
 }
 

@@ -27,6 +27,18 @@ class PythonUDAFClient;
 
 using PythonUDAFClientPtr = std::shared_ptr<PythonUDAFClient>;
 
+// Fixed-size (26 bytes) binary metadata structure for UDAF operations (Request)
+struct __attribute__((packed)) UDAFMetadata {
+    uint8_t operation; // 1 byte: UDAFOperation enum
+    int64_t place_id;  // 8 bytes: aggregate state identifier (globally unique)
+    // ACCUMULATE-specific metadata (17 bytes)
+    uint8_t is_single_place; // 1 byte: boolean (0 or 1)
+    int64_t row_start;       // 8 bytes: start row index
+    int64_t row_end;         // 8 bytes: end row index (exclusive)
+};
+
+static_assert(sizeof(UDAFMetadata) == 26, "UDAFMetadata size must be 26 bytes");
+
 /**
  * Python UDAF Client
  * 
@@ -60,10 +72,29 @@ public:
     };
 
     PythonUDAFClient() = default;
-    ~PythonUDAFClient() override = default;
+
+    ~PythonUDAFClient() override {
+        // Clean up all remaining states on destruction
+        auto st = close();
+        if (!st.ok()) {
+            LOG(WARNING) << "Failed to close PythonUDAFClient in destructor: " << st.to_string();
+        }
+    }
 
     static Status create(const PythonUDFMeta& func_meta, ProcessPtr process,
+                         const std::shared_ptr<arrow::Schema>& data_schema,
                          PythonUDAFClientPtr* client);
+
+    /**
+     * Initialize UDAF client with data schema
+     * Overrides base class to set _schema before initialization
+     * @param func_meta Function metadata
+     * @param process Python process handle
+     * @param data_schema Arrow schema for UDAF data
+     * @return Status
+     */
+    Status init(const PythonUDFMeta& func_meta, ProcessPtr process,
+                const std::shared_ptr<arrow::Schema>& data_schema);
 
     /**
      * Create aggregate state for a place
@@ -74,18 +105,25 @@ public:
 
     /**
      * Accumulate input data into aggregate state
-     * @param place_id Aggregate state identifier
+     * 
+     * For single-place mode (is_single_place=true):
+     *   - input RecordBatch contains only data columns
+     *   - All rows are accumulated to the same place_id
+     * 
+     * For multi-place mode (is_single_place=false):
+     *   - input RecordBatch MUST contain a "places" column (int64) as the last column
+     *   - The "places" column indicates which place each row belongs to
+     *   - place_id parameter is ignored (set to 0 by convention)
+     * 
+     * @param place_id Aggregate state identifier (used only in single-place mode)
      * @param is_single_place Whether all rows go to single place
-     * @param input Input data batch
+     * @param input Input data batch (must contain "places" column if is_single_place=false)
      * @param row_start Start row index
      * @param row_end End row index (exclusive)
-     * @param places Array of place pointers (for GROUP BY)
-     * @param place_offset Offset within each place
      * @return Status
      */
     Status accumulate(int64_t place_id, bool is_single_place, const arrow::RecordBatch& input,
-                      int64_t row_start, int64_t row_end, const int64_t* places = nullptr,
-                      int64_t place_offset = 0);
+                      int64_t row_start, int64_t row_end);
 
     /**
      * Serialize aggregate state for shuffle/merge
@@ -126,60 +164,55 @@ public:
     Status destroy(int64_t place_id);
 
     /**
-     * Destroy all aggregate states
-     * @return Status
-     */
-    Status destroy_all();
-
-    /**
      * Close client connection and cleanup
-     * Overrides base class to destroy all states first
+     * Overrides base class to destroy the tracked place first
      * @return Status
      */
     Status close();
-
-    static std::string print_operation(UDAFOperation op);
 
 private:
     DISALLOW_COPY_AND_ASSIGN(PythonUDAFClient);
 
     /**
-     * Helper to execute a UDAF operation (CREATE, RESET, DESTROY, etc.)
-     * This consolidates the common pattern:
-     * 1. Check if process is alive
-     * 2. Create unified batch
-     * 3. Send operation
-     * 4. Validate boolean response (if validate_response is true)
-     * 
-     * Template parameters are compile-time constants for better optimization
-     * @tparam operation The UDAF operation to execute
-     * @tparam validate_response If true, validates response as boolean and checks success
-     * @param place_id Aggregate state identifier
-     * @param metadata Optional metadata buffer
-     * @param data Optional data buffer
-     * @param output Output RecordBatch (can be nullptr if not needed)
+     * Send RecordBatch request to Python server with app_metadata
+     * @param metadata UDAFMetadata structure (will be sent as app_metadata)
+     * @param request_batch Request RecordBatch (contains data columns + binary_data column)
+     * @param response_batch Output RecordBatch
      * @return Status
      */
-    template <UDAFOperation operation, bool validate_response>
-    Status _execute_operation(int64_t place_id, const std::shared_ptr<arrow::Buffer>& metadata,
-                              const std::shared_ptr<arrow::Buffer>& data,
-                              std::shared_ptr<arrow::RecordBatch>* output);
+    Status _send_request(const UDAFMetadata& metadata,
+                         const std::shared_ptr<arrow::RecordBatch>& request_batch,
+                         std::shared_ptr<arrow::RecordBatch>* response_batch);
 
     /**
-     * Send operation request to Python server
-     * @param input Input data batch
-     * @param output Optional output data
-     * @return Status
+     * Create request batch with data columns (for ACCUMULATE)
+     * Appends NULL binary_data column to input data batch
      */
-    Status _send_operation(const arrow::RecordBatch* input,
-                           std::shared_ptr<arrow::RecordBatch>* output);
+    Status _create_data_request_batch(const arrow::RecordBatch& input_data,
+                                      std::shared_ptr<arrow::RecordBatch>* out);
 
-    // Track created states for cleanup
-    std::unordered_set<int64_t> _created_states;
+    /**
+     * Create request batch with binary data (for MERGE)
+     * Creates NULL data columns + binary_data column
+     */
+    Status _create_binary_request_batch(const std::shared_ptr<arrow::Buffer>& binary_data,
+                                        std::shared_ptr<arrow::RecordBatch>* out);
 
-    // Thread safety: protect concurrent RPC calls
-    // Arrow Flight client (gRPC-based) is not fully thread-safe,
-    // so we need to serialize all operations through this mutex
+    /**
+     * Get or create empty request batch (for CREATE/SERIALIZE/FINALIZE/RESET/DESTROY)
+     * All columns are NULL. Cached after first creation for reuse.
+     */
+    Status _get_empty_request_batch(std::shared_ptr<arrow::RecordBatch>* out);
+
+    // Arrow Flight schema: [argument_types..., places: int64, binary_data: binary]
+    std::shared_ptr<arrow::Schema> _schema;
+    std::shared_ptr<arrow::RecordBatch> _empty_request_batch;
+    // Track created state for cleanup
+    std::optional<int64_t> _created_place_id;
+    // Thread safety: protect gRPC stream operations
+    // CRITICAL: gRPC ClientReaderWriter does NOT support concurrent Write() calls
+    // Even within same thread, multiple pipeline tasks may trigger concurrent operations
+    // (e.g., normal accumulate() + cleanup destroy() during task finalization)
     mutable std::mutex _operation_mutex;
 };
 

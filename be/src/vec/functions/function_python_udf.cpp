@@ -30,6 +30,7 @@
 #include "common/status.h"
 #include "runtime/user_function_cache.h"
 #include "udf/python/python_server.h"
+#include "udf/python/python_udf_client.h"
 #include "udf/python/python_udf_meta.h"
 #include "util/arrow/block_convertor.h"
 #include "util/arrow/row_batch.h"

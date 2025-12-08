@@ -195,24 +195,24 @@ public class FunctionUtil {
             AliasUdf.translateToNereidsFunction(dbName, ((AliasFunction) function));
         } else if (function instanceof ScalarFunction) {
             if (function.isUDTFunction()) {
-                    if (function.getBinaryType() == TFunctionBinaryType.JAVA_UDF) {
+                if (function.getBinaryType() == TFunctionBinaryType.JAVA_UDF) {
                     JavaUdtf.translateToNereidsFunction(dbName, ((ScalarFunction) function));
-                    } else if (function.getBinaryType() == TFunctionBinaryType.PYTHON_UDF) {
-                        PythonUdtf.translateToNereidsFunction(dbName, ((ScalarFunction) function));
-                    }
+                } else if (function.getBinaryType() == TFunctionBinaryType.PYTHON_UDF) {
+                    PythonUdtf.translateToNereidsFunction(dbName, ((ScalarFunction) function));
+                }
             } else {
-                    if (function.getBinaryType() == TFunctionBinaryType.JAVA_UDF) {
+                if (function.getBinaryType() == TFunctionBinaryType.JAVA_UDF) {
                     JavaUdf.translateToNereidsFunction(dbName, ((ScalarFunction) function));
-                    } else if (function.getBinaryType() == TFunctionBinaryType.PYTHON_UDF) {
-                        PythonUdf.translateToNereidsFunction(dbName, (ScalarFunction) function);
-                    }
+                } else if (function.getBinaryType() == TFunctionBinaryType.PYTHON_UDF) {
+                    PythonUdf.translateToNereidsFunction(dbName, (ScalarFunction) function);
+                }
             }
         } else if (function instanceof AggregateFunction) {
-                if (function.getBinaryType() == TFunctionBinaryType.JAVA_UDF) {
+            if (function.getBinaryType() == TFunctionBinaryType.JAVA_UDF) {
                 JavaUdaf.translateToNereidsFunction(dbName, ((AggregateFunction) function));
-                } else if (function.getBinaryType() == TFunctionBinaryType.PYTHON_UDF) {
-                    PythonUdaf.translateToNereidsFunction(dbName, ((AggregateFunction) function));
-                }
+            } else if (function.getBinaryType() == TFunctionBinaryType.PYTHON_UDF) {
+                PythonUdaf.translateToNereidsFunction(dbName, ((AggregateFunction) function));
+            }
         }
     }
 

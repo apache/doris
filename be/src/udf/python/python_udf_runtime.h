@@ -18,10 +18,7 @@
 #pragma once
 
 #include <boost/process.hpp>
-#include <condition_variable>
-#include <queue>
 
-#include "common/status.h"
 #include "python_env.h"
 
 namespace doris {
@@ -31,8 +28,6 @@ static const char* BASE_UNIX_SOCKET_PATH_TEMPLATE = "{}{}/lib/udf/python/python_
 static const char* UNIX_SOCKET_PATH_TEMPLATE = "{}_{}.sock";
 static const char* FLIGHT_SERVER_PATH_TEMPLATE = "{}/plugins/python_udf/{}";
 static const char* FLIGHT_SERVER_FILENAME = "python_server.py";
-static const char* EXECUTABLE_PYTHON_FILENAME = "python";
-static const char* PYTHON_SERVER_START_SUCCESS_MSG = "Start python server successfully";
 
 inline std::string get_base_unix_socket_path() {
     return fmt::format(BASE_UNIX_SOCKET_PATH_TEMPLATE, UNIX_SOCKET_PREFIX,
@@ -55,21 +50,18 @@ inline std::string get_fight_server_path() {
 }
 
 class PythonUDFProcess;
-class PythonUDFProcessPool;
 
-using ProcessPtr = std::unique_ptr<PythonUDFProcess>;
-using PythonUDFProcessPoolPtr = std::unique_ptr<PythonUDFProcessPool>;
+using ProcessPtr = std::shared_ptr<PythonUDFProcess>;
 
 class PythonUDFProcess {
 public:
-    PythonUDFProcess(boost::process::child child, boost::process::ipstream output_stream,
-                     PythonUDFProcessPool* pool)
+    PythonUDFProcess(boost::process::child child, boost::process::ipstream output_stream)
             : _is_shutdown(false),
-              _uri(get_unix_socket_path(child.id())),
-              _unix_socket_file_path(get_unix_socket_file_path(child.id())),
+              _child_pid(child.id()),
+              _uri(get_unix_socket_path(_child_pid)),
+              _unix_socket_file_path(get_unix_socket_file_path(_child_pid)),
               _child(std::move(child)),
-              _output_stream(std::move(output_stream)),
-              _pool(pool) {}
+              _output_stream(std::move(output_stream)) {}
 
     ~PythonUDFProcess() { shutdown(); }
 
@@ -79,10 +71,7 @@ public:
 
     bool is_shutdown() const { return _is_shutdown; }
 
-    bool is_alive() const {
-        if (_is_shutdown) return false;
-        return _child.running();
-    }
+    bool is_alive() const { return !_is_shutdown && _child.running(); }
 
     void remove_unix_socket();
 
@@ -90,58 +79,23 @@ public:
 
     std::string to_string() const;
 
-    PythonUDFProcessPool* pool() const { return _pool; }
+    pid_t get_child_pid() const { return _child_pid; }
+
+    bool operator==(const PythonUDFProcess& other) const { return _child_pid == other._child_pid; }
+
+    bool operator!=(const PythonUDFProcess& other) const { return !(*this == other); }
 
 private:
     constexpr static int TERMINATE_RETRY_TIMES = 10;
     constexpr static size_t MAX_ACCUMULATED_LOG_SIZE = 65536;
 
     bool _is_shutdown {false};
+    pid_t _child_pid;
     std::string _uri;
     std::string _unix_socket_file_path;
     mutable boost::process::child _child;
     boost::process::ipstream _output_stream;
     std::string _accumulated_log;
-    PythonUDFProcessPool* _pool {nullptr};
-};
-
-class PythonUDFProcessPool {
-public:
-    explicit PythonUDFProcessPool(PythonVersion version, size_t max_pool_size, size_t min_idle)
-            : _python_version(version),
-              _max_pool_size(max_pool_size),
-              _init_pool_size(min_idle),
-              _current_size(0),
-              _is_shutdown(false) {}
-
-    explicit PythonUDFProcessPool(PythonVersion version)
-            : _python_version(version),
-              _max_pool_size(16),
-              _init_pool_size(4),
-              _current_size(0),
-              _is_shutdown(false) {}
-
-    Status init();
-
-    Status borrow_process(ProcessPtr* process);
-
-    void return_process(ProcessPtr process);
-
-    void shutdown();
-
-    const PythonVersion& get_python_version() const { return _python_version; }
-
-private:
-    PythonVersion _python_version;
-    size_t _max_pool_size;
-    size_t _init_pool_size;
-    size_t _current_size;
-    bool _is_shutdown;
-    std::queue<ProcessPtr> _idle_processes;
-    // protect _idle_processes, _is_shutdown and _current_size
-    mutable std::mutex _mtx;
-    // condition variable to notify waiting threads when a process is returned
-    std::condition_variable _cv;
 };
 
 } // namespace doris
