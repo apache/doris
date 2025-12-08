@@ -345,6 +345,110 @@ suite("test_query_remote_doris_as_olap_table_select", "p0,external,doris,externa
             join `${catalog_name}`.`${db_name}`.`right_remote_table_partition` b on a.`log_type` = b.`log_type` and a.`log_time` = b.`log_time` and b.log_time='2023-01-02' order by a.`log_type`
     """
 
+    // test json and variant data type
+    sql """
+        CREATE TABLE `${db_name}`.`remote_json_variant` (
+            id          INT     NOT NULL,
+            c_json      JSON    ,
+            c_variant    VARIANT<'id' : INT,'message*' : STRING,    'tags*' : ARRAY<TEXT>>
+        )
+        DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+        );
+    """
+    sql """
+        INSERT INTO `${db_name}`.`remote_json_variant` VALUES
+        (1,'{"id":1,"message":"hello"}','{"id":1,"message":"hello","tags":["tag1","tag2"]}'),
+        (2,'{"id":2,"message":"world"}','{"id":2,"message":"world","tags":["tag3","tag4"]}'),
+        (3,'{"id":3,"message":"doris"}','{"id":3,"message":"doris","tags":["tag5","tag6"]}');
+    """
+    qt_json_variant """
+        select /*+ SET_VAR(enable_nereids_distribute_planner=true, enable_sql_cache=true) */ id, c_json, c_variant from `${catalog_name}`.`${db_name}`.`remote_json_variant` order by id
+    """
+    qt_json_variant_function """
+        select /*+ SET_VAR(enable_nereids_distribute_planner=true, enable_sql_cache=true) */ id,
+        JSON_EXTRACT_INT(c_json, '\$.id') as json_id, cast(c_variant['message'] as string) as v_msg from `${catalog_name}`.`${db_name}`.`remote_json_variant` order by id
+    """
+
+    // test unique table
+    sql """
+        CREATE TABLE `${db_name}`.`left_inner_unique` (
+          log_type        INT            NOT NULL,
+          reason       VARCHAR(1024) NULL
+        ) ENGINE=OLAP
+        UNIQUE KEY(`log_type`)
+        DISTRIBUTED BY HASH(`log_type`) BUCKETS 1
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1"
+        );
+    """
+    sql """
+        INSERT INTO `${db_name}`.`left_inner_unique` VALUES
+        (1,'reason1'),
+        (2,'reason2'),
+        (3,'reason3');
+    """
+
+    sql """
+        CREATE TABLE `${db_name}`.`right_remote_table_unique` (
+          log_time        DATE       NOT NULL,
+          log_type        INT            NOT NULL,
+          error_code      INT,
+          error_msg       VARCHAR(1024),
+          op_id           BIGINT,
+          op_time         DATETIME
+        ) ENGINE=OLAP
+        UNIQUE KEY(log_time, log_type, error_code)
+        DISTRIBUTED BY HASH(`log_type`) BUCKETS 1
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1"
+        );
+    """
+    sql """
+        INSERT INTO `${db_name}`.`right_remote_table_unique` VALUES
+        ('2023-01-01',1,100,'error1',1000,'2023-01-01 00:00:00'),
+        ('2023-01-02',2,200,'error2',2000,'2023-01-02 00:00:00'),
+        ('2023-01-03',3,300,'error3',3000,'2023-01-03 00:00:00');
+    """
+    qt_join_unique """
+        select /*+ SET_VAR(enable_nereids_distribute_planner=true, enable_sql_cache=true) */ * from `${db_name}`.`left_inner_unique` a
+            join `${catalog_name}`.`${db_name}`.`right_remote_table_unique` b on a.`log_type` = b.`log_type` and b.op_id=2000 order by a.`log_type`
+    """
+
+    // test aggregate table
+
+    sql """
+        CREATE TABLE `${db_name}`.`right_remote_table_aggregate` (
+          log_type        INT            NOT NULL,
+          count           BIGINT SUM
+        ) ENGINE=OLAP
+        AGGREGATE KEY(log_type)
+        DISTRIBUTED BY HASH(`log_type`) BUCKETS 1
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1"
+        );
+    """
+    sql """
+        INSERT INTO `${db_name}`.`right_remote_table_aggregate` VALUES
+        (1,100),
+        (1,150),
+        (2,200),
+        (2,250),
+        (3,300),
+        (3,350),
+        (4,400);
+     """
+     qt_aggregate """
+        select /*+ SET_VAR(enable_nereids_distribute_planner=true, enable_sql_cache=true) */ log_type, sum(count) as count from `${catalog_name}`.`${db_name}`.`right_remote_table_aggregate` group by log_type order by log_type
+    """
+
+    qt_join_aggregate """
+        select /*+ SET_VAR(enable_nereids_distribute_planner=true, enable_sql_cache=true) */ b.`log_type`, sum(b.`count`) as count from `${db_name}`.`left_inner_unique` a
+            join `${catalog_name}`.`${db_name}`.`right_remote_table_aggregate` b on a.`log_type` = b.`log_type` group by b.`log_type` order by b.`log_type`
+    """
+
     sql """ DROP DATABASE IF EXISTS ${db_name} """
     sql """ DROP CATALOG IF EXISTS `${catalog_name}` """
 }
