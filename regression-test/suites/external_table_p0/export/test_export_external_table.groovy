@@ -212,7 +212,7 @@ suite("test_export_external_table", "p0,external,mysql,external_docker,external_
 
             waiting_export.call(catalog_name, ex_db_name, label)
 
-            def export_res = sql """show export where label='${label}'"""
+            def export_res = sql """show export from ${catalog_name}.${ex_db_name} where label='${label}'"""
             logger.info("get external export res ${export_res}")
             def outfileinfo = export_res[0][11];
             logger.info("get external export outfile info ${outfileinfo}")
