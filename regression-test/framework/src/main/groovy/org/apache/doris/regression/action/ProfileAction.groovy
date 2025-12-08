@@ -99,7 +99,7 @@ class ProfileAction implements SuiteAction {
             def profileText = jsonSlurper2.parseText(profileResp).data
             // Convert HTML entities and actual NBSPs to regular spaces, 
             // retain line breaks, and then compress multiple consecutive spaces into a single space
-            profileText = profileText.replace("&nbsp;", "")
+            profileText = profileText.replace("&nbsp;", " ")
             profileText = profileText.replace("</br>", "\n")
             // Replace the actual NBSP characters with regular spaces
             profileText = profileText.replace('\u00A0' as char, ' ' as char)
