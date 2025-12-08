@@ -42,6 +42,11 @@ under the License.
             <version>2.12.0</version>
         </dependency>
         <dependency>
+            <groupId>org.apache.parquet</groupId>
+            <artifactId>parquet-hadoop-bundle</artifactId>
+            <version>${parquet.version}</version>
+        </dependency>
+        <dependency>
             <groupId>org.apache.doris</groupId>
             <artifactId>java-common</artifactId>
             <version>${project.version}</version>
