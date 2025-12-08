@@ -41,6 +41,8 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.PlanConstructor;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.ColumnStatisticBuilder;
 import org.apache.doris.statistics.Statistics;
@@ -317,4 +319,39 @@ public class StatsCalculatorTest {
         Assertions.assertEquals(1, slot1Stats.ndv, 0.1);
         Assertions.assertEquals(0, slot1Stats.numNulls, 0.1);
     }
+
+    @Test
+    public void testOlapScanWithPlanWithUnknownColumnStats() {
+        boolean prevFlag = false;
+        if (ConnectContext.get() != null) {
+            prevFlag = ConnectContext.get().getState().isPlanWithUnKnownColumnStats();
+            ConnectContext.get().getState().setPlanWithUnKnownColumnStats(true);
+        }
+        try {
+            long tableId1 = 100;
+            OlapTable table1 = PlanConstructor.newOlapTable(tableId1, "t_unknown", 0);
+            List<String> qualifier = ImmutableList.of("test", "t");
+            SlotReference slot1 = new SlotReference(new ExprId(0), "c1", IntegerType.INSTANCE, true, qualifier,
+                    table1, new Column("c1", PrimitiveType.INT),
+                    table1, new Column("c1", PrimitiveType.INT));
+
+            LogicalOlapScan logicalOlapScan1 = (LogicalOlapScan) new LogicalOlapScan(
+                    StatementScopeIdGenerator.newRelationId(), table1,
+                    Collections.emptyList()).withGroupExprLogicalPropChildren(Optional.empty(),
+                    Optional.of(new LogicalProperties(() -> ImmutableList.of(slot1), () -> DataTrait.EMPTY_TRAIT)), ImmutableList.of());
+
+            GroupExpression groupExpression = new GroupExpression(logicalOlapScan1, ImmutableList.of());
+            Group ownerGroup = new Group(null, groupExpression, null);
+            StatsCalculator.estimate(groupExpression, null);
+            Statistics stats = ownerGroup.getStatistics();
+            Assertions.assertEquals(1, stats.columnStatistics().size());
+            ColumnStatistic colStat = stats.columnStatistics().get(slot1);
+            Assertions.assertTrue(colStat.isUnKnown);
+        } finally {
+            if (ConnectContext.get() != null) {
+                ConnectContext.get().getState().setPlanWithUnKnownColumnStats(prevFlag);
+            }
+        }
+    }
+
 }
