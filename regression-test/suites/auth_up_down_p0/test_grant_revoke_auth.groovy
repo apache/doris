@@ -70,6 +70,6 @@ suite("test_upgrade_downgrade_compatibility_auth","p0,auth,restart_fe") {
     // resource group
     connect(user1, "${pwd}", context.config.jdbcUrl) {
         def res = sql """SHOW RESOURCES;"""
-        assertTrue(res.size == 10)
+        assertTrue(res.size() == 10)
     }
 }

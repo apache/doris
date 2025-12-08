@@ -1617,7 +1617,7 @@ suite("test_stream_load", "p0") {
   
    log.info(sql_result[0][0].toString())
    log.info(sql_result[0][1].toString())
-   log.info(sql_result[0].size.toString())
+   log.info(sql_result[0].size().toString())
 
    def beHost=sql_result[0][0]
    def beHttpPort=sql_result[0][1]
