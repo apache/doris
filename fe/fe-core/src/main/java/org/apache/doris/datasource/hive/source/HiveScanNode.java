@@ -360,10 +360,8 @@ public class HiveScanNode extends FileQueryScanNode {
             if (fileCacheValue.getFiles() != null) {
                 boolean isSplittable = fileCacheValue.isSplittable();
                 for (HiveMetaStoreCache.HiveFileStatus status : fileCacheValue.getFiles()) {
-                    // Use the adjusted split size, but still respect individual file's block size
-                    long finalSplitSize = Math.max(adjustedSplitSize, getRealFileSplitSize(status.getBlockSize()));
                     allFiles.addAll(FileSplitter.splitFile(status.getPath(),
-                            finalSplitSize,
+                            adjustedSplitSize,
                             status.getBlockLocations(), status.getLength(), status.getModificationTime(),
                             isSplittable, fileCacheValue.getPartitionValues(),
                             new HiveSplitCreator(fileCacheValue.getAcidInfo())));
@@ -390,10 +388,8 @@ public class HiveScanNode extends FileQueryScanNode {
 
         // Split files using the adjusted split size
         for (HiveMetaStoreCache.HiveFileStatus status : hiveFileStatuses) {
-            // Use the adjusted split size, but still respect individual file's block size
-            long finalSplitSize = Math.max(adjustedSplitSize, getRealFileSplitSize(status.getBlockSize()));
             allFiles.addAll(FileSplitter.splitFile(status.getPath(),
-                    finalSplitSize,
+                    adjustedSplitSize,
                     status.getBlockLocations(), status.getLength(), status.getModificationTime(),
                     status.isSplittable(), status.getPartitionValues(),
                     new HiveSplitCreator(status.getAcidInfo())));
