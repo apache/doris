@@ -3699,51 +3699,51 @@ public class Config extends ConfigBase {
     public static int first_error_msg_max_length = 256;
 
     @ConfField(mutable = false, description = {
-        "",
-        ""
+        "是否启用文件缓存准入控制",
+        "Whether to enable file cache admission control"
     })
     public static boolean enable_file_cache_admission_control = false;
 
     @ConfField(mutable = false, description = {
-        "",
-        ""
+        "存储准入规则的外部MySQL数据库主机地址",
+        "External MySQL database host address for storing admission rules"
     })
     public static String file_cache_admission_control_mysql_host = "localhost";
 
     @ConfField(mutable = false, description = {
-        "",
-        ""
+        "存储准入规则的外部MySQL数据库端口",
+        "External MySQL database port for storing admission rules"
     })
     public static int file_cache_admission_control_mysql_port = 3306;
 
     @ConfField(mutable = false, description = {
-        "",
-        ""
+        "存储准入规则的外部MySQL数据库名",
+        "External MySQL database name for storing admission rules"
+    })
+    public static String file_cache_admission_control_mysql_database = "file_cache_admission_control";
+
+    @ConfField(mutable = false, description = {
+        "连接外部MySQL的用户名",
+        "Username for external MySQL connection"
     })
     public static String file_cache_admission_control_mysql_user = "root";
 
     @ConfField(mutable = false, description = {
-        "",
-        ""
+        "连接外部MySQL的密码",
+        "Password for external MySQL connection"
     })
     public static String file_cache_admission_control_mysql_password = "";
 
-    @ConfField(mutable = false, description = {
-        "",
-        ""
-    })
-    public static String file_cache_admission_control_mysql_database = "file_cache_admission_control";
-
     @ConfField(mutable = true, description = {
-        "",
-        ""
+        "准入策略自动刷新间隔（秒），设置为0关闭自动刷新",
+        "Auto-refresh interval for admission policies (seconds). Set to 0 to disable auto refresh"
     })
     public static int file_cache_admission_control_fresh_interval_s = 300;
 
 
     @ConfField(mutable = true, description = {
-        "",
-        ""
+        "当没有匹配的准入规则时的默认行为：true=允许，false=拒绝",
+        "Default behavior when no matching admission rule is found: true=allow, false=deny"
     })
     public static boolean file_cache_admission_control_default_allow = false;
 
