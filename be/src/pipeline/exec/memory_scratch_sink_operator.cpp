@@ -34,7 +34,7 @@ Status MemoryScratchSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
     SCOPED_TIMER(_init_timer);
     _get_arrow_schema_timer = ADD_TIMER(Base::profile(), "GetArrowSchemaTime");
     _convert_block_to_arrow_batch_timer =
-            ADD_TIMER(rBase::profile(), "ConvertBlockToArrowBatchTime");
+            ADD_TIMER(Base::profile(), "ConvertBlockToArrowBatchTime");
     _evaluation_timer = ADD_TIMER(Base::profile(), "EvaluationTime");
     // create queue
     state->exec_env()->result_queue_mgr()->create_queue(state->fragment_instance_id(), &_queue);
