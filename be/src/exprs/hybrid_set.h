@@ -417,7 +417,7 @@ public:
         std::vector<ElementType> elems(_set.begin(), _set.end());
         std::sort(elems.begin(), elems.end());
         if constexpr (std::is_same<ElementType, bool>::value) {
-            for (const auto& v : elems) {
+            for (bool v : elems) {
                 seed = HashUtil::crc_hash64(&v, sizeof(v), seed);
             }
         } else {
