@@ -43,10 +43,13 @@ suite("test_mow_table_with_format_v2", "inverted_index_format_v2") {
     def calc_segment_count = { tablet ->
         int segment_count = 0
         String tablet_id = tablet.TabletId
-        StringBuilder sb = new StringBuilder();
-        sb.append("curl -X GET ")
-        sb.append(tablet.CompactionStatus)
-        String command = sb.toString()
+
+        Boolean enableTls = (context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false
+        String command = "curl -X GET " + tablet.CompactionStatus
+        if (enableTls) {
+            command = command.replace("http://", "https://") + " --cert " + context.config.otherConfigs.get("trustCert") + " --cacert " + context.config.otherConfigs.get("trustCACert") + " --key " + context.config.otherConfigs.get("trustCAKey")
+        }
+        logger.info("command: ${command}")
         // wait for cleaning stale_rowsets
         def process = command.execute()
         def code = process.waitFor()
@@ -70,22 +73,31 @@ suite("test_mow_table_with_format_v2", "inverted_index_format_v2") {
         def backendId_to_backendIP = [:]
         def backendId_to_backendHttpPort = [:]
         getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
-
         backend_id = backendId_to_backendIP.keySet()[0]
-        StringBuilder showConfigCommand = new StringBuilder();
-        showConfigCommand.append("curl -X GET http://")
-        showConfigCommand.append(backendId_to_backendIP.get(backend_id))
-        showConfigCommand.append(":")
-        showConfigCommand.append(backendId_to_backendHttpPort.get(backend_id))
-        showConfigCommand.append("/api/show_config")
-        logger.info(showConfigCommand.toString())
-        def process = showConfigCommand.toString().execute()
-        int code = process.waitFor()
-        String err = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())));
-        String out = process.getText()
-        logger.info("Show config: code=" + code + ", out=" + out + ", err=" + err)
-        assertEquals(code, 0)
-        def configList = parseJson(out.trim())
+
+        Boolean enableTls = (context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false
+        def protocol = enableTls ? "https" : "http"
+        def cmd = [
+            "curl", "-X", "GET",
+            "${protocol}://${backendId_to_backendIP.get(backend_id)}:${backendId_to_backendHttpPort.get(backend_id)}/api/show_config"
+        ]
+
+        if (enableTls) {
+            cmd << "--cert" << context.config.otherConfigs.get("trustCert")
+            cmd << "--key" << context.config.otherConfigs.get("trustCAKey")
+            cmd << "--cacert" << context.config.otherConfigs.get("trustCACert")
+        }
+
+        logger.info("Executing command: ${cmd.join(' ')}")
+
+        def process = cmd.execute()
+        def output = new StringBuffer()
+        def errorOutput = new StringBuffer()
+        process.consumeProcessOutput(output, errorOutput)
+        int exitCode = process.waitFor()
+        logger.info("Show config: code=" + exitCode + ", out=" + output + ", err=" + errorOutput)
+        assertEquals(exitCode, 0)
+        def configList = parseJson(output.toString().trim())
         assert configList instanceof List
 
         boolean disableAutoCompaction = true
@@ -172,6 +184,9 @@ suite("test_mow_table_with_format_v2", "inverted_index_format_v2") {
             String ip = backendId_to_backendIP.get(backend_id)
             String port = backendId_to_backendHttpPort.get(backend_id)
             be_show_tablet_status(ip, port, tablet_id)
+            def code
+            def out
+            def err
             (code, out, err) = be_show_tablet_status(ip, port, tablet_id)
             logger.info("Run show: code=" + code + ", out=" + out + ", err=" + err)
             assertTrue(out.contains("[0-1]"))
