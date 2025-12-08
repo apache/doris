@@ -240,6 +240,7 @@ TEST(DetachSchemaKVTest, TabletTest) {
         brpc::Controller cntl;
         CreateTabletsRequest req;
         CreateTabletsResponse res;
+        req.set_db_id(1);
         add_tablet(req, 10031, 10032, 10033, 100031, next_rowset_id(), 1);
         add_tablet(req, 10031, 10032, 10033, 100032, next_rowset_id(), 2);
         add_tablet(req, 10031, 10032, 10033, 100033, next_rowset_id(), 2);
