@@ -48,7 +48,7 @@ public:
                               : nullptr) {}
     ~SharedPredicate() override = default;
     std::string debug_string() const override {
-        std::shared_lock<std::shared_mutex> lock(_mtx);
+        std::shared_lock<std::shared_mutex> lock(*_mtx);
         fmt::memory_buffer debug_string_buffer;
         fmt::format_to(debug_string_buffer, "SharedPredicate({}, nested={})",
                        ColumnPredicate::debug_string(), _nested ? _nested->debug_string() : "null");
