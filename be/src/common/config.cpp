@@ -1094,14 +1094,6 @@ DEFINE_String(python_conda_root_path, "");
 DEFINE_String(python_venv_root_path, "${DORIS_HOME}/lib/udf/python");
 // python interpreter paths used by venv, e.g. /usr/bin/python3.7:/usr/bin/python3.6
 DEFINE_String(python_venv_interpreter_paths, "");
-// python deps index url
-DEFINE_String(python_deps_index_url, "https://pypi.org/simple/");
-// min number of python process
-DEFINE_Int32(min_python_process_nums, "16");
-// max number of python process
-DEFINE_Int32(max_python_process_nums, "256");
-// timeout in milliseconds when waiting for available python process
-DEFINE_Int32(python_process_pool_wait_timeout_ms, "30000");
 
 // Set config randomly to check more issues in github workflow
 DEFINE_Bool(enable_fuzzy_mode, "false");

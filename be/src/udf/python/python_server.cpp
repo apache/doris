@@ -21,10 +21,10 @@
 #include <dirent.h>
 #include <fmt/core.h>
 #include <sys/poll.h>
+#include <sys/stat.h>
 
 #include <boost/asio.hpp>
 #include <boost/process.hpp>
-#include <memory>
 
 #include "common/config.h"
 #include "udf/python/python_udaf_client.h"
@@ -33,51 +33,62 @@
 
 namespace doris {
 
-Status PythonServerManager::init(const std::vector<PythonVersion>& versions) {
-    std::lock_guard<std::mutex> lock(_pools_mutex);
-    for (const auto& version : versions) {
-        if (_pools.find(version) != _pools.end()) continue;
-        PythonUDFProcessPoolPtr new_pool = std::make_unique<PythonUDFProcessPool>(
-                version, config::max_python_process_nums, config::min_python_process_nums);
-        RETURN_IF_ERROR(new_pool->init());
-        _pools[version] = std::move(new_pool);
-    }
-    return Status::OK();
-}
+thread_local std::unordered_map<PythonVersion, ProcessPtr> PythonServerManager::_processes;
+std::vector<ShutdownCallback> PythonServerManager::_shutdown_callbacks;
+std::mutex PythonServerManager::_callbacks_mutex;
 
 template <typename T>
 Status PythonServerManager::get_client(const PythonUDFMeta& func_meta, const PythonVersion& version,
                                        std::shared_ptr<T>* client) {
-    PythonUDFProcessPoolPtr* pool = nullptr;
-    {
-        std::lock_guard<std::mutex> lock(_pools_mutex);
-        if (_pools.find(version) == _pools.end()) {
-            PythonUDFProcessPoolPtr new_pool = std::make_unique<PythonUDFProcessPool>(
-                    version, config::max_python_process_nums, config::min_python_process_nums);
-            RETURN_IF_ERROR(new_pool->init());
-            _pools[version] = std::move(new_pool);
-        }
-        pool = &_pools[version];
-    }
+    // Ensure thread-local shutdown callback is registered (called once per thread)
+    static thread_local std::once_flag register_flag;
+    std::call_once(register_flag, []() {
+        instance().register_thread_shutdown([&processes = _processes]() {
+            if (processes.empty()) return;
+            for (auto& [version, process] : processes) {
+                if (process) {
+                    process->shutdown();
+                    LOG(INFO) << "Shutdown Python process for version " << version.to_string()
+                              << " in thread " << std::this_thread::get_id();
+                }
+            }
+            processes.clear();
+        });
+    });
+
     ProcessPtr process;
-    RETURN_IF_ERROR((*pool)->borrow_process(&process));
+    RETURN_IF_ERROR(get_process(version, &process));
     RETURN_IF_ERROR(T::create(func_meta, std::move(process), client));
     return Status::OK();
 }
 
-Status PythonServerManager::fork(PythonUDFProcessPool* pool, ProcessPtr* process) {
-    DCHECK(pool != nullptr);
-    const PythonVersion& version = pool->get_python_version();
-    // e.g. /usr/local/python3.7/bin/python3
+Status PythonServerManager::get_process(const PythonVersion& version, ProcessPtr* process) {
+    // Check if process already exists for this thread and version
+    auto it = _processes.find(version);
+    if (it != _processes.end() && it->second && it->second->is_alive()) {
+        // Process exists and is alive, return shared ownership
+        *process = it->second;
+        return Status::OK();
+    }
+
+    ProcessPtr new_process;
+    RETURN_IF_ERROR(fork(version, &new_process));
+    _processes[version] = new_process;
+    *process = new_process;
+
+    LOG(INFO) << "Created thread-local Python process for version " << version.to_string()
+              << ", thread_id: " << std::this_thread::get_id();
+
+    return Status::OK();
+}
+
+Status PythonServerManager::fork(const PythonVersion& version, ProcessPtr* process) {
     std::string python_executable_path = version.get_executable_path();
-    // e.g. /{DORIS_HOME}/plugins/python_udf/python_server.py
     std::string fight_server_path = get_fight_server_path();
-    // e.g. grpc+unix:///home/doris/output/be/lib/udf/python/python_udf
     std::string base_unix_socket_path = get_base_unix_socket_path();
-    std::vector<std::string> args = {"-u", // unbuffered output
-                                     fight_server_path, base_unix_socket_path};
+    std::vector<std::string> args = {"-u", fight_server_path, base_unix_socket_path};
     boost::process::environment env = boost::this_process::environment();
-    boost::process::ipstream child_output; // input stream from child
+    boost::process::ipstream child_output;
 
     try {
         boost::process::child c(
@@ -89,41 +100,36 @@ Status PythonServerManager::fork(PythonUDFProcessPool* pool, ProcessPtr* process
                     }
                 }));
 
-        std::string log_line;
-        std::string full_log;
+        // Wait for socket file to be created (indicates server is ready)
+        std::string expected_socket_path = get_unix_socket_file_path(c.id());
         bool started_successfully = false;
         std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
         const auto timeout = std::chrono::milliseconds(5000);
 
         while (std::chrono::steady_clock::now() - start < timeout) {
-            if (std::getline(child_output, log_line)) {
-                full_log += log_line + "\n";
-                LOG(INFO) << fmt::format("Start python server, log_line: {}, full_log: {}",
-                                         log_line, full_log);
-                if (log_line == PYTHON_SERVER_START_SUCCESS_MSG) {
-                    started_successfully = true;
-                    break;
-                }
-            } else {
-                if (!c.running()) {
-                    break;
-                }
-                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            struct stat buffer;
+            if (stat(expected_socket_path.c_str(), &buffer) == 0) {
+                started_successfully = true;
+                break;
             }
+
+            if (!c.running()) {
+                break;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
 
         if (!started_successfully) {
             if (c.running()) {
-                c.terminate(); // terminate() sends SIGTERM on Unix
-                c.wait();      // wait for exit to avoid zombie processes
+                c.terminate();
+                c.wait();
             }
-
-            std::string error_msg = full_log.empty() ? "No output from Python server" : full_log;
-            LOG(ERROR) << "Python server start failed:\n" << error_msg;
-            return Status::InternalError("python server start failed:\n{}", error_msg);
+            return Status::InternalError("Python server start failed: socket file not found at {}",
+                                         expected_socket_path);
         }
 
-        *process = std::make_unique<PythonUDFProcess>(std::move(c), std::move(child_output), pool);
+        *process = std::make_shared<PythonUDFProcess>(std::move(c), std::move(child_output));
+
     } catch (const std::exception& e) {
         return Status::InternalError("Failed to start Python UDF server: {}", e.what());
     }
@@ -131,13 +137,23 @@ Status PythonServerManager::fork(PythonUDFProcessPool* pool, ProcessPtr* process
     return Status::OK();
 }
 
+void PythonServerManager::register_thread_shutdown(ShutdownCallback&& callback) {
+    std::lock_guard<std::mutex> lock(_callbacks_mutex);
+    _shutdown_callbacks.push_back(std::move(callback));
+}
+
 void PythonServerManager::shutdown() {
-    std::lock_guard lock(_pools_mutex);
-    for (auto& pool : _pools) {
-        pool.second->shutdown();
+    LOG(INFO) << "Shutting down all Python UDF processes across " << _shutdown_callbacks.size()
+              << " threads";
+    {
+        std::lock_guard<std::mutex> lock(_callbacks_mutex);
+        // Execute all registered shutdown callbacks
+        for (auto& callback : _shutdown_callbacks) {
+            callback();
+        }
+        _shutdown_callbacks.clear();
     }
-    _pools.clear();
-    LOG(INFO) << "Python UDF server manager shutdown successfully";
+    LOG(INFO) << "All Python UDF processes shut down successfully";
 }
 
 // Explicit template instantiation for UDF, UDAF and UDTF clients

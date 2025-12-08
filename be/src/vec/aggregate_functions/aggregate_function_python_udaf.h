@@ -35,16 +35,14 @@ namespace doris::vectorized {
  * Python UDAF state is managed remotely (in Python server).
  * We cache serialized state for shuffle/merge operations (similar to Java UDAF).
  * 
- * All places within the same AggregatePythonUDAF share a single
- * PythonUDAFClient (one Python process), distinguished by place_id.
- * This is similar to Java UDAF's design where all places share one UdafExecutor.
+ * Each worker thread gets its own PythonUDAFClient (thread-local),
+ * enabling parallel execution across multiple threads.
  * 
- * The client pointer is set during create() and points to the shared client
- * owned by AggregatePythonUDAF. This data structure does NOT own the client.
+ * The client is shared from thread-local cache, ensuring safe lifetime management.
  */
 struct AggregatePythonUDAFData {
-    mutable std::string serialize_data; // Cached serialized state
-    PythonUDAFClient* client = nullptr; // Pointer to shared client (not owned)
+    mutable std::string serialize_data;   // Cached serialized state
+    PythonUDAFClientPtr client = nullptr; // Shared ownership of thread-local client
 
     AggregatePythonUDAFData() = default;
 
@@ -53,9 +51,6 @@ struct AggregatePythonUDAFData {
             : serialize_data(other.serialize_data), client(other.client) {}
 
     ~AggregatePythonUDAFData() = default;
-
-    // Set client pointer (called once during create)
-    void set_client(PythonUDAFClient* cli) { client = cli; }
 
     // All methods use the member client pointer
     Status create(int64_t place);
@@ -97,20 +92,9 @@ public:
 
     AggregatePythonUDAF(const TFunction& fn, const DataTypes& argument_types_,
                         const DataTypePtr& return_type)
-            : IAggregateFunctionDataHelper(argument_types_),
-              _fn(fn),
-              _return_type(return_type),
-              _client_initialized(false) {}
+            : IAggregateFunctionDataHelper(argument_types_), _fn(fn), _return_type(return_type) {}
 
-    ~AggregatePythonUDAF() override {
-        // Clean up shared client when aggregate function is destroyed
-        if (_shared_client) {
-            Status st = _shared_client->close();
-            if (!st.ok()) {
-                LOG(WARNING) << "Failed to close shared Python UDAF client: " << st.to_string();
-            }
-        }
-    }
+    ~AggregatePythonUDAF() override = default;
 
     static AggregateFunctionPtr create(const TFunction& fn, const DataTypes& argument_types_,
                                        const DataTypePtr& return_type) {
@@ -189,26 +173,23 @@ public:
 
 private:
     /**
-     * Initialize shared client (called lazily on first create())
+     * Get or create thread-local client for current thread and function
+     * Uses thread_local static cache indexed by PythonUDFMeta
+     * Leverages PythonServerManager's thread-local process pool
+     * Returns shared_ptr to ensure lifetime safety
      */
-    Status _init_shared_client() const;
-
-    /**
-     * Get the shared client, initializing if necessary
-     */
-    PythonUDAFClient* _get_shared_client() const;
+    PythonUDAFClientPtr _get_client() const;
 
     TFunction _fn;
     DataTypePtr _return_type;
-
-    // Function metadata initialized in open()
     PythonUDFMeta _func_meta;
     PythonVersion _python_version;
 
-    // Shared client for all places (similar to Java UDAF's _exec_place)
-    mutable PythonUDAFClientPtr _shared_client;
-    mutable bool _client_initialized;
-    mutable std::mutex _client_init_mutex;
+    // Cached Arrow schema and timezone for performance
+    // These are computed once during open() and reused for all batches
+    mutable std::shared_ptr<arrow::Schema> _cached_arrow_schema;
+    mutable cctz::time_zone _cached_timezone;
+    mutable std::once_flag _cache_init_flag;
 };
 
 } // namespace doris::vectorized

@@ -20,6 +20,7 @@
 #include "arrow/flight/client.h"
 #include "arrow/flight/server.h"
 #include "common/compiler_util.h"
+#include "common/config.h"
 #include "common/status.h"
 #include "udf/python/python_udf_meta.h"
 #include "udf/python/python_udf_runtime.h"
@@ -86,11 +87,7 @@ Status PythonClient::close() {
     _arrow_client.reset();
     _writer.reset();
     _reader.reset();
-
-    // Return process to pool if available
-    if (auto* pool = _process->pool(); pool) {
-        pool->return_process(std::move(_process));
-    }
+    _process.reset();
 
     return Status::OK();
 }
@@ -101,7 +98,6 @@ Status PythonClient::handle_error(arrow::Status status) {
     // Clean up resources
     _writer.reset();
     _reader.reset();
-    _process->shutdown();
 
     // Extract and clean error message
     std::string msg = status.message();
@@ -117,7 +113,7 @@ Status PythonClient::handle_error(arrow::Status status) {
 }
 
 Status PythonClient::check_process_alive() const {
-    if (UNLIKELY(!_process->is_alive())) {
+    if (UNLIKELY(!_process || !_process->is_alive())) {
         return Status::RuntimeError("{} process is not alive", _operation_name);
     }
     return Status::OK();
@@ -150,7 +146,6 @@ Status PythonClient::read_batch(std::shared_ptr<arrow::RecordBatch>* output) {
 
     arrow::flight::FlightStreamChunk chunk = std::move(*read_res);
     if (!chunk.data) {
-        _process->shutdown();
         return Status::InternalError("Received null RecordBatch from {} server", _operation_name);
     }
 

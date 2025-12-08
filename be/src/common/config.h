@@ -1123,14 +1123,6 @@ DECLARE_String(python_conda_root_path);
 DECLARE_String(python_venv_root_path);
 // python interpreter paths used by venv, e.g. /usr/bin/python3.7:/usr/bin/python3.6
 DECLARE_String(python_venv_interpreter_paths);
-// python deps index url
-DECLARE_String(python_deps_index_url);
-// min number of python process
-DECLARE_Int32(min_python_process_nums);
-// max number of python process
-DECLARE_Int32(max_python_process_nums);
-// timeout in milliseconds when waiting for available python process
-DECLARE_Int32(python_process_pool_wait_timeout_ms);
 
 // Set config randomly to check more issues in github workflow
 DECLARE_Bool(enable_fuzzy_mode);

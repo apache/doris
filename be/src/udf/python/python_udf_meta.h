@@ -58,6 +58,17 @@ struct PythonUDFMeta {
     std::string to_string() const;
 
     Status check() const;
+
+    bool operator==(const PythonUDFMeta& other) const { return id == other.id; }
 };
 
 } // namespace doris
+
+namespace std {
+template <>
+struct hash<doris::PythonUDFMeta> {
+    size_t operator()(const doris::PythonUDFMeta& meta) const {
+        return std::hash<int64_t>()(meta.id);
+    }
+};
+} // namespace std

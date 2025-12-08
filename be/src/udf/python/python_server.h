@@ -17,16 +17,13 @@
 
 #pragma once
 
-#include <memory>
-
 #include "common/status.h"
-#include "udf/python/python_udaf_client.h"
-#include "udf/python/python_udf_client.h"
 #include "udf/python/python_udf_meta.h"
 #include "udf/python/python_udf_runtime.h"
-#include "udf/python/python_udtf_client.h"
 
 namespace doris {
+
+using ShutdownCallback = std::function<void()>;
 
 class PythonServerManager {
 public:
@@ -39,20 +36,26 @@ public:
         return instance;
     }
 
-    Status init(const std::vector<PythonVersion>& versions);
-
     template <typename T>
     Status get_client(const PythonUDFMeta& func_meta, const PythonVersion& version,
                       std::shared_ptr<T>* client);
 
-    Status fork(PythonUDFProcessPool* pool, ProcessPtr* process);
+    Status fork(const PythonVersion& version, ProcessPtr* process);
+
+    Status get_process(const PythonVersion& version, ProcessPtr* process);
+
+    void register_thread_shutdown(ShutdownCallback&& callback);
 
     void shutdown();
 
 private:
-    std::unordered_map<PythonVersion, PythonUDFProcessPoolPtr> _pools;
-    // protect _pools
-    std::mutex _pools_mutex;
+    // Thread-local storage for Python processes
+    // Each thread has its own Python process for:
+    // 1. Environment isolation (independent Python interpreter state)
+    // 2. Avoiding GIL contention (no lock competition between threads)
+    static thread_local std::unordered_map<PythonVersion, ProcessPtr> _processes;
+    static std::vector<ShutdownCallback> _shutdown_callbacks;
+    static std::mutex _callbacks_mutex;
 };
 
 } // namespace doris

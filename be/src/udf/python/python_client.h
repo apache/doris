@@ -71,7 +71,7 @@ public:
      * Get process information for debugging
      * @return Process string representation
      */
-    std::string print_process() const { return _process->to_string(); }
+    std::string print_process() const { return _process ? _process->to_string() : "null"; }
 
 protected:
     /**
