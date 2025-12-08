@@ -72,6 +72,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * FileQueryScanNode for querying the file access type of catalog, now only support
@@ -312,8 +313,32 @@ public abstract class FileQueryScanNode extends FileScanNode {
         if (isBatchMode()) {
             // File splits are generated lazily, and fetched by backends while scanning.
             // Only provide the unique ID of split source to backend.
-            splitAssignment = new SplitAssignment(
-                    backendPolicy, this, this::splitToScanRange, locationProperties, pathPartitionKeys);
+
+            Boolean fileCacheAdmission = true;
+            if (Config.enable_file_cache_admission_control) {
+                String userIdentity = ConnectContext.get().getUserIdentity();
+                String catalog = ConnectContext.get().getCurrentCatalog().getName();
+                String database = ConnectContext.get().getDatabase();
+                String table = desc.getTable().getName();
+
+                AtomicReference<String> reason = new AtomicReference<>("");
+
+                long startTime = System.nanoTime();
+
+                fileCacheAdmission = FileCacheAdmissionManager.getInstance().isAllowed(userIdentity, catalog,
+                        database, table, reason);
+
+                long endTime = System.nanoTime();
+                long duration = endTime - startTime;
+
+                LOG.info("File cache admission control cost " + duration + " ns");
+
+                addFileCacheAdmissionLog(userIdentity, fileCacheAdmission, reason.get());
+            }
+
+            splitAssignment = new SplitAssignment(backendPolicy, this, this::splitToScanRange,
+                    locationProperties, pathPartitionKeys, fileCacheAdmission);
+
             splitAssignment.init();
             if (executor != null) {
                 executor.getSummaryProfile().setGetSplitsFinishTime();
@@ -364,14 +389,19 @@ public abstract class FileQueryScanNode extends FileScanNode {
                 String database = ConnectContext.get().getDatabase();
                 String table = desc.getTable().getName();
 
-                String reason = "";
+                AtomicReference<String> reason = new AtomicReference<>("");
 
-                LOG.info("  当前用户: {}", userIdentity);
-                LOG.info("  当前Catalog: {}", catalog);
-                LOG.info("  当前Database: {}", database);
-                LOG.info("  当前Table: {}", table);
+                long startTime = System.nanoTime();
 
-                addFileCacheAdmissionLog(userIdentity, catalog, database, table, fileCacheAdmission, reason);
+                fileCacheAdmission = FileCacheAdmissionManager.getInstance().isAllowed(userIdentity, catalog,
+                    database, table, reason);
+
+                long endTime = System.nanoTime();
+                long duration = endTime - startTime;
+
+                LOG.info("File cache admission control cost " + duration + " ns");
+
+                addFileCacheAdmissionLog(userIdentity, fileCacheAdmission, reason.get());
             }
 
             if (ConnectContext.get().getExecutor() != null) {
@@ -405,14 +435,6 @@ public abstract class FileQueryScanNode extends FileScanNode {
             LOG.debug("create #{} ScanRangeLocations cost: {} ms",
                     scanRangeLocations.size(), (System.currentTimeMillis() - start));
         }
-    }
-
-    private TScanRangeLocations splitToScanRange(
-            Backend backend,
-            Map<String, String> locationProperties,
-            Split split,
-            List<String> pathPartitionKeys) throws UserException {
-        return splitToScanRange(backend, locationProperties, split, pathPartitionKeys, true);
     }
 
     private TScanRangeLocations splitToScanRange(

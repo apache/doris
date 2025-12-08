@@ -31,6 +31,7 @@ import org.apache.doris.common.lock.DeadlockMonitor;
 import org.apache.doris.common.util.JdkUtils;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.FileCacheAdmissionManager;
 import org.apache.doris.httpv2.HttpServer;
 import org.apache.doris.journal.bdbje.BDBDebugger;
 import org.apache.doris.journal.bdbje.BDBTool;
@@ -160,6 +161,10 @@ public class DorisFE {
                 serverReady.set(false);
                 gracefulShutdown();
 
+                if (Config.enable_file_cache_admission_control) {
+                    FileCacheAdmissionManager.getInstance().shutdown();
+                }
+
                 // Shutdown HTTP server after main process graceful shutdown is complete
                 if (httpServer != null) {
                     httpServer.shutdown();
@@ -220,6 +225,10 @@ public class DorisFE {
             // init catalog and wait it be ready
             Env.getCurrentEnv().initialize(args);
             Env.getCurrentEnv().waitForReady();
+
+            if (Config.enable_file_cache_admission_control) {
+                FileCacheAdmissionManager.getInstance().loadOnStartup();
+            }
 
             // init and start:
             // 1. HttpServer for HTTP Server
