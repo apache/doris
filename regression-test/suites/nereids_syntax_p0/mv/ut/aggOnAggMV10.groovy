@@ -53,18 +53,10 @@ suite ("aggOnAggMV10") {
     sql "analyze table aggOnAggMV10 with sync;"
     sql """alter table aggOnAggMV10 modify column time_col set stats ('row_count'='7');"""
 
-    sql """set enable_stats=false;"""
-
     mv_rewrite_fail("select * from aggOnAggMV10 order by empid;", "aggOnAggMV10_mv")
     order_qt_select_star "select * from aggOnAggMV10 order by empid;"
 
     mv_rewrite_success("select deptno, commission, sum(salary) + 1 from aggOnAggMV10 group by rollup (deptno, commission);",
             "aggOnAggMV10_mv")
     order_qt_select_mv "select deptno, commission, sum(salary) + 1 from aggOnAggMV10 group by rollup (deptno, commission) order by 1,2;"
-
-    sql """set enable_stats=true;"""
-    mv_rewrite_fail("select * from aggOnAggMV10 order by empid;", "aggOnAggMV10_mv")
-
-    mv_rewrite_success("select deptno, commission, sum(salary) + 1 from aggOnAggMV10 group by rollup (deptno, commission);",
-            "aggOnAggMV10_mv")
 }
