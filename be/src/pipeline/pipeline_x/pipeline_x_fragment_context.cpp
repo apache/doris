@@ -451,6 +451,15 @@ Status PipelineXFragmentContext::_create_data_sink(ObjectPool* pool, const TData
         }
         break;
     }
+    case TDataSinkType::MEMORY_SCRATCH_SINK: {
+        if (!thrift_sink.__isset.memory_scratch_sink) {
+            return Status::InternalError("Missing data buffer sink.");
+        }
+
+        _sink.reset(
+                new MemoryScratchSinkOperatorX(row_desc, next_sink_operator_id(), output_exprs));
+        break;
+    }
     case TDataSinkType::RESULT_FILE_SINK: {
         if (!thrift_sink.__isset.result_file_sink) {
             return Status::InternalError("Missing result file sink.");
