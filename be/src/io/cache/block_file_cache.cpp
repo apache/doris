@@ -2261,9 +2261,13 @@ bool BlockFileCache::try_reserve_during_async_load(size_t size,
 }
 
 void BlockFileCache::clear_need_update_lru_blocks() {
-    std::vector<FileBlockSPtr> buffer;
-    buffer.reserve(1024);
-    while (_need_update_lru_blocks.try_dequeue_bulk(buffer.data(), buffer.capacity())) {
+    constexpr size_t kBatchSize = 1024;
+    std::vector<FileBlockSPtr> buffer(kBatchSize);
+    size_t drained = 0;
+    while ((drained = _need_update_lru_blocks.try_dequeue_bulk(buffer.data(), buffer.size())) > 0) {
+        for (size_t i = 0; i < drained; ++i) {
+            buffer[i].reset();
+        }
     }
 }
 
