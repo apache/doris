@@ -120,6 +120,20 @@ public:
     }
 
 private:
+    // Build block sequence directly from OrdinalIndexReader's internal data.
+    // This is much more efficient than calling seek_at_or_before for each rowid.
+    // Complexity: O(M + num_pages) where M is the number of rowids in the bitmap,
+    // compared to O(M * log(num_pages)) for the per-rowid seek approach.
+    //
+    // Parameters:
+    //   row_bitmap: The complete bitmap of rowids to scan
+    //   ordinal_index: Ordinal index reader (must be loaded)
+    //
+    // For forward reading: first_rowid is the first rowid we need to read in each block
+    // For backward reading: first_rowid is the last rowid we need to read in each block
+    //   (since we read backwards, this is the first one we'll encounter)
+    void _build_block_sequence_from_bitmap(const roaring::Roaring& row_bitmap,
+                                           OrdinalIndexReader* ordinal_index);
     // Calculate file cache block ID from file offset
     size_t _offset_to_block_id(uint64_t offset) const { return offset / _config.block_size; }
 

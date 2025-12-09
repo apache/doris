@@ -63,6 +63,8 @@ private:
 };
 
 class OrdinalPageIndexIterator;
+class SegmentPrefetcher;
+struct BlockInfo;
 
 class OrdinalIndexReader : public MetadataAdder<OrdinalIndexReader> {
 public:
@@ -101,6 +103,7 @@ private:
 
 private:
     friend OrdinalPageIndexIterator;
+    friend SegmentPrefetcher;
 
     io::FileReaderSPtr _file_reader;
     DorisCallOnce<Status> _load_once;

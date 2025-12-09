@@ -17,6 +17,8 @@
 
 #include "olap/rowset/segment_v2/segment_prefetcher.h"
 
+#include <algorithm>
+
 #include "common/logging.h"
 #include "olap/iterators.h"
 #include "olap/rowset/segment_v2/ordinal_page_index.h"
@@ -24,6 +26,103 @@
 
 namespace doris {
 namespace segment_v2 {
+
+void SegmentPrefetcher::_build_block_sequence_from_bitmap(const roaring::Roaring& row_bitmap,
+                                                          OrdinalIndexReader* ordinal_index) {
+    // Access internal data of OrdinalIndexReader directly (as friend)
+    const auto& ordinals = ordinal_index->_ordinals; // ordinals[i] = first ordinal of page i
+    const auto& pages = ordinal_index->_pages;       // pages[i] = page pointer of page i
+    const int num_pages = ordinal_index->_num_pages;
+
+    if (num_pages == 0) {
+        return;
+    }
+
+    // Current page index we're examining
+    int page_idx = 0;
+
+    // For each page, track the first rowid we need to read
+    // For forward: the smallest rowid in this page
+    // For backward: the largest rowid in this page (first one we'll encounter when reading backwards)
+    size_t last_block_id = static_cast<size_t>(-1);
+    rowid_t current_block_first_rowid = 0;
+
+    if (_is_forward) {
+        // Forward reading: iterate bitmap in ascending order
+        for (auto it = row_bitmap.begin(); it != row_bitmap.end(); ++it) {
+            rowid_t rowid = *it;
+
+            // Advance page_idx until we find the page containing this rowid
+            // A rowid belongs to page i if: ordinals[i] <= rowid < ordinals[i+1]
+            while (page_idx < num_pages - 1 && ordinals[page_idx + 1] <= rowid) {
+                page_idx++;
+            }
+
+            // Skip if rowid is beyond all pages
+            if (page_idx >= num_pages || rowid < ordinals[page_idx]) {
+                continue;
+            }
+
+            // Calculate file cache block ID from page offset
+            size_t block_id = _offset_to_block_id(pages[page_idx].offset);
+
+            // Only add new block when block_id changes
+            if (block_id != last_block_id) {
+                // Save the previous block
+                if (last_block_id != static_cast<size_t>(-1)) {
+                    _block_sequence.emplace_back(last_block_id, current_block_first_rowid);
+                }
+                last_block_id = block_id;
+                current_block_first_rowid = rowid;
+            }
+        }
+    } else {
+        // Backward reading: we need the last rowid in each block as the "first" rowid
+        // (because when reading backwards, we encounter the largest rowid first)
+        //
+        // Strategy: iterate forward through bitmap, but for each block,
+        // keep updating current_block_first_rowid to the latest (largest) rowid in that block
+        for (auto it = row_bitmap.begin(); it != row_bitmap.end(); ++it) {
+            rowid_t rowid = *it;
+
+            // Advance page_idx until we find the page containing this rowid
+            while (page_idx < num_pages - 1 && ordinals[page_idx + 1] <= rowid) {
+                page_idx++;
+            }
+
+            // Skip if rowid is beyond all pages
+            if (page_idx >= num_pages || rowid < ordinals[page_idx]) {
+                continue;
+            }
+
+            // Calculate file cache block ID from page offset
+            size_t block_id = _offset_to_block_id(pages[page_idx].offset);
+
+            if (block_id != last_block_id) {
+                // Save the previous block with its last (largest) rowid
+                if (last_block_id != static_cast<size_t>(-1)) {
+                    _block_sequence.emplace_back(last_block_id, current_block_first_rowid);
+                }
+                last_block_id = block_id;
+            }
+            // Always update to the current (larger) rowid for backward reading
+            current_block_first_rowid = rowid;
+        }
+
+        // After collecting all blocks, reverse the sequence for backward reading
+        // so that blocks are in the order they'll be accessed
+    }
+
+    // Add the last block
+    if (last_block_id != static_cast<size_t>(-1)) {
+        _block_sequence.emplace_back(last_block_id, current_block_first_rowid);
+    }
+
+    // For backward reading, reverse the block sequence
+    if (!_is_forward && !_block_sequence.empty()) {
+        std::ranges::reverse(_block_sequence);
+    }
+}
 
 Status SegmentPrefetcher::init(const roaring::Roaring& row_bitmap,
                                std::shared_ptr<ColumnReader> column_reader,
@@ -38,51 +137,26 @@ Status SegmentPrefetcher::init(const roaring::Roaring& row_bitmap,
         return Status::OK();
     }
 
-    size_t last_block_id = static_cast<size_t>(-1);
-    rowid_t last_rowid = 0;
+    // Get ordinal index reader
+    OrdinalIndexReader* ordinal_index = nullptr;
+    RETURN_IF_ERROR(column_reader->get_ordinal_index_reader(ordinal_index, read_options.stats));
 
-    std::string msg {};
-
-    ColumnIteratorOptions iter_opts;
-    iter_opts.stats = read_options.stats;
-
-    // Iterate through all rowids in the bitmap to build block sequence
-    for (auto it = row_bitmap.begin(); it != row_bitmap.end(); ++it) {
-        rowid_t rowid = *it;
-
-        // Use ordinal index to find the page containing this rowid
-        OrdinalPageIndexIterator iter;
-        RETURN_IF_ERROR(column_reader->seek_at_or_before(rowid, &iter, iter_opts));
-        if (!iter.valid()) {
-            continue;
-        }
-
-        // Get page pointer and calculate block ID
-        const PagePointer& page_pointer = iter.page();
-        size_t block_id = _offset_to_block_id(page_pointer.offset);
-
-        // Only add new block when block_id changes
-        if (block_id != last_block_id) {
-            // Use the previous rowid as the first rowid for the previous block
-            if (last_block_id != static_cast<size_t>(-1)) {
-                _block_sequence.emplace_back(last_block_id, last_rowid);
-                msg += fmt::format("({},{}), ", last_block_id, last_rowid);
-            }
-            last_block_id = block_id;
-            last_rowid = rowid;
-        }
+    if (ordinal_index == nullptr) {
+        return Status::OK();
     }
 
-    // Add the last block
-    if (last_block_id != static_cast<size_t>(-1)) {
-        _block_sequence.emplace_back(last_block_id, last_rowid);
-        msg += fmt::format("({},{}), ", last_block_id, last_rowid);
+    // Build block sequence efficiently using direct access to ordinal index internals
+    _build_block_sequence_from_bitmap(row_bitmap, ordinal_index);
+
+    std::string msg {};
+    for (const auto& block : _block_sequence) {
+        msg += fmt::format("({},{}), ", block.block_id, block.first_rowid);
     }
 
     LOG_INFO(
-            "[verbose] SegmentPrefetcher initialized with block count={}, blocks: (block_id, "
-            "first_rowid)=[{}]",
-            _block_sequence.size(), msg);
+            "[verbose] SegmentPrefetcher initialized with block count={}, is_forward={}, blocks: "
+            "(block_id, first_rowid)=[{}]",
+            _block_sequence.size(), _is_forward, msg);
 
     return Status::OK();
 }
