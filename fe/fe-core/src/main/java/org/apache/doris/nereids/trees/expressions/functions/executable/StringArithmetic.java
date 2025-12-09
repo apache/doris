@@ -426,13 +426,13 @@ public class StringArithmetic {
     }
 
     /**
-     * Executable arithmetic functions Bin (Varchar)
+     * Executable arithmetic functions Bin (StringLike)
      */
     @ExecFunction(name = "bin")
-    public static Expression bin(VarcharLiteral first) {
+    public static Expression bin(StringLikeLiteral first) {
         String str = first.getValue();
         if (str == null || str.isEmpty()) {
-            return new VarcharLiteral("0");
+            return castStringLikeLiteral(first, "0");
         }
 
         // Skip whitespaces
@@ -459,7 +459,7 @@ public class StringArithmetic {
         if (!hasDigits) {
             num = 0;
         }
-        return new VarcharLiteral(Long.toBinaryString(num));
+        return castStringLikeLiteral(first, Long.toBinaryString(num));
     }
 
     /**
