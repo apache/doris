@@ -84,18 +84,18 @@ public abstract class PrivTable {
             return newEntry;
         }
 
-        PrivEntry existingEntry = entries.get(idx);
         if (errOnExist) {
             throw new DdlException("entry already exist");
         }
 
+        PrivEntry existingEntry = entries.get(idx);
         mergePriv(existingEntry, newEntry);
         return existingEntry;
     }
 
 
     public List<PrivEntry> getEntries() {
-        return entries;
+        return Collections.unmodifiableList(entries);
     }
 
     public void dropEntry(PrivEntry entry) {
