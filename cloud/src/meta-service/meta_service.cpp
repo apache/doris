@@ -806,7 +806,7 @@ void internal_create_tablet(const CreateTabletsRequest* request, MetaServiceCode
     if (is_versioned_write) {
         if (!request->has_db_id()) {
             code = MetaServiceCode::INVALID_ARGUMENT;
-            msg = "db_id is required for versioned write";
+            msg = "db_id is required for versioned write, please upgrade your FE version";
             return;
         }
         int64_t db_id = request->db_id();
@@ -892,11 +892,6 @@ void MetaServiceImpl::create_tablets(::google::protobuf::RpcController* controll
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "empty instance_id";
         LOG(INFO) << msg << ", cloud_unique_id=" << request->cloud_unique_id();
-        return;
-    }
-    if (config::enable_check_create_tablet_db_id && !request->has_db_id()) {
-        msg = "missing db_id for create_tablets";
-        code = MetaServiceCode::INVALID_ARGUMENT;
         return;
     }
 

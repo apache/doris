@@ -193,12 +193,6 @@ void MetaServiceImpl::commit_index(::google::protobuf::RpcController* controller
         return;
     }
 
-    if (!request->has_db_id()) {
-        code = MetaServiceCode::INVALID_ARGUMENT;
-        msg = "missing db_id for commit_index";
-        return;
-    }
-
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::CREATE>(err);
@@ -211,6 +205,13 @@ void MetaServiceImpl::commit_index(::google::protobuf::RpcController* controller
     commit_index_log.set_table_id(request->table_id());
 
     bool is_versioned_read = is_version_read_enabled(instance_id);
+    bool is_versioned_write = is_version_write_enabled(instance_id);
+    if (!request->has_db_id()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "db_id is required for versioned write, please upgrade your FE version";
+        return;
+    }
+
     CloneChainReader reader(instance_id, resource_mgr_.get());
     for (auto index_id : request->index_ids()) {
         auto key = recycle_index_key({instance_id, index_id});
@@ -259,7 +260,7 @@ void MetaServiceImpl::commit_index(::google::protobuf::RpcController* controller
         txn->remove(key);
 
         // Save the index meta/index keys
-        if (is_version_write_enabled(instance_id)) {
+        if (is_versioned_write) {
             int64_t db_id = request->db_id();
             int64_t table_id = request->table_id();
             std::string index_meta_key = versioned::meta_index_key({instance_id, index_id});
@@ -341,12 +342,6 @@ void MetaServiceImpl::drop_index(::google::protobuf::RpcController* controller,
         return;
     }
 
-    if (!request->has_db_id()) {
-        code = MetaServiceCode::INVALID_ARGUMENT;
-        msg = "missing db_id for drop_index";
-        return;
-    }
-
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::CREATE>(err);
@@ -367,6 +362,13 @@ void MetaServiceImpl::drop_index(::google::protobuf::RpcController* controller,
     bool need_commit = false;
     bool is_versioned_write = is_version_write_enabled(instance_id);
     bool is_versioned_read = is_version_read_enabled(instance_id);
+
+    if (is_versioned_write && !request->has_db_id()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "missing db_id for versioned write, please upgrade your FE version";
+        return;
+    }
+
     DropIndexLogPB drop_index_log;
     drop_index_log.set_db_id(request->db_id());
     drop_index_log.set_table_id(request->table_id());
@@ -615,12 +617,6 @@ void MetaServiceImpl::commit_partition(::google::protobuf::RpcController* contro
         return;
     }
 
-    if (!request->has_db_id()) {
-        code = MetaServiceCode::INVALID_ARGUMENT;
-        msg = "missing db_id for commit_partition";
-        return;
-    }
-
     constexpr size_t BATCH_COMMIT_SIZE = 1000;
     for (size_t i = 0; i < request->partition_ids_size(); i += BATCH_COMMIT_SIZE) {
         std::vector<int64_t> partition_ids;
@@ -666,6 +662,12 @@ void MetaServiceImpl::commit_partition_internal(const PartitionRequest* request,
 
     bool is_versioned_read = is_version_read_enabled(instance_id);
     bool is_versioned_write = is_version_write_enabled(instance_id);
+    if (is_versioned_write && !request->has_db_id()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "missing db_id for versioned write, please upgrade your FE version";
+        return;
+    }
+
     CloneChainReader reader(instance_id, resource_mgr_.get());
     size_t num_commit = 0;
     for (auto part_id : partition_ids) {

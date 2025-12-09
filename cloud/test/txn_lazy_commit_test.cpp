@@ -72,7 +72,6 @@ int main(int argc, char** argv) {
 
     config::label_keep_max_second = 0;
     config::force_immediate_recycle = true;
-    config::enable_check_create_tablet_db_id = false;
 
     if (!doris::cloud::init_glog("txn_lazy_commit_test")) {
         std::cerr << "failed to init glog" << std::endl;
