@@ -96,7 +96,7 @@ TimestampTzValue timestamptz_from_string(const std::string& date_str) {
     auto tz = cctz::utc_time_zone();
     if (!vectorized::CastToTimstampTz::from_string(StringRef(date_str), value, params, &tz, 6)) {
         throw Exception(
-                Status::InternalError("Cast to timestamptz is not supported in current context"));
+                Status::InternalError("parse to timestamptz failed, value: {}", date_str));
     }
     return value;
 }
