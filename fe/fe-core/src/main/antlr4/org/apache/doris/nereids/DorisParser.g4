@@ -891,7 +891,7 @@ unsupportedSetStatement
     ;
 
 optionWithType
-    : (GLOBAL | LOCAL | SESSION) identifier EQ (expression | DEFAULT)
+    : (GLOBAL | LOCAL | SESSION) identifier EQ (expression | DEFAULT | ON | ALL)
     ;
 
 optionWithoutType
@@ -907,7 +907,8 @@ optionWithoutType
     ;
 
 variable
-    : (DOUBLEATSIGN ((GLOBAL | LOCAL | SESSION) DOT)?)? identifier EQ (expression | DEFAULT) #setSystemVariable
+    : (DOUBLEATSIGN ((GLOBAL | LOCAL | SESSION) DOT)?)? identifier EQ
+        (expression | DEFAULT | ON | ALL) #setSystemVariable
     | ATSIGN identifier EQ expression #setUserVariable
     ;
 
