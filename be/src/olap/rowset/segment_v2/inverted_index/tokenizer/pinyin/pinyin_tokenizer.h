@@ -76,7 +76,7 @@ private:
 
     void decode_to_runes();
     void processInput();
-    void parseBuff(std::string& ascii_buff, int& ascii_buff_start);
+    void parseBuff(std::string& ascii_buff, int& ascii_buff_start_byte);
 
     std::string codepointsToUtf8(const std::vector<UChar32>& codepoints) const;
 };
