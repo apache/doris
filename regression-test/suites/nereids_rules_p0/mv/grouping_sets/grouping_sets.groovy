@@ -771,5 +771,46 @@ suite("materialized_view_grouping_sets") {
     async_mv_rewrite_success(db, mv17, query17, "mv17")
     order_qt_query17_after "${query17}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv17"""
+
+
+    // group sets with alias and the alias is grouping id and query has filter on column
+    def mv18 =
+            """
+            select l_shipdate, o_orderdate, l_partkey, l_suppkey,
+            sum(o_totalprice) as sum_total,
+            max(o_totalprice) as max_total,
+            min(o_totalprice) as min_total,
+            count(*) as count_all,
+            bitmap_union(to_bitmap(case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end)) as bitmap_union_basic
+            from lineitem
+            left join orders on lineitem.l_orderkey = orders.o_orderkey and l_shipdate = o_orderdate
+            group by
+            l_shipdate,
+            o_orderdate,
+            l_partkey,
+            l_suppkey;
+            """
+    def query18 =
+            """
+            select t1.l_partkey as p_alias, t1.l_suppkey as s_alias, o_orderdate,
+            grouping(t1.l_suppkey),
+            grouping(o_orderdate),
+            grouping_id(t1.l_partkey, t1.l_suppkey),
+            grouping_id(t1.l_partkey, t1.l_suppkey, o_orderdate),
+            sum(o_totalprice),
+            max(o_totalprice),
+            min(o_totalprice),
+            count(*),
+            count(distinct case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end)
+            from (select * from lineitem where l_shipdate = '2023-12-11') t1
+            left join orders on t1.l_orderkey = orders.o_orderkey and t1.l_shipdate = o_orderdate
+            group by
+            CUBE (t1.l_partkey, t1.l_suppkey, o_orderdate)
+            having grouping_id(t1.l_partkey, t1.l_suppkey) >= 1;
+            """
+    order_qt_query18_before "${query18}"
+    async_mv_rewrite_success(db, mv18, query18, "mv18")
+    order_qt_query18_after "${query18}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv18"""
 }
 
