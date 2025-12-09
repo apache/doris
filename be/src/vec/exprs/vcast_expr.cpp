@@ -146,7 +146,7 @@ DataTypePtr TryCastExpr::original_cast_return_type() const {
 
 Status TryCastExpr::execute_column(VExprContext* context, const Block* block, size_t count,
                                    ColumnPtr& result_column) const {
-    DCHECK(_open_finished) << _open_finished << _expr_name;
+    DCHECK(_open_finished || block == nullptr) << _open_finished << _expr_name;
     if (is_const_and_have_executed()) { // const have executed in open function
         result_column = get_result_from_const(count);
         return Status::OK();
