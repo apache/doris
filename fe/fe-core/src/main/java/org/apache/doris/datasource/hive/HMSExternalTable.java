@@ -27,6 +27,7 @@ import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.SupportBinarySearchFilteringPartitions;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -56,6 +57,7 @@ import org.apache.doris.mtmv.MTMVRefreshContext;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.mtmv.MTMVSnapshotIf;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
+import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.qe.SessionVariable;
@@ -117,7 +119,8 @@ import java.util.stream.Collectors;
 /**
  * Hive metastore external table.
  */
-public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableIf, MTMVBaseTableIf, MvccTable {
+public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableIf, MTMVBaseTableIf, MvccTable,
+        SupportBinarySearchFilteringPartitions {
     private static final Logger LOG = LogManager.getLogger(HMSExternalTable.class);
 
     public static final Set<String> SUPPORTED_HIVE_FILE_FORMATS;
@@ -386,6 +389,33 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     @Override
     public boolean supportInternalPartitionPruned() {
         return getDlaType() == DLAType.HIVE || getDlaType() == DLAType.HUDI;
+    }
+
+    @Override
+    public Map<String, PartitionItem> getOriginPartitions(CatalogRelation scan) {
+        // Only enable binary search for Hive tables.
+        // Hudi/Iceberg have their own partition management, not from HiveMetaStoreCache.
+        if (getDlaType() != DLAType.HIVE) {
+            return Collections.emptyMap();
+        }
+        return getNameToPartitionItems();
+    }
+
+    @Override
+    public Object getPartitionMetaVersion(CatalogRelation scan) {
+        if (CollectionUtils.isEmpty(this.getPartitionColumns())) {
+            return 0L;
+        }
+        HiveMetaStoreCache.HivePartitionValues hivePartitionValues = getHivePartitionValues(
+                MvccUtil.getSnapshotFromContext(this));
+        return hivePartitionValues.computePartitionNamesHash();
+    }
+
+    @Override
+    public long getPartitionMetaLoadTimeMillis(CatalogRelation scan) {
+        HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
+                .getMetaStoreCache((HMSExternalCatalog) getCatalog());
+        return cache.getPartitionValuesLoadTime(this);
     }
 
     public SelectedPartitions initHudiSelectedPartitions(Optional<TableSnapshot> tableSnapshot) {

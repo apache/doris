@@ -442,6 +442,20 @@ public class HiveMetaStoreCache {
         return partitionValuesCache.get(key);
     }
 
+    /**
+     * Get the partition values load time for binary search filtering partitions.
+     * <p>
+     * The 10-second protection window in NereidsSortedPartitionsCacheManager is designed
+     * for OLAP tables with real-time writes, where partitions may change frequently.
+     * <p>
+     * For Hive external tables, partitions are relatively stable (changed by batch ETL jobs,
+     * not real-time writes), so we always return 0 to bypass the protection window and
+     * enable binary search optimization.
+     */
+    public long getPartitionValuesLoadTime(ExternalTable dorisTable) {
+        return 0;
+    }
+
     public List<FileCacheValue> getFilesByPartitions(List<HivePartition> partitions,
                                                      boolean withCache,
                                                      boolean concurrent,
@@ -1078,6 +1092,19 @@ public class HiveMetaStoreCache {
                 copy.setSingleColumnRangeMap(copySingleColumnRangeMap);
             }
             return copy;
+        }
+
+        /**
+         * Compute a hash for partition meta version detection.
+         * Used by NereidsSortedPartitionsCacheManager to detect partition changes.
+         * The hash combines partition count (high 32 bits) and partition names hash (low 32 bits).
+         */
+        public long computePartitionNamesHash() {
+            if (partitionNameToIdMap == null || partitionNameToIdMap.isEmpty()) {
+                return 0L;
+            }
+            return ((long) partitionNameToIdMap.size() << 32)
+                    | (partitionNameToIdMap.keySet().hashCode() & 0xFFFFFFFFL);
         }
     }
 

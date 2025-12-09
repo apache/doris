@@ -127,6 +127,9 @@ public class NereidsSortedPartitionsCacheManager {
         }
 
         Map<?, PartitionItem> unsortedMap = table.getOriginPartitions(scan);
+        if (unsortedMap == null || unsortedMap.isEmpty()) {
+            return null;
+        }
         List<Entry<?, PartitionItem>> unsortedList = Lists.newArrayList(unsortedMap.entrySet());
         List<PartitionItemAndRange<?>> sortedRanges = Lists.newArrayListWithCapacity(unsortedMap.size());
         List<PartitionItemAndId<?>> defaultPartitions = Lists.newArrayList();
