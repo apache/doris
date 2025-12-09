@@ -150,7 +150,7 @@ public:
     size_t get_number_of_arguments() const override { return 2; }
 
     bool use_default_implementation_for_nulls() const override {
-        return array_contains.use_default_implementation_for_nulls();
+        return FunctionArrayIndex<ArrayContainsAction> {}.use_default_implementation_for_nulls();
     }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
@@ -227,16 +227,13 @@ public:
             }
         }
 
-        RETURN_IF_ERROR(
-                array_contains.execute_impl(context, block, arguments, result, input_rows_count));
+        RETURN_IF_ERROR(FunctionArrayIndex<ArrayContainsAction> {}.execute_impl(
+                context, block, arguments, result, input_rows_count));
 
         // restore original argument 0
         block.get_by_position(arguments[0]) = orig_arg0;
         return Status::OK();
     }
-
-private:
-    FunctionArrayIndex<ArrayContainsAction> array_contains;
 };
 
 template <bool is_key>

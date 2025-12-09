@@ -17,6 +17,8 @@
 
 #include "vec/data_types/serde/data_type_jsonb_serde.h"
 
+#include <arrow/api.h>
+#include <cctz/time_zone.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 #include <gtest/gtest.h>
@@ -171,12 +173,12 @@ TEST_F(DataTypeJsonbSerDeTest, serdes) {
             ser_col->reserve(row_count);
             MutableColumnPtr deser_column = source_column->clone_empty();
             const auto* deser_col_with_type = assert_cast<const ColumnType*>(deser_column.get());
-            JsonbDocument* pdoc = nullptr;
+            const JsonbDocument* pdoc = nullptr;
             auto st = JsonbDocument::checkAndCreateDocument(jsonb_writer.getOutput()->getBuffer(),
                                                             jsonb_writer.getOutput()->getSize(),
                                                             &pdoc);
             EXPECT_TRUE(st.ok()) << "Failed to check and create jsonb document: " << st;
-            JsonbDocument& doc = *pdoc;
+            const JsonbDocument& doc = *pdoc;
             for (auto it = doc->begin(); it != doc->end(); ++it) {
                 serde.read_one_cell_from_jsonb(*deser_column, it->value());
             }
@@ -185,20 +187,11 @@ TEST_F(DataTypeJsonbSerDeTest, serdes) {
             }
         }
         {
-            // test write_column_to_mysql
-            MysqlRowBuffer<false> mysql_rb;
-            for (int row_idx = 0; row_idx < row_count; ++row_idx) {
-                auto st = serde.write_column_to_mysql(*source_column, mysql_rb, row_idx, false,
-                                                      option);
-                EXPECT_TRUE(st.ok()) << "Failed to write column to mysql: " << st;
-            }
-        }
-        {
             // test write_column_to_mysql with binary format
-            MysqlRowBuffer<true> mysql_rb;
+            MysqlRowBinaryBuffer mysql_rb;
             for (int row_idx = 0; row_idx < row_count; ++row_idx) {
-                auto st = serde.write_column_to_mysql(*source_column, mysql_rb, row_idx, false,
-                                                      option);
+                auto st = serde.write_column_to_mysql_binary(*source_column, mysql_rb, row_idx,
+                                                             false);
                 EXPECT_TRUE(st.ok())
                         << "Failed to write column to mysql with binary format: " << st;
             }
@@ -225,6 +218,53 @@ TEST_F(DataTypeJsonbSerDeTest, serdes) {
         }
     };
     test_func(*serde_jsonb, column_jsonb);
+}
+
+// Run with UBSan enabled to catch misalignment errors.
+TEST_F(DataTypeJsonbSerDeTest, ArrowMemNotAligned) {
+    // 1.Prepare the data.
+    std::vector<std::string> strings = {"{\"k1\":\"v1\"}", "{\"k2\":\"v2\"}", "{\"k3\":\"v3\"}",
+                                        "{\"k4\":\"v4\"}", "{\"k5\":\"v5\"}"};
+
+    int32_t total_length = 0;
+    std::vector<int32_t> offsets = {0};
+    for (const auto& str : strings) {
+        total_length += static_cast<int32_t>(str.length());
+        offsets.push_back(total_length);
+    }
+
+    // 2.Create an unaligned memory buffer.
+    std::vector<uint8_t> value_storage(total_length + 10);
+    std::vector<uint8_t> offset_storage((strings.size() + 1) * sizeof(int32_t) + 10);
+
+    uint8_t* unaligned_value_data = value_storage.data() + 1;
+    uint8_t* unaligned_offset_data = offset_storage.data() + 1;
+
+    // 3. Copy data to unaligned memory
+    int32_t current_pos = 0;
+    for (size_t i = 0; i < strings.size(); ++i) {
+        memcpy(unaligned_value_data + current_pos, strings[i].data(), strings[i].length());
+        current_pos += strings[i].length();
+    }
+
+    for (size_t i = 0; i < offsets.size(); ++i) {
+        memcpy(unaligned_offset_data + i * sizeof(int32_t), &offsets[i], sizeof(int32_t));
+    }
+
+    // 4. Create Arrow array with unaligned memory
+    auto value_buffer = arrow::Buffer::Wrap(unaligned_value_data, total_length);
+    auto offset_buffer =
+            arrow::Buffer::Wrap(unaligned_offset_data, offsets.size() * sizeof(int32_t));
+    auto arr = std::make_shared<arrow::StringArray>(strings.size(), offset_buffer, value_buffer);
+
+    const auto* offsets_ptr = arr->raw_value_offsets();
+    uintptr_t address = reinterpret_cast<uintptr_t>(offsets_ptr);
+    EXPECT_EQ((reinterpret_cast<uintptr_t>(address) % 4), 1);
+
+    // 5.Test read_column_from_arrow
+    cctz::time_zone tz;
+    auto st = serde_jsonb->read_column_from_arrow(*column_jsonb, arr.get(), 0, 1, tz);
+    EXPECT_TRUE(st.ok());
 }
 
 } // namespace doris::vectorized

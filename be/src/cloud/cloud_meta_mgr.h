@@ -86,6 +86,9 @@ public:
 
     Status update_tmp_rowset(const RowsetMeta& rs_meta);
 
+    Status update_packed_file_info(const std::string& packed_file_path,
+                                   const cloud::PackedFileInfoPB& packed_file_info);
+
     Status commit_txn(const StreamLoadContext& ctx, bool is_2pc);
 
     Status abort_txn(const StreamLoadContext& ctx);

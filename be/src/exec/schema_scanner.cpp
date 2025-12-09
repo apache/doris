@@ -37,6 +37,7 @@
 #include "exec/schema_scanner/schema_collations_scanner.h"
 #include "exec/schema_scanner/schema_column_data_sizes_scanner.h"
 #include "exec/schema_scanner/schema_columns_scanner.h"
+#include "exec/schema_scanner/schema_database_properties_scanner.h"
 #include "exec/schema_scanner/schema_dummy_scanner.h"
 #include "exec/schema_scanner/schema_encryption_keys_scanner.h"
 #include "exec/schema_scanner/schema_file_cache_info_scanner.h"
@@ -48,7 +49,6 @@
 #include "exec/schema_scanner/schema_processlist_scanner.h"
 #include "exec/schema_scanner/schema_profiling_scanner.h"
 #include "exec/schema_scanner/schema_routine_load_job_scanner.h"
-#include "exec/schema_scanner/schema_routine_scanner.h"
 #include "exec/schema_scanner/schema_rowsets_scanner.h"
 #include "exec/schema_scanner/schema_schema_privileges_scanner.h"
 #include "exec/schema_scanner/schema_schemata_scanner.h"
@@ -221,8 +221,6 @@ std::unique_ptr<SchemaScanner> SchemaScanner::create(TSchemaTableType::type type
         return SchemaWorkloadGroupsScanner::create_unique();
     case TSchemaTableType::SCH_PROCESSLIST:
         return SchemaProcessListScanner::create_unique();
-    case TSchemaTableType::SCH_PROCEDURES:
-        return SchemaRoutinesScanner::create_unique();
     case TSchemaTableType::SCH_USER:
         return SchemaUserScanner::create_unique();
     case TSchemaTableType::SCH_WORKLOAD_POLICY:
@@ -235,6 +233,8 @@ std::unique_ptr<SchemaScanner> SchemaScanner::create(TSchemaTableType::type type
         return SchemaBackendWorkloadGroupResourceUsage::create_unique();
     case TSchemaTableType::SCH_TABLE_PROPERTIES:
         return SchemaTablePropertiesScanner::create_unique();
+    case TSchemaTableType::SCH_DATABASE_PROPERTIES:
+        return SchemaDatabasePropertiesScanner::create_unique();
     case TSchemaTableType::SCH_FILE_CACHE_STATISTICS:
         return SchemaFileCacheStatisticsScanner::create_unique();
     case TSchemaTableType::SCH_CATALOG_META_CACHE_STATISTICS:

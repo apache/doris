@@ -2123,6 +2123,44 @@ message CloneInstanceResponse {
     optional string image_url = 3;
 }
 
+message PackedSlicePB {
+    optional string path = 1;
+    optional int64 offset = 2;
+    optional int64 size = 3;
+    optional bool deleted = 4;
+    optional int64 tablet_id = 5;
+    optional string rowset_id = 6;
+    optional int64 txn_id = 7;
+    optional bool corrected = 8;
+}
+
+message PackedFileInfoPB {
+    enum PackedFileState {
+        NORMAL = 0;
+        RECYCLING = 1;
+    }
+    optional int64 ref_cnt = 1;
+    optional int64 total_slice_num = 2;
+    optional int64 total_slice_bytes = 3;
+    optional int64 remaining_slice_bytes = 4;
+    optional int64 created_at_sec = 5;
+    optional bool corrected = 6;
+    optional PackedFileState state = 7 [default = NORMAL];
+    repeated PackedSlicePB slices = 8;
+    optional string resource_id = 9;
+}
+
+message UpdatePackedFileInfoRequest {
+    optional string cloud_unique_id = 1; // For auth
+    optional string request_ip = 2;
+    optional string packed_file_path = 3; // The path of the packed file
+    optional PackedFileInfoPB packed_file_info = 4;
+}
+
+message UpdatePackedFileInfoResponse {
+    optional MetaServiceResponseStatus status = 1;
+}
+
 service MetaService {
     rpc begin_txn(BeginTxnRequest) returns (BeginTxnResponse);
     rpc precommit_txn(PrecommitTxnRequest) returns (PrecommitTxnResponse);
@@ -2217,6 +2255,8 @@ service MetaService {
     rpc drop_snapshot(DropSnapshotRequest) returns (DropSnapshotResponse);
     rpc list_snapshot(ListSnapshotRequest) returns (ListSnapshotResponse);
     rpc clone_instance(CloneInstanceRequest) returns (CloneInstanceResponse);
+
+    rpc update_packed_file_info(UpdatePackedFileInfoRequest) returns (UpdatePackedFileInfoResponse);
 };
 
 service RecyclerService {

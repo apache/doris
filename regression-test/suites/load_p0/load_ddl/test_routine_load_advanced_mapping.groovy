@@ -125,7 +125,7 @@ suite("test_routine_load_advanced_mapping","p0") {
                 kd19 BITMAP          BITMAP_UNION ,
                 kd20 HLL             HLL_UNION ,
                 kd21 QUANTILE_STATE  QUANTILE_UNION ,
-                INDEX idx_bitmap_k104 (`k01`) USING BITMAP
+                INDEX idx_bitmap_k104 (`k01`) USING INVERTED
             )
             AGGREGATE KEY(k00,k01)
             PARTITION BY RANGE(k01)

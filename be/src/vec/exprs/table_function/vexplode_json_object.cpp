@@ -57,25 +57,25 @@ void VExplodeJsonObjectTableFunction::process_row(size_t row_idx) {
 
     StringRef text = _json_object_column->get_data_at(row_idx);
     if (text.data != nullptr) {
-        JsonbDocument* doc = nullptr;
+        const JsonbDocument* doc = nullptr;
         auto st = JsonbDocument::checkAndCreateDocument(text.data, text.size, &doc);
         if (!st.ok() || !doc || !doc->getValue()) [[unlikely]] {
             // error jsonb, put null into output, cur_size = 0 , we will insert_default
             return;
         }
         // value is NOT necessary to be deleted since JsonbValue will not allocate memory
-        JsonbValue* value = doc->getValue();
+        const JsonbValue* value = doc->getValue();
         auto writer = std::make_unique<JsonbWriter>();
         if (value->isObject()) {
             _cur_size = value->numElements();
-            auto* obj = value->unpack<ObjectVal>();
+            const auto* obj = value->unpack<ObjectVal>();
             _object_pairs.first =
                     ColumnNullable::create(ColumnString::create(), ColumnUInt8::create());
             _object_pairs.second =
                     ColumnNullable::create(ColumnString::create(), ColumnUInt8::create());
             _object_pairs.first->reserve(_cur_size);
             _object_pairs.second->reserve(_cur_size);
-            for (auto& it : *obj) {
+            for (const auto& it : *obj) {
                 _object_pairs.first->insert_data(it.getKeyStr(), it.klen());
                 writer->reset();
                 writer->writeValue(it.value());

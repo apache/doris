@@ -281,14 +281,8 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
 
         if (tablet_schema.__isset.indexes) {
             for (auto& index : tablet_schema.indexes) {
-                if (index.index_type == TIndexType::type::BITMAP) {
-                    DCHECK_EQ(index.columns.size(), 1);
-                    if (iequal(tcolumn.column_name, index.columns[0])) {
-                        column->set_has_bitmap_index(true);
-                        break;
-                    }
-                } else if (index.index_type == TIndexType::type::BLOOMFILTER ||
-                           index.index_type == TIndexType::type::NGRAM_BF) {
+                if (index.index_type == TIndexType::type::BLOOMFILTER ||
+                    index.index_type == TIndexType::type::NGRAM_BF) {
                     DCHECK_EQ(index.columns.size(), 1);
                     if (iequal(tcolumn.column_name, index.columns[0])) {
                         column->set_is_bf_column(true);
@@ -459,7 +453,6 @@ void TabletMeta::init_column_from_tcolumn(uint32_t unique_id, const TColumn& tco
                                           ColumnPB* column) {
     column->set_unique_id(unique_id);
     column->set_name(tcolumn.column_name);
-    column->set_has_bitmap_index(tcolumn.has_bitmap_index);
     column->set_is_auto_increment(tcolumn.is_auto_increment);
     if (tcolumn.__isset.is_on_update_current_timestamp) {
         column->set_is_on_update_current_timestamp(tcolumn.is_on_update_current_timestamp);

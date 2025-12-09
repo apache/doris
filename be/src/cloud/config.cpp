@@ -56,6 +56,7 @@ DEFINE_mInt32(check_auto_compaction_interval_seconds, "5");
 DEFINE_mInt32(max_base_compaction_task_num_per_disk, "2");
 DEFINE_mBool(prioritize_query_perf_in_compaction, "false");
 DEFINE_mInt32(compaction_max_rowset_count, "10000");
+DEFINE_mInt64(compaction_txn_max_size_bytes, "7340032"); // 7MB
 
 DEFINE_mInt32(refresh_s3_info_interval_s, "60");
 DEFINE_mInt32(vacuum_stale_rowsets_interval_s, "300");
@@ -131,6 +132,17 @@ DEFINE_mInt64(warm_up_rowset_sync_wait_max_timeout_ms, "120000");
 
 DEFINE_mBool(enable_warmup_immediately_on_new_rowset, "false");
 
+// Packed file manager config
+DEFINE_mBool(enable_packed_file, "true");
+DEFINE_mInt64(packed_file_size_threshold_bytes, "5242880"); // 5MB
+DEFINE_mInt64(packed_file_time_threshold_ms, "100");        // 100ms
+DEFINE_mInt64(packed_file_try_lock_timeout_ms, "5");        // 5ms
+DEFINE_mInt64(packed_file_small_file_count_threshold, "100");
+DEFINE_mInt64(small_file_threshold_bytes, "1048576");      // 1MB
+DEFINE_mInt64(uploaded_file_retention_seconds, "60");      // 1 minute
+DEFINE_mInt64(index_retention_seconds, "60");              // 1 minute
+DEFINE_mInt64(packed_file_cleanup_interval_seconds, "60"); // 1 minute
+
 DEFINE_mBool(enable_standby_passive_compaction, "true");
 
 DEFINE_mDouble(standby_compaction_version_ratio, "0.8");
@@ -141,5 +153,6 @@ DEFINE_mBool(enable_cache_read_from_peer, "true");
 // This can be configured to be less than the `rehash_tablet_after_be_dead_seconds` setting in the `fe` configuration.
 // If the value is -1, use the `rehash_tablet_after_be_dead_seconds` setting in the `fe` configuration as the expiration time.
 DEFINE_mInt64(cache_read_from_peer_expired_seconds, "-1");
+
 #include "common/compile_check_end.h"
 } // namespace doris::config

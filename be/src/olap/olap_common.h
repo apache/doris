@@ -361,9 +361,6 @@ struct OlapReaderStatistics {
     int64_t total_pages_num = 0;
     int64_t cached_pages_num = 0;
 
-    int64_t rows_bitmap_index_filtered = 0;
-    int64_t bitmap_index_filter_timer = 0;
-
     int64_t rows_inverted_index_filtered = 0;
     int64_t inverted_index_filter_timer = 0;
     int64_t inverted_index_query_timer = 0;
@@ -439,7 +436,6 @@ struct OlapReaderStatistics {
 
     int64_t segment_iterator_init_timer_ns = 0;
     int64_t segment_iterator_init_return_column_iterators_timer_ns = 0;
-    int64_t segment_iterator_init_bitmap_index_iterators_timer_ns = 0;
     int64_t segment_iterator_init_index_iterators_timer_ns = 0;
 
     int64_t segment_create_column_readers_timer_ns = 0;

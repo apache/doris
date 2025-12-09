@@ -248,7 +248,6 @@ TabletColumnPtr create_float_column(int32_t id, bool is_nullable) {
     column->_length = (T == FieldType::OLAP_FIELD_TYPE_DOUBLE ? 8 : 4);
     column->_index_length = (T == FieldType::OLAP_FIELD_TYPE_DOUBLE ? 8 : 4);
     column->_is_bf_column = false;
-    column->_has_bitmap_index = false;
     return column;
 }
 TEST_F(ColumnZoneMapTest, NormalTestFloatPage) {

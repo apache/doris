@@ -40,6 +40,7 @@ import org.junit.Assert;
 import org.junit.Test;
 import org.junit.jupiter.api.Disabled;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Set;
 
@@ -169,7 +170,7 @@ public class MaterializedViewHandlerTest {
         MaterializedViewHandler materializedViewHandler = new MaterializedViewHandler();
         try {
             Deencapsulation.invoke(materializedViewHandler, "checkAndPrepareMaterializedView",
-                    createMaterializedViewCommand, olapTable);
+                    createMaterializedViewCommand, olapTable, new HashMap<String, String>());
             Assert.fail();
         } catch (Exception e) {
             System.out.print(e.getMessage());
@@ -191,7 +192,7 @@ public class MaterializedViewHandlerTest {
         MaterializedViewHandler materializedViewHandler = new MaterializedViewHandler();
         try {
             Deencapsulation.invoke(materializedViewHandler, "checkAndPrepareMaterializedView",
-                    createMaterializedViewCommand, olapTable);
+                    createMaterializedViewCommand, olapTable, new HashMap<String, String>());
             Assert.fail();
         } catch (Exception e) {
             System.out.print(e.getMessage());
@@ -237,7 +238,7 @@ public class MaterializedViewHandlerTest {
         try {
             List<Column> mvColumns = Deencapsulation.invoke(materializedViewHandler,
                     "checkAndPrepareMaterializedView",
-                    createMaterializedViewCommand, olapTable);
+                    createMaterializedViewCommand, olapTable, new HashMap<String, String>());
             Assert.assertEquals(1, mvColumns.size());
             Column newMVColumn = mvColumns.get(0);
             Assert.assertEquals(columnName1, newMVColumn.getName());

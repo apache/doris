@@ -46,9 +46,7 @@ import com.google.gson.annotations.SerializedName;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.Iterator;
 import java.util.List;
-import java.util.ListIterator;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -167,19 +165,6 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable {
         return childNullables;
     }
 
-    public List<Expr> getChildrenWithoutCast() {
-        List<Expr> result = new ArrayList<>();
-        for (int i = 0; i < children.size(); ++i) {
-            if (children.get(i) instanceof CastExpr) {
-                CastExpr castExpr = (CastExpr) children.get(i);
-                result.add(castExpr.getChild(0));
-            } else {
-                result.add(children.get(i));
-            }
-        }
-        return result;
-    }
-
     public Expr getChildWithoutCast(int i) {
         Preconditions.checkArgument(i < children.size(), "child index {0} out of range {1}", i, children.size());
         Expr child = children.get(i);
@@ -203,30 +188,6 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable {
             strings.add(Strings.nullToEmpty(expr.debugString()));
         }
         return "(" + Joiner.on(" ").join(strings) + ")";
-    }
-
-    /**
-     * Return true if l1 equals l2 when both lists are interpreted as sets.
-     */
-    public static <C extends Expr> boolean equalSets(List<C> l1, List<C> l2) {
-        if (l1.size() != l2.size()) {
-            return false;
-        }
-        Map cMap1 = toCountMap(l1);
-        Map cMap2 = toCountMap(l2);
-        if (cMap1.size() != cMap2.size()) {
-            return false;
-        }
-        Iterator it = cMap1.keySet().iterator();
-        while (it.hasNext()) {
-            C obj = (C) it.next();
-            Integer count1 = (Integer) cMap1.get(obj);
-            Integer count2 = (Integer) cMap2.get(obj);
-            if (count2 == null || count1 != count2) {
-                return false;
-            }
-        }
-        return true;
     }
 
     public static <C extends Expr> HashMap<C, Integer> toCountMap(List<C> list) {
@@ -282,22 +243,6 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable {
         }
     }
 
-    /**
-     * get the expr which in l1 and l2 in the same time.
-     * Return the intersection of l1 and l2
-     */
-    public static <C extends Expr> List<C> intersect(List<C> l1, List<C> l2) {
-        List<C> result = new ArrayList<C>();
-
-        for (C element : l1) {
-            if (l2.contains(element)) {
-                result.add(element);
-            }
-        }
-
-        return result;
-    }
-
     public static void extractSlots(Expr root, Set<SlotId> slotIdSet) {
         if (root instanceof SlotRef) {
             slotIdSet.add(((SlotRef) root).getDesc().getId());
@@ -305,35 +250,6 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable {
         }
         for (Expr child : root.getChildren()) {
             extractSlots(child, slotIdSet);
-        }
-    }
-
-    /**
-     * Removes duplicate exprs (according to equals()).
-     */
-    public static <C extends Expr> void removeDuplicates(List<C> l) {
-        if (l == null) {
-            return;
-        }
-        ListIterator<C> it1 = l.listIterator();
-        while (it1.hasNext()) {
-            C e1 = it1.next();
-            ListIterator<C> it2 = l.listIterator();
-            boolean duplicate = false;
-            while (it2.hasNext()) {
-                C e2 = it2.next();
-                if (e1 == e2) {
-                    // only check up to but excluding e1
-                    break;
-                }
-                if (e1.equals(e2)) {
-                    duplicate = true;
-                    break;
-                }
-            }
-            if (duplicate) {
-                it1.remove();
-            }
         }
     }
 
@@ -612,36 +528,6 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable {
         return this;
     }
 
-    public boolean isImplicitCast() {
-        return this instanceof CastExpr && ((CastExpr) this).isImplicit();
-    }
-
-    public boolean contains(Expr expr) {
-        if (this.equals(expr)) {
-            return true;
-        }
-
-        for (Expr child : getChildren()) {
-            if (child.contains(expr)) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    public Expr findEqual(List<Expr> exprs) {
-        if (exprs.isEmpty()) {
-            return null;
-        }
-        for (Expr expr : exprs) {
-            if (contains(expr)) {
-                return expr;
-            }
-        }
-        return null;
-    }
-
     public String getStringValue() {
         return "";
     }
@@ -725,18 +611,6 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable {
     public static AggStateType createAggStateType(String name, List<Type> typeList,
             List<Boolean> nullableList, boolean resultNullable) {
         return new AggStateType(name, resultNullable, typeList, nullableList);
-    }
-
-    public static List<Expr> getMockedExprs(List<Type> typeList, List<Boolean> nullableList) {
-        List<Expr> mockedExprs = Lists.newArrayList();
-        for (int i = 0; i < typeList.size(); i++) {
-            mockedExprs.add(new SlotRef(typeList.get(i), nullableList.get(i)));
-        }
-        return mockedExprs;
-    }
-
-    public static List<Expr> getMockedExprs(AggStateType type) {
-        return getMockedExprs(type.getSubTypes(), type.getSubTypeNullables());
     }
 
     // This is only for transactional insert operation,

@@ -97,7 +97,7 @@ Status DataTypeSerDe::deserialize_column_from_jsonb_vector(ColumnNullable& colum
     const bool is_strict = castParms.is_strict;
     for (size_t i = 0; i < size; ++i) {
         const auto& val = col_from_json.get_data_at(i);
-        auto* value = handle_jsonb_value(val);
+        const auto* value = handle_jsonb_value(val);
         if (!value) {
             column_to.insert_default();
             continue;

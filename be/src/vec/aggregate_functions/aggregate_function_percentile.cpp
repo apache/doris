@@ -25,8 +25,8 @@ namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
 AggregateFunctionPtr create_aggregate_function_percentile_approx(
-        const std::string& name, const DataTypes& argument_types, const bool result_is_nullable,
-        const AggregateFunctionAttr& attr) {
+        const std::string& name, const DataTypes& argument_types, const DataTypePtr& result_type,
+        const bool result_is_nullable, const AggregateFunctionAttr& attr) {
     const DataTypePtr& argument_type = remove_nullable(argument_types[0]);
     if (argument_type->get_primitive_type() != PrimitiveType::TYPE_DOUBLE) {
         return nullptr;
@@ -43,8 +43,8 @@ AggregateFunctionPtr create_aggregate_function_percentile_approx(
 }
 
 AggregateFunctionPtr create_aggregate_function_percentile_approx_weighted(
-        const std::string& name, const DataTypes& argument_types, const bool result_is_nullable,
-        const AggregateFunctionAttr& attr) {
+        const std::string& name, const DataTypes& argument_types, const DataTypePtr& result_type,
+        const bool result_is_nullable, const AggregateFunctionAttr& attr) {
     const DataTypePtr& argument_type = remove_nullable(argument_types[0]);
     if (argument_type->get_primitive_type() != PrimitiveType::TYPE_DOUBLE) {
         return nullptr;

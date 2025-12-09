@@ -32,12 +32,15 @@
 #include <cstdint>
 #include <cstdlib>
 #include <deque>
+#include <functional>
 #include <initializer_list>
 #include <memory>
 #include <numeric>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <utility>
+#include <variant>
 
 #include "common/defer.h"
 #include "common/stopwatch.h"
@@ -750,6 +753,8 @@ int InstanceRecycler::do_recycle() {
                         [this]() -> int { return InstanceRecycler::recycle_tmp_rowsets(); }))
                 .add(task_wrapper([this]() -> int { return InstanceRecycler::recycle_rowsets(); }))
                 .add(task_wrapper(
+                        [this]() -> int { return InstanceRecycler::recycle_packed_files(); }))
+                .add(task_wrapper(
                         [this]() { return InstanceRecycler::abort_timeout_txn(); },
                         [this]() { return InstanceRecycler::recycle_expired_txn_label(); }))
                 .add(task_wrapper([this]() { return InstanceRecycler::recycle_copy_jobs(); }))
@@ -910,6 +915,508 @@ int InstanceRecycler::recycle_deleted_instance() {
     return ret;
 }
 
+int InstanceRecycler::check_rowset_exists(int64_t tablet_id, const std::string& rowset_id,
+                                          bool* exists, PackedFileRecycleStats* stats) {
+    if (exists == nullptr) {
+        return -1;
+    }
+    *exists = false;
+
+    std::string begin = meta_rowset_key({instance_id_, tablet_id, 0});
+    std::string end = meta_rowset_key({instance_id_, tablet_id + 1, 0});
+    std::string scan_begin = begin;
+
+    while (true) {
+        std::unique_ptr<RangeGetIterator> it_range;
+        int get_ret = txn_get(txn_kv_.get(), scan_begin, end, it_range);
+        if (get_ret < 0) {
+            LOG_WARNING("failed to scan rowset metas when recycling packed file")
+                    .tag("instance_id", instance_id_)
+                    .tag("tablet_id", tablet_id)
+                    .tag("ret", get_ret);
+            return -1;
+        }
+        if (get_ret == 1 || it_range == nullptr || !it_range->has_next()) {
+            return 0;
+        }
+
+        std::string last_key;
+        while (it_range->has_next()) {
+            auto [k, v] = it_range->next();
+            last_key.assign(k.data(), k.size());
+            doris::RowsetMetaCloudPB rowset_meta;
+            if (!rowset_meta.ParseFromArray(v.data(), v.size())) {
+                LOG_WARNING("malformed rowset meta when checking packed file rowset existence")
+                        .tag("instance_id", instance_id_)
+                        .tag("tablet_id", tablet_id)
+                        .tag("key", hex(k));
+                continue;
+            }
+            if (stats) {
+                ++stats->rowset_scan_count;
+            }
+            if (rowset_meta.rowset_id_v2() == rowset_id) {
+                *exists = true;
+                return 0;
+            }
+        }
+
+        if (!it_range->more()) {
+            return 0;
+        }
+
+        // Continue scanning from the next key to keep each transaction short.
+        scan_begin = std::move(last_key);
+        scan_begin.push_back('\x00');
+    }
+}
+
+int InstanceRecycler::check_recycle_and_tmp_rowset_exists(int64_t tablet_id,
+                                                          const std::string& rowset_id,
+                                                          int64_t txn_id, bool* recycle_exists,
+                                                          bool* tmp_exists) {
+    if (recycle_exists == nullptr || tmp_exists == nullptr) {
+        return -1;
+    }
+    *recycle_exists = false;
+    *tmp_exists = false;
+
+    if (txn_id <= 0) {
+        LOG_WARNING("invalid txn id when checking recycle/tmp rowset existence")
+                .tag("instance_id", instance_id_)
+                .tag("tablet_id", tablet_id)
+                .tag("rowset_id", rowset_id)
+                .tag("txn_id", txn_id);
+        return -1;
+    }
+
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        LOG_WARNING("failed to create txn when checking recycle/tmp rowset existence")
+                .tag("instance_id", instance_id_)
+                .tag("tablet_id", tablet_id)
+                .tag("rowset_id", rowset_id)
+                .tag("txn_id", txn_id)
+                .tag("err", err);
+        return -1;
+    }
+
+    std::string recycle_key = recycle_rowset_key({instance_id_, tablet_id, rowset_id});
+    auto ret = key_exists(txn.get(), recycle_key, true);
+    if (ret == TxnErrorCode::TXN_OK) {
+        *recycle_exists = true;
+    } else if (ret != TxnErrorCode::TXN_KEY_NOT_FOUND) {
+        LOG_WARNING("failed to check recycle rowset existence")
+                .tag("instance_id", instance_id_)
+                .tag("tablet_id", tablet_id)
+                .tag("rowset_id", rowset_id)
+                .tag("key", hex(recycle_key))
+                .tag("err", ret);
+        return -1;
+    }
+
+    std::string tmp_key = meta_rowset_tmp_key({instance_id_, txn_id, tablet_id});
+    ret = key_exists(txn.get(), tmp_key, true);
+    if (ret == TxnErrorCode::TXN_OK) {
+        *tmp_exists = true;
+    } else if (ret != TxnErrorCode::TXN_KEY_NOT_FOUND) {
+        LOG_WARNING("failed to check tmp rowset existence")
+                .tag("instance_id", instance_id_)
+                .tag("tablet_id", tablet_id)
+                .tag("txn_id", txn_id)
+                .tag("key", hex(tmp_key))
+                .tag("err", ret);
+        return -1;
+    }
+
+    return 0;
+}
+
+std::pair<std::string, std::shared_ptr<StorageVaultAccessor>>
+InstanceRecycler::resolve_packed_file_accessor(const std::string& hint) {
+    if (!hint.empty()) {
+        if (auto it = accessor_map_.find(hint); it != accessor_map_.end()) {
+            return {hint, it->second};
+        }
+    }
+
+    return {"", nullptr};
+}
+
+int InstanceRecycler::correct_packed_file_info(cloud::PackedFileInfoPB* packed_info, bool* changed,
+                                               const std::string& packed_file_path,
+                                               PackedFileRecycleStats* stats) {
+    bool local_changed = false;
+    int64_t left_num = 0;
+    int64_t left_bytes = 0;
+    bool all_small_files_confirmed = true;
+    LOG(INFO) << "begin to correct file: " << packed_file_path;
+
+    auto log_small_file_status = [&](const cloud::PackedSlicePB& file, bool confirmed_this_round) {
+        int64_t tablet_id = file.has_tablet_id() ? file.tablet_id() : int64_t {-1};
+        std::string rowset_id = file.has_rowset_id() ? file.rowset_id() : std::string {};
+        int64_t txn_id = file.has_txn_id() ? file.txn_id() : int64_t {0};
+        LOG_INFO("packed slice correction status")
+                .tag("instance_id", instance_id_)
+                .tag("packed_file_path", packed_file_path)
+                .tag("small_file_path", file.path())
+                .tag("tablet_id", tablet_id)
+                .tag("rowset_id", rowset_id)
+                .tag("txn_id", txn_id)
+                .tag("size", file.size())
+                .tag("deleted", file.deleted())
+                .tag("corrected", file.corrected())
+                .tag("confirmed_this_round", confirmed_this_round);
+    };
+
+    for (int i = 0; i < packed_info->slices_size(); ++i) {
+        auto* small_file = packed_info->mutable_slices(i);
+        if (small_file->deleted()) {
+            log_small_file_status(*small_file, small_file->corrected());
+            continue;
+        }
+
+        if (small_file->corrected()) {
+            left_num++;
+            left_bytes += small_file->size();
+            log_small_file_status(*small_file, true);
+            continue;
+        }
+
+        if (!small_file->has_tablet_id() || !small_file->has_rowset_id()) {
+            LOG_WARNING("packed file small file missing identifiers during correction")
+                    .tag("instance_id", instance_id_)
+                    .tag("small_file_path", small_file->path())
+                    .tag("index", i);
+            return -1;
+        }
+
+        int64_t tablet_id = small_file->tablet_id();
+        const std::string& rowset_id = small_file->rowset_id();
+        if (!small_file->has_txn_id() || small_file->txn_id() <= 0) {
+            LOG_WARNING("packed file small file missing valid txn id during correction")
+                    .tag("instance_id", instance_id_)
+                    .tag("small_file_path", small_file->path())
+                    .tag("index", i)
+                    .tag("tablet_id", tablet_id)
+                    .tag("rowset_id", rowset_id)
+                    .tag("has_txn_id", small_file->has_txn_id())
+                    .tag("txn_id", small_file->has_txn_id() ? small_file->txn_id() : 0);
+            return -1;
+        }
+        int64_t txn_id = small_file->txn_id();
+        bool recycle_exists = false;
+        bool tmp_exists = false;
+        if (check_recycle_and_tmp_rowset_exists(tablet_id, rowset_id, txn_id, &recycle_exists,
+                                                &tmp_exists) != 0) {
+            return -1;
+        }
+
+        bool small_file_confirmed = false;
+        if (tmp_exists) {
+            left_num++;
+            left_bytes += small_file->size();
+            small_file_confirmed = true;
+        } else if (recycle_exists) {
+            left_num++;
+            left_bytes += small_file->size();
+            // keep small_file_confirmed=false so the packed file remains uncorrected
+        } else {
+            bool rowset_exists = false;
+            if (check_rowset_exists(tablet_id, rowset_id, &rowset_exists, stats) != 0) {
+                return -1;
+            }
+
+            if (!rowset_exists) {
+                if (!small_file->deleted()) {
+                    small_file->set_deleted(true);
+                    local_changed = true;
+                }
+                if (!small_file->corrected()) {
+                    small_file->set_corrected(true);
+                    local_changed = true;
+                }
+                small_file_confirmed = true;
+            } else {
+                left_num++;
+                left_bytes += small_file->size();
+                small_file_confirmed = true;
+            }
+        }
+
+        if (!small_file_confirmed) {
+            all_small_files_confirmed = false;
+        }
+
+        if (small_file->corrected() != small_file_confirmed) {
+            small_file->set_corrected(small_file_confirmed);
+            local_changed = true;
+        }
+
+        log_small_file_status(*small_file, small_file_confirmed);
+    }
+
+    if (packed_info->remaining_slice_bytes() != left_bytes) {
+        packed_info->set_remaining_slice_bytes(left_bytes);
+        local_changed = true;
+    }
+    if (packed_info->ref_cnt() != left_num) {
+        auto old_ref_cnt = packed_info->ref_cnt();
+        packed_info->set_ref_cnt(left_num);
+        LOG_INFO("corrected packed file ref count")
+                .tag("instance_id", instance_id_)
+                .tag("resource_id", packed_info->resource_id())
+                .tag("packed_file_path", packed_file_path)
+                .tag("old_ref_cnt", old_ref_cnt)
+                .tag("new_ref_cnt", left_num);
+        local_changed = true;
+    }
+    if (packed_info->corrected() != all_small_files_confirmed) {
+        packed_info->set_corrected(all_small_files_confirmed);
+        local_changed = true;
+    }
+    if (left_num == 0 && packed_info->state() != cloud::PackedFileInfoPB::RECYCLING) {
+        packed_info->set_state(cloud::PackedFileInfoPB::RECYCLING);
+        local_changed = true;
+    }
+
+    if (changed != nullptr) {
+        *changed = local_changed;
+    }
+    return 0;
+}
+
+int InstanceRecycler::process_single_packed_file(const std::string& packed_key,
+                                                 const std::string& packed_file_path,
+                                                 PackedFileRecycleStats* stats) {
+    if (stopped()) {
+        LOG_WARNING("recycler stopped before processing packed file")
+                .tag("instance_id", instance_id_)
+                .tag("packed_file_path", packed_file_path);
+        return -1;
+    }
+
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        LOG_WARNING("failed to create txn when processing packed file")
+                .tag("instance_id", instance_id_)
+                .tag("packed_file_path", packed_file_path)
+                .tag("err", err);
+        return -1;
+    }
+
+    std::string packed_val;
+    err = txn->get(packed_key, &packed_val);
+    if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+        return 0;
+    }
+    if (err != TxnErrorCode::TXN_OK) {
+        LOG_WARNING("failed to get packed file kv")
+                .tag("instance_id", instance_id_)
+                .tag("packed_file_path", packed_file_path)
+                .tag("err", err);
+        return -1;
+    }
+
+    cloud::PackedFileInfoPB packed_info;
+    if (!packed_info.ParseFromString(packed_val)) {
+        LOG_WARNING("failed to parse packed file info")
+                .tag("instance_id", instance_id_)
+                .tag("packed_file_path", packed_file_path);
+        return -1;
+    }
+
+    int64_t now_sec = ::time(nullptr);
+    bool corrected = packed_info.corrected();
+    bool due =
+            config::force_immediate_recycle ||
+            now_sec - packed_info.created_at_sec() >= config::packed_file_correction_delay_seconds;
+
+    if (!corrected && due) {
+        bool changed = false;
+        if (correct_packed_file_info(&packed_info, &changed, packed_file_path, stats) != 0) {
+            LOG_WARNING("correct_packed_file_info failed")
+                    .tag("instance_id", instance_id_)
+                    .tag("packed_file_path", packed_file_path);
+            return -1;
+        }
+        if (changed) {
+            std::string updated;
+            if (!packed_info.SerializeToString(&updated)) {
+                LOG_WARNING("failed to serialize packed file info after correction")
+                        .tag("instance_id", instance_id_)
+                        .tag("packed_file_path", packed_file_path);
+                return -1;
+            }
+            txn->put(packed_key, updated);
+            err = txn->commit();
+            if (err == TxnErrorCode::TXN_OK) {
+                if (stats) {
+                    ++stats->num_corrected;
+                }
+            } else {
+                if (err == TxnErrorCode::TXN_CONFLICT) {
+                    LOG_WARNING("failed to commit correction for packed file due to conflict")
+                            .tag("instance_id", instance_id_)
+                            .tag("packed_file_path", packed_file_path);
+                } else {
+                    LOG_WARNING("failed to commit correction for packed file")
+                            .tag("instance_id", instance_id_)
+                            .tag("packed_file_path", packed_file_path)
+                            .tag("err", err);
+                }
+                return -1;
+            }
+        }
+    }
+
+    txn.reset();
+
+    if (packed_info.state() == cloud::PackedFileInfoPB::RECYCLING && packed_info.ref_cnt() == 0) {
+        if (!packed_info.has_resource_id() || packed_info.resource_id().empty()) {
+            LOG_WARNING("packed file missing resource id when recycling")
+                    .tag("instance_id", instance_id_)
+                    .tag("packed_file_path", packed_file_path);
+            return -1;
+        }
+        auto [resource_id, accessor] = resolve_packed_file_accessor(packed_info.resource_id());
+        if (!accessor) {
+            LOG_WARNING("no accessor available to delete packed file")
+                    .tag("instance_id", instance_id_)
+                    .tag("packed_file_path", packed_file_path)
+                    .tag("resource_id", packed_info.resource_id());
+            return -1;
+        }
+        int del_ret = accessor->delete_file(packed_file_path);
+        if (del_ret != 0 && del_ret != 1) {
+            LOG_WARNING("failed to delete packed file")
+                    .tag("instance_id", instance_id_)
+                    .tag("packed_file_path", packed_file_path)
+                    .tag("resource_id", resource_id)
+                    .tag("ret", del_ret);
+            return -1;
+        }
+        if (del_ret == 1) {
+            LOG_INFO("packed file already removed")
+                    .tag("instance_id", instance_id_)
+                    .tag("packed_file_path", packed_file_path)
+                    .tag("resource_id", resource_id);
+        } else {
+            LOG_INFO("deleted packed file")
+                    .tag("instance_id", instance_id_)
+                    .tag("packed_file_path", packed_file_path)
+                    .tag("resource_id", resource_id);
+        }
+
+        std::unique_ptr<Transaction> del_txn;
+        err = txn_kv_->create_txn(&del_txn);
+        if (err != TxnErrorCode::TXN_OK) {
+            LOG_WARNING("failed to create txn when removing packed file kv")
+                    .tag("instance_id", instance_id_)
+                    .tag("packed_file_path", packed_file_path)
+                    .tag("err", err);
+            return -1;
+        }
+
+        std::string latest_val;
+        err = del_txn->get(packed_key, &latest_val);
+        if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+            return 0;
+        }
+        if (err != TxnErrorCode::TXN_OK) {
+            LOG_WARNING("failed to re-read packed file kv before removal")
+                    .tag("instance_id", instance_id_)
+                    .tag("packed_file_path", packed_file_path)
+                    .tag("err", err);
+            return -1;
+        }
+
+        cloud::PackedFileInfoPB latest_info;
+        if (!latest_info.ParseFromString(latest_val)) {
+            LOG_WARNING("failed to parse packed file info before removal")
+                    .tag("instance_id", instance_id_)
+                    .tag("packed_file_path", packed_file_path);
+            return -1;
+        }
+
+        if (!(latest_info.state() == cloud::PackedFileInfoPB::RECYCLING &&
+              latest_info.ref_cnt() == 0)) {
+            LOG_INFO("packed file state changed before removal, skip deleting kv")
+                    .tag("instance_id", instance_id_)
+                    .tag("packed_file_path", packed_file_path);
+            return 0;
+        }
+
+        del_txn->remove(packed_key);
+        err = del_txn->commit();
+        if (err == TxnErrorCode::TXN_OK) {
+            if (stats) {
+                ++stats->num_deleted;
+                stats->bytes_deleted += static_cast<int64_t>(packed_key.size()) +
+                                        static_cast<int64_t>(latest_val.size());
+                if (del_ret == 0 || del_ret == 1) {
+                    ++stats->num_object_deleted;
+                    int64_t object_size = latest_info.total_slice_bytes();
+                    if (object_size <= 0) {
+                        object_size = packed_info.total_slice_bytes();
+                    }
+                    stats->bytes_object_deleted += object_size;
+                }
+            }
+            LOG_INFO("removed packed file metadata")
+                    .tag("instance_id", instance_id_)
+                    .tag("packed_file_path", packed_file_path);
+            return 0;
+        }
+        if (err == TxnErrorCode::TXN_CONFLICT) {
+            LOG_WARNING("failed to remove packed file kv due to conflict")
+                    .tag("instance_id", instance_id_)
+                    .tag("packed_file_path", packed_file_path);
+            return -1;
+        }
+        LOG_WARNING("failed to remove packed file kv")
+                .tag("instance_id", instance_id_)
+                .tag("packed_file_path", packed_file_path)
+                .tag("err", err);
+        return -1;
+    }
+
+    return 0;
+}
+
+int InstanceRecycler::handle_packed_file_kv(std::string_view key, std::string_view /*value*/,
+                                            PackedFileRecycleStats* stats, int* ret) {
+    if (stats) {
+        ++stats->num_scanned;
+    }
+    std::string packed_file_path;
+    if (!decode_packed_file_key(key, &packed_file_path)) {
+        LOG_WARNING("failed to decode packed file key")
+                .tag("instance_id", instance_id_)
+                .tag("key", hex(key));
+        if (stats) {
+            ++stats->num_failed;
+        }
+        if (ret) {
+            *ret = -1;
+        }
+        return 0;
+    }
+
+    std::string packed_key(key);
+    int process_ret = process_single_packed_file(packed_key, packed_file_path, stats);
+    if (process_ret != 0) {
+        if (stats) {
+            ++stats->num_failed;
+        }
+        if (ret) {
+            *ret = -1;
+        }
+    }
+    return 0;
+}
 bool is_txn_finished(std::shared_ptr<TxnKv> txn_kv, const std::string& instance_id,
                      int64_t txn_id) {
     std::unique_ptr<Transaction> txn;
@@ -1972,6 +2479,11 @@ int InstanceRecycler::delete_rowset_data(const RowsetMetaCloudPB& rs_meta_pb) {
     int64_t num_segments = rs_meta_pb.num_segments();
     if (num_segments <= 0) return 0;
 
+    std::vector<std::string> file_paths;
+    if (decrement_packed_file_ref_counts(rs_meta_pb) != 0) {
+        return -1;
+    }
+
     // Process inverted indexes
     std::vector<std::pair<int64_t, std::string>> index_ids;
     // default format as v1.
@@ -2041,9 +2553,9 @@ int InstanceRecycler::delete_rowset_data(const RowsetMetaCloudPB& rs_meta_pb) {
         return -1;
     }
     auto& accessor = it->second;
+
     int64_t tablet_id = rs_meta_pb.tablet_id();
     const auto& rowset_id = rs_meta_pb.rowset_id_v2();
-    std::vector<std::string> file_paths;
     for (int64_t i = 0; i < num_segments; ++i) {
         file_paths.push_back(segment_path(tablet_id, rowset_id, i));
         if (index_format == InvertedIndexStorageFormatPB::V1) {
@@ -2060,6 +2572,330 @@ int InstanceRecycler::delete_rowset_data(const RowsetMetaCloudPB& rs_meta_pb) {
     file_paths.push_back(delete_bitmap_path(tablet_id, rowset_id));
     // TODO(AlexYue): seems could do do batch
     return accessor->delete_files(file_paths);
+}
+
+int InstanceRecycler::decrement_packed_file_ref_counts(const doris::RowsetMetaCloudPB& rs_meta_pb) {
+    LOG_INFO("begin process_packed_file_location_index")
+            .tag("instance_id", instance_id_)
+            .tag("tablet_id", rs_meta_pb.tablet_id())
+            .tag("rowset_id", rs_meta_pb.rowset_id_v2())
+            .tag("index_map_size", rs_meta_pb.packed_slice_locations_size());
+    const auto& index_map = rs_meta_pb.packed_slice_locations();
+    if (index_map.empty()) {
+        LOG_INFO("skip merge file update: empty merge_file_segment_index")
+                .tag("instance_id", instance_id_)
+                .tag("tablet_id", rs_meta_pb.tablet_id())
+                .tag("rowset_id", rs_meta_pb.rowset_id_v2());
+        return 0;
+    }
+    struct PackedSmallFileInfo {
+        std::string small_file_path;
+    };
+    std::unordered_map<std::string, std::vector<PackedSmallFileInfo>> packed_file_updates;
+    packed_file_updates.reserve(index_map.size());
+    for (const auto& [small_path, index_pb] : index_map) {
+        if (!index_pb.has_packed_file_path() || index_pb.packed_file_path().empty()) {
+            continue;
+        }
+        packed_file_updates[index_pb.packed_file_path()].push_back(
+                PackedSmallFileInfo {small_path});
+    }
+    if (packed_file_updates.empty()) {
+        LOG_INFO("skip packed file update: no valid merge_file_path in merge_file_segment_index")
+                .tag("instance_id", instance_id_)
+                .tag("tablet_id", rs_meta_pb.tablet_id())
+                .tag("rowset_id", rs_meta_pb.rowset_id_v2())
+                .tag("index_map_size", index_map.size());
+        return 0;
+    }
+
+    int ret = 0;
+    for (auto& [packed_file_path, small_files] : packed_file_updates) {
+        if (small_files.empty()) {
+            continue;
+        }
+
+        bool success = false;
+        do {
+            std::unique_ptr<Transaction> txn;
+            TxnErrorCode err = txn_kv_->create_txn(&txn);
+            if (err != TxnErrorCode::TXN_OK) {
+                LOG_WARNING("failed to create txn when updating packed file ref count")
+                        .tag("instance_id", instance_id_)
+                        .tag("packed_file_path", packed_file_path)
+                        .tag("rowset_id", rs_meta_pb.rowset_id_v2())
+                        .tag("tablet_id", rs_meta_pb.tablet_id())
+                        .tag("err", err);
+                ret = -1;
+                break;
+            }
+
+            std::string packed_key = packed_file_key({instance_id_, packed_file_path});
+            std::string packed_val;
+            err = txn->get(packed_key, &packed_val);
+            if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+                LOG_WARNING("packed file info not found when recycling rowset")
+                        .tag("instance_id", instance_id_)
+                        .tag("packed_file_path", packed_file_path)
+                        .tag("rowset_id", rs_meta_pb.rowset_id_v2())
+                        .tag("tablet_id", rs_meta_pb.tablet_id())
+                        .tag("key", hex(packed_key))
+                        .tag("tablet id", rs_meta_pb.tablet_id());
+                // Skip this packed file entry and continue with others
+                success = true;
+                break;
+            }
+            if (err != TxnErrorCode::TXN_OK) {
+                LOG_WARNING("failed to get packed file info when recycling rowset")
+                        .tag("instance_id", instance_id_)
+                        .tag("packed_file_path", packed_file_path)
+                        .tag("rowset_id", rs_meta_pb.rowset_id_v2())
+                        .tag("tablet_id", rs_meta_pb.tablet_id())
+                        .tag("err", err);
+                ret = -1;
+                break;
+            }
+
+            cloud::PackedFileInfoPB packed_info;
+            if (!packed_info.ParseFromString(packed_val)) {
+                LOG_WARNING("failed to parse packed file info when recycling rowset")
+                        .tag("instance_id", instance_id_)
+                        .tag("packed_file_path", packed_file_path)
+                        .tag("rowset_id", rs_meta_pb.rowset_id_v2())
+                        .tag("tablet_id", rs_meta_pb.tablet_id());
+                ret = -1;
+                break;
+            }
+
+            LOG_INFO("packed file update check")
+                    .tag("instance_id", instance_id_)
+                    .tag("rowset_id", rs_meta_pb.rowset_id_v2())
+                    .tag("tablet_id", rs_meta_pb.tablet_id())
+                    .tag("merged_file_path", packed_file_path)
+                    .tag("requested_small_files", small_files.size())
+                    .tag("merge_entries", packed_info.slices_size());
+
+            auto* small_file_entries = packed_info.mutable_slices();
+            int64_t changed_files = 0;
+            int64_t missing_entries = 0;
+            int64_t already_deleted = 0;
+            for (const auto& small_file_info : small_files) {
+                bool found = false;
+                for (auto& small_file_entry : *small_file_entries) {
+                    if (small_file_entry.path() == small_file_info.small_file_path) {
+                        if (!small_file_entry.deleted()) {
+                            small_file_entry.set_deleted(true);
+                            if (!small_file_entry.corrected()) {
+                                small_file_entry.set_corrected(true);
+                            }
+                            ++changed_files;
+                        } else {
+                            ++already_deleted;
+                        }
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found) {
+                    ++missing_entries;
+                    LOG_WARNING("packed file info missing small file entry")
+                            .tag("instance_id", instance_id_)
+                            .tag("packed_file_path", packed_file_path)
+                            .tag("small_file_path", small_file_info.small_file_path)
+                            .tag("rowset_id", rs_meta_pb.rowset_id_v2())
+                            .tag("tablet_id", rs_meta_pb.tablet_id());
+                }
+            }
+
+            if (changed_files == 0) {
+                LOG_INFO("skip merge file update: no merge entries changed")
+                        .tag("instance_id", instance_id_)
+                        .tag("rowset_id", rs_meta_pb.rowset_id_v2())
+                        .tag("tablet_id", rs_meta_pb.tablet_id())
+                        .tag("merged_file_path", packed_file_path)
+                        .tag("missing_entries", missing_entries)
+                        .tag("already_deleted", already_deleted)
+                        .tag("requested_small_files", small_files.size())
+                        .tag("merge_entries", packed_info.slices_size());
+                success = true;
+                break;
+            }
+
+            int64_t left_file_count = 0;
+            int64_t left_file_bytes = 0;
+            for (const auto& small_file_entry : packed_info.slices()) {
+                if (!small_file_entry.deleted()) {
+                    ++left_file_count;
+                    left_file_bytes += small_file_entry.size();
+                }
+            }
+            packed_info.set_remaining_slice_bytes(left_file_bytes);
+            packed_info.set_ref_cnt(left_file_count);
+            LOG_INFO("updated packed file reference info")
+                    .tag("instance_id", instance_id_)
+                    .tag("rowset_id", rs_meta_pb.rowset_id_v2())
+                    .tag("tablet_id", rs_meta_pb.tablet_id())
+                    .tag("packed_file_path", packed_file_path)
+                    .tag("ref_cnt", left_file_count)
+                    .tag("left_file_bytes", left_file_bytes);
+
+            if (left_file_count == 0) {
+                packed_info.set_state(cloud::PackedFileInfoPB::RECYCLING);
+            }
+
+            std::string updated_val;
+            if (!packed_info.SerializeToString(&updated_val)) {
+                LOG_WARNING("failed to serialize packed file info when recycling rowset")
+                        .tag("instance_id", instance_id_)
+                        .tag("packed_file_path", packed_file_path)
+                        .tag("rowset_id", rs_meta_pb.rowset_id_v2())
+                        .tag("tablet_id", rs_meta_pb.tablet_id());
+                ret = -1;
+                break;
+            }
+
+            txn->put(packed_key, updated_val);
+            err = txn->commit();
+            if (err == TxnErrorCode::TXN_OK) {
+                success = true;
+                if (left_file_count == 0) {
+                    LOG_INFO("packed file ready to delete, deleting immediately")
+                            .tag("instance_id", instance_id_)
+                            .tag("packed_file_path", packed_file_path);
+                    if (delete_packed_file_and_kv(packed_file_path, packed_key, packed_info) != 0) {
+                        ret = -1;
+                    }
+                }
+                break;
+            }
+            if (err == TxnErrorCode::TXN_CONFLICT) {
+                LOG_WARNING("packed file info update conflict, not retrying")
+                        .tag("instance_id", instance_id_)
+                        .tag("packed_file_path", packed_file_path)
+                        .tag("rowset_id", rs_meta_pb.rowset_id_v2())
+                        .tag("tablet_id", rs_meta_pb.tablet_id())
+                        .tag("changed_files", changed_files);
+                ret = -1;
+                break;
+            }
+
+            LOG_WARNING("failed to commit packed file info update")
+                    .tag("instance_id", instance_id_)
+                    .tag("packed_file_path", packed_file_path)
+                    .tag("rowset_id", rs_meta_pb.rowset_id_v2())
+                    .tag("tablet_id", rs_meta_pb.tablet_id())
+                    .tag("err", err)
+                    .tag("changed_files", changed_files);
+            ret = -1;
+            break;
+        } while (false);
+
+        if (!success) {
+            ret = -1;
+        }
+    }
+
+    return ret;
+}
+
+int InstanceRecycler::delete_packed_file_and_kv(const std::string& packed_file_path,
+                                                const std::string& packed_key,
+                                                const cloud::PackedFileInfoPB& packed_info) {
+    if (!packed_info.has_resource_id() || packed_info.resource_id().empty()) {
+        LOG_WARNING("packed file missing resource id when recycling")
+                .tag("instance_id", instance_id_)
+                .tag("packed_file_path", packed_file_path);
+        return -1;
+    }
+
+    auto [resource_id, accessor] = resolve_packed_file_accessor(packed_info.resource_id());
+    if (!accessor) {
+        LOG_WARNING("no accessor available to delete packed file")
+                .tag("instance_id", instance_id_)
+                .tag("packed_file_path", packed_file_path)
+                .tag("resource_id", packed_info.resource_id());
+        return -1;
+    }
+
+    int del_ret = accessor->delete_file(packed_file_path);
+    if (del_ret != 0 && del_ret != 1) {
+        LOG_WARNING("failed to delete packed file")
+                .tag("instance_id", instance_id_)
+                .tag("packed_file_path", packed_file_path)
+                .tag("resource_id", resource_id)
+                .tag("ret", del_ret);
+        return -1;
+    }
+    if (del_ret == 1) {
+        LOG_INFO("packed file already removed")
+                .tag("instance_id", instance_id_)
+                .tag("packed_file_path", packed_file_path)
+                .tag("resource_id", resource_id);
+    } else {
+        LOG_INFO("deleted packed file")
+                .tag("instance_id", instance_id_)
+                .tag("packed_file_path", packed_file_path)
+                .tag("resource_id", resource_id);
+    }
+
+    std::unique_ptr<Transaction> del_txn;
+    TxnErrorCode err = txn_kv_->create_txn(&del_txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        LOG_WARNING("failed to create txn when removing packed file kv")
+                .tag("instance_id", instance_id_)
+                .tag("packed_file_path", packed_file_path)
+                .tag("err", err);
+        return -1;
+    }
+
+    std::string latest_val;
+    err = del_txn->get(packed_key, &latest_val);
+    if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+        return 0;
+    }
+    if (err != TxnErrorCode::TXN_OK) {
+        LOG_WARNING("failed to re-read packed file kv before removal")
+                .tag("instance_id", instance_id_)
+                .tag("packed_file_path", packed_file_path)
+                .tag("err", err);
+        return -1;
+    }
+
+    cloud::PackedFileInfoPB latest_info;
+    if (!latest_info.ParseFromString(latest_val)) {
+        LOG_WARNING("failed to parse packed file info before removal")
+                .tag("instance_id", instance_id_)
+                .tag("packed_file_path", packed_file_path);
+        return -1;
+    }
+
+    if (!(latest_info.state() == cloud::PackedFileInfoPB::RECYCLING &&
+          latest_info.ref_cnt() == 0)) {
+        LOG_INFO("packed file state changed before removal, skip deleting kv")
+                .tag("instance_id", instance_id_)
+                .tag("packed_file_path", packed_file_path);
+        return 0;
+    }
+
+    del_txn->remove(packed_key);
+    err = del_txn->commit();
+    if (err == TxnErrorCode::TXN_OK) {
+        LOG_INFO("removed packed file metadata")
+                .tag("instance_id", instance_id_)
+                .tag("packed_file_path", packed_file_path);
+        return 0;
+    }
+    if (err == TxnErrorCode::TXN_CONFLICT) {
+        LOG_WARNING("failed to remove packed file kv due to conflict")
+                .tag("instance_id", instance_id_)
+                .tag("packed_file_path", packed_file_path);
+        return -1;
+    }
+    LOG_WARNING("failed to remove packed file kv")
+            .tag("instance_id", instance_id_)
+            .tag("packed_file_path", packed_file_path)
+            .tag("err", err);
+    return -1;
 }
 
 int InstanceRecycler::delete_rowset_data(
@@ -2095,6 +2931,15 @@ int InstanceRecycler::delete_rowset_data(
         auto& file_paths = resource_file_paths[rs.resource_id()];
         const auto& rowset_id = rs.rowset_id_v2();
         int64_t tablet_id = rs.tablet_id();
+        LOG_INFO("recycle rowset merge index size")
+                .tag("instance_id", instance_id_)
+                .tag("tablet_id", tablet_id)
+                .tag("rowset_id", rowset_id)
+                .tag("merge_index_size", rs.packed_slice_locations_size());
+        if (decrement_packed_file_ref_counts(rs) != 0) {
+            ret = -1;
+            continue;
+        }
         int64_t num_segments = rs.num_segments();
         if (num_segments <= 0) {
             metrics_context.total_recycled_num++;
@@ -2223,6 +3068,9 @@ int InstanceRecycler::delete_rowset_data(
                                   if (auto pos = str.back().find('_'); pos != std::string::npos) {
                                       rowset_id = str.back().substr(0, pos);
                                   } else {
+                                      if (path.find("packed_file/") != std::string::npos) {
+                                          return; // packed files do not have rowset_id encoded
+                                      }
                                       LOG(WARNING) << "failed to parse rowset_id, path=" << path;
                                       return;
                                   }
@@ -2290,6 +3138,78 @@ int InstanceRecycler::delete_rowset_data(const std::string& resource_id, int64_t
     }
     auto& accessor = it->second;
     return accessor->delete_prefix(rowset_path_prefix(tablet_id, rowset_id));
+}
+
+bool InstanceRecycler::decode_packed_file_key(std::string_view key, std::string* packed_path) {
+    if (key.empty()) {
+        return false;
+    }
+    std::string_view key_view = key;
+    key_view.remove_prefix(1); // remove keyspace prefix
+    std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> decoded;
+    if (decode_key(&key_view, &decoded) != 0) {
+        return false;
+    }
+    if (decoded.size() < 4) {
+        return false;
+    }
+    try {
+        *packed_path = std::get<std::string>(std::get<0>(decoded.back()));
+    } catch (const std::bad_variant_access&) {
+        return false;
+    }
+    return true;
+}
+
+int InstanceRecycler::recycle_packed_files() {
+    const std::string task_name = "recycle_packed_files";
+    auto start_tp = steady_clock::now();
+    int64_t start_time = duration_cast<seconds>(start_tp.time_since_epoch()).count();
+    int ret = 0;
+    PackedFileRecycleStats stats;
+
+    register_recycle_task(task_name, start_time);
+    DORIS_CLOUD_DEFER {
+        unregister_recycle_task(task_name);
+        int64_t cost =
+                duration_cast<seconds>(steady_clock::now().time_since_epoch()).count() - start_time;
+        int64_t cost_ms = duration_cast<milliseconds>(steady_clock::now() - start_tp).count();
+        g_bvar_recycler_packed_file_recycled_kv_num.put(instance_id_, stats.num_deleted);
+        g_bvar_recycler_packed_file_recycled_kv_bytes.put(instance_id_, stats.bytes_deleted);
+        g_bvar_recycler_packed_file_recycle_cost_ms.put(instance_id_, cost_ms);
+        g_bvar_recycler_packed_file_scanned_kv_num.put(instance_id_, stats.num_scanned);
+        g_bvar_recycler_packed_file_corrected_kv_num.put(instance_id_, stats.num_corrected);
+        g_bvar_recycler_packed_file_recycled_object_num.put(instance_id_, stats.num_object_deleted);
+        g_bvar_recycler_packed_file_bytes_object_deleted.put(instance_id_,
+                                                             stats.bytes_object_deleted);
+        g_bvar_recycler_packed_file_rowset_scanned_num.put(instance_id_, stats.rowset_scan_count);
+        LOG_INFO("recycle packed files finished, cost={}s", cost)
+                .tag("instance_id", instance_id_)
+                .tag("num_scanned", stats.num_scanned)
+                .tag("num_corrected", stats.num_corrected)
+                .tag("num_deleted", stats.num_deleted)
+                .tag("num_failed", stats.num_failed)
+                .tag("num_objects_deleted", stats.num_object_deleted)
+                .tag("bytes_object_deleted", stats.bytes_object_deleted)
+                .tag("rowset_scan_count", stats.rowset_scan_count)
+                .tag("bytes_deleted", stats.bytes_deleted)
+                .tag("ret", ret);
+    };
+
+    auto recycle_func = [this, &stats, &ret](auto&& key, auto&& value) {
+        return handle_packed_file_kv(std::forward<decltype(key)>(key),
+                                     std::forward<decltype(value)>(value), &stats, &ret);
+    };
+
+    LOG_INFO("begin to recycle packed file").tag("instance_id", instance_id_);
+
+    std::string begin = packed_file_key({instance_id_, ""});
+    std::string end = packed_file_key({instance_id_, "\xff"});
+    if (scan_and_recycle(begin, end, recycle_func) != 0) {
+        ret = -1;
+    }
+
+    return ret;
 }
 
 int InstanceRecycler::scan_tablets_and_statistics(int64_t table_id, int64_t index_id,
@@ -2528,6 +3448,13 @@ int InstanceRecycler::recycle_tablet(int64_t tablet_id, RecyclerMetricsContext& 
                     .tag("rowset meta pb", rs_meta.ShortDebugString());
             return -1;
         }
+        if (decrement_packed_file_ref_counts(rs_meta) != 0) {
+            LOG_WARNING("failed to update packed file info when recycling tablet")
+                    .tag("instance_id", instance_id_)
+                    .tag("tablet_id", tablet_id)
+                    .tag("rowset_id", rs_meta.rowset_id_v2());
+            return -1;
+        }
         recycle_rowsets_number += 1;
         recycle_segments_number += rs_meta.num_segments();
         recycle_rowsets_data_size += rs_meta.data_disk_size();
@@ -2571,6 +3498,13 @@ int InstanceRecycler::recycle_tablet(int64_t tablet_id, RecyclerMetricsContext& 
                     .tag("instance_id", instance_id_)
                     .tag("resource_id", rs_meta.resource_id())
                     .tag("rowset meta pb", rs_meta.ShortDebugString());
+            return -1;
+        }
+        if (decrement_packed_file_ref_counts(rs_meta) != 0) {
+            LOG_WARNING("failed to update packed file info when recycling restore job rowset")
+                    .tag("instance_id", instance_id_)
+                    .tag("tablet_id", tablet_id)
+                    .tag("rowset_id", rs_meta.rowset_id_v2());
             return -1;
         }
         recycle_restore_job_rowsets_number += 1;

@@ -62,6 +62,19 @@ public class DecimalV3Literal extends FractionalLiteral {
         this.value = Objects.requireNonNull(adjustedValue);
     }
 
+    // In some scenarios, when enable_decimal256=false, the creation of DecimalV3Literal with
+    // a precision exceeding 38 is not allowed, such as during the parsing stage.
+    public static DecimalV3Literal createWithCheck256(BigDecimal value) {
+        return new DecimalV3Literal(DecimalV3Type.createDecimalV3Type(value), value);
+    }
+
+    // In some scenarios, even when enable_decimal256=false, it is still possible
+    // to create DecimalV3Literal with a precision exceeding 38,
+    // for example, intermediate steps in constant folding calculations and expression simplification.
+    public static DecimalV3Literal createWithoutCheck256(BigDecimal value) {
+        return new DecimalV3Literal(DecimalV3Type.createDecimalV3TypeNotCheck256(value), value);
+    }
+
     @Override
     public BigDecimal getValue() {
         return value;
@@ -96,7 +109,7 @@ public class DecimalV3Literal extends FractionalLiteral {
         if (newScale >= this.getValue().scale()) {
             return this;
         }
-        return new DecimalV3Literal(value.setScale(newScale, RoundingMode.CEILING));
+        return createWithoutCheck256(value.setScale(newScale, RoundingMode.CEILING));
     }
 
     /**
@@ -108,7 +121,7 @@ public class DecimalV3Literal extends FractionalLiteral {
         if (newScale >= this.getValue().scale()) {
             return this;
         }
-        return new DecimalV3Literal(value.setScale(newScale, RoundingMode.FLOOR));
+        return createWithoutCheck256(value.setScale(newScale, RoundingMode.FLOOR));
     }
 
     /**
@@ -120,7 +133,7 @@ public class DecimalV3Literal extends FractionalLiteral {
         if (newScale >= this.getValue().scale()) {
             return this;
         }
-        return new DecimalV3Literal(value.setScale(newScale, RoundingMode.HALF_UP));
+        return createWithoutCheck256(value.setScale(newScale, RoundingMode.HALF_UP));
     }
 
     /**

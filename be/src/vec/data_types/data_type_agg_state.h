@@ -19,6 +19,7 @@
 
 #include <gen_cpp/data.pb.h>
 
+#include "common/consts.h"
 #include "common/exception.h"
 #include "common/status.h"
 #include "runtime/define_primitive_type.h"
@@ -27,6 +28,7 @@
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/columns/column_fixed_length_object.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_fixed_length_object.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/data_types/serde/data_type_string_serde.h"
@@ -41,8 +43,24 @@ public:
               _sub_types(std::move(sub_types)),
               _function_name(std::move(function_name)),
               _be_exec_version(be_exec_version) {
+        DataTypePtr result_type;
+        auto arg_primitive_type = _sub_types[0]->get_primitive_type();
+        if (is_decimalv3(arg_primitive_type)) {
+            // TODO: handle decimal256 correctly according to session var enable_decimal256
+            int precision = 0;
+            if (arg_primitive_type == PrimitiveType::TYPE_DECIMAL256) {
+                precision = BeConsts::MAX_DECIMAL256_PRECISION;
+            } else {
+                precision = BeConsts::MAX_DECIMAL128_PRECISION;
+            }
+            result_type = DataTypeFactory::instance().create_data_type(
+                    arg_primitive_type, _sub_types[0]->is_nullable(), precision,
+                    _sub_types[0]->get_scale());
+        } else {
+            result_type = _sub_types[0];
+        }
         _agg_function = AggregateFunctionSimpleFactory::instance().get(
-                _function_name, _sub_types, _result_is_nullable, _be_exec_version);
+                _function_name, _sub_types, result_type, _result_is_nullable, _be_exec_version);
         if (_agg_function == nullptr ||
             !BeExecVersionManager::check_be_exec_version(be_exec_version)) {
             throw Exception(ErrorCode::INVALID_ARGUMENT,
