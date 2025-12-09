@@ -27,13 +27,11 @@
 #include "common/status.h"
 #include "util/defer_op.h"
 #include "vec/columns/column_complex.h"
+#include "vec/columns/column_fixed_length_object.h"
 #include "vec/columns/column_string.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/hash_table/phmap_fwd_decl.h"
 #include "vec/common/string_buffer.hpp"
-#include "vec/core/block.h"
-#include "vec/core/column_numbers.h"
-#include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_string.h"
@@ -111,7 +109,7 @@ public:
     virtual void reset(AggregateDataPtr place) const = 0;
 
     /// It is not necessary to delete data.
-    virtual bool has_trivial_destructor() const = 0;
+    virtual bool is_trivial() const = 0;
 
     /// Get `sizeof` of structure with data.
     virtual size_t size_of_data() const = 0;
@@ -642,7 +640,7 @@ public:
 
     void destroy(AggregateDataPtr __restrict place) const noexcept override { data(place).~Data(); }
 
-    bool has_trivial_destructor() const override { return std::is_trivially_destructible_v<Data>; }
+    bool is_trivial() const override { return false; }
 
     size_t size_of_data() const override { return sizeof(Data); }
 
