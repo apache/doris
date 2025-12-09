@@ -145,7 +145,7 @@ static void read_parquet_lines(std::vector<std::string> numeric_types,
     p_reader->set_file_reader(reader);
     static_cast<void>(p_reader->read_by_rows(read_lines));
 
-    RuntimeState runtime_state((TQueryGlobals()));
+    RuntimeState runtime_state = RuntimeState(TQueryOptions(), TQueryGlobals());
     runtime_state.set_desc_tbl(desc_tbl);
 
     std::unordered_map<std::string, ColumnValueRangeType> colname_to_value_range;

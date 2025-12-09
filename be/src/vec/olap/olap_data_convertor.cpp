@@ -603,7 +603,7 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorVarChar::convert_to_olap(
                 }
                 // Make sure that the json binary data written in is the correct jsonb value.
                 if (_is_jsonb) {
-                    JsonbDocument* doc = nullptr;
+                    const JsonbDocument* doc = nullptr;
                     RETURN_IF_ERROR(doris::JsonbDocument::checkAndCreateDocument(
                             slice->data, slice->size, &doc));
                 }
@@ -630,7 +630,7 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorVarChar::convert_to_olap(
             }
             // Make sure that the json binary data written in is the correct jsonb value.
             if (_is_jsonb) {
-                JsonbDocument* doc = nullptr;
+                const JsonbDocument* doc = nullptr;
                 RETURN_IF_ERROR(doris::JsonbDocument::checkAndCreateDocument(slice->data,
                                                                              slice->size, &doc));
             }

@@ -404,6 +404,7 @@ TEST_F(ParquetExprTest, test_ne) {
     auto const_val = std::make_shared<MockLiteral>(
             ColumnHelper::create_column_with_name<DataTypeInt64>({100}));
 
+    slot_ref->set_expr_name("int32_all_null_col");
     fn_eq->add_child(slot_ref);
     fn_eq->add_child(const_val);
     fn_eq->_node_type = TExprNodeType::BINARY_PRED;
@@ -422,7 +423,7 @@ TEST_F(ParquetExprTest, test_eq) {
     auto fn_eq = MockFnCall::create("eq");
     auto const_val = std::make_shared<MockLiteral>(
             ColumnHelper::create_column_with_name<DataTypeInt32>({100}));
-
+    slot_ref->set_expr_name("int32_all_null_col");
     fn_eq->add_child(slot_ref);
     fn_eq->add_child(const_val);
     fn_eq->_node_type = TExprNodeType::BINARY_PRED;
@@ -442,7 +443,7 @@ TEST_F(ParquetExprTest, test_le) {
     auto fn_eq = MockFnCall::create("le");
     auto const_val = std::make_shared<MockLiteral>(
             ColumnHelper::create_column_with_name<DataTypeInt32>({100}));
-
+    slot_ref->set_expr_name("int32_all_null_col");
     fn_eq->add_child(slot_ref);
     fn_eq->add_child(const_val);
     fn_eq->_node_type = TExprNodeType::BINARY_PRED;
@@ -462,7 +463,7 @@ TEST_F(ParquetExprTest, test_ge) {
     auto fn_eq = MockFnCall::create("ge");
     auto const_val = std::make_shared<MockLiteral>(
             ColumnHelper::create_column_with_name<DataTypeInt32>({100}));
-
+    slot_ref->set_expr_name("int32_all_null_col");
     fn_eq->add_child(slot_ref);
     fn_eq->add_child(const_val);
     fn_eq->_node_type = TExprNodeType::BINARY_PRED;
@@ -482,7 +483,7 @@ TEST_F(ParquetExprTest, test_gt) {
     auto fn_eq = MockFnCall::create("gt");
     auto const_val = std::make_shared<MockLiteral>(
             ColumnHelper::create_column_with_name<DataTypeInt32>({100}));
-
+    slot_ref->set_expr_name("int32_all_null_col");
     fn_eq->add_child(slot_ref);
     fn_eq->add_child(const_val);
     fn_eq->_node_type = TExprNodeType::BINARY_PRED;
@@ -502,7 +503,7 @@ TEST_F(ParquetExprTest, test_lt) {
     auto fn_eq = MockFnCall::create("lt");
     auto const_val = std::make_shared<MockLiteral>(
             ColumnHelper::create_column_with_name<DataTypeInt32>({100}));
-
+    slot_ref->set_expr_name("int32_all_null_col");
     fn_eq->add_child(slot_ref);
     fn_eq->add_child(const_val);
     fn_eq->_node_type = TExprNodeType::BINARY_PRED;
@@ -1180,6 +1181,7 @@ TEST_F(ParquetExprTest, test_expr_push_down_and) {
         auto fn_le = MockFnCall::create("le");
         auto const_val = std::make_shared<MockLiteral>(
                 ColumnHelper::create_column_with_name<DataTypeInt64>({10000000002}));
+        slot_ref->set_expr_name("int64_col");
         fn_le->add_child(slot_ref);
         fn_le->add_child(const_val);
         fn_le->_node_type = TExprNodeType::BINARY_PRED;
@@ -1199,7 +1201,7 @@ TEST_F(ParquetExprTest, test_expr_push_down_and) {
         auto fn_le = MockFnCall::create("gt");
         auto const_val = std::make_shared<MockLiteral>(
                 ColumnHelper::create_column_with_name<DataTypeInt64>({100}));
-
+        slot_ref->set_expr_name("int64_col");
         fn_le->add_child(slot_ref);
         fn_le->add_child(const_val);
         fn_le->_node_type = TExprNodeType::BINARY_PRED;
@@ -1219,7 +1221,7 @@ TEST_F(ParquetExprTest, test_expr_push_down_and) {
         auto fn_le = MockFnCall::create("ge");
         auto const_val = std::make_shared<MockLiteral>(
                 ColumnHelper::create_column_with_name<DataTypeInt64>({900}));
-
+        slot_ref->set_expr_name("int64_col");
         fn_le->add_child(slot_ref);
         fn_le->add_child(const_val);
         fn_le->_node_type = TExprNodeType::BINARY_PRED;
@@ -1248,8 +1250,8 @@ TEST_F(ParquetExprTest, test_expr_push_down_and) {
     ASSERT_TRUE(p_reader->check_expr_can_push_down(and_expr));
 
     p_reader->_enable_filter_by_min_max = true;
-    std::map<int, std::vector<std::unique_ptr<ColumnPredicate>>> push_down_simple_predicates;
-    push_down_simple_predicates.emplace(2, std::vector<std::unique_ptr<ColumnPredicate>> {});
+    std::map<int, std::vector<std::shared_ptr<ColumnPredicate>>> push_down_simple_predicates;
+    push_down_simple_predicates.emplace(2, std::vector<std::shared_ptr<ColumnPredicate>> {});
     p_reader->_push_down_predicates.push_back(AndBlockColumnPredicate::create_unique());
     ASSERT_TRUE(p_reader->convert_predicates({and_expr}, push_down_simple_predicates[2],
                                              p_reader->_push_down_predicates.back(),
@@ -1285,7 +1287,7 @@ TEST_F(ParquetExprTest, test_expr_push_down_or_string) {
         auto fn_lt = MockFnCall::create("lt");
         auto const_val = std::make_shared<MockLiteral>(
                 ColumnHelper::create_column_with_name<DataTypeString>({"name_1"}));
-
+        slot_ref->set_expr_name("string_col");
         fn_lt->add_child(slot_ref);
         fn_lt->add_child(const_val);
         fn_lt->_node_type = TExprNodeType::BINARY_PRED;
@@ -1304,6 +1306,7 @@ TEST_F(ParquetExprTest, test_expr_push_down_or_string) {
     {
         auto slot_ref = std::make_shared<MockSlotRef>(5, std::make_shared<DataTypeString>());
         auto fn_is_not_null = MockFnCall::create("is_not_null_pred");
+        slot_ref->set_expr_name("string_col");
 
         fn_is_not_null->add_child(slot_ref);
         fn_is_not_null->_node_type = TExprNodeType::FUNCTION_CALL;
@@ -1743,8 +1746,7 @@ TEST_F(ParquetExprTest, test_in_list_predicate_uses_bloom_filter) {
         set->insert(&v);
     }
 
-    InListPredicateBase<TYPE_BIGINT, PredicateType::IN_LIST, HybridSet<PrimitiveType::TYPE_BIGINT>>
-            in_pred(col_idx, set);
+    InListPredicateBase<TYPE_BIGINT, PredicateType::IN_LIST, 3> in_pred(col_idx, set, false);
 
     ParquetPredicate::ColumnStat stat;
     stat.ctz = &ctz;
@@ -1797,8 +1799,7 @@ TEST_F(ParquetExprTest, test_in_list_predicate_no_loader_on_range_miss) {
         set->insert(&v);
     }
 
-    InListPredicateBase<TYPE_BIGINT, PredicateType::IN_LIST, HybridSet<PrimitiveType::TYPE_BIGINT>>
-            in_pred(col_idx, set);
+    InListPredicateBase<TYPE_BIGINT, PredicateType::IN_LIST, 2> in_pred(col_idx, set, false);
 
     ParquetPredicate::ColumnStat stat;
     stat.ctz = &ctz;

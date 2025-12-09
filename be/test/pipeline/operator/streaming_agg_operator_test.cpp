@@ -318,8 +318,9 @@ TEST_F(StreamingAggOperatorTest, test3) {
 }
 
 TEST_F(StreamingAggOperatorTest, test4) {
-    op->_aggregate_evaluators.push_back(vectorized::create_agg_fn(
-            pool, "bitmap_union", {std::make_shared<DataTypeBitMap>()}, false));
+    op->_aggregate_evaluators.push_back(
+            vectorized::create_agg_fn(pool, "bitmap_union", {std::make_shared<DataTypeBitMap>()},
+                                      std::make_shared<DataTypeBitMap>(), false));
     op->_pool = &pool;
     op->_needs_finalize = false;
     op->_is_merge = false;

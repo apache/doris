@@ -76,11 +76,11 @@ import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.SearchExpression;
+import org.apache.doris.nereids.trees.expressions.SessionVarGuardExpr;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
 import org.apache.doris.nereids.trees.expressions.TryCast;
 import org.apache.doris.nereids.trees.expressions.UnaryArithmetic;
-import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
@@ -756,6 +756,11 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
     }
 
     @Override
+    public Expr visitSessionVarGuardExpr(SessionVarGuardExpr sessionVarGuardExpr, PlanTranslatorContext context) {
+        return sessionVarGuardExpr.child().accept(this, context);
+    }
+
+    @Override
     public Expr visitTableGeneratingFunction(TableGeneratingFunction function,
             PlanTranslatorContext context) {
         List<Expr> arguments = function.getArguments()
@@ -818,11 +823,6 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                 NullableMode.DEPEND_ON_ARGUMENT);
         timestampArithmeticExpr.setNullableFromNereids(arithmetic.nullable());
         return timestampArithmeticExpr;
-    }
-
-    @Override
-    public Expr visitVirtualReference(VirtualSlotReference virtualSlotReference, PlanTranslatorContext context) {
-        return context.findSlotRef(virtualSlotReference.getExprId());
     }
 
     @Override

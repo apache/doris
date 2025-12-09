@@ -511,7 +511,7 @@ TEST_F(HiveReaderTest, read_hive_parquet_file) {
     }
 
     // Setup runtime state
-    RuntimeState runtime_state((TQueryGlobals()));
+    RuntimeState runtime_state = RuntimeState(TQueryOptions(), TQueryGlobals());
 
     // Setup scan parameters
     TFileScanRangeParams scan_params;
@@ -651,7 +651,7 @@ TEST_F(HiveReaderTest, read_hive_rrc_file) {
     }
 
     // Setup runtime state
-    RuntimeState runtime_state((TQueryGlobals()));
+    RuntimeState runtime_state = RuntimeState(TQueryOptions(), TQueryGlobals());
 
     // Setup scan parameters
     TFileScanRangeParams scan_params;

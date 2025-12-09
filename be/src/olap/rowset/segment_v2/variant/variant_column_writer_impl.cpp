@@ -91,7 +91,6 @@ Status _create_column_writer(uint32_t cid, const TabletColumn& column,
     }
     opt->need_zone_map = tablet_schema->keys_type() != KeysType::AGG_KEYS;
     opt->need_bloom_filter = column.is_bf_column();
-    opt->need_bitmap_index = column.has_bitmap_index();
     const auto& parent_index = tablet_schema->inverted_indexs(column.parent_unique_id());
 
     // init inverted index
@@ -127,7 +126,6 @@ Status _create_column_writer(uint32_t cid, const TabletColumn& column,
     if (column.type() == FieldType::OLAP_FIELD_TYPE_##TYPE) { \
         opt->need_zone_map = false;                           \
         opt->need_bloom_filter = false;                       \
-        opt->need_bitmap_index = false;                       \
     }
 
     DISABLE_INDEX_IF_FIELD_TYPE(ARRAY, "array")
@@ -678,15 +676,6 @@ Status VariantColumnWriterImpl::write_zone_map() {
     return Status::OK();
 }
 
-Status VariantColumnWriterImpl::write_bitmap_index() {
-    assert(is_finalized());
-    for (int i = 0; i < _subcolumn_writers.size(); ++i) {
-        if (_subcolumn_opts[i].need_bitmap_index) {
-            RETURN_IF_ERROR(_subcolumn_writers[i]->write_bitmap_index());
-        }
-    }
-    return Status::OK();
-}
 Status VariantColumnWriterImpl::write_inverted_index() {
     assert(is_finalized());
     for (int i = 0; i < _subcolumn_writers.size(); ++i) {
@@ -822,9 +811,6 @@ Status VariantSubcolumnWriter::write_zone_map() {
     return Status::OK();
 }
 
-Status VariantSubcolumnWriter::write_bitmap_index() {
-    return Status::OK();
-}
 Status VariantSubcolumnWriter::write_inverted_index() {
     assert(is_finalized());
     if (_opts.need_inverted_index) {

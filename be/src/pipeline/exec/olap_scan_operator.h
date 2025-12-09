@@ -109,7 +109,6 @@ private:
     std::atomic_bool _sync_tablet = false;
     std::vector<std::unique_ptr<doris::OlapScanRange>> _cond_ranges;
     OlapScanKeys _scan_keys;
-    std::vector<FilterOlapParam<TCondition>> _olap_filters;
     // If column id in this set, indicate that we need to read data after index filtering
     std::set<int32_t> _output_column_ids;
 
@@ -188,11 +187,6 @@ private:
     // used by segment v2
     RuntimeProfile::Counter* _cached_pages_num_counter = nullptr;
 
-    // row count filtered by bitmap inverted index
-    RuntimeProfile::Counter* _bitmap_index_filter_counter = nullptr;
-    // time fro bitmap inverted index read and filter
-    RuntimeProfile::Counter* _bitmap_index_filter_timer = nullptr;
-
     RuntimeProfile::Counter* _inverted_index_filter_counter = nullptr;
     RuntimeProfile::Counter* _inverted_index_filter_timer = nullptr;
     RuntimeProfile::Counter* _inverted_index_query_null_bitmap_timer = nullptr;
@@ -267,7 +261,6 @@ private:
 
     RuntimeProfile::Counter* _segment_iterator_init_timer = nullptr;
     RuntimeProfile::Counter* _segment_iterator_init_return_column_iterators_timer = nullptr;
-    RuntimeProfile::Counter* _segment_iterator_init_bitmap_index_iterators_timer = nullptr;
     RuntimeProfile::Counter* _segment_iterator_init_index_iterators_timer = nullptr;
 
     RuntimeProfile::Counter* _segment_create_column_readers_timer = nullptr;

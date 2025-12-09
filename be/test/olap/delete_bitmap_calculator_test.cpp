@@ -51,8 +51,7 @@ static RowsetId rowset_id {0};
 using Generator = std::function<void(size_t rid, int cid, RowCursorCell& cell)>;
 
 TabletColumnPtr create_int_sequence_value(int32_t id, bool is_nullable = true,
-                                          bool is_bf_column = false,
-                                          bool has_bitmap_index = false) {
+                                          bool is_bf_column = false) {
     TabletColumnPtr column = std::make_shared<TabletColumn>();
     column->_unique_id = id;
     column->_col_name = std::to_string(id);
@@ -62,7 +61,6 @@ TabletColumnPtr create_int_sequence_value(int32_t id, bool is_nullable = true,
     column->_length = 4;
     column->_index_length = 4;
     column->_is_bf_column = is_bf_column;
-    column->_has_bitmap_index = has_bitmap_index;
     column->set_name(SEQUENCE_COL);
     return column;
 }

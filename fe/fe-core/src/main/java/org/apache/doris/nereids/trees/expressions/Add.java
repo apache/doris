@@ -30,7 +30,7 @@ import java.util.List;
 /**
  * Add Expression.
  */
-public class Add extends BinaryArithmetic implements PropagateNullable {
+public class Add extends BinaryArithmetic implements PropagateNullable, NeedSessionVarGuard {
 
     public Add(Expression left, Expression right) {
         super(ImmutableList.of(left, right), Operator.ADD);

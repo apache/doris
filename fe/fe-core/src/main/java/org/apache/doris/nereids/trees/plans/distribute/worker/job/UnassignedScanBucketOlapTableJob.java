@@ -455,7 +455,7 @@ public class UnassignedScanBucketOlapTableJob extends AbstractUnassignedScanJob 
         for (Integer bucketIndex : selectBucketIndexes) {
             Long tabletIdInBucket = tabletIdsInOrder.get(bucketIndex);
             Tablet tabletInBucket = partition.getTablet(tabletIdInBucket);
-            List<DistributedPlanWorker> workers = getWorkersByReplicas(tabletInBucket);
+            List<DistributedPlanWorker> workers = getWorkersByReplicas(tabletInBucket, olapScanNode.getCatalogId());
             if (workers.isEmpty()) {
                 throw new IllegalStateException("Can not found available replica for bucket " + bucketIndex
                         + ", table: " + olapScanNode);
@@ -466,12 +466,12 @@ public class UnassignedScanBucketOlapTableJob extends AbstractUnassignedScanJob 
         return fillUpWorkerToBuckets;
     }
 
-    private List<DistributedPlanWorker> getWorkersByReplicas(Tablet tablet) {
+    private List<DistributedPlanWorker> getWorkersByReplicas(Tablet tablet, long catalogId) {
         DistributedPlanWorkerManager workerManager = scanWorkerSelector.getWorkerManager();
         List<Replica> replicas = tablet.getReplicas();
         List<DistributedPlanWorker> workers = Lists.newArrayListWithCapacity(replicas.size());
         for (Replica replica : replicas) {
-            DistributedPlanWorker worker = workerManager.getWorker(replica.getBackendIdWithoutException());
+            DistributedPlanWorker worker = workerManager.getWorker(catalogId, replica.getBackendIdWithoutException());
             if (worker.available()) {
                 workers.add(worker);
             }

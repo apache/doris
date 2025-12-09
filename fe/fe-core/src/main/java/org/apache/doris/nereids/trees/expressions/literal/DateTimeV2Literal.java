@@ -364,6 +364,48 @@ public class DateTimeV2Literal extends DateTimeLiteral {
         }
     }
 
+    /**
+     * plusSecondMicrosecond
+     */
+    public Expression plusSecondMicrosecond(VarcharLiteral secondMicrosecond) {
+        String stringValue = secondMicrosecond.getStringValue().trim();
+
+        if (!stringValue.matches("[0-9\\-\\.\\s]+")) {
+            throw new NotSupportedException("Invalid time format");
+        }
+
+        String[] split = stringValue.split("\\.");
+        if (split.length != 2) {
+            throw new NotSupportedException("Invalid time format");
+        }
+
+        String second = split[0].trim();
+        String microsecond = split[1].trim();
+
+        try {
+            long seconds = Long.parseLong(second);
+            boolean secondPositive = seconds >= 0;
+
+            long microseconds = Long.parseLong(microsecond);
+            int microsecondLen = microsecond.startsWith("-") ? microsecond.length() - 1 : microsecond.length();
+            if (microsecondLen < 6) {
+                microseconds *= Math.pow(10, 6 - microsecondLen);
+            }
+
+            if (secondPositive) {
+                microseconds = Math.abs(microseconds);
+            } else {
+                microseconds = -Math.abs(microseconds);
+            }
+
+            return fromJavaDateType(toJavaDateType()
+                .plusSeconds(seconds)
+                .plusNanos(Math.multiplyExact(microseconds, 1000L)), getDataType().getScale());
+        } catch (NumberFormatException e) {
+            throw new NotSupportedException("Invalid time format");
+        }
+    }
+
     // When performing addition or subtraction with MicroSeconds, the precision must be set to 6 to display it
     // completely. use multiplyExact to be aware of multiplication overflow possibility.
     public Expression plusMicroSeconds(long microSeconds) {

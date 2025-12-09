@@ -31,6 +31,7 @@ import org.apache.doris.nereids.rules.analysis.NormalizeAggregate;
 import org.apache.doris.nereids.rules.expression.CheckLegalityAfterRewrite;
 import org.apache.doris.nereids.rules.expression.ExpressionNormalizationAndOptimization;
 import org.apache.doris.nereids.rules.expression.ExpressionRewrite;
+import org.apache.doris.nereids.rules.expression.MergeGuardExpr;
 import org.apache.doris.nereids.rules.expression.NullableDependentExpressionRewrite;
 import org.apache.doris.nereids.rules.expression.QueryColumnCollector;
 import org.apache.doris.nereids.rules.rewrite.AddDefaultLimit;
@@ -98,6 +99,7 @@ import org.apache.doris.nereids.rules.rewrite.InferPredicates;
 import org.apache.doris.nereids.rules.rewrite.InferSetOperatorDistinct;
 import org.apache.doris.nereids.rules.rewrite.InitJoinOrder;
 import org.apache.doris.nereids.rules.rewrite.InlineLogicalView;
+import org.apache.doris.nereids.rules.rewrite.JoinExtractOrFromCaseWhen;
 import org.apache.doris.nereids.rules.rewrite.LimitAggToTopNAgg;
 import org.apache.doris.nereids.rules.rewrite.LimitSortToTopN;
 import org.apache.doris.nereids.rules.rewrite.LogicalResultSinkToShortCircuitPointQuery;
@@ -323,7 +325,8 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                             new PushFilterInsideJoin(),
                                             new FindHashConditionForJoin(),
                                             new ConvertInnerOrCrossJoin(),
-                                            new EliminateNullAwareLeftAntiJoin()
+                                            new EliminateNullAwareLeftAntiJoin(),
+                                            new JoinExtractOrFromCaseWhen()
                                     ),
                                     // push down SEMI Join
                                     bottomUp(
@@ -553,7 +556,8 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                         new PushFilterInsideJoin(),
                                         new FindHashConditionForJoin(),
                                         new ConvertInnerOrCrossJoin(),
-                                        new EliminateNullAwareLeftAntiJoin()
+                                        new EliminateNullAwareLeftAntiJoin(),
+                                        new JoinExtractOrFromCaseWhen()
                                 ),
                                 // push down SEMI Join
                                 bottomUp(
@@ -800,6 +804,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         custom(RuleType.CHECK_DATA_TYPES, CheckDataTypes::new),
                         topDown(new PushDownFilterThroughProject(), new MergeProjectable()),
                         custom(RuleType.ADJUST_CONJUNCTS_RETURN_TYPE, AdjustConjunctsReturnType::new),
+                        topDown(new ExpressionRewrite(MergeGuardExpr.INSTANCE)),
                         bottomUp(
                                 new ExpressionRewrite(CheckLegalityAfterRewrite.INSTANCE),
                                 new CheckMatchExpression(),

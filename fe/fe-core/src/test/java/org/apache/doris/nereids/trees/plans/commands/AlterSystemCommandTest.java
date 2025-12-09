@@ -33,7 +33,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.DropBrokerOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropFollowerOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropObserverOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyBackendOp;
-import org.apache.doris.nereids.trees.plans.commands.info.ModifyFrontendOrBackendHostNameOp;
+import org.apache.doris.nereids.trees.plans.commands.info.ModifyNodeHostNameOp;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
@@ -148,16 +148,16 @@ public class AlterSystemCommandTest {
         Assertions.assertDoesNotThrow(() -> modifyBackend.validate(connectContext));
 
         // test modifyFrontendOrBackendHostName
-        for (ModifyFrontendOrBackendHostNameOp.ModifyOpType type : ModifyFrontendOrBackendHostNameOp.ModifyOpType.values()) {
+        for (ModifyNodeHostNameOp.ModifyOpType type : ModifyNodeHostNameOp.ModifyOpType.values()) {
             for (String newHost : Arrays.asList("localhost", "192.168.10.10")) {
                 AlterSystemCommand command = new AlterSystemCommand(
-                        new ModifyFrontendOrBackendHostNameOp(hostPorts.get(0), newHost, type),
+                        new ModifyNodeHostNameOp(hostPorts.get(0), newHost, type),
                         PlanType.ALTER_SYSTEM_MODIFY_FRONTEND_OR_BACKEND_HOSTNAME);
                 Assertions.assertDoesNotThrow(() -> command.validate(connectContext));
             }
             for (String newHost : Arrays.asList("localhost2", "192.168.10.300")) {
                 AlterSystemCommand command = new AlterSystemCommand(
-                        new ModifyFrontendOrBackendHostNameOp(hostPorts.get(0), newHost, type),
+                        new ModifyNodeHostNameOp(hostPorts.get(0), newHost, type),
                         PlanType.ALTER_SYSTEM_MODIFY_FRONTEND_OR_BACKEND_HOSTNAME);
                 Assertions.assertThrows(AnalysisException.class, () -> command.validate(connectContext),
                         "Unknown hostname:  " + newHost + ": Name or service not known");

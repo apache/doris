@@ -133,8 +133,8 @@ public class MinidumpUtils {
                 case "VIEW":
                     String viewJsonValue = tableJson.get("TableValue").toString();
                     newTable = GsonUtils.GSON.fromJson(viewJsonValue, View.class);
-                    ((View) newTable).setInlineViewDefWithSqlMode(tableJson.get("InlineViewDef").toString(),
-                            tableJson.getLong("SqlMode"));
+                    ((View) newTable).setInlineViewDefWithSessionVariables(tableJson.get("InlineViewDef").toString(),
+                            (Map<String, String>) tableJson.get("SessionVariables"));
                     break;
                 default:
                     newTable = null;

@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.trees.plans.commands.info;
 
-import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.analysis.DistributionDesc;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.InvertedIndexUtil;
@@ -1344,12 +1343,12 @@ public class CreateTableInfo {
     }
 
     /**
-     * getRollupAlterClauseList
+     * getAddRollupOps
      */
-    public List<AlterClause> getRollupAlterClauseList() {
-        List<AlterClause> addRollups = Lists.newArrayList();
+    public List<AlterOp> getAddRollupOps() {
+        List<AlterOp> addRollups = Lists.newArrayList();
         if (!rollups.isEmpty()) {
-            addRollups.addAll(rollups.stream().map(RollupDefinition::translateToCatalogStyle)
+            addRollups.addAll(rollups.stream().map(RollupDefinition::translateToAddRollupOp)
                     .collect(Collectors.toList()));
         }
         return addRollups;

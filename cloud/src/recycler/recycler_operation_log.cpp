@@ -585,6 +585,11 @@ static TxnErrorCode get_txn_info(TxnKv* txn_kv, std::string_view instance_id, in
     std::string txn_info_value;
     err = txn->get(key, &txn_info_value);
     if (err != TxnErrorCode::TXN_OK) {
+        LOG_WARNING("failed to get txn info")
+                .tag("key", hex(key))
+                .tag("db_id", db_id)
+                .tag("txn_id", txn_id)
+                .tag("error_code", err);
         return err;
     }
 

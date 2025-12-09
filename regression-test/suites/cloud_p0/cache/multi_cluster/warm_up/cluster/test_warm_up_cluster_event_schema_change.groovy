@@ -57,6 +57,9 @@ suite('test_warm_up_cluster_event_schema_change', 'docker') {
 
     def getBrpcMetrics = {ip, port, name ->
         def url = "http://${ip}:${port}/brpc_metrics"
+        if ((context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false) {
+            url = url.replace("http://", "https://") + " --cert " + context.config.otherConfigs.get("trustCert") + " --cacert " + context.config.otherConfigs.get("trustCACert") + " --key " + context.config.otherConfigs.get("trustCAKey")
+        }
         def metrics = new URL(url).text
         def matcher = metrics =~ ~"${name}\\s+(\\d+)"
         if (matcher.find()) {
@@ -167,7 +170,7 @@ suite('test_warm_up_cluster_event_schema_change', 'docker') {
 
         // sql "set experimental_enable_nereids_planner = true"
         // add, drop index
-        sql "alter table ${table_name} add index btm_idxk (k) using bitmap ;"
+        sql "alter table ${table_name} add index btm_idxk (k) using inverted ;"
         sql """INSERT INTO ${table_name} SELECT k, v, v from ${table_name}"""
         wait_for_latest_op_on_table_finish(table_name, timeout)
 

@@ -228,6 +228,10 @@ protected:
 
     virtual Status garbage_collection();
 
+    // Helper function to apply truncation and log the result
+    // Returns the number of rowsets that were truncated
+    size_t apply_txn_size_truncation_and_log(const std::string& compaction_name);
+
     CloudStorageEngine& _engine;
 
     std::string _uuid;
@@ -253,5 +257,15 @@ private:
 
     bool should_cache_compaction_output();
 };
+
+namespace cloud {
+
+// Truncate rowsets based on estimated transaction metadata size
+// Returns the number of rowsets that were truncated (removed from the end)
+// Only considers rowset meta size (using doris_rowset_meta_to_cloud for estimation)
+size_t truncate_rowsets_by_txn_size(std::vector<RowsetSharedPtr>& rowsets, int64_t& kept_size_bytes,
+                                    int64_t& truncated_size_bytes);
+
+} // namespace cloud
 
 } // namespace doris

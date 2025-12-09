@@ -24,7 +24,6 @@ import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
-import org.apache.doris.analysis.VirtualSlotRef;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.IdGenerator;
@@ -35,7 +34,6 @@ import org.apache.doris.nereids.processor.post.runtimefilterv2.RuntimeFilterCont
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEProducer;
@@ -309,23 +307,16 @@ public class PlanTranslatorContext {
         } else {
             slotDescriptor.setCaptionAndNormalize(slotReference.toString());
         }
+        slotDescriptor.setLabel(slotReference.getName());
         slotDescriptor.setType(slotReference.getDataType().toCatalogDataType());
         SlotRef slotRef;
-        if (slotReference instanceof VirtualSlotReference) {
-            slotRef = new VirtualSlotRef(slotDescriptor);
-            VirtualSlotReference virtualSlot = (VirtualSlotReference) slotReference;
-            slotDescriptor.setColumn(new Column(
-                    virtualSlot.getName(), virtualSlot.getDataType().toCatalogDataType()));
-            slotDescriptor.setLabel(slotReference.getName());
-        } else {
-            slotRef = new SlotRef(slotDescriptor);
-            if (slotReference.hasSubColPath() && slotReference.getOriginalColumn().isPresent()) {
-                slotDescriptor.setSubColLables(slotReference.getSubPath());
-                // use lower case name for variant's root, since backend treat parent column as lower case
-                // see issue: https://github.com/apache/doris/pull/32999/commits
-                slotDescriptor.setMaterializedColumnName(slotRef.getColumnName().toLowerCase()
-                            + "." + String.join(".", slotReference.getSubPath()));
-            }
+        slotRef = new SlotRef(slotDescriptor);
+        if (slotReference.hasSubColPath() && slotReference.getOriginalColumn().isPresent()) {
+            slotDescriptor.setSubColLables(slotReference.getSubPath());
+            // use lower case name for variant's root, since backend treat parent column as lower case
+            // see issue: https://github.com/apache/doris/pull/32999/commits
+            slotDescriptor.setMaterializedColumnName(slotRef.getColumnName().toLowerCase()
+                    + "." + String.join(".", slotReference.getSubPath()));
         }
         slotRef.setLabel(slotReference.getName());
         if (column.isPresent()) {

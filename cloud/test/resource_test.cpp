@@ -528,7 +528,8 @@ static void create_instance_with_obj_info(MetaServiceProxy* meta_service,
         instance.set_source_snapshot_id(snapshot_version->to_string());
     }
 
-    instance.set_snapshot_switch_status(enable_snapshot ? SNAPSHOT_SWITCH_ON : SNAPSHOT_SWITCH_OFF);
+    instance.set_snapshot_switch_status(enable_snapshot ? SNAPSHOT_SWITCH_ON
+                                                        : SNAPSHOT_SWITCH_DISABLED);
 
     auto* obj_info = instance.add_obj_info();
     obj_info->set_user_id(user_id);

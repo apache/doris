@@ -5537,6 +5537,80 @@ void MetaServiceImpl::get_schema_dict(::google::protobuf::RpcController* control
     response->mutable_schema_dict()->Swap(&schema_dict);
 }
 
+void MetaServiceImpl::update_packed_file_info(::google::protobuf::RpcController* controller,
+                                              const UpdatePackedFileInfoRequest* request,
+                                              UpdatePackedFileInfoResponse* response,
+                                              ::google::protobuf::Closure* done) {
+    RPC_PREPROCESS(update_packed_file_info);
+
+    // Validate request parameters
+    if (!request->has_cloud_unique_id() || request->cloud_unique_id().empty()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "cloud_unique_id is required";
+        return;
+    }
+
+    if (!request->has_packed_file_path() || request->packed_file_path().empty()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "packed_file_path is required";
+        return;
+    }
+
+    if (!request->has_packed_file_info()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "packed_file_info is required";
+        return;
+    }
+
+    instance_id = get_instance_id(resource_mgr_, request->cloud_unique_id());
+    if (instance_id.empty()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "empty instance_id";
+        LOG(INFO) << msg << ", cloud_unique_id=" << request->cloud_unique_id();
+        return;
+    }
+
+    RPC_RATE_LIMIT(update_packed_file_info)
+
+    // Create transaction
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        code = MetaServiceCode::KV_TXN_CREATE_ERR;
+        msg = fmt::format("failed to create txn, err={}", err);
+        return;
+    }
+
+    // Generate packed file key
+    PackedFileKeyInfo key_info {instance_id, request->packed_file_path()};
+    std::string packed_file_key_str = packed_file_key(key_info);
+
+    // Serialize packed file info
+    std::string packed_file_info_val;
+    if (!request->packed_file_info().SerializeToString(&packed_file_info_val)) {
+        code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+        msg = "failed to serialize packed_file_info";
+        return;
+    }
+
+    // Put packed file info
+    txn->put(packed_file_key_str, packed_file_info_val);
+
+    // Commit transaction
+    err = txn->commit();
+    if (err != TxnErrorCode::TXN_OK) {
+        code = MetaServiceCode::KV_TXN_COMMIT_ERR;
+        msg = fmt::format("failed to commit txn, err={}", err);
+        return;
+    }
+
+    LOG(INFO) << "successfully updated packed file info"
+              << ", instance_id=" << instance_id
+              << ", packed_file_path=" << request->packed_file_path()
+              << ", total_slice_num=" << request->packed_file_info().total_slice_num()
+              << ", ref_cnt=" << request->packed_file_info().ref_cnt()
+              << ", key=" << hex(packed_file_key_str);
+}
+
 std::string hide_access_key(const std::string& ak) {
     std::string key = ak;
     size_t key_len = key.length();

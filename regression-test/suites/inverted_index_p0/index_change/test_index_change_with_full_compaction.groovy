@@ -35,11 +35,18 @@ suite("test_index_change_with_full_compaction") {
 
         backend_id = backendId_to_backendIP.keySet()[0]
         StringBuilder showConfigCommand = new StringBuilder();
-        showConfigCommand.append("curl -X GET http://")
+        Boolean enableTls = (context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false
+        def protocol = enableTls ? "https" : "http" 
+        showConfigCommand.append("curl -X GET ${protocol}://")
         showConfigCommand.append(backendId_to_backendIP.get(backend_id))
         showConfigCommand.append(":")
         showConfigCommand.append(backendId_to_backendHttpPort.get(backend_id))
         showConfigCommand.append("/api/show_config")
+        if (enableTls) {
+            showConfigCommand.append(" --cert ${context.config.otherConfigs.get("trustCert")}")
+            showConfigCommand.append(" --key ${context.config.otherConfigs.get("trustCAKey")}")
+            showConfigCommand.append(" --cacert ${context.config.otherConfigs.get("trustCACert")}")
+        }
         logger.info(showConfigCommand.toString())
         def process = showConfigCommand.toString().execute()
         int code = process.waitFor()
@@ -142,6 +149,9 @@ suite("test_index_change_with_full_compaction") {
             sb.append("curl -X GET ")
             sb.append(tablet.CompactionStatus)
             String command = sb.toString()
+            if ((context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false) {
+                command = command.replace("http://", "https://") + " --cert " + context.config.otherConfigs.get("trustCert") + " --cacert " + context.config.otherConfigs.get("trustCACert") + " --key " + context.config.otherConfigs.get("trustCAKey")
+            }
             // wait for cleaning stale_rowsets
             process = command.execute()
             code = process.waitFor()

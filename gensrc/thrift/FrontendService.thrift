@@ -822,6 +822,7 @@ enum TSchemaTableName {
   METADATA_TABLE = 1, // tvf
   ACTIVE_QUERIES = 2, // db information_schema's table
   WORKLOAD_GROUPS = 3, // db information_schema's table
+  // Deprecated
   ROUTINES_INFO = 4, // db information_schema's table
   WORKLOAD_SCHEDULE_POLICY = 5,
   TABLE_OPTIONS = 6,
@@ -831,6 +832,7 @@ enum TSchemaTableName {
   PARTITIONS = 10,
   VIEW_DEPENDENCY = 11,
   SQL_BLOCK_RULE_STATUS = 12,
+  DATABASE_PROPERTIES = 13,
 }
 
 struct TMetadataTableRequestParams {
@@ -1239,58 +1241,6 @@ struct TRestoreSnapshotResult {
     2: optional Types.TNetworkAddress master_address
 }
 
-struct TPlsqlStoredProcedure {
-    1: optional string name
-    2: optional i64 catalogId
-    3: optional i64 dbId
-    4: optional string packageName
-    5: optional string ownerName
-    6: optional string source
-    7: optional string createTime
-    8: optional string modifyTime
-}
-
-struct TPlsqlPackage {
-    1: optional string name
-    2: optional i64 catalogId
-    3: optional i64 dbId
-    4: optional string ownerName
-    5: optional string header
-    6: optional string body
-}
-
-struct TPlsqlProcedureKey {
-    1: optional string name
-    2: optional i64 catalogId
-    3: optional i64 dbId
-}
-
-struct TAddPlsqlStoredProcedureRequest {
-    1: optional TPlsqlStoredProcedure plsqlStoredProcedure
-    2: optional bool isForce
-}
-
-struct TDropPlsqlStoredProcedureRequest {
-    1: optional TPlsqlProcedureKey plsqlProcedureKey
-}
-
-struct TPlsqlStoredProcedureResult {
-    1: optional Status.TStatus status
-}
-
-struct TAddPlsqlPackageRequest {
-    1: optional TPlsqlPackage plsqlPackage
-    2: optional bool isForce
-}
-
-struct TDropPlsqlPackageRequest {
-    1: optional TPlsqlProcedureKey plsqlProcedureKey
-}
-
-struct TPlsqlPackageResult {
-    1: optional Status.TStatus status
-}
-
 struct TGetMasterTokenRequest {
     1: optional string cluster
     2: optional string user
@@ -1360,6 +1310,8 @@ struct TCreatePartitionRequest {
     // be_endpoint = <ip>:<heartbeat_port> to distinguish a particular BE
     5: optional string be_endpoint
     6: optional bool write_single_replica = false
+    // query_id to identify the coordinator, if coordinator exists, it means this is a multi-instance load
+    7: optional Types.TUniqueId query_id
 }
 
 struct TCreatePartitionResult {
@@ -1678,6 +1630,29 @@ struct TGetTableTDEInfoResult {
     2: optional AgentService.TEncryptionAlgorithm algorithm
 }
 
+struct TPartitionMeta {
+    1: optional i64 id
+    2: optional i64 visible_version
+    3: optional i64 visible_version_time
+}
+
+struct TGetOlapTableMetaRequest {
+    1: required string user
+    2: required string passwd
+    3: required string db
+    4: required string table
+    5: required i64 table_id
+    6: optional i32 version // todo serialize according to the version
+    7: optional list<TPartitionMeta> partitions // client owned partition meta
+}
+
+struct TGetOlapTableMetaResult {
+    1: required Status.TStatus status
+    2: required binary table_meta
+    3: optional list<binary> updated_partitions
+    4: optional list<i64> removed_partitions
+}
+
 service FrontendService {
     TGetDbsResult getDbNames(1: TGetDbsParams params)
     TGetTablesResult getTableNames(1: TGetTablesParams params)
@@ -1740,11 +1715,6 @@ service FrontendService {
 
     TGetTabletReplicaInfosResult getTabletReplicaInfos(1: TGetTabletReplicaInfosRequest request)
 
-    TPlsqlStoredProcedureResult addPlsqlStoredProcedure(1: TAddPlsqlStoredProcedureRequest request)
-    TPlsqlStoredProcedureResult dropPlsqlStoredProcedure(1: TDropPlsqlStoredProcedureRequest request)
-    TPlsqlPackageResult addPlsqlPackage(1: TAddPlsqlPackageRequest request)
-    TPlsqlPackageResult dropPlsqlPackage(1: TDropPlsqlPackageRequest request)
-
     TGetMasterTokenResult getMasterToken(1: TGetMasterTokenRequest request)
 
     TGetBinlogLagResult getBinlogLag(1: TGetBinlogLagRequest request)
@@ -1784,4 +1754,6 @@ service FrontendService {
     TGetEncryptionKeysResult getEncryptionKeys(1: TGetEncryptionKeysRequest request)
 
     TGetTableTDEInfoResult getTableTDEInfo(1: TGetTableTDEInfoRequest request)
+
+    TGetOlapTableMetaResult getOlapTableMeta(1: TGetOlapTableMetaRequest request)
 }

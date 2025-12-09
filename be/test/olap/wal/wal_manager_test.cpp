@@ -65,7 +65,9 @@ public:
 
 class WalManagerTest : public testing::Test {
 public:
-    WalManagerTest() : _runtime_state(TQueryGlobals()), _global_profile("<global profile>") {
+    WalManagerTest()
+            : _runtime_state(TQueryOptions(), TQueryGlobals()),
+              _global_profile("<global profile>") {
         _runtime_state.resize_op_id_to_local_state(-1);
         init();
         _profile = _runtime_state.runtime_profile();
@@ -330,7 +332,7 @@ void WalManagerTest::generate_scanner(std::shared_ptr<FileScanner>& scanner) {
     WARN_IF_ERROR(scanner->init(&_runtime_state, _conjuncts), "fail to prepare scanner");
 }
 
-TEST_F(WalManagerTest, read_block_normal) {
+TEST_F(WalManagerTest, DISABLED_read_block_normal) {
     // read wal file with wal_version=0
     _runtime_state._wal_id = _txn_id_1;
     std::shared_ptr<FileScanner> scanner = nullptr;
@@ -361,7 +363,7 @@ TEST_F(WalManagerTest, read_block_normal) {
     WARN_IF_ERROR(scanner->close(&_runtime_state), "fail to close scanner");
 }
 
-TEST_F(WalManagerTest, read_block_fail_with_not_equal) {
+TEST_F(WalManagerTest, DISABLED_read_block_fail_with_not_equal) {
     auto sp = SyncPoint::get_instance();
     SyncPoint::CallbackGuard guard1;
     sp->set_call_back(

@@ -604,11 +604,6 @@ void TabletColumn::init_from_pb(const ColumnPB& column) {
     } else {
         _is_bf_column = false;
     }
-    if (column.has_has_bitmap_index()) {
-        _has_bitmap_index = column.has_bitmap_index();
-    } else {
-        _has_bitmap_index = false;
-    }
     if (column.has_aggregation()) {
         _aggregation = get_aggregation_type_by_string(column.aggregation());
         _aggregation_name = column.aggregation();
@@ -710,9 +705,6 @@ void TabletColumn::to_schema_pb(ColumnPB* column) const {
     }
     column->set_result_is_nullable(_result_is_nullable);
     column->set_be_exec_version(_be_exec_version);
-    if (_has_bitmap_index) {
-        column->set_has_bitmap_index(_has_bitmap_index);
-    }
     column->set_visible(_visible);
 
     if (_type == FieldType::OLAP_FIELD_TYPE_ARRAY) {
@@ -784,7 +776,8 @@ vectorized::AggregateFunctionPtr TabletColumn::get_aggregate_function(
         std::transform(agg_name.begin(), agg_name.end(), agg_name.begin(),
                        [](unsigned char c) { return std::tolower(c); });
         function = vectorized::AggregateFunctionSimpleFactory::instance().get(
-                agg_name, {type}, type->is_nullable(), BeExecVersionManager::get_newest_version());
+                agg_name, {type}, type, type->is_nullable(),
+                BeExecVersionManager::get_newest_version());
         if (!function) {
             LOG(WARNING) << "get column aggregate function failed, aggregation_name=" << origin_name
                          << ", column_type=" << type->get_name();
@@ -1220,7 +1213,6 @@ void TabletSchema::update_index_info_from(const TabletSchema& tablet_schema) {
             continue;
         }
         col->set_is_bf_column(tablet_schema._cols[col_idx]->is_bf_column());
-        col->set_has_bitmap_index(tablet_schema._cols[col_idx]->has_bitmap_index());
     }
 }
 
@@ -1776,7 +1768,6 @@ bool operator==(const TabletColumn& a, const TabletColumn& b) {
     if (a._length != b._length) return false;
     if (a._index_length != b._index_length) return false;
     if (a._is_bf_column != b._is_bf_column) return false;
-    if (a._has_bitmap_index != b._has_bitmap_index) return false;
     if (a._column_path == nullptr && a._column_path != nullptr) return false;
     if (b._column_path == nullptr && a._column_path != nullptr) return false;
     if (b._column_path != nullptr && a._column_path != nullptr &&

@@ -62,14 +62,14 @@ suite("test_recycler_cleanup_snapshot") {
 
     def getCreatedSnapshot = {
         def snapshotInfo = sql """ SELECT * FROM information_schema.cluster_snapshots """
-        logger.info("snapshotInfo:${snapshotInfo}")
+        logger.info("snapshotInfo: ${snapshotInfo}")
         return snapshotInfo
     }
 
     def deleteCreatedSnapshot = {
         def snapshotList = getCreatedSnapshot()
         for (snapshot : snapshotList) {
-            sql """ ADMIN DROP CLUSTER SNAPSHOT WHERE snapshot_id = '${snapshot.snapshot_id}'; """
+            sql """ ADMIN DROP CLUSTER SNAPSHOT WHERE snapshot_id = '${snapshot[0]}'; """
         }
     }
 

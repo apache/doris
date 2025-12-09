@@ -201,6 +201,15 @@ std::shared_ptr<io::ObjStorageClient> S3ClientFactory::create(const S3ClientConf
         return nullptr;
     }
 
+#ifdef BE_TEST
+    {
+        std::lock_guard l(_lock);
+        if (_test_client_creator) {
+            return _test_client_creator(s3_conf);
+        }
+    }
+#endif
+
     {
         uint64_t hash = s3_conf.get_hash();
         std::lock_guard l(_lock);
@@ -221,6 +230,19 @@ std::shared_ptr<io::ObjStorageClient> S3ClientFactory::create(const S3ClientConf
     }
     return obj_client;
 }
+
+#ifdef BE_TEST
+void S3ClientFactory::set_client_creator_for_test(
+        std::function<std::shared_ptr<io::ObjStorageClient>(const S3ClientConf&)> creator) {
+    std::lock_guard l(_lock);
+    _test_client_creator = std::move(creator);
+}
+
+void S3ClientFactory::clear_client_creator_for_test() {
+    std::lock_guard l(_lock);
+    _test_client_creator = nullptr;
+}
+#endif
 
 std::shared_ptr<io::ObjStorageClient> S3ClientFactory::_create_azure_client(
         const S3ClientConf& s3_conf) {
@@ -369,8 +391,7 @@ std::shared_ptr<io::ObjStorageClient> S3ClientFactory::_create_s3_client(
     if (s3_conf.max_connections > 0) {
         aws_config.maxConnections = s3_conf.max_connections;
     } else {
-        // AWS SDK max concurrent tcp connections for a single http client to use. Default 25.
-        aws_config.maxConnections = std::max(config::doris_scanner_thread_pool_thread_num, 25);
+        aws_config.maxConnections = 102400;
     }
 
     aws_config.requestTimeoutMs = 30000;

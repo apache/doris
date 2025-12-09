@@ -1817,7 +1817,6 @@ void MetaServiceImpl::commit_txn_immediately(
         LOG(INFO) << "remove running_key=" << hex(running_key) << " txn_id=" << txn_id;
         txn->remove(running_key);
 
-        std::string recycle_key = recycle_txn_key({instance_id, db_id, txn_id});
         RecycleTxnPB recycle_pb;
         recycle_pb.set_creation_time(commit_time);
         recycle_pb.set_label(txn_info.label());
@@ -1834,6 +1833,7 @@ void MetaServiceImpl::commit_txn_immediately(
             LOG(INFO) << "put commit txn operation log, key=" << hex(log_key)
                       << " txn_id=" << txn_id;
         } else {
+            std::string recycle_key = recycle_txn_key({instance_id, db_id, txn_id});
             std::string recycle_val;
             if (!recycle_pb.SerializeToString(&recycle_val)) {
                 code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
@@ -1842,6 +1842,8 @@ void MetaServiceImpl::commit_txn_immediately(
                 return;
             }
             txn->put(recycle_key, recycle_val);
+            LOG(INFO) << "xxx commit_txn put recycle_key key=" << hex(recycle_key)
+                      << " txn_id=" << txn_id;
         }
 
         if (txn_info.load_job_source_type() ==
@@ -1859,8 +1861,6 @@ void MetaServiceImpl::commit_txn_immediately(
             }
         }
 
-        LOG(INFO) << "xxx commit_txn put recycle_key key=" << hex(recycle_key)
-                  << " txn_id=" << txn_id;
         LOG(INFO) << "commit_txn put_size=" << txn->put_bytes()
                   << " del_size=" << txn->delete_bytes() << " num_put_keys=" << txn->num_put_keys()
                   << " num_del_keys=" << txn->num_del_keys()
