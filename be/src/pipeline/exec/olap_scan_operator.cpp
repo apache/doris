@@ -887,7 +887,7 @@ Status OlapScanLocalState::_build_key_ranges_and_filters() {
                 break;
             }
             DCHECK(_slot_id_to_predicates.count(iter->first) > 0);
-            const auto& value_range = iter->second.second;
+            const auto& value_range = iter->second;
 
             RETURN_IF_ERROR(std::visit(
                     [&](auto&& range) {

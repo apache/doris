@@ -324,8 +324,7 @@ protected:
 
     // slot id -> ColumnValueRange
     // Parsed from conjuncts
-    phmap::flat_hash_map<int, std::pair<SlotDescriptor*, ColumnValueRangeType>>
-            _slot_id_to_value_range;
+    phmap::flat_hash_map<int, ColumnValueRangeType> _slot_id_to_value_range;
     phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>> _slot_id_to_predicates;
 
     std::atomic<bool> _eos = false;
