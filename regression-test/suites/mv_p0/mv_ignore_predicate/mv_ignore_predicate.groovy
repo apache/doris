@@ -38,37 +38,16 @@ suite ("mv_ignore_predicate") {
     sql "insert into d_table select 2,2,2,'b';"
     sql "insert into d_table select 3,-3,null,'c';"
 
-    createMV("create materialized view kign as select k1,count(k2) from d_table group by k1;")
+    createMV("create materialized view kign as select k1 as a1,count(k2) from d_table group by k1;")
 
     sql "insert into d_table select -4,-4,-4,'d';"
     sql "insert into d_table(k4,k2) values('d',4);"
     sql "insert into d_table select 5,null,null,null;"
 
     sql "analyze table d_table with sync;"
-    sql """set enable_stats=false;"""
 
     qt_select_star "select * from d_table order by k1;"
 
-    // explain {
-    //     sql("select count(k2) from d_table;")
-    //     contains "(kign)"
-    // }
-    // qt_select_mv "select count(k2) from d_table;"
-
-    // explain {
-    //     sql("select count(k2) from d_table where k2 is not null;")
-    //     contains "(kign)"
-    // }
-    // qt_select_mv "select count(k2) from d_table where k2 is not null;"
-
-    // sql """set enable_stats=true;"""
-    // explain {
-    //     sql("select count(k2) from d_table;")
-    //     contains "(kign)"
-    // }
-
-    // explain {
-    //     sql("select count(k2) from d_table where k2 is not null;")
-    //     contains "(kign)"
-    // }
+    mv_rewrite_success("select count(k2) from d_table;", "kign")
+    qt_select_mv "select count(k2) from d_table;"
 }

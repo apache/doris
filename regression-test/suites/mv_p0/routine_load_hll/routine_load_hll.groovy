@@ -52,12 +52,8 @@ suite ("routine_load_hll") {
     qt_select "select event_id,time_stamp,hll_cardinality(device_id) from test order by 1,2;"
 
     sql "analyze table test with sync;"
-    sql """alter table test modify column event_id set stats ('row_count'='2');"""
-    sql """set enable_stats=false;"""
+    sql """alter table test modify column mv_event_id set stats ('row_count'='2');"""
 
-    mv_rewrite_success("select time_stamp, hll_union_agg(device_id) from test group by time_stamp order by 1;", "m_view")
-    qt_select_mv "select time_stamp, hll_union_agg(device_id) from test group by time_stamp order by 1;"
-
-    sql """set enable_stats=true;"""
-    mv_rewrite_success("select time_stamp, hll_union_agg(device_id) from test group by time_stamp order by 1;", "m_view")
+    mv_rewrite_success("select mv_time_stamp, hll_union_agg(mv_device_id) from test group by mv_time_stamp order by 1;", "m_view")
+    qt_select_mv "select mv_time_stamp, hll_union_agg(mv_device_id) from test group by mv_time_stamp order by 1;"
 }
