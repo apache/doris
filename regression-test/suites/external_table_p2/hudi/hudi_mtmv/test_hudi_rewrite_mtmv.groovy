@@ -62,6 +62,8 @@ suite("test_hudi_rewrite_mtmv", "p2,external,hudi,external_remote,external_remot
     waitingMTMVTaskFinishedByMvName(mvName)
     order_qt_refresh_one_partition "SELECT * FROM ${mvName} "
 
+    sql """alter table ${mvName} modify column par set stats ('row_count'='1');"""
+
     mv_rewrite_success(mvSql, mvName)
     order_qt_refresh_one_partition_rewrite "${mvSql}"
 
@@ -75,6 +77,7 @@ suite("test_hudi_rewrite_mtmv", "p2,external,hudi,external_remote,external_remot
             REFRESH MATERIALIZED VIEW ${mvName} auto
         """
     waitingMTMVTaskFinishedByMvName(mvName)
+    sql """alter table ${mvName} modify column par set stats ('row_count'='2');"""
     order_qt_refresh_auto "SELECT * FROM ${mvName} "
 
     mv_rewrite_success(mvSql, mvName)

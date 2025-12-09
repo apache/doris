@@ -94,6 +94,11 @@ suite("nested_materialized_view") {
     }
     sql """ sync """
 
+    sql """alter table customer modify column c_custkey set stats ('row_count'='30000');"""
+    sql """alter table lineorder modify column lo_orderkey set stats ('row_count'='6001215');"""
+    sql """alter table part modify column p_partkey set stats ('row_count'='200000');"""
+    sql """alter table date modify column d_datekey set stats ('row_count'='2556');"""
+    sql """alter table supplier modify column s_suppkey set stats ('row_count'='2000');"""
 
     String db = context.config.getDbNameByFile(context.file)
     sql "use ${db}"
@@ -274,6 +279,8 @@ suite("nested_materialized_view") {
         lo_orderkey,
         lo_orderdate;""")
 
+    sql """alter table mv1_a modify column lo_custkey set stats ('row_count'='2384');"""
+
     create_async_mv(db, "mv2_a", """
     select
         lo_custkey,
@@ -289,6 +296,8 @@ suite("nested_materialized_view") {
         lo_custkey,
         lo_orderdate;""")
 
+    sql """alter table mv2_a modify column lo_custkey set stats ('row_count'='580');"""
+
     create_async_mv(db, "mv4_a", """
     select
         lo_partkey,
@@ -303,6 +312,8 @@ suite("nested_materialized_view") {
     group by
         lo_partkey,
         lo_orderdate;""")
+
+    sql """alter table mv4_a modify column lo_partkey set stats ('row_count'='2371');"""
 
     create_async_mv(db, "mv_all_6_a", """
     select
@@ -329,6 +340,8 @@ from
   and t6.d_sellingseason = 'Spring';
     """)
 
+    sql """alter table mv_all_6_a modify column lo_custkey set stats ('row_count'='2384');"""
+
     create_async_mv(db, "mv1_b", """
 select
         lo_custkey,
@@ -347,6 +360,8 @@ select
         lo_orderkey,
         lo_orderdate;""")
 
+    sql """alter table mv1_b modify column lo_custkey set stats ('row_count'='2565');"""
+
     create_async_mv(db, "mv2_b", """
     select
         lo_custkey,
@@ -362,6 +377,8 @@ select
         lo_custkey,
         lo_orderdate;""")
 
+    sql """alter table mv2_b modify column lo_custkey set stats ('row_count'='641');"""
+
     create_async_mv(db, "mv4_b", """
     select
         lo_partkey,
@@ -376,6 +393,8 @@ select
     group by
         lo_partkey,
         lo_orderdate;""")
+
+    sql """alter table mv4_b modify column lo_partkey set stats ('row_count'='2546');"""
 
     create_async_mv(db, "mv_all_6_b", """
     select
@@ -402,6 +421,7 @@ from
   and t6.d_sellingseason = 'Spring';
     """)
 
+    sql """alter table mv_all_6_b modify column lo_custkey set stats ('row_count'='2565');"""
 
     create_async_mv(db, "mv1_c", """
     select
@@ -421,6 +441,8 @@ from
         lo_orderkey,
         lo_orderdate;""")
 
+    sql """alter table mv1_c modify column lo_custkey set stats ('row_count'='2603');"""
+
     create_async_mv(db, "mv2_c", """
     select
         lo_custkey,
@@ -436,6 +458,8 @@ from
         lo_custkey,
         lo_orderdate;""")
 
+    sql """alter table mv2_c modify column lo_custkey set stats ('row_count'='641');"""
+
     create_async_mv(db, "mv4_c", """
     select
         lo_partkey,
@@ -450,6 +474,8 @@ from
     group by
         lo_partkey,
         lo_orderdate;""")
+
+    sql """alter table mv4_c modify column lo_partkey set stats ('row_count'='2581');"""
 
     create_async_mv(db, "mv_all_6_c", """
     select
@@ -476,6 +502,7 @@ from
   and t6.d_sellingseason = 'Spring';
     """)
 
+    sql """alter table mv_all_6_c modify column lo_custkey set stats ('row_count'='2603');"""
 
     create_async_mv(db, "mv1_d", """
     select
@@ -495,6 +522,8 @@ from
         lo_orderkey,
         lo_orderdate;""")
 
+    sql """alter table mv1_d modify column lo_custkey set stats ('row_count'='2327');"""
+
     create_async_mv(db, "mv2_d", """
     select
         lo_custkey,
@@ -510,6 +539,8 @@ from
         lo_custkey,
         lo_orderdate;""")
 
+    sql """alter table mv2_d modify column lo_custkey set stats ('row_count'='572');"""
+
     create_async_mv(db, "mv4_d", """
     select
         lo_partkey,
@@ -524,6 +555,8 @@ from
     group by
         lo_partkey,
         lo_orderdate;""")
+
+    sql """alter table mv4_d modify column lo_partkey set stats ('row_count'='2307');"""
 
     create_async_mv(db, "mv_all_6_d", """
   select
@@ -549,6 +582,8 @@ from
   left join date t6 on t1.lo_orderdate = t6.d_datekey
   and t6.d_sellingseason = 'Spring';
     """)
+
+    sql """alter table mv_all_6_d modify column lo_custkey set stats ('row_count'='2327');"""
 
     def query2_0 = """
 select * from ( 
