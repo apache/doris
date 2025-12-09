@@ -55,7 +55,7 @@ public:
                 "rate: {}, "
                 "ignore_thredhold: {}, counter: {} , always_true: {}",
                 filter_id, _judge_filter_rows, _judge_input_rows,
-                static_cast<double>(filter_rows) / static_cast<double>(input_rows),
+                static_cast<double>(_judge_filter_rows) / static_cast<double>(_judge_input_rows),
                 ignore_thredhold, _judge_counter, _always_true);
     }
 
