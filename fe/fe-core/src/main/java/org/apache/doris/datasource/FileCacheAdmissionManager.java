@@ -457,7 +457,7 @@ public class FileCacheAdmissionManager {
             if (userIdentity.isEmpty()) {
                 // empty user_identity
                 reason.set(reasons.get(0));
-                logDefaultDecision(userIdentity, catalog, database, table, reason.get());
+                logDefaultAdmission(userIdentity, catalog, database, table, reason.get());
                 return Config.file_cache_admission_control_default_allow;
             }
 
@@ -465,7 +465,7 @@ public class FileCacheAdmissionManager {
             if (!Character.isAlphabetic(firstChar)) {
                 // invalid user_identity
                 reason.set(reasons.get(1));
-                logDefaultDecision(userIdentity, catalog, database, table, reason.get());
+                logDefaultAdmission(userIdentity, catalog, database, table, reason.get());
                 return Config.file_cache_admission_control_default_allow;
             }
 
@@ -477,12 +477,12 @@ public class FileCacheAdmissionManager {
 
             // no rules found
             reason.set(reasons.get(2));
-            logDefaultDecision(userIdentity, catalog, database, table, reason.get());
+            logDefaultAdmission(userIdentity, catalog, database, table, reason.get());
             return Config.file_cache_admission_control_default_allow;
         }
 
-        private void logDefaultDecision(String userIdentity, String catalog,
-                                        String database, String table, String reason) {
+        private void logDefaultAdmission(String userIdentity, String catalog,
+                                         String database, String table, String reason) {
             boolean allowed = Config.file_cache_admission_control_default_allow;
             String decision = allowed ? "allowed" : "denied";
 
@@ -629,7 +629,7 @@ public class FileCacheAdmissionManager {
             } catch (Exception e) {
                 LOG.warn("Failed to refresh file cache admission policy", e);
             }
-        }, 5, interval, TimeUnit.SECONDS);
+        }, interval, interval, TimeUnit.SECONDS);
 
         LOG.info("Started refreshing task, interval: {} seconds", interval);
     }

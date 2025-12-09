@@ -310,35 +310,34 @@ public abstract class FileQueryScanNode extends FileScanNode {
 
         int numBackends = backendPolicy.numBackends();
         List<String> pathPartitionKeys = getPathPartitionKeys();
+
+        Boolean fileCacheAdmission = true;
+        if (Config.enable_file_cache_admission_control) {
+            String userIdentity = ConnectContext.get().getUserIdentity();
+            String catalog = ConnectContext.get().getCurrentCatalog().getName();
+            String database = ConnectContext.get().getDatabase();
+            String table = desc.getTable().getName();
+
+            AtomicReference<String> reason = new AtomicReference<>("");
+
+            long startTime = System.nanoTime();
+
+            fileCacheAdmission = FileCacheAdmissionManager.getInstance().isAllowed(userIdentity, catalog,
+                database, table, reason);
+
+            long endTime = System.nanoTime();
+            long duration = endTime - startTime;
+
+            LOG.info("File cache admission control cost " + duration + " ns");
+
+            addFileCacheAdmissionLog(userIdentity, fileCacheAdmission, reason.get());
+        }
+
         if (isBatchMode()) {
             // File splits are generated lazily, and fetched by backends while scanning.
             // Only provide the unique ID of split source to backend.
-
-            Boolean fileCacheAdmission = true;
-            if (Config.enable_file_cache_admission_control) {
-                String userIdentity = ConnectContext.get().getUserIdentity();
-                String catalog = ConnectContext.get().getCurrentCatalog().getName();
-                String database = ConnectContext.get().getDatabase();
-                String table = desc.getTable().getName();
-
-                AtomicReference<String> reason = new AtomicReference<>("");
-
-                long startTime = System.nanoTime();
-
-                fileCacheAdmission = FileCacheAdmissionManager.getInstance().isAllowed(userIdentity, catalog,
-                        database, table, reason);
-
-                long endTime = System.nanoTime();
-                long duration = endTime - startTime;
-
-                LOG.info("File cache admission control cost " + duration + " ns");
-
-                addFileCacheAdmissionLog(userIdentity, fileCacheAdmission, reason.get());
-            }
-
             splitAssignment = new SplitAssignment(backendPolicy, this, this::splitToScanRange,
                     locationProperties, pathPartitionKeys, fileCacheAdmission);
-
             splitAssignment.init();
             if (executor != null) {
                 executor.getSummaryProfile().setGetSplitsFinishTime();
@@ -381,29 +380,6 @@ public abstract class FileQueryScanNode extends FileScanNode {
             }
         } else {
             List<Split> inputSplits = getSplits(numBackends);
-
-            Boolean fileCacheAdmission = true;
-            if (Config.enable_file_cache_admission_control) {
-                String userIdentity = ConnectContext.get().getUserIdentity();
-                String catalog = ConnectContext.get().getCurrentCatalog().getName();
-                String database = ConnectContext.get().getDatabase();
-                String table = desc.getTable().getName();
-
-                AtomicReference<String> reason = new AtomicReference<>("");
-
-                long startTime = System.nanoTime();
-
-                fileCacheAdmission = FileCacheAdmissionManager.getInstance().isAllowed(userIdentity, catalog,
-                    database, table, reason);
-
-                long endTime = System.nanoTime();
-                long duration = endTime - startTime;
-
-                LOG.info("File cache admission control cost " + duration + " ns");
-
-                addFileCacheAdmissionLog(userIdentity, fileCacheAdmission, reason.get());
-            }
-
             if (ConnectContext.get().getExecutor() != null) {
                 ConnectContext.get().getExecutor().getSummaryProfile().setGetSplitsFinishTime();
             }
