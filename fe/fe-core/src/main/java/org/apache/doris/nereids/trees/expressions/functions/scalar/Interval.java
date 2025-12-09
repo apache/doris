@@ -19,13 +19,11 @@ package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
-import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
+import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.IntegerType;
-import org.apache.doris.nereids.types.LargeIntType;
-import org.apache.doris.nereids.types.SmallIntType;
-import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.base.Preconditions;
@@ -36,14 +34,10 @@ import java.util.List;
 /**
  * ScalarFunction 'interval'.
  */
-public class Interval extends ScalarFunction implements ExplicitlyCastableSignature, PropagateNullable {
+public class Interval extends ScalarFunction implements ExplicitlyCastableSignature, AlwaysNotNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(IntegerType.INSTANCE).varArgs(TinyIntType.INSTANCE, TinyIntType.INSTANCE),
-            FunctionSignature.ret(IntegerType.INSTANCE).varArgs(SmallIntType.INSTANCE, SmallIntType.INSTANCE),
-            FunctionSignature.ret(IntegerType.INSTANCE).varArgs(IntegerType.INSTANCE, IntegerType.INSTANCE),
-            FunctionSignature.ret(IntegerType.INSTANCE).varArgs(BigIntType.INSTANCE, BigIntType.INSTANCE),
-            FunctionSignature.ret(IntegerType.INSTANCE).varArgs(LargeIntType.INSTANCE, LargeIntType.INSTANCE));
+            FunctionSignature.ret(IntegerType.INSTANCE).varArgs(BigIntType.INSTANCE, BigIntType.INSTANCE));
 
     public Interval(Expression arg, Expression... varArgs) {
         super("interval", ExpressionUtils.mergeArguments(arg, varArgs));
@@ -58,5 +52,10 @@ public class Interval extends ScalarFunction implements ExplicitlyCastableSignat
     @Override
     public List<FunctionSignature> getSignatures() {
         return SIGNATURES;
+    }
+
+    @Override
+    public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
+        return visitor.visitInterval(this, context);
     }
 }
