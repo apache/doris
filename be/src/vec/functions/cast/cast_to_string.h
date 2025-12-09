@@ -540,7 +540,9 @@ public:
         auto col_to = ColumnString::create();
 
         DataTypeSerDe::FormatOptions options;
-        options.timezone = &context->state()->timezone_obj();
+        auto time_zone = cctz::utc_time_zone();
+        options.timezone =
+                (context && context->state()) ? &context->state()->timezone_obj() : &time_zone;
         type.get_serde()->to_string_batch(col_from, *col_to, options);
 
         block.replace_by_position(result, std::move(col_to));

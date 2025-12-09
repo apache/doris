@@ -1337,8 +1337,8 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ>
         auto tz = cctz::utc_time_zone();
         if (!vectorized::CastToTimstampTz::from_string(StringRef(scan_key), value, params, &tz,
                                                        6)) {
-            throw Exception(Status::InternalError(
-                    "Cast to timestamptz is not supported in current context"));
+            return Status::Error<ErrorCode::INVALID_ARGUMENT>("parse timestamptz error, value: {}",
+                                                              scan_key);
         }
         *reinterpret_cast<CppType*>(buf) = value.to_date_int_val();
 
