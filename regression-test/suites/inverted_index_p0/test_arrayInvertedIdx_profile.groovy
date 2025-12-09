@@ -41,15 +41,15 @@ suite("test_arrayInvertedIdx_profile", "nonConcurrent"){
         assertTrue(profiles.size() > 0)
 
         def profileId = null;
-        for (def profile in profiles["data"]["rows"]) {
+        for (def profile in profiles) {
             if (profile["Sql Statement"].contains(sql)) {
                 profileId = profile["Profile ID"]
                 break;
             }
         }
         log.info("profileId:{}", profileId);
-        def profileDetail = httpGet("/rest/v1/query_profile/" + profileId)
-        String regex = "RowsInvertedIndexFiltered:&nbsp;&nbsp;(\\d+)"
+        def profileDetail = profileAction.getProfile(profileId)
+        String regex = "RowsInvertedIndexFiltered: (\\d+)"
         Pattern pattern = Pattern.compile(regex)
         Matcher matcher = pattern.matcher(profileDetail)
     	while (matcher.find()) {
