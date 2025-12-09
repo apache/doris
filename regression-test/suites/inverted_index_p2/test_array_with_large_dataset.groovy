@@ -37,6 +37,7 @@ suite("test_array_with_large_dataset", "p2"){
             // also, you can stream load a http stream, e.g. http://xxx/some.csv
             file fileName
             time 300000
+            retryIfHttpError true
             // stream load action will check result, include Success status, and NumberTotalRows == NumberLoadedRows
 
             // if declared a check callback, the default check condition will ignore.
