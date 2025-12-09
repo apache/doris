@@ -20,7 +20,6 @@
 #include <gen_cpp/DataSinks_types.h>
 
 #include "runtime/group_commit_mgr.h"
-#include "vec/data_types/serde/data_type_serde.h"
 #include "vec/sink/vtablet_block_convertor.h"
 
 namespace doris::pipeline {

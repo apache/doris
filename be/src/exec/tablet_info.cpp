@@ -563,9 +563,7 @@ static Status _create_partition_key(const TExprNode& t_expr, BlockRow* part_key,
         auto primitive_type = vectorized::DataTypeFactory::instance()
                                       .create_data_type(t_expr.type)
                                       ->get_primitive_type();
-        if (vectorized::DataTypeFactory::instance()
-                    .create_data_type(t_expr.type)
-                    ->get_primitive_type() == TYPE_DATEV2) {
+        if (primitive_type == TYPE_DATEV2) {
             DateV2Value<DateV2ValueType> dt;
             if (!dt.from_date_str(t_expr.date_literal.value.c_str(),
                                   t_expr.date_literal.value.size())) {
@@ -588,9 +586,11 @@ static Status _create_partition_key(const TExprNode& t_expr, BlockRow* part_key,
         } else if (primitive_type == TYPE_TIMESTAMPTZ) {
             TimestampTzValue res;
             vectorized::CastParameters params {.status = Status::OK(), .is_strict = true};
+            const int32_t scale =
+                    t_expr.type.types.empty() ? -1 : t_expr.type.types.front().scalar_type.scale;
             if (!vectorized::CastToTimstampTz::from_string(
                         {t_expr.date_literal.value.c_str(), t_expr.date_literal.value.size()}, res,
-                        params, nullptr, 6)) [[unlikely]] {
+                        params, nullptr, scale)) [[unlikely]] {
                 std::stringstream ss;
                 ss << "invalid timestamptz literal in partition column, value="
                    << t_expr.date_literal;

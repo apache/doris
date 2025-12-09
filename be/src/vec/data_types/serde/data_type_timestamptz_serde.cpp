@@ -168,6 +168,7 @@ Status DataTypeTimeStampTzSerDe::write_column_to_mysql_binary(const IColumn& col
     const auto& data = assert_cast<const ColumnTimeStampTz&>(column).get_data();
     const auto col_index = index_check_const(row_idx, col_const);
     auto val = binary_cast<UInt64, TimestampTzValue>(data[col_index]);
+    LOG(INFO) << "xxxx timestamptz to mysql binary: ";
     if (UNLIKELY(0 != result.push_timestamptz(val, *options.timezone, _scale))) {
         return Status::InternalError("pack mysql buffer failed.");
     }
