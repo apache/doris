@@ -44,14 +44,14 @@ template <PrimitiveType T,
 struct AggregateFunctionRegrData {
     static constexpr PrimitiveType Type = T;
 
-    static_assert(!NeedSxy || (SxLevel >= 1 && SyLevel >= 1),
-                  "NeedSxy requires SxLevel >= 1 and SyLevel >= 1");
+    static_assert(!NeedSxy || (SxLevel > 0 && SyLevel > 0),
+                  "NeedSxy requires SxLevel > 0 and SyLevel > 0");
     static_assert(SxLevel <= 2 && SyLevel <= 2, "Sx/Sy level must be <= 2");
 
-    static constexpr bool need_sx = SxLevel >= 1;
-    static constexpr bool need_sy = SyLevel >= 1;
-    static constexpr bool need_sxx = SxLevel >= 2;
-    static constexpr bool need_syy = SyLevel >= 2;
+    static constexpr bool need_sx = SxLevel > 0;
+    static constexpr bool need_sy = SyLevel > 0;
+    static constexpr bool need_sxx = SxLevel > 1;
+    static constexpr bool need_syy = SyLevel > 1;
     static constexpr bool need_sxy = NeedSxy;
 
     static constexpr size_t kMomentSize = SxLevel + SyLevel + size_t {need_sxy};
