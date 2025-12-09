@@ -60,7 +60,7 @@ Status ExprPushDownHelper::_extract_predicates(const VExprSPtr& expr, int& cid,
 }
 
 Status ExprPushDownHelper::convert_predicates(
-        const VExprSPtrs& exprs, std::vector<std::unique_ptr<ColumnPredicate>>& predicates,
+        const VExprSPtrs& exprs, std::vector<std::shared_ptr<ColumnPredicate>>& predicates,
         std::unique_ptr<MutilColumnBlockPredicate>& root, Arena& arena) {
     if (exprs.empty()) {
         return Status::OK();
@@ -95,10 +95,9 @@ Status ExprPushDownHelper::convert_predicates(
             RETURN_IF_ERROR(_extract_predicates(expr, cid, data_type, values, false, parsed));
             if (parsed) {
                 // TODO(gabriel): Use string view
-                predicates.push_back(std::unique_ptr<ColumnPredicate>(
-                        create(data_type, cid, values[0].to_string(), false, arena)));
+                predicates.push_back(create(data_type, cid, values[0].to_string(), false, arena));
                 root->add_column_predicate(
-                        SingleColumnBlockPredicate::create_unique(predicates.back().get()));
+                        SingleColumnBlockPredicate::create_unique(predicates.back()));
             }
             break;
         }
@@ -112,11 +111,10 @@ Status ExprPushDownHelper::convert_predicates(
                     for (size_t i = 0; i < conditions.size(); i++) {
                         conditions[i] = values[i].to_string();
                     }
-                    predicates.push_back(std::unique_ptr<ColumnPredicate>(
-                            create_list_predicate<PredicateType::IN_LIST>(
-                                    data_type, cid, conditions, false, arena)));
+                    predicates.push_back(create_list_predicate<PredicateType::IN_LIST>(
+                            data_type, cid, conditions, false, arena));
                     root->add_column_predicate(
-                            SingleColumnBlockPredicate::create_unique(predicates.back().get()));
+                            SingleColumnBlockPredicate::create_unique(predicates.back()));
                 }
                 break;
             }
@@ -155,10 +153,11 @@ Status ExprPushDownHelper::convert_predicates(
             if (fn_name == "is_null_pred" || fn_name == "is_not_null_pred") {
                 RETURN_IF_ERROR(_extract_predicates(expr, cid, data_type, values, true, parsed));
                 if (parsed) {
-                    predicates.push_back(std::unique_ptr<ColumnPredicate>(
-                            new NullPredicate(cid, true, fn_name == "is_not_null_pred")));
+                    predicates.push_back(
+                            NullPredicate::create_shared(cid, true, data_type->get_primitive_type(),
+                                                         fn_name == "is_not_null_pred"));
                     root->add_column_predicate(
-                            SingleColumnBlockPredicate::create_unique(predicates.back().get()));
+                            SingleColumnBlockPredicate::create_unique(predicates.back()));
                 }
             }
             break;

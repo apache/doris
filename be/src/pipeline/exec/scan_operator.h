@@ -37,6 +37,7 @@
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 class ScannerDelegate;
+class OlapScanner;
 } // namespace doris::vectorized
 
 namespace doris::pipeline {
@@ -246,47 +247,44 @@ protected:
     }
 
     Status _normalize_conjuncts(RuntimeState* state);
-    Status _normalize_predicate(const vectorized::VExprSPtr& conjunct_expr_root,
-                                vectorized::VExprContext* context,
+    Status _normalize_predicate(vectorized::VExprContext* context,
                                 vectorized::VExprSPtr& output_expr);
-    Status _eval_const_conjuncts(vectorized::VExpr* vexpr, vectorized::VExprContext* expr_ctx,
-                                 PushDownType* pdt);
+    Status _eval_const_conjuncts(vectorized::VExprContext* expr_ctx, PushDownType* pdt);
 
-    Status _normalize_bloom_filter(vectorized::VExpr* expr, vectorized::VExprContext* expr_ctx,
-                                   SlotDescriptor* slot, PushDownType* pdt);
+    Status _normalize_bloom_filter(vectorized::VExprContext* expr_ctx, SlotDescriptor* slot,
+                                   std::vector<std::shared_ptr<ColumnPredicate>>& predicates,
+                                   PushDownType* pdt);
 
-    Status _normalize_bitmap_filter(vectorized::VExpr* expr, vectorized::VExprContext* expr_ctx,
-                                    SlotDescriptor* slot, PushDownType* pdt);
+    Status _normalize_bitmap_filter(vectorized::VExprContext* expr_ctx, SlotDescriptor* slot,
+                                    std::vector<std::shared_ptr<ColumnPredicate>>& predicates,
+                                    PushDownType* pdt);
 
-    Status _normalize_function_filters(vectorized::VExpr* expr, vectorized::VExprContext* expr_ctx,
-                                       SlotDescriptor* slot, PushDownType* pdt);
+    Status _normalize_function_filters(vectorized::VExprContext* expr_ctx, SlotDescriptor* slot,
+                                       PushDownType* pdt);
 
-    bool _is_predicate_acting_on_slot(
-            vectorized::VExpr* expr,
-            const std::function<bool(const vectorized::VExprSPtrs&,
-                                     std::shared_ptr<vectorized::VSlotRef>&,
-                                     vectorized::VExprSPtr&)>& checker,
-            SlotDescriptor** slot_desc, ColumnValueRangeType** range);
+    bool _is_predicate_acting_on_slot(const std::shared_ptr<vectorized::VSlotRef>& slot_ref,
+                                      const vectorized::VExprSPtr& child_contains_slot,
+                                      ColumnValueRangeType** range);
 
     template <PrimitiveType T>
-    Status _normalize_in_and_eq_predicate(vectorized::VExpr* expr,
-                                          vectorized::VExprContext* expr_ctx, SlotDescriptor* slot,
+    Status _normalize_in_and_eq_predicate(vectorized::VExprContext* expr_ctx, SlotDescriptor* slot,
+                                          std::vector<std::shared_ptr<ColumnPredicate>>& predicates,
                                           ColumnValueRange<T>& range, PushDownType* pdt);
     template <PrimitiveType T>
-    Status _normalize_not_in_and_not_eq_predicate(vectorized::VExpr* expr,
-                                                  vectorized::VExprContext* expr_ctx,
-                                                  SlotDescriptor* slot, ColumnValueRange<T>& range,
-                                                  PushDownType* pdt);
+    Status _normalize_not_in_and_not_eq_predicate(
+            vectorized::VExprContext* expr_ctx, SlotDescriptor* slot,
+            std::vector<std::shared_ptr<ColumnPredicate>>& predicates, ColumnValueRange<T>& range,
+            PushDownType* pdt);
 
     template <PrimitiveType T>
-    Status _normalize_noneq_binary_predicate(vectorized::VExpr* expr,
-                                             vectorized::VExprContext* expr_ctx,
-                                             SlotDescriptor* slot, ColumnValueRange<T>& range,
-                                             PushDownType* pdt);
+    Status _normalize_noneq_binary_predicate(
+            vectorized::VExprContext* expr_ctx, SlotDescriptor* slot,
+            std::vector<std::shared_ptr<ColumnPredicate>>& predicates, ColumnValueRange<T>& range,
+            PushDownType* pdt);
     template <PrimitiveType T>
-    Status _normalize_is_null_predicate(vectorized::VExpr* expr, vectorized::VExprContext* expr_ctx,
-                                        SlotDescriptor* slot, ColumnValueRange<T>& range,
-                                        PushDownType* pdt);
+    Status _normalize_is_null_predicate(vectorized::VExprContext* expr_ctx, SlotDescriptor* slot,
+                                        std::vector<std::shared_ptr<ColumnPredicate>>& predicates,
+                                        ColumnValueRange<T>& range, PushDownType* pdt);
 
     bool _ignore_cast(SlotDescriptor* slot, vectorized::VExpr* expr);
 
@@ -318,8 +316,6 @@ protected:
 
     std::shared_ptr<vectorized::ScannerContext> _scanner_ctx = nullptr;
 
-    FilterPredicates _filter_predicates {};
-
     // Save all function predicates which may be pushed down to data source.
     std::vector<FunctionFilter> _push_down_functions;
 
@@ -330,13 +326,7 @@ protected:
     // Parsed from conjuncts
     phmap::flat_hash_map<int, std::pair<SlotDescriptor*, ColumnValueRangeType>>
             _slot_id_to_value_range;
-
-    // But if a col is with value range, eg: 1 < col < 10, which is "!is_fixed_range",
-    // in this case we can not merge "1 < col < 10" with "col not in (2)".
-    // So we have to save "col not in (2)" to another structure: "_not_in_value_ranges".
-    // When the data source try to use the value ranges, it should use both ranges in
-    // "_slot_id_to_value_range" and in "_not_in_value_ranges"
-    std::vector<ColumnValueRangeType> _not_in_value_ranges;
+    phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>> _slot_id_to_predicates;
 
     std::atomic<bool> _eos = false;
 
@@ -344,6 +334,7 @@ protected:
 
     // ScanLocalState owns the ownership of scanner, scanner context only has its weakptr
     std::list<std::shared_ptr<vectorized::ScannerDelegate>> _scanners;
+    vectorized::Arena _arena;
 };
 
 template <typename LocalStateType>
@@ -403,6 +394,7 @@ public:
 
 protected:
     using LocalState = LocalStateType;
+    friend class vectorized::OlapScanner;
     ScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
                   const DescriptorTbl& descs, int parallel_tasks = 0);
     virtual ~ScanOperatorX() = default;
