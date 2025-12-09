@@ -34,7 +34,7 @@ class RuntimeFilterSelectivity {
 public:
     RuntimeFilterSelectivity() = default;
 
-    RuntimeFilterSelectivity(const RuntimeFilterSelectivity&&) = delete;
+    RuntimeFilterSelectivity(const RuntimeFilterSelectivity&) = delete;
     void update_judge_counter() {
         if ((_judge_counter++) >= config::runtime_filter_sampling_frequency) {
             reset_judge_selectivity();
@@ -60,7 +60,7 @@ public:
     }
 
     bool maybe_always_true_can_ignore() const {
-        /// TODO: maybe we can use seesion variable to control this behavior ?
+        /// TODO: maybe we can use session variable to control this behavior ?
         if (config::runtime_filter_sampling_frequency <= 0) {
             return false;
         } else {
