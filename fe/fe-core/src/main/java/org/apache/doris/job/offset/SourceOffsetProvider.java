@@ -17,6 +17,7 @@
 
 package org.apache.doris.job.offset;
 
+import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.extensions.insert.streaming.StreamingInsertJob;
 import org.apache.doris.job.extensions.insert.streaming.StreamingJobProperties;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
@@ -102,7 +103,7 @@ public interface SourceOffsetProvider {
      *
      * @return
      */
-    default void replayIfNeed(StreamingInsertJob job) {
+    default void replayIfNeed(StreamingInsertJob job)  throws JobException {
     }
 
     default String getPersistInfo() {

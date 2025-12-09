@@ -17,7 +17,9 @@
 
 package org.apache.doris.job.extensions.insert.streaming;
 
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.httpv2.entity.ResponseBody;
 import org.apache.doris.httpv2.rest.RestApiStatusCode;
 import org.apache.doris.httpv2.rest.StreamingJobAction.CommitOffsetRequest;
@@ -35,14 +37,18 @@ import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.InternalService.PRequestCdcClientResult;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.system.Backend;
+import org.apache.doris.thrift.TCell;
 import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.thrift.TRow;
 import org.apache.doris.thrift.TStatusCode;
+
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.gson.Gson;
 import lombok.Getter;
 import lombok.extern.log4j.Log4j2;
+
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
@@ -69,8 +75,9 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
             Map<String, String> sourceProperties,
             String targetDb,
             Map<String, String> targetProperties,
-            StreamingJobProperties jobProperties) {
-        super(jobId, taskId);
+            StreamingJobProperties jobProperties,
+            UserIdentity userIdentity) {
+        super(jobId, taskId, userIdentity);
         this.dataSourceType = dataSourceType;
         this.offsetProvider = offsetProvider;
         this.sourceProperties = sourceProperties;
@@ -185,7 +192,9 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
         this.status = TaskStatus.SUCCESS;
         this.finishTimeMs = System.currentTimeMillis();
         JdbcOffset runOffset = (JdbcOffset) this.runningOffset;
-
+        if (!isCallable()) {
+            return;
+        }
         // set end offset to running offset
         Map<String, String> offsetMeta;
         try {
@@ -209,9 +218,8 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
                     + " offset commit request split id {}", runOffset.getSplit().getSplitId(), splitId);
             throw new RuntimeException("Split id is not consistent");
         }
-        if (!isCallable()) {
-            return;
-        }
+        this.scannedRows = offsetRequest.getScannedRows();
+        this.scannedBytes = offsetRequest.getScannedBytes();
         Job job = Env.getCurrentEnv().getJobManager().getJob(getJobId());
         if (null == job) {
             log.info("job is null, job id is {}", jobId);
@@ -240,5 +248,25 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
     public boolean isTimeout() {
         // todo: need to config
         return (System.currentTimeMillis() - createTimeMs) > 300 * 1000;
+    }
+
+    @Override
+    public TRow getTvfInfo(String jobName) {
+        TRow trow = super.getTvfInfo(jobName);
+        trow.addToColumnValue(new TCell().setStringVal(FeConstants.null_string));
+        Map<String, Object> statistic = new HashMap<>();
+        statistic.put("scannedRows", scannedRows);
+        statistic.put("loadBytes", scannedBytes);
+        trow.addToColumnValue(new TCell().setStringVal(new Gson().toJson(statistic)));
+
+        if (this.getUserIdentity() == null) {
+            trow.addToColumnValue(new TCell().setStringVal(FeConstants.null_string));
+        } else {
+            trow.addToColumnValue(new TCell().setStringVal(this.getUserIdentity().getQualifiedUser()));
+        }
+        trow.addToColumnValue(new TCell().setStringVal(""));
+        trow.addToColumnValue(new TCell().setStringVal(runningOffset == null
+                ? FeConstants.null_string : runningOffset.showRange()));
+        return trow;
     }
 }

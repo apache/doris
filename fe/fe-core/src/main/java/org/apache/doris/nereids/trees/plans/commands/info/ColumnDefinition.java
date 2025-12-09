@@ -144,10 +144,6 @@ public class ColumnDefinition {
         this(name, type, false, null, isNullable, Optional.empty(), comment);
     }
 
-    public ColumnDefinition(String name, DataType type, boolean isKey, boolean isNullable, String comment) {
-        this(name, type, isKey, null, isNullable, Optional.empty(), comment);
-    }
-
     public String getName() {
         return name;
     }

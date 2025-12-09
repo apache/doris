@@ -37,6 +37,7 @@ import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TStatusCode;
+
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -47,10 +48,10 @@ import lombok.Setter;
 import lombok.extern.log4j.Log4j2;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.collections4.MapUtils;
+
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutionException;
@@ -78,6 +79,8 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
     Map<String, Map<String, Map<String, String>>> chunkHighWatermarkMap;
     @SerializedName("bop")
     Map<String, String> binlogOffsetPersist;
+
+    boolean hasMoreData = true;
 
     public JdbcSourceOffsetProvider(Long jobId, DataSourceType sourceType, Map<String, String> sourceProperties) {
         this.jobId = jobId;
@@ -207,6 +210,10 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
                     new TypeReference<ResponseBody<Map<String, String>>>() {
                     }
             );
+            if (endBinlogOffset != null
+                    && !endBinlogOffset.equals(responseObj.getData())) {
+                hasMoreData = true;
+            }
             endBinlogOffset = responseObj.getData();
         } catch (ExecutionException | InterruptedException | IOException ex) {
             log.error("Get end offset error: ", ex);
@@ -216,6 +223,10 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
 
     @Override
     public boolean hasMoreDataToConsume() {
+        if (!hasMoreData) {
+            return false;
+        }
+
         if (currentOffset == null) {
             return true;
         }
@@ -310,25 +321,28 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
      * Replay snapshot splits if needed
      */
     @Override
-    public void replayIfNeed(StreamingInsertJob job) {
-        if (checkNeedSplitChunks(job.getSourceProperties())) {
+    public void replayIfNeed(StreamingInsertJob job) throws JobException {
+        String offsetProviderPersist = job.getOffsetProviderPersist();
+        if (job.getOffsetProviderPersist() == null) {
+            return;
+        }
+        JdbcSourceOffsetProvider replayFromPersist = GsonUtils.GSON.fromJson(offsetProviderPersist,
+                JdbcSourceOffsetProvider.class);
+        this.binlogOffsetPersist = replayFromPersist.getBinlogOffsetPersist();
+        this.chunkHighWatermarkMap = replayFromPersist.getChunkHighWatermarkMap();
+
+        if (MapUtils.isNotEmpty(binlogOffsetPersist)) {
+            currentOffset = new JdbcOffset();
+            currentOffset.setSplit(new BinlogSplit(binlogOffsetPersist));
+        } else {
             try {
                 Map<String, List<SnapshotSplit>> snapshotSplits = StreamingJobUtils.restoreSplitsToJob(job.getJobId());
-                String offsetProviderPersist = job.getOffsetProviderPersist();
-                JdbcSourceOffsetProvider replayFromPersist = GsonUtils.GSON.fromJson(offsetProviderPersist,
-                        JdbcSourceOffsetProvider.class);
-                // need a flag to check pure binlog?
-                this.chunkHighWatermarkMap = replayFromPersist.getChunkHighWatermarkMap();
                 if (MapUtils.isNotEmpty(chunkHighWatermarkMap) && MapUtils.isNotEmpty(snapshotSplits)) {
-                    replaySnapshotSplits(chunkHighWatermarkMap, snapshotSplits);
-                }
-                this.binlogOffsetPersist = replayFromPersist.getBinlogOffsetPersist();
-                if (MapUtils.isNotEmpty(binlogOffsetPersist)) {
-                    currentOffset = new JdbcOffset();
-                    currentOffset.setSplit(new BinlogSplit(binlogOffsetPersist));
+                    recalculateRemainingSplits(chunkHighWatermarkMap, snapshotSplits);
                 }
             } catch (Exception ex) {
-                log.error("Failed to restore splits for job {}", job.getJobId(), ex);
+                log.warn("Replay snapshot splits error with job {} ", job.getJobId(), ex);
+                throw new JobException(ex);
             }
         }
     }
@@ -337,7 +351,7 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
      * Assign the HW value to the synchronized Split,
      * and remove the Split from remainSplit and place it in finishedSplit.
      */
-    private void replaySnapshotSplits(Map<String, Map<String, Map<String, String>>> chunkHighWatermarkMap,
+    private void recalculateRemainingSplits(Map<String, Map<String, Map<String, String>>> chunkHighWatermarkMap,
             Map<String, List<SnapshotSplit>> snapshotSplits) {
         if (this.finishedSplits == null) {
             this.finishedSplits = new ArrayList<>();
@@ -349,28 +363,39 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
             if (MapUtils.isEmpty(splitIdToHighWatermark)) {
                 continue;
             }
-
-            List<SnapshotSplit> tableSplits = snapshotSplits.get(tableId);
+            // db.schema.table
+            String tableName = getTableName(tableId);
+            if (tableName == null) {
+                continue;
+            }
+            List<SnapshotSplit> tableSplits = snapshotSplits.get(tableName);
             if (CollectionUtils.isEmpty(tableSplits)) {
                 continue;
             }
 
-            for (Iterator<SnapshotSplit> iterator = tableSplits.iterator(); iterator.hasNext(); ) {
-                SnapshotSplit split = iterator.next();
+            tableSplits.removeIf(split -> {
                 String splitId = split.getSplitId();
-
                 Map<String, String> highWatermark = splitIdToHighWatermark.get(splitId);
                 if (highWatermark != null) {
                     split.setHighWatermark(highWatermark);
                     finishedSplits.add(split);
-                    iterator.remove();
+                    return true;
                 }
-            }
+                return false;
+            });
         }
 
         this.remainingSplits = snapshotSplits.values().stream()
                 .flatMap(List::stream)
                 .collect(Collectors.toList());
+    }
+
+    private String getTableName(String tableId) {
+        if (tableId == null) {
+            return null;
+        }
+        String[] split = tableId.split("\\.");
+        return split[split.length - 1];
     }
 
     @Override

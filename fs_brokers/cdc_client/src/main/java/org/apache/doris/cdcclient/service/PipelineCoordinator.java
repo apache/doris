@@ -25,16 +25,12 @@ import org.apache.doris.cdcclient.source.deserialize.DebeziumJsonDeserializer;
 import org.apache.doris.cdcclient.source.deserialize.SourceRecordDeserializer;
 import org.apache.doris.cdcclient.source.reader.SourceReader;
 import org.apache.doris.cdcclient.source.reader.SplitReadResult;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.google.common.base.Preconditions;
-import io.debezium.data.Envelope;
+
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.flink.cdc.connectors.mysql.source.utils.RecordUtils;
 import org.apache.kafka.connect.data.Struct;
 import org.apache.kafka.connect.source.SourceRecord;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.stereotype.Component;
+
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
@@ -44,6 +40,13 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.base.Preconditions;
+import io.debezium.data.Envelope;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Component;
 
 /** Pipeline coordinator. */
 @Component
@@ -167,8 +170,22 @@ public class PipelineCoordinator {
                 }
             }
             if (!hasData) {
-                // should not happen, No data will be distributed task
-                throw new StreamLoadException("No data to write");
+                // todo: need return the lastest heartbeat offset, means the maximum offset that the
+                // current job can recover.
+                if (readBinlog) {
+                    // BinlogSplit binlogSplit =
+                    //         OBJECT_MAPPER.convertValue(writeRecordReq.getMeta(),
+                    // BinlogSplit.class);
+                    // Map<String, String> metaResp = new
+                    // HashMap<>(binlogSplit.getStartingOffset());
+                    // metaResp.put(SPLIT_ID, BinlogSplit.BINLOG_SPLIT_ID);
+                    Map<String, String> offsetRes =
+                            sourceReader.extractBinlogOffset(readResult.getSplit());
+                    batchStreamLoad.commitOffset(offsetRes, scannedRows, scannedBytes);
+                    return;
+                } else {
+                    throw new RuntimeException("should not happen");
+                }
             }
 
             // wait all stream load finish
@@ -187,7 +204,6 @@ public class PipelineCoordinator {
             }
             // request fe api
             batchStreamLoad.commitOffset(metaResponse, scannedRows, scannedBytes);
-            // batchStreamLoad.commitTransaction(metaResponse);
         } finally {
             sourceReader.finishSplitRecords();
             if (batchStreamLoad != null) {

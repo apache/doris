@@ -394,19 +394,17 @@ public abstract class JdbcClient {
 
     public List<Column> getColumnsFromJdbc(String remoteDbName, String remoteTableName) {
         List<JdbcFieldSchema> jdbcTableSchema = getJdbcColumnsInfo(remoteDbName, remoteTableName);
-        List<String> primaryKeys = getPrimaryKeys(remoteDbName, remoteTableName);
         List<Column> dorisTableSchema = Lists.newArrayListWithCapacity(jdbcTableSchema.size());
         for (JdbcFieldSchema field : jdbcTableSchema) {
-            boolean isKey = primaryKeys.contains(field.getColumnName());
             dorisTableSchema.add(new Column(field.getColumnName(),
-                    jdbcTypeToDoris(field), isKey, null,
+                    jdbcTypeToDoris(field), true, null,
                     field.isAllowNull(), field.getRemarks(),
                     true, -1));
         }
         return dorisTableSchema;
     }
 
-    private List<String> getPrimaryKeys(String remoteDbName, String remoteTableName) {
+    public List<String> getPrimaryKeys(String remoteDbName, String remoteTableName) {
         Connection conn = getConnection();
         ResultSet rs = null;
         List<String> primaryKeys = Lists.newArrayList();

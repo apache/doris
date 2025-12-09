@@ -55,7 +55,7 @@ public interface SourceReader<Split, SplitState> {
     Map<String, String> extractSnapshotOffset(Object splitState, Object split);
 
     /** Extract offset information from binlog split. */
-    Map<String, String> extractBinlogOffset(Object split, boolean pureBinlogPhase);
+    Map<String, String> extractBinlogOffset(Object split);
 
     /**
      * Get split ID from the split. This method should be implemented by each SourceReader to handle

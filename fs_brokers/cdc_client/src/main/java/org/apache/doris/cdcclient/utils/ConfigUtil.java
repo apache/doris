@@ -20,13 +20,17 @@ package org.apache.doris.cdcclient.utils;
 import org.apache.doris.cdcclient.constants.LoadConstants;
 import org.apache.doris.cdcclient.model.JobConfig;
 import com.mysql.cj.conf.ConnectionUrl;
+import io.debezium.connector.mysql.MySqlConnection;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.flink.cdc.connectors.mysql.debezium.DebeziumUtils;
 import org.apache.flink.cdc.connectors.mysql.source.config.MySqlSourceConfig;
 import org.apache.flink.cdc.connectors.mysql.source.config.MySqlSourceConfigFactory;
 import org.apache.flink.cdc.connectors.mysql.source.config.MySqlSourceOptions;
 import org.apache.flink.cdc.connectors.mysql.source.offset.BinlogOffset;
 import org.apache.flink.cdc.connectors.mysql.source.offset.BinlogOffsetBuilder;
+import org.apache.flink.cdc.connectors.mysql.source.offset.BinlogOffsetUtils;
 import org.apache.flink.cdc.connectors.mysql.table.StartupOptions;
+import java.sql.SQLException;
 import java.util.Map;
 import java.util.Properties;
 
@@ -65,13 +69,21 @@ public class ConfigUtil {
         }
 
         // setting startMode
-        String startupMode = cdcConfig.get(MySqlSourceOptions.SCAN_STARTUP_MODE.key());
+        String startupMode = cdcConfig.get(LoadConstants.STARTUP_MODE);
         if ("initial".equalsIgnoreCase(startupMode)) {
-            configFactory.startupOptions(StartupOptions.initial());
-        } else if ("earliest-offset".equalsIgnoreCase(startupMode)) {
+            // do not need set offset when initial
+            // configFactory.startupOptions(StartupOptions.initial());
+        } else if ("earliest".equalsIgnoreCase(startupMode)) {
             configFactory.startupOptions(StartupOptions.earliest());
-        } else if ("latest-offset".equalsIgnoreCase(startupMode)) {
+            BinlogOffset binlogOffset =
+                    initializeEffectiveOffset(
+                            configFactory, StartupOptions.earliest().binlogOffset);
+            configFactory.startupOptions(StartupOptions.specificOffset(binlogOffset));
+        } else if ("latest".equalsIgnoreCase(startupMode)) {
             configFactory.startupOptions(StartupOptions.latest());
+            BinlogOffset binlogOffset =
+                    initializeEffectiveOffset(configFactory, StartupOptions.latest().binlogOffset);
+            configFactory.startupOptions(StartupOptions.specificOffset(binlogOffset));
         } else if ("specific-offset".equalsIgnoreCase(startupMode)) {
             BinlogOffsetBuilder offsetBuilder = BinlogOffset.builder();
             String file = cdcConfig.get(MySqlSourceOptions.SCAN_STARTUP_SPECIFIC_OFFSET_FILE.key());
@@ -110,17 +122,34 @@ public class ConfigUtil {
             Long ts =
                     Long.parseLong(
                             cdcConfig.get(MySqlSourceOptions.SCAN_STARTUP_TIMESTAMP_MILLIS.key()));
-            configFactory.startupOptions(StartupOptions.timestamp(ts));
+            BinlogOffset binlogOffset =
+                    initializeEffectiveOffset(
+                            configFactory, StartupOptions.timestamp(ts).binlogOffset);
+            configFactory.startupOptions(StartupOptions.specificOffset(binlogOffset));
+        } else {
+            throw new RuntimeException("Unknown startup_mode " + startupMode);
         }
 
         Properties jdbcProperteis = new Properties();
         jdbcProperteis.putAll(cu.getOriginalProperties());
         configFactory.jdbcProperties(jdbcProperteis);
 
+        // configFactory.heartbeatInterval(Duration.ofMillis(1));
+
         if (cdcConfig.containsKey(LoadConstants.SPLIT_SIZE)) {
             configFactory.splitSize(Integer.parseInt(cdcConfig.get(LoadConstants.SPLIT_SIZE)));
         }
 
         return configFactory.createConfig(0);
+    }
+
+    private static BinlogOffset initializeEffectiveOffset(
+            MySqlSourceConfigFactory configFactory, BinlogOffset binlogOffset) {
+        MySqlSourceConfig config = configFactory.createConfig(0);
+        try (MySqlConnection connection = DebeziumUtils.createMySqlConnection(config)) {
+            return BinlogOffsetUtils.initializeEffectiveOffset(binlogOffset, connection, config);
+        } catch (SQLException e) {
+            throw new RuntimeException(e);
+        }
     }
 }

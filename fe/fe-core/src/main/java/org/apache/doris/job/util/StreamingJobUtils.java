@@ -32,6 +32,7 @@ import org.apache.doris.job.common.DataSourceType;
 import org.apache.doris.job.common.LoadConstants;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.offset.jdbc.split.SnapshotSplit;
+import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.DistributionDescriptor;
@@ -39,18 +40,20 @@ import org.apache.doris.nereids.trees.plans.commands.info.PartitionTableInfo;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.statistics.ResultRow;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.BeSelectionPolicy;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TUniqueId;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import lombok.extern.log4j.Log4j2;
 import org.apache.commons.text.StringSubstitutor;
+
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -107,11 +110,12 @@ public class StreamingJobUtils {
         }
     }
 
-    public static Map<String, List<SnapshotSplit>> restoreSplitsToJob(Long jobId) throws Exception {
+    public static Map<String, List<SnapshotSplit>> restoreSplitsToJob(Long jobId) throws IOException {
         List<ResultRow> resultRows = new ArrayList<>();
         String sql = String.format(SELECT_SPLITS_TABLE_TEMPLATE, jobId);
-        try (AutoCloseConnectContext r = buildConnectContext()) {
-            StmtExecutor stmtExecutor = new StmtExecutor(r.connectContext, sql);
+        try (AutoCloseConnectContext context
+                = new AutoCloseConnectContext(buildConnectContext())) {
+            StmtExecutor stmtExecutor = new StmtExecutor(context.connectContext, sql);
             resultRows = stmtExecutor.executeInternalQuery();
         }
 
@@ -119,7 +123,8 @@ public class StreamingJobUtils {
         for (ResultRow row : resultRows) {
             String tableName = row.get(0);
             String chunkListStr = row.get(1);
-            List<SnapshotSplit> splits = Arrays.asList(objectMapper.readValue(chunkListStr, SnapshotSplit[].class));
+            List<SnapshotSplit> splits =
+                    new ArrayList<>(Arrays.asList(objectMapper.readValue(chunkListStr, SnapshotSplit[].class)));
             tableSplits.put(tableName, splits);
         }
         return tableSplits;
@@ -157,27 +162,25 @@ public class StreamingJobUtils {
     }
 
     private static void executeInsert(String sql) throws Exception {
-        try (AutoCloseConnectContext r = buildConnectContext()) {
-            StmtExecutor stmtExecutor = new StmtExecutor(r.connectContext, sql);
+        try (AutoCloseConnectContext context
+                = new AutoCloseConnectContext(buildConnectContext())) {
+            StmtExecutor stmtExecutor = new StmtExecutor(context.connectContext, sql);
             stmtExecutor.execute();
         }
     }
 
-    private static AutoCloseConnectContext buildConnectContext() {
-        ConnectContext connectContext = new ConnectContext();
-        connectContext.getState().setInternal(true);
-        SessionVariable sessionVariable = connectContext.getSessionVariable();
-        sessionVariable.setEnableInsertStrict(true);
-        sessionVariable.setInsertMaxFilterRatio(1);
-        sessionVariable.enableProfile = false;
-        connectContext.setEnv(Env.getCurrentEnv());
-        connectContext.setDatabase(FeConstants.INTERNAL_DB_NAME);
+    private static ConnectContext buildConnectContext() {
+        ConnectContext ctx = new ConnectContext();
+        ctx.setEnv(Env.getCurrentEnv());
+        ctx.setCurrentUserIdentity(UserIdentity.ADMIN);
+        ctx.getState().reset();
+        ctx.getState().setInternal(true);
+        ctx.getState().setNereids(true);
+        ctx.setThreadLocalInfo();
         UUID uuid = UUID.randomUUID();
         TUniqueId queryId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
-        connectContext.setQueryId(queryId);
-        connectContext.setStartTime();
-        connectContext.setCurrentUserIdentity(UserIdentity.ADMIN);
-        return new AutoCloseConnectContext(connectContext);
+        ctx.setQueryId(queryId);
+        return ctx;
     }
 
     private static JdbcClient getJdbcClient(DataSourceType sourceType, Map<String, String> properties)
@@ -219,10 +222,10 @@ public class StreamingJobUtils {
         return backend;
     }
 
-    public static List<CreateTableInfo> generateCreateTableInfos(String targetDb, DataSourceType sourceType,
+    public static List<CreateTableCommand> generateCreateTableCmds(String targetDb, DataSourceType sourceType,
             Map<String, String> properties, Map<String, String> targetProperties)
             throws JobException {
-        List<CreateTableInfo> createtblInfos = new ArrayList<>();
+        List<CreateTableCommand> createtblCmds = new ArrayList<>();
         String includeTables = properties.get(LoadConstants.INCLUDE_TABLES);
         String excludeTables = properties.get(LoadConstants.EXCLUDE_TABLES);
         List<String> includeTablesList = new ArrayList<>();
@@ -251,9 +254,7 @@ public class StreamingJobUtils {
             }
 
             List<Column> columns = jdbcClient.getColumnsFromJdbc(database, table);
-
-            List<String> primaryKeys = columns.stream().filter(Column::isKey).map(Column::getName)
-                    .collect(Collectors.toList());
+            List<String> primaryKeys = jdbcClient.getPrimaryKeys(database, table);
             if (primaryKeys.isEmpty()) {
                 primaryKeys.add(columns.get(0).getName());
                 log.info("table {} no primary key, use first column {} to primary key", table,
@@ -262,7 +263,7 @@ public class StreamingJobUtils {
             // Convert Column to ColumnDefinition
             List<ColumnDefinition> columnDefinitions = columns.stream().map(col -> {
                 DataType dataType = DataType.fromCatalogType(col.getType());
-                return new ColumnDefinition(col.getName(), dataType, col.isKey(), col.isAllowNull(), col.getComment());
+                return new ColumnDefinition(col.getName(), dataType, col.isAllowNull(), col.getComment());
             }).collect(Collectors.toList());
 
             // Create DistributionDescriptor
@@ -294,10 +295,10 @@ public class StreamingJobUtils {
                     ImmutableMap.of(), // extProperties
                     ImmutableList.of() // clusterKeyColumnNames
             );
-            createtblInfo.analyzeEngine();
-            createtblInfos.add(createtblInfo);
+            CreateTableCommand createtblCmd = new CreateTableCommand(Optional.empty(), createtblInfo);
+            createtblCmds.add(createtblCmd);
         }
-        return createtblInfos;
+        return createtblCmds;
     }
 
     private static Map<String, String> getTableCreateProperties(Map<String, String> properties) {

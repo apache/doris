@@ -25,7 +25,6 @@ import org.apache.doris.job.base.Job;
 import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.offset.Offset;
-import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.thrift.TCell;
 import org.apache.doris.thrift.TRow;
 
@@ -34,8 +33,6 @@ import lombok.Setter;
 import lombok.extern.log4j.Log4j2;
 import org.apache.commons.lang3.StringUtils;
 
-import java.util.Arrays;
-import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 @Log4j2
@@ -59,9 +56,10 @@ public abstract class AbstractStreamingTask {
     @Getter
     private AtomicBoolean isCanceled = new AtomicBoolean(false);
 
-    public AbstractStreamingTask(long jobId, long taskId) {
+    public AbstractStreamingTask(long jobId, long taskId, UserIdentity userIdentity) {
         this.jobId = jobId;
         this.taskId = taskId;
+        this.userIdentity = userIdentity;
         this.labelName = getJobId() + LABEL_SPLITTER + getTaskId();
         this.createTimeMs = System.currentTimeMillis();
     }
@@ -163,35 +161,6 @@ public abstract class AbstractStreamingTask {
                 : TimeUtils.longToTimeString(this.getStartTimeMs())));
         // load end time
         trow.addToColumnValue(new TCell().setStringVal(TimeUtils.longToTimeString(this.getFinishTimeMs())));
-
-        List<LoadJob> loadJobs = Env.getCurrentEnv().getLoadManager()
-                .queryLoadJobsByJobIds(Arrays.asList(this.getTaskId()));
-        if (!loadJobs.isEmpty()) {
-            LoadJob loadJob = loadJobs.get(0);
-            if (loadJob.getLoadingStatus() != null && loadJob.getLoadingStatus().getTrackingUrl() != null) {
-                trow.addToColumnValue(new TCell().setStringVal(loadJob.getLoadingStatus().getTrackingUrl()));
-            } else {
-                trow.addToColumnValue(new TCell().setStringVal(FeConstants.null_string));
-            }
-
-            if (loadJob.getLoadStatistic() != null) {
-                trow.addToColumnValue(new TCell().setStringVal(loadJob.getLoadStatistic().toJson()));
-            } else {
-                trow.addToColumnValue(new TCell().setStringVal(FeConstants.null_string));
-            }
-        } else {
-            trow.addToColumnValue(new TCell().setStringVal(FeConstants.null_string));
-            trow.addToColumnValue(new TCell().setStringVal(FeConstants.null_string));
-        }
-
-        if (this.getUserIdentity() == null) {
-            trow.addToColumnValue(new TCell().setStringVal(FeConstants.null_string));
-        } else {
-            trow.addToColumnValue(new TCell().setStringVal(this.getUserIdentity().getQualifiedUser()));
-        }
-        trow.addToColumnValue(new TCell().setStringVal(""));
-        trow.addToColumnValue(new TCell().setStringVal(runningOffset == null
-                ? FeConstants.null_string : runningOffset.showRange()));
         return trow;
     }
 }

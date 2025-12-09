@@ -70,7 +70,7 @@ public class DebeziumJsonDeserializer
             LOG.debug("Ignored schema change record: {}", record);
             return Collections.emptyList();
         } else {
-            LOG.trace("Ignored other record: {}", record);
+            LOG.info("Ignored other record: {}", record);
             return Collections.emptyList();
         }
     }

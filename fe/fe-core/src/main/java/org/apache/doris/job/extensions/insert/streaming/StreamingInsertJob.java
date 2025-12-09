@@ -59,8 +59,8 @@ import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundTVFRelation;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.AlterJobCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.BaseViewInfo;
-import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertUtils;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -74,6 +74,7 @@ import org.apache.doris.thrift.TRow;
 import org.apache.doris.transaction.TransactionException;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TxnStateChangeCallback;
+
 import com.google.common.base.Preconditions;
 import com.google.gson.annotations.SerializedName;
 import lombok.Getter;
@@ -81,6 +82,7 @@ import lombok.Setter;
 import lombok.extern.log4j.Log4j2;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
+
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -121,6 +123,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     AbstractStreamingTask runningStreamTask;
     SourceOffsetProvider offsetProvider;
     @Getter
+    @Setter
     @SerializedName("opp")
     // The value to be persisted in offsetProvider
     private String offsetProviderPersist;
@@ -226,13 +229,13 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                 "Either include_tables or exclude_tables must be specified");
     }
 
-    private List<String> createTableIfNotExists() throws UserException, JobException {
+    private List<String> createTableIfNotExists() throws Exception {
         List<String> syncTbls = new ArrayList<>();
-        List<CreateTableInfo> createTableInfos = StreamingJobUtils.generateCreateTableInfos(targetDb,
+        List<CreateTableCommand> createTblCmds = StreamingJobUtils.generateCreateTableCmds(targetDb,
                 dataSourceType, sourceProperties, targetProperties);
-        for (CreateTableInfo createTableInfo : createTableInfos) {
-            Env.getCurrentEnv().createTable(createTableInfo);
-            syncTbls.add(createTableInfo.getTableName());
+        for (CreateTableCommand createTblCmd : createTblCmds) {
+            createTblCmd.run(ConnectContext.get(), null);
+            syncTbls.add(createTblCmd.getCreateTableInfo().getTableName());
         }
         return syncTbls;
     }
@@ -436,8 +439,8 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
      * @return
      */
     private AbstractStreamingTask createStreamingMultiTblTask() {
-        return new StreamingMultiTblTask(getJobId(), Env.getCurrentEnv().getNextId(),
-                dataSourceType, offsetProvider, sourceProperties, targetDb, targetProperties, jobProperties);
+        return new StreamingMultiTblTask(getJobId(), Env.getCurrentEnv().getNextId(), dataSourceType,
+                offsetProvider, sourceProperties, targetDb, targetProperties, jobProperties, getCreateUser());
     }
 
     protected AbstractStreamingTask createStreamingInsertTask() {
@@ -591,9 +594,6 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     public void onReplayCreate() throws JobException {
         onRegister();
         super.onReplayCreate();
-        if (offsetProvider != null) {
-            this.offsetProvider.replayIfNeed(this);
-        }
     }
 
 
@@ -603,7 +603,12 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
      * @param replayJob
      */
     public void replayOnUpdated(StreamingInsertJob replayJob) {
-        setJobStatus(replayJob.getJobStatus());
+        if (!JobStatus.RUNNING.equals(replayJob.getJobStatus())) {
+            // No need to restore in the running state, as scheduling relies on pending states.
+            // insert TVF does not persist the running state.
+            // streaming multi task persists the running state when commitOffset() is called.
+            setJobStatus(replayJob.getJobStatus());
+        }
         try {
             modifyPropertiesInternal(replayJob.getProperties());
             // When the pause state is restarted, it also needs to be updated
@@ -613,6 +618,9 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         } catch (Exception e) {
             // should not happen
             log.error("replay modify streaming insert job properties failed, job id: {}", getJobId(), e);
+        }
+        if (replayJob.getOffsetProviderPersist() != null) {
+            setOffsetProviderPersist(replayJob.getOffsetProviderPersist());
         }
         setExecuteSql(replayJob.getExecuteSql());
         setSucceedTaskCount(replayJob.getSucceedTaskCount());
@@ -1032,6 +1040,10 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         }
         writeLock();
         try {
+            if (offsetRequest.getScannedRows() == 0 && offsetRequest.getScannedBytes() == 0) {
+                JdbcSourceOffsetProvider op = (JdbcSourceOffsetProvider) offsetProvider;
+                op.setHasMoreData(false);
+            }
             updateJobStatisticAndOffset(offsetRequest);
             if (this.runningStreamTask != null
                     && this.runningStreamTask instanceof StreamingMultiTblTask) {
@@ -1052,6 +1064,12 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         this.offsetProviderPersist = offsetProvider.getPersistInfo();
         if (this.offsetProviderPersist != null) {
             logUpdateOperation();
+        }
+    }
+
+    public void replayOffsetProviderIfNeed() throws JobException {
+        if (this.offsetProviderPersist != null && offsetProvider != null) {
+            offsetProvider.replayIfNeed(this);
         }
     }
 }
