@@ -148,10 +148,14 @@ public class TVFScanNode extends FileQueryScanNode {
 
         for (TBrokerFileStatus fileStatus : fileStatuses) {
             try {
-                splits.addAll(FileSplitter.splitFile(LocationPath.of(fileStatus.getPath()),
-                        getRealFileSplitSize(needSplit ? fileStatus.getBlockSize() : Long.MAX_VALUE),
-                        null, fileStatus.getSize(),
-                        fileStatus.getModificationTime(), fileStatus.isSplitable, null,
+                splits.addAll(fileSplitter.splitFile(
+                        LocationPath.of(fileStatus.getPath()),
+                        sessionVariable.getFileSplitSize(),
+                        null,
+                        fileStatus.getSize(),
+                        fileStatus.getModificationTime(),
+                        fileStatus.isSplitable && needSplit,
+                        null,
                         FileSplitCreator.DEFAULT));
             } catch (IOException e) {
                 LOG.warn("get file split failed for TVF: {}", fileStatus.getPath(), e);

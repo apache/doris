@@ -293,7 +293,6 @@ public class PaimonScanNode extends FileQueryScanNode {
         // And for counting the number of selected partitions for this paimon table.
         Map<BinaryRow, Map<String, String>> partitionInfoMaps = new HashMap<>();
         // if applyCountPushdown is true, we can't split the DataSplit
-        long realFileSplitSize = getRealFileSplitSize(applyCountPushdown ? Long.MAX_VALUE : 0);
         for (DataSplit dataSplit : dataSplits) {
             SplitStat splitStat = new SplitStat();
             splitStat.setRowCount(dataSplit.rowCount());
@@ -332,13 +331,13 @@ public class PaimonScanNode extends FileQueryScanNode {
                     RawFile file = rawFiles.get(i);
                     LocationPath locationPath = LocationPath.of(file.path(), storagePropertiesMap);
                     try {
-                        List<Split> dorisSplits = FileSplitter.splitFile(
+                        List<Split> dorisSplits = fileSplitter.splitFile(
                                 locationPath,
-                                realFileSplitSize,
+                                sessionVariable.getFileSplitSize(),
                                 null,
                                 file.length(),
                                 -1,
-                                true,
+                                !applyCountPushdown,
                                 null,
                                 PaimonSplit.PaimonSplitCreator.DEFAULT);
                         for (Split dorisSplit : dorisSplits) {
@@ -383,7 +382,8 @@ public class PaimonScanNode extends FileQueryScanNode {
 
         // We need to set the target size for all splits so that we can calculate the
         // proportion of each split later.
-        splits.forEach(s -> s.setTargetSplitSize(realFileSplitSize));
+        splits.forEach(s -> s.setTargetSplitSize(sessionVariable.getFileSplitSize() > 0
+                ? sessionVariable.getFileSplitSize() : sessionVariable.maxSplitSize));
 
         this.selectedPartitionNum = partitionInfoMaps.size();
         return splits;
