@@ -92,6 +92,10 @@ void default_preprocess_parameter_columns(ColumnPtr* columns, const bool* col_co
                                           const std::initializer_list<size_t>& parameters,
                                           Block& block, const ColumnNumbers& arg_indexes);
 
+void default_preprocess_parameter_columns(ColumnPtr* columns, const bool* col_const,
+                                          const std::span<const size_t>& parameters, Block& block,
+                                          const ColumnNumbers& arg_indexes);
+
 /** ColumnConst contains another column with single element,
   *  but looks like a column with arbitrary amount of same elements.
   */
