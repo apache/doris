@@ -197,7 +197,7 @@ Status ScanLocalState<Derived>::_normalize_conjuncts(RuntimeState* state) {
         ColumnValueRange<TYPE_##NAME> range(slot->col_name(), slot->is_nullable(),     \
                                             cast_set<int>(type_desc->get_precision()), \
                                             cast_set<int>(type_desc->get_scale()));    \
-        _slot_id_to_value_range[slot->id()] = std::pair {slot, range};                 \
+        _slot_id_to_value_range[slot->id()] = std::move(range);                        \
         break;                                                                         \
     }
 #define APPLY_FOR_PRIMITIVE_TYPE(M) \
@@ -289,7 +289,7 @@ Status ScanLocalState<Derived>::_normalize_conjuncts(RuntimeState* state) {
                         _scan_dependency->set_ready();
                     }
                 },
-                it.second.second);
+                it.second);
     }
 
     return Status::OK();
@@ -542,7 +542,7 @@ bool ScanLocalState<Derived>::_is_predicate_acting_on_slot(
     if (_slot_id_to_value_range.end() == sid_to_range) {
         return false;
     }
-    *range = &(sid_to_range->second.second);
+    *range = &(sid_to_range->second);
     SlotDescriptor* src_slot_desc = p._slot_id_to_slot_desc[slot_ref->slot_id()];
     DCHECK(child_contains_slot != nullptr);
     if (child_contains_slot->data_type()->get_primitive_type() !=
