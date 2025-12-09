@@ -81,7 +81,6 @@ public abstract class PrivTable {
             }
             int insertPos = -idx - 1;
             entries.add(insertPos, newEntry);
-            LOG.info("add priv entry: {}", newEntry);
             return newEntry;
         }
 
@@ -91,9 +90,6 @@ public abstract class PrivTable {
         }
 
         mergePriv(existingEntry, newEntry);
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("merge priv entry: {}", existingEntry);
-        }
         return existingEntry;
     }
 
