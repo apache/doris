@@ -227,6 +227,8 @@ Status cast_from_string_to_complex_type_strict_mode(FunctionContext* context, Bl
         } else {
             auto str = col_from->get_data_at(i);
             RETURN_IF_ERROR(to_serde->from_string_strict_mode(str, nested_column, options));
+            // fill not null if success
+            nullable_col_to.get_null_map_data().push_back(0);
         }
     }
     block.get_by_position(result).column = std::move(to_column);
