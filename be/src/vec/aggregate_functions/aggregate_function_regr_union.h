@@ -32,51 +32,126 @@
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
-template <PrimitiveType T>
+template <PrimitiveType T,
+          // requires Sx and Sy
+          bool NeedSxy,
+          // level 1: Sx
+          // level 2: Sxx
+          size_t SxLevel = size_t {NeedSxy},
+          // level 1: Sy
+          // level 2: Syy
+          size_t SyLevel = size_t {NeedSxy}>
 struct AggregateFunctionRegrData {
     static constexpr PrimitiveType Type = T;
+
+    static_assert(!NeedSxy || (SxLevel >= 1 && SyLevel >= 1),
+                  "NeedSxy requires SxLevel >= 1 and SyLevel >= 1");
+    static_assert(SxLevel <= 2 && SyLevel <= 2, "Sx/Sy level must be <= 2");
+
+    static constexpr bool need_sx = SxLevel >= 1;
+    static constexpr bool need_sy = SyLevel >= 1;
+    static constexpr bool need_sxx = SxLevel >= 2;
+    static constexpr bool need_syy = SyLevel >= 2;
+    static constexpr bool need_sxy = NeedSxy;
+
+    static constexpr size_t kMomentSize = SxLevel + SyLevel + size_t {need_sxy};
+    static_assert(kMomentSize > 0 && kMomentSize <= 5, "Unexpected size of regr moment array");
+
+    /**
+     * The moments array is:
+     *     Sx  = sum(X)
+     *     Sy  = sum(Y)
+     *     Sxx = sum((X-Sx/N)^2)
+     *     Syy = sum((Y-Sy/N)^2)
+     *     Sxy = sum((X-Sx/N)*(Y-Sy/N))
+    */
+    std::array<Float64, kMomentSize> moments {};
     UInt64 n {};
-    Float64 sx {};
-    Float64 sy {};
-    Float64 sxx {};
-    Float64 syy {};
-    Float64 sxy {};
+
+    static constexpr size_t idx_sx() {
+        static_assert(need_sx, "sx not enabled");
+        return 0;
+    }
+    static constexpr size_t idx_sy() {
+        static_assert(need_sy, "sy not enabled");
+        return size_t {need_sx};
+    }
+    static constexpr size_t idx_sxx() {
+        static_assert(need_sxx, "sxx not enabled");
+        return size_t {need_sx + need_sy};
+    }
+    static constexpr size_t idx_syy() {
+        static_assert(need_syy, "syy not enabled");
+        return size_t {need_sx + need_sy + need_sxx};
+    }
+    static constexpr size_t idx_sxy() {
+        static_assert(need_sxy, "sxy not enabled");
+        return size_t {need_sx + need_sy + need_sxx + need_syy};
+    }
+
+    Float64& sx() { return moments[idx_sx()]; }
+    Float64& sy() { return moments[idx_sy()]; }
+    Float64& sxx() { return moments[idx_sxx()]; }
+    Float64& syy() { return moments[idx_syy()]; }
+    Float64& sxy() { return moments[idx_sxy()]; }
+
+    const Float64& sx() const { return moments[idx_sx()]; }
+    const Float64& sy() const { return moments[idx_sy()]; }
+    const Float64& sxx() const { return moments[idx_sxx()]; }
+    const Float64& syy() const { return moments[idx_syy()]; }
+    const Float64& sxy() const { return moments[idx_sxy()]; }
 
     void write(BufferWritable& buf) const {
-        buf.write_binary(sx);
-        buf.write_binary(sy);
-        buf.write_binary(sxx);
-        buf.write_binary(syy);
-        buf.write_binary(sxy);
+        if constexpr (need_sx) {
+            buf.write_binary(sx());
+        }
+        if constexpr (need_sy) {
+            buf.write_binary(sy());
+        }
+        if constexpr (need_sxx) {
+            buf.write_binary(sxx());
+        }
+        if constexpr (need_syy) {
+            buf.write_binary(syy());
+        }
+        if constexpr (need_sxy) {
+            buf.write_binary(sxy());
+        }
         buf.write_binary(n);
     }
 
     void read(BufferReadable& buf) {
-        buf.read_binary(sx);
-        buf.read_binary(sy);
-        buf.read_binary(sxx);
-        buf.read_binary(syy);
-        buf.read_binary(sxy);
+        if constexpr (need_sx) {
+            buf.read_binary(sx());
+        }
+        if constexpr (need_sy) {
+            buf.read_binary(sy());
+        }
+        if constexpr (need_sxx) {
+            buf.read_binary(sxx());
+        }
+        if constexpr (need_syy) {
+            buf.read_binary(syy());
+        }
+        if constexpr (need_sxy) {
+            buf.read_binary(sxy());
+        }
         buf.read_binary(n);
     }
 
     void reset() {
-        sx = {};
-        sy = {};
-        sxx = {};
-        syy = {};
-        sxy = {};
+        moments.fill({});
         n = {};
     }
 
     /**
      * The merge function uses the Youngs–Cramer algorithm:
-     * N   = N1 + N2
-     * Sx  = Sx1 + Sx2
-     * Sy  = Sy1 + Sy2
-     * Sxx = Sxx1 + Sxx2 + N1 * N2 * (Sx1/N1 - Sx2/N2)^2 / N
-     * Syy = Syy1 + Syy2 + N1 * N2 * (Sy1/N1 - Sy2/N2)^2 / N
-     * Sxy = Sxy1 + Sxy2 + N1 * N2 * (Sx1/N1 - Sx2/N2) * (Sy1/N1 - Sy2/N2) / N
+     *     N   = N1 + N2
+     *     Sx  = Sx1 + Sx2
+     *     Sy  = Sy1 + Sy2
+     *     Sxx = Sxx1 + Sxx2 + N1 * N2 * (Sx1/N1 - Sx2/N2)^2 / N
+     *     Syy = Syy1 + Syy2 + N1 * N2 * (Sy1/N1 - Sy2/N2)^2 / N
+     *     Sxy = Sxy1 + Sxy2 + N1 * N2 * (Sx1/N1 - Sx2/N2) * (Sy1/N1 - Sy2/N2) / N
      */
     void merge(const AggregateFunctionRegrData& rhs) {
         if (rhs.n == 0) {
@@ -90,15 +165,31 @@ struct AggregateFunctionRegrData {
         const auto n2 = static_cast<Float64>(rhs.n);
         const auto nsum = n1 + n2;
 
-        const auto dx = sx / n1 - rhs.sx / n2;
-        const auto dy = sy / n1 - rhs.sy / n2;
+        Float64 dx {};
+        Float64 dy {};
+        if constexpr (need_sxx || need_sxy) {
+            dx = sx() / n1 - rhs.sx() / n2;
+        }
+        if constexpr (need_syy || need_sxy) {
+            dy = sy() / n1 - rhs.sy() / n2;
+        }
 
         n += rhs.n;
-        sx += rhs.sx;
-        sy += rhs.sy;
-        sxx += rhs.sxx + n1 * n2 * dx * dx / nsum;
-        syy += rhs.syy + n1 * n2 * dy * dy / nsum;
-        sxy += rhs.sxy + n1 * n2 * dx * dy / nsum;
+        if constexpr (need_sx) {
+            sx() += rhs.sx();
+        }
+        if constexpr (need_sy) {
+            sy() += rhs.sy();
+        }
+        if constexpr (need_sxx) {
+            sxx() += rhs.sxx() + n1 * n2 * dx * dx / nsum;
+        }
+        if constexpr (need_syy) {
+            syy() += rhs.syy() + n1 * n2 * dy * dy / nsum;
+        }
+        if constexpr (need_sxy) {
+            sxy() += rhs.sxy() + n1 * n2 * dx * dy / nsum;
+        }
     }
 
     /**
@@ -113,46 +204,66 @@ struct AggregateFunctionRegrData {
              typename PrimitiveTypeTraits<T>::ColumnItemType value_x) {
         const auto x = static_cast<Float64>(value_x);
         const auto y = static_cast<Float64>(value_y);
-        sx += x;
-        sy += y;
+
+        if constexpr (need_sx) {
+            sx() += x;
+        }
+        if constexpr (need_sy) {
+            sy() += y;
+        }
 
         if (n == 0) [[unlikely]] {
             n = 1;
             return;
         }
-        const auto tmp_n = static_cast<Float64>(n + 1);
-        const auto tmp_x = x * tmp_n - sx;
-        const auto tmp_y = y * tmp_n - sy;
-        const auto scale = 1.0 / (tmp_n * static_cast<Float64>(n));
-
+        const auto n_old = static_cast<Float64>(n);
+        const auto n_new = n_old + 1;
+        const auto scale = 1.0 / (n_new * n_old);
         n += 1;
-        sxx += tmp_x * tmp_x * scale;
-        syy += tmp_y * tmp_y * scale;
-        sxy += tmp_x * tmp_y * scale;
+
+        Float64 tmp_x {};
+        Float64 tmp_y {};
+        if constexpr (need_sxx || need_sxy) {
+            tmp_x = x * n_new - sx();
+        }
+        if constexpr (need_syy || need_sxy) {
+            tmp_y = y * n_new - sy();
+        }
+
+        if constexpr (need_sxx) {
+            sxx() += tmp_x * tmp_x * scale;
+        }
+        if constexpr (need_syy) {
+            syy() += tmp_y * tmp_y * scale;
+        }
+        if constexpr (need_sxy) {
+            sxy() += tmp_x * tmp_y * scale;
+        }
     }
 };
 
 template <PrimitiveType T>
-struct RegrSlopeFunc : AggregateFunctionRegrData<T> {
+struct RegrSlopeFunc : AggregateFunctionRegrData<T, true, 2, 1> {
     static constexpr const char* name = "regr_slope";
 
     Float64 get_result() const {
-        if (this->n < 1 || this->sxx == 0.0) {
+        if (this->n < 1 || this->sxx() == 0.0) {
             return std::numeric_limits<Float64>::quiet_NaN();
         }
-        return this->sxy / this->sxx;
+        return this->sxy() / this->sxx();
     }
 };
 
 template <PrimitiveType T>
-struct RegrInterceptFunc : AggregateFunctionRegrData<T> {
+struct RegrInterceptFunc : AggregateFunctionRegrData<T, true, 2, 2> {
     static constexpr const char* name = "regr_intercept";
 
     Float64 get_result() const {
-        if (this->n < 1 || this->sxx == 0.0) {
+        if (this->n < 1 || this->sxx() == 0.0) {
             return std::numeric_limits<Float64>::quiet_NaN();
         }
-        return (this->sy - this->sx * this->sxy / this->sxx) / static_cast<Float64>(this->n);
+        return (this->sy() - this->sx() * this->sxy() / this->sxx()) /
+               static_cast<Float64>(this->n);
     }
 };
 
