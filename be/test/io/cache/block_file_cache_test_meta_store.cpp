@@ -65,7 +65,7 @@ TEST_F(BlockFileCacheTest, version3_add_remove_restart) {
     settings.max_file_block_size = 100000;
     settings.max_query_cache_size = 30;
 
-    uint64_t expiration_time = UnixSeconds() + 120;
+    uint64_t expiration_time = 120;
 
     int i = 0;
     { // cache1
