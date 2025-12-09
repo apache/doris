@@ -327,7 +327,7 @@ public class LoadExprTransformUtils {
             } else {
                 SlotDescriptor slotDesc = analyzer.getDescTbl().addSlotDescriptor(srcTupleDesc);
 
-                if (formatType == TFileFormatType.FORMAT_ARROW) {
+                if (formatType == TFileFormatType.FORMAT_ARROW || formatType == TFileFormatType.FORMAT_NATIVE) {
                     slotDesc.setColumn(new Column(realColName, colToType.get(realColName)));
                 } else {
                     if (uniquekeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS && hasSkipBitmapColumn) {

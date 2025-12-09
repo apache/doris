@@ -60,6 +60,7 @@
 #include "vec/exec/format/avro/avro_jni_reader.h"
 #include "vec/exec/format/csv/csv_reader.h"
 #include "vec/exec/format/json/new_json_reader.h"
+#include "vec/exec/format/native/native_reader.h"
 #include "vec/exec/format/orc/vorc_reader.h"
 #include "vec/exec/format/parquet/vparquet_reader.h"
 #include "vec/exec/format/table/hive_reader.h"
@@ -597,10 +598,6 @@ Status VFileScanner::_cast_to_input_block(Block* block) {
             // skip columns which does not exist in file
             continue;
         }
-        if (slot_desc->type().is_variant_type()) {
-            // skip variant type
-            continue;
-        }
         auto& arg = _src_block_ptr->get_by_name(slot_desc->col_name());
         auto return_type = slot_desc->get_data_type_ptr();
         // remove nullable here, let the get_function decide whether nullable
@@ -612,8 +609,10 @@ Status VFileScanner::_cast_to_input_block(Block* block) {
                 "CAST", arguments, return_type,
                 {.enable_decimal256 = runtime_state()->enable_decimal256()});
         idx = _src_block_name_to_idx[slot_desc->col_name()];
+        DCHECK(_state != nullptr);
+        auto ctx = FunctionContext::create_context(_state, {}, {});
         RETURN_IF_ERROR(
-                func_cast->execute(nullptr, *_src_block_ptr, {idx}, idx, arg.column->size()));
+                func_cast->execute(ctx.get(), *_src_block_ptr, {idx}, idx, arg.column->size()));
         _src_block_ptr->get_by_position(idx).type = std::move(return_type);
     }
     return Status::OK();
@@ -1270,6 +1269,15 @@ Status VFileScanner::_get_next_reader() {
         case TFileFormatType::FORMAT_WAL: {
             _cur_reader = WalReader::create_unique(_state);
             init_status = ((WalReader*)(_cur_reader.get()))->init_reader(_output_tuple_desc);
+            break;
+        }
+        case TFileFormatType::FORMAT_NATIVE: {
+            auto reader = NativeReader::create_unique(_profile, *_params, range,
+                                                      _state->query_options().batch_size,
+                                                      _io_ctx.get(), _state);
+            init_status = reader->init_reader();
+            _cur_reader = std::move(reader);
+            need_to_get_parsed_schema = false;
             break;
         }
         case TFileFormatType::FORMAT_ARROW: {

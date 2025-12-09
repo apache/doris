@@ -57,6 +57,7 @@
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vec/runtime/vcsv_transformer.h"
+#include "vec/runtime/vnative_transformer.h"
 #include "vec/runtime/vorc_transformer.h"
 #include "vec/runtime/vparquet_transformer.h"
 
@@ -143,6 +144,12 @@ Status VFileResultWriter::_create_file_writer(const std::string& file_name) {
                 _state, _file_writer_impl.get(), _vec_output_expr_ctxs, _file_opts->orc_schema, {},
                 _output_object_data, _file_opts->orc_compression_type));
         break;
+    case TFileFormatType::FORMAT_NATIVE:
+        // Doris Native binary format writer with configurable compression.
+        _vfile_writer.reset(new VNativeTransformer(_state, _file_writer_impl.get(),
+                                                   _vec_output_expr_ctxs, _output_object_data,
+                                                   _file_opts->compression_type));
+        break;
     default:
         return Status::InternalError("unsupported file format: {}", _file_opts->file_format);
     }
@@ -200,6 +207,8 @@ std::string VFileResultWriter::_file_format_to_name() {
         return "parquet";
     case TFileFormatType::FORMAT_ORC:
         return "orc";
+    case TFileFormatType::FORMAT_NATIVE:
+        return "native";
     default:
         return "unknown";
     }

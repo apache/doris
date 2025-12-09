@@ -134,6 +134,7 @@
 #include "vec/exec/format/csv/csv_reader.h"
 #include "vec/exec/format/generic_reader.h"
 #include "vec/exec/format/json/new_json_reader.h"
+#include "vec/exec/format/native/native_reader.h"
 #include "vec/exec/format/orc/vorc_reader.h"
 #include "vec/exec/format/parquet/vparquet_reader.h"
 #include "vec/exec/format/text/text_reader.h"
@@ -853,6 +854,14 @@ void PInternalService::fetch_table_schema(google::protobuf::RpcController* contr
         }
         case TFileFormatType::FORMAT_ORC: {
             reader = vectorized::OrcReader::create_unique(params, range, "", &io_ctx);
+            break;
+        }
+        case TFileFormatType::FORMAT_NATIVE: {
+            // Doris Native binary format reader for schema probing in S3/FILE TVF.
+            // Use a reasonable default batch size; it only affects internal buffering.
+            size_t batch_size = 4096;
+            reader = vectorized::NativeReader::create_unique(profile.get(), params, range,
+                                                             batch_size, &io_ctx, nullptr);
             break;
         }
         case TFileFormatType::FORMAT_JSON: {

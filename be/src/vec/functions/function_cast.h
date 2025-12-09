@@ -2124,10 +2124,10 @@ private:
     }
 
     struct ConvertImplGenericFromVariant {
-        static Status execute(const FunctionCast* fn, FunctionContext* context, Block& block,
+        static Status execute(const FunctionCast* fn, const DataTypePtr& data_type_to,
+                              FunctionContext* context, Block& block,
                               const ColumnNumbers& arguments, const size_t result,
                               size_t input_rows_count) {
-            auto& data_type_to = block.get_by_position(result).type;
             const auto& col_with_type_and_name = block.get_by_position(arguments[0]);
             auto& col_from = col_with_type_and_name.column;
             auto& variant = assert_cast<const ColumnObject&>(*col_from);
@@ -2230,10 +2230,11 @@ private:
     // create cresponding type convert from variant
     WrapperType create_variant_wrapper(const DataTypeObject& from_type,
                                        const DataTypePtr& to_type) const {
-        return [this](FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                      const size_t result, size_t input_rows_count) -> Status {
-            return ConvertImplGenericFromVariant::execute(this, context, block, arguments, result,
-                                                          input_rows_count);
+        return [this, to_type](FunctionContext* context, Block& block,
+                               const ColumnNumbers& arguments, const size_t result,
+                               size_t input_rows_count) -> Status {
+            return ConvertImplGenericFromVariant::execute(this, to_type, context, block, arguments,
+                                                          result, input_rows_count);
         };
     }
 
