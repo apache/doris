@@ -44,6 +44,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import org.apache.doris.nereids.trees.plans.logical.OutputPrunable;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.ImmutableList;
@@ -102,9 +103,6 @@ public class CheckAnalysis implements AnalysisRuleFactory {
     private static final Map<Class<? extends LogicalPlan>, Class<? extends Expression>[]>
             UNEXPECTED_EXPRESSION_TYPE_MAP_AFTER_FILL_MISSING_SLOT = ImmutableMap.<Class<? extends LogicalPlan>,
                     Class<? extends Expression>[]>builder()
-            .put(LogicalSort.class, Utils.fastArray(
-                    AggregateFunction.class,
-                    WindowExpression.class))
             // OneRowRelationToProject will extract window expression
             .put(LogicalOneRowRelation.class, Utils.fastArray(
                     WindowExpression.class))
@@ -126,6 +124,11 @@ public class CheckAnalysis implements AnalysisRuleFactory {
                     return null;
                 })
             ),
+            // after fill missing slots, expect only agg can contains non-window aggregate function
+            RuleType.CHECK_ANALYSIS.build(
+                any().when(plan -> this.hadFillMissingSlots)
+                        .whenNot(Aggregate.class::isInstance)
+                        .then(this::checkNotContainsNonWindowAggregateFunc)),
             RuleType.CHECK_AGGREGATE_ANALYSIS.build(
                 aggregate().then(agg -> {
                     checkAggregate(agg);
@@ -176,6 +179,19 @@ public class CheckAnalysis implements AnalysisRuleFactory {
                 throw new AnalysisException(firstFailed.getMessage());
             }
         }
+    }
+
+    private Plan checkNotContainsNonWindowAggregateFunc(Plan plan) {
+        for (Expression expr : plan.getExpressions()) {
+            List<AggregateFunction> aggregateFunctions = PlanUtils.CollectNonWindowedAggFuncs.collect(plan.getExpressions());
+            if (!aggregateFunctions.isEmpty()) {
+                throw new AnalysisException(plan.getType()
+                        + " 's expression " + expr.toSql()
+                        + " can not contains aggregate function: "
+                        + aggregateFunctions.get(0).toSql());
+            }
+        }
+        return null;
     }
 
     private void checkAggregate(Aggregate<? extends Plan> aggregate) {

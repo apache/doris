@@ -238,14 +238,26 @@ suite("analyze_agg") {
         '''
       */
 
-    sql "drop table if exists test_sum0_multi_distinct_with_group_by"
-    sql "create table test_sum0_multi_distinct_with_group_by (a int, b int, c int) distributed by hash(a) properties('replication_num'='1');"
+    sql "drop table if exists tbl_analyze_agg_3"
+    sql "create table tbl_analyze_agg_3 (a int, b int, c int) distributed by hash(a) properties('replication_num'='1');"
     sql """
-    INSERT INTO test_sum0_multi_distinct_with_group_by VALUES 
+    INSERT INTO tbl_analyze_agg_3 VALUES
     (1, NULL, 3), (2, NULL, 5), (3, NULL, 7),
     (4,5,6),(4,5,7),(4,5,8),
     (5,0,0),(5,0,0),(5,0,0); 
     """
-    qt_test_sum0 "select sum0(distinct b),sum(distinct c) from test_sum0_multi_distinct_with_group_by group by a order by 1,2"
-    qt_test_sum0_all_null "select sum0(distinct b),sum(distinct c) from test_sum0_multi_distinct_with_group_by where a in (1,2,3) group by a order by 1,2"
+    qt_test_sum0 "select sum0(distinct b),sum(distinct c) from tbl_analyze_agg_3 group by a order by 1,2"
+    qt_test_sum0_all_null "select sum0(distinct b),sum(distinct c) from tbl_analyze_agg_3 where a in (1,2,3) group by a order by 1,2"
+
+    explainAndResult 'order_window_1', '''
+        select a, b
+        from tbl_analyze_agg_3
+        order by sum(a + b) over (partition by b), rank() over(), a, b
+        '''
+
+    explainAndResult 'order_window_2', '''
+        select a, b, sum(a + b) over (partition by b), rank() over(), max(a) over()
+        from tbl_analyze_agg_3
+        order by sum(a + b) over (partition by b), rank() over(), a, b
+        '''
 }

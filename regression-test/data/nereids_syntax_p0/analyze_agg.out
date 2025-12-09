@@ -90,3 +90,48 @@ PhysicalResultSink
 0	5
 0	7
 
+-- !order_window_1_shape --
+PhysicalResultSink
+--PhysicalProject
+----PhysicalQuickSort[MERGE_SORT]
+------PhysicalQuickSort[LOCAL_SORT]
+--------PhysicalProject
+----------PhysicalWindow
+------------PhysicalWindow
+--------------PhysicalQuickSort[LOCAL_SORT]
+----------------PhysicalProject
+------------------PhysicalOlapScan[tbl_analyze_agg_3]
+
+-- !order_window_1_result --
+1	\N
+2	\N
+3	\N
+5	0
+5	0
+5	0
+4	5
+4	5
+4	5
+
+-- !order_window_2_shape --
+PhysicalResultSink
+--PhysicalQuickSort[MERGE_SORT]
+----PhysicalQuickSort[LOCAL_SORT]
+------PhysicalProject
+--------PhysicalWindow
+----------PhysicalWindow
+------------PhysicalQuickSort[LOCAL_SORT]
+--------------PhysicalProject
+----------------PhysicalOlapScan[tbl_analyze_agg_3]
+
+-- !order_window_2_result --
+1	\N	\N	1	5
+2	\N	\N	1	5
+3	\N	\N	1	5
+5	0	15	1	5
+5	0	15	1	5
+5	0	15	1	5
+4	5	27	1	5
+4	5	27	1	5
+4	5	27	1	5
+
