@@ -143,15 +143,17 @@ public class NereidsCoordinator extends Coordinator {
         try {
             doExec();
         } catch (Throwable t) {
+            LOG.error("Execute failed: " + t.getMessage(), t);
             try {
                 cancel(new Status(TStatusCode.CANCELLED, "Execute failed: " + t));
             } catch (Throwable cancelThrowable) {
-                // ignore
+                LOG.warn("Cancel execute failed: " + cancelThrowable.getMessage(), cancelThrowable);
             }
+            throw t;
         }
     }
 
-    private void doExec() throws Throwable {
+    private void doExec() throws Exception {
         enqueue(coordinatorContext.connectContext);
 
         processTopSink(coordinatorContext, coordinatorContext.topDistributedPlan);
