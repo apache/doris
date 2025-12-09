@@ -74,7 +74,7 @@ suite("test_hive_export_varbinary", "external,hive,external_docker") {
 
             // test outfile to hdfs
             def format = "parquet"
-            def export_table_name = "test_hive_export_parquet"
+            def export_table_name = "test_hive_binary_parquet"
 
             def outfile_url0 = outfile_to_HDFS(format, export_table_name)
             order_qt_select_tvf0 """ select * from HDFS(
@@ -85,7 +85,7 @@ suite("test_hive_export_varbinary", "external,hive,external_docker") {
                         """
 
             format = "parquet"
-            export_table_name = "test_hive_export_orc"
+            export_table_name = "test_hive_binary_orc"
             def outfile_url1 = outfile_to_HDFS(format, export_table_name)
             order_qt_select_tvf1 """ select * from HDFS(
                         "uri" = "${outfile_url1}.${format}",
@@ -95,7 +95,7 @@ suite("test_hive_export_varbinary", "external,hive,external_docker") {
                         """
 
             format = "orc"
-            export_table_name = "test_hive_export_parquet"
+            export_table_name = "test_hive_binary_parquet"
             def outfile_url2 = outfile_to_HDFS(format, export_table_name)
             order_qt_select_tvf2 """ select * from HDFS(
                         "uri" = "${outfile_url2}.${format}",
@@ -105,7 +105,7 @@ suite("test_hive_export_varbinary", "external,hive,external_docker") {
                         """
 
             format = "orc"
-            export_table_name = "test_hive_export_orc"
+            export_table_name = "test_hive_binary_orc"
             def outfile_url3 = outfile_to_HDFS(format, export_table_name)
             order_qt_select_tvf3 """ select * from HDFS(
                         "uri" = "${outfile_url3}.${format}",
