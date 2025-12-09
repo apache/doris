@@ -91,7 +91,6 @@ public class CheckAnalysis implements AnalysisRuleFactory {
             .put(LogicalProject.class, ImmutableSet.of(
                     TableGeneratingFunction.class))
             .put(LogicalSort.class, ImmutableSet.of(
-                    AggregateFunction.class,
                     GroupingScalarFunction.class,
                     TableGeneratingFunction.class,
                     WindowExpression.class))
@@ -104,7 +103,7 @@ public class CheckAnalysis implements AnalysisRuleFactory {
     private static final Map<Class<? extends LogicalPlan>, Set<Class<? extends Expression>>>
             UNEXPECTED_EXPRESSION_TYPE_MAP_AFTER_FILL_MISSING_SLOT = ImmutableMap.<Class<? extends LogicalPlan>,
                 Set<Class<? extends Expression>>>builder()
-            .put(LogicalSort.class, ImmutableSet.of(AggregateFunction.class, WindowExpression.class))
+            .put(LogicalSort.class, ImmutableSet.of(WindowExpression.class))
             .put(LogicalOneRowRelation.class, ImmutableSet.of(WindowExpression.class))
             .build();
 
