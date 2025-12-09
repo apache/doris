@@ -148,6 +148,13 @@ public class OlapTableSink extends DataSink {
 
     public void init(TUniqueId loadId, long txnId, long dbId, long loadChannelTimeoutS, int sendBatchParallelism,
             boolean loadToSingleTablet, boolean isStrictMode, long txnExpirationS) throws AnalysisException {
+        init(loadId, txnId, dbId, loadChannelTimeoutS, sendBatchParallelism, loadToSingleTablet,
+                isStrictMode, txnExpirationS, 0L);
+    }
+
+    public void init(TUniqueId loadId, long txnId, long dbId, long loadChannelTimeoutS, int sendBatchParallelism,
+            boolean loadToSingleTablet, boolean isStrictMode, long txnExpirationS, long randomTabletSwitchingThreshold)
+            throws AnalysisException {
         TOlapTableSink tSink = new TOlapTableSink();
         tSink.setLoadId(loadId);
         tSink.setTxnId(txnId);
@@ -166,6 +173,18 @@ public class OlapTableSink extends DataSink {
         }
         tSink.setLoadToSingleTablet(loadToSingleTablet);
         tSink.setTxnTimeoutS(txnExpirationS);
+        if (randomTabletSwitchingThreshold > 0) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("OlapTableSink: setting randomTabletSwitchingThreshold = {}",
+                         randomTabletSwitchingThreshold);
+            }
+            tSink.setRandomTabletSwitchingThreshold(randomTabletSwitchingThreshold);
+        } else {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("OlapTableSink: randomTabletSwitchingThreshold <= 0, not setting. value = {}",
+                         randomTabletSwitchingThreshold);
+            }
+        }
         String vaultId = dstTable.getStorageVaultId();
         if (vaultId != null && !vaultId.isEmpty()) {
             tSink.setStorageVaultId(vaultId);
@@ -203,8 +222,31 @@ public class OlapTableSink extends DataSink {
     public void init(TUniqueId loadId, long txnId, long dbId, long loadChannelTimeoutS,
             int sendBatchParallelism, boolean loadToSingleTablet, boolean isStrictMode,
             long txnExpirationS, OlapInsertCommandContext olapInsertCtx) throws UserException {
+        // Read from session variable if available
+        long randomTabletSwitchingThreshold = 0L;
+        if (ConnectContext.get() != null) {
+            randomTabletSwitchingThreshold =
+                ConnectContext.get().getSessionVariable().getRandomBucketSwitchingThreshold();
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("OlapTableSink.init: reading random_bucket_switching_threshold from session variable = {}",
+                         randomTabletSwitchingThreshold);
+            }
+        }
         init(loadId, txnId, dbId, loadChannelTimeoutS, sendBatchParallelism, loadToSingleTablet,
-                isStrictMode, txnExpirationS);
+                isStrictMode, txnExpirationS, randomTabletSwitchingThreshold);
+    }
+
+    // init for nereids insert into with random tablet switching threshold
+    public void init(TUniqueId loadId, long txnId, long dbId, long loadChannelTimeoutS,
+            int sendBatchParallelism, boolean loadToSingleTablet, boolean isStrictMode,
+            long txnExpirationS, long randomTabletSwitchingThreshold,
+            OlapInsertCommandContext olapInsertCtx) throws UserException {
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("OlapTableSink.init: received random_bucket_switching_threshold = {}",
+                     randomTabletSwitchingThreshold);
+        }
+        init(loadId, txnId, dbId, loadChannelTimeoutS, sendBatchParallelism, loadToSingleTablet,
+                isStrictMode, txnExpirationS, randomTabletSwitchingThreshold);
         for (Long partitionId : partitionIds) {
             Partition partition = dstTable.getPartition(partitionId);
             if (dstTable.getIndexNumber() != partition.getMaterializedIndices(IndexExtState.ALL).size()) {
@@ -253,12 +295,23 @@ public class OlapTableSink extends DataSink {
             long txnExpirationS, TUniqueKeyUpdateMode uniquekeyUpdateMode,
             TPartialUpdateNewRowPolicy partialUpdateNewKeyPolicy,
             HashSet<String> partialUpdateInputColumns) throws UserException {
+        init(loadId, txnId, dbId, loadChannelTimeoutS, sendBatchParallelism, loadToSingleTablet,
+                isStrictMode, txnExpirationS, 0L, uniquekeyUpdateMode, partialUpdateNewKeyPolicy,
+                partialUpdateInputColumns);
+    }
+
+    // init for nereids stream load with random tablet switching threshold
+    public void init(TUniqueId loadId, long txnId, long dbId, long loadChannelTimeoutS,
+            int sendBatchParallelism, boolean loadToSingleTablet, boolean isStrictMode,
+            long txnExpirationS, long randomTabletSwitchingThreshold, TUniqueKeyUpdateMode uniquekeyUpdateMode,
+            TPartialUpdateNewRowPolicy partialUpdateNewKeyPolicy,
+            HashSet<String> partialUpdateInputColumns) throws UserException {
         setPartialUpdateInfo(uniquekeyUpdateMode, partialUpdateInputColumns);
         if (uniquekeyUpdateMode != TUniqueKeyUpdateMode.UPSERT) {
             setPartialUpdateNewRowPolicy(partialUpdateNewKeyPolicy);
         }
         init(loadId, txnId, dbId, loadChannelTimeoutS, sendBatchParallelism, loadToSingleTablet,
-                isStrictMode, txnExpirationS);
+                isStrictMode, txnExpirationS, randomTabletSwitchingThreshold);
         for (Long partitionId : partitionIds) {
             Partition partition = dstTable.getPartition(partitionId);
             if (dstTable.getIndexNumber() != partition.getMaterializedIndices(IndexExtState.ALL).size()) {
