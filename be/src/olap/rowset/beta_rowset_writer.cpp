@@ -338,14 +338,8 @@ Status BaseBetaRowsetWriter::_generate_delete_bitmap(int32_t segment_id) {
             [this, segment_id, specified_rowsets = std::move(specified_rowsets)]() -> Status {
                 Status st = Status::OK();
                 Defer defer([&]() {
-                    if (!st.ok()) {
-                        LOG(WARNING)
-                                << "failed to generate delete bitmap for segment_id=" << segment_id
-                                << ", tablet_id=" << _context.tablet_id
-                                << ", rowset_id=" << _context.rowset_id << ", error=" << st;
-                        auto* task = calc_delete_bitmap_task(segment_id);
-                        task->set_status(st);
-                    }
+                    auto* task = calc_delete_bitmap_task(segment_id);
+                    task->set_status(st);
                 });
                 // Step 1: Close file_writer (must be done before load_segments)
                 auto* file_writer = _seg_files.get(segment_id);
@@ -388,7 +382,6 @@ Status BaseBetaRowsetWriter::_generate_delete_bitmap(int32_t segment_id) {
                         _context.tablet, rowset_ptr, segments, specified_rowsets,
                         _context.mow_context->delete_bitmap, _context.mow_context->max_version,
                         nullptr, nullptr, nullptr);
-
                 if (!st.ok()) {
                     return st;
                 }
