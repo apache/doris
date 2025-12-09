@@ -258,6 +258,11 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
                               .set_max_threads(s3_file_upload_max_threads)
                               .build(&_s3_file_upload_thread_pool));
 
+    static_cast<void>(ThreadPoolBuilder("S3ParallelReadThreadPool")
+                              .set_min_threads(config::num_s3_parallel_read_thread_pool_min_thread)
+                              .set_max_threads(config::num_s3_parallel_read_thread_pool_max_thread)
+                              .build(&_s3_parallel_read_thread_pool));
+
     // min num equal to fragment pool's min num
     // max num is useless because it will start as many as requested in the past
     // queue size is useless because the max thread num is very large
@@ -422,12 +427,6 @@ Status ExecEnv::init_pipeline_task_scheduler() {
 void ExecEnv::init_file_cache_factory(std::vector<doris::CachePath>& cache_paths) {
     // Load file cache before starting up daemon threads to make sure StorageEngine is read.
     if (!config::enable_file_cache) {
-        if (config::is_cloud_mode()) {
-            LOG(FATAL) << "Cloud mode requires to enable file cache, plz set "
-                          "config::enable_file_cache "
-                          "= true";
-            exit(-1);
-        }
         return;
     }
     if (config::file_cache_each_block_size > config::s3_write_buffer_size ||
@@ -770,6 +769,7 @@ void ExecEnv::destroy() {
     }
     SAFE_SHUTDOWN(_buffered_reader_prefetch_thread_pool);
     SAFE_SHUTDOWN(_s3_file_upload_thread_pool);
+    SAFE_SHUTDOWN(_s3_parallel_read_thread_pool);
     SAFE_SHUTDOWN(_lazy_release_obj_pool);
     SAFE_SHUTDOWN(_non_block_close_thread_pool);
     SAFE_SHUTDOWN(_s3_file_system_thread_pool);
@@ -824,6 +824,7 @@ void ExecEnv::destroy() {
     _send_table_stats_thread_pool.reset(nullptr);
     _buffered_reader_prefetch_thread_pool.reset(nullptr);
     _s3_file_upload_thread_pool.reset(nullptr);
+    _s3_parallel_read_thread_pool.reset(nullptr);
     _send_batch_thread_pool.reset(nullptr);
     _write_cooldown_meta_executors.reset(nullptr);
 

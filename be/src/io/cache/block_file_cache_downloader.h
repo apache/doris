@@ -27,11 +27,13 @@
 #include <chrono>
 #include <condition_variable>
 #include <deque>
+#include <functional>
 #include <memory>
 #include <thread>
 #include <variant>
 
 #include "cloud/cloud_storage_engine.h"
+#include "common/status.h"
 #include "io/fs/file_system.h"
 
 namespace doris::io {
@@ -73,6 +75,16 @@ public:
     void polling_download_task();
     // check whether the tasks about tables finish or not
     void check_download_task(const std::vector<int64_t>& tablets, std::map<int64_t, bool>* done);
+    
+    // Submit a generic I/O task to the worker threadpool.
+    // This allows other components (like CachedRemoteFileReader) to leverage
+    // the I/O threadpool for async operations without creating their own pools.
+    Status submit_io_task(std::function<void()> task) {
+        if (!_workers) {
+            return Status::InternalError("I/O threadpool not initialized");
+        }
+        return _workers->submit_func(std::move(task));
+    }
 
 private:
     void download_file_cache_block(const DownloadTask::FileCacheBlockMetaVec&);

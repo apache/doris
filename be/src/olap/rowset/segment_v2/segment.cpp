@@ -399,6 +399,11 @@ Status Segment::_write_error_file(size_t file_size, size_t offset, size_t bytes_
 
 Status Segment::_parse_footer(std::shared_ptr<SegmentFooterPB>& footer,
                               OlapReaderStatistics* stats) {
+    // Update parse footer count
+    if (stats) {
+        stats->parse_footer_count++;
+    }
+
     // Footer := SegmentFooterPB, FooterPBSize(4), FooterPBChecksum(4), MagicNumber(4)
     auto file_size = _file_reader->size();
     if (file_size < 12) {
@@ -412,8 +417,11 @@ Status Segment::_parse_footer(std::shared_ptr<SegmentFooterPB>& footer,
     // TODO(plat1ko): Support session variable `enable_file_cache`
     io::IOContext io_ctx {.is_index_data = true,
                           .file_cache_stats = stats ? &stats->file_cache_stats : nullptr};
-    RETURN_IF_ERROR(
-            _file_reader->read_at(file_size - 12, Slice(fixed_buf, 12), &bytes_read, &io_ctx));
+    {
+        SCOPED_RAW_TIMER(stats ? &stats->parse_footer_read_fixed_timer_ns : nullptr);
+        RETURN_IF_ERROR(
+                _file_reader->read_at(file_size - 12, Slice(fixed_buf, 12), &bytes_read, &io_ctx));
+    }
     DCHECK_EQ(bytes_read, 12);
     TEST_SYNC_POINT_CALLBACK("Segment::parse_footer:magic_number_corruption", fixed_buf);
     TEST_INJECTION_POINT_CALLBACK("Segment::parse_footer:magic_number_corruption_inj", fixed_buf);
@@ -431,6 +439,9 @@ Status Segment::_parse_footer(std::shared_ptr<SegmentFooterPB>& footer,
 
     // read footer PB
     uint32_t footer_length = decode_fixed32_le(fixed_buf);
+    if (stats) {
+        stats->parse_footer_total_bytes += footer_length;
+    }
     if (file_size < 12 + footer_length) {
         Status st =
                 _write_error_file(file_size, file_size - 12, bytes_read, (char*)fixed_buf, io_ctx);
@@ -444,8 +455,11 @@ Status Segment::_parse_footer(std::shared_ptr<SegmentFooterPB>& footer,
 
     std::string footer_buf;
     footer_buf.resize(footer_length);
-    RETURN_IF_ERROR(_file_reader->read_at(file_size - 12 - footer_length, footer_buf, &bytes_read,
-                                          &io_ctx));
+    {
+        SCOPED_RAW_TIMER(stats ? &stats->parse_footer_read_footer_timer_ns : nullptr);
+        RETURN_IF_ERROR(_file_reader->read_at(file_size - 12 - footer_length, footer_buf,
+                                              &bytes_read, &io_ctx));
+    }
     DCHECK_EQ(bytes_read, footer_length);
 
     // validate footer PB's checksum
@@ -973,9 +987,9 @@ Status Segment::_get_segment_footer(std::shared_ptr<SegmentFooterPB>& footer_pb,
         return Status::OK();
     }
 
-    VLOG_DEBUG << fmt::format("Segment footer of {}:{}:{} is missing, try to load it",
-                              _file_reader->path().native(), _file_reader->size(),
-                              _file_reader->size() - 12);
+    LOG_INFO("[verbose] Segment footer of {}-{}-{} is missing, try to load it, stack={}",
+             _file_reader->path().native(), _file_reader->size(), _file_reader->size() - 12,
+             Status::InternalError("stack"));
 
     StoragePageCache* segment_footer_cache = ExecEnv::GetInstance()->get_storage_page_cache();
     DCHECK(segment_footer_cache != nullptr);
@@ -986,6 +1000,11 @@ Status Segment::_get_segment_footer(std::shared_ptr<SegmentFooterPB>& footer_pb,
 
     if (!segment_footer_cache->lookup(cache_key, &cache_handle,
                                       segment_v2::PageTypePB::DATA_PAGE)) {
+        LOG_INFO(
+                "[verbose] Segment footer of {}-{}-{} is not found in cache, load from file, "
+                "stack={}",
+                _file_reader->path().native(), _file_reader->size(), _file_reader->size() - 12,
+                Status::InternalError("stack"));
         RETURN_IF_ERROR(_parse_footer(footer_pb_shared, stats));
         segment_footer_cache->insert(cache_key, footer_pb_shared, footer_pb_shared->ByteSizeLong(),
                                      &cache_handle, segment_v2::PageTypePB::DATA_PAGE);

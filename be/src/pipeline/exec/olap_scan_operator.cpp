@@ -17,8 +17,10 @@
 
 #include "pipeline/exec/olap_scan_operator.h"
 
+#include <bthread/mutex.h>
 #include <fmt/format.h>
 
+#include <future>
 #include <memory>
 #include <numeric>
 
@@ -30,12 +32,15 @@
 #include "common/config.h"
 #include "io/cache/block_file_cache_profile.h"
 #include "olap/parallel_scanner_builder.h"
+#include "olap/rowset/beta_rowset.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet_manager.h"
 #include "pipeline/common/runtime_filter_consumer.h"
 #include "pipeline/exec/scan_operator.h"
 #include "pipeline/query_cache/query_cache.h"
+#include "runtime/exec_env.h"
 #include "service/backend_options.h"
+#include "util/defer_op.h"
 #include "util/runtime_profile.h"
 #include "util/to_string.h"
 #include "vec/exec/scan/new_olap_scanner.h"
@@ -158,9 +163,41 @@ Status OlapScanLocalState::_init_profile() {
 
     _io_timer = ADD_TIMER(_segment_profile, "IOTimer");
     _decompressor_timer = ADD_TIMER(_segment_profile, "DecompressorTimer");
+    _predecode_timer = ADD_TIMER(_segment_profile, "PredecodeTimer");
 
     _total_pages_num_counter = ADD_COUNTER(_segment_profile, "TotalPagesNum", TUnit::UNIT);
     _cached_pages_num_counter = ADD_COUNTER(_segment_profile, "CachedPagesNum", TUnit::UNIT);
+
+    _data_pages_num_counter =
+            ADD_CHILD_COUNTER(_segment_profile, "DataPagesNum", TUnit::UNIT, "TotalPagesNum");
+    _index_pages_num_counter =
+            ADD_CHILD_COUNTER(_segment_profile, "IndexPagesNum", TUnit::UNIT, "TotalPagesNum");
+    _dict_pages_num_counter =
+            ADD_CHILD_COUNTER(_segment_profile, "DictPagesNum", TUnit::UNIT, "TotalPagesNum");
+    _short_key_pages_num_counter =
+            ADD_CHILD_COUNTER(_segment_profile, "ShortKeyPagesNum", TUnit::UNIT, "TotalPagesNum");
+
+    _data_page_compressed_bytes_read_counter = ADD_CHILD_COUNTER(
+            _segment_profile, "DataPageCompressedBytesRead", TUnit::BYTES, "CompressedBytesRead");
+    _data_page_uncompressed_bytes_read_counter =
+            ADD_CHILD_COUNTER(_segment_profile, "DataPageUncompressedBytesRead", TUnit::BYTES,
+                              "UncompressedBytesRead");
+    _index_page_compressed_bytes_read_counter = ADD_CHILD_COUNTER(
+            _segment_profile, "IndexPageCompressedBytesRead", TUnit::BYTES, "CompressedBytesRead");
+    _index_page_uncompressed_bytes_read_counter =
+            ADD_CHILD_COUNTER(_segment_profile, "IndexPageUncompressedBytesRead", TUnit::BYTES,
+                              "UncompressedBytesRead");
+    _dict_page_compressed_bytes_read_counter = ADD_CHILD_COUNTER(
+            _segment_profile, "DictPageCompressedBytesRead", TUnit::BYTES, "CompressedBytesRead");
+    _dict_page_uncompressed_bytes_read_counter =
+            ADD_CHILD_COUNTER(_segment_profile, "DictPageUncompressedBytesRead", TUnit::BYTES,
+                              "UncompressedBytesRead");
+    _short_key_page_compressed_bytes_read_counter =
+            ADD_CHILD_COUNTER(_segment_profile, "ShortKeyPageCompressedBytesRead", TUnit::BYTES,
+                              "CompressedBytesRead");
+    _short_key_page_uncompressed_bytes_read_counter =
+            ADD_CHILD_COUNTER(_segment_profile, "ShortKeyPageUncompressedBytesRead", TUnit::BYTES,
+                              "UncompressedBytesRead");
 
     _bitmap_index_filter_counter =
             ADD_COUNTER(_segment_profile, "RowsBitmapIndexFiltered", TUnit::UNIT);
@@ -242,6 +279,20 @@ Status OlapScanLocalState::_init_profile() {
     _segment_create_column_readers_timer =
             ADD_TIMER(_scanner_profile, "SegmentCreateColumnReadersTimer");
     _segment_load_index_timer = ADD_TIMER(_scanner_profile, "SegmentLoadIndexTimer");
+    _load_ordinal_index_timer = ADD_TIMER(_scanner_profile, "LoadOrdinalIndexTimer");
+    _load_zone_map_index_timer = ADD_TIMER(_scanner_profile, "LoadZoneMapIndexTimer");
+
+    _parse_footer_count_counter = ADD_COUNTER(_scanner_profile, "ParseFooterCount", TUnit::UNIT);
+    _parse_footer_total_bytes_counter =
+            ADD_COUNTER(_scanner_profile, "ParseFooterTotalBytes", TUnit::BYTES);
+    _parse_footer_read_fixed_timer = ADD_TIMER(_scanner_profile, "ParseFooterReadFixedTimer");
+    _parse_footer_read_footer_timer = ADD_TIMER(_scanner_profile, "ParseFooterReadFooterTimer");
+
+    _prefetch_segment_footer_timer = ADD_TIMER(_scanner_profile, "PrefetchSegmentFooterTimer");
+
+    _pk_index_load_timer = ADD_TIMER(_scanner_profile, "PrimaryKeyIndexLoadTimer");
+    _pk_index_load_bytes_counter =
+            ADD_COUNTER(_scanner_profile, "PrimaryKeyIndexLoadBytes", TUnit::BYTES);
 
     _index_filter_profile = std::make_unique<RuntimeProfile>("IndexFilter");
     _scanner_profile->add_child(_index_filter_profile.get(), true, nullptr);
@@ -385,6 +436,7 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* s
                                                p._olap_scan_node.is_preaggregation);
 
         int max_scanners_count = state()->parallel_scan_max_scanners_count();
+        int original_max_scanners_count = max_scanners_count;
 
         // If the `max_scanners_count` was not set,
         // use `config::doris_scanner_thread_pool_thread_num` as the default value.
@@ -393,8 +445,27 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* s
         }
 
         // Too small value of `min_rows_per_scanner` is meaningless.
+        auto original_min_rows_per_scanner = state()->parallel_scan_min_rows_per_scanner();
         auto min_rows_per_scanner =
                 std::max<int64_t>(1024, state()->parallel_scan_min_rows_per_scanner());
+
+        // Log parameters for max_scanners_count initialization
+        LOG(INFO) << "[verbose] OlapScanLocalState::_init_scanners max_scanners_count parameters: "
+                  << "original_max_scanners_count=" << original_max_scanners_count
+                  << ", final_max_scanners_count=" << max_scanners_count
+                  << ", doris_scanner_thread_pool_thread_num="
+                  << config::doris_scanner_thread_pool_thread_num
+                  << ", original_min_rows_per_scanner=" << original_min_rows_per_scanner
+                  << ", final_min_rows_per_scanner=" << min_rows_per_scanner
+                  << ", enable_parallel_scan=" << enable_parallel_scan
+                  << ", should_run_serial=" << p._should_run_serial
+                  << ", has_cpu_limit=" << has_cpu_limit
+                  << ", push_down_agg_type=" << p._push_down_agg_type
+                  << ", is_preaggregation=" << p._olap_scan_node.is_preaggregation
+                  << ", storage_no_merge=" << _storage_no_merge()
+                  << ", tablets_count=" << _tablets.size()
+                  << ", key_ranges_count=" << key_ranges.size() << ", limit=" << p._limit;
+
         scanner_builder.set_max_scanners_count(max_scanners_count);
         scanner_builder.set_min_rows_per_scanner(min_rows_per_scanner);
 
@@ -413,9 +484,31 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* s
         DorisMetrics::instance()->query_scan_bytes_from_remote->increment(
                 stats->file_cache_stats.bytes_read_from_remote);
 
+        // Update parse footer related statistics from ParallelScannerBuilder
+        COUNTER_UPDATE(_parse_footer_count_counter, stats->parse_footer_count);
+        COUNTER_UPDATE(_parse_footer_total_bytes_counter, stats->parse_footer_total_bytes);
+        COUNTER_UPDATE(_parse_footer_read_fixed_timer, stats->parse_footer_read_fixed_timer_ns);
+        COUNTER_UPDATE(_parse_footer_read_footer_timer, stats->parse_footer_read_footer_timer_ns);
+
+        _scanner_profile->add_info_string("UseParallelScannerBuilder", "true");
         return Status::OK();
     }
 
+    // Add reason for not using ParallelScannerBuilder
+    std::string reason = "false (";
+    if (!enable_parallel_scan) {
+        reason += "parallel_scan disabled";
+    } else if (p._should_run_serial) {
+        reason += "should_run_serial=true";
+    } else if (has_cpu_limit) {
+        reason += "has_cpu_limit";
+    } else if (p._push_down_agg_type != TPushAggOp::NONE) {
+        reason += "has_push_down_agg";
+    } else {
+        reason += "not_preaggregation_and_not_no_merge";
+    }
+    reason += ")";
+    _scanner_profile->add_info_string("UseParallelScannerBuilder", reason);
     int scanners_per_tablet = std::max(1, 64 / (int)_scan_ranges.size());
     for (size_t scan_range_idx = 0; scan_range_idx < _scan_ranges.size(); scan_range_idx++) {
         int64_t version = 0;
@@ -597,7 +690,98 @@ Status OlapScanLocalState::prepare(RuntimeState* state) {
                 cost_secs, print_id(PipelineXLocalState<>::_state->query_id()), _parent->node_id(),
                 _scan_ranges.size());
     }
+
+    // Prefetch segment footers in parallel to warm up file cache
+    if (config::prefetch_segment_footer) {
+        SCOPED_TIMER(_prefetch_segment_footer_timer);
+        RETURN_IF_ERROR(_prefetch_segment_footers());
+    }
+
     _prepared = true;
+    return Status::OK();
+}
+
+Status OlapScanLocalState::_prefetch_segment_footers() {
+    std::vector<std::shared_ptr<std::promise<Status>>> proms;
+    auto* pool = ExecEnv::GetInstance()->scanner_scheduler()->get_remote_scan_thread_pool();
+
+    for (const auto& read_source : _read_sources) {
+        for (const auto& rs_split : read_source.rs_splits) {
+            auto rowset = rs_split.rs_reader->rowset();
+
+            auto beta_rowset = std::dynamic_pointer_cast<BetaRowset>(rowset);
+            if (!beta_rowset) {
+                continue;
+            }
+
+            int64_t num_segments = rowset->num_segments();
+            for (int64_t seg_id = 0; seg_id < num_segments; seg_id++) {
+                auto prom = std::make_shared<std::promise<Status>>();
+                proms.emplace_back(prom);
+
+                auto st = pool->submit_scan_task(vectorized::SimplifiedScanTask(
+                        [rowset, seg_id, p = std::move(prom)] {
+                            auto task_st = [&]() -> Status {
+                                auto fs = rowset->rowset_meta()->fs();
+                                if (!fs) {
+                                    return Status::InternalError<false>("get fs failed");
+                                }
+
+                                auto seg_path = rowset->segment_path(seg_id);
+                                if (!seg_path.has_value()) {
+                                    return seg_path.error();
+                                }
+
+                                int64_t file_size =
+                                        rowset->rowset_meta()->segment_file_size(seg_id);
+                                if (file_size < 12) {
+                                    return Status::OK(); // Skip invalid segments
+                                }
+
+                                io::FileReaderOptions reader_options {
+                                        .cache_type =
+                                                config::enable_file_cache
+                                                        ? io::FileCachePolicy::FILE_BLOCK_CACHE
+                                                        : io::FileCachePolicy::NO_CACHE,
+                                        .is_doris_table = true,
+                                        .cache_base_path = "",
+                                        .file_size = file_size,
+                                };
+
+                                io::FileReaderSPtr file_reader;
+                                RETURN_IF_ERROR(fs->open_file(seg_path.value(), &file_reader,
+                                                              &reader_options));
+
+                                // due to file block alignment, this will prefetch segment footer into cache
+                                uint8_t fixed_buf[12];
+                                size_t bytes_read = 0;
+                                io::IOContext io_ctx {.is_index_data = true, .is_dryrun = true};
+                                RETURN_IF_ERROR(file_reader->read_at(file_size - 12,
+                                                                     Slice(fixed_buf, 12),
+                                                                     &bytes_read, &io_ctx));
+
+                                return Status::OK();
+                            }();
+                            Defer defer([p, &task_st] { p->set_value(task_st); });
+                        },
+                        nullptr));
+
+                if (!st.ok()) {
+                    LOG(WARNING) << "failed to submit prefetch task, err=" << st;
+                    return st;
+                }
+            }
+        }
+    }
+
+    // Wait for all prefetch tasks to complete
+    for (auto& p : proms) {
+        auto st = p->get_future().get();
+        if (!st.ok()) {
+            LOG(WARNING) << "prefetch segment footer failed: " << st;
+            // Continue even if some prefetch tasks fail
+        }
+    }
     return Status::OK();
 }
 

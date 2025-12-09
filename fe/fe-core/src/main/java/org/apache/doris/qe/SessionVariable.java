@@ -279,6 +279,9 @@ public class SessionVariable implements Serializable, Writable {
     // Avoid splitting small segments, each scanner should scan `parallel_scan_min_rows_per_scanner` rows.
     public static final String PARALLEL_SCAN_MIN_ROWS_PER_SCANNER = "parallel_scan_min_rows_per_scanner";
 
+    // Split scan range by segment, each segment will be a separate scanner.
+    public static final String PARALLEL_SCAN_SPLIT_BY_SEGMENT = "parallel_scan_split_by_segment";
+
     public static final String ENABLE_LOCAL_SHUFFLE = "enable_local_shuffle";
 
     public static final String FORCE_TO_LOCAL_SHUFFLE = "force_to_local_shuffle";
@@ -1187,6 +1190,10 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = PARALLEL_SCAN_MIN_ROWS_PER_SCANNER, fuzzy = true,
             varType = VariableAnnotation.EXPERIMENTAL, needForward = true)
     private long parallelScanMinRowsPerScanner = 2097152; // 16K
+
+    @VariableMgr.VarAttr(name = PARALLEL_SCAN_SPLIT_BY_SEGMENT, fuzzy = true,
+            varType = VariableAnnotation.EXPERIMENTAL, needForward = true)
+    private boolean parallelScanSplitBySegment = false;
 
     @VariableMgr.VarAttr(name = IGNORE_STORAGE_DATA_DISTRIBUTION, fuzzy = false,
             varType = VariableAnnotation.EXPERIMENTAL, needForward = true)
@@ -4300,6 +4307,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setEnableParallelScan(enableParallelScan);
         tResult.setParallelScanMaxScannersCount(parallelScanMaxScannersCount);
         tResult.setParallelScanMinRowsPerScanner(parallelScanMinRowsPerScanner);
+        tResult.setParallelScanSplitBySegment(parallelScanSplitBySegment);
         tResult.setSkipBadTablet(skipBadTablet);
         tResult.setDisableFileCache(disableFileCache);
         tResult.setEnableJoinSpill(enableJoinSpill);
