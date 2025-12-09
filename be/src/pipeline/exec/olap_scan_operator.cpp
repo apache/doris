@@ -453,8 +453,6 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::ScannerSPtr>* sc
     }
 
     bool enable_parallel_scan = state()->enable_parallel_scan();
-    bool has_cpu_limit = state()->query_options().__isset.resource_limit &&
-                         state()->query_options().resource_limit.__isset.cpu_limit;
 
     // The flag of preagg's meaning is whether return pre agg data(or partial agg data)
     // PreAgg ON: The storage layer returns partially aggregated data without additional processing. (Fast data reading)
@@ -462,7 +460,7 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::ScannerSPtr>* sc
     // And the user send a query like select userid,count(*) from base table group by userid.
     // then the storage layer do not need do aggregation, it could just return the partial agg data, because the compute layer will do aggregation.
     // PreAgg OFF: The storage layer must complete pre-aggregation and return fully aggregated data. (Slow data reading)
-    if (enable_parallel_scan && !p._should_run_serial && !has_cpu_limit &&
+    if (enable_parallel_scan && !p._should_run_serial &&
         p._push_down_agg_type == TPushAggOp::NONE &&
         (_storage_no_merge() || p._olap_scan_node.is_preaggregation)) {
         std::vector<OlapScanRange*> key_ranges;
