@@ -185,9 +185,9 @@ public class CheckAnalysis implements AnalysisRuleFactory {
         for (Expression expr : plan.getExpressions()) {
             List<AggregateFunction> aggregateFunctions = PlanUtils.CollectNonWindowedAggFuncs.collect(plan.getExpressions());
             if (!aggregateFunctions.isEmpty()) {
-                throw new AnalysisException(plan.getType()
+                throw new AnalysisException("after fill up missing slots, " + plan.getType()
                         + " 's expression " + expr.toSql()
-                        + " can not contains aggregate function: "
+                        + " should not contains aggregate function: "
                         + aggregateFunctions.get(0).toSql());
             }
         }
