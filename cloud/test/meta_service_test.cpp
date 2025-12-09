@@ -2351,7 +2351,6 @@ TEST(MetaServiceTest, CommitTxnWithSubTxnTest2) {
         meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
                                  &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
-        std::cout << res.DebugString() << std::endl;
         ASSERT_EQ(res.table_ids().size(), 3);
 
         ASSERT_EQ(res.table_ids()[0], t2);

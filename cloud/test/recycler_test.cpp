@@ -1350,6 +1350,7 @@ TEST(RecyclerTest, recycle_rowsets_with_data_ref_count) {
     InstanceInfoPB instance;
     instance.set_instance_id(instance_id);
     instance.set_multi_version_status(MultiVersionStatus::MULTI_VERSION_WRITE_ONLY);
+    instance.set_snapshot_switch_status(SNAPSHOT_SWITCH_OFF);
     auto obj_info = instance.add_obj_info();
     obj_info->set_id("recycle_rowsets_with_data_ref_count");
     obj_info->set_ak(config::test_s3_ak);

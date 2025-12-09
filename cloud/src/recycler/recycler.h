@@ -430,12 +430,56 @@ private:
 
     // Recycle rowset meta and data, return 0 for success otherwise error
     //
+    // Both recycle_rowset_key and secondary_rowset_key will be removed in the same transaction.
+    //
     // This function will decrease the rowset ref count and remove the rowset meta and data if the ref count is 1.
     int recycle_rowset_meta_and_data(std::string_view recycle_rowset_key,
-                                     const RowsetMetaCloudPB& rowset_meta);
+                                     const RowsetMetaCloudPB& rowset_meta,
+                                     std::string_view secondary_rowset_key = "");
 
     // Whether the instance has any snapshots, return 0 for success otherwise error.
     int has_cluster_snapshots(bool* any);
+
+    // Whether need to recycle versioned keys
+    bool should_recycle_versioned_keys() const;
+
+    /**
+     * Parse the path of a packed-file fragment and output the owning tablet and rowset identifiers.
+     *
+     * @param path packed-file fragment path to decode
+     * @param tablet_id output tablet identifier extracted from the path
+     * @param rowset_id output rowset identifier extracted from the path
+     * @return true if both identifiers are successfully parsed, false otherwise
+     */
+    static bool parse_packed_slice_path(std::string_view path, int64_t* tablet_id,
+                                        std::string* rowset_id);
+    // Check whether a rowset referenced by a packed file still exists in metadata.
+    // @param stats optional recycle statistics collector.
+    int check_rowset_exists(int64_t tablet_id, const std::string& rowset_id, bool* exists,
+                            PackedFileRecycleStats* stats = nullptr);
+    int check_recycle_and_tmp_rowset_exists(int64_t tablet_id, const std::string& rowset_id,
+                                            int64_t txn_id, bool* recycle_exists, bool* tmp_exists);
+    /**
+     * Resolve which storage accessor should be used for a packed file.
+     *
+     * @param hint preferred storage resource identifier persisted with the file
+     * @return pair of the resolved resource identifier and accessor; the accessor can be null if unavailable
+     */
+    std::pair<std::string, std::shared_ptr<StorageVaultAccessor>> resolve_packed_file_accessor(
+            const std::string& hint);
+    // Recompute packed-file counters and lifecycle state after validating contained fragments.
+    // @param stats optional recycle statistics collector.
+    int correct_packed_file_info(cloud::PackedFileInfoPB* packed_info, bool* changed,
+                                 const std::string& packed_file_path,
+                                 PackedFileRecycleStats* stats = nullptr);
+    // Correct and recycle a single packed-file record, updating metadata and accounting statistics.
+    // @param stats optional recycle statistics collector.
+    int process_single_packed_file(const std::string& packed_key,
+                                   const std::string& packed_file_path,
+                                   PackedFileRecycleStats* stats);
+    // Process a packed-file KV while scanning and aggregate recycling statistics.
+    int handle_packed_file_kv(std::string_view key, std::string_view value,
+                              PackedFileRecycleStats* stats, int* ret);
 
 private:
     std::atomic_bool stopped_ {false};
