@@ -23,13 +23,16 @@
 #include <glog/logging.h>
 
 #include <array>
+#include <memory>
 
+#include "common/exception.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/aggregate_functions/aggregate_function_distinct.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/common/assert_cast.h"
+#include "vec/common/string_buffer.hpp"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_nullable.h"
 
@@ -161,9 +164,7 @@ public:
         nested_function->reset(nested_place(place));
     }
 
-    bool has_trivial_destructor() const override {
-        return nested_function->has_trivial_destructor();
-    }
+    bool is_trivial() const override { return false; }
 
     size_t size_of_data() const override { return prefix_size + nested_function->size_of_data(); }
 
@@ -177,11 +178,10 @@ public:
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
                Arena& arena) const override {
-        if (result_is_nullable && get_flag(rhs)) {
+        if (get_flag(rhs)) {
             set_flag(place);
+            nested_function->merge(nested_place(place), nested_place(rhs), arena);
         }
-
-        nested_function->merge(nested_place(place), nested_place(rhs), arena);
     }
 
     void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
@@ -203,6 +203,38 @@ public:
         if (flag) {
             set_flag(place);
             nested_function->deserialize(nested_place(place), buf, arena);
+        }
+    }
+
+    void deserialize_and_merge_vec(const AggregateDataPtr* places, size_t offset,
+                                   AggregateDataPtr rhs, const IColumn* column, Arena& arena,
+                                   const size_t num_rows) const override {
+        if (nested_function->is_trivial()) {
+            BufferReadable buf({column->get_data_at(0).data, 0});
+            size_t size_of_data = this->size_of_data();
+            for (size_t i = 0; i != num_rows; ++i) {
+                deserialize_and_merge(places[i] + offset, rhs + size_of_data * i, buf, arena);
+            }
+        } else {
+            IAggregateFunctionHelper<Derived>::deserialize_and_merge_vec(places, offset, rhs,
+                                                                         column, arena, num_rows);
+        }
+    }
+
+    void deserialize_and_merge_vec_selected(const AggregateDataPtr* places, size_t offset,
+                                            AggregateDataPtr rhs, const IColumn* column,
+                                            Arena& arena, const size_t num_rows) const override {
+        if (nested_function->is_trivial()) {
+            BufferReadable buf({column->get_data_at(0).data, 0});
+            size_t size_of_data = this->size_of_data();
+            for (size_t i = 0; i != num_rows; ++i) {
+                if (places[i]) {
+                    deserialize_and_merge(places[i] + offset, rhs + size_of_data * i, buf, arena);
+                }
+            }
+        } else {
+            IAggregateFunctionHelper<Derived>::deserialize_and_merge_vec_selected(
+                    places, offset, rhs, column, arena, num_rows);
         }
     }
 

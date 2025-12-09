@@ -101,7 +101,7 @@ public:
         _function->destroy(place);
     }
 
-    bool has_trivial_destructor() const override { return _function->has_trivial_destructor(); }
+    bool is_trivial() const override { return false; }
 
     size_t size_of_data() const override { return _function->size_of_data(); }
 
