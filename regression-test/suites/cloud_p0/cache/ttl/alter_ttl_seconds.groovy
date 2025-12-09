@@ -18,7 +18,21 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("test_ttl_seconds") {
-    sql """ use @regression_cluster_name1 """
+    def custoBeConfig = [
+        enable_evict_file_cache_in_advance : false,
+        file_cache_enter_disk_resource_limit_mode_percent : 99,
+        file_cache_background_ttl_gc_interval_ms : 1000,
+        file_cache_background_ttl_info_update_interval_ms : 1000,
+        file_cache_background_tablet_id_flush_interval_ms : 1000
+    ]
+
+    setBeConfigTemporary(custoBeConfig) {
+    sql "set global enable_auto_analyze = false"
+    sql "set global enable_audit_plugin = false"
+    def clusters = sql " SHOW CLUSTERS; "
+    assertTrue(!clusters.isEmpty())
+    def validCluster = clusters[0][0]
+    sql """use @${validCluster};""";
     def ttlProperties = """ PROPERTIES("file_cache_ttl_seconds"="5") """
     String[][] backends = sql """ show backends """
     String backendId;
@@ -47,40 +61,32 @@ suite("test_ttl_seconds") {
         }
     }
 
-    def tables = [customer_ttl: 15000000]
-    def s3BucketName = getS3BucketName()
-    def s3WithProperties = """WITH S3 (
-        |"AWS_ACCESS_KEY" = "${getS3AK()}",
-        |"AWS_SECRET_KEY" = "${getS3SK()}",
-        |"AWS_ENDPOINT" = "${getS3Endpoint()}",
-        |"AWS_REGION" = "${getS3Region()}",
-        |"provider" = "${getS3Provider()}")
-        |PROPERTIES(
-        |"exec_mem_limit" = "8589934592",
-        |"load_parallelism" = "3")""".stripMargin()
-
-
     sql new File("""${context.file.parent}/../ddl/customer_ttl_delete.sql""").text
     def load_customer_once =  { String table ->
-        def uniqueID = Math.abs(UUID.randomUUID().hashCode()).toString()
         sql (new File("""${context.file.parent}/../ddl/${table}.sql""").text + ttlProperties)
-        def loadLabel = table + "_" + uniqueID
         sql """ alter table ${table} set ("disable_auto_compaction" = "true") """ // no influence from compaction
-        // load data from cos
-        def loadSql = new File("""${context.file.parent}/../ddl/${table}_load.sql""").text.replaceAll("\\\$\\{s3BucketName\\}", s3BucketName)
-        loadSql = loadSql.replaceAll("\\\$\\{loadLabel\\}", loadLabel) + s3WithProperties
-        sql loadSql
-
-        // check load state
-        while (true) {
-            def stateResult = sql "show load where Label = '${loadLabel}'"
-            def loadState = stateResult[stateResult.size() - 1][2].toString()
-            if ("CANCELLED".equalsIgnoreCase(loadState)) {
-                throw new IllegalStateException("load ${loadLabel} failed.")
-            } else if ("FINISHED".equalsIgnoreCase(loadState)) {
-                break
+        def totalRows = 200
+        def batchSize = 100
+        def commentSuffix = ' ' + ('X' * 50)
+        for (int offset = 0; offset < totalRows; offset += batchSize) {
+            def sb = new StringBuilder()
+            int batchEnd = Math.min(totalRows, offset + batchSize)
+            for (int idx = offset; idx < batchEnd; idx++) {
+                def customerId = 10001 + idx
+                def customerName = String.format('Customer#%09d', customerId)
+                sb.append("""INSERT INTO ${table} VALUES (
+                    ${customerId},
+                    '${customerName}',
+                    'Address Line 1',
+                    15,
+                    '123-456-7890',
+                    12345.67,
+                    'AUTOMOBILE',
+                    'This is a test comment for the customer.${commentSuffix}'
+                    );
+                    """)
             }
-            sleep(5000)
+            sql sb.toString()
         }
     }
 
@@ -93,12 +99,47 @@ suite("test_ttl_seconds") {
         }
     }
 
+    def getTabletIds = { String tableName ->
+        def tablets = sql "show tablets from ${tableName}"
+        assertTrue(tablets.size() > 0, "No tablets found for table ${tableName}")
+        tablets.collect { it[0] as Long }
+    }
+
+    def waitForFileCacheType = { List<Long> tabletIds, String expectedType, long timeoutMs = 60000L, long intervalMs = 1000L ->
+        long start = System.currentTimeMillis()
+        while (System.currentTimeMillis() - start < timeoutMs) {
+            boolean allMatch = true
+            for (Long tabletId in tabletIds) {
+                def rows = sql "select type from information_schema.file_cache_info where tablet_id = ${tabletId}"
+                if (rows.isEmpty()) {
+                    logger.warn("file_cache_info is empty for tablet ${tabletId} while waiting for ${expectedType}")
+                    allMatch = false
+                    break
+                }
+                def mismatch = rows.find { row -> !row[0]?.toString()?.equalsIgnoreCase(expectedType) }
+                if (mismatch) {
+                    logger.info("tablet ${tabletId} has cache types ${rows.collect { it[0] }} while waiting for ${expectedType}")
+                    allMatch = false
+                    break
+                }
+            }
+            if (allMatch) {
+                logger.info("All file cache entries for tablets ${tabletIds} are ${expectedType}")
+                return
+            }
+            sleep(intervalMs)
+        }
+        assertTrue(false, "Timeout waiting for file_cache_info type ${expectedType} for tablets ${tabletIds}")
+    }
+
     clearFileCache.call() {
         respCode, body -> {}
     }
     sleep(30000)
 
     load_customer_once("customer_ttl")
+    def tabletIds = getTabletIds.call("customer_ttl")
+    waitForFileCacheType.call(tabletIds, "ttl", 15000L, 500L)
     sleep(30000) // 30s
     getMetricsMethod.call() {
         respCode, body ->
@@ -113,10 +154,14 @@ suite("test_ttl_seconds") {
                         continue
                     }
                     def i = line.indexOf(' ')
+                    logger.info("ttl_cache_size after load: " + line)
                     assertEquals(line.substring(i).toLong(), 0)
                     flag1 = true
                 }
             }
             assertTrue(flag1)
+    }
+
+    waitForFileCacheType.call(tabletIds, "normal", 60000L)
     }
 }

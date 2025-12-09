@@ -43,6 +43,7 @@
 #include "io/cache/block_file_cache_profile.h"
 #include "io/cache/file_block.h"
 #include "io/cache/file_cache_common.h"
+#include "io/cache/peer_file_cache_reader.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/local_file_system.h"
 #include "io/io_common.h"
