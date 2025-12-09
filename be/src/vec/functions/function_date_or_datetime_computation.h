@@ -1834,24 +1834,24 @@ struct TimestampTwoArgsImpl {
     static bool is_negative() { return false; }
 };
 
-template <PrimitiveType ReturnPType, typename Impl, PrimitiveType ArgPType = ReturnPType>
+template <PrimitiveType PType, typename Impl>
 class FunctionAddTime : public IFunction {
 public:
     static constexpr auto name = Impl::name;
-    static constexpr PrimitiveType ReturnType = ReturnPType;
-    static constexpr PrimitiveType ArgType1 = ArgPType;
+    static constexpr PrimitiveType ReturnType = PType;
+    static constexpr PrimitiveType ArgType1 = PType;
     static constexpr PrimitiveType ArgType2 = TYPE_TIMEV2;
-    using ColumnType1 = typename PrimitiveTypeTraits<ArgType1>::ColumnType;
+    using ColumnType1 = typename PrimitiveTypeTraits<PType>::ColumnType;
     using ColumnType2 = typename PrimitiveTypeTraits<TYPE_TIMEV2>::ColumnType;
-    using InputType1 = typename PrimitiveTypeTraits<ArgType1>::DataType::FieldType;
+    using InputType1 = typename PrimitiveTypeTraits<PType>::DataType::FieldType;
     using InputType2 = typename PrimitiveTypeTraits<TYPE_TIMEV2>::DataType::FieldType;
-    using ReturnNativeType = typename PrimitiveTypeTraits<ReturnType>::DataType::FieldType;
-    using ReturnDataType = typename PrimitiveTypeTraits<ReturnType>::DataType;
+    using ReturnNativeType = InputType1;
+    using ReturnDataType = typename PrimitiveTypeTraits<PType>::DataType;
 
     String get_name() const override { return name; }
     size_t get_number_of_arguments() const override { return 2; }
     DataTypes get_variadic_argument_types_impl() const override {
-        return {std::make_shared<typename PrimitiveTypeTraits<ArgType1>::DataType>(),
+        return {std::make_shared<typename PrimitiveTypeTraits<PType>::DataType>(),
                 std::make_shared<typename PrimitiveTypeTraits<TYPE_TIMEV2>::DataType>()};
     }
     DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
@@ -1891,17 +1891,9 @@ public:
 
 private:
     ReturnNativeType compute(const InputType1& arg1, const InputType2& arg2) const {
-        if constexpr (ReturnType == TYPE_DATETIMEV2) {
-            DateV2Value<DateTimeV2ValueType> dtv1;
-            if constexpr (ArgType1 == TYPE_DATETIMEV2) {
-                dtv1 = binary_cast<InputType1, DateV2Value<DateTimeV2ValueType>>(arg1);
-            } else if constexpr (ArgType1 == TYPE_DATEV2) {
-                auto date_val = binary_cast<InputType1, DateV2Value<DateV2ValueType>>(arg1);
-                dtv1.assign_from(date_val);
-            } else {
-                static_assert(ArgType1 == TYPE_DATETIMEV2 || ArgType1 == TYPE_DATEV2,
-                              "unsupported first argument type for datetime return");
-            }
+        if constexpr (PType == TYPE_DATETIMEV2) {
+            DateV2Value<DateTimeV2ValueType> dtv1 =
+                    binary_cast<InputType1, DateV2Value<DateTimeV2ValueType>>(arg1);
             auto tv2 = static_cast<TimeValue::TimeType>(arg2);
             TimeInterval interval(TimeUnit::MICROSECOND, tv2, Impl::is_negative());
             bool out_range = dtv1.template date_add_interval<TimeUnit::MICROSECOND>(interval);
@@ -1910,7 +1902,7 @@ private:
                                 "datetime value is out of range in function {}", name);
             }
             return binary_cast<DateV2Value<DateTimeV2ValueType>, ReturnNativeType>(dtv1);
-        } else if constexpr (ReturnType == TYPE_TIMEV2) {
+        } else if constexpr (PType == TYPE_TIMEV2) {
             auto tv1 = static_cast<TimeValue::TimeType>(arg1);
             auto tv2 = static_cast<TimeValue::TimeType>(arg2);
             double res = TimeValue::limit_with_bound(Impl::is_negative() ? tv1 - tv2 : tv1 + tv2);
