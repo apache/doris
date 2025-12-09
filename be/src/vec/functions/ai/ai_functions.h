@@ -170,6 +170,18 @@ public:
         return Status::OK();
     }
 
+protected:
+    // The endpoint `v1/completions` does not support `system_prompt`.
+    // To ensure a clear structure and stable AI results.
+    // Convert from `v1/completions` to `v1/chat/completions`
+    static void normalize_endpoint(TAIResource& config) {
+        if (config.endpoint.ends_with("v1/completions")) {
+            static constexpr std::string_view legacy_suffix = "v1/completions";
+            config.endpoint.replace(config.endpoint.size() - legacy_suffix.size(),
+                                    legacy_suffix.size(), "v1/chat/completions");
+        }
+    }
+
 private:
     // Trim whitespace and newlines from string
     static void trim_string(std::string& str) {
@@ -200,6 +212,8 @@ private:
             return Status::InvalidArgument("AI resource not found: " + resource_name);
         }
         config = it->second;
+
+        normalize_endpoint(config);
 
         // 2. Create an adapter based on provider_type
         adapter = AIAdapterFactory::create_adapter(config.provider_type);

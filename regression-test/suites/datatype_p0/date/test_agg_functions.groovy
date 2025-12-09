@@ -1,3 +1,4 @@
+
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -15,27 +16,30 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.plans.distribute.worker;
+suite("test_agg_functions") {
+    sql "drop table if exists test_datev2_agg_functions"
 
-import org.apache.doris.system.Backend;
-import org.apache.doris.thrift.TNetworkAddress;
+    sql """
+    CREATE TABLE `test_datev2_agg_functions` (
+      `f1` datev2
+    )
+    PROPERTIES (
+    "replication_allocation" = "tag.location.default: 1"
+    )
+    """
 
-import com.google.common.collect.ImmutableMap;
-
-import java.util.List;
-import java.util.Map;
-
-/** DistributedPlanWorkerManager */
-public interface DistributedPlanWorkerManager {
-    void addBackends(long catalogId, ImmutableMap<Long, Backend> backends);
-
-    DistributedPlanWorker getWorker(long catalogId, long backendId);
-
-    DistributedPlanWorker getWorker(long catalogId, Backend backend);
-
-    DistributedPlanWorker randomAvailableWorker(long catalogId);
-
-    long randomAvailableWorker(Map<TNetworkAddress, Long> addressToBackendID);
-
-    List<Backend> getAllBackends(long catalogId, boolean needAlive);
+    sql """insert into test_datev2_agg_functions values
+    (null),
+    (null),
+    ('0000-01-01 00:00:00'),
+    ('0000-01-01 00:00:00'),
+    ('2023-08-08 20:20:20'),
+    ('2023-08-08 20:20:20'),
+    ('9999-12-31 23:59:59'),
+    ('9999-12-31 23:59:59');
+    """
+    qt_all "select * from test_datev2_agg_functions order by 1"
+    qt_count_distinct """
+    select multi_distinct_count(f1) from test_datev2_agg_functions;
+    """
 }

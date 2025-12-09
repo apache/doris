@@ -46,12 +46,14 @@ private:
     arrow::Result<std::shared_ptr<QueryStatement>> decode_ticket(const std::string& ticket) {
         std::vector<std::string> fields = absl::StrSplit(ticket, "&");
         if (fields.size() != 4) {
-            return arrow::Status::Invalid(fmt::format("Malformed ticket, size: {}", fields.size()));
+            return arrow::Status::Invalid(
+                    fmt::format("Malformed ticket: {}, size: {}", ticket, fields.size()));
         }
 
         std::vector<std::string> str = absl::StrSplit(fields[0], "-");
         if (str.size() != 2) {
-            return arrow::Status::Invalid("Malformed ticket, missing query id: {}", fields[0]);
+            return arrow::Status::Invalid("Malformed ticket: {}, missing query id: {}", ticket,
+                                          fields[0]);
         }
 
         TUniqueId queryid;
