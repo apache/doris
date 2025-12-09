@@ -180,7 +180,7 @@ public:
 
     [[nodiscard]] Status execute_const_expr(ColumnWithTypeAndName& result);
 
-    VExprSPtr root() { return _root; }
+    VExprSPtr root() const { return _root; }
     void set_root(const VExprSPtr& expr) { _root = expr; }
     void set_index_context(std::shared_ptr<IndexExecContext> index_context) {
         _index_context = std::move(index_context);
