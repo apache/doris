@@ -41,6 +41,7 @@
 #include "cloud/config.h"
 #include "common/config.h"
 #include "gen_cpp/cloud.pb.h"
+#include "io/fs/packed_file_trailer.h"
 #include "olap/storage_engine.h"
 #include "runtime/exec_env.h"
 #include "util/coding.h"
@@ -84,20 +85,25 @@ Status append_packed_info_trailer(FileWriter* writer, const std::string& packed_
                                      packed_file_path);
     }
 
-    std::string serialized_info;
-    if (!packed_file_info.SerializeToString(&serialized_info)) {
-        return Status::InternalError("Failed to serialize packed file info for {}",
+    cloud::PackedFileDebugInfoPB debug_pb;
+    debug_pb.mutable_packed_file_info()->CopyFrom(packed_file_info);
+
+    std::string serialized_debug_info;
+    if (!debug_pb.SerializeToString(&serialized_debug_info)) {
+        return Status::InternalError("Failed to serialize packed file debug info for {}",
                                      packed_file_path);
     }
 
-    if (serialized_info.size() > std::numeric_limits<uint32_t>::max()) {
-        return Status::InternalError("PackedFileInfoPB too large for {}", packed_file_path);
+    if (serialized_debug_info.size() >
+        std::numeric_limits<uint32_t>::max() - kPackedFileTrailerSuffixSize) {
+        return Status::InternalError("PackedFileDebugInfoPB too large for {}", packed_file_path);
     }
 
     std::string trailer;
-    trailer.reserve(serialized_info.size() + sizeof(uint32_t));
-    trailer.append(serialized_info);
-    put_fixed32_le(&trailer, static_cast<uint32_t>(serialized_info.size()));
+    trailer.reserve(serialized_debug_info.size() + kPackedFileTrailerSuffixSize);
+    trailer.append(serialized_debug_info);
+    put_fixed32_le(&trailer, static_cast<uint32_t>(serialized_debug_info.size()));
+    put_fixed32_le(&trailer, kPackedFileTrailerVersion);
 
     return writer->append(Slice(trailer));
 }
@@ -428,9 +434,9 @@ Status PackedFileManager::mark_current_packed_file_for_upload_locked(
                 sampler->take_sample();
             }
         }
-        LOG(INFO) << "Packed file " << current->packed_file_path
-                  << " transition ACTIVE->READY_TO_UPLOAD; active_to_ready_ms="
-                  << active_to_ready_ms;
+        VLOG_DEBUG << "Packed file " << current->packed_file_path
+                   << " transition ACTIVE->READY_TO_UPLOAD; active_to_ready_ms="
+                   << active_to_ready_ms;
     }
 
     // Move to uploading files list
@@ -538,10 +544,10 @@ void PackedFileManager::process_uploading_packed_files() {
                     sampler->take_sample();
                 }
             }
-            LOG(INFO) << "Packed file " << packed_file->packed_file_path
-                      << " transition READY_TO_UPLOAD->UPLOADING; "
-                         "ready_to_upload_ms="
-                      << duration_ms;
+            VLOG_DEBUG << "Packed file " << packed_file->packed_file_path
+                       << " transition READY_TO_UPLOAD->UPLOADING; "
+                          "ready_to_upload_ms="
+                       << duration_ms;
         }
     };
 
@@ -588,10 +594,30 @@ void PackedFileManager::process_uploading_packed_files() {
                 sampler->take_sample();
             }
         }
+        int64_t total_ms = -1;
+        if (packed_file->first_append_timestamp.has_value()) {
+            total_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                               now - *packed_file->first_append_timestamp)
+                               .count();
+        }
+        std::ostringstream slices_stream;
+        bool first_slice = true;
+        for (const auto& [small_file_path, index] : packed_file->slice_locations) {
+            if (!first_slice) {
+                slices_stream << "; ";
+            }
+            first_slice = false;
+            slices_stream << small_file_path << "(txn=" << index.txn_id
+                          << ", offset=" << index.offset << ", size=" << index.size << ")";
+        }
         LOG(INFO) << "Packed file " << packed_file->packed_file_path
-                  << " upload completed; active_to_ready_ms=" << active_to_ready_ms
+                  << " uploaded; slices=" << packed_file->slice_locations.size()
+                  << ", total_bytes=" << packed_file->total_size << ", slice_detail=["
+                  << slices_stream.str() << "]"
+                  << ", active_to_ready_ms=" << active_to_ready_ms
                   << ", ready_to_upload_ms=" << ready_to_upload_ms
-                  << ", uploading_to_uploaded_ms=" << uploading_to_uploaded_ms;
+                  << ", uploading_to_uploaded_ms=" << uploading_to_uploaded_ms
+                  << ", total_ms=" << total_ms;
         {
             std::lock_guard<std::mutex> upload_lock(packed_file->upload_mutex);
             packed_file->state = PackedFileState::UPLOADED;
@@ -684,9 +710,9 @@ void PackedFileManager::process_uploading_packed_files() {
                 oss << "[" << small_file_path << ", offset=" << index.offset
                     << ", size=" << index.size << "]";
             }
-            LOG(INFO) << oss.str();
+            VLOG_DEBUG << oss.str();
         } else {
-            LOG(INFO) << "Uploading packed file " << packed_file_path << " with no small files";
+            VLOG_DEBUG << "Uploading packed file " << packed_file_path << " with no small files";
         }
 
         Status upload_status = finalize_packed_file_upload(packed_file->packed_file_path,

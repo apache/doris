@@ -2603,6 +2603,7 @@ int InstanceRecycler::decrement_packed_file_ref_counts(const doris::RowsetMetaCl
         return 0;
     }
 
+    const int max_retry_times = std::max(1, config::decrement_packed_file_ref_counts_retry_times);
     int ret = 0;
     for (auto& [packed_file_path, small_files] : packed_file_updates) {
         if (small_files.empty()) {
@@ -2610,7 +2611,7 @@ int InstanceRecycler::decrement_packed_file_ref_counts(const doris::RowsetMetaCl
         }
 
         bool success = false;
-        do {
+        for (int attempt = 1; attempt <= max_retry_times; ++attempt) {
             std::unique_ptr<Transaction> txn;
             TxnErrorCode err = txn_kv_->create_txn(&txn);
             if (err != TxnErrorCode::TXN_OK) {
@@ -2763,14 +2764,25 @@ int InstanceRecycler::decrement_packed_file_ref_counts(const doris::RowsetMetaCl
                 break;
             }
             if (err == TxnErrorCode::TXN_CONFLICT) {
-                LOG_WARNING("packed file info update conflict, not retrying")
+                if (attempt >= max_retry_times) {
+                    LOG_WARNING("packed file info update conflict after max retry")
+                            .tag("instance_id", instance_id_)
+                            .tag("packed_file_path", packed_file_path)
+                            .tag("rowset_id", rs_meta_pb.rowset_id_v2())
+                            .tag("tablet_id", rs_meta_pb.tablet_id())
+                            .tag("changed_files", changed_files)
+                            .tag("attempt", attempt);
+                    ret = -1;
+                    break;
+                }
+                LOG_WARNING("packed file info update conflict, retrying")
                         .tag("instance_id", instance_id_)
                         .tag("packed_file_path", packed_file_path)
                         .tag("rowset_id", rs_meta_pb.rowset_id_v2())
                         .tag("tablet_id", rs_meta_pb.tablet_id())
-                        .tag("changed_files", changed_files);
-                ret = -1;
-                break;
+                        .tag("changed_files", changed_files)
+                        .tag("attempt", attempt);
+                continue;
             }
 
             LOG_WARNING("failed to commit packed file info update")
@@ -2782,7 +2794,7 @@ int InstanceRecycler::decrement_packed_file_ref_counts(const doris::RowsetMetaCl
                     .tag("changed_files", changed_files);
             ret = -1;
             break;
-        } while (false);
+        }
 
         if (!success) {
             ret = -1;
@@ -2907,8 +2919,11 @@ int InstanceRecycler::delete_rowset_data(
         // due to aborted schema change.
         if (is_formal_rowset) {
             std::lock_guard lock(recycled_tablets_mtx_);
-            if (recycled_tablets_.count(rs.tablet_id())) {
-                continue; // Rowset data has already been deleted
+            if (recycled_tablets_.count(rs.tablet_id()) && rs.packed_slice_locations_size() == 0) {
+                // Tablet has been recycled and this rowset has no packed slices, so file data
+                // should already be gone; skip to avoid redundant deletes. Rowsets with packed
+                // slice info must still run to decrement packed file ref counts.
+                continue;
             }
         }
 
