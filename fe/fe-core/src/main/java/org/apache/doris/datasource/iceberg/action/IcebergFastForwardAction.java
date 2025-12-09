@@ -69,7 +69,7 @@ public class IcebergFastForwardAction extends BaseIcebergAction {
     }
 
     @Override
-    protected List<String> executeAction(TableIf table) throws UserException {
+    protected List<List<String>> executeAction(TableIf table) throws UserException {
         Table icebergTable = ((IcebergExternalTable) table).getIcebergTable();
 
         String sourceBranch = namedArguments.getString(BRANCH);
@@ -83,11 +83,11 @@ public class IcebergFastForwardAction extends BaseIcebergAction {
             long snapshotAfter = icebergTable.snapshot(sourceBranch).snapshotId();
             // invalid iceberg catalog table cache.
             Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache((ExternalTable) table);
-            return Lists.newArrayList(
+            return Lists.newArrayList(Lists.newArrayList(
                     sourceBranch.trim(),
                     String.valueOf(snapshotBefore),
                     String.valueOf(snapshotAfter)
-            );
+            ));
 
         } catch (Exception e) {
             throw new UserException(
