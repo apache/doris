@@ -2023,15 +2023,8 @@ int InstanceRecycler::recycle_partitions() {
 }
 
 int InstanceRecycler::recycle_versions() {
-    if (instance_info_.has_multi_version_status() &&
-        instance_info_.multi_version_status() != MultiVersionStatus::MULTI_VERSION_DISABLED) {
-        // If the data migration is not finished, skip recycling the orphan partitions.
-        if (instance_info_.multi_version_status() != MultiVersionStatus::MULTI_VERSION_WRITE_ONLY ||
-            (instance_info_.has_snapshot_switch_status() &&
-             instance_info_.snapshot_switch_status() !=
-                     SnapshotSwitchStatus::SNAPSHOT_SWITCH_DISABLED)) {
-            return recycle_orphan_partitions();
-        }
+    if (should_recycle_versioned_keys()) {
+        return recycle_orphan_partitions();
     }
 
     int64_t num_scanned = 0;
@@ -2324,6 +2317,7 @@ int InstanceRecycler::recycle_tablets(int64_t table_id, int64_t index_id,
         tablet_idx_keys.push_back(meta_tablet_idx_key({instance_id_, tablet_id}));
         restore_job_keys.push_back(job_restore_tablet_key({instance_id_, tablet_id}));
         if (is_multi_version) {
+            // The tablet index/inverted index are recycled in recycle_versioned_tablet.
             tablet_compact_stats_keys.push_back(
                     versioned::tablet_compact_stats_key({instance_id_, tablet_id}));
             tablet_load_stats_keys.push_back(
@@ -3336,9 +3330,15 @@ int InstanceRecycler::recycle_tablet(int64_t tablet_id, RecyclerMetricsContext& 
             .tag("instance_id", instance_id_)
             .tag("tablet_id", tablet_id);
 
-    if (instance_info_.has_multi_version_status() &&
-        instance_info_.multi_version_status() != MultiVersionStatus::MULTI_VERSION_DISABLED) {
-        return recycle_versioned_tablet(tablet_id, metrics_context);
+    if (should_recycle_versioned_keys()) {
+        int ret = recycle_versioned_tablet(tablet_id, metrics_context);
+        if (ret != 0) {
+            return ret;
+        }
+        // Continue to recycle non-versioned rowsets, if multi-version is set to DISABLED
+        // during the recycle_versioned_tablet process.
+        //
+        // .. And remove restore job rowsets of this tablet too
     }
 
     int ret = 0;
@@ -3714,20 +3714,26 @@ int InstanceRecycler::recycle_versioned_tablet(int64_t tablet_id,
     for (const auto& [rs_meta, versionstamp] : load_rowset_metas) {
         update_rowset_stats(rs_meta);
         concurrent_delete_executor.add([tablet_id, versionstamp, rs_meta_pb = rs_meta, this]() {
-            std::string rowset_key = versioned::meta_rowset_load_key(
+            // recycle both versioned and non-versioned rowset meta key
+            std::string rowset_load_key = versioned::meta_rowset_load_key(
                     {instance_id_, tablet_id, rs_meta_pb.end_version()});
-            return recycle_rowset_meta_and_data(encode_versioned_key(rowset_key, versionstamp),
-                                                rs_meta_pb);
+            std::string rowset_key =
+                    meta_rowset_key({instance_id_, tablet_id, rs_meta_pb.end_version()});
+            return recycle_rowset_meta_and_data(encode_versioned_key(rowset_load_key, versionstamp),
+                                                rs_meta_pb, rowset_key);
         });
     }
 
     for (const auto& [rs_meta, versionstamp] : compact_rowset_metas) {
         update_rowset_stats(rs_meta);
         concurrent_delete_executor.add([tablet_id, versionstamp, rs_meta_pb = rs_meta, this]() {
-            std::string rowset_key = versioned::meta_rowset_compact_key(
+            // recycle both versioned and non-versioned rowset meta key
+            std::string rowset_load_key = versioned::meta_rowset_compact_key(
                     {instance_id_, tablet_id, rs_meta_pb.end_version()});
-            return recycle_rowset_meta_and_data(encode_versioned_key(rowset_key, versionstamp),
-                                                rs_meta_pb);
+            std::string rowset_key =
+                    meta_rowset_key({instance_id_, tablet_id, rs_meta_pb.end_version()});
+            return recycle_rowset_meta_and_data(encode_versioned_key(rowset_load_key, versionstamp),
+                                                rs_meta_pb, rowset_key);
         });
     }
 
@@ -3881,8 +3887,7 @@ int InstanceRecycler::recycle_versioned_tablet(int64_t tablet_id,
 }
 
 int InstanceRecycler::recycle_rowsets() {
-    if (instance_info_.has_multi_version_status() &&
-        instance_info_.multi_version_status() != MultiVersionStatus::MULTI_VERSION_DISABLED) {
+    if (should_recycle_versioned_keys()) {
         return recycle_versioned_rowsets();
     }
 
@@ -4545,7 +4550,8 @@ int InstanceRecycler::recycle_versioned_rowsets() {
 }
 
 int InstanceRecycler::recycle_rowset_meta_and_data(std::string_view recycle_rowset_key,
-                                                   const RowsetMetaCloudPB& rowset_meta) {
+                                                   const RowsetMetaCloudPB& rowset_meta,
+                                                   std::string_view secondary_rowset_key) {
     constexpr int MAX_RETRY = 10;
     int64_t tablet_id = rowset_meta.tablet_id();
     const std::string& rowset_id = rowset_meta.rowset_id_v2();
@@ -4634,6 +4640,12 @@ int InstanceRecycler::recycle_rowset_meta_and_data(std::string_view recycle_rows
         }
 
         txn->remove(recycle_rowset_key);
+        LOG_INFO("remove recycle rowset key").tag("key", hex(recycle_rowset_key));
+        if (!secondary_rowset_key.empty()) {
+            txn->remove(secondary_rowset_key);
+            LOG_INFO("remove secondary rowset key").tag("key", hex(secondary_rowset_key));
+        }
+
         err = txn->commit();
         if (err == TxnErrorCode::TXN_CONFLICT) { // unlikely
             // The rowset ref count key has been changed, we need to retry.
