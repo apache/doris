@@ -38,7 +38,7 @@ suite("test_hive_compress_type", "p0,external,hive,external_docker,external_dock
         sql """set file_split_size=0"""
         explain {
             sql("select count(*) from test_compress_partitioned")
-            contains "inputSplitNum=16, totalFileSize=734675596, scanRanges=16"
+            contains "inputSplitNum=28, totalFileSize=734675596, scanRanges=28"
             contains "partition=8/8"
         }
         qt_q21 """select count(*) from test_compress_partitioned where dt="gzip" or dt="mix""""

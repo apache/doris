@@ -320,16 +320,20 @@ public class HiveScanNode extends FileQueryScanNode {
             needSplit = FileSplitter.needSplitForCountPushdown(parallelNum, numBackends, totalFileNum);
         }
         for (HiveMetaStoreCache.FileCacheValue fileCacheValue : fileCaches) {
-            if (fileCacheValue.getFiles() != null) {
-                boolean isSplittable = fileCacheValue.isSplittable();
-                for (HiveMetaStoreCache.HiveFileStatus status : fileCacheValue.getFiles()) {
-                    allFiles.addAll(FileSplitter.splitFile(status.getPath(),
-                            // set block size to Long.MAX_VALUE to avoid splitting the file.
-                            getRealFileSplitSize(needSplit ? status.getBlockSize() : Long.MAX_VALUE),
-                            status.getBlockLocations(), status.getLength(), status.getModificationTime(),
-                            isSplittable, fileCacheValue.getPartitionValues(),
-                            new HiveSplitCreator(fileCacheValue.getAcidInfo())));
-                }
+            if (fileCacheValue.getFiles() == null) {
+                continue;
+            }
+            boolean isSplittable = fileCacheValue.isSplittable();
+            for (HiveMetaStoreCache.HiveFileStatus status : fileCacheValue.getFiles()) {
+                allFiles.addAll(fileSplitter.splitFile(
+                        status.getPath(),
+                        sessionVariable.getFileSplitSize(),
+                        status.getBlockLocations(),
+                        status.getLength(),
+                        status.getModificationTime(),
+                        isSplittable && needSplit,
+                        fileCacheValue.getPartitionValues(),
+                        new HiveSplitCreator(fileCacheValue.getAcidInfo())));
             }
         }
     }
@@ -337,9 +341,14 @@ public class HiveScanNode extends FileQueryScanNode {
     private void splitAllFiles(List<Split> allFiles,
                                List<HiveMetaStoreCache.HiveFileStatus> hiveFileStatuses) throws IOException {
         for (HiveMetaStoreCache.HiveFileStatus status : hiveFileStatuses) {
-            allFiles.addAll(FileSplitter.splitFile(status.getPath(), getRealFileSplitSize(status.getBlockSize()),
-                    status.getBlockLocations(), status.getLength(), status.getModificationTime(),
-                    status.isSplittable(), status.getPartitionValues(),
+            allFiles.addAll(fileSplitter.splitFile(
+                    status.getPath(),
+                    sessionVariable.getFileSplitSize(),
+                    status.getBlockLocations(),
+                    status.getLength(),
+                    status.getModificationTime(),
+                    status.isSplittable(),
+                    status.getPartitionValues(),
                     new HiveSplitCreator(status.getAcidInfo())));
         }
     }
