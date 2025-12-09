@@ -40,23 +40,46 @@ namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 static constexpr size_t INIT_PAGE_HEADER_SIZE = 128;
 
-std::unique_ptr<PageReader> create_page_reader(io::BufferedStreamReader* reader,
-                                               io::IOContext* io_ctx, uint64_t offset,
-                                               uint64_t length, int64_t num_values,
-                                               const tparquet::OffsetIndex* offset_index) {
-    if (offset_index) {
-        return std::make_unique<PageReaderWithOffsetIndex>(reader, io_ctx, offset, length,
-                                                           num_values, offset_index);
-    } else {
-        return std::make_unique<PageReader>(reader, io_ctx, offset, length);
+//template<bool IN_COLLECTION>
+//std::unique_ptr<PageReader<IN_COLLECTION>> create_page_reader(io::BufferedStreamReader* reader,
+//                                               io::IOContext* io_ctx, uint64_t offset,
+//                                               uint64_t length, size_t total_rows,
+//                                               const tparquet::OffsetIndex* offset_index) {
+//    if (offset_index) {
+//        return std::make_unique<PageReaderWithOffsetIndex<IN_COLLECTION>>(reader, io_ctx, offset, length, total_rows,
+//                                                           num_values, offset_index);
+//    } else {
+//        return std::make_unique<PageReader<IN_COLLECTION>>(
+//                reader, io_ctx, offset, length);
+//    }
+//}
+
+template<bool IN_COLLECTION, bool OFFSET_INDEX>
+PageReader<IN_COLLECTION,OFFSET_INDEX>::PageReader(io::BufferedStreamReader* reader, io::IOContext* io_ctx, uint64_t offset,
+                       uint64_t length,size_t total_rows,
+                                                   const tparquet::OffsetIndex* offset_index)
+        : _reader(reader), _io_ctx(io_ctx),_offset(offset), _start_offset(offset),
+        _end_offset(offset + length),_total_rows(total_rows), _offset_index(offset_index) {
+    _next_header_offset = _offset;
+    _state = INITIALIZED;
+
+    if constexpr (OFFSET_INDEX) {
+        _end_row = _offset_index->page_locations.size() >= 2 ?
+                   _offset_index->page_locations[1].first_row_index : _total_rows;
     }
 }
 
-PageReader::PageReader(io::BufferedStreamReader* reader, io::IOContext* io_ctx, uint64_t offset,
-                       uint64_t length)
-        : _reader(reader), _io_ctx(io_ctx), _start_offset(offset), _end_offset(offset + length) {}
+//template PageReader<true>::PageReader(io::BufferedStreamReader *reader, io::IOContext *io_ctx,
+//        uint64_t offset, uint64_t length);
+//template PageReader<false>::PageReader(io::BufferedStreamReader *reader, io::IOContext *io_ctx,
+//        uint64_t offset, uint64_t length);
 
-Status PageReader::_parse_page_header() {
+
+template<bool IN_COLLECTION, bool OFFSET_INDEX>
+Status PageReader<IN_COLLECTION,OFFSET_INDEX>::parse_page_header() {
+    if (_state == HEADER_PARSED) {
+        return Status::OK();
+    }
     if (UNLIKELY(_offset < _start_offset || _offset >= _end_offset)) {
         return Status::IOError("Out-of-bounds Access");
     }
@@ -94,6 +117,14 @@ Status PageReader::_parse_page_header() {
         header_size <<= 2;
     }
 
+    if constexpr (OFFSET_INDEX == false) {
+        if (is_header_v2()) {
+            _end_row = _start_row + _cur_page_header.data_page_header_v2.num_rows;
+        } else if constexpr (!IN_COLLECTION) {
+            _end_row = _start_row + _cur_page_header.data_page_header.num_values;
+        }
+    }
+
     _statistics.parse_page_header_num++;
     _offset += real_header_size;
     _next_header_offset = _offset + _cur_page_header.compressed_page_size;
@@ -101,16 +132,24 @@ Status PageReader::_parse_page_header() {
     return Status::OK();
 }
 
-Status PageReader::skip_page() {
-    if (UNLIKELY(_state != HEADER_PARSED)) {
-        return Status::IOError("Should generate page header first to skip current page");
-    }
-    _offset = _next_header_offset;
-    _state = INITIALIZED;
-    return Status::OK();
-}
+//template Status PageReader<true>::_parse_page_header();
+//template Status PageReader<false>::_parse_page_header();
 
-Status PageReader::get_page_data(Slice& slice) {
+//template<bool IN_COLLECTION, bool OFFSET_INDEX>
+//Status PageReader<IN_COLLECTION>::skip_page() {
+//    if (UNLIKELY(_state != HEADER_PARSED)) {
+//        return Status::IOError("Should generate page header first to skip current page");
+//    }
+//    _offset = _next_header_offset;
+//    _state = INITIALIZED;
+//    return Status::OK();
+//}
+
+//template Status PageReader<true>::skip_page();
+//template Status PageReader<false>::skip_page();
+
+template<bool IN_COLLECTION, bool OFFSET_INDEX>
+Status PageReader<IN_COLLECTION,OFFSET_INDEX>::get_page_data(Slice& slice) {
     if (UNLIKELY(_state != HEADER_PARSED)) {
         return Status::IOError("Should generate page header first to load current page data");
     }
@@ -120,9 +159,18 @@ Status PageReader::get_page_data(Slice& slice) {
     slice.size = _cur_page_header.compressed_page_size;
     RETURN_IF_ERROR(_reader->read_bytes(slice, _offset, _io_ctx));
     _offset += slice.size;
-    _state = INITIALIZED;
+    _state = DATA_LOADED;
     return Status::OK();
 }
+
+//template Status PageReader<true>::get_page_data(Slice& slice);
+//template Status PageReader<false>::get_page_data(Slice& slice);
+
+
+template class PageReader<true,true>;
+template class PageReader<true,false>;
+template class PageReader<false,true>;
+template class PageReader<false,false>;
 #include "common/compile_check_end.h"
 
 } // namespace doris::vectorized
