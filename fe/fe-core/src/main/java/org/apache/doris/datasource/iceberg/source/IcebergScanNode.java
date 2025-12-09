@@ -103,7 +103,7 @@ public class IcebergScanNode extends FileQueryScanNode {
     private boolean tableLevelPushDownCount = false;
     private long countFromSnapshot;
     private static final long COUNT_WITH_PARALLEL_SPLITS = 10000;
-    private long targetSplitSize;
+    private long targetSplitSize = 0;
     // This is used to avoid repeatedly calculating partition info map for the same partition data.
     private Map<PartitionData, Map<String, String>> partitionMapInfos;
     private boolean isPartitionedTable;
@@ -155,7 +155,6 @@ public class IcebergScanNode extends FileQueryScanNode {
     @Override
     protected void doInitialize() throws UserException {
         icebergTable = source.getIcebergTable();
-        targetSplitSize = getRealFileSplitSize(0);
         partitionMapInfos = new HashMap<>();
         isPartitionedTable = icebergTable.spec().isPartitioned();
         formatVersion = ((BaseTable) icebergTable).operations().current().formatVersion();
@@ -358,8 +357,10 @@ public class IcebergScanNode extends FileQueryScanNode {
     }
 
     private CloseableIterable<FileScanTask> planFileScanTask(TableScan scan) {
-        long targetSplitSize = getRealFileSplitSize(0);
-        return TableScanUtil.splitFiles(scan.planFiles(), targetSplitSize);
+        CloseableIterable<FileScanTask> iter = scan.planFiles();
+        targetSplitSize = scan.targetSplitSize();
+        return TableScanUtil.splitFiles(iter, sessionVariable.fileSplitSize > 0 ? sessionVariable.fileSplitSize :
+                targetSplitSize);
     }
 
     private Split createIcebergSplit(FileScanTask fileScanTask) {

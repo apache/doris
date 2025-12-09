@@ -94,6 +94,8 @@ public abstract class FileQueryScanNode extends FileScanNode {
 
     protected TableScanParams scanParams;
 
+    protected FileSplitter fileSplitter;
+
     /**
      * External file scan node for Query hms table
      * needCheckColumnPriv: Some of ExternalFileScanNode do not need to check column priv
@@ -134,6 +136,8 @@ public abstract class FileQueryScanNode extends FileScanNode {
         }
         initBackendPolicy();
         initSchemaParams();
+        fileSplitter = new FileSplitter(sessionVariable.maxInitialSplitSize, sessionVariable.maxSplitSize,
+                sessionVariable.maxInitialSplitNum);
     }
 
     // Init schema (Tuple/Slot) related params.
@@ -591,20 +595,5 @@ public abstract class FileQueryScanNode extends FileScanNode {
             return scan;
         }
         return this.scanParams;
-    }
-
-    /**
-     * The real file split size is determined by:
-     * 1. If user specify the split size in session variable `file_split_size`, use user specified value.
-     * 2. Otherwise, use the max value of DEFAULT_SPLIT_SIZE and block size.
-     * @param blockSize, got from file system, eg, hdfs
-     * @return the real file split size
-     */
-    protected long getRealFileSplitSize(long blockSize) {
-        long realSplitSize = sessionVariable.getFileSplitSize();
-        if (realSplitSize <= 0) {
-            realSplitSize = Math.max(DEFAULT_SPLIT_SIZE, blockSize);
-        }
-        return realSplitSize;
     }
 }
