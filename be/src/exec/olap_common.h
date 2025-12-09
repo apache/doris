@@ -254,8 +254,8 @@ public:
     static ColumnValueRange<primitive_type> create_empty_column_value_range(bool is_nullable_col,
                                                                             int precision,
                                                                             int scale) {
-        return ColumnValueRange<primitive_type>("", TYPE_MAX, TYPE_MIN, is_nullable_col,
-                                                false, precision, scale);
+        return ColumnValueRange<primitive_type>("", TYPE_MAX, TYPE_MIN, is_nullable_col, false,
+                                                precision, scale);
     }
 
 protected:
