@@ -158,6 +158,7 @@ public:
     //If you want to read the file by index instead of column name, set hive_use_column_names to false.
     Status init_reader(
             const std::vector<std::string>* column_names,
+            std::unordered_map<std::string, uint32_t>* col_name_to_block_idx,
             const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
             const VExprContextSPtrs& conjuncts, bool is_acid,
             const TupleDescriptor* tuple_descriptor, const RowDescriptor* row_descriptor,
@@ -727,6 +728,9 @@ private:
 
     std::set<uint64_t> _column_ids;
     std::set<uint64_t> _filter_column_ids;
+
+    // Pointer to external column name to block index mapping (from FileScanner)
+    std::unordered_map<std::string, uint32_t>* _col_name_to_block_idx = nullptr;
 
     VExprSPtrs _push_down_exprs;
 };

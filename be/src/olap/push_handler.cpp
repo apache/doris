@@ -407,8 +407,10 @@ Status PushBrokerReader::init() {
     _io_ctx->query_id = &_runtime_state->query_id();
 
     auto slot_descs = desc_tbl->get_tuple_descriptor(0)->slots();
+    uint32_t idx = 0;
     for (auto& slot_desc : slot_descs) {
         _all_col_names.push_back(to_lower((slot_desc->col_name())));
+        _col_name_to_block_idx.insert({to_lower(slot_desc->col_name()), idx++});
     }
 
     RETURN_IF_ERROR(_init_expr_ctxes());
@@ -656,8 +658,8 @@ Status PushBrokerReader::_get_next_reader() {
                         _io_ctx.get(), _runtime_state.get());
 
         init_status = parquet_reader->init_reader(
-                _all_col_names, _colname_to_value_range, _push_down_exprs, _real_tuple_desc,
-                _default_val_row_desc.get(), _col_name_to_slot_id,
+                _all_col_names, &_col_name_to_block_idx, _colname_to_value_range, _push_down_exprs,
+                _real_tuple_desc, _default_val_row_desc.get(), _col_name_to_slot_id,
                 &_not_single_slot_filter_conjuncts, &_slot_id_to_filter_conjuncts,
                 vectorized::TableSchemaChangeHelper::ConstNode::get_instance(), false);
         _cur_reader = std::move(parquet_reader);

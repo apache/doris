@@ -115,6 +115,7 @@ public:
 
     Status init_reader(
             const std::vector<std::string>& all_column_names,
+            std::unordered_map<std::string, uint32_t>* col_name_to_block_idx,
             const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
             const VExprContextSPtrs& conjuncts, const TupleDescriptor* tuple_descriptor,
             const RowDescriptor* row_descriptor,
@@ -334,6 +335,8 @@ private:
 
     // for page index filter. slot id => expr
     std::map<int, VExprSPtrs> _push_down_simple_expr;
+
+    std::unordered_map<std::string, uint32_t>* _col_name_to_block_idx = nullptr;
 };
 #include "common/compile_check_end.h"
 

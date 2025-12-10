@@ -66,6 +66,7 @@ public:
 
     Status init_reader(
             const std::vector<std::string>& read_table_col_names,
+            std::unordered_map<std::string, uint32_t>* col_name_to_block_idx,
             const std::unordered_map<std::string, ColumnValueRangeType>*
                     table_col_name_to_value_range,
             const VExprContextSPtrs& conjuncts, const TupleDescriptor* tuple_descriptor,
@@ -79,10 +80,10 @@ public:
                 _params, _range.table_format_params.paimon_params.schema_id, tuple_descriptor,
                 orc_type_ptr));
 
-        return orc_reader->init_reader(&read_table_col_names, table_col_name_to_value_range,
-                                       conjuncts, false, tuple_descriptor, row_descriptor,
-                                       not_single_slot_filter_conjuncts,
-                                       slot_id_to_filter_conjuncts, table_info_node_ptr);
+        return orc_reader->init_reader(
+                &read_table_col_names, col_name_to_block_idx, table_col_name_to_value_range,
+                conjuncts, false, tuple_descriptor, row_descriptor,
+                not_single_slot_filter_conjuncts, slot_id_to_filter_conjuncts, table_info_node_ptr);
     }
 };
 
@@ -104,6 +105,7 @@ public:
 
     Status init_reader(
             const std::vector<std::string>& read_table_col_names,
+            std::unordered_map<std::string, uint32_t>* col_name_to_block_idx,
             const std::unordered_map<std::string, ColumnValueRangeType>*
                     table_col_name_to_value_range,
             const VExprContextSPtrs& conjuncts, const TupleDescriptor* tuple_descriptor,
@@ -121,10 +123,10 @@ public:
                 _params, _range.table_format_params.paimon_params.schema_id, tuple_descriptor,
                 *field_desc));
 
-        return parquet_reader->init_reader(read_table_col_names, table_col_name_to_value_range,
-                                           conjuncts, tuple_descriptor, row_descriptor,
-                                           colname_to_slot_id, not_single_slot_filter_conjuncts,
-                                           slot_id_to_filter_conjuncts, table_info_node_ptr);
+        return parquet_reader->init_reader(
+                read_table_col_names, col_name_to_block_idx, table_col_name_to_value_range,
+                conjuncts, tuple_descriptor, row_descriptor, colname_to_slot_id,
+                not_single_slot_filter_conjuncts, slot_id_to_filter_conjuncts, table_info_node_ptr);
     }
 };
 #include "common/compile_check_end.h"

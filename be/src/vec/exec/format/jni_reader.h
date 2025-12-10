@@ -68,6 +68,13 @@ public:
         return Status::OK();
     }
 
+    void set_col_name_to_block_idx(
+            const std::unordered_map<std::string, uint32_t>* col_name_to_block_idx) {
+        if (_jni_connector) {
+            _jni_connector->set_col_name_to_block_idx(col_name_to_block_idx);
+        }
+    }
+
 protected:
     void _collect_profile_before_close() override {
         if (_jni_connector) {
