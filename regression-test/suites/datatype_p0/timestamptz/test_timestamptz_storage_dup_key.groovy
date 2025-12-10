@@ -587,7 +587,7 @@ suite("test_timestamptz_storage_dup_key") {
 
     // agg
     qt_min_max_count """
-        SELECT min(ts_tz), max(ts_tz), count(ts_tz), min(ts_tz_value), max(ts_tz_value), count(ts_tz_value) FROM timestamptz_storage_dup_key_no_scale group by value ORDER BY 1;
+        SELECT min(ts_tz), max(ts_tz), count(ts_tz), min(ts_tz_value), max(ts_tz_value), count(ts_tz_value) FROM timestamptz_storage_dup_key_no_scale group by value ORDER BY 1, 2, 3, 4, 5, 6;
     """
     test {
         sql """

@@ -15,8 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import java.time.Instant
+import java.time.ZoneId
+import java.time.ZonedDateTime
 suite("test_timestamptz_bloom_filter") {
-    sql "set time_zone = '+08:00'; "
+    def time_zone = "+08:00"
+    sql "set time_zone = '${time_zone}'; "
 
     sql """
         DROP TABLE IF EXISTS `timestamptz_bloom_filter`;
@@ -33,13 +37,33 @@ suite("test_timestamptz_bloom_filter") {
         );
     """
 
-    sql """INSERT INTO timestamptz_bloom_filter VALUES
-    (1, 'name1', '2023-01-01 12:00:00 +03:00'),
-    (2, 'name2', '2023-02-02 12:00:00 +03:00'),
-    (3, 'name3', '2023-03-03 12:00:00 -05:00');
-    """
+    for (int i = 0; i < 1; ++i) {
 
-    qt_bloom_filter """
-        SELECT * FROM timestamptz_bloom_filter WHERE ts_tz = '2023-02-02 12:00:00 +03:00';
+    streamLoad {
+        table "timestamptz_bloom_filter"
+        file """test_timestamptz_bloom_filter.csv"""
+        set 'column_separator', '|'
+        set 'strict_mode', 'true'
+        set 'max_filter_ratio', '0'
+
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            // def json = parseJson(result)
+            // assertEquals("success", json.Status.toLowerCase())
+            // assertEquals(1003, json.NumberTotalRows)
+            // assertEquals(1003, json.NumberLoadedRows)
+            // assertEquals(0, json.NumberFilteredRows)
+        }
+    }
+    }
+
+    qt_bloom_filter0 """
+        SELECT * FROM timestamptz_bloom_filter WHERE ts_tz = '2000-01-01 00:00:00+08:00' order by 1,2,3;
+    """
+    // RowsBloomFilterFiltered: 4.064K (4064)
+    qt_bloom_filter1 """
+    SELECT * FROM timestamptz_bloom_filter WHERE ts_tz in ('2000-01-01 00:00:00+08:00', '2000-01-01 10:00:00+08:00', '2000-01-01 00:20:00+08:00') order by 1, 2, 3, 4;
     """
 }

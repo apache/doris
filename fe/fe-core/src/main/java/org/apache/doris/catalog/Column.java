@@ -757,6 +757,7 @@ public class Column implements GsonPostProcessable {
             case DATETIME:
                 return 8;
             case DATETIMEV2:
+            case TIMESTAMPTZ:
                 return 8;
             case FLOAT:
                 return 4;

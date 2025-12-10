@@ -1424,6 +1424,9 @@ TEST_F(ScanNormalizePredicate, test_timestamptz_predicate) {
         auto local_state = std::make_shared<MockScanLocalState>(state.get(), op.get());
         ColumnValueRange<TYPE_TIMESTAMPTZ> range("mock", false, 0, test_scale);
         local_state->_slot_id_to_value_range[SlotId] = range;
+        local_state->_slot_id_to_predicates[SlotId] =
+                std::vector<std::shared_ptr<ColumnPredicate>>();
+        op->_slot_id_to_slot_desc[SlotId] = &slot_desc;
 
         auto slot_ref =
                 std::make_shared<MockSlotRef>(0, std::make_shared<DataTypeTimeStampTz>(test_scale));
@@ -1468,6 +1471,9 @@ TEST_F(ScanNormalizePredicate, test_timestamptz_predicate) {
         auto local_state = std::make_shared<MockScanLocalState>(state.get(), op.get());
         ColumnValueRange<TYPE_TIMESTAMPTZ> range("mock", false, 0, test_scale);
         local_state->_slot_id_to_value_range[SlotId] = range;
+        local_state->_slot_id_to_predicates[SlotId] =
+                std::vector<std::shared_ptr<ColumnPredicate>>();
+        op->_slot_id_to_slot_desc[SlotId] = &slot_desc;
         auto slot_ref =
                 std::make_shared<MockSlotRef>(0, std::make_shared<DataTypeTimeStampTz>(test_scale));
         auto ctx = MockInExpr::create_with_ctx(
@@ -1505,6 +1511,9 @@ TEST_F(ScanNormalizePredicate, test_timestamptz_predicate) {
         auto local_state = std::make_shared<MockScanLocalState>(state.get(), op.get());
         ColumnValueRange<TYPE_TIMESTAMPTZ> range("mock", false, 0, test_scale);
         local_state->_slot_id_to_value_range[SlotId] = range;
+        local_state->_slot_id_to_predicates[SlotId] =
+                std::vector<std::shared_ptr<ColumnPredicate>>();
+        op->_slot_id_to_slot_desc[SlotId] = &slot_desc;
         auto slot_ref =
                 std::make_shared<MockSlotRef>(0, std::make_shared<DataTypeTimeStampTz>(test_scale));
         auto fn_eq = MockFnCall::create("ne");
@@ -1533,6 +1542,9 @@ TEST_F(ScanNormalizePredicate, test_timestamptz_predicate) {
         auto local_state = std::make_shared<MockScanLocalState>(state.get(), op.get());
         ColumnValueRange<TYPE_TIMESTAMPTZ> range("mock", false, 0, test_scale);
         local_state->_slot_id_to_value_range[SlotId] = range;
+        local_state->_slot_id_to_predicates[SlotId] =
+                std::vector<std::shared_ptr<ColumnPredicate>>();
+        op->_slot_id_to_slot_desc[SlotId] = &slot_desc;
         auto slot_ref =
                 std::make_shared<MockSlotRef>(0, std::make_shared<DataTypeTimeStampTz>(test_scale));
         auto ctx = MockInExpr::create_with_ctx(
@@ -1558,6 +1570,9 @@ TEST_F(ScanNormalizePredicate, test_timestamptz_predicate) {
         auto local_state = std::make_shared<MockScanLocalState>(state.get(), op.get());
         ColumnValueRange<TYPE_TIMESTAMPTZ> range("mock", true, 0, test_scale);
         local_state->_slot_id_to_value_range[SlotId] = range;
+        // local_state->_slot_id_to_predicates[SlotId] =
+        //         std::vector<std::shared_ptr<ColumnPredicate>>();
+        // op->_slot_id_to_slot_desc[SlotId] = &slot_desc;
         auto slot_ref = std::make_shared<MockSlotRef>(
                 0, std::make_shared<DataTypeNullable>(
                            std::make_shared<DataTypeTimeStampTz>(test_scale)));
@@ -1594,6 +1609,9 @@ TEST_F(ScanNormalizePredicate, test_timestamptz_predicate) {
         auto local_state = std::make_shared<MockScanLocalState>(state.get(), op.get());
         ColumnValueRange<TYPE_TIMESTAMPTZ> range("mock", true, 0, test_scale);
         local_state->_slot_id_to_value_range[SlotId] = range;
+        local_state->_slot_id_to_predicates[SlotId] =
+                std::vector<std::shared_ptr<ColumnPredicate>>();
+        op->_slot_id_to_slot_desc[SlotId] = &slot_desc;
         auto slot_ref = std::make_shared<MockSlotRef>(
                 0, std::make_shared<DataTypeNullable>(
                            std::make_shared<DataTypeTimeStampTz>(test_scale)));
@@ -1630,6 +1648,9 @@ TEST_F(ScanNormalizePredicate, test_timestamptz_predicate) {
         auto local_state = std::make_shared<MockScanLocalState>(state.get(), op.get());
         ColumnValueRange<TYPE_TIMESTAMPTZ> range("mock", false, 0, test_scale);
         local_state->_slot_id_to_value_range[SlotId] = range;
+        local_state->_slot_id_to_predicates[SlotId] =
+                std::vector<std::shared_ptr<ColumnPredicate>>();
+        op->_slot_id_to_slot_desc[SlotId] = &slot_desc;
 
         auto slot_ref =
                 std::make_shared<MockSlotRef>(0, std::make_shared<DataTypeTimeStampTz>(test_scale));
@@ -1688,6 +1709,8 @@ TEST_F(ScanNormalizePredicate, test_timestamptz_predicate) {
         auto local_state = std::make_shared<MockScanLocalState>(state.get(), op.get());
         ColumnValueRange<TYPE_TIMESTAMPTZ> range("mock", false, 0, test_scale);
         local_state->_slot_id_to_value_range[SlotId] = range;
+        local_state->_slot_id_to_predicates[SlotId] =
+                std::vector<std::shared_ptr<ColumnPredicate>>();
 
         auto slot_ref =
                 std::make_shared<MockSlotRef>(0, std::make_shared<DataTypeTimeStampTz>(test_scale));
@@ -1743,6 +1766,8 @@ TEST_F(ScanNormalizePredicate, test_timestamptz_predicate) {
         auto local_state = std::make_shared<MockScanLocalState>(state.get(), op.get());
         ColumnValueRange<TYPE_TIMESTAMPTZ> range("mock", false, 0, test_scale);
         local_state->_slot_id_to_value_range[SlotId] = range;
+        local_state->_slot_id_to_predicates[SlotId] =
+                std::vector<std::shared_ptr<ColumnPredicate>>();
 
         auto slot_ref =
                 std::make_shared<MockSlotRef>(0, std::make_shared<DataTypeTimeStampTz>(test_scale));
@@ -1801,6 +1826,8 @@ TEST_F(ScanNormalizePredicate, test_timestamptz_predicate) {
         auto local_state = std::make_shared<MockScanLocalState>(state.get(), op.get());
         ColumnValueRange<TYPE_TIMESTAMPTZ> range("mock", false, 0, test_scale);
         local_state->_slot_id_to_value_range[SlotId] = range;
+        local_state->_slot_id_to_predicates[SlotId] =
+                std::vector<std::shared_ptr<ColumnPredicate>>();
 
         auto slot_ref =
                 std::make_shared<MockSlotRef>(0, std::make_shared<DataTypeTimeStampTz>(test_scale));
