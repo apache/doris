@@ -23,6 +23,7 @@ import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.SessionContext;
+import org.apache.doris.datasource.operations.ExternalMetadataOperations;
 import org.apache.doris.datasource.property.metastore.AbstractPaimonProperties;
 
 import org.apache.commons.lang3.exception.ExceptionUtils;
@@ -62,6 +63,7 @@ public class PaimonExternalCatalog extends ExternalCatalog {
         catalogType = paimonProperties.getPaimonCatalogType();
         catalog = createCatalog();
         initPreExecutionAuthenticator();
+        metadataOps = ExternalMetadataOperations.newPaimonMetaOps(this, catalog);
     }
 
     @Override
@@ -74,14 +76,6 @@ public class PaimonExternalCatalog extends ExternalCatalog {
     public String getCatalogType() {
         makeSureInitialized();
         return catalogType;
-    }
-
-    protected List<String> listDatabaseNames() {
-        try {
-            return executionAuthenticator.execute(() -> new ArrayList<>(catalog.listDatabases()));
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to list databases names, catalog name: " + getName(), e);
-        }
     }
 
     @Override
