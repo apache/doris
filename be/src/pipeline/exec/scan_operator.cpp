@@ -1333,27 +1333,17 @@ Status ScanOperatorX<LocalStateType>::init(const TPlanNode& tnode, RuntimeState*
         _topn_filter_source_node_ids = tnode.topn_filter_source_node_ids;
     }
 
-    // The first branch is kept for compatibility with the old version of the FE
-    if (!query_options.__isset.enable_adaptive_pipeline_task_serial_read_on_limit) {
-        if (!tnode.__isset.conjuncts || tnode.conjuncts.empty()) {
-            // Which means the request could be fullfilled in a single segment iterator request.
+    // Which means the request could be fullfilled in a single segment iterator request.
+    // the unique_table has a condition of delete_sign = 0 awalys, so it's not have plan for one instance to scan table,
+    // now add some check for unique_table let running only one instance for select limit n.
+    if (query_options.enable_adaptive_pipeline_task_serial_read_on_limit) {
+        DCHECK(query_options.__isset.adaptive_pipeline_task_serial_read_on_limit);
+        if (!tnode.__isset.conjuncts || tnode.conjuncts.empty() ||
+            (tnode.conjuncts.size() == 1 && tnode.__isset.olap_scan_node &&
+             tnode.olap_scan_node.keyType == TKeysType::UNIQUE_KEYS)) {
             if (tnode.limit > 0 &&
-                tnode.limit <= ADAPTIVE_PIPELINE_TASK_SERIAL_READ_ON_LIMIT_DEFAULT) {
+                tnode.limit <= query_options.adaptive_pipeline_task_serial_read_on_limit) {
                 _should_run_serial = true;
-            }
-        }
-    } else {
-        // The set of enable_adaptive_pipeline_task_serial_read_on_limit
-        // is checked in previous branch.
-        if (query_options.enable_adaptive_pipeline_task_serial_read_on_limit) {
-            DCHECK(query_options.__isset.adaptive_pipeline_task_serial_read_on_limit);
-            if (!tnode.__isset.conjuncts || tnode.conjuncts.empty() ||
-                (tnode.conjuncts.size() == 1 && tnode.__isset.olap_scan_node &&
-                 tnode.olap_scan_node.keyType == TKeysType::UNIQUE_KEYS)) {
-                if (tnode.limit > 0 &&
-                    tnode.limit <= query_options.adaptive_pipeline_task_serial_read_on_limit) {
-                    _should_run_serial = true;
-                }
             }
         }
     }
