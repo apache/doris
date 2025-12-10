@@ -28,7 +28,6 @@ import org.apache.doris.common.util.FileFormatUtils;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.ExternalUtil;
 import org.apache.doris.datasource.FileQueryScanNode;
-import org.apache.doris.datasource.FileSplitter;
 import org.apache.doris.datasource.credentials.CredentialUtils;
 import org.apache.doris.datasource.credentials.VendedCredentialsFactory;
 import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
@@ -287,6 +286,8 @@ public class PaimonScanNode extends FileQueryScanNode {
             dataSplits.add((DataSplit) split);
         }
 
+        long fileSplitSize = determineFileSplitSize(dataSplits, isBatchMode());
+
         boolean applyCountPushdown = getPushDownAggNoGroupingOp() == TPushAggOp.COUNT;
         // Used to avoid repeatedly calculating partition info map for the same
         // partition data.
@@ -333,7 +334,7 @@ public class PaimonScanNode extends FileQueryScanNode {
                     try {
                         List<Split> dorisSplits = fileSplitter.splitFile(
                                 locationPath,
-                                sessionVariable.getFileSplitSize(),
+                                fileSplitSize,
                                 null,
                                 file.length(),
                                 -1,
@@ -387,6 +388,27 @@ public class PaimonScanNode extends FileQueryScanNode {
 
         this.selectedPartitionNum = partitionInfoMaps.size();
         return splits;
+    }
+
+    private long determineFileSplitSize(List<DataSplit> dataSplits,
+            boolean isBatchMode) {
+        long result = sessionVariable.getFileSplitSize();
+        long totalFileSize = 0;
+        if (sessionVariable.getFileSplitSize() <= 0 && !isBatchMode) {
+            result = sessionVariable.getMaxInitialSplitSize();
+            for (DataSplit dataSplit : dataSplits) {
+                List<RawFile> rawFiles = dataSplit.convertToRawFiles().get();
+                for (RawFile rawFile : rawFiles) {
+                    totalFileSize += rawFile.fileSize();
+                    if (totalFileSize
+                            >= sessionVariable.getMaxSplitSize() * sessionVariable.getMaxInitialSplitNum()) {
+                        result = sessionVariable.getMaxSplitSize();
+                        break;
+                    }
+                }
+            }
+        }
+        return result;
     }
 
     @VisibleForTesting

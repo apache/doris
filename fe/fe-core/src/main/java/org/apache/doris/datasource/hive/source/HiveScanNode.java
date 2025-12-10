@@ -186,7 +186,7 @@ public class HiveScanNode extends FileQueryScanNode {
                     .getMetaStoreCache((HMSExternalCatalog) hmsTable.getCatalog());
             String bindBrokerName = hmsTable.getCatalog().bindBrokerName();
             List<Split> allFiles = Lists.newArrayList();
-            getFileSplitByPartitions(cache, prunedPartitions, allFiles, bindBrokerName, numBackends);
+            getFileSplitByPartitions(cache, prunedPartitions, allFiles, bindBrokerName, numBackends, false);
             if (ConnectContext.get().getExecutor() != null) {
                 ConnectContext.get().getExecutor().getSummaryProfile().setGetPartitionFilesFinishTime();
             }
@@ -226,7 +226,8 @@ public class HiveScanNode extends FileQueryScanNode {
                         try {
                             List<Split> allFiles = Lists.newArrayList();
                             getFileSplitByPartitions(
-                                    cache, Collections.singletonList(partition), allFiles, bindBrokerName, numBackends);
+                                    cache, Collections.singletonList(partition), allFiles, bindBrokerName,
+                                    numBackends, true);
                             if (allFiles.size() > numSplitsPerPartition.get()) {
                                 numSplitsPerPartition.set(allFiles.size());
                             }
@@ -277,7 +278,8 @@ public class HiveScanNode extends FileQueryScanNode {
     }
 
     private void getFileSplitByPartitions(HiveMetaStoreCache cache, List<HivePartition> partitions,
-            List<Split> allFiles, String bindBrokerName, int numBackends) throws IOException, UserException {
+            List<Split> allFiles, String bindBrokerName, int numBackends,
+            boolean isBatchMode) throws IOException, UserException {
         List<FileCacheValue> fileCaches;
         if (hiveTransaction != null) {
             try {
@@ -293,9 +295,11 @@ public class HiveScanNode extends FileQueryScanNode {
             fileCaches = cache.getFilesByPartitions(partitions, withCache, partitions.size() > 1,
                     directoryLister, hmsTable);
         }
+
+        long fileSplitSize = determineFileSplitSize(fileCaches, isBatchMode);
         if (tableSample != null) {
             List<HiveMetaStoreCache.HiveFileStatus> hiveFileStatuses = selectFiles(fileCaches);
-            splitAllFiles(allFiles, hiveFileStatuses);
+            splitAllFiles(allFiles, hiveFileStatuses, fileSplitSize);
             return;
         }
 
@@ -319,15 +323,17 @@ public class HiveScanNode extends FileQueryScanNode {
             int parallelNum = sessionVariable.getParallelExecInstanceNum();
             needSplit = FileSplitter.needSplitForCountPushdown(parallelNum, numBackends, totalFileNum);
         }
+
         for (HiveMetaStoreCache.FileCacheValue fileCacheValue : fileCaches) {
             if (fileCacheValue.getFiles() == null) {
                 continue;
             }
             boolean isSplittable = fileCacheValue.isSplittable();
+
             for (HiveMetaStoreCache.HiveFileStatus status : fileCacheValue.getFiles()) {
                 allFiles.addAll(fileSplitter.splitFile(
                         status.getPath(),
-                        sessionVariable.getFileSplitSize(),
+                        fileSplitSize,
                         status.getBlockLocations(),
                         status.getLength(),
                         status.getModificationTime(),
@@ -338,12 +344,35 @@ public class HiveScanNode extends FileQueryScanNode {
         }
     }
 
+    private long determineFileSplitSize(List<FileCacheValue> fileCaches,
+            boolean isBatchMode) {
+        long result = sessionVariable.getFileSplitSize();
+        long totalFileSize = 0;
+        if (sessionVariable.getFileSplitSize() <= 0 && !isBatchMode) {
+            result = sessionVariable.getMaxInitialSplitSize();
+            for (HiveMetaStoreCache.FileCacheValue fileCacheValue : fileCaches) {
+                if (fileCacheValue.getFiles() == null) {
+                    continue;
+                }
+                for (HiveMetaStoreCache.HiveFileStatus status : fileCacheValue.getFiles()) {
+                    totalFileSize += status.getLength();
+                    if (totalFileSize >= sessionVariable.getMaxSplitSize() * sessionVariable.getMaxInitialSplitNum()) {
+                        result = sessionVariable.getMaxSplitSize();
+                        break;
+                    }
+                }
+            }
+        }
+        return result;
+    }
+
     private void splitAllFiles(List<Split> allFiles,
-                               List<HiveMetaStoreCache.HiveFileStatus> hiveFileStatuses) throws IOException {
+                               List<HiveMetaStoreCache.HiveFileStatus> hiveFileStatuses,
+            long realFileSplitSize) throws IOException {
         for (HiveMetaStoreCache.HiveFileStatus status : hiveFileStatuses) {
             allFiles.addAll(fileSplitter.splitFile(
                     status.getPath(),
-                    sessionVariable.getFileSplitSize(),
+                    realFileSplitSize,
                     status.getBlockLocations(),
                     status.getLength(),
                     status.getModificationTime(),
