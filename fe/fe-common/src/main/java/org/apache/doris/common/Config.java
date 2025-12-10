@@ -2303,6 +2303,36 @@ public class Config extends ConfigBase {
     })
     public static long external_cache_refresh_time_minutes = 10; // 10 mins
 
+    @ConfField(description = {
+                    "是否启用 Iceberg Manifest 缓存",
+                    "Whether to enable Iceberg Manifest cache."
+    })
+    public static boolean enable_iceberg_manifest_cache = true;
+
+    @ConfField(description = {
+                    "Iceberg Manifest 缓存过期时间（秒）",
+                    "Iceberg Manifest cache expiration time in seconds."
+    })
+    public static long iceberg_manifest_cache_ttl_sec = 3600; // 1 hour
+
+    @ConfField(description = {
+                    "DataFile 缓存内存使用比例（相对于 JVM 最大内存）",
+                    "DataFile cache memory usage ratio relative to JVM max memory."
+    })
+    public static double iceberg_data_file_cache_memory_usage_ratio = 0.01; // 1%
+
+    @ConfField(description = {
+                    "DeleteFile 缓存内存使用比例（相对于 JVM 最大内存）",
+                    "DeleteFile cache memory usage ratio relative to JVM max memory."
+    })
+    public static double iceberg_delete_file_cache_memory_usage_ratio = 0.005; // 0.5%
+
+    @ConfField(description = {
+                    "是否缓存 DataFile 的统计信息（会增加内存占用）",
+                    "Whether to cache DataFile metrics (will increase memory usage)."
+    })
+    public static boolean iceberg_data_file_cache_with_metrics = false;
+
     /**
      * Github workflow test type, for setting some session variables
      * only for certain test type. E.g. only settting batch_size to small

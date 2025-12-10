@@ -56,6 +56,7 @@ public class IcebergMetadataCache {
     private final LoadingCache<IcebergMetadataCacheKey, Table> tableCache;
     private final LoadingCache<IcebergMetadataCacheKey, IcebergSnapshotCacheValue> snapshotCache;
     private final LoadingCache<IcebergMetadataCacheKey, View> viewCache;
+    private final IcebergManifestCache manifestCache;
 
     public IcebergMetadataCache(ExecutorService executor) {
         CacheFactory snapshotListCacheFactory = new CacheFactory(
@@ -82,6 +83,7 @@ public class IcebergMetadataCache {
                 null);
         this.snapshotCache = snapshotCacheFactory.buildCache(key -> loadSnapshot(key), executor);
         this.viewCache = tableCacheFactory.buildCache(key -> loadView(key), executor);
+        this.manifestCache = new IcebergManifestCache(executor);
     }
 
     public Table getIcebergTable(ExternalTable dorisTable) {
@@ -222,6 +224,10 @@ public class IcebergMetadataCache {
                             && key.nameMapping.getLocalTblName().equals(tblName);
                 })
                 .forEach(entry -> viewCache.invalidate(entry.getKey()));
+
+        // Invalidate manifest cache
+        String tableName = catalogId + "." + dbName + "." + tblName;
+        manifestCache.invalidateTableCache(tableName);
     }
 
     public void invalidateDbCache(long catalogId, String dbName) {
@@ -327,5 +333,13 @@ public class IcebergMetadataCache {
     public View getIcebergView(ExternalTable dorisTable) {
         IcebergMetadataCacheKey key = new IcebergMetadataCacheKey(dorisTable.getOrBuildNameMapping());
         return viewCache.get(key);
+    }
+
+    public IcebergManifestCache getManifestCache() {
+        return manifestCache;
+    }
+
+    public Map<String, Map<String, String>> getManifestCacheStats() {
+        return manifestCache.getCacheStats();
     }
 }
