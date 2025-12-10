@@ -1,0 +1,216 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.datasource.paimon;
+
+import org.apache.doris.common.DdlException;
+import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.CatalogFactory;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.commands.CreateCatalogCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+
+import com.google.common.collect.Maps;
+import org.apache.paimon.catalog.Catalog;
+import org.apache.paimon.catalog.Catalog.TableNotExistException;
+import org.apache.paimon.catalog.FileSystemCatalog;
+import org.apache.paimon.catalog.Identifier;
+import org.apache.paimon.hive.HiveCatalog;
+import org.apache.paimon.table.Table;
+import org.apache.paimon.types.BigIntType;
+import org.apache.paimon.types.DataField;
+import org.apache.paimon.types.DateType;
+import org.apache.paimon.types.DecimalType;
+import org.apache.paimon.types.DoubleType;
+import org.apache.paimon.types.FloatType;
+import org.apache.paimon.types.IntType;
+import org.apache.paimon.types.TimestampType;
+import org.apache.paimon.types.VarCharType;
+import org.junit.Assert;
+import org.junit.BeforeClass;
+import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.UUID;
+
+public class IcebergMetadataOpsTest {
+    public static PaimonExternalCatalog paimonCatalog;
+    public static PaimonMetadataOps ops;
+    public static String dbName = "testdb";
+
+    @BeforeClass
+    public static void beforeClass() throws Throwable {
+        HashMap<String, String> param = new HashMap<>();
+        param.put("type", "paimon");
+        param.put("paimon.catalog.type", "hms");
+        // create catalog
+        CreateCatalogCommand createCatalogCommand = new CreateCatalogCommand("paimon", true, "", "comment", param);
+        paimonCatalog = (PaimonExternalCatalog) CatalogFactory.createFromCommand(1, createCatalogCommand);
+        paimonCatalog.makeSureInitialized();
+        // create db
+        ops = new PaimonMetadataOps(paimonCatalog, paimonCatalog.catalog);
+        ops.createDb(dbName, true, Maps.newHashMap());
+    }
+
+    @Test
+    public void testSimpleTable() throws UserException, TableNotExistException {
+        Identifier identifier = new Identifier(dbName, getTableName());
+        String sql = "create table " + dbName + "." + getTableName() + " (id int) engine = paimon";
+        createTable(sql);
+        Catalog catalog = ops.getCatalog();
+        Table table = catalog.getTable(identifier);
+        List<String> columnNames = new ArrayList<>();
+        if (catalog instanceof HiveCatalog) {
+            columnNames.addAll(((HiveCatalog) catalog).loadTableSchema(identifier).fieldNames());
+        } else if (catalog instanceof FileSystemCatalog) {
+            columnNames.addAll(((FileSystemCatalog) catalog).loadTableSchema(identifier).fieldNames());
+        }
+
+        if (!columnNames.isEmpty()) {
+            Assert.assertEquals(1, columnNames.size());
+        }
+        Assert.assertEquals(0, table.partitionKeys().size());
+    }
+
+    @Test
+    public void testProperties() throws UserException, TableNotExistException {
+        Identifier identifier = new Identifier(dbName, getTableName());
+        String sql = "create table " + dbName + "." + getTableName() + " (id int) engine = paimon properties(\"primary-key\"=id)";
+        createTable(sql);
+        Catalog catalog = ops.getCatalog();
+        Table table = catalog.getTable(identifier);
+
+        List<String> columnNames = new ArrayList<>();
+        if (catalog instanceof HiveCatalog) {
+            columnNames.addAll(((HiveCatalog) catalog).loadTableSchema(identifier).fieldNames());
+        } else if (catalog instanceof FileSystemCatalog) {
+            columnNames.addAll(((FileSystemCatalog) catalog).loadTableSchema(identifier).fieldNames());
+        }
+
+        if (!columnNames.isEmpty()) {
+            Assert.assertEquals(1, columnNames.size());
+        }
+        Assert.assertEquals(0, table.partitionKeys().size());
+        Assert.assertEquals("id", table.options().get("primary-key"));
+        Assert.assertEquals(1, table.primaryKeys().size());
+    }
+
+    @Test
+    public void testType() throws UserException, TableNotExistException {
+        Identifier identifier = new Identifier(dbName, getTableName());
+        String sql = "create table " + dbName + "." + getTableName() + " ("
+                + "c0 int, "
+                + "c1 bigint, "
+                + "c2 float, "
+                + "c3 double, "
+                + "c4 string, "
+                + "c5 date, "
+                + "c6 decimal(20, 10), "
+                + "c7 datetime"
+                + ") engine = paimon "
+                + "properties(\"primary-key\"=c0)";
+        createTable(sql);
+        Catalog catalog = ops.getCatalog();
+        Table table = catalog.getTable(identifier);
+
+        List<DataField> columns = new ArrayList<>();
+        if (catalog instanceof HiveCatalog) {
+            columns.addAll(((HiveCatalog) catalog).loadTableSchema(identifier).fields());
+        } else if (catalog instanceof FileSystemCatalog) {
+            columns.addAll(((FileSystemCatalog) catalog).loadTableSchema(identifier).fields());
+        }
+
+        if (!columns.isEmpty()) {
+            Assert.assertEquals(8, columns.size());
+            Assert.assertEquals(new IntType().asSQLString(), columns.get(0).type().toString());
+            Assert.assertEquals(new BigIntType().asSQLString(), columns.get(1).type().toString());
+            Assert.assertEquals(new FloatType().asSQLString(), columns.get(2).type().toString());
+            Assert.assertEquals(new DoubleType().asSQLString(), columns.get(3).type().toString());
+            Assert.assertEquals(new VarCharType(VarCharType.MAX_LENGTH).asSQLString(), columns.get(4).type().toString());
+            Assert.assertEquals(new DateType().asSQLString(), columns.get(5).type().toString());
+            Assert.assertEquals(new DecimalType(20, 10).asSQLString(), columns.get(6).type().toString());
+            Assert.assertEquals(new TimestampType().asSQLString(), columns.get(7).type().toString());
+        }
+
+        Assert.assertEquals(0, table.partitionKeys().size());
+        Assert.assertEquals("c0", table.options().get("primary-key"));
+        Assert.assertEquals(1, table.primaryKeys().size());
+    }
+
+    @Test
+    public void testPartition() throws UserException, TableNotExistException {
+        Identifier identifier = new Identifier(dbName, getTableName());
+        String sql = "create table " + dbName + "." + getTableName() + " ("
+                + "c0 int, "
+                + "c1 bigint, "
+                + "c2 float, "
+                + "c3 double, "
+                + "c4 string, "
+                + "c5 date, "
+                + "c6 decimal(20, 10), "
+                + "c7 datetime"
+                + ") engine = paimon "
+                + "partition by ("
+                + "c1 )"
+                + "properties(\"primary-key\"=c0)";
+        createTable(sql);
+        Catalog catalog = ops.getCatalog();
+        Table table = catalog.getTable(identifier);
+        Assert.assertEquals(1, table.partitionKeys().size());
+        Assert.assertEquals("c0", table.options().get("primary-key"));
+        Assert.assertEquals(1, table.primaryKeys().size());
+    }
+
+    public void createTable(String sql) throws UserException {
+        LogicalPlan plan = new NereidsParser().parseSingle(sql);
+        Assertions.assertTrue(plan instanceof CreateTableCommand);
+        CreateTableInfo createTableInfo = ((CreateTableCommand) plan).getCreateTableInfo();
+        createTableInfo.setIsExternal(true);
+        createTableInfo.analyzeEngine();
+        ops.createTable(createTableInfo);
+    }
+
+    public String getTableName() {
+        String s = "test_tb_" + UUID.randomUUID();
+        return s.replaceAll("-", "");
+    }
+
+    @Test
+    public void testDropDB() {
+        try {
+            // create db success
+            ops.createDb("t_paimon", false, Maps.newHashMap());
+            // drop db success
+            ops.dropDb("t_paimon", false, false);
+        } catch (Throwable t) {
+            Assert.fail();
+        }
+
+        try {
+            ops.dropDb("t_paimon", false, false);
+            Assert.fail();
+        } catch (Throwable t) {
+            Assert.assertTrue(t instanceof DdlException);
+            Assert.assertTrue(t.getMessage().contains("database doesn't exist"));
+        }
+    }
+}
