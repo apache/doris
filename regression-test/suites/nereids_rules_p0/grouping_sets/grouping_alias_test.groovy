@@ -103,7 +103,12 @@ suite("grouping_alias_test"){
     qt_same_expr_different_alias_in_grouping_grouping_scalar "select id+1 as c1, id+1 as c2, grouping(id+1) from grouping_alias_test_t  group by grouping sets((c1,value2),(id+1,c2)) order by 1,2,3;"
     qt_same_expr_different_alias_in_grouping_agg_func "select id+1 as c1, id+1 as c2 , sum(id+1) from grouping_alias_test_t group by grouping sets((c1,value2),(c2)) order by 1,2,3;"
 
-    qt_same_expr_different_alias_in_grouping_3_expr "select id+1 as c1, id+1 as c2, id+1 as c3,grouping(id+1),sum(id+1) as c3 from grouping_alias_test_t  group by grouping sets((c1,value2),(c2,c3,id+1)) order by 1,2,3;"
+    qt_same_expr_different_alias_in_grouping_3_expr "select id+1 as c1, id+1 as c2, id+1 as c3,grouping(id+1),sum(id+1) as c4 from grouping_alias_test_t  group by grouping sets((c1,value2),(c2,c3,id+1)) order by 1,2,3;"
+
+    test {
+        sql "select id+1 as c1, id+1 as c2, id+1 as c3,grouping(id+1),sum(id+1) as c3 from grouping_alias_test_t  group by grouping sets((c1,value2),(c2,c3,id+1)) order by 1,2,3;"
+        exception "c3 is ambiguous"
+    }
 
     qt_same_expr_one_has_alias_in_grouping_the_other_do_not "select id+1 , id+1 as c2,grouping(id+1),sum(id+1) from grouping_alias_test_t  group by grouping sets((c2,value2),(id+1)) order by 1,2;"
 
