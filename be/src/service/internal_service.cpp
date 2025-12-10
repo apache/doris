@@ -84,6 +84,7 @@
 #include "olap/txn_manager.h"
 #include "olap/wal/wal_manager.h"
 #include "runtime/cache/result_cache.h"
+#include "runtime/cdc_client_manager.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/fold_constant_executor.h"
@@ -129,7 +130,6 @@
 #include "vec/jsonb/serialize.h"
 #include "vec/runtime/vdata_stream_mgr.h"
 #include "vec/sink/vmysql_result_writer.h"
-#include "runtime/cdc_client_manager.h"
 
 namespace google {
 namespace protobuf {
@@ -2407,9 +2407,9 @@ void PInternalService::get_tablet_rowsets(google::protobuf::RpcController* contr
 }
 
 void PInternalService::request_cdc_client(google::protobuf::RpcController* controller,
-                                            const PRequestCdcClientRequest* request,
-                                            PRequestCdcClientResult* result,
-                                            google::protobuf::Closure* done) {
+                                          const PRequestCdcClientRequest* request,
+                                          PRequestCdcClientResult* result,
+                                          google::protobuf::Closure* done) {
     bool ret = _heavy_work_pool.try_offer([this, request, result, done]() {
         _exec_env->cdc_client_mgr()->request_cdc_client_impl(request, result, done);
     });

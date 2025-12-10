@@ -37,16 +37,13 @@ public:
 
     void stop();
 
-    // Request CDC client to handle a request 
+    // Request CDC client to handle a request
     void request_cdc_client_impl(const PRequestCdcClientRequest* request,
-                                 PRequestCdcClientResult* result,
-                                 google::protobuf::Closure* done);
+                                 PRequestCdcClientResult* result, google::protobuf::Closure* done);
 
 private:
-    Status send_request_to_cdc_client(const std::string& api,
-                                            const std::string& params_body,
-                                            std::string* response);
+    Status send_request_to_cdc_client(const std::string& api, const std::string& params_body,
+                                      std::string* response);
 };
 
 } // namespace doris
-

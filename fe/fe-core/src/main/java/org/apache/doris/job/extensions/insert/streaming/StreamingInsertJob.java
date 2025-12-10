@@ -75,6 +75,7 @@ import org.apache.doris.thrift.TRow;
 import org.apache.doris.transaction.TransactionException;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TxnStateChangeCallback;
+
 import com.google.common.base.Preconditions;
 import com.google.gson.annotations.SerializedName;
 import lombok.Getter;
@@ -82,6 +83,7 @@ import lombok.Setter;
 import lombok.extern.log4j.Log4j2;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
+
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -598,7 +600,8 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         if (this.nonTxnJobStatistic == null) {
             this.nonTxnJobStatistic = new StreamingJobStatistic();
         }
-        this.nonTxnJobStatistic.setScannedRows(this.nonTxnJobStatistic.getScannedRows() + offsetRequest.getScannedRows());
+        this.nonTxnJobStatistic
+                .setScannedRows(this.nonTxnJobStatistic.getScannedRows() + offsetRequest.getScannedRows());
         this.nonTxnJobStatistic.setLoadBytes(this.nonTxnJobStatistic.getLoadBytes() + offsetRequest.getScannedBytes());
         offsetProvider.updateOffset(offsetProvider.deserializeOffset(offsetRequest.getOffset()));
     }
@@ -640,7 +643,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         if (replayJob.getOffsetProviderPersist() != null) {
             setOffsetProviderPersist(replayJob.getOffsetProviderPersist());
         }
-        if (replayJob.getNonTxnJobStatistic() != null){
+        if (replayJob.getNonTxnJobStatistic() != null) {
             setNonTxnJobStatistic(replayJob.getNonTxnJobStatistic());
         }
         setExecuteSql(replayJob.getExecuteSql());

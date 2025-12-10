@@ -356,7 +356,8 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
      * Assign the HW value to the synchronized Split,
      * and remove the Split from remainSplit and place it in finishedSplit.
      */
-    private SnapshotSplit recalculateRemainingSplits(Map<String, Map<String, Map<String, String>>> chunkHighWatermarkMap,
+    private SnapshotSplit recalculateRemainingSplits(
+            Map<String, Map<String, Map<String, String>>> chunkHighWatermarkMap,
             Map<String, List<SnapshotSplit>> snapshotSplits) {
         if (this.finishedSplits == null) {
             this.finishedSplits = new ArrayList<>();

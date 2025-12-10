@@ -47,9 +47,9 @@ void handle_sigchld(int sig_no) {
 
 // Check CDC client health
 Status check_cdc_client_health(int retry_times, int sleep_time, std::string& health_response) {
-    const std::string cdc_health_url = "http://127.0.0.1:" +
-                                       std::to_string(doris::config::cdc_client_port) +
-                                       "/actuator/health";
+    const std::string cdc_health_url =
+            "http://127.0.0.1:" + std::to_string(doris::config::cdc_client_port) +
+            "/actuator/health";
 
     auto health_request = [cdc_health_url, &health_response](HttpClient* client) {
         RETURN_IF_ERROR(client->init(cdc_health_url));
@@ -69,7 +69,7 @@ Status check_cdc_client_health(int retry_times, int sleep_time, std::string& hea
 
     if (!is_up) {
         return Status::InternalError(fmt::format("CDC client unhealthy: url={}, response={}",
-                                                  cdc_health_url, health_response));
+                                                 cdc_health_url, health_response));
     }
 
     return Status::OK();
@@ -78,7 +78,7 @@ Status check_cdc_client_health(int retry_times, int sleep_time, std::string& hea
 // Start CDC client process
 Status start_cdc_client(PRequestCdcClientResult* result) {
     Status st = Status::OK();
-    
+
     // Check DORIS_HOME environment variable
     const char* doris_home = getenv("DORIS_HOME");
     if (!doris_home) {
@@ -88,7 +88,7 @@ Status start_cdc_client(PRequestCdcClientResult* result) {
         }
         return st;
     }
-    
+
     // Check LOG_DIR environment variable
     const char* log_dir = getenv("LOG_DIR");
     if (!log_dir) {
@@ -98,12 +98,14 @@ Status start_cdc_client(PRequestCdcClientResult* result) {
         }
         return st;
     }
-    
+
     const std::string cdc_jar_path = std::string(doris_home) + "/lib/cdc_client/cdc-client.jar";
-    const std::string cdc_jar_port = "--server.port=" + std::to_string(doris::config::cdc_client_port);
-    const std::string backend_http_port = "--backend.http.port=" + std::to_string(config::webserver_port);
+    const std::string cdc_jar_port =
+            "--server.port=" + std::to_string(doris::config::cdc_client_port);
+    const std::string backend_http_port =
+            "--backend.http.port=" + std::to_string(config::webserver_port);
     const std::string java_opts = "-Dlog.path=" + std::string(log_dir);
-    
+
     // check cdc jar exists
     struct stat buffer;
     if (stat(cdc_jar_path.c_str(), &buffer) != 0) {
@@ -156,13 +158,13 @@ Status start_cdc_client(PRequestCdcClientResult* result) {
         prctl(PR_SET_PDEATHSIG, SIGKILL);
 #endif
 
-        LOG(INFO) << "Cdc client child process ready to start, " << pid << ", response="
-                  << std::endl;
+        LOG(INFO) << "Cdc client child process ready to start, " << pid
+                  << ", response=" << std::endl;
         std::cout << "Cdc client child process ready to start." << std::endl;
         std::string java_bin = path + "/bin/java";
         // java -jar -Dlog.path=xx cdc-client.jar --server.port=9096 --backend.http.port=8040
         execlp(java_bin.c_str(), "java", java_opts.c_str(), "-jar", cdc_jar_path.c_str(),
-               cdc_jar_port.c_str(), backend_http_port.c_str(),(char*)NULL);
+               cdc_jar_port.c_str(), backend_http_port.c_str(), (char*)NULL);
         std::cerr << "Cdc client child process error." << std::endl;
         exit(1);
     } else {
@@ -198,8 +200,8 @@ void CdcClientManager::stop() {
 }
 
 void CdcClientManager::request_cdc_client_impl(const PRequestCdcClientRequest* request,
-                                                PRequestCdcClientResult* result,
-                                                google::protobuf::Closure* done) {
+                                               PRequestCdcClientResult* result,
+                                               google::protobuf::Closure* done) {
     VLOG_RPC << "request to cdc client, api " << request->api();
     brpc::ClosureGuard closure_guard(done);
 
@@ -217,13 +219,11 @@ void CdcClientManager::request_cdc_client_impl(const PRequestCdcClientRequest* r
     st.to_protobuf(result->mutable_status());
 }
 
-
 Status CdcClientManager::send_request_to_cdc_client(const std::string& api,
-                                                          const std::string& params_body,
-                                                          std::string* response) {
-    std::string remote_url_prefix = fmt::format("http://127.0.0.1:{}{}", 
-                                                  doris::config::cdc_client_port, 
-                                                  api);
+                                                    const std::string& params_body,
+                                                    std::string* response) {
+    std::string remote_url_prefix =
+            fmt::format("http://127.0.0.1:{}{}", doris::config::cdc_client_port, api);
 
     auto cdc_request = [&remote_url_prefix, response, &params_body](HttpClient* client) {
         RETURN_IF_ERROR(client->init(remote_url_prefix));
@@ -241,4 +241,3 @@ Status CdcClientManager::send_request_to_cdc_client(const std::string& api,
 }
 
 } // namespace doris
-
