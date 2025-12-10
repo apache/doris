@@ -959,6 +959,7 @@ Status FSFileCacheStorage::clear(std::string& msg) {
     auto t0 = std::chrono::steady_clock::now();
     for (; key_it != std::filesystem::directory_iterator(); ++key_it) {
         if (!key_it->is_directory()) continue; // all file cache data is in sub-directories
+        if (key_it->path().filename().native() == "meta") continue;
         ++total;
         std::string cache_key = key_it->path().string();
         auto st = global_local_filesystem()->delete_directory(cache_key);
