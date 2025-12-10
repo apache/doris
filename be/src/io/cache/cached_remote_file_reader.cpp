@@ -465,7 +465,10 @@ void CachedRemoteFileReader::prefetch_range(size_t offset, size_t size, const IO
 
     LOG_INFO("[verbose] Submitting prefetch task for offset={} size={}, file={}", offset, size,
              path().filename().native());
-
+    {
+        std::unique_lock l(_parallel_mtx);
+        _parallel_ref++;
+    }
     // Submit async task to prefetch thread pool
     // Note: We use a dummy buffer pointer since dryrun mode doesn't actually write data
     auto st = pool->submit_func([this, offset, size, dryrun_ctx]() {
@@ -476,10 +479,15 @@ void CachedRemoteFileReader::prefetch_range(size_t offset, size_t size, const IO
         (void)this->read_at_impl(offset, dummy_buffer, &bytes_read, &dryrun_ctx);
         LOG_INFO("[verbose] Prefetch task completed for offset={} size={}, file={}", offset, size,
                  path().filename().native());
+        std::unique_lock l(_parallel_mtx);
+        _parallel_ref--;
+        _parallel_cv.notify_one();
     });
 
     // Best-effort: if submission fails, just skip the prefetch
     if (!st.ok()) {
+        std::unique_lock l(_parallel_mtx);
+        _parallel_ref--;
         VLOG_DEBUG << "Failed to submit prefetch task for offset=" << offset << " size=" << size
                    << " error=" << st.to_string();
     }
