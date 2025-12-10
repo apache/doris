@@ -30,7 +30,7 @@ CREATE TABLE `parquet_topn_lazy_complex_table`(
   col2 STRUCT<a: INT, b: ARRAY<INT>>,
   col3 MAP<INT, ARRAY<STRING>>
 ) STORED AS PARQUET LOCATION
-        '/user/doris/preinstalled_data/orc_table/parquet_topn_lazy_complex_table/';
+        '/user/doris/preinstalled_data/parquet_table/parquet_topn_lazy_complex_table/';
 
 CREATE TABLE `parquet_topn_lazy_complex_table_multi_pages`(
   id INT,

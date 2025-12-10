@@ -243,7 +243,8 @@ static Status get_column_values(io::FileReaderSPtr file_reader, tparquet::Column
                     data_column->insert_many_defaults(num_values);
                 } else {
                     std::vector<u_short> null_map = {(u_short)num_values};
-                    RETURN_IF_ERROR(run_length_map.init(null_map, rows, nullptr, &filter_map, 0));
+                    RETURN_IF_ERROR(
+                            run_length_map.init(null_map, num_values, nullptr, &filter_map, 0));
                     RETURN_IF_ERROR(chunk_reader.decode_values(data_column, resolved_type,
                                                                run_length_map, false));
                 }
@@ -258,7 +259,7 @@ static Status get_column_values(io::FileReaderSPtr file_reader, tparquet::Column
             data_column->insert_many_defaults(num_values);
         } else {
             std::vector<u_short> null_map = {(u_short)num_values};
-            RETURN_IF_ERROR(run_length_map.init(null_map, rows, nullptr, &filter_map, 0));
+            RETURN_IF_ERROR(run_length_map.init(null_map, num_values, nullptr, &filter_map, 0));
             RETURN_IF_ERROR(
                     chunk_reader.decode_values(data_column, resolved_type, run_length_map, false));
         }
