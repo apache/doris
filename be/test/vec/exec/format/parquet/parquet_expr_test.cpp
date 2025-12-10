@@ -265,8 +265,10 @@ public:
         TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
         //        auto tuple_desc = desc_tbl->get_tuple_descriptor(0);
         std::vector<std::string> column_names;
+        std::unordered_map<std::string, uint32_t> col_name_to_block_idx;
         for (int i = 0; i < slot_descs.size(); i++) {
             column_names.push_back(slot_descs[i]->col_name());
+            col_name_to_block_idx[slot_descs[i]->col_name()] = i;
         }
         TFileScanRangeParams scan_params;
         TFileRangeDesc scan_range;
@@ -279,8 +281,9 @@ public:
                                                 &ctz, nullptr, nullptr);
         p_reader->set_file_reader(local_file_reader);
         colname_to_slot_id.emplace("int64_col", 2);
-        static_cast<void>(p_reader->init_reader(column_names, {}, tuple_desc, nullptr,
-                                                &colname_to_slot_id, nullptr, nullptr));
+        static_cast<void>(p_reader->init_reader(column_names, &col_name_to_block_idx, {},
+                                                tuple_desc, nullptr, &colname_to_slot_id, nullptr,
+                                                nullptr));
 
         size_t meta_size;
         static_cast<void>(parse_thrift_footer(p_reader->_file_reader, &doris_file_metadata,
