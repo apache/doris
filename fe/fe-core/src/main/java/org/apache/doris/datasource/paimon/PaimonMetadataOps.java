@@ -170,7 +170,7 @@ public class PaimonMetadataOps implements ExternalMetadataOps {
                 LOG.info("drop table[{}] which does not exist", tableName);
                 return;
             } else {
-                ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_TABLE, dBName, tableName);
+                ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_TABLE, tableName, dBName);
             }
         }
         try {
@@ -253,7 +253,7 @@ public class PaimonMetadataOps implements ExternalMetadataOps {
     @Override
     public boolean databaseExist(String dbName) {
         try {
-            executionAuthenticator.execute(() -> {
+            return executionAuthenticator.execute(() -> {
                 try {
                     catalog.getDatabase(dbName);
                     return true;
@@ -261,7 +261,6 @@ public class PaimonMetadataOps implements ExternalMetadataOps {
                     return false;
                 }
             });
-            return false;
         } catch (Exception e) {
             throw new RuntimeException("Failed to check database exist, error message is:" + e.getMessage(), e);
         }
