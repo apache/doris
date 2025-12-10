@@ -458,6 +458,7 @@ supportedShowStatement
         (FROM |IN) tableName=multipartIdentifier
         ((FROM | IN) database=multipartIdentifier)?                                 #showIndex
     | SHOW WARM UP JOB wildWhere?                                                   #showWarmUpJob
+    | SHOW FRONTEND MASTER                                                              #showFrontendMaster
     ;
 
 supportedLoadStatement

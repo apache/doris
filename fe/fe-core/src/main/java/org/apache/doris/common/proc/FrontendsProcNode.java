@@ -22,6 +22,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.DiskUtils;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.FeDiskInfo;
 import org.apache.doris.system.Frontend;
@@ -241,5 +242,37 @@ public class FrontendsProcNode implements ProcNodeInterface {
             }
         }
         return false;
+    }
+
+    /**
+     * build frontend info
+     */
+    public static void buildFrontendInfo(Frontend fe, List<String> info) {
+        info.add(fe.getNodeName());
+        info.add(fe.getHost());
+        info.add(Integer.toString(fe.getEditLogPort()));
+        info.add(Integer.toString(Config.http_port));
+        if (fe.getHost().equals(Env.getCurrentEnv().getSelfNode().getHost())) {
+            info.add(Integer.toString(Config.query_port));
+            info.add(Integer.toString(Config.rpc_port));
+            info.add(Integer.toString(Config.arrow_flight_sql_port));
+        } else {
+            info.add(Integer.toString(fe.getQueryPort()));
+            info.add(Integer.toString(fe.getRpcPort()));
+            info.add(Integer.toString(fe.getArrowFlightSqlPort()));
+        }
+        info.add(fe.getRole().name());
+        info.add(String.valueOf(FrontendNodeType.MASTER.equals(fe.getRole())));
+        info.add(Integer.toString(Env.getCurrentEnv().getClusterId()));
+        info.add(String.valueOf(true));
+        info.add(String.valueOf(fe.isAlive()));
+        info.add(Long.toString(fe.getReplayedJournalId()));
+        info.add(TimeUtils.longToTimeString(fe.getLastStartupTime()));
+        info.add(TimeUtils.longToTimeString(fe.getLastUpdateTime()));
+        info.add(String.valueOf(false));
+        info.add(fe.getHeartbeatErrMsg());
+        info.add(fe.getVersion());
+        info.add("Yes");
+        info.add(TimeUtils.longToTimeString(fe.getLiveSince()));
     }
 }

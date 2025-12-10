@@ -25,6 +25,7 @@ import org.apache.doris.common.ConfigBase;
 import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.ThreadPoolManager;
+import org.apache.doris.common.proc.FrontendsProcNode;
 import org.apache.doris.common.proc.ProcResult;
 import org.apache.doris.common.proc.ProcService;
 import org.apache.doris.common.util.NetUtils;
@@ -59,6 +60,7 @@ import lombok.Getter;
 import lombok.Setter;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -712,6 +714,19 @@ public class NodeAction extends RestBaseController {
             return ResponseEntityBuilder.okWithCommonError(e.getMessage());
         }
         return ResponseEntityBuilder.ok();
+    }
+
+    @GetMapping("/frontend/master")
+    public Object frontendMaster(HttpServletRequest request, HttpServletResponse response) {
+        List<List<String>> infos = Lists.newArrayList();
+        List<Frontend> masters = Env.getCurrentEnv().getFrontends(FrontendNodeType.MASTER);
+        if (!masters.isEmpty()) {
+            Frontend masterFe = masters.get(0);
+            List<String> info = Lists.newArrayList();
+            FrontendsProcNode.buildFrontendInfo(masterFe, info);
+            infos.add(info);
+        }
+        return ResponseEntityBuilder.ok(infos);
     }
 
     private Collection<Pair<String, Integer>> parseBrokerHostPort(List<String> hostPortList) throws AnalysisException {
