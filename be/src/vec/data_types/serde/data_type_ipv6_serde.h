@@ -44,11 +44,7 @@ public:
             : DataTypeNumberSerDe<PrimitiveType::TYPE_IPV6>(nesting_level) {};
 
     Status write_column_to_mysql_binary(const IColumn& column, MysqlRowBinaryBuffer& row_buffer,
-                                        int64_t row_idx, bool col_const,
-                                        const FormatOptions& options) const override;
-    Status write_column_to_mysql_text(const IColumn& column, MysqlRowTextBuffer& row_buffer,
-                                      int64_t row_idx, bool col_const,
-                                      const FormatOptions& options) const override;
+                                        int64_t row_idx, bool col_const) const override;
     Status serialize_one_cell_to_json(const IColumn& column, int64_t row_num, BufferWritable& bw,
                                       FormatOptions& options) const override;
     Status deserialize_one_cell_from_json(IColumn& column, Slice& slice,
@@ -83,12 +79,6 @@ public:
 
     void write_one_cell_to_binary(const IColumn& src_column, ColumnString::Chars& chars,
                                   int64_t row_num) const override;
-
-private:
-    template <bool is_binary_format>
-    Status _write_column_to_mysql(const IColumn& column, MysqlRowBuffer<is_binary_format>& result,
-                                  int64_t row_idx, bool col_const,
-                                  const FormatOptions& options) const;
 };
 } // namespace vectorized
 } // namespace doris

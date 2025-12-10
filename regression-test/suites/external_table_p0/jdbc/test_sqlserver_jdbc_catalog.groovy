@@ -98,6 +98,25 @@ suite("test_sqlserver_jdbc_catalog", "p0,external,sqlserver,external_docker,exte
 
         order_qt_sql """ show databases from ${catalog_name} """
 
+
+        sql """ drop catalog if exists test_sqlserver_jdbc_catalog_binary """
+
+        sql """ create catalog if not exists test_sqlserver_jdbc_catalog_binary properties(
+                    "type"="jdbc",
+                    "user"="sa",
+                    "password"="Doris123456",
+                    "jdbc_url" = "jdbc:sqlserver://${externalEnvIp}:${sqlserver_port};encrypt=false;databaseName=doris_test;trustServerCertificate=false",
+                    "driver_url" = "${driver_url}",
+                    "driver_class" = "com.microsoft.sqlserver.jdbc.SQLServerDriver",
+                    "enable.mapping.varbinary" = "true"
+        );"""
+        sql """ switch test_sqlserver_jdbc_catalog_binary """
+        sql """ use ${ex_db_name} """
+
+        order_qt_desc """ desc test_binary;  """
+        order_qt_query """ select * from test_binary order by id; """
+        sql """ insert into test_binary values (4, 4, X"ABAB", X"AB") """
+        order_qt_query_after_insert """ select * from test_binary order by id; """
         sql """ drop catalog if exists ${catalog_name} """
     }
 }

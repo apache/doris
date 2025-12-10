@@ -49,6 +49,11 @@ private:
         std::vector<std::string> column_names = {
                 "o_orderkey",      "o_custkey", "o_orderstatus",  "o_totalprice", "o_orderdate",
                 "o_orderpriority", "o_clerk",   "o_shippriority", "o_comment"};
+        std::unordered_map<std::string, uint32_t> col_name_to_block_idx = {
+                {"o_orderkey", 0},   {"o_custkey", 1},      {"o_orderstatus", 2},
+                {"o_totalprice", 3}, {"o_orderdate", 4},    {"o_orderpriority", 5},
+                {"o_clerk", 6},      {"o_shippriority", 7}, {"o_comment", 8},
+        };
         ObjectPool object_pool;
         DescriptorTblBuilder builder(&object_pool);
         builder.declare_tuple()
@@ -79,8 +84,8 @@ private:
         range.start_offset = 0;
         range.size = 1293;
         auto reader = OrcReader::create_unique(params, range, "", nullptr, &cache, true);
-        auto status = reader->init_reader(&column_names, nullptr, {}, false, tuple_desc, &row_desc,
-                                          nullptr, nullptr);
+        auto status = reader->init_reader(&column_names, &col_name_to_block_idx, {}, false,
+                                          tuple_desc, &row_desc, nullptr, nullptr);
         EXPECT_TRUE(status.ok());
 
         // deserialize expr

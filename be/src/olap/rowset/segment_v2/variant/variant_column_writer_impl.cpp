@@ -31,9 +31,12 @@
 #include "olap/rowset/rowset_fwd.h"
 #include "olap/rowset/rowset_writer_context.h"
 #include "olap/rowset/segment_v2/column_writer.h"
+#include "olap/rowset/segment_v2/indexed_column_writer.h"
 #include "olap/segment_loader.h"
 #include "olap/tablet_schema.h"
+#include "olap/types.h"
 #include "util/simd/bits.h"
+#include "util/slice.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_variant.h"
@@ -88,7 +91,6 @@ Status _create_column_writer(uint32_t cid, const TabletColumn& column,
     }
     opt->need_zone_map = tablet_schema->keys_type() != KeysType::AGG_KEYS;
     opt->need_bloom_filter = column.is_bf_column();
-    opt->need_bitmap_index = column.has_bitmap_index();
     const auto& parent_index = tablet_schema->inverted_indexs(column.parent_unique_id());
 
     // init inverted index
@@ -124,7 +126,6 @@ Status _create_column_writer(uint32_t cid, const TabletColumn& column,
     if (column.type() == FieldType::OLAP_FIELD_TYPE_##TYPE) { \
         opt->need_zone_map = false;                           \
         opt->need_bloom_filter = false;                       \
-        opt->need_bitmap_index = false;                       \
     }
 
     DISABLE_INDEX_IF_FIELD_TYPE(ARRAY, "array")
@@ -458,6 +459,9 @@ Status VariantColumnWriterImpl::_process_subcolumns(vectorized::ColumnVariant* p
     };
     _subcolumns_indexes.resize(ptr->get_subcolumns().size());
     // convert sub column data from engine format to storage layer format
+    // NOTE: We only keep up to variant_max_subcolumns_count as extracted columns; others are externalized.
+    // uint32_t extracted = 0;
+    // uint32_t extract_limit = _tablet_column->variant_max_subcolumns_count();
     for (const auto& entry :
          vectorized::schema_util::get_sorted_subcolumns(ptr->get_subcolumns())) {
         const auto& least_common_type = entry->data.get_least_common_type();
@@ -471,7 +475,7 @@ Status VariantColumnWriterImpl::_process_subcolumns(vectorized::ColumnVariant* p
         }
         CHECK(entry->data.is_finalized());
 
-        // create subcolumn writer
+        // create subcolumn writer if under limit; otherwise externalize ColumnMetaPB via IndexedColumn
         int current_column_id = column_id++;
         TabletColumn tablet_column;
         int64_t none_null_value_size = entry->data.get_non_null_value_size();
@@ -672,15 +676,6 @@ Status VariantColumnWriterImpl::write_zone_map() {
     return Status::OK();
 }
 
-Status VariantColumnWriterImpl::write_bitmap_index() {
-    assert(is_finalized());
-    for (int i = 0; i < _subcolumn_writers.size(); ++i) {
-        if (_subcolumn_opts[i].need_bitmap_index) {
-            RETURN_IF_ERROR(_subcolumn_writers[i]->write_bitmap_index());
-        }
-    }
-    return Status::OK();
-}
 Status VariantColumnWriterImpl::write_inverted_index() {
     assert(is_finalized());
     for (int i = 0; i < _subcolumn_writers.size(); ++i) {
@@ -816,9 +811,6 @@ Status VariantSubcolumnWriter::write_zone_map() {
     return Status::OK();
 }
 
-Status VariantSubcolumnWriter::write_bitmap_index() {
-    return Status::OK();
-}
 Status VariantSubcolumnWriter::write_inverted_index() {
     assert(is_finalized());
     if (_opts.need_inverted_index) {

@@ -67,6 +67,7 @@ public abstract class JdbcClient {
     protected boolean isOnlySpecifiedDatabase;
     protected Map<String, Boolean> includeDatabaseMap;
     protected Map<String, Boolean> excludeDatabaseMap;
+    protected boolean enableMappingVarbinary;
 
     public static JdbcClient createJdbcClient(JdbcClientConfig jdbcClientConfig) {
         String dbType = parseDbType(jdbcClientConfig.getJdbcUrl());
@@ -111,6 +112,7 @@ public abstract class JdbcClient {
         this.dbType = parseDbType(jdbcUrl);
         initializeClassLoader(jdbcClientConfig);
         initializeDataSource(jdbcClientConfig);
+        this.enableMappingVarbinary = jdbcClientConfig.isEnableMappingVarbinary();
     }
 
     protected void setJdbcDriverSystemProperties() {

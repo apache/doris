@@ -33,6 +33,7 @@ import org.apache.doris.nereids.trees.expressions.functions.ai.Embed;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Abs;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Acos;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Acosh;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.AddTime;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.AesDecrypt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.AesEncrypt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.AppendTrailingCharIfAbsent;
@@ -130,6 +131,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapXorCoun
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Cardinality;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Cbrt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ceil;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Century;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Char;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CharacterLength;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Coalesce;
@@ -175,6 +177,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.DaysDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DaysSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Dceil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DecodeAsVarchar;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.DeduplicateMap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Degrees;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Dexp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Dfloor;
@@ -475,6 +478,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.StructElement
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SubBinary;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SubBitmap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SubReplace;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.SubTime;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Substring;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SubstringIndex;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Tan;
@@ -501,6 +505,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ToIso8601;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToJson;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToMonday;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToQuantileState;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ToSeconds;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Tokenize;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.TopLevelDomain;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Translate;
@@ -570,6 +575,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(AIMask.class, "ai_mask"),
             scalar(AISummarize.class, "ai_summarize"),
             scalar(AISimilarity.class, "ai_similarity"),
+            scalar(AddTime.class, "add_time"),
             scalar(AesDecrypt.class, "aes_decrypt"),
             scalar(AesEncrypt.class, "aes_encrypt"),
             scalar(AppendTrailingCharIfAbsent.class, "append_trailing_char_if_absent"),
@@ -667,6 +673,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Cardinality.class, "array_size", "cardinality", "size"),
             scalar(Cbrt.class, "cbrt"),
             scalar(Ceil.class, "ceil", "ceiling"),
+            scalar(Century.class, "century"),
             scalar(Char.class, "char"),
             scalar(CharacterLength.class, "char_length", "character_length"),
             scalar(Coalesce.class, "coalesce"),
@@ -710,6 +717,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(DaysSub.class, "days_sub", "date_sub", "subdate"),
             scalar(Dceil.class, "dceil"),
             scalar(DecodeAsVarchar.class, "decode_as_varchar"),
+            scalar(DeduplicateMap.class, "deduplicate_map"),
             scalar(Degrees.class, "degrees"),
             scalar(Dexp.class, "dexp"),
             scalar(Dfloor.class, "dfloor"),
@@ -1023,6 +1031,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(SubBitmap.class, "sub_bitmap"),
             scalar(SubReplace.class, "sub_replace"),
             scalar(Substring.class, "substr", "substring", "mid"),
+            scalar(SubTime.class, "sub_time"),
             scalar(SubstringIndex.class, "substring_index"),
             scalar(Tan.class, "tan"),
             scalar(Tanh.class, "tanh"),
@@ -1050,6 +1059,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(ToMonday.class, "to_monday"),
             scalar(TopLevelDomain.class, "top_level_domain"),
             scalar(ToQuantileState.class, "to_quantile_state"),
+            scalar(ToSeconds.class, "to_seconds"),
             scalar(Translate.class, "translate"),
             scalar(Trim.class, "trim"),
             scalar(TrimIn.class, "trim_in"),

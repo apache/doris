@@ -736,14 +736,23 @@ void PInternalService::outfile_write_success(google::protobuf::RpcController* co
             }
         }
 
-        auto&& res = FileFactory::create_file_writer(
-                FileFactory::convert_storage_type(result_file_sink.storage_backend_type),
-                ExecEnv::GetInstance(), file_options.broker_addresses,
-                file_options.broker_properties, file_name,
-                {
-                        .write_file_cache = false,
-                        .sync_file_data = false,
-                });
+        auto file_type_res =
+                FileFactory::convert_storage_type(result_file_sink.storage_backend_type);
+        if (!file_type_res.has_value()) [[unlikely]] {
+            st = std::move(file_type_res).error();
+            st.to_protobuf(result->mutable_status());
+            LOG(WARNING) << "encounter unkonw type=" << result_file_sink.storage_backend_type
+                         << ", st=" << st;
+            return;
+        }
+
+        auto&& res = FileFactory::create_file_writer(file_type_res.value(), ExecEnv::GetInstance(),
+                                                     file_options.broker_addresses,
+                                                     file_options.broker_properties, file_name,
+                                                     {
+                                                             .write_file_cache = false,
+                                                             .sync_file_data = false,
+                                                     });
         using T = std::decay_t<decltype(res)>;
         if (!res.has_value()) [[unlikely]] {
             st = std::forward<T>(res).error();
@@ -2119,8 +2128,8 @@ void PInternalService::multiget_data_v2(google::protobuf::RpcController* control
     }
 
     doris::pipeline::TaskScheduler* exec_sched = nullptr;
-    vectorized::SimplifiedScanScheduler* scan_sched = nullptr;
-    vectorized::SimplifiedScanScheduler* remote_scan_sched = nullptr;
+    vectorized::ScannerScheduler* scan_sched = nullptr;
+    vectorized::ScannerScheduler* remote_scan_sched = nullptr;
     wg->get_query_scheduler(&exec_sched, &scan_sched, &remote_scan_sched);
     DCHECK(remote_scan_sched);
 

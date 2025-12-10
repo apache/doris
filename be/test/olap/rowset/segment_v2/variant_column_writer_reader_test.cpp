@@ -15,7 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <atomic>
+#include <thread>
+
 #include "gtest/gtest.h"
+#include "olap/rowset/segment_v2/column_meta_accessor.h"
 #include "olap/rowset/segment_v2/column_reader.h"
 #include "olap/rowset/segment_v2/column_reader_cache.h"
 #include "olap/rowset/segment_v2/variant/hierarchical_data_iterator.h"
@@ -64,13 +68,16 @@ class MockColumnReaderCache : public segment_v2::ColumnReaderCache {
 public:
     MockColumnReaderCache(const SegmentFooterPB& footer, const io::FileReaderSPtr& file_reader,
                           const std::shared_ptr<TabletSchema>& tablet_schema)
-            : ColumnReaderCache(nullptr),
+            : ColumnReaderCache(nullptr, nullptr, nullptr, 0,
+                                [](std::shared_ptr<SegmentFooterPB>&, OlapReaderStatistics*) {
+                                    return Status::OK();
+                                }),
               _footer(footer),
               _file_reader(file_reader),
               _tablet_schema(tablet_schema) {}
 
     Status get_path_column_reader(
-            uint32_t col_uid, vectorized::PathInData relative_path,
+            int32_t col_uid, vectorized::PathInData relative_path,
             std::shared_ptr<segment_v2::ColumnReader>* column_reader, OlapReaderStatistics* stats,
             const SubcolumnColumnMetaInfo::Node* node_hint = nullptr) override {
         DCHECK(node_hint != nullptr);
@@ -97,6 +104,30 @@ private:
     const io::FileReaderSPtr& _file_reader;
     const std::shared_ptr<TabletSchema>& _tablet_schema;
 };
+
+// Helper to create a root VariantColumnReader using ColumnMetaAccessor, which
+// hides inline vs external column meta layout (V2 vs V3).
+static Status create_variant_root_reader(const SegmentFooterPB& footer,
+                                         const io::FileReaderSPtr& file_reader,
+                                         const TabletSchemaSPtr& tablet_schema,
+                                         std::shared_ptr<segment_v2::ColumnReader>* out) {
+    segment_v2::ColumnMetaAccessor accessor;
+    RETURN_IF_ERROR(accessor.init(footer, file_reader));
+
+    segment_v2::ColumnReaderOptions opts;
+    opts.kept_in_memory = false;
+    opts.be_exec_version = BeExecVersionManager::get_newest_version();
+    opts.tablet_schema = tablet_schema;
+
+    auto variant_reader = std::make_shared<segment_v2::VariantColumnReader>();
+    int32_t root_uid = tablet_schema->column(0).unique_id();
+    auto footer_sp = std::make_shared<SegmentFooterPB>();
+    footer_sp->CopyFrom(footer);
+    RETURN_IF_ERROR(variant_reader->init(opts, &accessor, footer_sp, root_uid, footer.num_rows(),
+                                         file_reader));
+    *out = std::move(variant_reader);
+    return Status::OK();
+}
 
 class VariantColumnWriterReaderTest : public testing::Test {
 public:
@@ -210,6 +241,10 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_normal) {
 
     // 2. create tablet
     TabletMetaSharedPtr tablet_meta(new TabletMeta(_tablet_schema));
+    bool external_segment_meta_used_default = rand() % 2 == 0;
+    std::cout << "external_segment_meta_used_default: " << external_segment_meta_used_default
+              << std::endl;
+    _tablet_schema->set_external_segment_meta_used_default(external_segment_meta_used_default);
     tablet_meta->_tablet_id = 10000;
     _tablet = std::make_shared<Tablet>(*_engine_ref, tablet_meta, _data_dir.get());
 
@@ -283,10 +318,9 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_normal) {
     io::FileReaderSPtr file_reader;
     st = io::global_local_filesystem()->open_file(file_path, &file_reader);
     EXPECT_TRUE(st.ok()) << st.msg();
-    ColumnReaderOptions read_opts;
-    read_opts.tablet_schema = _tablet_schema;
     std::shared_ptr<ColumnReader> column_reader;
-    st = ColumnReader::create(read_opts, footer, 0, 1000, file_reader, &column_reader);
+    // create root variant reader using ColumnMetaAccessor (supports inline/external meta)
+    st = create_variant_root_reader(footer, file_reader, _tablet_schema, &column_reader);
     EXPECT_TRUE(st.ok()) << st.msg();
 
     MockColumnReaderCache column_reader_cache(footer, file_reader, _tablet_schema);
@@ -348,7 +382,7 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_normal) {
     {
         auto iter = assert_cast<HierarchicalDataIterator*>(it.get());
         std::shared_ptr<ColumnReader> column_reader1;
-        st = ColumnReader::create(read_opts, footer, 0, 1000, file_reader, &column_reader1);
+        st = create_variant_root_reader(footer, file_reader, _tablet_schema, &column_reader1);
         EXPECT_TRUE(st.ok()) << st.msg();
         std::cout << "hier:" << iter->get_current_ordinal() << std::endl;
         //  now we can find exist
@@ -757,6 +791,10 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_advanced) {
 
     // 2. create tablet
     TabletMetaSharedPtr tablet_meta(new TabletMeta(_tablet_schema));
+    bool external_segment_meta_used_default = rand() % 2 == 0;
+    std::cout << "external_segment_meta_used_default: " << external_segment_meta_used_default
+              << std::endl;
+    _tablet_schema->set_external_segment_meta_used_default(external_segment_meta_used_default);
     tablet_meta->_tablet_id = 10000;
     _tablet = std::make_shared<Tablet>(*_engine_ref, tablet_meta, _data_dir.get());
     EXPECT_TRUE(_tablet->init().ok());
@@ -829,10 +867,8 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_advanced) {
     io::FileReaderSPtr file_reader;
     st = io::global_local_filesystem()->open_file(file_path, &file_reader);
     EXPECT_TRUE(st.ok()) << st.msg();
-    ColumnReaderOptions read_opts;
-    read_opts.tablet_schema = _tablet_schema;
     std::shared_ptr<ColumnReader> column_reader;
-    st = ColumnReader::create(read_opts, footer, 0, 1000, file_reader, &column_reader);
+    st = create_variant_root_reader(footer, file_reader, _tablet_schema, &column_reader);
     EXPECT_TRUE(st.ok()) << st.msg();
 
     auto variant_column_reader = assert_cast<VariantColumnReader*>(column_reader.get());
@@ -953,6 +989,10 @@ TEST_F(VariantColumnWriterReaderTest, test_write_sub_index) {
 
     // 2. create tablet
     TabletMetaSharedPtr tablet_meta(new TabletMeta(_tablet_schema));
+    bool external_segment_meta_used_default = rand() % 2 == 0;
+    std::cout << "external_segment_meta_used_default: " << external_segment_meta_used_default
+              << std::endl;
+    _tablet_schema->set_external_segment_meta_used_default(external_segment_meta_used_default);
     tablet_meta->_tablet_id = 10000;
     _tablet = std::make_shared<Tablet>(*_engine_ref, tablet_meta, _data_dir.get());
     EXPECT_TRUE(_tablet->init().ok());
@@ -1005,8 +1045,6 @@ TEST_F(VariantColumnWriterReaderTest, test_write_sub_index) {
     EXPECT_TRUE(st.ok()) << st.msg();
     st = vw->write_bloom_filter_index();
     EXPECT_TRUE(st.ok()) << st.msg();
-    st = vw->write_bitmap_index();
-    EXPECT_TRUE(st.ok()) << st.msg();
     EXPECT_TRUE(file_writer->close().ok());
     footer.set_num_rows(10);
 
@@ -1027,6 +1065,10 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_nullable) {
 
     // 2. create tablet
     TabletMetaSharedPtr tablet_meta(new TabletMeta(_tablet_schema));
+    bool external_segment_meta_used_default = rand() % 2 == 0;
+    std::cout << "external_segment_meta_used_default: " << external_segment_meta_used_default
+              << std::endl;
+    _tablet_schema->set_external_segment_meta_used_default(external_segment_meta_used_default);
     tablet_meta->_tablet_id = 10000;
     _tablet = std::make_shared<Tablet>(*_engine_ref, tablet_meta, _data_dir.get());
     EXPECT_TRUE(_tablet->init().ok());
@@ -1127,10 +1169,8 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_nullable) {
     io::FileReaderSPtr file_reader;
     st = io::global_local_filesystem()->open_file(file_path, &file_reader);
     EXPECT_TRUE(st.ok()) << st.msg();
-    ColumnReaderOptions read_opts;
-    read_opts.tablet_schema = _tablet_schema;
     std::shared_ptr<ColumnReader> column_reader;
-    st = ColumnReader::create(read_opts, footer, 0, 1000, file_reader, &column_reader);
+    st = create_variant_root_reader(footer, file_reader, _tablet_schema, &column_reader);
     EXPECT_TRUE(st.ok()) << st.msg();
 
     auto variant_column_reader = assert_cast<VariantColumnReader*>(column_reader.get());
@@ -1178,6 +1218,10 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_nullable_without_finalize)
 
     // 2. create tablet
     TabletMetaSharedPtr tablet_meta(new TabletMeta(_tablet_schema));
+    bool external_segment_meta_used_default = rand() % 2 == 0;
+    std::cout << "external_segment_meta_used_default: " << external_segment_meta_used_default
+              << std::endl;
+    _tablet_schema->set_external_segment_meta_used_default(external_segment_meta_used_default);
     tablet_meta->_tablet_id = 10000;
     _tablet = std::make_shared<Tablet>(*_engine_ref, tablet_meta, _data_dir.get());
     EXPECT_TRUE(_tablet->init().ok());
@@ -1269,6 +1313,10 @@ TEST_F(VariantColumnWriterReaderTest, test_write_bm_with_finalize) {
 
     // 2. create tablet
     TabletMetaSharedPtr tablet_meta(new TabletMeta(_tablet_schema));
+    bool external_segment_meta_used_default = rand() % 2 == 0;
+    std::cout << "external_segment_meta_used_default: " << external_segment_meta_used_default
+              << std::endl;
+    _tablet_schema->set_external_segment_meta_used_default(external_segment_meta_used_default);
     tablet_meta->_tablet_id = 10000;
     _tablet = std::make_shared<Tablet>(*_engine_ref, tablet_meta, _data_dir.get());
     EXPECT_TRUE(_tablet->init().ok());
@@ -1340,8 +1388,6 @@ TEST_F(VariantColumnWriterReaderTest, test_write_bm_with_finalize) {
     EXPECT_TRUE(st.ok()) << st.msg();
     st = vw->_impl->finalize();
     EXPECT_TRUE(st.ok()) << st.msg();
-    st = vw->write_bitmap_index();
-    EXPECT_TRUE(st.ok()) << st.msg();
     EXPECT_TRUE(file_writer->close().ok());
     footer.set_num_rows(1000);
 
@@ -1362,6 +1408,10 @@ TEST_F(VariantColumnWriterReaderTest, test_write_bf_with_finalize) {
 
     // 2. create tablet
     TabletMetaSharedPtr tablet_meta(new TabletMeta(_tablet_schema));
+    bool external_segment_meta_used_default = rand() % 2 == 0;
+    std::cout << "external_segment_meta_used_default: " << external_segment_meta_used_default
+              << std::endl;
+    _tablet_schema->set_external_segment_meta_used_default(external_segment_meta_used_default);
     tablet_meta->_tablet_id = 10000;
     _tablet = std::make_shared<Tablet>(*_engine_ref, tablet_meta, _data_dir.get());
     EXPECT_TRUE(_tablet->init().ok());
@@ -1455,6 +1505,10 @@ TEST_F(VariantColumnWriterReaderTest, test_write_zm_with_finalize) {
 
     // 2. create tablet
     TabletMetaSharedPtr tablet_meta(new TabletMeta(_tablet_schema));
+    bool external_segment_meta_used_default = rand() % 2 == 0;
+    std::cout << "external_segment_meta_used_default: " << external_segment_meta_used_default
+              << std::endl;
+    _tablet_schema->set_external_segment_meta_used_default(external_segment_meta_used_default);
     tablet_meta->_tablet_id = 10000;
     _tablet = std::make_shared<Tablet>(*_engine_ref, tablet_meta, _data_dir.get());
     EXPECT_TRUE(_tablet->init().ok());
@@ -1548,6 +1602,10 @@ TEST_F(VariantColumnWriterReaderTest, test_write_inverted_with_finalize) {
 
     // 2. create tablet
     TabletMetaSharedPtr tablet_meta(new TabletMeta(_tablet_schema));
+    bool external_segment_meta_used_default = rand() % 2 == 0;
+    std::cout << "external_segment_meta_used_default: " << external_segment_meta_used_default
+              << std::endl;
+    _tablet_schema->set_external_segment_meta_used_default(external_segment_meta_used_default);
     tablet_meta->_tablet_id = 10000;
     _tablet = std::make_shared<Tablet>(*_engine_ref, tablet_meta, _data_dir.get());
     EXPECT_TRUE(_tablet->init().ok());
@@ -1640,6 +1698,10 @@ TEST_F(VariantColumnWriterReaderTest, test_no_sub_in_sparse_column) {
 
     // 2. create tablet
     TabletMetaSharedPtr tablet_meta(new TabletMeta(_tablet_schema));
+    bool external_segment_meta_used_default = rand() % 2 == 0;
+    std::cout << "external_segment_meta_used_default: " << external_segment_meta_used_default
+              << std::endl;
+    _tablet_schema->set_external_segment_meta_used_default(external_segment_meta_used_default);
     tablet_meta->_tablet_id = 10001;
     _tablet = std::make_shared<Tablet>(*_engine_ref, tablet_meta, _data_dir.get());
     EXPECT_TRUE(_tablet->init().ok());
@@ -1721,10 +1783,8 @@ TEST_F(VariantColumnWriterReaderTest, test_no_sub_in_sparse_column) {
     st = io::global_local_filesystem()->open_file(file_path, &file_reader);
     EXPECT_TRUE(st.ok()) << st.msg();
 
-    ColumnReaderOptions reader_opts;
-    reader_opts.tablet_schema = _tablet_schema;
     std::shared_ptr<ColumnReader> reader;
-    st = ColumnReader::create(reader_opts, footer, 0, 1000, file_reader, &reader);
+    st = create_variant_root_reader(footer, file_reader, _tablet_schema, &reader);
     EXPECT_TRUE(st.ok()) << st.msg();
     auto variant_column_reader = assert_cast<VariantColumnReader*>(reader.get());
     EXPECT_TRUE(variant_column_reader != nullptr);
@@ -1771,6 +1831,10 @@ TEST_F(VariantColumnWriterReaderTest, test_prefix_in_sub_and_sparse) {
 
     // 2. create tablet
     TabletMetaSharedPtr tablet_meta(new TabletMeta(_tablet_schema));
+    bool external_segment_meta_used_default = rand() % 2 == 0;
+    std::cout << "external_segment_meta_used_default: " << external_segment_meta_used_default
+              << std::endl;
+    _tablet_schema->set_external_segment_meta_used_default(external_segment_meta_used_default);
     tablet_meta->_tablet_id = 10001;
     _tablet = std::make_shared<Tablet>(*_engine_ref, tablet_meta, _data_dir.get());
     EXPECT_TRUE(_tablet->init().ok());
@@ -1864,10 +1928,8 @@ TEST_F(VariantColumnWriterReaderTest, test_prefix_in_sub_and_sparse) {
     st = io::global_local_filesystem()->open_file(file_path, &file_reader);
     EXPECT_TRUE(st.ok()) << st.msg();
 
-    ColumnReaderOptions reader_opts;
-    reader_opts.tablet_schema = _tablet_schema;
     std::shared_ptr<ColumnReader> reader;
-    st = ColumnReader::create(reader_opts, footer, 0, 1000, file_reader, &reader);
+    st = create_variant_root_reader(footer, file_reader, _tablet_schema, &reader);
     EXPECT_TRUE(st.ok()) << st.msg();
     auto variant_column_reader = assert_cast<VariantColumnReader*>(reader.get());
     EXPECT_TRUE(variant_column_reader != nullptr);
@@ -1916,6 +1978,10 @@ void test_write_variant_column(StorageEngine* _engine_ref, std::string _absolute
 
     // 2. create tablet
     TabletMetaSharedPtr tablet_meta(new TabletMeta(_tablet_schema));
+    bool external_segment_meta_used_default = rand() % 2 == 0;
+    std::cout << "external_segment_meta_used_default: " << external_segment_meta_used_default
+              << std::endl;
+    _tablet_schema->set_external_segment_meta_used_default(external_segment_meta_used_default);
     tablet_meta->_tablet_id = 10000;
     EXPECT_TRUE(io::global_local_filesystem()->delete_directory(_absolute_dir).ok());
     EXPECT_TRUE(io::global_local_filesystem()->create_directory(_absolute_dir).ok());
@@ -2021,11 +2087,8 @@ TEST_F(VariantColumnWriterReaderTest, test_nested_subcolumn) {
     io::FileReaderSPtr file_reader;
     Status st = io::global_local_filesystem()->open_file(file_path, &file_reader);
     EXPECT_TRUE(st.ok()) << st.msg();
-    ColumnReaderOptions read_opts;
-
-    read_opts.tablet_schema = _tablet_schema;
     std::shared_ptr<ColumnReader> column_reader;
-    st = ColumnReader::create(read_opts, footer, 0, 1000, file_reader, &column_reader);
+    st = create_variant_root_reader(footer, file_reader, _tablet_schema, &column_reader);
     EXPECT_TRUE(st.ok()) << st.msg();
 
     auto variant_column_reader = assert_cast<VariantColumnReader*>(column_reader.get());
@@ -2070,10 +2133,11 @@ TEST_F(VariantColumnWriterReaderTest, test_nested_subcolumn) {
 
     ColumnIteratorUPtr nested_column_iter;
     MockColumnReaderCache column_reader_cache(footer, file_reader, _tablet_schema);
+    DataTypePtr nested_storage_type;
 
-    st = variant_column_reader->_new_iterator_with_flat_leaves(&nested_column_iter, target_column,
-                                                               &storageReadOptions, false, false,
-                                                               &column_reader_cache);
+    st = variant_column_reader->_new_iterator_with_flat_leaves(
+            &nested_column_iter, &nested_storage_type, target_column, &storageReadOptions, false,
+            false, &column_reader_cache);
     EXPECT_TRUE(st.ok()) << st.msg();
     // check iter for read_by_rowids, next_batch
     auto nested_iter = assert_cast<DefaultNestedColumnIterator*>(nested_column_iter.get());
@@ -2101,8 +2165,8 @@ TEST_F(VariantColumnWriterReaderTest, test_nested_subcolumn) {
     {
         ColumnIteratorUPtr nested_column_iter11;
         st = variant_column_reader->_new_iterator_with_flat_leaves(
-                &nested_column_iter11, target_column, &storageReadOptions, false, false,
-                &column_reader_cache);
+                &nested_column_iter11, &nested_storage_type, target_column, &storageReadOptions,
+                false, false, &column_reader_cache);
         EXPECT_TRUE(st.ok()) << st.msg();
         st = nested_column_iter11->init(nested_column_iter_opts);
         EXPECT_TRUE(st.ok()) << st.msg();
@@ -2145,9 +2209,9 @@ TEST_F(VariantColumnWriterReaderTest, test_nested_subcolumn) {
             << target_column._column_path->has_nested_part();
 
     ColumnIteratorUPtr nested_column_iter1;
-    st = variant_column_reader->_new_iterator_with_flat_leaves(&nested_column_iter1, target_column,
-                                                               &storageReadOptions, false, false,
-                                                               &column_reader_cache);
+    st = variant_column_reader->_new_iterator_with_flat_leaves(
+            &nested_column_iter1, &nested_storage_type, target_column, &storageReadOptions, false,
+            false, &column_reader_cache);
     EXPECT_TRUE(st.ok()) << st.msg();
     // check iter for read_by_rowids, next_batch
     // dst is array<nullable(string)>
@@ -2165,8 +2229,8 @@ TEST_F(VariantColumnWriterReaderTest, test_nested_subcolumn) {
         // make read by nested_iter1 directly
         ColumnIteratorUPtr nested_column_iter11;
         st = variant_column_reader->_new_iterator_with_flat_leaves(
-                &nested_column_iter11, target_column, &storageReadOptions, false, false,
-                &column_reader_cache);
+                &nested_column_iter11, &nested_storage_type, target_column, &storageReadOptions,
+                false, false, &column_reader_cache);
         EXPECT_TRUE(st.ok()) << st.msg();
         st = nested_column_iter11->init(nested_column_iter_opts);
         EXPECT_TRUE(st.ok()) << st.msg();
@@ -2195,13 +2259,9 @@ TEST_F(VariantColumnWriterReaderTest, test_nested_iter) {
     io::FileReaderSPtr file_reader;
     Status st = io::global_local_filesystem()->open_file(file_path, &file_reader);
     EXPECT_TRUE(st.ok()) << st.msg();
-    ColumnReaderOptions read_opts;
-
-    MockColumnReaderCache column_reader_cache(footer, file_reader, _tablet_schema);
-
-    read_opts.tablet_schema = _tablet_schema;
     std::shared_ptr<ColumnReader> column_reader;
-    st = ColumnReader::create(read_opts, footer, 0, 1000, file_reader, &column_reader);
+    MockColumnReaderCache column_reader_cache(footer, file_reader, _tablet_schema);
+    st = create_variant_root_reader(footer, file_reader, _tablet_schema, &column_reader);
     EXPECT_TRUE(st.ok()) << st.msg();
 
     auto variant_column_reader = assert_cast<VariantColumnReader*>(column_reader.get());
@@ -2352,11 +2412,8 @@ TEST_F(VariantColumnWriterReaderTest, test_nested_iter_nullable) {
     io::FileReaderSPtr file_reader;
     Status st = io::global_local_filesystem()->open_file(file_path, &file_reader);
     EXPECT_TRUE(st.ok()) << st.msg();
-    ColumnReaderOptions read_opts;
-
-    read_opts.tablet_schema = _tablet_schema;
     std::shared_ptr<ColumnReader> column_reader;
-    st = ColumnReader::create(read_opts, footer, 0, 1000, file_reader, &column_reader);
+    st = create_variant_root_reader(footer, file_reader, _tablet_schema, &column_reader);
     EXPECT_TRUE(st.ok()) << st.msg();
 
     auto variant_column_reader = assert_cast<VariantColumnReader*>(column_reader.get());
@@ -2438,6 +2495,10 @@ TEST_F(VariantColumnWriterReaderTest, test_read_with_checksum) {
 
     // 2. create tablet
     TabletMetaSharedPtr tablet_meta(new TabletMeta(_tablet_schema));
+    bool external_segment_meta_used_default = rand() % 2 == 0;
+    std::cout << "external_segment_meta_used_default: " << external_segment_meta_used_default
+              << std::endl;
+    _tablet_schema->set_external_segment_meta_used_default(external_segment_meta_used_default);
     tablet_meta->_tablet_id = 10000;
     _tablet = std::make_shared<Tablet>(*_engine_ref, tablet_meta, _data_dir.get());
 
@@ -2510,10 +2571,8 @@ TEST_F(VariantColumnWriterReaderTest, test_read_with_checksum) {
     io::FileReaderSPtr file_reader;
     st = io::global_local_filesystem()->open_file(file_path, &file_reader);
     EXPECT_TRUE(st.ok()) << st.msg();
-    ColumnReaderOptions read_opts;
-    read_opts.tablet_schema = _tablet_schema;
     std::shared_ptr<ColumnReader> column_reader;
-    st = ColumnReader::create(read_opts, footer, 0, 1000, file_reader, &column_reader);
+    st = create_variant_root_reader(footer, file_reader, _tablet_schema, &column_reader);
     EXPECT_TRUE(st.ok()) << st.msg();
 
     MockColumnReaderCache column_reader_cache(footer, file_reader, _tablet_schema);
@@ -2575,6 +2634,123 @@ TEST_F(VariantColumnWriterReaderTest, test_read_with_checksum) {
             EXPECT_EQ(value, "3");
         }
     }
+}
+
+// Concurrently trigger external meta loading and subcolumn meta access to guard against
+// data races between `load_external_meta_once` writer and readers like
+// `get_subcolumn_meta_by_path` / `get_metadata_size`. This roughly simulates the
+// production crash stack where one thread was loading external meta while another
+// thread was reading from `_subcolumns_meta_info`.
+TEST_F(VariantColumnWriterReaderTest, test_concurrent_load_external_meta_and_get_subcolumn_meta) {
+    // 1. create tablet_schema
+    TabletSchemaPB schema_pb;
+    schema_pb.set_keys_type(KeysType::DUP_KEYS);
+    construct_column(schema_pb.add_column(), 1, "VARIANT", "V1");
+    _tablet_schema = std::make_shared<TabletSchema>();
+    _tablet_schema->init_from_pb(schema_pb);
+
+    // 2. create tablet with external segment meta explicitly enabled so that
+    // VariantColumnReader builds a VariantExternalMetaReader.
+    TabletMetaSharedPtr tablet_meta(new TabletMeta(_tablet_schema));
+    bool external_segment_meta_used_default = true;
+    _tablet_schema->set_external_segment_meta_used_default(external_segment_meta_used_default);
+    tablet_meta->_tablet_id = 20000;
+    _tablet = std::make_shared<Tablet>(*_engine_ref, tablet_meta, _data_dir.get());
+
+    EXPECT_TRUE(_tablet->init().ok());
+    EXPECT_TRUE(io::global_local_filesystem()->delete_directory(_tablet->tablet_path()).ok());
+    EXPECT_TRUE(io::global_local_filesystem()->create_directory(_tablet->tablet_path()).ok());
+
+    // 3. create file_writer
+    io::FileWriterPtr file_writer;
+    auto file_path = local_segment_path(_tablet->tablet_path(), "0", 0);
+    auto st = io::global_local_filesystem()->create_file(file_path, &file_writer);
+    EXPECT_TRUE(st.ok()) << st.msg();
+
+    // 4. create column_writer
+    SegmentFooterPB footer;
+    ColumnWriterOptions opts;
+    opts.meta = footer.add_columns();
+    opts.compression_type = CompressionTypePB::LZ4;
+    opts.file_writer = file_writer.get();
+    opts.footer = &footer;
+    RowsetWriterContext rowset_ctx;
+    rowset_ctx.write_type = DataWriteType::TYPE_DIRECT;
+    opts.rowset_ctx = &rowset_ctx;
+    opts.rowset_ctx->tablet_schema = _tablet_schema;
+    TabletColumn column = _tablet_schema->column(0);
+    _init_column_meta(opts.meta, 0, column, CompressionTypePB::LZ4);
+
+    std::unique_ptr<ColumnWriter> writer;
+    EXPECT_TRUE(ColumnWriter::create(opts, &column, file_writer.get(), &writer).ok());
+    EXPECT_TRUE(writer->init().ok());
+    EXPECT_TRUE(assert_cast<VariantColumnWriter*>(writer.get()) != nullptr);
+
+    // 5. write a small amount of data to build some subcolumns
+    auto olap_data_convertor = std::make_unique<vectorized::OlapBlockDataConvertor>();
+    auto block = _tablet_schema->create_block();
+    auto column_object = (*std::move(block.get_by_position(0).column)).mutate();
+    std::unordered_map<int, std::string> inserted_jsonstr;
+    auto path_with_size =
+            VariantUtil::fill_object_column_with_test_data(column_object, 200, &inserted_jsonstr);
+    olap_data_convertor->add_column_data_convertor(column);
+    olap_data_convertor->set_source_content(&block, 0, 200);
+    auto [result, accessor] = olap_data_convertor->convert_column_data(0);
+    EXPECT_TRUE(result.ok());
+    EXPECT_TRUE(accessor != nullptr);
+    EXPECT_TRUE(writer->append(accessor->get_nullmap(), accessor->get_data(), 200).ok());
+    st = writer->finish();
+    EXPECT_TRUE(st.ok()) << st.msg();
+    st = writer->write_data();
+    EXPECT_TRUE(st.ok()) << st.msg();
+    st = writer->write_ordinal_index();
+    EXPECT_TRUE(st.ok()) << st.msg();
+    st = writer->write_zone_map();
+    EXPECT_TRUE(st.ok()) << st.msg();
+    EXPECT_TRUE(file_writer->close().ok());
+    footer.set_num_rows(200);
+
+    // 6. open a VariantColumnReader on this segment
+    io::FileReaderSPtr file_reader;
+    st = io::global_local_filesystem()->open_file(file_path, &file_reader);
+    EXPECT_TRUE(st.ok()) << st.msg();
+    std::shared_ptr<ColumnReader> column_reader;
+    st = create_variant_root_reader(footer, file_reader, _tablet_schema, &column_reader);
+    EXPECT_TRUE(st.ok()) << st.msg();
+
+    auto* variant_column_reader = assert_cast<VariantColumnReader*>(column_reader.get());
+    EXPECT_TRUE(variant_column_reader != nullptr);
+
+    // 7. run load_external_meta_once and subcolumn meta access concurrently.
+    const int rounds = 200;
+    std::atomic<bool> failed {false};
+    Status writer_status = Status::OK();
+
+    std::thread writer_thread([&] {
+        for (int i = 0; i < rounds && !failed.load(); ++i) {
+            Status s = variant_column_reader->load_external_meta_once();
+            if (!s.ok()) {
+                writer_status = s;
+                failed.store(true);
+                break;
+            }
+        }
+    });
+
+    std::thread reader_thread([&] {
+        for (int i = 0; i < rounds && !failed.load(); ++i) {
+            // Access subcolumn meta and metadata size repeatedly.
+            auto* node = variant_column_reader->get_subcolumn_meta_by_path(PathInData("key0"));
+            (void)node;
+            auto meta_size = variant_column_reader->get_metadata_size();
+            (void)meta_size;
+        }
+    });
+
+    writer_thread.join();
+    reader_thread.join();
+
+    EXPECT_TRUE(writer_status.ok());
 }
 
 } // namespace doris

@@ -51,7 +51,6 @@ class MemoryPool;
 namespace doris {
 namespace vectorized {
 class VDataStreamMgr;
-class ScannerScheduler;
 class SpillStreamManager;
 class DeltaWriterV2Pool;
 class DictionaryFactory;
@@ -65,6 +64,7 @@ struct WriteCooldownMetaExecutors;
 namespace io {
 class FileCacheFactory;
 class HdfsMgr;
+class PackedFileManager;
 } // namespace io
 namespace segment_v2 {
 class InvertedIndexSearcherCache;
@@ -285,7 +285,6 @@ public:
     StreamLoadExecutor* stream_load_executor() { return _stream_load_executor.get(); }
     RoutineLoadTaskExecutor* routine_load_task_executor() { return _routine_load_task_executor; }
     HeartbeatFlags* heartbeat_flags() { return _heartbeat_flags; }
-    vectorized::ScannerScheduler* scanner_scheduler() { return _scanner_scheduler; }
     FileMetaCache* file_meta_cache() { return _file_meta_cache; }
     MemTableMemoryLimiter* memtable_memory_limiter() { return _memtable_memory_limiter.get(); }
     WalManager* wal_mgr() { return _wal_manager.get(); }
@@ -296,6 +295,7 @@ public:
 
     kerberos::KerberosTicketMgr* kerberos_ticket_mgr() { return _kerberos_ticket_mgr; }
     io::HdfsMgr* hdfs_mgr() { return _hdfs_mgr; }
+    io::PackedFileManager* packed_file_manager() { return _packed_file_manager; }
     IndexPolicyMgr* index_policy_mgr() { return _index_policy_mgr; }
 
 #ifdef BE_TEST
@@ -497,7 +497,6 @@ private:
     StreamLoadRecorderManager* _stream_load_recorder_manager = nullptr;
     SmallFileMgr* _small_file_mgr = nullptr;
     HeartbeatFlags* _heartbeat_flags = nullptr;
-    vectorized::ScannerScheduler* _scanner_scheduler = nullptr;
 
     // To save meta info of external file, such as parquet footer.
     FileMetaCache* _file_meta_cache = nullptr;
@@ -555,6 +554,7 @@ private:
 
     kerberos::KerberosTicketMgr* _kerberos_ticket_mgr = nullptr;
     io::HdfsMgr* _hdfs_mgr = nullptr;
+    io::PackedFileManager* _packed_file_manager = nullptr;
 };
 
 template <>

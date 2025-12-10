@@ -82,32 +82,6 @@ suite("test_bloom_filter_hit_with_renamed_column") {
         }
     }
 
-    def httpGet = { url ->
-        def dst = 'http://' + context.config.feHttpAddress
-        def conn = new URL(dst + url).openConnection()
-        conn.setRequestMethod("GET")
-        def encoding = Base64.getEncoder().encodeToString((context.config.feHttpUser + ":" + 
-                (context.config.feHttpPassword == null ? "" : context.config.feHttpPassword)).getBytes("UTF-8"))
-        conn.setRequestProperty("Authorization", "Basic ${encoding}")
-        conn.setRequestProperty("Cache-Control", "no-cache")
-        conn.setRequestProperty("Pragma", "no-cache")
-        conn.setConnectTimeout(10000) // 10 seconds
-        conn.setReadTimeout(10000) // 10 seconds
-
-        int responseCode = conn.getResponseCode()
-        log.info("HTTP response status: " + responseCode)
-
-        if (responseCode == 200) {
-            InputStream inputStream = conn.getInputStream()
-            String response = inputStream.text
-            inputStream.close()
-            return response
-        } else {
-            log.error("HTTP request failed with response code: " + responseCode)
-            return null
-        }
-    }
-
     // rename column with bloom filter
     sql """ ALTER TABLE ${tableName} RENAME COLUMN C_COMMENT C_COMMENT_NEW; """
     wait_for_latest_op_on_table_finish(tableName, timeout)

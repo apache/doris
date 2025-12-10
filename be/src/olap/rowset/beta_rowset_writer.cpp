@@ -924,7 +924,6 @@ Status BaseBetaRowsetWriter::_build_rowset_meta(RowsetMeta* rowset_meta, bool ch
     // TODO write zonemap to meta
     rowset_meta->set_empty((num_rows_written + _num_rows_written) == 0);
     rowset_meta->set_creation_time(time(nullptr));
-
     return Status::OK();
 }
 

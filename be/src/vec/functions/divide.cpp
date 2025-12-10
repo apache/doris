@@ -36,7 +36,6 @@ struct DivideFloatingImpl;
 template <typename Impl>
 class FunctionDiv : public IFunction {
     static constexpr bool result_is_decimal = !std::is_same_v<Impl, DivideFloatingImpl>;
-    mutable bool need_replace_null_data_to_default_ = false;
 
 public:
     static constexpr auto name = "divide";
@@ -48,7 +47,7 @@ public:
     String get_name() const override { return name; }
 
     bool need_replace_null_data_to_default() const override {
-        return need_replace_null_data_to_default_;
+        return Impl::need_replace_null_data_to_default;
     }
 
     size_t get_number_of_arguments() const override { return 2; }
@@ -58,7 +57,6 @@ public:
     }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        need_replace_null_data_to_default_ = is_decimal(arguments[0]->get_primitive_type());
         return make_nullable(arguments[0]);
     }
 
@@ -304,6 +302,8 @@ struct DivideFloatingImpl {
     using DataTypeA = typename PrimitiveTypeTraits<TYPE_DOUBLE>::DataType;
     using DataTypeB = typename PrimitiveTypeTraits<TYPE_DOUBLE>::DataType;
 
+    constexpr static bool need_replace_null_data_to_default = false;
+
     static DataTypes get_variadic_argument_types() {
         return {std::make_shared<DataTypeFloat64>(), std::make_shared<DataTypeFloat64>()};
     }
@@ -393,6 +393,8 @@ struct DivideDecimalImpl {
     using DataTypeB = typename PrimitiveTypeTraits<TypeB>::DataType;
     using ColumnTypeA = typename PrimitiveTypeTraits<TypeA>::ColumnType;
     using ColumnTypeB = typename PrimitiveTypeTraits<TypeB>::ColumnType;
+
+    constexpr static bool need_replace_null_data_to_default = true;
 
     static DataTypes get_variadic_argument_types() {
         return {std::make_shared<typename PrimitiveTypeTraits<TypeA>::DataType>(),

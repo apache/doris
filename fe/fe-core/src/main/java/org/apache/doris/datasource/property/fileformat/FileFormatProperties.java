@@ -45,6 +45,9 @@ public abstract class FileFormatProperties {
     protected TFileFormatType fileFormatType;
 
     protected TFileCompressType compressionType;
+    // Default: false, mapping BINARY types to STRING for compatibility
+    // When enabled, BINARY types map to VARBINARY
+    public boolean enableMappingVarbinary = false;
 
     public FileFormatProperties(TFileFormatType fileFormatType, String formatName) {
         this.fileFormatType = fileFormatType;

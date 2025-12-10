@@ -72,6 +72,9 @@ public:
     std::vector<std::string> get_index_file_names() const;
     std::string debug_string() const;
 
+    // Get internal file writer (for merge file index collection)
+    io::FileWriter* get_file_writer() const { return _idx_v2_writer.get(); }
+
 private:
     Status _insert_directory_into_map(int64_t index_id, const std::string& index_suffix,
                                       std::shared_ptr<DorisFSDirectory> dir);

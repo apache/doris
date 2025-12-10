@@ -461,23 +461,16 @@ void DataTypeNumberSerDe<T>::insert_column_last_value_multiple_times(IColumn& co
 }
 
 template <PrimitiveType T>
-template <bool is_binary_format>
-Status DataTypeNumberSerDe<T>::_write_column_to_mysql(const IColumn& column,
-                                                      MysqlRowBuffer<is_binary_format>& result,
-                                                      int64_t row_idx, bool col_const,
-                                                      const FormatOptions& options) const {
+Status DataTypeNumberSerDe<T>::write_column_to_mysql_binary(const IColumn& column,
+                                                            MysqlRowBinaryBuffer& result,
+                                                            int64_t row_idx, bool col_const) const {
     int buf_ret = 0;
     auto& data = assert_cast<const ColumnType&>(column).get_data();
     const auto col_index = index_check_const(row_idx, col_const);
     if constexpr (T == TYPE_TINYINT) {
         buf_ret = result.push_tinyint(data[col_index]);
     } else if constexpr (T == TYPE_BOOLEAN) {
-        if (_nesting_level > 1 && !options.is_bool_value_num) {
-            std::string bool_value = data[col_index] ? "true" : "false";
-            result.push_string(bool_value.c_str(), bool_value.size());
-        } else {
-            buf_ret = result.push_tinyint(data[col_index]);
-        }
+        buf_ret = result.push_tinyint(data[col_index]);
     } else if constexpr (T == TYPE_SMALLINT) {
         buf_ret = result.push_smallint(data[col_index]);
     } else if constexpr (T == TYPE_INT || T == TYPE_DATEV2 || T == TYPE_IPV4) {
@@ -504,22 +497,6 @@ Status DataTypeNumberSerDe<T>::_write_column_to_mysql(const IColumn& column,
     } else {
         return Status::OK();
     }
-}
-
-template <PrimitiveType T>
-Status DataTypeNumberSerDe<T>::write_column_to_mysql_binary(const IColumn& column,
-                                                            MysqlRowBinaryBuffer& row_buffer,
-                                                            int64_t row_idx, bool col_const,
-                                                            const FormatOptions& options) const {
-    return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
-}
-
-template <PrimitiveType T>
-Status DataTypeNumberSerDe<T>::write_column_to_mysql_text(const IColumn& column,
-                                                          MysqlRowTextBuffer& row_buffer,
-                                                          int64_t row_idx, bool col_const,
-                                                          const FormatOptions& options) const {
-    return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
 }
 
 #define WRITE_INTEGRAL_COLUMN_TO_ORC(ORC_TYPE)                    \
@@ -918,7 +895,47 @@ template <PrimitiveType T>
 void DataTypeNumberSerDe<T>::to_string(const IColumn& column, size_t row_num,
                                        BufferWritable& bw) const {
     auto& data = assert_cast<const ColumnType&, TypeCheckOnRelease::DISABLE>(column).get_data();
-    value_to_string<T>(data[row_num], bw, get_scale());
+    if constexpr (is_date_type(T) || is_time_type(T) || is_ip(T)) {
+        if (_nesting_level > 1) {
+            bw.write('"');
+        }
+        value_to_string<T>(data[row_num], bw, get_scale());
+        if (_nesting_level > 1) {
+            bw.write('"');
+        }
+    } else {
+        value_to_string<T>(data[row_num], bw, get_scale());
+    }
+}
+
+template <PrimitiveType T>
+bool DataTypeNumberSerDe<T>::write_column_to_presto_text(const IColumn& column, BufferWritable& bw,
+                                                         int64_t row_idx) const {
+    auto& data = assert_cast<const ColumnType&, TypeCheckOnRelease::DISABLE>(column).get_data();
+    value_to_string<T>(data[row_idx], bw, get_scale());
+    return true;
+}
+
+template <PrimitiveType T>
+bool DataTypeNumberSerDe<T>::write_column_to_hive_text(const IColumn& column, BufferWritable& bw,
+                                                       int64_t row_idx) const {
+    auto& data = assert_cast<const ColumnType&, TypeCheckOnRelease::DISABLE>(column).get_data();
+    if constexpr (is_date_type(T) || is_time_type(T) || is_ip(T)) {
+        if (_nesting_level > 1) {
+            bw.write('"');
+        }
+        value_to_string<T>(data[row_idx], bw, get_scale());
+        if (_nesting_level > 1) {
+            bw.write('"');
+        }
+    } else if constexpr (T == TYPE_BOOLEAN) {
+        // In Hive, boolean values are represented as 'true' and 'false' strings.
+        std::string bool_value = data[row_idx] ? "true" : "false";
+        bw.write(bool_value.data(), bool_value.size());
+    } else {
+        value_to_string<T>(data[row_idx], bw, get_scale());
+    }
+    return true;
 }
 
 template <PrimitiveType T>

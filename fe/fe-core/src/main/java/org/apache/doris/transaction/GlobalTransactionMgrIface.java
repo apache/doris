@@ -220,4 +220,6 @@ public interface GlobalTransactionMgrIface extends Writable {
                 long dbId, List<Long> tableIdList) throws UserException;
 
     public int getQueueLength();
+
+    public AutoPartitionCacheManager getAutoPartitionCacheMgr();
 }

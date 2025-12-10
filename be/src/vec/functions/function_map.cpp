@@ -150,7 +150,7 @@ public:
     size_t get_number_of_arguments() const override { return 2; }
 
     bool use_default_implementation_for_nulls() const override {
-        return array_contains.use_default_implementation_for_nulls();
+        return FunctionArrayIndex<ArrayContainsAction> {}.use_default_implementation_for_nulls();
     }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
@@ -227,16 +227,13 @@ public:
             }
         }
 
-        RETURN_IF_ERROR(
-                array_contains.execute_impl(context, block, arguments, result, input_rows_count));
+        RETURN_IF_ERROR(FunctionArrayIndex<ArrayContainsAction> {}.execute_impl(
+                context, block, arguments, result, input_rows_count));
 
         // restore original argument 0
         block.get_by_position(arguments[0]) = orig_arg0;
         return Status::OK();
     }
-
-private:
-    FunctionArrayIndex<ArrayContainsAction> array_contains;
 };
 
 template <bool is_key>
@@ -769,6 +766,32 @@ private:
     }
 };
 
+class FunctionDeduplicateMap : public IFunction {
+public:
+    static constexpr auto name = "deduplicate_map";
+    static FunctionPtr create() { return std::make_shared<FunctionDeduplicateMap>(); }
+
+    String get_name() const override { return name; }
+    size_t get_number_of_arguments() const override { return 1; }
+    bool use_default_implementation_for_nulls() const override { return true; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return arguments[0];
+    }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count) const override {
+        DCHECK_EQ(arguments.size(), 1);
+        auto col_ptr = block.get_by_position(arguments[0]).column->clone_resized(input_rows_count);
+        auto& col_map = assert_cast<ColumnMap&>(*col_ptr);
+        RETURN_IF_ERROR(col_map.deduplicate_keys());
+        block.replace_by_position(result, std::move(col_ptr));
+        return Status::OK();
+    }
+
+private:
+};
+
 void register_function_map(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionMap>();
     factory.register_function<FunctionMapContains<true>>();
@@ -778,6 +801,7 @@ void register_function_map(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionMapEntries>();
     factory.register_function<FunctionStrToMap>();
     factory.register_function<FunctionMapContainsEntry>();
+    factory.register_function<FunctionDeduplicateMap>();
 }
 
 } // namespace doris::vectorized

@@ -87,15 +87,16 @@ public:
                                   int64_t end, const cctz::time_zone& ctz) const override;
 
     Status write_column_to_mysql_binary(const IColumn& column, MysqlRowBinaryBuffer& row_buffer,
-                                        int64_t row_idx, bool col_const,
-                                        const FormatOptions& options) const override;
-    Status write_column_to_mysql_text(const IColumn& column, MysqlRowTextBuffer& row_buffer,
-                                      int64_t row_idx, bool col_const,
-                                      const FormatOptions& options) const override;
+                                        int64_t row_idx, bool col_const) const override;
 
     Status write_column_to_orc(const std::string& timezone, const IColumn& column,
                                const NullMap* null_map, orc::ColumnVectorBatch* orc_col_batch,
                                int64_t start, int64_t end, vectorized::Arena& arena) const override;
+
+    bool write_column_to_presto_text(const IColumn& column, BufferWritable& bw,
+                                     int64_t row_idx) const override;
+    bool write_column_to_hive_text(const IColumn& column, BufferWritable& bw,
+                                   int64_t row_idx) const override;
 
     void set_return_object_as_string(bool value) override {
         DataTypeSerDe::set_return_object_as_string(value);
@@ -113,11 +114,6 @@ public:
     void to_string(const IColumn& column, size_t row_num, BufferWritable& bw) const override;
 
 private:
-    template <bool is_binary_format>
-    Status _write_column_to_mysql(const IColumn& column, MysqlRowBuffer<is_binary_format>& result,
-                                  int64_t row_idx, bool col_const,
-                                  const FormatOptions& options) const;
-
     template <bool is_strict_mode>
     Status _from_string(StringRef& str, IColumn& column, const FormatOptions& options) const;
 

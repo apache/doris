@@ -97,7 +97,7 @@ Status DataTypeSerDe::deserialize_column_from_jsonb_vector(ColumnNullable& colum
     const bool is_strict = castParms.is_strict;
     for (size_t i = 0; i < size; ++i) {
         const auto& val = col_from_json.get_data_at(i);
-        auto* value = handle_jsonb_value(val);
+        const auto* value = handle_jsonb_value(val);
         if (!value) {
             column_to.insert_default();
             continue;
@@ -133,6 +133,24 @@ void DataTypeSerDe::to_string_batch(const IColumn& column, ColumnString& column_
 void DataTypeSerDe::to_string(const IColumn& column, size_t row_num, BufferWritable& bw) const {
     throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                            "Data type {} to_string_batch not implement.", get_name());
+}
+
+bool DataTypeSerDe::write_column_to_mysql_text(const IColumn& column, BufferWritable& bw,
+                                               int64_t row_idx) const {
+    to_string(column, row_idx, bw);
+    return true;
+}
+
+bool DataTypeSerDe::write_column_to_presto_text(const IColumn& column, BufferWritable& bw,
+                                                int64_t row_idx) const {
+    to_string(column, row_idx, bw);
+    return true;
+}
+
+bool DataTypeSerDe::write_column_to_hive_text(const IColumn& column, BufferWritable& bw,
+                                              int64_t row_idx) const {
+    to_string(column, row_idx, bw);
+    return true;
 }
 
 const std::string DataTypeSerDe::NULL_IN_COMPLEX_TYPE = "null";

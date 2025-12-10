@@ -316,19 +316,6 @@ Status DataTypeStringSerDeBase<ColumnType>::read_column_from_arrow(
 }
 
 template <typename ColumnType>
-Status DataTypeStringSerDeBase<ColumnType>::write_column_to_mysql_binary(
-        const IColumn& column, MysqlRowBinaryBuffer& row_buffer, int64_t row_idx, bool col_const,
-        const FormatOptions& options) const {
-    return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
-}
-template <typename ColumnType>
-Status DataTypeStringSerDeBase<ColumnType>::write_column_to_mysql_text(
-        const IColumn& column, MysqlRowTextBuffer& row_buffer, int64_t row_idx, bool col_const,
-        const FormatOptions& options) const {
-    return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
-}
-
-template <typename ColumnType>
 Status DataTypeStringSerDeBase<ColumnType>::write_column_to_orc(
         const std::string& timezone, const IColumn& column, const NullMap* null_map,
         orc::ColumnVectorBatch* orc_col_batch, int64_t start, int64_t end,
@@ -447,6 +434,17 @@ void DataTypeStringSerDeBase<ColumnType>::to_string(const IColumn& column, size_
     if (_nesting_level > 1) {
         bw.write('"');
     }
+}
+
+template <typename ColumnType>
+bool DataTypeStringSerDeBase<ColumnType>::write_column_to_presto_text(const IColumn& column,
+                                                                      BufferWritable& bw,
+                                                                      int64_t row_idx) const {
+    const auto& value =
+            assert_cast<const ColumnType&, TypeCheckOnRelease::DISABLE>(column).get_data_at(
+                    row_idx);
+    bw.write(value.data, value.size);
+    return true;
 }
 
 template <typename ColumnType>

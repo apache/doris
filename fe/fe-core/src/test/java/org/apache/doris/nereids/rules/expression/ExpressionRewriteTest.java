@@ -328,6 +328,7 @@ class ExpressionRewriteTest extends ExpressionRewriteTestHelper {
             )
         ));
 
+        assertRewriteAfterTypeCoercion("5 * 100 >= 10 and 5 * 100 <= 5", "5 * 100 >= 10 and 5 * 100 <= 5");
         assertRewriteAfterTypeCoercion("TA >= 10", "TA >= 10");
         assertRewriteAfterTypeCoercion("TA between 10 and 20", "TA >= 10 and TA <= 20");
         assertRewriteAfterTypeCoercion("TA between 10 and 20 or TA >= 30",

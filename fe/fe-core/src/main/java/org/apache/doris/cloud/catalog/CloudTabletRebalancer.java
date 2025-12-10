@@ -316,7 +316,23 @@ public class CloudTabletRebalancer extends MasterDaemon {
 
         checkDecommissionState(clusterToBes);
         inited = true;
-        LOG.info("finished to rebalancer. cost: {} ms", (System.currentTimeMillis() - start));
+        long sleepSeconds = Config.cloud_tablet_rebalancer_interval_second;
+        if (sleepSeconds < 0L) {
+            LOG.warn("cloud tablet rebalance interval second is negative, change it to default 1s");
+            sleepSeconds = 1L;
+        }
+        long balanceEnd = System.currentTimeMillis();
+        if (DebugPointUtil.isEnable("CloudTabletRebalancer.balanceEnd.tooLong")) {
+            LOG.info("debug pointCloudTabletRebalancer.balanceEnd.tooLong");
+            // slower the balance end time to trigger next balance immediately
+            balanceEnd += (Config.cloud_tablet_rebalancer_interval_second + 10L) * 1000L;
+        }
+        if (balanceEnd - start > Config.cloud_tablet_rebalancer_interval_second * 1000L) {
+            sleepSeconds = 0L;
+        }
+        setInterval(sleepSeconds * 1000L);
+        LOG.info("finished to rebalancer. cost: {} ms, rebalancer sche interval {} s",
+                (System.currentTimeMillis() - start), sleepSeconds);
     }
 
     private void buildClusterToBackendMap() {
@@ -651,7 +667,9 @@ public class CloudTabletRebalancer extends MasterDaemon {
                     // primary backend is alive or dead not long
                     Backend be = replica.getPrimaryBackend(cluster, false);
                     if (be != null && (be.isQueryAvailable()
-                            || (!be.isQueryDisabled() && be.getLastUpdateMs() > needRehashDeadTime))) {
+                            || (!be.isQueryDisabled()
+                            // Compatible with older version upgrades, see https://github.com/apache/doris/pull/42986
+                            && (be.getLastUpdateMs() <= 0 || be.getLastUpdateMs() > needRehashDeadTime)))) {
                         beIds.add(be.getId());
                         tabletIds.add(tablet.getId());
                         continue;
@@ -905,7 +923,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
                 LOG.warn("check pre tablets {} cache status {} {}", tabletIds, result.getStatus().getStatusCode(),
                         result.getStatus().getErrorMsgs());
             } else {
-                LOG.info("check pre tablets {} cache succ status {} {}", tabletIds, result.getStatus().getStatusCode(),
+                LOG.debug("check pre tablets {} cache succ status {} {}", tabletIds, result.getStatus().getStatusCode(),
                         result.getStatus().getErrorMsgs());
             }
             return result.getTaskDone();

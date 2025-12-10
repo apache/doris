@@ -31,38 +31,27 @@
 namespace doris {
 #include "common/compile_check_begin.h"
 template <PrimitiveType Type, PredicateType PT>
-class ComparisonPredicateBase : public ColumnPredicate {
+class ComparisonPredicateBase final : public ColumnPredicate {
 public:
+    ENABLE_FACTORY_CREATOR(ComparisonPredicateBase);
     using T = typename PrimitiveTypeTraits<Type>::CppType;
     ComparisonPredicateBase(uint32_t column_id, const T& value, bool opposite = false)
-            : ColumnPredicate(column_id, opposite), _value(value) {}
+            : ColumnPredicate(column_id, Type, opposite), _value(value) {}
+    ComparisonPredicateBase(const ComparisonPredicateBase<Type, PT>& other, uint32_t col_id)
+            : ColumnPredicate(other, col_id), _value(other._value) {}
+    ComparisonPredicateBase(const ComparisonPredicateBase<Type, PT>& other) = delete;
+    std::shared_ptr<ColumnPredicate> clone(uint32_t col_id) const override {
+        DCHECK(_segment_id_to_cached_code.empty());
+        return ComparisonPredicateBase<Type, PT>::create_shared(*this, col_id);
+    }
+    std::string debug_string() const override {
+        fmt::memory_buffer debug_string_buffer;
+        fmt::format_to(debug_string_buffer, "ComparisonPredicateBase({})",
+                       ColumnPredicate::debug_string());
+        return fmt::to_string(debug_string_buffer);
+    }
 
     PredicateType type() const override { return PT; }
-
-    Status evaluate(BitmapIndexIterator* iterator, uint32_t num_rows,
-                    roaring::Roaring* bitmap) const override {
-        if (iterator == nullptr) {
-            return Status::OK();
-        }
-
-        rowid_t ordinal_limit = iterator->bitmap_nums();
-        if (iterator->has_null_bitmap()) {
-            ordinal_limit--;
-            roaring::Roaring null_bitmap;
-            RETURN_IF_ERROR(iterator->read_null_bitmap(&null_bitmap));
-            *bitmap -= null_bitmap;
-        }
-
-        roaring::Roaring roaring;
-        bool exact_match = false;
-
-        auto&& value = PrimitiveTypeConvertor<Type>::to_storage_field_type(_value);
-        Status status = iterator->seek_dictionary(&value, &exact_match);
-        rowid_t seeked_ordinal = iterator->current_ordinal();
-
-        return _bitmap_compare(status, exact_match, ordinal_limit, seeked_ordinal, iterator,
-                               bitmap);
-    }
 
     Status evaluate(const vectorized::IndexFieldNameAndTypePair& name_with_type,
                     IndexIterator* iterator, uint32_t num_rows,
@@ -144,8 +133,8 @@ public:
     }
 
     bool evaluate_and(const std::pair<WrapperField*, WrapperField*>& statistic) const override {
-        if (statistic.first->is_null()) {
-            return true;
+        if (statistic.first->is_null() && statistic.second->is_null()) {
+            return false;
         }
 
         T tmp_min_value = get_zone_map_value<Type, T>(statistic.first->cell_ptr());
@@ -175,18 +164,8 @@ public:
      * 3. LT|LE: if `_value` is greater than min, return true to further compute each value in this page.
      * 4. GT|GE: if `_value` is less than max, return true to further compute each value in this page.
      */
-    bool evaluate_and(vectorized::ParquetPredicate::ColumnStat* statistic) const override {
-        if (!(*statistic->get_stat_func)(statistic, column_id())) {
-            return true;
-        }
-        vectorized::Field min_field;
-        vectorized::Field max_field;
-        if (!vectorized::ParquetPredicate::get_min_max_value(
-                     statistic->col_schema, statistic->encoded_min_value,
-                     statistic->encoded_max_value, *statistic->ctz, &min_field, &max_field)
-                     .ok()) {
-            return true;
-        };
+
+    bool camp_field(const vectorized::Field& min_field, const vectorized::Field& max_field) const {
         T min_value;
         T max_value;
         if constexpr (is_int_or_bool(Type) || is_float_or_double(Type)) {
@@ -212,6 +191,63 @@ public:
             static_assert(PT == PredicateType::GT || PT == PredicateType::GE);
             return Compare::greater_equal(max_value, _value);
         }
+    }
+
+    bool evaluate_and(vectorized::ParquetPredicate::ColumnStat* statistic) const override {
+        bool result = true;
+        if ((*statistic->get_stat_func)(statistic, column_id())) {
+            vectorized::Field min_field;
+            vectorized::Field max_field;
+            if (!vectorized::ParquetPredicate::parse_min_max_value(
+                         statistic->col_schema, statistic->encoded_min_value,
+                         statistic->encoded_max_value, *statistic->ctz, &min_field, &max_field)
+                         .ok()) [[unlikely]] {
+                result = true;
+            } else {
+                result = camp_field(min_field, max_field);
+            }
+        }
+
+        if constexpr (PT == PredicateType::EQ) {
+            if (result && statistic->get_bloom_filter_func != nullptr &&
+                (*statistic->get_bloom_filter_func)(statistic, column_id())) {
+                if (!statistic->bloom_filter) {
+                    return result;
+                }
+                return evaluate_and(statistic->bloom_filter.get());
+            }
+        }
+        return result;
+    }
+
+    bool evaluate_and(vectorized::ParquetPredicate::CachedPageIndexStat* statistic,
+                      RowRanges* row_ranges) const override {
+        vectorized::ParquetPredicate::PageIndexStat* stat = nullptr;
+        if (!(statistic->get_stat_func)(&stat, column_id())) {
+            return true;
+        }
+
+        for (int page_id = 0; page_id < stat->num_of_pages; page_id++) {
+            if (stat->is_all_null[page_id]) {
+                // all null page, not need read.
+                continue;
+            }
+
+            vectorized::Field min_field;
+            vectorized::Field max_field;
+            if (!vectorized::ParquetPredicate::parse_min_max_value(
+                         stat->col_schema, stat->encoded_min_value[page_id],
+                         stat->encoded_max_value[page_id], *statistic->ctz, &min_field, &max_field)
+                         .ok()) [[unlikely]] {
+                row_ranges->add(stat->ranges[page_id]);
+                continue;
+            };
+
+            if (camp_field(min_field, max_field)) {
+                row_ranges->add(stat->ranges[page_id]);
+            }
+        };
+        return row_ranges->count() > 0;
     }
 
     bool is_always_true(const std::pair<WrapperField*, WrapperField*>& statistic) const override {
@@ -306,6 +342,43 @@ public:
         return PT == PredicateType::EQ && !ngram;
     }
 
+    bool evaluate_and(const vectorized::ParquetBlockSplitBloomFilter* bf) const override {
+        if constexpr (PT == PredicateType::EQ) {
+            auto test_bytes = [&]<typename V>(const V& value) {
+                return bf->test_bytes(const_cast<char*>(reinterpret_cast<const char*>(&value)),
+                                      sizeof(V));
+            };
+
+            // Only support Parquet native types where physical == logical representation
+            // BOOLEAN -> hash as int32 (Parquet bool stored as int32)
+            if constexpr (Type == PrimitiveType::TYPE_BOOLEAN) {
+                int32_t int32_value = static_cast<int32_t>(_value);
+                return test_bytes(int32_value);
+            } else if constexpr (Type == PrimitiveType::TYPE_INT) {
+                // INT -> hash as int32
+                return test_bytes(_value);
+            } else if constexpr (Type == PrimitiveType::TYPE_BIGINT) {
+                // BIGINT -> hash as int64
+                return test_bytes(_value);
+            } else if constexpr (Type == PrimitiveType::TYPE_FLOAT) {
+                // FLOAT -> hash as float
+                return test_bytes(_value);
+            } else if constexpr (Type == PrimitiveType::TYPE_DOUBLE) {
+                // DOUBLE -> hash as double
+                return test_bytes(_value);
+            } else if constexpr (std::is_same_v<T, StringRef>) {
+                // VARCHAR/STRING -> hash bytes
+                return bf->test_bytes(_value.data, _value.size);
+            } else {
+                // Unsupported types: return true (accept)
+                return true;
+            }
+        } else {
+            LOG(FATAL) << "Bloom filter is not supported by predicate type.";
+            return true;
+        }
+    }
+
     void evaluate_or(const vectorized::IColumn& column, const uint16_t* sel, uint16_t size,
                      bool* flags) const override {
         _evaluate_bit<false>(column, sel, size, flags);
@@ -331,8 +404,9 @@ public:
         // so reference here is safe.
         // https://stackoverflow.com/questions/14688285/c-local-variable-destruction-order
         Defer defer([&]() {
-            update_filter_info(current_evaluated_rows - current_passed_rows,
-                               current_evaluated_rows);
+            update_filter_info(current_evaluated_rows - current_passed_rows, current_evaluated_rows,
+                               0);
+            try_reset_judge_selectivity();
         });
 
         if (column.is_nullable()) {
@@ -475,52 +549,6 @@ private:
     constexpr bool _is_greater() const { return _operator(1, 0); }
 
     constexpr bool _is_eq() const { return _operator(1, 1); }
-
-    Status _bitmap_compare(Status status, bool exact_match, rowid_t ordinal_limit,
-                           rowid_t& seeked_ordinal, BitmapIndexIterator* iterator,
-                           roaring::Roaring* bitmap) const {
-        roaring::Roaring roaring;
-
-        if (status.is<ErrorCode::ENTRY_NOT_FOUND>()) {
-            if constexpr (PT == PredicateType::EQ || PT == PredicateType::GT ||
-                          PT == PredicateType::GE) {
-                *bitmap &= roaring; // set bitmap to empty
-            }
-            return Status::OK();
-        }
-
-        if (!status.ok()) {
-            return status;
-        }
-
-        if constexpr (PT == PredicateType::EQ || PT == PredicateType::NE) {
-            if (exact_match) {
-                RETURN_IF_ERROR(iterator->read_bitmap(seeked_ordinal, &roaring));
-            }
-        } else if constexpr (PredicateTypeTraits::is_range(PT)) {
-            rowid_t from = 0;
-            rowid_t to = ordinal_limit;
-            if constexpr (PT == PredicateType::LT) {
-                to = seeked_ordinal;
-            } else if constexpr (PT == PredicateType::LE) {
-                to = seeked_ordinal + exact_match;
-            } else if constexpr (PT == PredicateType::GT) {
-                from = seeked_ordinal + exact_match;
-            } else if constexpr (PT == PredicateType::GE) {
-                from = seeked_ordinal;
-            }
-
-            RETURN_IF_ERROR(iterator->read_union_bitmap(from, to, &roaring));
-        }
-
-        if constexpr (PT == PredicateType::NE) {
-            *bitmap -= roaring;
-        } else {
-            *bitmap &= roaring;
-        }
-
-        return Status::OK();
-    }
 
     template <bool is_and>
     void _evaluate_bit(const vectorized::IColumn& column, const uint16_t* sel, uint16_t size,
@@ -679,12 +707,6 @@ private:
         }
 
         return code;
-    }
-
-    std::string _debug_string() const override {
-        std::string info =
-                "ComparisonPredicateBase(" + type_to_string(Type) + ", " + type_to_string(PT) + ")";
-        return info;
     }
 
     mutable phmap::parallel_flat_hash_map<

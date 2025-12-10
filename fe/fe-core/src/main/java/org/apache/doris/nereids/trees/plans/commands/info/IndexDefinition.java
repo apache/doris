@@ -90,10 +90,6 @@ public class IndexDefinition {
         this.indexType = IndexType.INVERTED;
         if (indexTypeName != null) {
             switch (indexTypeName) {
-                case "BITMAP": {
-                    this.indexType = IndexType.BITMAP;
-                    break;
-                }
                 case "INVERTED": {
                     this.indexType = IndexType.INVERTED;
                     break;

@@ -70,7 +70,7 @@ public class IndexInfoProcDir implements ProcDirInterface {
                 for (long indexId : indices) {
                     MaterializedIndexMeta indexMeta = olapTable.getIndexIdToMeta().get(indexId);
 
-                    String type = olapTable.getKeysType().name();
+                    String type = olapTable.getIndexMetaByIndexId(indexId).getKeysType().name();
                     StringBuilder builder = new StringBuilder();
                     builder.append(type).append("(");
                     List<String> columnNames = Lists.newArrayList();

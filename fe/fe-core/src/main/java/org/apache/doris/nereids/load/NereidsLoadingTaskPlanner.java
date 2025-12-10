@@ -28,6 +28,7 @@ import org.apache.doris.common.LoadException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.info.PartitionNamesInfo;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.planner.DataPartition;
 import org.apache.doris.planner.FileLoadScanNode;
@@ -146,6 +147,14 @@ public class NereidsLoadingTaskPlanner {
 
         Preconditions.checkState(!fileGroups.isEmpty() && fileGroups.size() == fileStatusesList.size());
 
+        // make sure StatementContext is set in ConnectContext
+        ConnectContext connectContext = ConnectContext.get();
+        if (connectContext != null && connectContext.getStatementContext() == null) {
+            StatementContext statementContext = new StatementContext();
+            connectContext.setStatementContext(statementContext);
+            statementContext.setConnectContext(connectContext);
+        }
+
         PartitionNamesInfo partitionNamesInfo = getPartitionNamesInfo();
         long txnTimeout = timeoutS == 0 ? ConnectContext.get().getExecTimeoutS() : timeoutS;
         if (txnTimeout > Integer.MAX_VALUE) {
@@ -153,7 +162,7 @@ public class NereidsLoadingTaskPlanner {
         }
         NereidsBrokerLoadTask nereidsBrokerLoadTask = new NereidsBrokerLoadTask(txnId, (int) txnTimeout,
                 sendBatchParallelism,
-                strictMode, enableMemtableOnSinkNode, partitionNamesInfo);
+                strictMode, enableMemtableOnSinkNode, singleTabletLoadPerSink, partitionNamesInfo);
 
         TupleDescriptor scanTupleDesc = descTable.createTupleDescriptor();
         scanTupleDesc.setTable(table);

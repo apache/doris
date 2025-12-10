@@ -150,41 +150,25 @@ void DataTypeBitMapSerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbV
     col.insert_value(bitmap_value);
 }
 
-template <bool is_binary_format>
-Status DataTypeBitMapSerDe::_write_column_to_mysql(const IColumn& column,
-                                                   MysqlRowBuffer<is_binary_format>& result,
-                                                   int64_t row_idx, bool col_const,
-                                                   const FormatOptions& options) const {
-    auto& data_column = assert_cast<const ColumnBitmap&>(column);
-    if (_return_object_as_string) {
-        const auto col_index = index_check_const(row_idx, col_const);
-        BitmapValue bitmapValue = data_column.get_element(col_index);
-        size_t size = bitmapValue.getSizeInBytes();
-        std::unique_ptr<char[]> buf = std::make_unique_for_overwrite<char[]>(size);
-        bitmapValue.write_to(buf.get());
-        if (0 != result.push_string(buf.get(), size)) {
-            return Status::InternalError("pack mysql buffer failed.");
-        }
-    } else {
-        if (0 != result.push_null()) {
-            return Status::InternalError("pack mysql buffer failed.");
-        }
-    }
-    return Status::OK();
-}
-
 Status DataTypeBitMapSerDe::write_column_to_mysql_binary(const IColumn& column,
-                                                         MysqlRowBinaryBuffer& row_buffer,
-                                                         int64_t row_idx, bool col_const,
-                                                         const FormatOptions& options) const {
-    return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
+                                                         MysqlRowBinaryBuffer& result,
+                                                         int64_t row_idx, bool col_const) const {
+    return Status::NotSupported("Bitmap type does not support write to mysql binary format");
 }
 
-Status DataTypeBitMapSerDe::write_column_to_mysql_text(const IColumn& column,
-                                                       MysqlRowTextBuffer& row_buffer,
-                                                       int64_t row_idx, bool col_const,
-                                                       const FormatOptions& options) const {
-    return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
+bool DataTypeBitMapSerDe::write_column_to_mysql_text(const IColumn& column, BufferWritable& bw,
+                                                     int64_t row_idx) const {
+    const auto& data_column = assert_cast<const ColumnBitmap&>(column);
+    if (_return_object_as_string) {
+        BitmapValue bitmap_value = data_column.get_element(row_idx);
+        size_t size = bitmap_value.getSizeInBytes();
+        std::unique_ptr<char[]> buf = std::make_unique_for_overwrite<char[]>(size);
+        bitmap_value.write_to(buf.get());
+        bw.write(buf.get(), size);
+        return true;
+    } else {
+        return false;
+    }
 }
 
 Status DataTypeBitMapSerDe::write_column_to_orc(const std::string& timezone, const IColumn& column,

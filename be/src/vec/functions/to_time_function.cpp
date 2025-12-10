@@ -41,6 +41,8 @@ using FunctionSecondV2 = FunctionDateOrDateTimeToSomething<DataTypeInt8, ToSecon
 using FunctionToDaysV2 = FunctionDateOrDateTimeToSomething<DataTypeInt32, ToDaysImpl<TYPE_DATEV2>>;
 using FunctionToDateV2 = FunctionDateOrDateTimeToSomething<DataTypeDateV2, ToDateImpl<TYPE_DATEV2>>;
 using FunctionDateV2 = FunctionDateOrDateTimeToSomething<DataTypeDateV2, DateImpl<TYPE_DATEV2>>;
+using FunctionToSeconds =
+        FunctionDateOrDateTimeToSomething<DataTypeInt64, ToSecondsImpl<TYPE_DATETIMEV2>>;
 
 using FunctionDateTimeV2Year =
         FunctionDateOrDateTimeToSomething<DataTypeInt16, ToYearImpl<TYPE_DATETIMEV2>>;
@@ -66,7 +68,10 @@ using FunctionDateTimeV2Date =
         FunctionDateOrDateTimeToSomething<DataTypeDateV2, DateImpl<TYPE_DATETIMEV2>>;
 using FunctionTimeStampV2 =
         FunctionDateOrDateTimeToSomething<DataTypeDateTimeV2, TimeStampImpl<TYPE_DATETIMEV2>>;
-
+using FunctionCenturyV2 =
+        FunctionDateOrDateTimeToSomething<DataTypeInt16, ToCenturyImpl<TYPE_DATEV2>>;
+using FunctionDateTimeV2Century =
+        FunctionDateOrDateTimeToSomething<DataTypeInt16, ToCenturyImpl<TYPE_DATETIMEV2>>;
 void register_function_to_time_function(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionTimeStampV2>();
     factory.register_function<FunctionSecondV2>();
@@ -92,6 +97,9 @@ void register_function_to_time_function(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionDateTimeV2Quarter>();
     factory.register_function<FunctionDateTimeV2ToDate>();
     factory.register_function<FunctionDateTimeV2Date>();
+    factory.register_function<FunctionCenturyV2>();
+    factory.register_function<FunctionDateTimeV2Century>();
+    factory.register_function<FunctionToSeconds>();
     factory.register_alias("date", "datev2");
     factory.register_alias("to_date", "to_datev2");
 }

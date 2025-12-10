@@ -36,6 +36,7 @@
 #include "udf/udf.h"
 #include "vec/columns/column.h"
 #include "vec/core/block.h"
+#include "vec/core/column_with_type_and_name.h"
 #include "vec/exprs/vexpr_fwd.h"
 
 namespace doris {
@@ -172,10 +173,14 @@ public:
     [[nodiscard]] Status open(RuntimeState* state);
     [[nodiscard]] Status clone(RuntimeState* state, VExprContextSPtr& new_ctx);
     [[nodiscard]] Status execute(Block* block, int* result_column_id);
-    [[nodiscard]] Status execute(Block* block, ColumnPtr& result_column);
+    [[nodiscard]] Status execute(const Block* block, ColumnPtr& result_column);
+    [[nodiscard]] DataTypePtr execute_type(const Block* block);
+    [[nodiscard]] const std::string& expr_name() const;
     [[nodiscard]] bool is_blockable() const;
 
-    VExprSPtr root() { return _root; }
+    [[nodiscard]] Status execute_const_expr(ColumnWithTypeAndName& result);
+
+    VExprSPtr root() const { return _root; }
     void set_root(const VExprSPtr& expr) { _root = expr; }
     void set_index_context(std::shared_ptr<IndexExecContext> index_context) {
         _index_context = std::move(index_context);
@@ -208,20 +213,19 @@ public:
 
     bool all_expr_inverted_index_evaluated();
 
-    [[nodiscard]] static Status filter_block(VExprContext* vexpr_ctx, Block* block,
-                                             size_t column_to_keep);
+    [[nodiscard]] static Status filter_block(VExprContext* vexpr_ctx, Block* block);
 
     [[nodiscard]] static Status filter_block(const VExprContextSPtrs& expr_contexts, Block* block,
                                              size_t column_to_keep);
 
     [[nodiscard]] static Status execute_conjuncts(const VExprContextSPtrs& ctxs,
                                                   const std::vector<IColumn::Filter*>* filters,
-                                                  bool accept_null, Block* block,
+                                                  bool accept_null, const Block* block,
                                                   IColumn::Filter* result_filter,
                                                   bool* can_filter_all);
 
-    [[nodiscard]] static Status execute_conjuncts(const VExprContextSPtrs& conjuncts, Block* block,
-                                                  ColumnUInt8& null_map,
+    [[nodiscard]] static Status execute_conjuncts(const VExprContextSPtrs& conjuncts,
+                                                  const Block* block, ColumnUInt8& null_map,
                                                   IColumn::Filter& result_filter);
 
     static Status execute_conjuncts(const VExprContextSPtrs& ctxs,
@@ -250,10 +254,6 @@ public:
     }
 
     void clone_fn_contexts(VExprContext* other);
-
-    bool force_materialize_slot() const { return _force_materialize_slot; }
-
-    void set_force_materialize_slot() { _force_materialize_slot = true; }
 
     VExprContext& operator=(const VExprContext& other) {
         if (this == &other) {
@@ -334,10 +334,6 @@ private:
 
     /// The depth of expression-tree.
     int _depth_num = 0;
-
-    // This flag only works on VSlotRef.
-    // Force to materialize even if the slot need_materialize is false, we just ignore need_materialize flag
-    bool _force_materialize_slot = false;
 
     std::shared_ptr<IndexExecContext> _index_context;
     size_t _memory_usage = 0;

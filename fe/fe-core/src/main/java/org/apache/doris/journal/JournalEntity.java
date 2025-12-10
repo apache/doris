@@ -127,9 +127,6 @@ import org.apache.doris.persist.TablePropertyInfo;
 import org.apache.doris.persist.TableRenameColumnInfo;
 import org.apache.doris.persist.TableStatsDeletionLog;
 import org.apache.doris.persist.TruncateTableInfo;
-import org.apache.doris.plsql.metastore.PlsqlPackage;
-import org.apache.doris.plsql.metastore.PlsqlProcedureKey;
-import org.apache.doris.plsql.metastore.PlsqlStoredProcedure;
 import org.apache.doris.plugin.PluginInfo;
 import org.apache.doris.policy.DropPolicyLog;
 import org.apache.doris.policy.Policy;
@@ -863,22 +860,22 @@ public class JournalEntity implements Writable {
                 break;
             }
             case OperationType.OP_ADD_PLSQL_STORED_PROCEDURE: {
-                data = PlsqlStoredProcedure.read(in);
+                Text.readString(in);
                 isRead = true;
                 break;
             }
             case OperationType.OP_DROP_PLSQL_STORED_PROCEDURE: {
-                data = PlsqlProcedureKey.read(in);
+                Text.readString(in);
                 isRead = true;
                 break;
             }
             case OperationType.OP_ADD_PLSQL_PACKAGE: {
-                data = PlsqlPackage.read(in);
+                Text.readString(in);
                 isRead = true;
                 break;
             }
             case OperationType.OP_DROP_PLSQL_PACKAGE: {
-                data = PlsqlProcedureKey.read(in);
+                Text.readString(in);
                 isRead = true;
                 break;
             }

@@ -40,15 +40,29 @@ class AcceptNullPredicate : public ColumnPredicate {
     ENABLE_FACTORY_CREATOR(AcceptNullPredicate);
 
 public:
-    AcceptNullPredicate(ColumnPredicate* nested)
-            : ColumnPredicate(nested->column_id(), nested->opposite()), _nested {nested} {}
+    AcceptNullPredicate(const std::shared_ptr<ColumnPredicate>& nested)
+            : ColumnPredicate(nested->column_id(), nested->primitive_type(), nested->opposite()),
+              _nested {nested} {}
+    AcceptNullPredicate(const AcceptNullPredicate& other, uint32_t col_id)
+            : ColumnPredicate(other, col_id),
+              _nested(assert_cast<const AcceptNullPredicate&>(other)._nested
+                              ? assert_cast<const AcceptNullPredicate&>(other)._nested->clone(
+                                        col_id)
+                              : nullptr) {}
+    AcceptNullPredicate(const AcceptNullPredicate& other) = delete;
+    ~AcceptNullPredicate() override = default;
+    std::shared_ptr<ColumnPredicate> clone(uint32_t col_id) const override {
+        return AcceptNullPredicate::create_shared(*this, col_id);
+    }
+    std::string debug_string() const override {
+        auto n = _nested;
+        fmt::memory_buffer debug_string_buffer;
+        fmt::format_to(debug_string_buffer, "AcceptNullPredicate({}, nested={})",
+                       ColumnPredicate::debug_string(), n ? n->debug_string() : "null");
+        return fmt::to_string(debug_string_buffer);
+    }
 
     PredicateType type() const override { return _nested->type(); }
-
-    Status evaluate(BitmapIndexIterator* iterator, uint32_t num_rows,
-                    roaring::Roaring* roaring) const override {
-        return _nested->evaluate(iterator, num_rows, roaring);
-    }
 
     Status evaluate(const vectorized::IndexFieldNameAndTypePair& name_with_type,
                     IndexIterator* iterator, uint32_t num_rows,
@@ -178,11 +192,7 @@ private:
         return _nested->evaluate(column, sel, size);
     }
 
-    std::string _debug_string() const override {
-        return "passnull predicate for " + _nested->debug_string();
-    }
-
-    std::unique_ptr<ColumnPredicate> _nested;
+    std::shared_ptr<ColumnPredicate> _nested;
 };
 
 } //namespace doris

@@ -401,6 +401,8 @@ DECLARE_mInt32(unused_rowset_monitor_interval);
 DECLARE_mInt32(quering_rowsets_evict_interval);
 DECLARE_String(storage_root_path);
 DECLARE_mString(broken_storage_path);
+DECLARE_Int32(min_active_scan_threads);
+DECLARE_Int32(min_active_file_scan_threads);
 
 // Config is used to check incompatible old format hdr_ format
 // whether doris uses strict way. When config is true, process will log fatal
@@ -1185,6 +1187,7 @@ DECLARE_mBool(enable_file_cache_keep_base_compaction_output);
 DECLARE_mBool(enable_file_cache_adaptive_write);
 DECLARE_mDouble(file_cache_keep_base_compaction_output_min_hit_ratio);
 DECLARE_mDouble(file_cache_meta_store_vs_file_system_diff_num_threshold);
+DECLARE_mDouble(file_cache_keep_schema_change_output_min_hit_ratio);
 DECLARE_mInt64(file_cache_remove_block_qps_limit);
 DECLARE_mInt64(file_cache_background_gc_interval_ms);
 DECLARE_mInt64(file_cache_background_block_lru_update_interval_ms);
@@ -1674,6 +1677,8 @@ DECLARE_mInt64(max_csv_line_reader_output_buffer_size);
 DECLARE_Int32(omp_threads_limit);
 // The capacity of segment partial column cache, used to cache column readers for each segment.
 DECLARE_mInt32(max_segment_partial_column_cache_size);
+// Chunk size for ANN/vector index building per training/adding batch
+DECLARE_mInt64(ann_index_build_chunk_size);
 
 DECLARE_mBool(enable_prefill_output_dbm_agg_cache_after_compaction);
 DECLARE_mBool(enable_prefill_all_dbm_agg_cache_after_compaction);
