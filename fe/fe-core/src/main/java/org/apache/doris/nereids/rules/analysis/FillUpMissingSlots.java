@@ -93,7 +93,7 @@ public class FillUpMissingSlots implements AnalysisRuleFactory {
                         LogicalSort<Aggregate<Plan>> sort = ctx.root;
                         Aggregate<Plan> agg = sort.child();
                         Resolver resolver = new Resolver(agg, ctx.cascadesContext.getOuterScope());
-                        sort.getExpressions().forEach(resolver::resolve);
+                        sort.getExpressions().forEach(expr -> resolver.resolve(expr, ResolvePlanType.SORT));
                         return createPlan(resolver, agg, (r, a) -> {
                             List<OrderKey> newOrderKeys = sort.getOrderKeys().stream()
                                     .map(ok -> new OrderKey(
@@ -117,7 +117,7 @@ public class FillUpMissingSlots implements AnalysisRuleFactory {
                         LogicalHaving<Aggregate<Plan>> having = sort.child();
                         Aggregate<Plan> agg = having.child();
                         Resolver resolver = new Resolver(agg, ctx.cascadesContext.getOuterScope());
-                        sort.getExpressions().forEach(resolver::resolve);
+                        sort.getExpressions().forEach(expr -> resolver.resolve(expr, ResolvePlanType.SORT));
                         return createPlan(resolver, agg, (r, a) -> {
                             List<OrderKey> newOrderKeys = sort.getOrderKeys().stream()
                                     .map(key -> key.withExpression(
@@ -147,7 +147,7 @@ public class FillUpMissingSlots implements AnalysisRuleFactory {
                     LogicalHaving<Aggregate<Plan>> having = ctx.root;
                     Aggregate<Plan> agg = having.child();
                     Resolver resolver = new Resolver(agg, ctx.cascadesContext.getOuterScope());
-                    having.getConjuncts().forEach(resolver::resolve);
+                    having.getConjuncts().forEach(expr -> resolver.resolve(expr, ResolvePlanType.HAVING));
                     return createPlan(resolver, agg, (r, a) -> {
                         Set<Expression> newConjuncts = ExpressionUtils.replace(
                                 having.getConjuncts(), r.getSubstitution());
@@ -168,6 +168,12 @@ public class FillUpMissingSlots implements AnalysisRuleFactory {
                     })
              )
         );
+    }
+
+    public enum ResolvePlanType {
+        HAVING,
+        QUALIFY,
+        SORT,
     }
 
     static class Resolver {
@@ -192,7 +198,7 @@ public class FillUpMissingSlots implements AnalysisRuleFactory {
             this(aggregate, Optional.empty());
         }
 
-        public void resolve(Expression expression) {
+        public void resolve(Expression expression, ResolvePlanType planType) {
             Pair<Optional<Expression>, Boolean> result = lookUp(expression);
             Optional<Expression> found = result.first;
             boolean isFoundInOutputExpressions = result.second;
@@ -226,13 +232,13 @@ public class FillUpMissingSlots implements AnalysisRuleFactory {
                             newOutputSlots.add(alias);
                             substitution.put(expression, alias.toSlot());
                         } else {
-                            throw new AnalysisException("'" + expression.toSql()
+                            throw new AnalysisException(planType + " expression '" + expression.toSql()
                                     + "' must appear in the GROUP BY clause or be used in an aggregate function.");
                         }
                     }
                 } else if (expression instanceof AggregateFunction) {
                     if (checkWhetherNestedAggregateFunctionsExist((AggregateFunction) expression)) {
-                        throw new AnalysisException("Aggregate functions in having clause can't be nested: "
+                        throw new AnalysisException(planType + " aggregate functions can't be nested: "
                                 + expression.toSql() + ".");
                     }
                     generateAliasForNewOutputSlots(expression);
@@ -241,7 +247,7 @@ public class FillUpMissingSlots implements AnalysisRuleFactory {
                 } else {
                     // Try to resolve the children.
                     for (Expression child : expression.children()) {
-                        resolve(child);
+                        resolve(child, planType);
                     }
                 }
             }
@@ -358,7 +364,7 @@ public class FillUpMissingSlots implements AnalysisRuleFactory {
     private Plan processDistinctProjectWithAggregate(LogicalSort<?> sort,
             Aggregate<?> upperAggregate, Aggregate<Plan> bottomAggregate, Optional<Scope> outerScope) {
         Resolver resolver = new Resolver(bottomAggregate, outerScope);
-        sort.getExpressions().forEach(resolver::resolve);
+        sort.getExpressions().forEach(expr -> resolver.resolve(expr, ResolvePlanType.SORT));
         return createPlan(resolver, bottomAggregate, (r, a) -> {
             List<OrderKey> newOrderKeys = sort.getOrderKeys().stream()
                     .map(ok -> new OrderKey(
@@ -441,9 +447,10 @@ public class FillUpMissingSlots implements AnalysisRuleFactory {
             // avoid throw exception even if having have slot from its child.
             // because we will add a project between having and project.
             Resolver resolver = new Resolver(agg, outerScope);
-            newSortExpressions = resolveAndRewriteExprsForEmptyGroupBy(oldSortExpressions, resolver);
+            newSortExpressions = resolveAndRewriteExprsForEmptyGroupBy(
+                    oldSortExpressions, resolver, ResolvePlanType.SORT);
             newHavingExpressions = ImmutableSet.copyOf(
-                    resolveAndRewriteExprsForEmptyGroupBy(oldHavingExpressions, resolver));
+                    resolveAndRewriteExprsForEmptyGroupBy(oldHavingExpressions, resolver, ResolvePlanType.HAVING));
             agg = agg.withAggOutput(resolver.getNewOutputSlots());
             ImmutableList.Builder<NamedExpression> newProjectBuilder
                     = ImmutableList.builderWithExpectedSize(oldProject.getOutputs().size() + agg.getOutput().size());
@@ -494,12 +501,12 @@ public class FillUpMissingSlots implements AnalysisRuleFactory {
     }
 
     private List<Expression> resolveAndRewriteExprsForEmptyGroupBy(
-            Collection<Expression> expressions, Resolver resolver) {
+            Collection<Expression> expressions, Resolver resolver, ResolvePlanType planType) {
         List<Expression> result = Lists.newArrayListWithExpectedSize(expressions.size());
         for (Expression expr : expressions) {
             // for empty group by, the NullableAggregateFunction is always nullable
             Expression newExpr = AdjustAggregateNullableForEmptySet.replaceExpression(expr, true);
-            resolver.resolve(newExpr);
+            resolver.resolve(newExpr, planType);
             result.add(ExpressionUtils.replace(newExpr, resolver.getSubstitution()));
         }
         return result;
