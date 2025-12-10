@@ -131,6 +131,7 @@ import java.time.temporal.TemporalAccessor;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -1546,9 +1547,30 @@ public class IcebergUtils {
     }
 
     public static String showCreateView(IcebergExternalTable icebergExternalTable) {
-        return String.format("CREATE VIEW `%s` AS ", icebergExternalTable.getName())
-                +
-                icebergExternalTable.getViewText();
+        StringBuilder sb = new StringBuilder();
+        sb.append(String.format("CREATE VIEW `%s`", icebergExternalTable.getName()));
+        sb.append("\n");
+        sb.append("AS");
+        sb.append("\n");
+        sb.append(icebergExternalTable.getViewText());
+        sb.append("\n");
+        sb.append("LOCATION '").append(icebergExternalTable.location()).append("'");
+        Map<String, String> props = icebergExternalTable.properties();
+        if (props != null && !props.isEmpty()) {
+            sb.append("\n");
+            sb.append("PROPERTIES (");
+            sb.append("\n");
+            Iterator<Map.Entry<String, String>> iterator = props.entrySet().iterator();
+            while (iterator.hasNext()) {
+                Map.Entry<String, String> prop = iterator.next();
+                sb.append("\n  \"").append(prop.getKey()).append("\" = \"").append(prop.getValue()).append("\"");
+                if (iterator.hasNext()) {
+                    sb.append(",");
+                }
+            }
+            sb.append("\n)");
+        }
+        return sb.toString();
     }
 
 }
