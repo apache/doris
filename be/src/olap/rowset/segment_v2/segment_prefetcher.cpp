@@ -46,33 +46,33 @@ void SegmentPrefetcher::_build_block_sequence_from_bitmap(const roaring::Roaring
     size_t last_block_id = static_cast<size_t>(-1);
     rowid_t current_block_first_rowid = 0;
 
+    int batch_size = 8000;
+    std::vector<rowid_t> rowids(8000);
+    roaring::api::roaring_uint32_iterator_t iter;
+    roaring::api::roaring_init_iterator(&row_bitmap.roaring, &iter);
+    uint32_t num = roaring::api::roaring_read_uint32_iterator(&iter, rowids.data(), batch_size);
+
     if (_is_forward) {
-        // Forward reading: iterate bitmap in ascending order
-        for (auto it = row_bitmap.begin(); it != row_bitmap.end(); ++it) {
-            rowid_t rowid = *it;
-
-            // Advance page_idx until we find the page containing this rowid
-            // A rowid belongs to page i if: ordinals[i] <= rowid < ordinals[i+1]
-            while (page_idx < num_pages - 1 && ordinals[page_idx + 1] <= rowid) {
-                page_idx++;
-            }
-
-            // Skip if rowid is beyond all pages
-            if (page_idx >= num_pages || rowid < ordinals[page_idx]) {
-                continue;
-            }
-
-            // Calculate file cache block ID from page offset
-            size_t block_id = _offset_to_block_id(pages[page_idx].offset);
-
-            // Only add new block when block_id changes
-            if (block_id != last_block_id) {
-                // Save the previous block
-                if (last_block_id != static_cast<size_t>(-1)) {
-                    _block_sequence.emplace_back(last_block_id, current_block_first_rowid);
+        // Forward reading: iterate bitmap in ascending order using batch by batch
+        for (; num > 0;
+             num = roaring::api::roaring_read_uint32_iterator(&iter, rowids.data(), batch_size)) {
+            for (uint32_t i = 0; i < num; ++i) {
+                rowid_t rowid = rowids[i];
+                while (page_idx < num_pages - 1 && ordinals[page_idx + 1] <= rowid) {
+                    page_idx++;
                 }
-                last_block_id = block_id;
-                current_block_first_rowid = rowid;
+
+                size_t block_id = _offset_to_block_id(pages[page_idx].offset);
+
+                // Only add new block when block_id changes
+                if (block_id != last_block_id) {
+                    // Save the previous block
+                    if (last_block_id != static_cast<size_t>(-1)) {
+                        _block_sequence.emplace_back(last_block_id, current_block_first_rowid);
+                    }
+                    last_block_id = block_id;
+                    current_block_first_rowid = rowid;
+                }
             }
         }
     } else {
@@ -81,35 +81,26 @@ void SegmentPrefetcher::_build_block_sequence_from_bitmap(const roaring::Roaring
         //
         // Strategy: iterate forward through bitmap, but for each block,
         // keep updating current_block_first_rowid to the latest (largest) rowid in that block
-        for (auto it = row_bitmap.begin(); it != row_bitmap.end(); ++it) {
-            rowid_t rowid = *it;
-
-            // Advance page_idx until we find the page containing this rowid
-            while (page_idx < num_pages - 1 && ordinals[page_idx + 1] <= rowid) {
-                page_idx++;
-            }
-
-            // Skip if rowid is beyond all pages
-            if (page_idx >= num_pages || rowid < ordinals[page_idx]) {
-                continue;
-            }
-
-            // Calculate file cache block ID from page offset
-            size_t block_id = _offset_to_block_id(pages[page_idx].offset);
-
-            if (block_id != last_block_id) {
-                // Save the previous block with its last (largest) rowid
-                if (last_block_id != static_cast<size_t>(-1)) {
-                    _block_sequence.emplace_back(last_block_id, current_block_first_rowid);
+        for (; num > 0;
+             num = roaring::api::roaring_read_uint32_iterator(&iter, rowids.data(), batch_size)) {
+            for (uint32_t i = 0; i < num; ++i) {
+                rowid_t rowid = rowids[i];
+                while (page_idx < num_pages - 1 && ordinals[page_idx + 1] <= rowid) {
+                    page_idx++;
                 }
-                last_block_id = block_id;
-            }
-            // Always update to the current (larger) rowid for backward reading
-            current_block_first_rowid = rowid;
-        }
+                size_t block_id = _offset_to_block_id(pages[page_idx].offset);
 
-        // After collecting all blocks, reverse the sequence for backward reading
-        // so that blocks are in the order they'll be accessed
+                if (block_id != last_block_id) {
+                    // Save the previous block with its last (largest) rowid
+                    if (last_block_id != static_cast<size_t>(-1)) {
+                        _block_sequence.emplace_back(last_block_id, current_block_first_rowid);
+                    }
+                    last_block_id = block_id;
+                }
+                // Always update to the current (larger) rowid for backward reading
+                current_block_first_rowid = rowid;
+            }
+        }
     }
 
     // Add the last block
@@ -121,6 +112,16 @@ void SegmentPrefetcher::_build_block_sequence_from_bitmap(const roaring::Roaring
     if (!_is_forward && !_block_sequence.empty()) {
         std::ranges::reverse(_block_sequence);
     }
+
+    std::string msg {};
+    for (const auto& block : _block_sequence) {
+        msg += fmt::format("({},{}), ", block.block_id, block.first_rowid);
+    }
+
+    LOG_INFO(
+            "[verbose] SegmentPrefetcher initialized with block count={}, is_forward={}, "
+            "num_pages={}, blocks: (block_id, first_rowid)=[{}]",
+            _block_sequence.size(), _is_forward, num_pages, msg);
 }
 
 Status SegmentPrefetcher::init(const roaring::Roaring& row_bitmap,
@@ -146,17 +147,6 @@ Status SegmentPrefetcher::init(const roaring::Roaring& row_bitmap,
 
     // Build block sequence efficiently using direct access to ordinal index internals
     _build_block_sequence_from_bitmap(row_bitmap, ordinal_index);
-
-    std::string msg {};
-    for (const auto& block : _block_sequence) {
-        msg += fmt::format("({},{}), ", block.block_id, block.first_rowid);
-    }
-
-    LOG_INFO(
-            "[verbose] SegmentPrefetcher initialized with block count={}, is_forward={}, blocks: "
-            "(block_id, first_rowid)=[{}]",
-            _block_sequence.size(), _is_forward, msg);
-
     return Status::OK();
 }
 
@@ -167,32 +157,37 @@ bool SegmentPrefetcher::need_prefetch(rowid_t current_rowid, std::vector<BlockRa
         return false;
     }
 
-    // Find the index of the block that should be read for current_rowid
-    // This is the block that contains or will contain current_rowid
-    size_t current_block_index = _next_prefetch_index;
+    // Find the index of the block that contains current_rowid
+    // Start from _last_search_index since reading is monotonic
+    size_t current_block_index = _last_search_index;
 
     if (_is_forward) {
         // Forward: find the largest index where first_rowid <= current_rowid
+        // Block sequence is ordered by ascending first_rowid
         while (current_block_index < _block_sequence.size() - 1 &&
                _block_sequence[current_block_index + 1].first_rowid <= current_rowid) {
             current_block_index++;
         }
     } else {
         // Backward: find the largest index where first_rowid >= current_rowid
+        // Block sequence is ordered by descending first_rowid (reversed for backward reading)
         while (current_block_index < _block_sequence.size() - 1 &&
                _block_sequence[current_block_index + 1].first_rowid >= current_rowid) {
             current_block_index++;
         }
     }
 
-    // If current_block_index is still before _next_prefetch_index,
+    // Update last search index for next call
+    _last_search_index = current_block_index;
+
+    // If current_block_index is before _next_prefetch_index,
     // it means current_rowid is in a block we've already scheduled for prefetch
     // In this case, no need to prefetch
     if (current_block_index < _next_prefetch_index) {
         return false;
     }
 
-    // If current_block_index >= _next_prefetch_index, we need to prefetch
+    // current_block_index >= _next_prefetch_index, we need to prefetch
     // Start prefetching from current_block_index to maintain N blocks ahead
     out_ranges->clear();
     out_ranges->reserve(_config.prefetch_window_size);

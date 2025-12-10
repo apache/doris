@@ -124,6 +124,7 @@ public:
     void reset() {
         _block_sequence.clear();
         _next_prefetch_index = 0;
+        _last_search_index = 0;
     }
 
 private:
@@ -160,6 +161,9 @@ private:
 
     // Next index in _block_sequence to prefetch
     size_t _next_prefetch_index = 0;
+
+    // Last searched block index for monotonic access optimization
+    size_t _last_search_index = 0;
 };
 
 } // namespace segment_v2
