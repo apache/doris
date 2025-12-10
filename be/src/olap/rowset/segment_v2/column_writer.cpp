@@ -22,6 +22,7 @@
 #include <algorithm>
 #include <filesystem>
 #include <memory>
+#include <vector>
 
 #include "common/config.h"
 #include "common/logging.h"
@@ -52,7 +53,28 @@
 namespace doris::segment_v2 {
 #include "common/compile_check_begin.h"
 
-class NullBitmapBuilder {
+// Abstract base class for null bitmap builders
+class NullBitmapBuilderBase {
+public:
+    virtual ~NullBitmapBuilderBase() = default;
+
+    // Add a run of 'run' values, all equal to 'value'
+    virtual void add_run(bool value, size_t run) = 0;
+
+    // Returns whether the building nullmap contains any null values
+    virtual bool has_null() const = 0;
+
+    // Finish building the null bitmap and write the result to 'slice'
+    virtual Status finish(OwnedSlice* slice) = 0;
+
+    // Reset the builder to its initial state
+    virtual void reset() = 0;
+
+    // Return the current size of the buffer in bytes
+    virtual uint64_t size() = 0;
+};
+
+class NullBitmapBuilder : public NullBitmapBuilderBase {
 public:
     NullBitmapBuilder() : _has_null(false), _bitmap_buf(512), _rle_encoder(&_bitmap_buf, 1) {}
 
@@ -61,31 +83,81 @@ public:
               _bitmap_buf(BitmapSize(reserve_bits)),
               _rle_encoder(&_bitmap_buf, 1) {}
 
-    void add_run(bool value, size_t run) {
+    void add_run(bool value, size_t run) override {
         _has_null |= value;
         _rle_encoder.Put(value, run);
     }
 
     // Returns whether the building nullmap contains nullptr
-    bool has_null() const { return _has_null; }
+    bool has_null() const override { return _has_null; }
 
-    Status finish(OwnedSlice* slice) {
+    Status finish(OwnedSlice* slice) override {
         _rle_encoder.Flush();
         RETURN_IF_CATCH_EXCEPTION({ *slice = _bitmap_buf.build(); });
         return Status::OK();
     }
 
-    void reset() {
+    void reset() override {
         _has_null = false;
         _rle_encoder.Clear();
     }
 
-    uint64_t size() { return _bitmap_buf.size(); }
+    uint64_t size() override { return _bitmap_buf.size(); }
 
 private:
     bool _has_null;
     faststring _bitmap_buf;
     RleEncoder<bool> _rle_encoder;
+};
+
+// PlainNullBitmapBuilder uses std::vector<uint8_t> to store null values directly without RLE encoding
+// Each uint8_t represents a single null value: 0 = non-null, 1 = null
+class PlainNullBitmapBuilder : public NullBitmapBuilderBase {
+public:
+    PlainNullBitmapBuilder() : _has_null(false), _bitmap_buf() {}
+
+    explicit PlainNullBitmapBuilder(size_t reserve_bits)
+            : _has_null(false),
+              _bitmap_buf(reserve_bits, 0) {} // Reserve enough bytes for the given number of bits
+
+    void add_run(bool value, size_t run) override {
+        _has_null |= value;
+        const uint8_t val = value ? 1 : 0;
+
+        // Ensure the buffer has enough bytes to hold all values
+        const size_t current_size = _bitmap_buf.size();
+        _bitmap_buf.resize(current_size + run, 0);
+
+        if (val) {
+            // Fill the new bytes with the value
+            std::fill(_bitmap_buf.begin() + current_size, _bitmap_buf.end(), val);
+        }
+    }
+
+    // Returns whether the building nullmap contains nullptr
+    bool has_null() const override { return _has_null; }
+
+    Status finish(OwnedSlice* slice) override {
+        // No need to flush, just build the slice from the buffer
+        RETURN_IF_CATCH_EXCEPTION({
+            // Create a new OwnedSlice and copy the data
+            OwnedSlice result(_bitmap_buf.size());
+            memcpy(result.data(), _bitmap_buf.data(), _bitmap_buf.size());
+            *slice = std::move(result);
+        });
+        return Status::OK();
+    }
+
+    void reset() override {
+        _has_null = false;
+        _bitmap_buf.clear();
+    }
+
+    uint64_t size() override { return _bitmap_buf.size(); }
+
+private:
+    bool _has_null;
+    std::vector<uint8_t> _bitmap_buf;
 };
 
 inline ScalarColumnWriter* get_null_writer(const ColumnWriterOptions& opts,
@@ -458,7 +530,7 @@ Status ScalarColumnWriter::init() {
     _ordinal_index_builder = std::make_unique<OrdinalIndexWriter>();
     // create null bitmap builder
     if (is_nullable()) {
-        _null_bitmap_builder = std::make_unique<NullBitmapBuilder>();
+        _null_bitmap_builder = std::make_unique<PlainNullBitmapBuilder>();
     }
     if (_opts.need_zone_map) {
         RETURN_IF_ERROR(ZoneMapIndexWriter::create(get_field(), _zone_map_index_builder));
@@ -743,6 +815,7 @@ Status ScalarColumnWriter::finish_current_page() {
     data_page_footer->set_first_ordinal(_first_rowid);
     data_page_footer->set_num_values(_next_rowid - _first_rowid);
     data_page_footer->set_nullmap_size(cast_set<uint32_t>(nullmap.slice().size));
+    data_page_footer->set_new_null_map(true);
     if (_new_page_callback != nullptr) {
         _new_page_callback->put_extra_info_in_page(data_page_footer);
     }

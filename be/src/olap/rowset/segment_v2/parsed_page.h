@@ -51,11 +51,17 @@ struct ParsedPage {
         auto null_bitmap = Slice(body.data + body.size - null_size, null_size);
 
         if (null_size > 0) {
-            auto null_decoder = RleDecoder<bool>((const uint8_t*)null_bitmap.data, null_size, 1);
-            // Decode all null values into null_maps in advance
-            auto num_rows = footer.num_values();
-            page->null_maps.resize(num_rows);
-            null_decoder.get_values((bool*)page->null_maps.data(), num_rows);
+            if (footer.has_new_null_map() && footer.new_null_map()) {
+                page->null_maps = std::span<uint8_t>((uint8_t*)null_bitmap.data, null_size);
+            } else {
+                auto null_decoder =
+                        RleDecoder<bool>((const uint8_t*)null_bitmap.data, null_size, 1);
+                // Decode all null values into null_maps in advance
+                auto num_rows = footer.num_values();
+                page->null_bitmap.resize(num_rows);
+                null_decoder.get_values((bool*)page->null_bitmap.data(), num_rows);
+                page->null_maps = std::span<uint8_t>(page->null_bitmap.data(), num_rows);
+            }
         }
 
         Slice data_slice(body.data, body.size - null_size);
@@ -84,7 +90,8 @@ struct ParsedPage {
 
     PageHandle page_handle;
 
-    std::vector<uint8_t> null_maps;
+    std::span<uint8_t> null_maps;
+    std::vector<uint8_t> null_bitmap;
     std::unique_ptr<PageDecoder> data_decoder;
 
     // ordinal of the first value in this page
