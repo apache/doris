@@ -39,7 +39,7 @@ class TCondition;
 // Represent a delete condition.
 struct DeleteConditions {
     int64_t filter_version = 0; // The version of this condition
-    std::vector<const ColumnPredicate*> column_predicate_vec;
+    std::vector<std::shared_ptr<const ColumnPredicate>> column_predicate_vec;
 };
 
 // This class is used for checking whether a row should be deleted.
@@ -111,7 +111,7 @@ public:
 
     void get_delete_conditions_after_version(
             int64_t version, AndBlockColumnPredicate* and_block_column_predicate_ptr,
-            std::unordered_map<int32_t, std::vector<const ColumnPredicate*>>*
+            std::unordered_map<int32_t, std::vector<std::shared_ptr<const ColumnPredicate>>>*
                     del_predicates_for_zone_map) const;
 
 private:

@@ -40,12 +40,6 @@ PinyinTokenizer::PinyinTokenizer(std::shared_ptr<doris::segment_v2::PinyinConfig
     if (!config_) {
         config_ = std::make_shared<doris::segment_v2::PinyinConfig>();
     }
-    if (!(config_->keepFirstLetter || config_->keepSeparateFirstLetter || config_->keepFullPinyin ||
-          config_->keepJoinedFullPinyin || config_->keepSeparateChinese)) {
-        throw Exception(ErrorCode::INVALID_ARGUMENT,
-                        "pinyin config error, can't disable separate_first_letter, first_letter "
-                        "and full_pinyin at the same time.");
-    }
     candidate_.clear();
     terms_filter_.clear();
     first_letters_.clear();
@@ -93,7 +87,7 @@ void PinyinTokenizer::processInput() {
         }
 
         position_ = 0;
-        int ascii_buff_start = -1;
+        int ascii_buff_start_byte = -1;
         std::string ascii_buff;
         int char_index = 0;
 
@@ -109,18 +103,15 @@ void PinyinTokenizer::processInput() {
                             (r.cp >= '0' && r.cp <= '9');
 
             if (is_ascii_context) {
-                if (ascii_buff_start < 0) ascii_buff_start = r.byte_start;
+                if (ascii_buff_start_byte < 0) ascii_buff_start_byte = r.byte_start;
                 if (is_alnum && config_->keepNoneChinese) {
                     if (config_->keepNoneChineseTogether) {
                         ascii_buff.push_back(static_cast<char>(r.cp));
                     } else {
                         position_++;
-                        int char_position = position_;
-
-                        char_position = char_index + 1;
-
                         std::string single_char(1, static_cast<char>(r.cp));
-                        addCandidate(single_char, r.byte_start, r.byte_end, char_position);
+                        // Use byte offset for single ASCII character
+                        addCandidate(single_char, r.byte_start, r.byte_end, char_index + 1);
                     }
                 }
                 if (is_alnum && config_->keepNoneChineseInFirstLetter) {
@@ -131,7 +122,7 @@ void PinyinTokenizer::processInput() {
                 }
             } else {
                 if (!ascii_buff.empty()) {
-                    parseBuff(ascii_buff, ascii_buff_start);
+                    parseBuff(ascii_buff, ascii_buff_start_byte);
                 }
                 bool incr_position = false;
                 if (!pinyin.empty() && !chinese.empty()) {
@@ -159,20 +150,21 @@ void PinyinTokenizer::processInput() {
         }
 
         if (!ascii_buff.empty()) {
-            parseBuff(ascii_buff, ascii_buff_start);
+            parseBuff(ascii_buff, ascii_buff_start_byte);
         }
     }
+
+    int total_byte_length = runes_.empty() ? 0 : runes_.back().byte_end;
 
     if (config_->keepOriginal && !processed_original_) {
         processed_original_ = true;
         std::string source_utf8 = codepointsToUtf8(source_codepoints_);
-        addCandidate(source_utf8, 0, static_cast<int>(source_utf8.length()), 1);
+        addCandidate(source_utf8, 0, total_byte_length, 1);
     }
     if (config_->keepJoinedFullPinyin && !processed_full_pinyin_letter_ &&
         !full_pinyin_letters_.empty()) {
         processed_full_pinyin_letter_ = true;
-        std::string source_utf8 = codepointsToUtf8(source_codepoints_);
-        addCandidate(full_pinyin_letters_, 0, static_cast<int>(source_utf8.length()), 1);
+        addCandidate(full_pinyin_letters_, 0, total_byte_length, 1);
         full_pinyin_letters_.clear();
     }
     if (config_->keepFirstLetter && !first_letters_.empty() && !processed_first_letter_) {
@@ -188,7 +180,7 @@ void PinyinTokenizer::processInput() {
                            [](unsigned char x) { return static_cast<char>(std::tolower(x)); });
         }
         if (!(config_->keepSeparateFirstLetter && fl.length() <= 1)) {
-            addCandidate(fl, 0, static_cast<int>(fl.length()), 1);
+            addCandidate(fl, 0, total_byte_length, 1);
         }
     }
 
@@ -214,8 +206,14 @@ Token* PinyinTokenizer::next(Token* token) {
         size_t size = std::min(text.size(), static_cast<size_t>(LUCENE_MAX_WORD_LEN));
         token->setNoCopy(text.data(), 0, static_cast<int32_t>(size));
 
-        token->setStartOffset(item.start_offset);
-        token->setEndOffset(item.end_offset);
+        if (config_->ignorePinyinOffset) {
+            int total_byte_length = runes_.empty() ? 0 : runes_.back().byte_end;
+            token->setStartOffset(0);
+            token->setEndOffset(total_byte_length);
+        } else {
+            token->setStartOffset(item.start_offset);
+            token->setEndOffset(item.end_offset);
+        }
 
         int offset = item.position - last_increment_position_;
         if (offset < 0) offset = 0;
@@ -297,18 +295,22 @@ void PinyinTokenizer::decode_to_runes() {
     }
 }
 
-void PinyinTokenizer::parseBuff(std::string& ascii_buff, int& ascii_buff_start) {
+void PinyinTokenizer::parseBuff(std::string& ascii_buff, int& ascii_buff_start_byte) {
     if (ascii_buff.empty()) return;
     if (!config_->keepNoneChinese) {
         ascii_buff.clear();
-        ascii_buff_start = -1;
+        ascii_buff_start_byte = -1;
         return;
     }
-    int32_t seg_start = ascii_buff_start;
-    int32_t seg_end = seg_start + static_cast<int32_t>(ascii_buff.size());
+
+    // Use byte offset for ASCII buffer
+    // ascii_buff_start_byte is the byte position where the buffer started
+    int32_t buff_byte_size = static_cast<int32_t>(ascii_buff.size());
+    int32_t buff_end_byte = ascii_buff_start_byte + buff_byte_size;
+
     if (config_->noneChinesePinyinTokenize) {
         std::vector<std::string> result = PinyinAlphabetTokenizer::walk(ascii_buff);
-        int32_t start = seg_start;
+        int32_t start = ascii_buff_start_byte;
         for (const std::string& t : result) {
             int32_t end = config_->fixedPinyinOffset ? start + 1
                                                      : start + static_cast<int32_t>(t.length());
@@ -319,10 +321,10 @@ void PinyinTokenizer::parseBuff(std::string& ascii_buff, int& ascii_buff_start) 
     } else if (config_->keepFirstLetter || config_->keepSeparateFirstLetter ||
                config_->keepFullPinyin || !config_->keepNoneChineseInJoinedFullPinyin) {
         position_++;
-        addCandidate(ascii_buff, seg_start, seg_end, position_);
+        addCandidate(ascii_buff, ascii_buff_start_byte, buff_end_byte, position_);
     }
     ascii_buff.clear();
-    ascii_buff_start = -1;
+    ascii_buff_start_byte = -1;
 }
 
 std::string PinyinTokenizer::codepointsToUtf8(const std::vector<UChar32>& codepoints) const {

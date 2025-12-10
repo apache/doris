@@ -42,8 +42,7 @@ namespace vectorized {
 
 Status DataTypeVariantSerDe::write_column_to_mysql_binary(const IColumn& column,
                                                           MysqlRowBinaryBuffer& row_buffer,
-                                                          int64_t row_idx, bool col_const,
-                                                          const FormatOptions& options) const {
+                                                          int64_t row_idx, bool col_const) const {
     const auto& variant = assert_cast<const ColumnVariant&>(column);
     // Serialize hierarchy types to json format
     std::string buffer;

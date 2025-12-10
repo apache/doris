@@ -6,7 +6,7 @@ PhysicalResultSink
 ------PhysicalDistribute[DistributionSpecGather]
 --------hashAgg[LOCAL]
 ----------PhysicalProject
-------------filter((cast(l_quantity as DECIMALV3(38, 5)) < (0.2 * avg(cast(l_quantity as DECIMALV3(17, 4))) OVER(PARTITION BY p_partkey))))
+------------filter((cast(l_quantity as DECIMALV3(38, 5)) < (0.2 * avg(l_quantity) OVER(PARTITION BY p_partkey))))
 --------------PhysicalWindow
 ----------------PhysicalQuickSort[LOCAL_SORT]
 ------------------PhysicalProject

@@ -76,6 +76,9 @@ suite('test_immediate_warmup_multi_segments', 'docker') {
 
     def getBrpcMetrics = {ip, port, name ->
         def url = "http://${ip}:${port}/brpc_metrics"
+        if ((context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false) {
+            url = url.replace("http://", "https://") + " --cert " + context.config.otherConfigs.get("trustCert") + " --cacert " + context.config.otherConfigs.get("trustCACert") + " --key " + context.config.otherConfigs.get("trustCAKey")
+        }
         def metrics = new URL(url).text
         def matcher = metrics =~ ~"${name}\\s+(\\d+)"
         if (matcher.find()) {
@@ -114,9 +117,16 @@ suite('test_immediate_warmup_multi_segments', 'docker') {
         def ip = be[1]
         def port = be[4]
         StringBuilder sb = new StringBuilder();
-        sb.append("curl -X GET http://${ip}:${port}")
+        Boolean enableTls = (context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false
+        def protocol = enableTls ? "https" : "http"
+        sb.append("curl -X GET ${protocol}://${ip}:${port}")
         sb.append("/api/compaction/show?tablet_id=")
         sb.append(tablet_id)
+        if (enableTls) {
+            sb.append(" --cert ${context.config.otherConfigs.get("trustCert")}")
+            sb.append(" --key ${context.config.otherConfigs.get("trustCAKey")}")
+            sb.append(" --cacert ${context.config.otherConfigs.get("trustCACert")}")
+        }
 
         String command = sb.toString()
         logger.info(command)

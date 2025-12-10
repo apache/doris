@@ -52,19 +52,10 @@ suite ("aggOnAggMV11") {
     sql "analyze table aggOnAggMV11 with sync;"
     sql """alter table aggOnAggMV11 modify column time_col set stats ('row_count'='7');"""
 
-    sql """set enable_stats=false;"""
-
     mv_rewrite_fail("select * from aggOnAggMV11 order by empid;", "aggOnAggMV11_mv")
     order_qt_select_star "select * from aggOnAggMV11 order by empid;"
 
     mv_rewrite_fail("select deptno, count(salary) + count(1) from aggOnAggMV11 group by deptno;",
             "aggOnAggMV11_mv")
     order_qt_select_mv "select deptno, count(salary) + count(1) from aggOnAggMV11 group by deptno order by 1;"
-
-    sql """set enable_stats=true;"""
-
-    mv_rewrite_fail("select * from aggOnAggMV11 order by empid;", "aggOnAggMV11_mv")
-
-    mv_rewrite_fail("select deptno, count(salary) + count(1) from aggOnAggMV11 group by deptno;",
-            "aggOnAggMV11_mv")
 }

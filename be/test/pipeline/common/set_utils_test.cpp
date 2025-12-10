@@ -97,6 +97,14 @@ TEST_F(SetUtilsTest, TestSetDataVariantsInitFixedKeys) {
             ASSERT_TRUE(std::holds_alternative<SetFixedKeyHashTableContext<vectorized::UInt72>>(
                     variants.method_variant));
             break;
+        case HashKeyType::fixed96:
+            ASSERT_TRUE(std::holds_alternative<SetFixedKeyHashTableContext<vectorized::UInt96>>(
+                    variants.method_variant));
+            break;
+        case HashKeyType::fixed104:
+            ASSERT_TRUE(std::holds_alternative<SetFixedKeyHashTableContext<vectorized::UInt104>>(
+                    variants.method_variant));
+            break;
         case HashKeyType::fixed128:
             ASSERT_TRUE(std::holds_alternative<SetFixedKeyHashTableContext<vectorized::UInt128>>(
                     variants.method_variant));

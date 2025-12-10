@@ -25,8 +25,19 @@ import org.apache.http.util.EntityUtils
 import org.apache.http.client.config.RequestConfig
 import org.apache.http.conn.ConnectTimeoutException
 import org.apache.http.conn.HttpHostConnectException
+import org.apache.http.impl.client.CloseableHttpClient
+import org.apache.http.impl.client.HttpClients
+import org.apache.http.ssl.SSLContextBuilder
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
+import java.security.KeyStore
+import java.security.cert.CertificateFactory
+import java.security.cert.X509Certificate
+import java.security.PrivateKey
+import java.security.spec.PKCS8EncodedKeySpec
+import java.security.KeyFactory
+import java.util.Base64
+import javax.net.ssl.SSLContext
 
 Suite.metaClass.http_client = { String method, String url /* param */ ->
     Suite suite = delegate as Suite
@@ -44,9 +55,32 @@ Suite.metaClass.http_client = { String method, String url /* param */ ->
 
     logger.info("HTTP request: ${method} ${url}")
 
-    CloseableHttpClient httpClient = HttpClients.custom()
-        .setRetryHandler(new DefaultHttpRequestRetryHandler(3, true))
-        .build()
+    CloseableHttpClient httpClient
+    if ((suite.context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false ) {
+        url = url.replace("http://", "https://")
+        //如果url没有https开头，那加上
+        if (!url.toLowerCase().startsWith("https://")) {
+            url="https://${url}"
+        }
+        KeyStore ks = KeyStore.getInstance(suite.context.config.otherConfigs.get("keyStoreType"))
+        ks.load(new FileInputStream(suite.context.config.otherConfigs.get("keyStorePath")?.toString()),
+                context.config.otherConfigs.get("keyStorePassword")?.toCharArray())
+        KeyStore ts = KeyStore.getInstance(suite.context.config.otherConfigs.get("trustStoreType"))
+        ts.load(new FileInputStream(suite.context.config.otherConfigs.get("trustStorePath")?.toString()),
+                suite.context.config.otherConfigs.get("trustStorePassword")?.toCharArray()) 
+        SSLContext sslContext = SSLContextBuilder.create()
+            .loadKeyMaterial(ks, suite.context.config.otherConfigs.get("keyStorePassword")?.toCharArray())
+            .loadTrustMaterial(ts, null)
+            .build()
+        httpClient = HttpClients.custom()
+            .setRetryHandler(new DefaultHttpRequestRetryHandler(3, true))
+            .setSSLContext(sslContext)
+            .build()
+    } else {
+        httpClient = HttpClients.custom()
+            .setRetryHandler(new DefaultHttpRequestRetryHandler(3, true))
+            .build()
+    }
 
     int code
     String err
@@ -130,12 +164,20 @@ Suite.metaClass.curl = { String method, String url, String body = null, Integer 
         auth = String.format("-u%s:%s", user, pwd).toString();
     }
     String cmd
+    if (!url.toLowerCase().startsWith("http://") && !url.toLowerCase().startsWith("https://")) {
+        url="http://${url}"
+    }
     if (method == "POST" && body != null) {
         cmd = String.format("curl %s --max-time %d -X %s -H Content-Type:application/json -d %s %s", auth, timeoutSec, method, body, url).toString()
     } else {
         cmd = String.format("curl %s --max-time %d -X %s %s", auth, timeoutSec, method, url).toString()
     }
-
+    if ((suite.context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false) {
+        if (!cmd.contains("https")){
+            cmd = cmd.replace("http://", "https://")
+        }
+        cmd += String.format(" --cert %s --key %s --cacert %s", suite.context.config.otherConfigs.get("trustCert"), suite.context.config.otherConfigs.get("trustCAKey"), suite.context.config.otherConfigs.get("trustCACert"))
+    }
     logger.info("curl cmd: " + cmd)
     def process
     int code
@@ -175,24 +217,36 @@ Suite.metaClass.curl = { String method, String url, String body = null, Integer 
 logger.info("Added 'curl' function to Suite")
 
 Suite.metaClass.show_be_config = { String ip, String port /*param */ ->
+    Suite suite = delegate as Suite
+    if ((suite.context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false ) {
+        return curl("GET", String.format("https://%s:%s/api/show_config", ip, port))
+    }
     return curl("GET", String.format("http://%s:%s/api/show_config", ip, port))
 }
 
 logger.info("Added 'show_be_config' function to Suite")
 
 Suite.metaClass.update_be_config = { String ip, String port, String key, String value /*param */ ->
+    Suite suite = delegate as Suite
+    if ((suite.context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false ) {
+        return curl("POST", String.format("https://%s:%s/api/update_config?%s=%s", ip, port, key, value))
+    }
     return curl("POST", String.format("http://%s:%s/api/update_config?%s=%s", ip, port, key, value))
 }
 
 logger.info("Added 'update_be_config' function to Suite")
 
 Suite.metaClass.update_all_be_config = { String key, Object value ->
+    Suite suite = delegate as Suite
     def backendId_to_backendIP = [:]
     def backendId_to_backendHttpPort = [:]
     getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
     backendId_to_backendIP.each { beId, beIp ->
         def port = backendId_to_backendHttpPort.get(beId)
         def url = "http://${beIp}:${port}/api/update_config?${key}=${value}"
+        if ((suite.context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false ) {
+            url = "https://${beIp}:${port}/api/update_config?${key}=${value}"
+        }
         def result = Http.POST(url, null, true)
         assert result.size() == 1, result.toString()
         assert result[0].status == "OK", result.toString()
@@ -202,7 +256,11 @@ Suite.metaClass.update_all_be_config = { String key, Object value ->
 logger.info("Added 'update_all_be_config' function to Suite")
 
 Suite.metaClass._be_report = { String ip, int port, String reportName ->
+    Suite suite = delegate as Suite
     def url = "http://${ip}:${port}/api/report/${reportName}"
+    if ((suite.context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false ) {
+        url = "https://${ip}:${port}/api/report/${reportName}"
+    }
     def result = Http.GET(url, true)
     Http.checkHttpResult(result, NodeType.BE)
 }

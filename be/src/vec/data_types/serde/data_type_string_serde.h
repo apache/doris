@@ -204,8 +204,7 @@ public:
                                   int64_t end, const cctz::time_zone& ctz) const override;
 
     Status write_column_to_mysql_binary(const IColumn& column, MysqlRowBinaryBuffer& result,
-                                        int64_t row_idx, bool col_const,
-                                        const FormatOptions& options) const override {
+                                        int64_t row_idx, bool col_const) const override {
         const auto col_index = index_check_const(row_idx, col_const);
         const auto string_val = assert_cast<const ColumnType&>(column).get_data_at(col_index);
         result.push_string(string_val.data, string_val.size);

@@ -69,10 +69,6 @@ suite ("test_28741") {
 
     sql """analyze table test with sync;"""
     sql """alter table test modify column a set stats ('row_count'='2');"""
-    sql """set enable_stats=false;"""
 
-    mv_rewrite_fail("select b1 from test where t >= '2023-12-20 17:21:00'", "mv_test")
-
-    sql """set enable_stats=true;"""
     mv_rewrite_fail("select b1 from test where t >= '2023-12-20 17:21:00'", "mv_test")
 }

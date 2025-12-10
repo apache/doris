@@ -56,7 +56,7 @@ using ColumnString = ColumnStr<UInt32>;
 
 struct InState {
     bool use_set = true;
-    std::unique_ptr<HybridSetBase> hybrid_set;
+    std::shared_ptr<HybridSetBase> hybrid_set;
 };
 
 template <bool negative>

@@ -46,3 +46,27 @@
 -- !join_partition_predicate --
 2	2023-01-02	reason2	2023-01-02	2	200	error2	2000	2023-01-02T00:00
 
+-- !json_variant --
+1	{"id":1,"message":"hello"}	{"id":1,"message":"hello","tags":["tag1", "tag2"]}
+2	{"id":2,"message":"world"}	{"id":2,"message":"world","tags":["tag3", "tag4"]}
+3	{"id":3,"message":"doris"}	{"id":3,"message":"doris","tags":["tag5", "tag6"]}
+
+-- !json_variant_function --
+1	1	hello
+2	2	world
+3	3	doris
+
+-- !join_unique --
+2	reason2	2023-01-02	2	200	error2	2000	2023-01-02T00:00
+
+-- !aggregate --
+1	250
+2	450
+3	650
+4	400
+
+-- !join_aggregate --
+1	250
+2	450
+3	650
+

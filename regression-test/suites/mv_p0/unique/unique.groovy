@@ -62,10 +62,9 @@ suite ("unique") {
     sql "insert into u_table select 300,-3,null,'c';"
 
     sql """analyze table u_table with sync;"""
-    sql """set enable_stats=false;"""
+    sql """alter table u_table modify column k1 set stats ('row_count'='3');"""
     mv_rewrite_success("select k3,length(k1),k2 from u_table order by 1,2,3;", "k31l42")
     qt_select "select k3,length(k1),k2 from u_table order by 1,2,3;"
-
 
     test {
         sql """create materialized view kadp as select k4 as xx from u_table group by k4;"""
@@ -73,10 +72,4 @@ suite ("unique") {
     }
 
     qt_select_star "select * from u_table order by k1;"
-
-    sql """set enable_stats=true;"""
-    sql """alter table u_table modify column k1 set stats ('row_count'='3');"""
-    mv_rewrite_success("select k3,length(k1),k2 from u_table order by 1,2,3;", "k31l42")
-
-    // todo: support match query
 }

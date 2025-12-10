@@ -52,8 +52,6 @@ suite ("MVMultiUsage") {
     sql "analyze table MVMultiUsage with sync;"
     sql """alter table MVMultiUsage modify column time_col set stats ('row_count'='4');"""
 
-    sql """set enable_stats=false;"""
-
     mv_rewrite_fail("select * from MVMultiUsage order by empid;", "MVMultiUsage_mv")
     order_qt_select_star "select * from MVMultiUsage order by empid;"
 
@@ -64,14 +62,4 @@ suite ("MVMultiUsage") {
         notContains "(MVMultiUsage)"
     }
     order_qt_select_mv "select * from (select deptno, empid from MVMultiUsage where deptno>100) A join (select deptno, empid from MVMultiUsage where deptno >200) B using (deptno) order by 1;"
-
-    sql """set enable_stats=true;"""
-
-    mv_rewrite_fail("select * from MVMultiUsage order by empid;", "MVMultiUsage_mv")
-    explain {
-        sql("select * from (select deptno, empid from MVMultiUsage where deptno>100) A join (select deptno, empid from MVMultiUsage where deptno >200) B using (deptno);")
-        contains "(MVMultiUsage_mv)"
-        notContains "(MVMultiUsage)"
-    }
-
 }

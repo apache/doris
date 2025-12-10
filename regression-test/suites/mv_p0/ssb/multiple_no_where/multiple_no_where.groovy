@@ -109,7 +109,6 @@ suite ("multiple_no_where") {
     sql """analyze table lineorder_flat with sync;"""
     sql """alter table lineorder_flat modify column C_CITY set stats ('row_count'='7');"""
     sql """alter table lineorder_flat modify column a3 set stats ('row_count'='1');"""
-    sql """set enable_stats=false;"""
 
     mv_rewrite_success("""SELECT SUM(LO_EXTENDEDPRICE * LO_DISCOUNT) AS revenue
                 FROM lineorder_flat

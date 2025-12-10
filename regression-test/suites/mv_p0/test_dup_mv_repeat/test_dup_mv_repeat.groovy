@@ -52,14 +52,9 @@ suite ("test_dup_mv_repeat") {
     createMV ("create materialized view dbviwe as select dt as a1,s as a2 ,sum(n) as n1 from db1 group by dt,s;")
 
     sql "analyze table db1 with sync;"
-    sql """set enable_stats=false;"""
+    sql """alter table db1 modify column dt set stats ('row_count'='2');"""
 
     mv_rewrite_success("SELECT s AS s, sum(n) / count(DISTINCT dt) AS n FROM  db1 GROUP BY  GROUPING SETS((s)) order by 1;",
             "dbviwe")
     qt_select_mv "SELECT s AS s, sum(n) / count(DISTINCT dt) AS n FROM  db1 GROUP BY  GROUPING SETS((s)) order by 1;"
-
-    sql """set enable_stats=true;"""
-    sql """alter table db1 modify column dt set stats ('row_count'='2');"""
-    mv_rewrite_success("SELECT s AS s, sum(n) / count(DISTINCT dt) AS n FROM  db1 GROUP BY  GROUPING SETS((s)) order by 1;",
-            "dbviwe")
 }

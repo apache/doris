@@ -104,7 +104,7 @@ Status IcebergTableReader::get_next_block_inner(Block* block, size_t* read_rows,
     RETURN_IF_ERROR(_file_format_reader->get_next_block(block, read_rows, eof));
 
     if (_equality_delete_impl != nullptr) {
-        RETURN_IF_ERROR(_equality_delete_impl->filter_data_block(block));
+        RETURN_IF_ERROR(_equality_delete_impl->filter_data_block(block, _col_name_to_block_idx));
         *read_rows = block->rows();
     }
     return _shrink_block_if_need(block);
@@ -150,6 +150,7 @@ Status IcebergTableReader::_equality_delete_base(
         const std::vector<TIcebergDeleteFileDesc>& delete_files) {
     bool init_schema = false;
     std::vector<std::string> equality_delete_col_names;
+    std::unordered_map<std::string, uint32_t> delete_col_name_to_block_idx;
     std::vector<DataTypePtr> equality_delete_col_types;
     std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
             partition_columns;
@@ -170,15 +171,20 @@ Status IcebergTableReader::_equality_delete_base(
                                                              &equality_delete_col_types));
             _generate_equality_delete_block(&_equality_delete_block, equality_delete_col_names,
                                             equality_delete_col_types);
+            for (uint32_t idx = 0; idx < equality_delete_col_names.size(); ++idx) {
+                delete_col_name_to_block_idx[equality_delete_col_names[idx]] = idx;
+            }
             init_schema = true;
         }
         if (auto* parquet_reader = typeid_cast<ParquetReader*>(delete_reader.get())) {
             RETURN_IF_ERROR(parquet_reader->init_reader(
-                    equality_delete_col_names, {}, nullptr, nullptr, nullptr, nullptr, nullptr,
-                    TableSchemaChangeHelper::ConstNode::get_instance(), false));
+                    equality_delete_col_names, &delete_col_name_to_block_idx, {}, nullptr, nullptr,
+                    nullptr, nullptr, nullptr, TableSchemaChangeHelper::ConstNode::get_instance(),
+                    false));
         } else if (auto* orc_reader = typeid_cast<OrcReader*>(delete_reader.get())) {
-            RETURN_IF_ERROR(orc_reader->init_reader(&equality_delete_col_names, {}, false, {}, {},
-                                                    nullptr, nullptr));
+            RETURN_IF_ERROR(orc_reader->init_reader(&equality_delete_col_names,
+                                                    &delete_col_name_to_block_idx, {}, false, {},
+                                                    {}, nullptr, nullptr));
         } else {
             return Status::InternalError("Unsupported format of delete file");
         }
@@ -236,23 +242,25 @@ Status IcebergTableReader::_expand_block_if_need(Block* block) {
             return Status::InternalError("Wrong expand column '{}'", col.name);
         }
         names.insert(col.name);
+        (*_col_name_to_block_idx)[col.name] = static_cast<uint32_t>(block->columns());
         block->insert(col);
     }
     return Status::OK();
 }
 
 Status IcebergTableReader::_shrink_block_if_need(Block* block) {
-    // todo: maybe do not need to build name to index map every time
-    auto name_to_pos_map = block->get_name_to_pos_map();
     std::set<size_t> positions_to_erase;
     for (const std::string& expand_col : _expand_col_names) {
-        if (!name_to_pos_map.contains(expand_col)) {
+        if (!_col_name_to_block_idx->contains(expand_col)) {
             return Status::InternalError("Wrong erase column '{}', block: {}", expand_col,
                                          block->dump_names());
         }
-        positions_to_erase.emplace(name_to_pos_map[expand_col]);
+        positions_to_erase.emplace((*_col_name_to_block_idx)[expand_col]);
     }
     block->erase(positions_to_erase);
+    for (const std::string& expand_col : _expand_col_names) {
+        _col_name_to_block_idx->erase(expand_col);
+    }
     return Status::OK();
 }
 
@@ -433,12 +441,15 @@ void IcebergTableReader::_gen_position_delete_file_range(Block& block, DeleteFil
 }
 
 Status IcebergParquetReader::init_reader(
-        const std::vector<std::string>& file_col_names, const VExprContextSPtrs& conjuncts,
-        const TupleDescriptor* tuple_descriptor, const RowDescriptor* row_descriptor,
+        const std::vector<std::string>& file_col_names,
+        std::unordered_map<std::string, uint32_t>* col_name_to_block_idx,
+        const VExprContextSPtrs& conjuncts, const TupleDescriptor* tuple_descriptor,
+        const RowDescriptor* row_descriptor,
         const std::unordered_map<std::string, int>* colname_to_slot_id,
         const VExprContextSPtrs* not_single_slot_filter_conjuncts,
         const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts) {
     _file_format = Fileformat::PARQUET;
+    _col_name_to_block_idx = col_name_to_block_idx;
     auto* parquet_reader = static_cast<ParquetReader*>(_file_format_reader.get());
     const FieldDescriptor* field_desc = nullptr;
     RETURN_IF_ERROR(parquet_reader->get_file_metadata_schema(&field_desc));
@@ -476,9 +487,9 @@ Status IcebergParquetReader::init_reader(
         }
     }
     return parquet_reader->init_reader(
-            _all_required_col_names, conjuncts, tuple_descriptor, row_descriptor,
-            colname_to_slot_id, not_single_slot_filter_conjuncts, slot_id_to_filter_conjuncts,
-            table_info_node_ptr, true, column_ids, filter_column_ids);
+            _all_required_col_names, _col_name_to_block_idx, conjuncts, tuple_descriptor,
+            row_descriptor, colname_to_slot_id, not_single_slot_filter_conjuncts,
+            slot_id_to_filter_conjuncts, table_info_node_ptr, true, column_ids, filter_column_ids);
 }
 
 ColumnIdResult IcebergParquetReader::_create_column_ids(const FieldDescriptor* field_desc,
@@ -549,7 +560,9 @@ Status IcebergParquetReader ::_read_position_delete_file(const TFileRangeDesc* d
                                         READ_DELETE_FILE_BATCH_SIZE, &_state->timezone_obj(),
                                         _io_ctx, _state, _meta_cache);
     RETURN_IF_ERROR(parquet_delete_reader.init_reader(
-            delete_file_col_names, {}, nullptr, nullptr, nullptr, nullptr, nullptr,
+            delete_file_col_names,
+            const_cast<std::unordered_map<std::string, uint32_t>*>(&DELETE_COL_NAME_TO_BLOCK_IDX),
+            {}, nullptr, nullptr, nullptr, nullptr, nullptr,
             TableSchemaChangeHelper::ConstNode::get_instance(), false));
 
     std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
@@ -589,12 +602,15 @@ Status IcebergParquetReader ::_read_position_delete_file(const TFileRangeDesc* d
 };
 
 Status IcebergOrcReader::init_reader(
-        const std::vector<std::string>& file_col_names, const VExprContextSPtrs& conjuncts,
-        const TupleDescriptor* tuple_descriptor, const RowDescriptor* row_descriptor,
+        const std::vector<std::string>& file_col_names,
+        std::unordered_map<std::string, uint32_t>* col_name_to_block_idx,
+        const VExprContextSPtrs& conjuncts, const TupleDescriptor* tuple_descriptor,
+        const RowDescriptor* row_descriptor,
         const std::unordered_map<std::string, int>* colname_to_slot_id,
         const VExprContextSPtrs* not_single_slot_filter_conjuncts,
         const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts) {
     _file_format = Fileformat::ORC;
+    _col_name_to_block_idx = col_name_to_block_idx;
     auto* orc_reader = static_cast<OrcReader*>(_file_format_reader.get());
     const orc::Type* orc_type_ptr = nullptr;
     RETURN_IF_ERROR(orc_reader->get_file_type(&orc_type_ptr));
@@ -629,10 +645,10 @@ Status IcebergOrcReader::init_reader(
             column_ids.insert(sub_type->getColumnId());
         }
     }
-    return orc_reader->init_reader(&_all_required_col_names, conjuncts, false, tuple_descriptor,
-                                   row_descriptor, not_single_slot_filter_conjuncts,
-                                   slot_id_to_filter_conjuncts, table_info_node_ptr, column_ids,
-                                   filter_column_ids);
+    return orc_reader->init_reader(&_all_required_col_names, _col_name_to_block_idx, conjuncts,
+                                   false, tuple_descriptor, row_descriptor,
+                                   not_single_slot_filter_conjuncts, slot_id_to_filter_conjuncts,
+                                   table_info_node_ptr, column_ids, filter_column_ids);
 }
 
 ColumnIdResult IcebergOrcReader::_create_column_ids(const orc::Type* orc_type,
@@ -700,8 +716,10 @@ Status IcebergOrcReader::_read_position_delete_file(const TFileRangeDesc* delete
     OrcReader orc_delete_reader(_profile, _state, _params, *delete_range,
                                 READ_DELETE_FILE_BATCH_SIZE, _state->timezone(), _io_ctx,
                                 _meta_cache);
-    RETURN_IF_ERROR(orc_delete_reader.init_reader(&delete_file_col_names, {}, false, {}, {},
-                                                  nullptr, nullptr));
+    RETURN_IF_ERROR(orc_delete_reader.init_reader(
+            &delete_file_col_names,
+            const_cast<std::unordered_map<std::string, uint32_t>*>(&DELETE_COL_NAME_TO_BLOCK_IDX),
+            {}, false, {}, {}, nullptr, nullptr));
 
     std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
             partition_columns;

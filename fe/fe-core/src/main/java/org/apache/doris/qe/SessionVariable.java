@@ -182,6 +182,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_REWRITE_ELEMENT_AT_TO_SLOT = "enable_rewrite_element_at_to_slot";
     public static final String ENABLE_ODBC_TRANSCATION = "enable_odbc_transcation";
     public static final String ENABLE_BINARY_SEARCH_FILTERING_PARTITIONS = "enable_binary_search_filtering_partitions";
+    public static final String CACHE_SORTED_PARTITION_INTERVAL_SECOND = "cache_sorted_partition_interval_second";
     public static final String SKIP_PRUNE_PREDICATE = "skip_prune_predicate";
     public static final String ENABLE_SQL_CACHE = "enable_sql_cache";
     public static final String ENABLE_HIVE_SQL_CACHE = "enable_hive_sql_cache";
@@ -1305,6 +1306,17 @@ public class SessionVariable implements Serializable, Writable {
             }
     )
     public boolean enableBinarySearchFilteringPartitions = true;
+
+    @VariableMgr.VarAttr(
+            name = CACHE_SORTED_PARTITION_INTERVAL_SECOND,
+            fuzzy = false,
+            description = {
+                    "表数据更新后，多少秒之内不能使用二分查找分区裁剪",
+                    "After updating table data, within how many seconds can "
+                            + "binary search partitioning and pruning not be used."
+            }
+    )
+    public int cacheSortedPartitionIntervalSecond = 10;
 
     @VariableMgr.VarAttr(name = SKIP_PRUNE_PREDICATE, fuzzy = true,
             description = {
@@ -2511,7 +2523,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean enableMaterializedViewRewrite = true;
 
     @VariableMgr.VarAttr(name = PRE_MATERIALIZED_VIEW_REWRITE_STRATEGY, needForward = true, fuzzy = true,
-            description = {"在 RBO 阶段基于结构信息的物化视图透明改写的策略，FORCE_IN_ROB：强制在 RBO 阶段透明改写，"
+            description = {"在 RBO 阶段基于结构信息的物化视图透明改写的策略，FORCE_IN_RBO：强制在 RBO 阶段透明改写，"
                     + "TRY_IN_RBO：如果在 NEED_PRE_REWRITE_RULE_TYPES 中的规则改写成功了，那么就会尝试在 RBO 阶段透明改写"
                     + "NOT_IN_RBO：不尝试在 RBO 阶段改写，只在 CBO 阶段改写",
                     "Whether to enable pre materialized view rewriting based on struct info,"

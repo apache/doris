@@ -1,0 +1,26 @@
+{
+  "chatFiles": null,
+  "knowledgeFiles": null,
+  "extra": {
+    "action": "中文",
+    "action_id": "123",
+    "start_time": "2025/10/30 10:35:25",
+    "ua": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/5",
+    "mip": "12345",
+    "design_id": "67890",
+    "design_type": "A4",
+    "consume_time": 24,
+    "inputs": {
+      "prompt": "",
+      "image_url": "https://iamge/20251030022847441114matting-img_00001_.png",
+      "batch_size": 3
+    },
+    "outputs": [
+      {"text": "text1"},
+      {"text": "text2"},
+      {"text": "text3"}
+    ]
+  },
+  "docId": "b71db1f7",
+  "recordType": "R1"
+}

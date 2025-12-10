@@ -106,42 +106,17 @@ public class PinyinTokenizerValidator extends BasePolicyValidator {
      */
     private void validateConfigurationLogic(Map<String, String> props) throws DdlException {
         // ensure at least one output format is enabled
-        boolean keepOriginal = getBooleanValue(props, "keep_original", false);
         boolean keepFirstLetter = getBooleanValue(props, "keep_first_letter", true);
         boolean keepFullPinyin = getBooleanValue(props, "keep_full_pinyin", true);
         boolean keepJoinedFullPinyin = getBooleanValue(props, "keep_joined_full_pinyin", false);
         boolean keepSeparateFirstLetter = getBooleanValue(props, "keep_separate_first_letter", false);
         boolean keepSeparateChinese = getBooleanValue(props, "keep_separate_chinese", false);
 
-        if (!keepOriginal && !keepFirstLetter && !keepFullPinyin
-                && !keepJoinedFullPinyin && !keepSeparateFirstLetter && !keepSeparateChinese) {
-            throw new DdlException("At least one output format must be enabled: "
-                    + "keep_original, keep_first_letter, keep_full_pinyin, keep_joined_full_pinyin, "
-                    + "keep_separate_first_letter, or keep_separate_chinese");
-        }
-
-        // validate keep_separate_first_letter and keep_first_letter relationship
-        if (keepSeparateFirstLetter && !keepFirstLetter) {
-            throw new DdlException("keep_separate_first_letter requires keep_first_letter to be enabled");
-        }
-
-        // validate keep_none_chinese_in_first_letter and keep_first_letter relationship
-        boolean keepNoneChineseInFirstLetter = getBooleanValue(props, "keep_none_chinese_in_first_letter", true);
-        if (keepNoneChineseInFirstLetter && !keepFirstLetter) {
-            throw new DdlException("keep_none_chinese_in_first_letter requires keep_first_letter to be enabled");
-        }
-
-        // validate keep_none_chinese_in_joined_full_pinyin and keep_joined_full_pinyin relationship
-        boolean keepNoneChineseInJoinedFullPinyin = getBooleanValue(props,
-                "keep_none_chinese_in_joined_full_pinyin", false);
-        if (keepNoneChineseInJoinedFullPinyin && !keepJoinedFullPinyin) {
-            throw new DdlException("keep_none_chinese_in_joined_full_pinyin "
-            + "requires keep_joined_full_pinyin to be enabled");
-        }
-
-        // validate limit_first_letter_length and keep_first_letter relationship
-        if (props.containsKey("limit_first_letter_length") && !keepFirstLetter) {
-            throw new DdlException("limit_first_letter_length is only valid when keep_first_letter is enabled");
+        if (!keepFirstLetter && !keepFullPinyin && !keepJoinedFullPinyin
+                && !keepSeparateFirstLetter && !keepSeparateChinese) {
+            throw new DdlException("pinyin config error, at least one output format must be enabled "
+                    + "(keep_first_letter, keep_separate_first_letter, keep_full_pinyin, "
+                    + "keep_joined_full_pinyin, or keep_separate_chinese).");
         }
     }
 
