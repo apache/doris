@@ -63,8 +63,8 @@ void ICUNormalizerCharFilter::fill() {
 }
 
 void ICUNormalizerCharFilter::normalize_text(const std::string& input, std::string& output) {
+    output.clear();
     if (input.empty()) {
-        output.clear();
         return;
     }
 
