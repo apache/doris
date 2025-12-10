@@ -48,6 +48,7 @@ public:
     void _collect_profile_before_close() override { return _inner->collect_profile_before_close(); }
 
     FileReaderStats* stats() const { return _stats; }
+    doris::io::FileReaderSPtr inner_reader() { return _inner; }
 
 private:
     doris::io::FileReaderSPtr _inner;

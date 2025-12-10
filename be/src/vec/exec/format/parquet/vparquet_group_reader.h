@@ -166,7 +166,7 @@ public:
     int64_t predicate_filter_time() const { return _predicate_filter_time; }
     int64_t dict_filter_rewrite_time() const { return _dict_filter_rewrite_time; }
 
-    ParquetColumnReader::Statistics statistics();
+    ParquetColumnReader::ColumnStatistics merged_column_statistics();
     void set_remaining_rows(int64_t rows) { _remaining_rows = rows; }
     int64_t get_remaining_rows() { return _remaining_rows; }
 
