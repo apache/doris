@@ -2798,7 +2798,7 @@ int main(int argc, char* argv[]) {
         LOG(ERROR) << "DORIS_HOME environment variable not set";
     }
 
-    std::string env_log_dir = getenv("LOG_DIR");   
+    std::string env_log_dir = getenv("LOG_DIR");
     if (!env_log_dir.empty()) {
         LOG(ERROR) << " environment variable LOG_DIR not set";
     }
