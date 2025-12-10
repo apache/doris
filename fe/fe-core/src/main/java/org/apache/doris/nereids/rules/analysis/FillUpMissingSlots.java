@@ -41,15 +41,18 @@ import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.qe.SqlModeHelper;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.common.collect.Streams;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 
 /**
@@ -63,63 +66,6 @@ public class FillUpMissingSlots implements AnalysisRuleFactory {
     @Override
     public List<Rule> buildRules() {
         return ImmutableList.of(
-            RuleType.FILL_UP_SORT_PROJECT.build(
-                logicalSort(logicalProject())
-                    .thenApply(ctx -> {
-                        LogicalSort<LogicalProject<Plan>> sort = ctx.root;
-                        Optional<Scope> outerScope = ctx.cascadesContext.getOuterScope();
-                        LogicalProject<Plan> project = sort.child();
-                        List<Expression> sortExpressions
-                                = Lists.newArrayListWithExpectedSize(sort.getOrderKeys().size());
-                        for (OrderKey key : sort.getOrderKeys()) {
-                            sortExpressions.add(key.getExpr());
-                        }
-                        if (ExpressionUtils.hasNonWindowAggregateFunction(sortExpressions)) {
-                            LogicalAggregate<Plan> agg = new LogicalAggregate<>(
-                                    ImmutableList.of(), ImmutableList.of(), project.child());
-                            // avoid throw exception even if having have slot from its child.
-                            // because we will add a project between having and project.
-                            Resolver resolver = new Resolver(agg, false, outerScope);
-                            for (int i = 0; i < sortExpressions.size(); i++) {
-                                // empty group by, change aggregate function's alwaysNullable = true
-                                Expression expression = AdjustAggregateNullableForEmptySet.replaceExpression(
-                                        sortExpressions.get(i), true);
-                                sortExpressions.set(i, expression);
-                                resolver.resolve(expression);
-                            }
-                            agg = agg.withAggOutput(resolver.getNewOutputSlots());
-                            ImmutableList.Builder<NamedExpression> projects = ImmutableList.builder();
-                            projects.addAll(project.getOutputs()).addAll(agg.getOutput());
-                            ImmutableList.Builder<OrderKey> newOrderKeys
-                                    = ImmutableList.builderWithExpectedSize(sortExpressions.size());
-                            List<OrderKey> oldOrderKeys = sort.getOrderKeys();
-                            for (int i = 0; i < sortExpressions.size(); i++) {
-                                Expression newExpr = ExpressionUtils.replace(
-                                        sortExpressions.get(i), resolver.getSubstitution());
-                                newOrderKeys.add(oldOrderKeys.get(i).withExpression(newExpr));
-                            }
-                            return sort.withOrderKeysAndChild(newOrderKeys.build(),
-                                    new LogicalProject<>(projects.build(), agg));
-                        } else {
-                            Set<Slot> projectOutputSet = project.getOutputSet();
-                            Set<Slot> notExistedInProject = sort.getOrderKeys().stream()
-                                    .map(OrderKey::getExpr)
-                                    .map(Expression::getInputSlots)
-                                    .flatMap(Set::stream)
-                                    .filter(s -> !projectOutputSet.contains(s)
-                                            && (!outerScope.isPresent() || !outerScope.get()
-                                            .getCorrelatedSlots().contains(s)))
-                                    .collect(Collectors.toSet());
-                            if (notExistedInProject.isEmpty()) {
-                                return null;
-                            }
-                            List<NamedExpression> projects = ImmutableList.<NamedExpression>builder()
-                                    .addAll(project.getProjects()).addAll(notExistedInProject).build();
-                            return new LogicalProject<>(ImmutableList.copyOf(project.getOutput()),
-                                    sort.withChildren(new LogicalProject<>(projects, project.child())));
-                        }
-                    })
-            ),
             RuleType.FILL_UP_SORT_AGGREGATE_HAVING_AGGREGATE.build(
                 logicalSort(
                     aggregate(logicalHaving(aggregate()))
@@ -186,28 +132,14 @@ public class FillUpMissingSlots implements AnalysisRuleFactory {
                         });
                     })
             ),
-            RuleType.FILL_UP_SORT_HAVING_PROJECT.build(
-                    logicalSort(logicalHaving(logicalProject())).thenApply(ctx -> {
-                        LogicalSort<LogicalHaving<LogicalProject<Plan>>> sort = ctx.root;
+            // handle with:
+            // sort -> having -> project
+            // sort -> project
+            RuleType.FILL_UP_SORT_PROJECT.build(
+                    logicalSort().thenApply(ctx -> {
+                        LogicalSort<Plan> sort = ctx.root;
                         Optional<Scope> outerScope = ctx.cascadesContext.getOuterScope();
-                        Set<Slot> childOutput = sort.child().getOutputSet();
-                        Set<Slot> notExistedInProject = sort.getOrderKeys().stream()
-                                .map(OrderKey::getExpr)
-                                .map(Expression::getInputSlots)
-                                .flatMap(Set::stream)
-                                .filter(s -> !childOutput.contains(s)
-                                        && (!outerScope.isPresent() || !outerScope.get()
-                                                .getCorrelatedSlots().contains(s)))
-                                .collect(Collectors.toSet());
-                        if (notExistedInProject.isEmpty()) {
-                            return null;
-                        }
-                        LogicalProject<?> project = sort.child().child();
-                        List<NamedExpression> projects = ImmutableList.<NamedExpression>builder()
-                                .addAll(project.getProjects())
-                                .addAll(notExistedInProject).build();
-                        Plan child = sort.withChildren(sort.child().withChildren(project.withProjects(projects)));
-                        return new LogicalProject<>(ImmutableList.copyOf(project.getOutput()), child);
+                        return processWithSortHavingProject(sort, outerScope);
                     })
             ),
             RuleType.FILL_UP_HAVING_AGGREGATE.build(
@@ -227,63 +159,12 @@ public class FillUpMissingSlots implements AnalysisRuleFactory {
                     });
                 })
             ),
-            // Convert having to filter
+            // having -> project
             RuleType.FILL_UP_HAVING_PROJECT.build(
-                    logicalHaving(logicalProject()).thenApply(ctx -> {
-                        LogicalHaving<LogicalProject<Plan>> having = ctx.root;
+                    logicalHaving().thenApply(ctx -> {
+                        LogicalHaving<Plan> having = ctx.root;
                         Optional<Scope> outerScope = ctx.cascadesContext.getOuterScope();
-                        if (ExpressionUtils.hasNonWindowAggregateFunction(having.getExpressions())) {
-                            // This is very weird pattern.
-                            // There are some aggregate functions in having, but its child is project.
-                            // There are some slot from project in having too.
-                            // Having should execute after project.
-                            // But aggregate function should execute before project.
-                            // Since no aggregate here, we should add an empty aggregate before project.
-                            // We should push aggregate function into aggregate node first.
-                            // Then put aggregate result slots and original project slots into new project.
-                            // The final plan should be
-                            //   Having
-                            //   +-- Project
-                            //       +-- Aggregate
-                            // Since aggregate node have no group by key.
-                            // So project should not contain any slot from its original child.
-                            // Or otherwise slot cannot find will be thrown.
-                            LogicalProject<Plan> project = having.child();
-                            // new an empty agg here
-                            LogicalAggregate<Plan> agg = new LogicalAggregate<>(
-                                    ImmutableList.of(), ImmutableList.of(), project.child());
-                            // avoid throw exception even if having have slot from its child.
-                            // because we will add a project between having and project.
-                            Resolver resolver = new Resolver(agg, false, outerScope);
-                            Set<Expression> adjustAggNullableConjuncts = having.getConjuncts().stream()
-                                    .map(conjunct -> AdjustAggregateNullableForEmptySet.replaceExpression(
-                                            conjunct, true))
-                                    .collect(Collectors.toSet());
-                            adjustAggNullableConjuncts.forEach(resolver::resolve);
-                            agg = agg.withAggOutput(resolver.getNewOutputSlots());
-                            Set<Expression> newConjuncts = ExpressionUtils.replace(
-                                    adjustAggNullableConjuncts, resolver.getSubstitution());
-                            ImmutableList.Builder<NamedExpression> projects = ImmutableList.builder();
-                            projects.addAll(project.getOutputs()).addAll(agg.getOutput());
-                            return new LogicalHaving<>(newConjuncts, new LogicalProject<>(projects.build(), agg));
-                        } else {
-                            LogicalProject<Plan> project = having.child();
-                            Set<Slot> projectOutputSet = project.getOutputSet();
-                            Set<Slot> notExistedInProject = having.getExpressions().stream()
-                                    .map(Expression::getInputSlots)
-                                    .flatMap(Set::stream)
-                                    .filter(s -> !projectOutputSet.contains(s)
-                                            && (!outerScope.isPresent() || !outerScope.get()
-                                                    .getCorrelatedSlots().contains(s)))
-                                    .collect(Collectors.toSet());
-                            if (notExistedInProject.isEmpty()) {
-                                return null;
-                            }
-                            List<NamedExpression> projects = ImmutableList.<NamedExpression>builder()
-                                    .addAll(project.getProjects()).addAll(notExistedInProject).build();
-                            return new LogicalProject<>(ImmutableList.copyOf(project.getOutput()),
-                                    having.withChildren(new LogicalProject<>(projects, project.child())));
-                        }
+                        return processWithSortHavingProject(having, outerScope);
                     })
              )
         );
@@ -515,5 +396,121 @@ public class FillUpMissingSlots implements AnalysisRuleFactory {
                 throw new AnalysisException("Expression of ORDER BY clause is not in SELECT list");
             }
         });
+    }
+
+    // process with sort -> having -> project,
+    // project must exist, the other at least one may exist.
+    private Plan processWithSortHavingProject(Plan plan, Optional<Scope> outerScope) {
+        Optional<LogicalSort<Plan>> oldSort = Optional.empty();
+        Optional<LogicalHaving<Plan>> oldHaving = Optional.empty();
+        if (plan instanceof LogicalSort) {
+            oldSort = Optional.of((LogicalSort<Plan>) plan);
+            plan = plan.child(0);
+        }
+        if (plan instanceof LogicalHaving) {
+            oldHaving = Optional.of((LogicalHaving<Plan>) plan);
+            plan = plan.child(0);
+        }
+        if (!(plan instanceof LogicalProject)
+            || !oldSort.isPresent() && !oldHaving.isPresent()) {
+            return null;
+        }
+
+        LogicalProject<Plan> oldProject = (LogicalProject<Plan>) plan;
+        Set<Slot> oldProjectSlots = oldProject.getOutputSet();
+        List<Expression> oldSortExpressions = ImmutableList.of();
+        if (oldSort.isPresent()) {
+            LogicalSort<Plan> sort = oldSort.get();
+            oldSortExpressions = Lists.newArrayListWithExpectedSize(sort.getOrderKeys().size());
+            for (OrderKey key : sort.getOrderKeys()) {
+                oldSortExpressions.add(key.getExpr());
+            }
+        }
+        Set<Expression> oldHavingExpressions
+                = oldHaving.isPresent() ? oldHaving.get().getConjuncts() : ImmutableSet.of();
+        Set<Slot> notExistsSlotInProject = Sets.newLinkedHashSet();
+        AtomicBoolean hasAggregateFunc = new AtomicBoolean(false);
+        for (Expression expression : oldSortExpressions) {
+            collectNotExistsSlotAndAggFunc(
+                    expression, oldProjectSlots, outerScope, notExistsSlotInProject, hasAggregateFunc);
+        }
+        for (Expression expression : oldHavingExpressions) {
+            collectNotExistsSlotAndAggFunc(
+                    expression, oldProjectSlots, outerScope, notExistsSlotInProject, hasAggregateFunc);
+        }
+        if (notExistsSlotInProject.isEmpty() && !hasAggregateFunc.get()) {
+            return null;
+        }
+        List<Expression> newSortExpressions = oldSortExpressions;
+        Set<Expression> newHavingExpressions = oldHavingExpressions;
+        LogicalProject<Plan> newProject;
+        if (hasAggregateFunc.get()) {
+            LogicalAggregate<Plan> agg = new LogicalAggregate<>(
+                    ImmutableList.of(), ImmutableList.of(), oldProject.child());
+            // avoid throw exception even if having have slot from its child.
+            // because we will add a project between having and project.
+            Resolver resolver = new Resolver(agg, false, outerScope);
+            newSortExpressions = resolveAndRewriteExprsForEmptyGroupBy(oldSortExpressions, resolver);
+            newHavingExpressions = ImmutableSet.copyOf(
+                    resolveAndRewriteExprsForEmptyGroupBy(oldHavingExpressions, resolver));
+            agg = agg.withAggOutput(resolver.getNewOutputSlots());
+            ImmutableList.Builder<NamedExpression> newProjectBuilder
+                    = ImmutableList.builderWithExpectedSize(oldProject.getOutputs().size() + agg.getOutput().size());
+            newProjectBuilder.addAll(oldProject.getOutputs()).addAll(agg.getOutput());
+            newProject = new LogicalProject<>(newProjectBuilder.build(), agg);
+        } else {
+            ImmutableList.Builder<NamedExpression> newProjectBuilder = ImmutableList.builderWithExpectedSize(
+                    oldProject.getProjects().size() + notExistsSlotInProject.size());
+            newProjectBuilder.addAll(oldProject.getProjects()).addAll(notExistsSlotInProject);
+            newProject = oldProject.withProjects(newProjectBuilder.build());
+        }
+
+        Plan current = newProject;
+        if (oldHaving.isPresent()) {
+            current = oldHaving.get().withConjunctsAndChild(newHavingExpressions, current);
+        }
+        if (oldSort.isPresent()) {
+            List<OrderKey> oldOrderKeys = oldSort.get().getOrderKeys();
+            List<OrderKey> newOrderKeys = oldOrderKeys;
+            if (!newSortExpressions.equals(oldSortExpressions)) {
+                ImmutableList.Builder<OrderKey> newOrderKeysBuilder
+                        = ImmutableList.builderWithExpectedSize(oldOrderKeys.size());
+                for (int i = 0; i < oldOrderKeys.size(); i++) {
+                    newOrderKeysBuilder.add(oldOrderKeys.get(i).withExpression(newSortExpressions.get(i)));
+                }
+                newOrderKeys = newOrderKeysBuilder.build();
+            }
+            current = oldSort.get().withOrderKeysAndChild(newOrderKeys, current);
+        }
+        if (!hasAggregateFunc.get()) {
+            // handle for miss slots case, add a top project
+            current = new LogicalProject<>(ImmutableList.copyOf(oldProject.getOutput()), current);
+        }
+        return current;
+    }
+
+    private void collectNotExistsSlotAndAggFunc(Expression expression, Set<Slot> oldProjectSlots,
+            Optional<Scope> outerScope, Set<Slot> notExistsSlots, AtomicBoolean hasAggregateFunc) {
+        for (Slot slot : expression.getInputSlots()) {
+            if (!oldProjectSlots.contains(slot)
+                    && !(outerScope.isPresent() && outerScope.get().getCorrelatedSlots().contains(slot))) {
+                notExistsSlots.add(slot);
+            }
+        }
+        if (!hasAggregateFunc.get() && ExpressionUtils.hasNonWindowAggregateFunction(expression)) {
+            hasAggregateFunc.set(true);
+        }
+    }
+
+    private List<Expression> resolveAndRewriteExprsForEmptyGroupBy(
+            Collection<Expression> expressions, Resolver resolver) {
+        List<Expression> result = Lists.newArrayListWithExpectedSize(expressions.size());
+        for (Expression expr : expressions) {
+            // for empty group by, the NullableAggregateFunction is always nullable
+            Expression newExpr = AdjustAggregateNullableForEmptySet.replaceExpression(expr, true);
+            resolver.resolve(newExpr);
+            result.add(ExpressionUtils.replace(newExpr, resolver.getSubstitution()));
+        }
+        return result;
     }
 }
