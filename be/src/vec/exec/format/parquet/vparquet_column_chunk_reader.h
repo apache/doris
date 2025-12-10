@@ -76,7 +76,7 @@ using ColumnString = ColumnStr<UInt32>;
  */
 class ColumnChunkReader {
 public:
-    struct Statistics {
+    struct ColumnChunkStatistics {
         int64_t decompress_time = 0;
         int64_t decompress_cnt = 0;
         int64_t decode_header_time = 0;
@@ -170,11 +170,13 @@ public:
     // Get page decoder
     Decoder* get_page_decoder() { return _page_decoder; }
 
-    Statistics& statistics() {
-        _statistics.decode_header_time = _page_reader->statistics().decode_header_time;
-        _statistics.skip_page_header_num = _page_reader->statistics().skip_page_header_num;
-        _statistics.parse_page_header_num = _page_reader->statistics().parse_page_header_num;
-        return _statistics;
+    ColumnChunkStatistics& chunk_statistics() {
+        _chunk_statistics.decode_header_time = _page_reader->page_statistics().decode_header_time;
+        _chunk_statistics.skip_page_header_num =
+                _page_reader->page_statistics().skip_page_header_num;
+        _chunk_statistics.parse_page_header_num =
+                _page_reader->page_statistics().parse_page_header_num;
+        return _chunk_statistics;
     }
 
     Status read_dict_values_to_column(MutableColumnPtr& doris_column) {
@@ -225,7 +227,7 @@ private:
     // Map: encoding -> Decoder
     // Plain or Dictionary encoding. If the dictionary grows too big, the encoding will fall back to the plain encoding
     std::unordered_map<int, std::unique_ptr<Decoder>> _decoders;
-    Statistics _statistics;
+    ColumnChunkStatistics _chunk_statistics;
 };
 #include "common/compile_check_end.h"
 

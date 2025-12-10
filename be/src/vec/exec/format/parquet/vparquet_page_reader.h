@@ -40,7 +40,7 @@ namespace doris::vectorized {
  */
 class PageReader {
 public:
-    struct Statistics {
+    struct PageStatistics {
         int64_t decode_header_time = 0;
         int64_t skip_page_header_num = 0;
         int64_t parse_page_header_num = 0;
@@ -83,7 +83,7 @@ public:
 
     virtual Status get_page_data(Slice& slice);
 
-    Statistics& statistics() { return _statistics; }
+    PageStatistics& page_statistics() { return _page_statistics; }
 
     void seek_to_page(int64_t page_header_offset) {
         _offset = page_header_offset;
@@ -95,7 +95,7 @@ protected:
     enum PageReaderState { INITIALIZED, HEADER_PARSED };
     PageReaderState _state = INITIALIZED;
     tparquet::PageHeader _cur_page_header;
-    Statistics _statistics;
+    PageStatistics _page_statistics;
 
     Status _parse_page_header();
 
@@ -152,7 +152,7 @@ public:
         }
 
         if (_state != HEADER_PARSED) {
-            _statistics.skip_page_header_num++;
+            _page_statistics.skip_page_header_num++;
         }
 
         seek_to_page(_offset_index->page_locations[_page_index].offset +

@@ -79,7 +79,7 @@ Status PageReader::_parse_page_header() {
         header_size = std::min(header_size, max_size);
         RETURN_IF_ERROR(_reader->read_bytes(&page_header_buf, _offset, header_size, _io_ctx));
         real_header_size = cast_set<uint32_t>(header_size);
-        SCOPED_RAW_TIMER(&_statistics.decode_header_time);
+        SCOPED_RAW_TIMER(&_page_statistics.decode_header_time);
         auto st =
                 deserialize_thrift_msg(page_header_buf, &real_header_size, true, &_cur_page_header);
         if (st.ok()) {
@@ -94,7 +94,7 @@ Status PageReader::_parse_page_header() {
         header_size <<= 2;
     }
 
-    _statistics.parse_page_header_num++;
+    _page_statistics.parse_page_header_num++;
     _offset += real_header_size;
     _next_header_offset = _offset + _cur_page_header.compressed_page_size;
     _state = HEADER_PARSED;
