@@ -22,6 +22,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.DiskUtils;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.FeDiskInfo;
 import org.apache.doris.system.Frontend;
@@ -105,72 +106,7 @@ public class FrontendsProcNode implements ProcNodeInterface {
     }
 
     public static void getFrontendsInfo(Env env, List<List<String>> infos) {
-        InetSocketAddress master = null;
-        try {
-            master = env.getHaProtocol().getLeader();
-        } catch (Exception e) {
-            // this may happen when majority of FOLLOWERS are down and no MASTER right now.
-            LOG.warn("failed to get leader: {}", e.getMessage());
-        }
-
-        // get all node which are joined in bdb group
-        List<InetSocketAddress> allFe = env.getHaProtocol().getElectableNodes(true /* include leader */);
-        allFe.addAll(env.getHaProtocol().getObserverNodes());
-        List<HostInfo> helperNodes = env.getHelperNodes();
-
-        // Because the `show frontend` stmt maybe forwarded from other FE.
-        // if we only get self node from currrent catalog, the "CurrentConnected" field will always points to Msater FE.
-        String selfNode = Env.getCurrentEnv().getSelfNode().getHost();
-        if (ConnectContext.get() != null && !Strings.isNullOrEmpty(ConnectContext.get().getCurrentConnectedFEIp())) {
-            selfNode = ConnectContext.get().getCurrentConnectedFEIp();
-        }
-
-        List<Frontend> envFes = env.getFrontends(null /* all */);
-        LOG.info("bdbje fes {}, env fes {}", allFe, envFes);
-        for (Frontend fe : envFes) {
-            List<String> info = new ArrayList<String>();
-            info.add(fe.getNodeName());
-            info.add(fe.getHost());
-            info.add(Integer.toString(fe.getEditLogPort()));
-            info.add(Integer.toString(Config.http_port));
-
-            if (fe.getHost().equals(env.getSelfNode().getHost())) {
-                info.add(Integer.toString(Config.query_port));
-                info.add(Integer.toString(Config.rpc_port));
-                info.add(Integer.toString(Config.arrow_flight_sql_port));
-            } else {
-                info.add(Integer.toString(fe.getQueryPort()));
-                info.add(Integer.toString(fe.getRpcPort()));
-                info.add(Integer.toString(fe.getArrowFlightSqlPort()));
-            }
-
-            info.add(fe.getRole().name());
-            InetSocketAddress socketAddress = new InetSocketAddress(fe.getHost(), fe.getEditLogPort());
-            //An ipv6 address may have different format, so we compare InetSocketAddress objects instead of IP Strings.
-            //e.g.  fdbd:ff1:ce00:1c26::d8 and fdbd:ff1:ce00:1c26:0:0:d8
-            info.add(String.valueOf(socketAddress.equals(master)));
-
-            info.add(Integer.toString(env.getClusterId()));
-            info.add(String.valueOf(isJoin(allFe, fe)));
-
-            if (fe.getHost().equals(env.getSelfNode().getHost())) {
-                info.add("true");
-                info.add(Long.toString(env.getEditLog().getMaxJournalId()));
-            } else {
-                info.add(String.valueOf(fe.isAlive()));
-                info.add(Long.toString(fe.getReplayedJournalId()));
-            }
-            info.add(TimeUtils.longToTimeString(fe.getLastStartupTime()));
-            info.add(TimeUtils.longToTimeString(fe.getLastUpdateTime()));
-            info.add(String.valueOf(isHelperNode(helperNodes, fe)));
-            info.add(fe.getHeartbeatErrMsg());
-            info.add(fe.getVersion());
-            // To indicate which FE we currently connected
-            info.add(fe.getHost().equals(selfNode) ? "Yes" : "No");
-            info.add(TimeUtils.longToTimeString(fe.getLiveSince()));
-
-            infos.add(info);
-        }
+        getFrontendsInfo(env, infos, null);
     }
 
     public static Frontend getCurrentFrontendVersion(Env env) {
@@ -241,5 +177,77 @@ public class FrontendsProcNode implements ProcNodeInterface {
             }
         }
         return false;
+    }
+
+    public static void getFrontendsInfo(Env env, List<List<String>> infos, FrontendNodeType nodeType) {
+        InetSocketAddress master = null;
+        try {
+            master = env.getHaProtocol().getLeader();
+        } catch (Exception e) {
+            // this may happen when majority of FOLLOWERS are down and no MASTER right now.
+            LOG.warn("failed to get leader: {}", e.getMessage());
+        }
+
+        // get all node which are joined in bdb group
+        List<InetSocketAddress> allFe = env.getHaProtocol().getElectableNodes(true /* include leader */);
+        allFe.addAll(env.getHaProtocol().getObserverNodes());
+        List<HostInfo> helperNodes = env.getHelperNodes();
+
+        // Because the `show frontend` stmt maybe forwarded from other FE.
+        // if we only get self node from currrent catalog, the "CurrentConnected" field will always points to Msater FE.
+        String selfNode = Env.getCurrentEnv().getSelfNode().getHost();
+        if (ConnectContext.get() != null && !Strings.isNullOrEmpty(ConnectContext.get().getCurrentConnectedFEIp())) {
+            selfNode = ConnectContext.get().getCurrentConnectedFEIp();
+        }
+
+        List<Frontend> envFes = env.getFrontends(nodeType);
+        LOG.info("bdbje fes {}, env fes {}", allFe, envFes);
+        for (Frontend fe : envFes) {
+            if (nodeType != null && !nodeType.equals(fe.getRole())) {
+                continue;
+            }
+            List<String> info = new ArrayList<String>();
+            info.add(fe.getNodeName());
+            info.add(fe.getHost());
+            info.add(Integer.toString(fe.getEditLogPort()));
+            info.add(Integer.toString(Config.http_port));
+
+            if (fe.getHost().equals(env.getSelfNode().getHost())) {
+                info.add(Integer.toString(Config.query_port));
+                info.add(Integer.toString(Config.rpc_port));
+                info.add(Integer.toString(Config.arrow_flight_sql_port));
+            } else {
+                info.add(Integer.toString(fe.getQueryPort()));
+                info.add(Integer.toString(fe.getRpcPort()));
+                info.add(Integer.toString(fe.getArrowFlightSqlPort()));
+            }
+
+            info.add(fe.getRole().name());
+            InetSocketAddress socketAddress = new InetSocketAddress(fe.getHost(), fe.getEditLogPort());
+            //An ipv6 address may have different format, so we compare InetSocketAddress objects instead of IP Strings.
+            //e.g.  fdbd:ff1:ce00:1c26::d8 and fdbd:ff1:ce00:1c26:0:0:d8
+            info.add(String.valueOf(socketAddress.equals(master)));
+
+            info.add(Integer.toString(env.getClusterId()));
+            info.add(String.valueOf(isJoin(allFe, fe)));
+
+            if (fe.getHost().equals(env.getSelfNode().getHost())) {
+                info.add("true");
+                info.add(Long.toString(env.getEditLog().getMaxJournalId()));
+            } else {
+                info.add(String.valueOf(fe.isAlive()));
+                info.add(Long.toString(fe.getReplayedJournalId()));
+            }
+            info.add(TimeUtils.longToTimeString(fe.getLastStartupTime()));
+            info.add(TimeUtils.longToTimeString(fe.getLastUpdateTime()));
+            info.add(String.valueOf(isHelperNode(helperNodes, fe)));
+            info.add(fe.getHeartbeatErrMsg());
+            info.add(fe.getVersion());
+            // To indicate which FE we currently connected
+            info.add(fe.getHost().equals(selfNode) ? "Yes" : "No");
+            info.add(TimeUtils.longToTimeString(fe.getLiveSince()));
+
+            infos.add(info);
+        }
     }
 }

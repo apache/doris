@@ -17,6 +17,7 @@
 
 package org.apache.doris.httpv2.rest.manager;
 
+import jakarta.validation.constraints.NotNull;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.common.AnalysisException;
@@ -25,6 +26,7 @@ import org.apache.doris.common.ConfigBase;
 import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.ThreadPoolManager;
+import org.apache.doris.common.proc.FrontendsProcNode;
 import org.apache.doris.common.proc.ProcResult;
 import org.apache.doris.common.proc.ProcService;
 import org.apache.doris.common.util.NetUtils;
@@ -59,6 +61,7 @@ import lombok.Getter;
 import lombok.Setter;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -712,6 +715,16 @@ public class NodeAction extends RestBaseController {
             return ResponseEntityBuilder.okWithCommonError(e.getMessage());
         }
         return ResponseEntityBuilder.ok();
+    }
+
+    @GetMapping("/frontend/{frontendNodeType}")
+    public Object frontendMaster(HttpServletRequest request, HttpServletResponse response,
+                                 @PathVariable("frontendNodeType") @NotNull FrontendNodeType frontendNodeType) {
+        executeCheckPassword(request, response);
+        checkDbAuth(ConnectContext.get().getCurrentUserIdentity(), InfoSchemaDb.DATABASE_NAME, PrivPredicate.SELECT);
+        List<List<String>> infos = new ArrayList<>();
+        FrontendsProcNode.getFrontendsInfo(Env.getCurrentEnv(), infos, frontendNodeType);
+        return ResponseEntityBuilder.ok(infos);
     }
 
     private Collection<Pair<String, Integer>> parseBrokerHostPort(List<String> hostPortList) throws AnalysisException {
