@@ -103,8 +103,8 @@ public:
     //
     // Parameters:
     //   row_bitmap: The complete bitmap of rowids to scan
-    //   ordinal_index: Ordinal index reader for mapping rowid -> page pointer
-    //   is_reverse: Whether reading in reverse order
+    //   column_reader: Column reader for accessing ordinal index
+    //   read_options: Storage read options
     //
     // Returns OK on success, error status on failure
     Status init(const roaring::Roaring& row_bitmap, std::shared_ptr<ColumnReader> column_reader,
@@ -120,19 +120,7 @@ public:
     // Returns true if prefetch is needed, false otherwise
     bool need_prefetch(rowid_t current_rowid, std::vector<BlockRange>* out_ranges);
 
-    // Reset the prefetcher state
-    void reset() {
-        _block_sequence.clear();
-        _next_prefetch_index = 0;
-        _last_search_index = 0;
-    }
-
 private:
-    // Build block sequence directly from OrdinalIndexReader's internal data.
-    // This is much more efficient than calling seek_at_or_before for each rowid.
-    // Complexity: O(M + num_pages) where M is the number of rowids in the bitmap,
-    // compared to O(M * log(num_pages)) for the per-rowid seek approach.
-    //
     // Parameters:
     //   row_bitmap: The complete bitmap of rowids to scan
     //   ordinal_index: Ordinal index reader (must be loaded)
@@ -142,28 +130,33 @@ private:
     //   (since we read backwards, this is the first one we'll encounter)
     void _build_block_sequence_from_bitmap(const roaring::Roaring& row_bitmap,
                                            OrdinalIndexReader* ordinal_index);
-    // Calculate file cache block ID from file offset
     size_t _offset_to_block_id(uint64_t offset) const { return offset / _config.block_size; }
 
-    // Calculate file cache block range (offset, size) from block ID
     BlockRange _block_id_to_range(size_t block_id) const {
-        return BlockRange(block_id * _config.block_size, _config.block_size);
+        return {block_id * _config.block_size, _config.block_size};
+    }
+
+    int window_size() const { return _prefetched_index - _current_block_index + 1; }
+
+    std::string debug_string() const {
+        return fmt::format(
+                "[internal state] _is_forward={}, _prefetched_index={}, _current_block_index={}, "
+                "window_size={}, block.size()={}, path={}",
+                _is_forward, _prefetched_index, _current_block_index, window_size(),
+                _block_sequence.size(), _path);
     }
 
 private:
     SegmentPrefetcherConfig _config;
+    std::string _path;
 
     // Sequence of blocks with their first rowid (in reading order)
     std::vector<BlockInfo> _block_sequence;
 
-    // Reading direction: true for forward, false for backward/reverse
     bool _is_forward = true;
 
-    // Next index in _block_sequence to prefetch
-    size_t _next_prefetch_index = 0;
-
-    // Last searched block index for monotonic access optimization
-    size_t _last_search_index = 0;
+    int _prefetched_index = -1;
+    int _current_block_index = 0;
 };
 
 } // namespace segment_v2

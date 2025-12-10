@@ -1766,7 +1766,11 @@ Status SegmentIterator::_read_columns_by_index(uint32_t nrows_read_limit, uint32
     nrows_read = _range_iter->read_batch_rowids(_block_rowids.data(), nrows_read_limit);
     bool is_continuous = (nrows_read > 1) &&
                          (_block_rowids[nrows_read - 1] - _block_rowids[0] == nrows_read - 1);
-
+    LOG_IF(INFO, config::enable_segment_prefetch_verbose_log) << fmt::format(
+            "[verbose] SegmentIterator::_read_columns_by_index read {} rowids, continuous: {}, "
+            "rowids: [{}...{}]",
+            nrows_read, is_continuous, nrows_read > 0 ? _block_rowids[0] : 0,
+            nrows_read > 0 ? _block_rowids[nrows_read - 1] : 0);
     for (auto cid : _predicate_column_ids) {
         auto& column = _current_return_columns[cid];
         if (_no_need_read_key_data(cid, column, nrows_read)) {

@@ -239,6 +239,7 @@ public:
 private:
     friend class VariantColumnReader;
     friend class FileColumnIterator;
+    friend class SegmentPrefetcher;
 
     ColumnReader(const ColumnReaderOptions& opts, const ColumnMetaPB& meta, uint64_t num_rows,
                  io::FileReaderSPtr file_reader);

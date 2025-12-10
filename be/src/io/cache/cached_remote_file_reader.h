@@ -36,7 +36,8 @@ namespace doris::io {
 struct IOContext;
 struct FileCacheStatistics;
 
-class CachedRemoteFileReader final : public FileReader {
+class CachedRemoteFileReader final : public FileReader,
+                                     public std::enable_shared_from_this<CachedRemoteFileReader> {
 public:
     CachedRemoteFileReader(FileReaderSPtr remote_file_reader, const FileReaderOptions& opts);
 
@@ -55,7 +56,7 @@ public:
     static std::pair<size_t, size_t> s_align_size(size_t offset, size_t size, size_t length);
 
     // Asynchronously prefetch a range of file cache blocks.
-    // This method triggers file cache get_or_set in dryrun mode to warm up the cache
+    // This method triggers read file cache in dryrun mode to warm up the cache
     // without actually reading the data into user buffers.
     //
     // Parameters:
