@@ -347,11 +347,35 @@ public class StmtExecutor {
 
             if (!list.isEmpty()) {
                 WorkloadGroup wg = list.get(0);
-                getSummaryProfile().setCpuShare(wg.getMaxCpuPercent());
-                getSummaryProfile().setMemoryLimit(wg.getMaxMemoryPercent());
+                SummaryProfile summary = getSummaryProfile();
+                summary.setCpuShare(wg.getMaxCpuPercent());
+                summary.setMemoryLimit(wg.getMaxMemoryPercent());
+                summary.setEnableMemoryOvercommit(Boolean.parseBoolean(wg.getProperties().getOrDefault(WorkloadGroup.ENABLE_MEMORY_OVERCOMMIT, "")));
+                summary.setCpuHardLimit(Integer.parseInt(wg.getProperties().getOrDefault(WorkloadGroup.CPU_HARD_LIMIT, "")));
+                summary.setMaxConcurrency(Integer.parseInt(wg.getProperties().getOrDefault(WorkloadGroup.MAX_CONCURRENCY, "")));
+                summary.setMaxQueueSize(Integer.parseInt(wg.getProperties().getOrDefault(WorkloadGroup.MAX_QUEUE_SIZE, "")));
+                summary.setQueueTimeout(Integer.parseInt(
+                    wg.getProperties().getOrDefault(WorkloadGroup.QUEUE_TIMEOUT, "")));
+                summary.setScanThreadNum(Integer.parseInt(
+                    wg.getProperties().getOrDefault(WorkloadGroup.SCAN_THREAD_NUM, "")));
+                summary.setMaxRemoteScanThreadNum(Integer.parseInt(
+                    wg.getProperties().getOrDefault(WorkloadGroup.MAX_REMOTE_SCAN_THREAD_NUM, "")));
+                summary.setMinRemoteScanThreadNum(Integer.parseInt(
+                    wg.getProperties().getOrDefault(WorkloadGroup.MIN_REMOTE_SCAN_THREAD_NUM, "")));
+                summary.setMemoryLowWatermark(Integer.parseInt(
+                    wg.getProperties().getOrDefault(WorkloadGroup.MEMORY_LOW_WATERMARK, "")));
+                summary.setMemoryHighWatermark(Integer.parseInt(
+                    wg.getProperties().getOrDefault(WorkloadGroup.MEMORY_HIGH_WATERMARK, "")));
+                summary.setTag(wg.getProperties().getOrDefault(
+                    WorkloadGroup.TAG, ""));
+                summary.setReadBytesPerSecond(Long.parseLong(
+                    wg.getProperties().getOrDefault(WorkloadGroup.READ_BYTES_PER_SECOND, "")));
+                summary.setRemoteReadBytesPerSecond(Long.parseLong(
+                    wg.getProperties().getOrDefault(WorkloadGroup.REMOTE_READ_BYTES_PER_SECOND, "")));
+                
             }
         } catch (UserException e) {
-            throw new RuntimeException(e);
+            LOG.warn(e);
         }
         return builder.build();
     }

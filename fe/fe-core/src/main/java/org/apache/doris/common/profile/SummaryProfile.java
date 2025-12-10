@@ -201,55 +201,6 @@ public class SummaryProfile {
             SPLITS_ASSIGNMENT_WEIGHT
 =======
         WORKLOAD_GROUP,
-        PARSE_SQL_TIME,
-        PLAN_TIME,
-        NEREIDS_GARBAGE_COLLECT_TIME,
-        NEREIDS_LOCK_TABLE_TIME,
-        NEREIDS_ANALYSIS_TIME,
-        NEREIDS_REWRITE_TIME,
-        NEREIDS_BE_FOLD_CONST_TIME,
-        NEREIDS_COLLECT_TABLE_PARTITION_TIME,
-        NEREIDS_PRE_REWRITE_BY_MV_TIME,
-        NEREIDS_OPTIMIZE_TIME,
-        NEREIDS_TRANSLATE_TIME,
-        INIT_SCAN_NODE_TIME,
-        FINALIZE_SCAN_NODE_TIME,
-        GET_SPLITS_TIME,
-        GET_PARTITIONS_TIME,
-        GET_PARTITION_FILES_TIME,
-        SINK_SET_PARTITION_VALUES_TIME,
-        CREATE_SCAN_RANGE_TIME,
-        ICEBERG_SCAN_METRICS,
-        NEREIDS_DISTRIBUTE_TIME,
-        GET_META_VERSION_TIME,
-        GET_PARTITION_VERSION_TIME,
-        GET_PARTITION_VERSION_BY_HAS_DATA_COUNT,
-        GET_PARTITION_VERSION_COUNT,
-        GET_TABLE_VERSION_TIME,
-        GET_TABLE_VERSION_COUNT,
-        SCHEDULE_TIME,
-        ASSIGN_FRAGMENT_TIME,
-        FRAGMENT_SERIALIZE_TIME,
-        SEND_FRAGMENT_PHASE1_TIME,
-        SEND_FRAGMENT_PHASE2_TIME,
-        FRAGMENT_COMPRESSED_SIZE,
-        FRAGMENT_RPC_COUNT,
-        SCHEDULE_TIME_PER_BE,
-        WAIT_FETCH_RESULT_TIME,
-        FETCH_RESULT_TIME,
-        WRITE_RESULT_TIME,
-        DORIS_VERSION,
-        IS_NEREIDS,
-        IS_CACHED,
-        TOTAL_INSTANCES_NUM,
-        INSTANCES_NUM_PER_BE,
-        PARALLEL_FRAGMENT_EXEC_INSTANCE,
-        TRACE_ID,
-        TRANSACTION_COMMIT_TIME,
-        SYSTEM_MESSAGE,
-        EXECUTED_BY_FRONTEND,
-        SPLITS_ASSIGNMENT_WEIGHT,
-        WORKLOAD_GROUP,
         CPU_SHARE,
         MEMORY_LIMIT,
         PARSE_SQL_TIME,
@@ -362,7 +313,6 @@ public class SummaryProfile {
         .put(GET_PARTITION_FILES_TIME, 3)
         .put(SINK_SET_PARTITION_VALUES_TIME, 3)
         .put(CREATE_SCAN_RANGE_TIME, 2)
-        .put(ICEBERG_SCAN_METRICS, 3)
         .put(GET_PARTITION_VERSION_TIME, 1)
         .put(GET_PARTITION_VERSION_COUNT, 1)
         .put(GET_PARTITION_VERSION_BY_HAS_DATA_COUNT, 1)
@@ -384,10 +334,8 @@ public class SummaryProfile {
         .put(HMS_UPDATE_PARTITION_TIME, 1)
         .put(HMS_UPDATE_PARTITION_CNT, 2)
         .put(CPU_SHARE, 1)
+        .put(MEMORY_LIMIT, 1)
         .build();
-
-
->>>>>>> 6805952f7f (fix)
 
     @SerializedName(value = "summaryProfile")
     private RuntimeProfile summaryProfile = new RuntimeProfile(SUMMARY_PROFILE_NAME);
@@ -888,7 +836,6 @@ public class SummaryProfile {
     public void setMemoryLimit(double memoryLimit) {
         this.memoryLimit = memoryLimit;
     }
-
     public static class SummaryBuilder {
         private Map<String, String> map = Maps.newHashMap();
 
