@@ -20,9 +20,11 @@ package org.apache.doris.nereids.rules.expression.rules;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.nereids.util.Utils;
 
+import com.google.common.collect.Lists;
 import com.google.common.collect.Range;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 
 /** SortedPartitionRanges */
@@ -39,6 +41,48 @@ public class SortedPartitionRanges<K> {
         this.defaultPartitions = Utils.fastToImmutableList(
                 Objects.requireNonNull(defaultPartitions, "defaultPartitions bounds can not be null")
         );
+    }
+
+    /**
+     * Build SortedPartitionRanges from a partition map.
+     * This method extracts the common logic for building sorted partition ranges
+     * from both NereidsSortedPartitionsCacheManager and HiveMetaStoreCache.
+     *
+     * @param partitionMap map of partition id to partition item
+     * @return SortedPartitionRanges or null if the map is empty
+     */
+    public static <K> SortedPartitionRanges<K> build(Map<K, PartitionItem> partitionMap) {
+        if (partitionMap == null || partitionMap.isEmpty()) {
+            return null;
+        }
+
+        List<PartitionItemAndRange<K>> sortedRanges = Lists.newArrayListWithCapacity(partitionMap.size());
+        List<PartitionItemAndId<K>> defaultPartitions = Lists.newArrayList();
+
+        for (Map.Entry<K, PartitionItem> entry : partitionMap.entrySet()) {
+            PartitionItem partitionItem = entry.getValue();
+            K id = entry.getKey();
+            if (!partitionItem.isDefaultPartition()) {
+                List<Range<MultiColumnBound>> ranges = PartitionItemToRange.toRanges(partitionItem);
+                for (Range<MultiColumnBound> range : ranges) {
+                    sortedRanges.add(new PartitionItemAndRange<>(id, partitionItem, range));
+                }
+            } else {
+                defaultPartitions.add(new PartitionItemAndId<>(id, partitionItem));
+            }
+        }
+
+        sortedRanges.sort((o1, o2) -> {
+            Range<MultiColumnBound> span1 = o1.range;
+            Range<MultiColumnBound> span2 = o2.range;
+            int result = span1.lowerEndpoint().compareTo(span2.lowerEndpoint());
+            if (result != 0) {
+                return result;
+            }
+            return span1.upperEndpoint().compareTo(span2.upperEndpoint());
+        });
+
+        return new SortedPartitionRanges<>(sortedRanges, defaultPartitions);
     }
 
     /** PartitionItemAndRange */
