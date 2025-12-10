@@ -52,6 +52,7 @@ import org.apache.commons.collections4.MapUtils;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutionException;
@@ -338,7 +339,11 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
             try {
                 Map<String, List<SnapshotSplit>> snapshotSplits = StreamingJobUtils.restoreSplitsToJob(job.getJobId());
                 if (MapUtils.isNotEmpty(chunkHighWatermarkMap) && MapUtils.isNotEmpty(snapshotSplits)) {
-                    recalculateRemainingSplits(chunkHighWatermarkMap, snapshotSplits);
+                    SnapshotSplit lastSnapshotSplit = recalculateRemainingSplits(chunkHighWatermarkMap, snapshotSplits);
+                    if (this.remainingSplits.isEmpty()) {
+                        currentOffset = new JdbcOffset();
+                        currentOffset.setSplit(lastSnapshotSplit);
+                    }
                 }
             } catch (Exception ex) {
                 log.warn("Replay snapshot splits error with job {} ", job.getJobId(), ex);
@@ -351,12 +356,12 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
      * Assign the HW value to the synchronized Split,
      * and remove the Split from remainSplit and place it in finishedSplit.
      */
-    private void recalculateRemainingSplits(Map<String, Map<String, Map<String, String>>> chunkHighWatermarkMap,
+    private SnapshotSplit recalculateRemainingSplits(Map<String, Map<String, Map<String, String>>> chunkHighWatermarkMap,
             Map<String, List<SnapshotSplit>> snapshotSplits) {
         if (this.finishedSplits == null) {
             this.finishedSplits = new ArrayList<>();
         }
-
+        SnapshotSplit lastSnapshotSplit = null;
         for (Map.Entry<String, Map<String, Map<String, String>>> entry : chunkHighWatermarkMap.entrySet()) {
             String tableId = entry.getKey();
             Map<String, Map<String, String>> splitIdToHighWatermark = entry.getValue();
@@ -372,7 +377,7 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
             if (CollectionUtils.isEmpty(tableSplits)) {
                 continue;
             }
-
+            lastSnapshotSplit = tableSplits.get(tableSplits.size() - 1);
             tableSplits.removeIf(split -> {
                 String splitId = split.getSplitId();
                 Map<String, String> highWatermark = splitIdToHighWatermark.get(splitId);
@@ -388,6 +393,7 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
         this.remainingSplits = snapshotSplits.values().stream()
                 .flatMap(List::stream)
                 .collect(Collectors.toList());
+        return lastSnapshotSplit;
     }
 
     private String getTableName(String tableId) {
@@ -406,7 +412,7 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
     public void splitChunks(List<String> createTbls) throws JobException {
         // todo: When splitting takes a long time, it needs to be changed to asynchronous.
         if (checkNeedSplitChunks(sourceProperties)) {
-            Map<String, List<SnapshotSplit>> tableSplits = new HashMap<>();
+            Map<String, List<SnapshotSplit>> tableSplits = new LinkedHashMap<>();
             for (String tbl : createTbls) {
                 List<SnapshotSplit> snapshotSplits = requestTableSplits(tbl);
                 tableSplits.put(tbl, snapshotSplits);

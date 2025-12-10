@@ -19,8 +19,7 @@ package org.apache.doris.cdcclient.utils;
 
 import org.apache.doris.cdcclient.constants.LoadConstants;
 import org.apache.doris.cdcclient.model.JobConfig;
-import com.mysql.cj.conf.ConnectionUrl;
-import io.debezium.connector.mysql.MySqlConnection;
+
 import org.apache.commons.lang3.StringUtils;
 import org.apache.flink.cdc.connectors.mysql.debezium.DebeziumUtils;
 import org.apache.flink.cdc.connectors.mysql.source.config.MySqlSourceConfig;
@@ -30,9 +29,13 @@ import org.apache.flink.cdc.connectors.mysql.source.offset.BinlogOffset;
 import org.apache.flink.cdc.connectors.mysql.source.offset.BinlogOffsetBuilder;
 import org.apache.flink.cdc.connectors.mysql.source.offset.BinlogOffsetUtils;
 import org.apache.flink.cdc.connectors.mysql.table.StartupOptions;
+
 import java.sql.SQLException;
 import java.util.Map;
 import java.util.Properties;
+
+import com.mysql.cj.conf.ConnectionUrl;
+import io.debezium.connector.mysql.MySqlConnection;
 
 public class ConfigUtil {
 

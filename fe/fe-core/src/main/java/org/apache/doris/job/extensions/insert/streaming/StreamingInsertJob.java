@@ -18,6 +18,7 @@
 package org.apache.doris.job.extensions.insert.streaming;
 
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.rpc.MetaServiceProxy;
@@ -74,7 +75,6 @@ import org.apache.doris.thrift.TRow;
 import org.apache.doris.transaction.TransactionException;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TxnStateChangeCallback;
-
 import com.google.common.base.Preconditions;
 import com.google.gson.annotations.SerializedName;
 import lombok.Getter;
@@ -82,7 +82,6 @@ import lombok.Setter;
 import lombok.extern.log4j.Log4j2;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
-
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -100,7 +99,13 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, Map<Object, Object>> implements
         TxnStateChangeCallback, GsonPostProcessable {
     private long dbId;
+    // Streaming job statistics, all persisted in txn attachment
     private StreamingJobStatistic jobStatistic = new StreamingJobStatistic();
+    // Non-txn persisted statistics, used for streaming multi task
+    @Getter
+    @Setter
+    @SerializedName("ntjs")
+    private StreamingJobStatistic nonTxnJobStatistic = new StreamingJobStatistic();
     @Getter
     @Setter
     @SerializedName("fr")
@@ -233,8 +238,12 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         List<String> syncTbls = new ArrayList<>();
         List<CreateTableCommand> createTblCmds = StreamingJobUtils.generateCreateTableCmds(targetDb,
                 dataSourceType, sourceProperties, targetProperties);
+        Database db = Env.getCurrentEnv().getInternalCatalog().getDbNullable(targetDb);
+        Preconditions.checkNotNull(db, "target database %s does not exist", targetDb);
         for (CreateTableCommand createTblCmd : createTblCmds) {
-            createTblCmd.run(ConnectContext.get(), null);
+            if (!db.isTableExist(createTblCmd.getCreateTableInfo().getTableName())) {
+                createTblCmd.run(ConnectContext.get(), null);
+            }
             syncTbls.add(createTblCmd.getCreateTableInfo().getTableName());
         }
         return syncTbls;
@@ -585,6 +594,15 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         offsetProvider.updateOffset(offsetProvider.deserializeOffset(offsetRequest.getOffset()));
     }
 
+    private void updateNoTxnJobStatisticAndOffset(CommitOffsetRequest offsetRequest) {
+        if (this.nonTxnJobStatistic == null) {
+            this.nonTxnJobStatistic = new StreamingJobStatistic();
+        }
+        this.nonTxnJobStatistic.setScannedRows(this.nonTxnJobStatistic.getScannedRows() + offsetRequest.getScannedRows());
+        this.nonTxnJobStatistic.setLoadBytes(this.nonTxnJobStatistic.getLoadBytes() + offsetRequest.getScannedBytes());
+        offsetProvider.updateOffset(offsetProvider.deserializeOffset(offsetRequest.getOffset()));
+    }
+
     @Override
     public void onRegister() throws JobException {
         Env.getCurrentGlobalTransactionMgr().getCallbackFactory().addCallback(this);
@@ -621,6 +639,9 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         }
         if (replayJob.getOffsetProviderPersist() != null) {
             setOffsetProviderPersist(replayJob.getOffsetProviderPersist());
+        }
+        if (replayJob.getNonTxnJobStatistic() != null){
+            setNonTxnJobStatistic(replayJob.getNonTxnJobStatistic());
         }
         setExecuteSql(replayJob.getExecuteSql());
         setSucceedTaskCount(replayJob.getSucceedTaskCount());
@@ -708,9 +729,13 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         } else {
             trow.addToColumnValue(new TCell().setStringVal(FeConstants.null_string));
         }
-
-        trow.addToColumnValue(new TCell().setStringVal(
-                jobStatistic == null ? FeConstants.null_string : jobStatistic.toJson()));
+        if (tvfType != null) {
+            trow.addToColumnValue(new TCell().setStringVal(
+                    jobStatistic == null ? FeConstants.null_string : jobStatistic.toJson()));
+        } else {
+            trow.addToColumnValue(new TCell().setStringVal(
+                    nonTxnJobStatistic == null ? FeConstants.null_string : nonTxnJobStatistic.toJson()));
+        }
         trow.addToColumnValue(new TCell().setStringVal(failureReason == null
                 ? FeConstants.null_string : failureReason.getMsg()));
         trow.addToColumnValue(new TCell().setStringVal(jobRuntimeMsg == null
@@ -1044,7 +1069,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                 JdbcSourceOffsetProvider op = (JdbcSourceOffsetProvider) offsetProvider;
                 op.setHasMoreData(false);
             }
-            updateJobStatisticAndOffset(offsetRequest);
+            updateNoTxnJobStatisticAndOffset(offsetRequest);
             if (this.runningStreamTask != null
                     && this.runningStreamTask instanceof StreamingMultiTblTask) {
                 if (this.runningStreamTask.getTaskId() != offsetRequest.getTaskId()) {

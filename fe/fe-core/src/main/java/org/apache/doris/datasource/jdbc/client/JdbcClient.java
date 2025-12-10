@@ -404,6 +404,9 @@ public abstract class JdbcClient {
         return dorisTableSchema;
     }
 
+    /**
+     * get primary keys of one table
+     */
     public List<String> getPrimaryKeys(String remoteDbName, String remoteTableName) {
         Connection conn = getConnection();
         ResultSet rs = null;

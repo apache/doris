@@ -168,6 +168,7 @@ public class MySqlSourceReader implements SourceReader<MySqlSplit, MySqlSplitSta
         if (offsetMeta == null || offsetMeta.isEmpty()) {
             throw new RuntimeException("miss meta offset");
         }
+        LOG.info("Job {} read split records with offset: {}", baseReq.getJobId(), offsetMeta);
 
         //  If there is an active split being consumed, reuse it directly;
         //  Otherwise, create a new snapshot/binlog split based on offset and start the reader.
@@ -210,10 +211,11 @@ public class MySqlSourceReader implements SourceReader<MySqlSplit, MySqlSplitSta
         // build response with iterator
         SplitReadResult<MySqlSplit, MySqlSplitState> result = new SplitReadResult<>();
         MySqlSplitState currentSplitState = null;
+        MySqlSplit currentSplit = jobRuntimeContext.getCurrentSplit();
         if (!readBinlog) {
-            currentSplitState = new MySqlSnapshotSplitState(split.asSnapshotSplit());
+            currentSplitState = new MySqlSnapshotSplitState(currentSplit.asSnapshotSplit());
         } else {
-            currentSplitState = new MySqlBinlogSplitState(split.asBinlogSplit());
+            currentSplitState = new MySqlBinlogSplitState(currentSplit.asBinlogSplit());
         }
 
         Iterator<SourceRecord> filteredIterator =

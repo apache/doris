@@ -57,6 +57,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -69,14 +70,14 @@ public class StreamingJobUtils {
     public static final String FULL_QUALIFIED_META_TBL_NAME = InternalCatalog.INTERNAL_CATALOG_NAME
             + "." + FeConstants.INTERNAL_DB_NAME + "." + INTERNAL_STREAMING_JOB_META_TABLE_NAME;
     private static final String CREATE_META_TABLE = "CREATE TABLE %s(\n"
-            + "id         varchar(32),\n"
-            + "job_id     varchar(256),\n"
+            + "id         int,\n"
+            + "job_id     bigint,\n"
             + "table_name string,\n"
             + "chunk_list json\n"
             + ")\n"
-            + "UNIQUE KEY(id)\n"
-            + "DISTRIBUTED BY HASH(id)\n"
-            + "BUCKETS 1\n"
+            + "UNIQUE KEY(id, job_id)\n"
+            + "DISTRIBUTED BY HASH(job_id)\n"
+            + "BUCKETS 2\n"
             + "PROPERTIES ('replication_num' = '1')"; // todo: modify replication num like statistic sys tbl
     private static final String BATCH_INSERT_INTO_META_TABLE_TEMPLATE =
             "INSERT INTO " + FULL_QUALIFIED_META_TBL_NAME + " values";
@@ -85,7 +86,7 @@ public class StreamingJobUtils {
             "('${id}', '${job_id}', '${table_name}', '${chunk_list}')";
 
     private static final String SELECT_SPLITS_TABLE_TEMPLATE =
-            "SELECT table_name, chunk_list from " + FULL_QUALIFIED_META_TBL_NAME + " WHERE job_id='%s'";
+            "SELECT table_name, chunk_list from " + FULL_QUALIFIED_META_TBL_NAME + " WHERE job_id='%s' ORDER BY id ASC";
 
     private static final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -111,7 +112,7 @@ public class StreamingJobUtils {
     }
 
     public static Map<String, List<SnapshotSplit>> restoreSplitsToJob(Long jobId) throws IOException {
-        List<ResultRow> resultRows = new ArrayList<>();
+        List<ResultRow> resultRows;
         String sql = String.format(SELECT_SPLITS_TABLE_TEMPLATE, jobId);
         try (AutoCloseConnectContext context
                 = new AutoCloseConnectContext(buildConnectContext())) {
@@ -119,7 +120,7 @@ public class StreamingJobUtils {
             resultRows = stmtExecutor.executeInternalQuery();
         }
 
-        Map<String, List<SnapshotSplit>> tableSplits = new HashMap<>();
+        Map<String, List<SnapshotSplit>> tableSplits = new LinkedHashMap<>();
         for (ResultRow row : resultRows) {
             String tableName = row.get(0);
             String chunkListStr = row.get(1);
@@ -132,15 +133,17 @@ public class StreamingJobUtils {
 
     public static void insertSplitsToMeta(Long jobId, Map<String, List<SnapshotSplit>> tableSplits) throws Exception {
         List<String> values = new ArrayList<>();
+        int index = 1;
         for (Map.Entry<String, List<SnapshotSplit>> entry : tableSplits.entrySet()) {
             Map<String, String> params = new HashMap<>();
-            params.put("id", UUID.randomUUID().toString().replace("-", ""));
+            params.put("id", index + "");
             params.put("job_id", jobId + "");
             params.put("table_name", entry.getKey());
             params.put("chunk_list", objectMapper.writeValueAsString(entry.getValue()));
             StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
             String sql = stringSubstitutor.replace(INSERT_INTO_META_TABLE_TEMPLATE);
             values.add(sql);
+            index++;
         }
         batchInsert(values);
     }
