@@ -91,7 +91,7 @@ public class PaimonMetadataOps implements ExternalMetadataOps {
         }
 
         catalog.createDatabase(dbName, ifNotExists, properties);
-        return true;
+        return false;
     }
 
     @Override
