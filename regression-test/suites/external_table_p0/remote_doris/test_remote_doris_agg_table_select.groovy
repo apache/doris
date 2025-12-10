@@ -252,20 +252,20 @@ suite("test_remote_doris_agg_table_select", "p0,external,doris,external_docker,e
 
     // AGG_STATE
     qt_sql """
-        select k1,max_by_merge(k2),group_concat_merge(k3) from `${catalog_name}`.`${db_name}`.test_remote_doris_agg_table_select_t5 group by k1 order by k1;
+        select k1,max_by_merge(k2), array_sort(SPLIT_BY_STRING(group_concat_merge(k3), ",")) from `${catalog_name}`.`${db_name}`.test_remote_doris_agg_table_select_t5 group by k1 order by k1;
     """
     qt_sql """
-        select k1,max_by_merge(k2),group_concat_merge(k3) from `${catalog_arrow_name}`.`${db_name}`.test_remote_doris_agg_table_select_t5 group by k1 order by k1;
+        select k1,max_by_merge(k2), array_sort(SPLIT_BY_STRING(group_concat_merge(k3), ",")) from `${catalog_arrow_name}`.`${db_name}`.test_remote_doris_agg_table_select_t5 group by k1 order by k1;
     """
 
     // // AGG_STATE
     qt_sql """
-        select max_by_merge(u2),group_concat_merge(u3) from (
+        select max_by_merge(u2), array_sort(SPLIT_BY_STRING(group_concat_merge(u3), ",")) from (
             select k1,max_by_union(k2) as u2,group_concat_union(k3) u3 from `${catalog_name}`.`${db_name}`.test_remote_doris_agg_table_select_t5 group by k1 order by k1
         ) t;
     """
     qt_sql """
-        select max_by_merge(u2),group_concat_merge(u3) from (
+        select max_by_merge(u2), array_sort(SPLIT_BY_STRING(group_concat_merge(u3), ",")) from (
             select k1,max_by_union(k2) as u2,group_concat_union(k3) u3 from `${catalog_arrow_name}`.`${db_name}`.test_remote_doris_agg_table_select_t5 group by k1 order by k1
         ) t;
     """

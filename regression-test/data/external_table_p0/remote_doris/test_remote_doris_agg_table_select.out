@@ -26,18 +26,18 @@
 102	2025-12-05	SH	2024-01-06T00:00	60	b	30	10	b
 
 -- !sql --
-1	2	a,bb
-2	1	ccc
+1	2	["a", "bb"]
+2	1	["ccc"]
 
 -- !sql --
-1	2	a,bb
-2	1	ccc
+1	2	["a", "bb"]
+2	1	["ccc"]
 
 -- !sql --
-1	a,bb,ccc
+1	["a", "bb", "ccc"]
 
 -- !sql --
-1	a,bb,ccc
+1	["a", "bb", "ccc"]
 
 -- !sql --
 1	aa	1
