@@ -25,9 +25,9 @@
 
 #include "common/factory_creator.h"
 #include "common/status.h"
+#include "olap/column_predicate.h"
 #include "olap/rowset/rowset_meta.h"
 #include "olap/tablet_schema.h"
-#include "olap/column_predicate.h"
 #include "vec/common/arena.h"
 
 namespace doris {
