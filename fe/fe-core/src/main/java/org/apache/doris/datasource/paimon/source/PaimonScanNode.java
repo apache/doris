@@ -384,7 +384,7 @@ public class PaimonScanNode extends FileQueryScanNode {
         // We need to set the target size for all splits so that we can calculate the
         // proportion of each split later.
         splits.forEach(s -> s.setTargetSplitSize(sessionVariable.getFileSplitSize() > 0
-                ? sessionVariable.getFileSplitSize() : sessionVariable.maxSplitSize));
+                ? sessionVariable.getFileSplitSize() : sessionVariable.getMaxSplitSize()));
 
         this.selectedPartitionNum = partitionInfoMaps.size();
         return splits;

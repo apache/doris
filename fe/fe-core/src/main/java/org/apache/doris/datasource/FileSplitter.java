@@ -19,9 +19,6 @@ package org.apache.doris.datasource;
 
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.datasource.hive.HiveMetaStoreCache;
-import org.apache.doris.datasource.hive.HiveMetaStoreCache.FileCacheValue;
-import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.spi.Split;
 import org.apache.doris.thrift.TFileCompressType;
 
@@ -107,7 +104,7 @@ public class FileSplitter {
         // Pass splitCreator.create() to set target file split size to calculate split weight.
         long targetFileSplitSize = specifiedFileSplitSize > 0 ? specifiedFileSplitSize : maxSplitSize;
         if (blockLocations == null) {
-            blockLocations = new BlockLocation[0];
+            blockLocations = new BlockLocation[1];
             blockLocations[0] = new BlockLocation(null, null, 0L, length);
         }
         List<Split> result = Lists.newArrayList();
