@@ -58,6 +58,7 @@ import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -1002,8 +1003,9 @@ public class SystemInfoService {
             boolean shouldModify = false;
             Map<String, String> tagMap = op.getTagMap();
             if (!tagMap.isEmpty()) {
+                Map<String, String> oldTagMap = new HashMap<>(be.getTagMap());
                 be.setTagMap(tagMap);
-                shouldModify = true;
+                shouldModify = !areTagEntriesEqual(oldTagMap, tagMap);
             }
 
             if (op.isQueryDisabled() != null) {
@@ -1118,4 +1120,25 @@ public class SystemInfoService {
         }
         return false;
     }
+
+    private static boolean areTagEntriesEqual(Map<String, String> oldTagMap, Map<String, String> newTagMap) {
+        Map<String, String> oldTagEntries = filterTagEntries(oldTagMap);
+        Map<String, String> newTagEntries = filterTagEntries(newTagMap);
+        return oldTagEntries.equals(newTagEntries);
+    }
+
+    private static Map<String, String> filterTagEntries(Map<String, String> map) {
+        Map<String, String> result = new HashMap<>();
+        if (map == null) {
+            return result;
+        }
+        for (Map.Entry<String, String> entry : map.entrySet()) {
+            String key = entry.getKey();
+            if (key != null && key.startsWith("tag.")) {
+                result.put(key, entry.getValue());
+            }
+        }
+        return result;
+    }
+
 }
