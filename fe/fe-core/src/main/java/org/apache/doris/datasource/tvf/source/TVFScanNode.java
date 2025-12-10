@@ -146,6 +146,8 @@ public class TVFScanNode extends FileQueryScanNode {
             needSplit = FileSplitter.needSplitForCountPushdown(parallelNum, numBackends, totalFileNum);
         }
 
+        determineFileSplitSize(fileStatuses);
+
         for (TBrokerFileStatus fileStatus : fileStatuses) {
             try {
                 splits.addAll(fileSplitter.splitFile(
@@ -163,6 +165,23 @@ public class TVFScanNode extends FileQueryScanNode {
             }
         }
         return splits;
+    }
+
+    private long determineFileSplitSize(List<TBrokerFileStatus> fileStatuses) {
+        long result = sessionVariable.getFileSplitSize();
+        long totalFileSize = 0;
+        if (sessionVariable.getFileSplitSize() <= 0) {
+            result = sessionVariable.getMaxInitialSplitSize();
+            for (TBrokerFileStatus fileStatus : fileStatuses) {
+                totalFileSize += fileStatus.getSize();
+                if (totalFileSize
+                        >= sessionVariable.getMaxSplitSize() * sessionVariable.getMaxInitialSplitNum()) {
+                    result = sessionVariable.getMaxSplitSize();
+                    break;
+                }
+            }
+        }
+        return result;
     }
 
     @Override
