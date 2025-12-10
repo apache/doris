@@ -26,6 +26,7 @@
 #include "runtime/runtime_state.h"
 #include "util/slice.h"
 #include "vec/core/block.h"
+#include "vec/exec/format/native/native_format.h"
 
 namespace doris::vectorized {
 
@@ -64,8 +65,18 @@ VNativeTransformer::VNativeTransformer(RuntimeState* state, doris::io::FileWrite
           _compression_type(to_local_compression_type(compress_type)) {}
 
 Status VNativeTransformer::open() {
-    // No extra initialization is required for now. The underlying FileWriter
-    // is managed by VFileResultWriter.
+    // Write Doris Native file header:
+    // [magic bytes "DORISN1\0"][uint32_t format_version]
+    DCHECK(_file_writer != nullptr);
+    uint32_t version = DORIS_NATIVE_FORMAT_VERSION;
+
+    Slice magic_slice(const_cast<char*>(DORIS_NATIVE_MAGIC), sizeof(DORIS_NATIVE_MAGIC));
+    Slice version_slice(reinterpret_cast<char*>(&version), sizeof(uint32_t));
+
+    RETURN_IF_ERROR(_file_writer->append(magic_slice));
+    RETURN_IF_ERROR(_file_writer->append(version_slice));
+
+    _written_len += sizeof(DORIS_NATIVE_MAGIC) + sizeof(uint32_t);
     return Status::OK();
 }
 

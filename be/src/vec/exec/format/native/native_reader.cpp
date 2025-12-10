@@ -26,14 +26,14 @@
 #include "runtime/runtime_state.h"
 #include "util/runtime_profile.h"
 #include "vec/core/block.h"
+#include "vec/exec/format/native/native_format.h"
 
 namespace doris::vectorized {
 
 #include "common/compile_check_begin.h"
 
 NativeReader::NativeReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
-                           const TFileRangeDesc& range, size_t /*batch_size*/,
-                           io::IOContext* io_ctx, RuntimeState* state)
+                           const TFileRangeDesc& range, io::IOContext* io_ctx, RuntimeState* state)
         : _profile(profile),
           _scan_params(params),
           _scan_range(range),
@@ -44,6 +44,53 @@ NativeReader::~NativeReader() {
     (void)close();
 }
 
+namespace {
+
+Status validate_and_consume_header(io::FileReaderSPtr file_reader, const TFileRangeDesc& range,
+                                   int64_t* file_size, int64_t* current_offset, bool* eof) {
+    *file_size = file_reader->size();
+    *current_offset = 0;
+    *eof = (*file_size == 0);
+
+    // Validate and consume Doris Native file header.
+    // Expected layout:
+    // [magic bytes "DORISN1\0"][uint32_t format_version][uint64_t block_size]...
+    static constexpr size_t HEADER_SIZE = sizeof(DORIS_NATIVE_MAGIC) + sizeof(uint32_t);
+    if (*eof || *file_size < static_cast<int64_t>(HEADER_SIZE)) {
+        return Status::InternalError(
+                "invalid Doris Native file {}, file size {} is smaller than header size {}",
+                range.path, *file_size, HEADER_SIZE);
+    }
+
+    char header[HEADER_SIZE];
+    Slice header_slice(header, sizeof(header));
+    size_t bytes_read = 0;
+    RETURN_IF_ERROR(file_reader->read_at(0, header_slice, &bytes_read));
+    if (bytes_read != sizeof(header)) {
+        return Status::InternalError(
+                "failed to read Doris Native header from file {}, expect {} bytes, got {} bytes",
+                range.path, sizeof(header), bytes_read);
+    }
+
+    if (memcmp(header, DORIS_NATIVE_MAGIC, sizeof(DORIS_NATIVE_MAGIC)) != 0) {
+        return Status::InternalError("invalid Doris Native magic header in file {}", range.path);
+    }
+
+    uint32_t version = 0;
+    memcpy(&version, header + sizeof(DORIS_NATIVE_MAGIC), sizeof(uint32_t));
+    if (version != DORIS_NATIVE_FORMAT_VERSION) {
+        return Status::InternalError(
+                "unsupported Doris Native format version {} in file {}, expect {}", version,
+                range.path, DORIS_NATIVE_FORMAT_VERSION);
+    }
+
+    *current_offset = sizeof(header);
+    *eof = (*file_size == *current_offset);
+    return Status::OK();
+}
+
+} // namespace
+
 Status NativeReader::init_reader() {
     if (_file_reader != nullptr) {
         return Status::OK();
@@ -52,10 +99,9 @@ Status NativeReader::init_reader() {
     // Create underlying file reader. For now we always use random access mode.
     io::FileSystemProperties system_properties;
     io::FileDescription file_description;
+    file_description.file_size = -1;
     if (_scan_range.__isset.file_size) {
         file_description.file_size = _scan_range.file_size;
-    } else {
-        file_description.file_size = -1;
     }
     file_description.path = _scan_range.path;
     if (_scan_range.__isset.fs_name) {
@@ -95,29 +141,8 @@ Status NativeReader::init_reader() {
                 std::make_shared<io::TracingFileReader>(_file_reader, _io_ctx->file_reader_stats);
     }
 
-    _file_size = _file_reader->size();
-    _current_offset = 0;
-    _eof = (_file_size == 0);
-
-    // Detect optional Doris Native file header written by VNativeTransformer.
-    // New files have layout:
-    // [magic bytes "DORISN1\0"][uint32_t format_version][uint64_t block_size]...
-    if (!_eof && _file_size >= 12) {
-        char header[12];
-        Slice header_slice(header, sizeof(header));
-        size_t bytes_read = 0;
-        RETURN_IF_ERROR(_file_reader->read_at(0, header_slice, &bytes_read));
-        if (bytes_read == sizeof(header)) {
-            static constexpr char NATIVE_MAGIC[8] = {'D', 'O', 'R', 'I', 'S', 'N', '1', '\0'};
-            if (memcmp(header, NATIVE_MAGIC, sizeof(NATIVE_MAGIC)) == 0) {
-                // We currently only have format version 1, but keep the value for future use.
-                uint32_t version = 0;
-                memcpy(&version, header + sizeof(NATIVE_MAGIC), sizeof(uint32_t));
-                (void)version;
-                _current_offset = sizeof(header);
-            }
-        }
-    }
+    RETURN_IF_ERROR(validate_and_consume_header(_file_reader, _scan_range, &_file_size,
+                                                &_current_offset, &_eof));
     return Status::OK();
 }
 

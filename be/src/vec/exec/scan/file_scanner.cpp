@@ -1128,9 +1128,8 @@ Status FileScanner::_get_next_reader() {
             break;
         }
         case TFileFormatType::FORMAT_NATIVE: {
-            auto reader = NativeReader::create_unique(_profile, *_params, range,
-                                                      _state->query_options().batch_size,
-                                                      _io_ctx.get(), _state);
+            auto reader =
+                    NativeReader::create_unique(_profile, *_params, range, _io_ctx.get(), _state);
             init_status = reader->init_reader();
             _cur_reader = std::move(reader);
             need_to_get_parsed_schema = false;
