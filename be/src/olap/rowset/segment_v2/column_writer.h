@@ -92,7 +92,9 @@ struct ColumnWriterOptions {
 
 class BitmapIndexWriter;
 class EncodingInfo;
+class NullBitmapBuilderBase;
 class NullBitmapBuilder;
+class PlainNullBitmapBuilder;
 class OrdinalIndexWriter;
 class PageBuilder;
 class BloomFilterIndexWriter;
@@ -268,7 +270,7 @@ private:
 private:
     std::unique_ptr<PageBuilder> _page_builder;
 
-    std::unique_ptr<NullBitmapBuilder> _null_bitmap_builder;
+    std::unique_ptr<NullBitmapBuilderBase> _null_bitmap_builder;
 
     ColumnWriterOptions _opts;
 
