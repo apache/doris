@@ -27,12 +27,12 @@
 #include "util/block_compression.h"
 #include "vec/exec/format/parquet/parquet_common.h"
 namespace doris {
-    class BlockCompressionCodec;
+class BlockCompressionCodec;
 
-    namespace io {
-        class BufferedStreamReader;
-        struct IOContext;
-    } // namespace io
+namespace io {
+class BufferedStreamReader;
+struct IOContext;
+} // namespace io
 
 } // namespace doris
 
@@ -50,7 +50,7 @@ namespace doris::vectorized {
  * Use to deserialize parquet page header, and get the page data in iterator interface.
  */
 
-template<bool IN_COLLECTION, bool OFFSET_INDEX>
+template <bool IN_COLLECTION, bool OFFSET_INDEX>
 class PageReader {
 public:
     struct Statistics {
@@ -63,7 +63,6 @@ public:
                uint64_t length, size_t total_rows,
                const tparquet::OffsetIndex* offset_index = nullptr);
     ~PageReader() = default;
-
 
     bool has_next_page() const {
         if constexpr (OFFSET_INDEX) {
@@ -88,7 +87,7 @@ public:
             _page_index++;
             _start_row = _offset_index->page_locations[_page_index].first_row_index;
             if (_page_index + 1 < _offset_index->page_locations.size()) {
-                _end_row = _offset_index->page_locations[_page_index+1].first_row_index;
+                _end_row = _offset_index->page_locations[_page_index + 1].first_row_index;
             } else {
                 _end_row = _total_rows;
             }
@@ -97,7 +96,7 @@ public:
             _next_header_offset = next_page_offset;
             _state = INITIALIZED;
         } else {
-            if(UNLIKELY(_offset == _start_offset)) {
+            if (UNLIKELY(_offset == _start_offset)) {
                 return Status::Corruption("should parse first page.");
             }
 
@@ -107,7 +106,7 @@ public:
                 _start_row += _cur_page_header.data_page_header.num_values;
             }
 
-            _offset =_next_header_offset;
+            _offset = _next_header_offset;
             _state = INITIALIZED;
         }
 
@@ -118,7 +117,7 @@ public:
         if constexpr (OFFSET_INDEX) {
             _state = INITIALIZED;
             return Status::OK();
-        } else  {
+        } else {
             return next_page();
         }
     }
@@ -135,20 +134,14 @@ public:
 
     Statistics& statistics() { return _statistics; }
 
-    bool is_header_v2() {
-        return _cur_page_header.__isset.data_page_header_v2;
-    }
+    bool is_header_v2() { return _cur_page_header.__isset.data_page_header_v2; }
 
-    size_t start_row() const {
-        return _start_row;
-    }
+    size_t start_row() const { return _start_row; }
 
-    size_t end_row() const {
-        return _end_row;
-    }
+    size_t end_row() const { return _end_row; }
 
 private:
-    enum PageReaderState { INITIALIZED, HEADER_PARSED, DATA_LOADED};
+    enum PageReaderState { INITIALIZED, HEADER_PARSED, DATA_LOADED };
     PageReaderState _state = INITIALIZED;
     Statistics _statistics;
 
@@ -171,134 +164,13 @@ private:
 
     tparquet::PageHeader _cur_page_header;
 };
-//
-//template<bool IN_COLLECTION>
-//class PageReaderWithOffsetIndex : public PageReader<IN_COLLECTION> {
-//public:
-//    PageReaderWithOffsetIndex(io::BufferedStreamReader* reader, io::IOContext* io_ctx,
-//                              uint64_t offset, uint64_t length, size_t total_rows, int64_t num_values,
-//                              const tparquet::OffsetIndex* offset_index)
-//            : PageReader<IN_COLLECTION>(reader, io_ctx, offset, length),
-//              _num_values(num_values),
-//              _total_rows(total_rows),
-//              _offset_index(offset_index) {
-//        _end_row = _offset_index->page_locations.size() >= 2 ?
-//                _offset_index->page_locations[1].first_row_index : _total_rows;
-//    }
-//
-////    Status next_page_header() override {
-////        // lazy to parse page header in get_page_header
-////        return Status::OK();
-////    }
-//
-//    bool has_next_page() const override {
-//        return _page_index + 1 != _offset_index->page_locations.size();
-//    }
-//
-//    Status next_page() override {
-//        _page_index++;
-//        _start_row = _offset_index->page_locations[_page_index].first_row_index;
-//        if (_page_index + 1 < _offset_index->page_locations.size()) {
-//            _end_row = _offset_index->page_locations[_page_index+1].first_row_index;
-//        } else {
-//            _end_row = _total_rows;
-//        }
-//        int64_t next_page_offset = _offset_index->page_locations[_page_index].offset;
-//        _offset = next_page_offset;
-//        _next_header_offset = next_page_offset;
-//        _state = INITIALIZED;
-//        return Status::OK();
-//    }
-//
-//    Status dict_next_page() override {
-//        _state = INITIALIZED;
-//        return Status::OK();
-//    }
-//
-//
-//
-//    Status get_page_header(const tparquet::PageHeader*& page_header) override {
-//        if (_state != HEADER_PARSED) {
-//            RETURN_IF_ERROR(_parse_page_header());
-//        }
-//        page_header = &_cur_page_header;
-//        return Status::OK();
-//    }
-//
-////    Status get_num_values(uint32_t& num_values) override {
-////        if (UNLIKELY(_page_index >= _offset_index->page_locations.size())) {
-////            return Status::IOError("End of page");
-////        }
-////
-////        if (_page_index < _offset_index->page_locations.size() - 1) {
-////            num_values = cast_set<uint32_t>(
-////                    _offset_index->page_locations[_page_index + 1].first_row_index -
-////                    _offset_index->page_locations[_page_index].first_row_index);
-////        } else {
-////            num_values = cast_set<uint32_t>(
-////                    _num_values - _offset_index->page_locations[_page_index].first_row_index);
-////        }
-////        return Status::OK();
-////    }
-//
-////    size_t _this_page_start_row = 0;
-////    size_t _next_page_start_row = 0;
-////    size_t next_page_start_row() override {
-////        return _next_page_start_row;
-////    }
-////    size_t this_page_start_row() override {
-////        return _this_page_start_row;
-////    }
-////    Status skip_page() override {
-////        if (UNLIKELY(_page_index >= _offset_index->page_locations.size())) {
-////            return Status::IOError("End of page");
-////        }
-////
-////        if (_state != HEADER_PARSED) {
-////            _statistics.skip_page_header_num++;
-////        }
-////
-////        seek_to_page(_offset_index->page_locations[_page_index].offset +
-////                     _offset_index->page_locations[_page_index].compressed_page_size);
-////        _page_index++;
-////        return Status::OK();
-////    }
-//
-//    Status get_page_data(Slice& slice) override {
-//        if (_page_index >= _offset_index->page_locations.size()) {
-//            return Status::IOError("End of page");
-//        }
-//        if (_state != HEADER_PARSED) {
-//            RETURN_IF_ERROR(parse_page_header());
-//        }
-//
-////        // dirctionary page is not in page location
-////        if (LIKELY(_cur_page_header.type != tparquet::PageType::DICTIONARY_PAGE)) {
-////            _page_index++;
-////        }
-////        if (LIKELY(_cur_page_header.type == tparquet::PageType::DICTIONARY_PAGE)) {
-////            _page_index = 0;
-////        }
-//
-//        return PageReader<IN_COLLECTION>::get_page_data(slice);
-//    }
-//
-//private:
-//    size_t _page_index = 0;
-//    int64_t _num_values = 0;
-//    size_t _total_rows = 0;
-//    const tparquet::OffsetIndex* _offset_index;
-//};
 
-template<bool IN_COLLECTION, bool OFFSET_INDEX>
-std::unique_ptr<PageReader<IN_COLLECTION, OFFSET_INDEX>> create_page_reader(io::BufferedStreamReader* reader,
-                                               io::IOContext* io_ctx, uint64_t offset,
-                                               uint64_t length,
-                                               size_t total_rows,
-                                               const tparquet::OffsetIndex* offset_index = nullptr) {
-    return std::make_unique<PageReader<IN_COLLECTION, OFFSET_INDEX>>(
-            reader, io_ctx, offset, length, total_rows, offset_index);
-
+template <bool IN_COLLECTION, bool OFFSET_INDEX>
+std::unique_ptr<PageReader<IN_COLLECTION, OFFSET_INDEX>> create_page_reader(
+        io::BufferedStreamReader* reader, io::IOContext* io_ctx, uint64_t offset, uint64_t length,
+        size_t total_rows, const tparquet::OffsetIndex* offset_index = nullptr) {
+    return std::make_unique<PageReader<IN_COLLECTION, OFFSET_INDEX>>(reader, io_ctx, offset, length,
+                                                                     total_rows, offset_index);
 }
 #include "common/compile_check_end.h"
 

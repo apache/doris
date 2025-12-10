@@ -47,12 +47,11 @@ struct IOContext;
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
-template<bool IN_COLLECTION, bool OFFSET_INDEX>
-ColumnChunkReader<IN_COLLECTION,OFFSET_INDEX>::ColumnChunkReader(io::BufferedStreamReader* reader,
-                                     tparquet::ColumnChunk* column_chunk, FieldSchema* field_schema,
-                                     const tparquet::OffsetIndex* offset_index,
-                                     size_t total_rows,
-                                     io::IOContext* io_ctx)
+template <bool IN_COLLECTION, bool OFFSET_INDEX>
+ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::ColumnChunkReader(
+        io::BufferedStreamReader* reader, tparquet::ColumnChunk* column_chunk,
+        FieldSchema* field_schema, const tparquet::OffsetIndex* offset_index, size_t total_rows,
+        io::IOContext* io_ctx)
         : _field_schema(field_schema),
           _max_rep_level(field_schema->repetition_level),
           _max_def_level(field_schema->definition_level),
@@ -62,8 +61,8 @@ ColumnChunkReader<IN_COLLECTION,OFFSET_INDEX>::ColumnChunkReader(io::BufferedStr
           _total_rows(total_rows),
           _io_ctx(io_ctx) {}
 
-template<bool IN_COLLECTION, bool OFFSET_INDEX>
-Status ColumnChunkReader<IN_COLLECTION,OFFSET_INDEX>::init() {
+template <bool IN_COLLECTION, bool OFFSET_INDEX>
+Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::init() {
     size_t start_offset = has_dict_page(_metadata) ? _metadata.dictionary_page_offset
                                                    : _metadata.data_page_offset;
     size_t chunk_size = _metadata.total_compressed_size;
@@ -77,12 +76,13 @@ Status ColumnChunkReader<IN_COLLECTION,OFFSET_INDEX>::init() {
     return Status::OK();
 }
 
-template<bool IN_COLLECTION, bool OFFSET_INDEX>
-Status ColumnChunkReader<IN_COLLECTION,OFFSET_INDEX>::skip_nested_values(const std::vector<level_t>& def_levels) {
+template <bool IN_COLLECTION, bool OFFSET_INDEX>
+Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::skip_nested_values(
+        const std::vector<level_t>& def_levels) {
     size_t no_value_cnt = 0;
     size_t value_cnt = 0;
 
-    for (size_t idx = 0; idx < def_levels.size(); idx ++) {
+    for (size_t idx = 0; idx < def_levels.size(); idx++) {
         level_t def_level = def_levels[idx];
         if (IN_COLLECTION && def_level < _field_schema->repeated_parent_def_level) {
             no_value_cnt++;
@@ -98,11 +98,11 @@ Status ColumnChunkReader<IN_COLLECTION,OFFSET_INDEX>::skip_nested_values(const s
     return Status::OK();
 }
 
-template<bool IN_COLLECTION, bool OFFSET_INDEX>
-Status ColumnChunkReader<IN_COLLECTION,OFFSET_INDEX>::_parse_first_page_header() {
+template <bool IN_COLLECTION, bool OFFSET_INDEX>
+Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::_parse_first_page_header() {
     RETURN_IF_ERROR(parse_page_header());
 
-    const tparquet::PageHeader* header;
+    const tparquet::PageHeader* header = nullptr;
     RETURN_IF_ERROR(_page_reader->get_page_header(header));
     if (header->type == tparquet::PageType::DICTIONARY_PAGE) {
         // the first page maybe directory page even if _metadata.__isset.dictionary_page_offset == false,
@@ -116,19 +116,18 @@ Status ColumnChunkReader<IN_COLLECTION,OFFSET_INDEX>::_parse_first_page_header()
     return Status::OK();
 }
 
-template<bool IN_COLLECTION, bool OFFSET_INDEX>
-Status ColumnChunkReader<IN_COLLECTION,OFFSET_INDEX>::parse_page_header() {
-    if (_state == HEADER_PARSED ||_state == DATA_LOADED) {
+template <bool IN_COLLECTION, bool OFFSET_INDEX>
+Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::parse_page_header() {
+    if (_state == HEADER_PARSED || _state == DATA_LOADED) {
         return Status::OK();
     }
     RETURN_IF_ERROR(_page_reader->parse_page_header());
 
-    const tparquet::PageHeader* header;
+    const tparquet::PageHeader* header = nullptr;
+    ;
     RETURN_IF_ERROR(_page_reader->get_page_header(header));
-    int32_t page_num_values =
-            _page_reader->is_header_v2() ?
-            header->data_page_header_v2.num_values:
-            header->data_page_header.num_values;
+    int32_t page_num_values = _page_reader->is_header_v2() ? header->data_page_header_v2.num_values
+                                                           : header->data_page_header.num_values;
     _remaining_rep_nums = page_num_values;
     _remaining_def_nums = page_num_values;
     _remaining_num_values = page_num_values;
@@ -141,16 +140,16 @@ Status ColumnChunkReader<IN_COLLECTION,OFFSET_INDEX>::parse_page_header() {
     return Status::OK();
 }
 
-template<bool IN_COLLECTION, bool OFFSET_INDEX>
-Status ColumnChunkReader<IN_COLLECTION,OFFSET_INDEX>::next_page() {
+template <bool IN_COLLECTION, bool OFFSET_INDEX>
+Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::next_page() {
     _state = INITIALIZED;
     RETURN_IF_ERROR(_page_reader->next_page());
     return Status::OK();
 }
 
-template<bool IN_COLLECTION, bool OFFSET_INDEX>
-void ColumnChunkReader<IN_COLLECTION,OFFSET_INDEX>::_get_uncompressed_levels(const tparquet::DataPageHeaderV2& page_v2,
-                                                 Slice& page_data) {
+template <bool IN_COLLECTION, bool OFFSET_INDEX>
+void ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::_get_uncompressed_levels(
+        const tparquet::DataPageHeaderV2& page_v2, Slice& page_data) {
     int32_t rl = page_v2.repetition_levels_byte_length;
     int32_t dl = page_v2.definition_levels_byte_length;
     _v2_rep_levels = Slice(page_data.data, rl);
@@ -159,8 +158,8 @@ void ColumnChunkReader<IN_COLLECTION,OFFSET_INDEX>::_get_uncompressed_levels(con
     page_data.size -= dl + rl;
 }
 
-template<bool IN_COLLECTION, bool OFFSET_INDEX>
-Status ColumnChunkReader<IN_COLLECTION,OFFSET_INDEX>::load_page_data() {
+template <bool IN_COLLECTION, bool OFFSET_INDEX>
+Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::load_page_data() {
     if (_state == DATA_LOADED) {
         return Status::OK();
     }
@@ -168,7 +167,7 @@ Status ColumnChunkReader<IN_COLLECTION,OFFSET_INDEX>::load_page_data() {
         return Status::Corruption("Should parse page header");
     }
 
-    const tparquet::PageHeader* header;
+    const tparquet::PageHeader* header = nullptr;
     RETURN_IF_ERROR(_page_reader->get_page_header(header));
     int32_t uncompressed_size = header->uncompressed_page_size;
 
@@ -251,9 +250,9 @@ Status ColumnChunkReader<IN_COLLECTION,OFFSET_INDEX>::load_page_data() {
     return Status::OK();
 }
 
-template<bool IN_COLLECTION, bool OFFSET_INDEX>
-Status ColumnChunkReader<IN_COLLECTION,OFFSET_INDEX>::_decode_dict_page() {
-    const tparquet::PageHeader* header;
+template <bool IN_COLLECTION, bool OFFSET_INDEX>
+Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::_decode_dict_page() {
+    const tparquet::PageHeader* header = nullptr;
     RETURN_IF_ERROR(_page_reader->get_page_header(header));
     DCHECK_EQ(tparquet::PageType::DICTIONARY_PAGE, header->type);
     SCOPED_RAW_TIMER(&_statistics.decode_dict_time);
@@ -298,16 +297,17 @@ Status ColumnChunkReader<IN_COLLECTION,OFFSET_INDEX>::_decode_dict_page() {
     return Status::OK();
 }
 
-template<bool IN_COLLECTION, bool OFFSET_INDEX>
-void ColumnChunkReader<IN_COLLECTION,OFFSET_INDEX>::_reserve_decompress_buf(size_t size) {
+template <bool IN_COLLECTION, bool OFFSET_INDEX>
+void ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::_reserve_decompress_buf(size_t size) {
     if (size > _decompress_buf_size) {
         _decompress_buf_size = BitUtil::next_power_of_two(size);
         _decompress_buf = make_unique_buffer<uint8_t>(_decompress_buf_size);
     }
 }
 
-template<bool IN_COLLECTION, bool OFFSET_INDEX>
-Status ColumnChunkReader<IN_COLLECTION,OFFSET_INDEX>::skip_values(size_t num_values, bool skip_data) {
+template <bool IN_COLLECTION, bool OFFSET_INDEX>
+Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::skip_values(size_t num_values,
+                                                                   bool skip_data) {
     if (UNLIKELY(_remaining_num_values < num_values)) {
         return Status::IOError("Skip too many values in current page. {} vs. {}",
                                _remaining_num_values, num_values);
@@ -321,10 +321,10 @@ Status ColumnChunkReader<IN_COLLECTION,OFFSET_INDEX>::skip_values(size_t num_val
     }
 }
 
-\
-template<bool IN_COLLECTION, bool OFFSET_INDEX>
-Status ColumnChunkReader<IN_COLLECTION,OFFSET_INDEX>::decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
-                                        ColumnSelectVector& select_vector, bool is_dict_filter) {
+template <bool IN_COLLECTION, bool OFFSET_INDEX>
+Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::decode_values(
+        MutableColumnPtr& doris_column, DataTypePtr& data_type, ColumnSelectVector& select_vector,
+        bool is_dict_filter) {
     if (select_vector.num_values() == 0) {
         return Status::OK();
     }
@@ -339,29 +339,30 @@ Status ColumnChunkReader<IN_COLLECTION,OFFSET_INDEX>::decode_values(MutableColum
     return _page_decoder->decode_values(doris_column, data_type, select_vector, is_dict_filter);
 }
 
-
-
-template<bool IN_COLLECTION, bool OFFSET_INDEX>
-Status ColumnChunkReader<IN_COLLECTION,OFFSET_INDEX>::seek_to_nested_row(size_t left_row) {
+template <bool IN_COLLECTION, bool OFFSET_INDEX>
+Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::seek_to_nested_row(size_t left_row) {
     if constexpr (OFFSET_INDEX) {
-        do {
+        while (true) {
             if (_page_reader->start_row() <= left_row && left_row < _page_reader->end_row()) {
                 break;
-            } else {
+            } else if (has_next_page()) {
                 RETURN_IF_ERROR(next_page());
                 _current_row = _page_reader->start_row();
+            } else [[unlikely]] {
+                return Status::InternalError("no match seek row {}, current row {}", left_row,
+                                             _current_row);
             }
-        } while(has_next_page());
+        };
 
         RETURN_IF_ERROR(parse_page_header());
         RETURN_IF_ERROR(load_page_data());
         RETURN_IF_ERROR(_skip_nested_rows_in_page(left_row - _current_row));
         _current_row = left_row;
     } else {
-        do {
+        while (true) {
             RETURN_IF_ERROR(parse_page_header());
             if (_page_reader->is_header_v2()) {
-                if (_page_reader->start_row() <= left_row && left_row <  _page_reader->end_row()) {
+                if (_page_reader->start_row() <= left_row && left_row < _page_reader->end_row()) {
                     RETURN_IF_ERROR(load_page_data());
                     // this page contain this row.
                     RETURN_IF_ERROR(_skip_nested_rows_in_page(left_row - _current_row));
@@ -370,6 +371,12 @@ Status ColumnChunkReader<IN_COLLECTION,OFFSET_INDEX>::seek_to_nested_row(size_t 
                 }
 
                 _current_row = _page_reader->end_row();
+                if (has_next_page()) [[likely]] {
+                    RETURN_IF_ERROR(next_page());
+                } else {
+                    return Status::InternalError("no match seek row {}, current row {}", left_row,
+                                                 _current_row);
+                }
             } else {
                 RETURN_IF_ERROR(load_page_data());
                 std::vector<level_t> rep_levels;
@@ -377,30 +384,39 @@ Status ColumnChunkReader<IN_COLLECTION,OFFSET_INDEX>::seek_to_nested_row(size_t 
                 bool cross_page = false;
 
                 size_t result_rows = 0;
-                RETURN_IF_ERROR(load_page_nested_rows(rep_levels,left_row - _current_row, &result_rows, &cross_page));
+                RETURN_IF_ERROR(load_page_nested_rows(rep_levels, left_row - _current_row,
+                                                      &result_rows, &cross_page));
                 RETURN_IF_ERROR(fill_def(def_levels));
                 RETURN_IF_ERROR(skip_nested_values(def_levels));
-
+                bool need_load_next_page = true;
                 while (cross_page) {
+                    need_load_next_page = false;
                     rep_levels.clear();
                     def_levels.clear();
                     RETURN_IF_ERROR(load_cross_page_nested_row(rep_levels, &cross_page));
                     RETURN_IF_ERROR(fill_def(def_levels));
                     RETURN_IF_ERROR(skip_nested_values(def_levels));
                 }
-                if (left_row == _current_row ) {
+                if (left_row == _current_row) {
                     break;
                 }
+                if (need_load_next_page) {
+                    if (has_next_page()) [[likely]] {
+                        RETURN_IF_ERROR(next_page());
+                    } else {
+                        return Status::InternalError("no match seek row {}, current row {}",
+                                                     left_row, _current_row);
+                    }
+                }
             }
-            RETURN_IF_ERROR(next_page());
-        } while(has_next_page());
+        };
     }
 
     return Status::OK();
 }
 
-template<bool IN_COLLECTION, bool OFFSET_INDEX>
-Status ColumnChunkReader<IN_COLLECTION,OFFSET_INDEX>::_skip_nested_rows_in_page(size_t num_rows) {
+template <bool IN_COLLECTION, bool OFFSET_INDEX>
+Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::_skip_nested_rows_in_page(size_t num_rows) {
     if (num_rows == 0) {
         return Status::OK();
     }
@@ -415,14 +431,15 @@ Status ColumnChunkReader<IN_COLLECTION,OFFSET_INDEX>::_skip_nested_rows_in_page(
     RETURN_IF_ERROR(skip_nested_values(def_levels));
     DCHECK(cross_page == false);
     if (num_rows != result_rows) [[unlikely]] {
-        return Status::InternalError("no match skip rows, expect {} vs. real {}", num_rows, result_rows);
+        return Status::InternalError("no match skip rows, expect {} vs. real {}", num_rows,
+                                     result_rows);
     }
     return Status::OK();
 }
 
-template<bool IN_COLLECTION, bool OFFSET_INDEX>
-Status ColumnChunkReader<IN_COLLECTION,OFFSET_INDEX>::load_page_nested_rows(std::vector<level_t>& rep_levels, size_t max_rows,
-                                                                            size_t* result_rows, bool * cross_page) {
+template <bool IN_COLLECTION, bool OFFSET_INDEX>
+Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::load_page_nested_rows(
+        std::vector<level_t>& rep_levels, size_t max_rows, size_t* result_rows, bool* cross_page) {
     if (_state != DATA_LOADED) [[unlikely]] {
         return Status::IOError("Should load page data first to load nested rows");
     }
@@ -431,7 +448,7 @@ Status ColumnChunkReader<IN_COLLECTION,OFFSET_INDEX>::load_page_nested_rows(std:
     rep_levels.reserve(rep_levels.size() + _remaining_rep_nums);
     while (_remaining_rep_nums) {
         level_t rep_level = _rep_level_decoder.get_next();
-        if (rep_level == 0) { // rep_level 0 indicates start of new row
+        if (rep_level == 0) {               // rep_level 0 indicates start of new row
             if (*result_rows == max_rows) { // this page contain max_rows, page no end.
                 _current_row += max_rows;
                 _rep_level_decoder.rewind_one();
@@ -445,17 +462,16 @@ Status ColumnChunkReader<IN_COLLECTION,OFFSET_INDEX>::load_page_nested_rows(std:
     _current_row += *result_rows;
 
     auto need_check_cross_page = [&]() -> bool {
-        return  !OFFSET_INDEX &&
-               _remaining_rep_nums == 0 &&
-               !_page_reader->is_header_v2() &&
+        return !OFFSET_INDEX && _remaining_rep_nums == 0 && !_page_reader->is_header_v2() &&
                has_next_page();
     };
     *cross_page = need_check_cross_page();
     return Status::OK();
 };
 
-template<bool IN_COLLECTION, bool OFFSET_INDEX>
-Status ColumnChunkReader<IN_COLLECTION,OFFSET_INDEX>::load_cross_page_nested_row(std::vector<level_t>& rep_levels, bool* cross_page) {
+template <bool IN_COLLECTION, bool OFFSET_INDEX>
+Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::load_cross_page_nested_row(
+        std::vector<level_t>& rep_levels, bool* cross_page) {
     RETURN_IF_ERROR(next_page());
     RETURN_IF_ERROR(parse_page_header());
     RETURN_IF_ERROR(load_page_data());
@@ -474,9 +490,8 @@ Status ColumnChunkReader<IN_COLLECTION,OFFSET_INDEX>::load_cross_page_nested_row
     return Status::OK();
 }
 
-
-template<bool IN_COLLECTION, bool OFFSET_INDEX>
-int32_t ColumnChunkReader<IN_COLLECTION,OFFSET_INDEX>::_get_type_length() {
+template <bool IN_COLLECTION, bool OFFSET_INDEX>
+int32_t ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::_get_type_length() {
     switch (_field_schema->physical_type) {
     case tparquet::Type::INT32:
         [[fallthrough]];
@@ -514,12 +529,10 @@ bool has_dict_page(const tparquet::ColumnMetaData& column) {
            column.dictionary_page_offset < column.data_page_offset;
 }
 
-
-
-template class ColumnChunkReader<true,true>;
-template class ColumnChunkReader<true,false>;
-template class ColumnChunkReader<false,true>;
-template class ColumnChunkReader<false,false>;
+template class ColumnChunkReader<true, true>;
+template class ColumnChunkReader<true, false>;
+template class ColumnChunkReader<false, true>;
+template class ColumnChunkReader<false, false>;
 
 #include "common/compile_check_end.h"
 } // namespace doris::vectorized

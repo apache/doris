@@ -115,9 +115,9 @@ Status ParquetColumnReader::create(io::FileReaderSPtr file, FieldSchema* field,
     if (field->data_type->get_primitive_type() == TYPE_ARRAY) {
         std::unique_ptr<ParquetColumnReader> element_reader;
         RETURN_IF_ERROR(create(file, &field->children[0], row_group, row_ranges, ctz, io_ctx,
-                               element_reader, max_buf_size, col_offsets , true, column_ids,
+                               element_reader, max_buf_size, col_offsets, true, column_ids,
                                filter_column_ids));
-//        element_reader->set_nested_column();
+        //        element_reader->set_nested_column();
         auto array_reader = ArrayColumnReader::create_unique(row_ranges, total_rows, ctz, io_ctx);
         RETURN_IF_ERROR(array_reader->init(std::move(element_reader), field));
         array_reader->_filter_column_ids = filter_column_ids;
@@ -132,10 +132,10 @@ Status ParquetColumnReader::create(io::FileReaderSPtr file, FieldSchema* field,
             RETURN_IF_ERROR(create(file, &field->children[0], row_group, row_ranges, ctz, io_ctx,
                                    key_reader, max_buf_size, col_offsets, true, column_ids,
                                    filter_column_ids));
-//            key_reader->set_nested_column();
+            //            key_reader->set_nested_column();
         } else {
-            auto skip_reader = std::make_unique<SkipReadingReader>(row_ranges, total_rows, ctz, io_ctx,
-                                                                   &field->children[0]);
+            auto skip_reader = std::make_unique<SkipReadingReader>(row_ranges, total_rows, ctz,
+                                                                   io_ctx, &field->children[0]);
             key_reader = std::move(skip_reader);
         }
 
@@ -143,12 +143,12 @@ Status ParquetColumnReader::create(io::FileReaderSPtr file, FieldSchema* field,
             column_ids.find(field->children[1].get_column_id()) != column_ids.end()) {
             // Create value reader
             RETURN_IF_ERROR(create(file, &field->children[1], row_group, row_ranges, ctz, io_ctx,
-                                   value_reader, max_buf_size,col_offsets, true, column_ids,
+                                   value_reader, max_buf_size, col_offsets, true, column_ids,
                                    filter_column_ids));
-//            value_reader->set_nested_column();
+            //            value_reader->set_nested_column();
         } else {
-            auto skip_reader = std::make_unique<SkipReadingReader>(row_ranges, total_rows, ctz, io_ctx,
-                                                                   &field->children[0]);
+            auto skip_reader = std::make_unique<SkipReadingReader>(row_ranges, total_rows, ctz,
+                                                                   io_ctx, &field->children[0]);
             value_reader = std::move(skip_reader);
         }
 
@@ -165,17 +165,17 @@ Status ParquetColumnReader::create(io::FileReaderSPtr file, FieldSchema* field,
             std::unique_ptr<ParquetColumnReader> child_reader;
             if (column_ids.empty() || column_ids.find(child.get_column_id()) != column_ids.end()) {
                 RETURN_IF_ERROR(create(file, &child, row_group, row_ranges, ctz, io_ctx,
-                                       child_reader, max_buf_size, col_offsets, in_collection , column_ids,
-                                       filter_column_ids));
-//                child_reader->set_nested_column();
+                                       child_reader, max_buf_size, col_offsets, in_collection,
+                                       column_ids, filter_column_ids));
+                //                child_reader->set_nested_column();
                 child_readers[child.name] = std::move(child_reader);
                 // Record the first non-SkippingReader
                 if (non_skip_reader_idx == -1) {
                     non_skip_reader_idx = i;
                 }
             } else {
-                auto skip_reader =
-                        std::make_unique<SkipReadingReader>(row_ranges, total_rows, ctz, io_ctx, &child);
+                auto skip_reader = std::make_unique<SkipReadingReader>(row_ranges, total_rows, ctz,
+                                                                       io_ctx, &child);
                 skip_reader->_filter_column_ids = filter_column_ids;
                 child_readers[child.name] = std::move(skip_reader);
             }
@@ -184,24 +184,24 @@ Status ParquetColumnReader::create(io::FileReaderSPtr file, FieldSchema* field,
         if (non_skip_reader_idx == -1) {
             std::unique_ptr<ParquetColumnReader> child_reader;
             RETURN_IF_ERROR(create(file, &field->children[0], row_group, row_ranges, ctz, io_ctx,
-                                   child_reader, max_buf_size, col_offsets, in_collection, column_ids,
-                                   filter_column_ids));
-//            child_reader->set_nested_column();
+                                   child_reader, max_buf_size, col_offsets, in_collection,
+                                   column_ids, filter_column_ids));
+            //            child_reader->set_nested_column();
             child_readers[field->children[0].name] = std::move(child_reader);
         }
-        auto struct_reader = StructColumnReader::create_unique(row_ranges,total_rows, ctz, io_ctx);
+        auto struct_reader = StructColumnReader::create_unique(row_ranges, total_rows, ctz, io_ctx);
         RETURN_IF_ERROR(struct_reader->init(std::move(child_readers), field));
         struct_reader->_filter_column_ids = filter_column_ids;
         reader.reset(struct_reader.release());
     } else {
-        auto physical_index =  field->physical_column_index;
+        auto physical_index = field->physical_column_index;
         const tparquet::OffsetIndex* offset_index =
-                col_offsets.find(physical_index) != col_offsets.end() ? &col_offsets[physical_index]: nullptr;
+                col_offsets.find(physical_index) != col_offsets.end() ? &col_offsets[physical_index]
+                                                                      : nullptr;
 
         const tparquet::ColumnChunk& chunk = row_group.columns[physical_index];
 
-
-//                ScalarColumnReader::create_unique(row_ranges, total_rows, chunk, offset_index, ctz, io_ctx);
+        //                ScalarColumnReader::create_unique(row_ranges, total_rows, chunk, offset_index, ctz, io_ctx);
         if (in_collection) {
             if (offset_index == nullptr) {
                 auto scalar_reader = ScalarColumnReader<true, false>::create_unique(
@@ -210,7 +210,7 @@ Status ParquetColumnReader::create(io::FileReaderSPtr file, FieldSchema* field,
                 RETURN_IF_ERROR(scalar_reader->init(file, field, max_buf_size));
                 scalar_reader->_filter_column_ids = filter_column_ids;
                 reader.reset(scalar_reader.release());
-            }else {
+            } else {
                 auto scalar_reader = ScalarColumnReader<true, true>::create_unique(
                         row_ranges, total_rows, chunk, offset_index, ctz, io_ctx);
 
@@ -220,14 +220,14 @@ Status ParquetColumnReader::create(io::FileReaderSPtr file, FieldSchema* field,
             }
         } else {
             if (offset_index == nullptr) {
-                auto  scalar_reader = ScalarColumnReader<false, false>::create_unique(
+                auto scalar_reader = ScalarColumnReader<false, false>::create_unique(
                         row_ranges, total_rows, chunk, offset_index, ctz, io_ctx);
 
                 RETURN_IF_ERROR(scalar_reader->init(file, field, max_buf_size));
                 scalar_reader->_filter_column_ids = filter_column_ids;
                 reader.reset(scalar_reader.release());
-            }else {
-                auto  scalar_reader = ScalarColumnReader<false, true>::create_unique(
+            } else {
+                auto scalar_reader = ScalarColumnReader<false, true>::create_unique(
                         row_ranges, total_rows, chunk, offset_index, ctz, io_ctx);
 
                 RETURN_IF_ERROR(scalar_reader->init(file, field, max_buf_size));
@@ -245,8 +245,10 @@ void ParquetColumnReader::_generate_read_ranges(RowRange page_row_range,
     RowRanges::ranges_intersection(*result_ranges, _row_ranges, result_ranges);
 }
 
-template<bool IN_COLLECTION, bool OFFSET_INDEX>
-Status ScalarColumnReader<IN_COLLECTION,OFFSET_INDEX>::init(io::FileReaderSPtr file, FieldSchema* field, size_t max_buf_size) {
+template <bool IN_COLLECTION, bool OFFSET_INDEX>
+Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::init(io::FileReaderSPtr file,
+                                                             FieldSchema* field,
+                                                             size_t max_buf_size) {
     _field_schema = field;
     auto& chunk_meta = _chunk_meta.meta_data;
     int64_t chunk_start = has_dict_page(chunk_meta) ? chunk_meta.dictionary_page_offset
@@ -259,14 +261,14 @@ Status ScalarColumnReader<IN_COLLECTION,OFFSET_INDEX>::init(io::FileReaderSPtr f
     }
     _stream_reader = std::make_unique<io::BufferedFileStreamReader>(file, chunk_start, chunk_len,
                                                                     prefetch_buffer_size);
-    _chunk_reader = std::make_unique<ColumnChunkReader<IN_COLLECTION,OFFSET_INDEX>>(
+    _chunk_reader = std::make_unique<ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>>(
             _stream_reader.get(), &_chunk_meta, field, _offset_index, _total_rows, _io_ctx);
     RETURN_IF_ERROR(_chunk_reader->init());
     return Status::OK();
 }
 
-template<bool IN_COLLECTION, bool OFFSET_INDEX>
-Status ScalarColumnReader<IN_COLLECTION,OFFSET_INDEX>::_skip_values(size_t num_values) {
+template <bool IN_COLLECTION, bool OFFSET_INDEX>
+Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::_skip_values(size_t num_values) {
     if (num_values == 0) {
         return Status::OK();
     }
@@ -289,7 +291,7 @@ Status ScalarColumnReader<IN_COLLECTION,OFFSET_INDEX>::_skip_values(size_t num_v
                 LOG(WARNING) << ss.str();
                 return Status::InternalError("Failed to decode definition level.");
             }
-            if (def_level == 0) {
+            if (def_level < _field_schema->definition_level) {
                 null_size += loop_skip;
             } else {
                 nonnull_size += loop_skip;
@@ -308,10 +310,12 @@ Status ScalarColumnReader<IN_COLLECTION,OFFSET_INDEX>::_skip_values(size_t num_v
     return Status::OK();
 }
 
-template<bool IN_COLLECTION, bool OFFSET_INDEX>
-Status ScalarColumnReader<IN_COLLECTION,OFFSET_INDEX>::_read_values(size_t num_values, ColumnPtr& doris_column,
-                                        DataTypePtr& type, FilterMap& filter_map,
-                                        bool is_dict_filter) {
+template <bool IN_COLLECTION, bool OFFSET_INDEX>
+Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::_read_values(size_t num_values,
+                                                                     ColumnPtr& doris_column,
+                                                                     DataTypePtr& type,
+                                                                     FilterMap& filter_map,
+                                                                     bool is_dict_filter) {
     if (num_values == 0) {
         return Status::OK();
     }
@@ -346,7 +350,7 @@ Status ScalarColumnReader<IN_COLLECTION,OFFSET_INDEX>::_read_values(size_t num_v
                     return Status::InternalError("Failed to decode definition level.");
                 }
 
-                for (int i =0; i < loop_read; i++) {
+                for (int i = 0; i < loop_read; i++) {
                     _def_levels.emplace_back(def_level);
                 }
                 bool is_null = def_level < _field_schema->definition_level;
@@ -364,13 +368,13 @@ Status ScalarColumnReader<IN_COLLECTION,OFFSET_INDEX>::_read_values(size_t num_v
                 has_read += loop_read;
             }
         } else {
-            _def_levels.resize(_def_levels.size() +  num_values,0);
+            _def_levels.resize(_def_levels.size() + num_values, 0);
         }
     } else {
         if (_chunk_reader->max_def_level() > 0) {
             return Status::Corruption("Not nullable column has null values in parquet file");
         }
-        _def_levels.resize(_def_levels.size() +  num_values,0);
+        _def_levels.resize(_def_levels.size() + num_values, 0);
         data_column = doris_column->assume_mutable();
     }
     if (null_map.size() == 0) {
@@ -397,10 +401,10 @@ Status ScalarColumnReader<IN_COLLECTION,OFFSET_INDEX>::_read_values(size_t num_v
  * A row of complex type may be stored across two(or more) pages, and the parameter `align_rows` indicates that
  * whether the reader should read the remaining value of the last row in previous page.
  */
-template<bool IN_COLLECTION, bool OFFSET_INDEX>
-Status ScalarColumnReader<IN_COLLECTION,OFFSET_INDEX>::_read_nested_column(ColumnPtr& doris_column, DataTypePtr& type,
-                                               FilterMap& filter_map, size_t batch_size,
-                                               size_t* read_rows, bool* eof, bool is_dict_filter) {
+template <bool IN_COLLECTION, bool OFFSET_INDEX>
+Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::_read_nested_column(
+        ColumnPtr& doris_column, DataTypePtr& type, FilterMap& filter_map, size_t batch_size,
+        size_t* read_rows, bool* eof, bool is_dict_filter) {
     _rep_levels.clear();
     _def_levels.clear();
 
@@ -430,20 +434,23 @@ Status ScalarColumnReader<IN_COLLECTION,OFFSET_INDEX>::_read_nested_column(Colum
         RETURN_IF_ERROR(_chunk_reader->fill_def(_def_levels));
         std::unique_ptr<FilterMap> nested_filter_map = std::make_unique<FilterMap>();
         if (filter_map.has_filter()) {
-            RETURN_IF_ERROR(gen_filter_map(filter_map,filter_map_index, before_rep_level_sz, _rep_levels.size(),
-                                           nested_filter_map_data, &nested_filter_map));
+            RETURN_IF_ERROR(gen_filter_map(filter_map, filter_map_index, before_rep_level_sz,
+                                           _rep_levels.size(), nested_filter_map_data,
+                                           &nested_filter_map));
         }
 
         null_map.clear();
         ancestor_null_indices.clear();
-        RETURN_IF_ERROR(gen_nested_null_map(before_rep_level_sz,_rep_levels.size(),null_map,ancestor_null_indices));
+        RETURN_IF_ERROR(gen_nested_null_map(before_rep_level_sz, _rep_levels.size(), null_map,
+                                            ancestor_null_indices));
 
         ColumnSelectVector select_vector;
         {
             SCOPED_RAW_TIMER(&_decode_null_map_time);
-            RETURN_IF_ERROR(
-                    select_vector.init(null_map, _rep_levels.size() - before_rep_level_sz - ancestor_null_indices.size(), map_data_column,
-                                       nested_filter_map.get(), 0, &ancestor_null_indices));
+            RETURN_IF_ERROR(select_vector.init(
+                    null_map,
+                    _rep_levels.size() - before_rep_level_sz - ancestor_null_indices.size(),
+                    map_data_column, nested_filter_map.get(), 0, &ancestor_null_indices));
         }
 
         RETURN_IF_ERROR(
@@ -454,7 +461,7 @@ Status ScalarColumnReader<IN_COLLECTION,OFFSET_INDEX>::_read_nested_column(Colum
         if (filter_map.has_filter()) {
             auto new_rep_sz = before_rep_level_sz;
             for (size_t idx = before_rep_level_sz; idx < _rep_levels.size(); idx++) {
-                if (nested_filter_map_data[idx-before_rep_level_sz]) {
+                if (nested_filter_map_data[idx - before_rep_level_sz]) {
                     _rep_levels[new_rep_sz] = _rep_levels[idx];
                     _def_levels[new_rep_sz] = _def_levels[idx];
                     new_rep_sz++;
@@ -467,26 +474,27 @@ Status ScalarColumnReader<IN_COLLECTION,OFFSET_INDEX>::_read_nested_column(Colum
     };
 
     while (_current_range_idx < _row_ranges.range_size()) {
-        size_t left_row = std::max(_current_row_index, _row_ranges.get_range_from(_current_range_idx));
+        size_t left_row =
+                std::max(_current_row_index, _row_ranges.get_range_from(_current_range_idx));
         size_t right_row = std::min(left_row + batch_size - *read_rows,
-                            (size_t)_row_ranges.get_range_to(_current_range_idx));
+                                    (size_t)_row_ranges.get_range_to(_current_range_idx));
         _current_row_index = left_row;
         RETURN_IF_ERROR(_chunk_reader->seek_to_nested_row(left_row));
         size_t load_rows = 0;
         bool cross_page = false;
         size_t before_rep_level_sz = _rep_levels.size();
-        RETURN_IF_ERROR(_chunk_reader->load_page_nested_rows(
-                _rep_levels, right_row - left_row, &load_rows, &cross_page));
+        RETURN_IF_ERROR(_chunk_reader->load_page_nested_rows(_rep_levels, right_row - left_row,
+                                                             &load_rows, &cross_page));
         RETURN_IF_ERROR(read_and_fill_data(before_rep_level_sz, _filter_map_index));
         _filter_map_index += load_rows;
         while (cross_page) {
             before_rep_level_sz = _rep_levels.size();
             RETURN_IF_ERROR(_chunk_reader->load_cross_page_nested_row(_rep_levels, &cross_page));
-            RETURN_IF_ERROR(read_and_fill_data(before_rep_level_sz, _filter_map_index));
+            RETURN_IF_ERROR(read_and_fill_data(before_rep_level_sz, _filter_map_index - 1));
         }
         *read_rows += load_rows;
         _current_row_index += load_rows;
-        _current_range_idx += (_current_row_index ==_row_ranges.get_range_to(_current_range_idx));
+        _current_range_idx += (_current_row_index == _row_ranges.get_range_to(_current_range_idx));
         if (*read_rows == batch_size) {
             break;
         }
@@ -495,9 +503,9 @@ Status ScalarColumnReader<IN_COLLECTION,OFFSET_INDEX>::_read_nested_column(Colum
     return Status::OK();
 }
 
-template<bool IN_COLLECTION, bool OFFSET_INDEX>
-Status ScalarColumnReader<IN_COLLECTION,OFFSET_INDEX>::read_dict_values_to_column(MutableColumnPtr& doris_column,
-                                                      bool* has_dict) {
+template <bool IN_COLLECTION, bool OFFSET_INDEX>
+Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::read_dict_values_to_column(
+        MutableColumnPtr& doris_column, bool* has_dict) {
     bool loaded;
     RETURN_IF_ERROR(_try_load_dict_page(&loaded, has_dict));
     if (loaded && *has_dict) {
@@ -505,22 +513,24 @@ Status ScalarColumnReader<IN_COLLECTION,OFFSET_INDEX>::read_dict_values_to_colum
     }
     return Status::OK();
 }
-template<bool IN_COLLECTION, bool OFFSET_INDEX>
-MutableColumnPtr ScalarColumnReader<IN_COLLECTION,OFFSET_INDEX>::convert_dict_column_to_string_column(
+template <bool IN_COLLECTION, bool OFFSET_INDEX>
+MutableColumnPtr
+ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::convert_dict_column_to_string_column(
         const ColumnInt32* dict_column) {
     return _chunk_reader->convert_dict_column_to_string_column(dict_column);
 }
 
-template<bool IN_COLLECTION, bool OFFSET_INDEX>
-Status ScalarColumnReader<IN_COLLECTION,OFFSET_INDEX>::_try_load_dict_page(bool* loaded, bool* has_dict) {
+template <bool IN_COLLECTION, bool OFFSET_INDEX>
+Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::_try_load_dict_page(bool* loaded,
+                                                                            bool* has_dict) {
     // _chunk_reader init will load first page header to check whether has dict page
     *loaded = true;
     *has_dict = _chunk_reader->has_dict();
     return Status::OK();
 }
 
-template<bool IN_COLLECTION, bool OFFSET_INDEX>
-Status ScalarColumnReader<IN_COLLECTION,OFFSET_INDEX>::read_column_data(
+template <bool IN_COLLECTION, bool OFFSET_INDEX>
+Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::read_column_data(
         ColumnPtr& doris_column, const DataTypePtr& type,
         const std::shared_ptr<TableSchemaChangeHelper::Node>& root_node, FilterMap& filter_map,
         size_t batch_size, size_t* read_rows, bool* eof, bool is_dict_filter,
@@ -547,8 +557,8 @@ Status ScalarColumnReader<IN_COLLECTION,OFFSET_INDEX>::read_column_data(
     *read_rows = 0;
 
     if constexpr (IN_COLLECTION) {
-        RETURN_IF_ERROR(_read_nested_column(resolved_column, resolved_type, filter_map,
-                                            batch_size, read_rows, eof, is_dict_filter));
+        RETURN_IF_ERROR(_read_nested_column(resolved_column, resolved_type, filter_map, batch_size,
+                                            read_rows, eof, is_dict_filter));
         return _converter->convert(resolved_column, _field_schema->data_type, type, doris_column,
                                    is_dict_filter);
     }
@@ -560,8 +570,7 @@ Status ScalarColumnReader<IN_COLLECTION,OFFSET_INDEX>::read_column_data(
     } else {
         right_row = _chunk_reader->page_end_row();
     }
-    auto before_filter_map_index =  _filter_map_index;
-
+    auto before_filter_map_index = _filter_map_index;
 
     do {
         // generate the row ranges that should be read
@@ -630,10 +639,10 @@ Status ScalarColumnReader<IN_COLLECTION,OFFSET_INDEX>::read_column_data(
 
     if (filter_map.has_filter()) {
         size_t new_rep_sz = 0;
-        for (size_t idx = before_filter_map_index; idx< _filter_map_index; idx++) {
+        for (size_t idx = before_filter_map_index; idx < _filter_map_index; idx++) {
             if (filter_map.filter_map_data()[idx]) {
                 _def_levels[new_rep_sz] = _def_levels[idx - before_filter_map_index];
-                new_rep_sz ++;
+                new_rep_sz++;
             }
         }
         _def_levels.resize(new_rep_sz);
@@ -868,7 +877,7 @@ Status StructColumnReader::read_column_data(
                 field_rows += loop_rows;
             }
             DCHECK_EQ(*read_rows, field_rows);
-//            DCHECK_EQ(*eof, field_eof);
+            //            DCHECK_EQ(*eof, field_eof);
         }
     }
 
@@ -990,10 +999,10 @@ Status StructColumnReader::read_column_data(
     return Status::OK();
 }
 
-template class ScalarColumnReader<true,true>;
-template class ScalarColumnReader<true,false>;
-template class ScalarColumnReader<false,true>;
-template class ScalarColumnReader<false,false>;
+template class ScalarColumnReader<true, true>;
+template class ScalarColumnReader<true, false>;
+template class ScalarColumnReader<false, true>;
+template class ScalarColumnReader<false, false>;
 
 #include "common/compile_check_end.h"
 

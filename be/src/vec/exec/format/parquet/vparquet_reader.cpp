@@ -894,9 +894,9 @@ Status ParquetReader::_process_page_index_filter(
         }
         auto* field = _file_metadata->schema().get_column(read_file_col);
 
-        std::function<void(FieldSchema* field)> f = [&](FieldSchema* field) {
+        std::function<void(FieldSchema * field)> f = [&](FieldSchema* field) {
             if (!_column_ids.empty() &&
-                    _column_ids.find(field->get_column_id()) == _column_ids.end()) {
+                _column_ids.find(field->get_column_id()) == _column_ids.end()) {
                 return;
             }
 

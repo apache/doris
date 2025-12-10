@@ -116,9 +116,9 @@ public:
         }
     };
 
-    ParquetColumnReader(const RowRanges& row_ranges,size_t total_rows , const cctz::time_zone* ctz,
+    ParquetColumnReader(const RowRanges& row_ranges, size_t total_rows, const cctz::time_zone* ctz,
                         io::IOContext* io_ctx)
-            : _row_ranges(row_ranges), _total_rows(total_rows) ,_ctz(ctz), _io_ctx(io_ctx) {}
+            : _row_ranges(row_ranges), _total_rows(total_rows), _ctz(ctz), _io_ctx(io_ctx) {}
     virtual ~ParquetColumnReader() = default;
     virtual Status read_column_data(ColumnPtr& doris_column, const DataTypePtr& type,
                                     const std::shared_ptr<TableSchemaChangeHelper::Node>& root_node,
@@ -140,8 +140,7 @@ public:
                          const cctz::time_zone* ctz, io::IOContext* io_ctx,
                          std::unique_ptr<ParquetColumnReader>& reader, size_t max_buf_size,
                          std::unordered_map<int, tparquet::OffsetIndex>& col_offsets,
-                         bool in_collection = false,
-                         const std::set<uint64_t>& column_ids = {},
+                         bool in_collection = false, const std::set<uint64_t>& column_ids = {},
                          const std::set<uint64_t>& filter_column_ids = {});
     virtual const std::vector<level_t>& get_rep_level() const = 0;
     virtual const std::vector<level_t>& get_def_level() const = 0;
@@ -167,14 +166,15 @@ protected:
     std::set<uint64_t> _filter_column_ids;
 };
 
-template<bool IN_COLLECTION, bool OFFSET_INDEX>
+template <bool IN_COLLECTION, bool OFFSET_INDEX>
 class ScalarColumnReader : public ParquetColumnReader {
     ENABLE_FACTORY_CREATOR(ScalarColumnReader)
 public:
-    ScalarColumnReader(const RowRanges& row_ranges, size_t total_rows, const tparquet::ColumnChunk& chunk_meta,
+    ScalarColumnReader(const RowRanges& row_ranges, size_t total_rows,
+                       const tparquet::ColumnChunk& chunk_meta,
                        const tparquet::OffsetIndex* offset_index, const cctz::time_zone* ctz,
                        io::IOContext* io_ctx)
-            : ParquetColumnReader(row_ranges, total_rows,ctz, io_ctx),
+            : ParquetColumnReader(row_ranges, total_rows, ctz, io_ctx),
               _chunk_meta(chunk_meta),
               _offset_index(offset_index) {}
     ~ScalarColumnReader() override { close(); }
@@ -200,9 +200,9 @@ public:
 
 private:
     tparquet::ColumnChunk _chunk_meta;
-    const tparquet::OffsetIndex* _offset_index= nullptr;
+    const tparquet::OffsetIndex* _offset_index = nullptr;
     std::unique_ptr<io::BufferedFileStreamReader> _stream_reader;
-    std::unique_ptr<ColumnChunkReader<IN_COLLECTION,OFFSET_INDEX>> _chunk_reader;
+    std::unique_ptr<ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>> _chunk_reader;
     // rep def levels buffer.
     std::vector<level_t> _rep_levels;
     std::vector<level_t> _def_levels;
@@ -210,8 +210,8 @@ private:
     size_t _current_range_idx = 0;
 
     Status gen_nested_null_map(size_t level_start_idx, size_t level_end_idx,
-                        std::vector<uint16_t>& null_map,
-                        std::unordered_set<size_t>& ancestor_null_indices) {
+                               std::vector<uint16_t>& null_map,
+                               std::unordered_set<size_t>& ancestor_null_indices) {
         size_t has_read = level_start_idx;
         null_map.emplace_back(0);
         bool prev_is_null = false;
@@ -252,27 +252,25 @@ private:
         return Status::OK();
     }
 
-
-    Status gen_filter_map(FilterMap& filter_map, size_t filter_loc,
-                          size_t level_start_idx, size_t level_end_idx,
-                std::vector<uint8_t>& nested_filter_map_data,
-                std::unique_ptr<FilterMap>* nested_filter_map) {
+    Status gen_filter_map(FilterMap& filter_map, size_t filter_loc, size_t level_start_idx,
+                          size_t level_end_idx, std::vector<uint8_t>& nested_filter_map_data,
+                          std::unique_ptr<FilterMap>* nested_filter_map) {
         nested_filter_map_data.resize(level_end_idx - level_start_idx);
         for (size_t idx = level_start_idx; idx < level_end_idx; idx++) {
-            if (idx != level_start_idx &&_rep_levels[idx] == 0) {
+            if (idx != level_start_idx && _rep_levels[idx] == 0) {
                 filter_loc++;
             }
-            nested_filter_map_data[idx-level_start_idx] = filter_map.filter_map_data()[filter_loc];
+            nested_filter_map_data[idx - level_start_idx] =
+                    filter_map.filter_map_data()[filter_loc];
         }
 
         auto new_filter = std::make_unique<FilterMap>();
-        RETURN_IF_ERROR(
-                new_filter->init(nested_filter_map_data.data(), nested_filter_map_data.size(), false));
+        RETURN_IF_ERROR(new_filter->init(nested_filter_map_data.data(),
+                                         nested_filter_map_data.size(), false));
         *nested_filter_map = std::move(new_filter);
 
         return Status::OK();
     }
-
 
     std::unique_ptr<parquet::PhysicalToLogicalConverter> _converter = nullptr;
     std::unique_ptr<std::vector<uint8_t>> _nested_filter_map_data = nullptr;
@@ -282,16 +280,17 @@ private:
     Status _read_values(size_t num_values, ColumnPtr& doris_column, DataTypePtr& type,
                         FilterMap& filter_map, bool is_dict_filter);
     Status _read_nested_column(ColumnPtr& doris_column, DataTypePtr& type, FilterMap& filter_map,
-                               size_t batch_size, size_t* read_rows, bool* eof, bool is_dict_filter);
+                               size_t batch_size, size_t* read_rows, bool* eof,
+                               bool is_dict_filter);
     Status _try_load_dict_page(bool* loaded, bool* has_dict);
 };
 
 class ArrayColumnReader : public ParquetColumnReader {
     ENABLE_FACTORY_CREATOR(ArrayColumnReader)
 public:
-    ArrayColumnReader(const RowRanges& row_ranges, size_t total_rows,const cctz::time_zone* ctz,
+    ArrayColumnReader(const RowRanges& row_ranges, size_t total_rows, const cctz::time_zone* ctz,
                       io::IOContext* io_ctx)
-            : ParquetColumnReader(row_ranges,total_rows,ctz, io_ctx) {}
+            : ParquetColumnReader(row_ranges, total_rows, ctz, io_ctx) {}
     ~ArrayColumnReader() override { close(); }
     Status init(std::unique_ptr<ParquetColumnReader> element_reader, FieldSchema* field);
     Status read_column_data(ColumnPtr& doris_column, const DataTypePtr& type,
@@ -316,7 +315,8 @@ private:
 class MapColumnReader : public ParquetColumnReader {
     ENABLE_FACTORY_CREATOR(MapColumnReader)
 public:
-    MapColumnReader(const RowRanges& row_ranges, size_t total_rows,const cctz::time_zone* ctz, io::IOContext* io_ctx)
+    MapColumnReader(const RowRanges& row_ranges, size_t total_rows, const cctz::time_zone* ctz,
+                    io::IOContext* io_ctx)
             : ParquetColumnReader(row_ranges, total_rows, ctz, io_ctx) {}
     ~MapColumnReader() override { close(); }
 
@@ -356,9 +356,9 @@ private:
 class StructColumnReader : public ParquetColumnReader {
     ENABLE_FACTORY_CREATOR(StructColumnReader)
 public:
-    StructColumnReader(const RowRanges& row_ranges, size_t total_rows,const cctz::time_zone* ctz,
+    StructColumnReader(const RowRanges& row_ranges, size_t total_rows, const cctz::time_zone* ctz,
                        io::IOContext* io_ctx)
-            : ParquetColumnReader(row_ranges,total_rows, ctz, io_ctx) {}
+            : ParquetColumnReader(row_ranges, total_rows, ctz, io_ctx) {}
     ~StructColumnReader() override { close(); }
 
     Status init(
@@ -421,7 +421,7 @@ private:
 // This is used when a column is not needed but its structure is required (e.g., for map keys)
 class SkipReadingReader : public ParquetColumnReader {
 public:
-    SkipReadingReader(const RowRanges& row_ranges, size_t total_rows , const cctz::time_zone* ctz,
+    SkipReadingReader(const RowRanges& row_ranges, size_t total_rows, const cctz::time_zone* ctz,
                       io::IOContext* io_ctx, FieldSchema* field_schema)
             : ParquetColumnReader(row_ranges, total_rows, ctz, io_ctx) {
         _field_schema = field_schema; // Use inherited member from base class
@@ -463,11 +463,11 @@ public:
     }
 
     static std::unique_ptr<SkipReadingReader> create_unique(const RowRanges& row_ranges,
-                                                            size_t total_rows,
-                                                            cctz::time_zone* ctz,
+                                                            size_t total_rows, cctz::time_zone* ctz,
                                                             io::IOContext* io_ctx,
                                                             FieldSchema* field_schema) {
-        return std::make_unique<SkipReadingReader>(row_ranges, total_rows , ctz, io_ctx, field_schema);
+        return std::make_unique<SkipReadingReader>(row_ranges, total_rows, ctz, io_ctx,
+                                                   field_schema);
     }
 
     // These methods should not be called for SkipReadingReader

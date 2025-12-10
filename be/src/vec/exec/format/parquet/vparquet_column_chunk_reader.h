@@ -51,7 +51,6 @@ template <typename T>
 class ColumnStr;
 using ColumnString = ColumnStr<UInt32>;
 
-
 struct ColumnChunkReaderStatistics {
     int64_t decompress_time = 0;
     int64_t decompress_cnt = 0;
@@ -65,7 +64,7 @@ struct ColumnChunkReaderStatistics {
 
 /**
  * Read and decode parquet column data into doris block column.
- * <p>Usage:</p>    struct Statistics {
+ * <p>Usage:</p>    struct ColumnChunkReaderStatistics {
         int64_t decompress_time = 0;
         int64_t decompress_cnt = 0;
         int64_t decode_header_time = 0;
@@ -92,11 +91,9 @@ struct ColumnChunkReaderStatistics {
  *   chunk_reader.decode_values(slice, num_values);
  * }
  */
-template<bool IN_COLLECTION, bool OFFSET_INDEX>
+template <bool IN_COLLECTION, bool OFFSET_INDEX>
 class ColumnChunkReader {
 public:
-
-
     ColumnChunkReader(io::BufferedStreamReader* reader, tparquet::ColumnChunk* column_chunk,
                       FieldSchema* field_schema, const tparquet::OffsetIndex* offset_index,
                       size_t total_row, io::IOContext* io_ctx);
@@ -132,14 +129,6 @@ public:
     // The remaining number of values in current page(including null values). Decreased when reading or skipping.
     uint32_t remaining_num_values() const { return _remaining_num_values; }
 
-    // Get the raw data of current page.
-    //    Slice& get_page_data() { return _page_data; }
-
-    // Get the repetition levels
-    size_t get_rep_levels(level_t* levels, size_t n);
-    // Get the definition levels
-    size_t get_def_levels(level_t* levels, size_t n);
-
     // Decode values in current page into doris column.
     Status decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
                          ColumnSelectVector& select_vector, bool is_dict_filter);
@@ -174,27 +163,19 @@ public:
                 ->convert_dict_column_to_string_column(dict_column);
     }
 
-    size_t page_start_row() const {
-        return _page_reader->start_row();
-    }
+    size_t page_start_row() const { return _page_reader->start_row(); }
 
-    size_t page_end_row() const {
-        return _page_reader->end_row();
-    }
+    size_t page_end_row() const { return _page_reader->end_row(); }
 
-    // for check dict page.
-    Status _parse_first_page_header();
     Status parse_page_header();
     Status next_page();
 
     Status seek_to_nested_row(size_t left_row);
     Status skip_nested_values(const std::vector<level_t>& def_levels);
-    Status _skip_nested_rows_in_page(size_t num_rows);
-
     Status fill_def(std::vector<level_t>& def_values) {
         auto before_sz = def_values.size();
         auto append_sz = _remaining_def_nums - _remaining_rep_nums;
-        def_values.resize(before_sz + append_sz ,0);
+        def_values.resize(before_sz + append_sz, 0);
         if (max_def_level() != 0) {
             auto ptr = def_values.data() + before_sz;
             _def_level_decoder.get_levels(ptr, append_sz);
@@ -204,16 +185,21 @@ public:
     }
 
     Status load_page_nested_rows(std::vector<level_t>& rep_levels, size_t max_rows,
-                                 size_t* result_rows, bool * cross_page);
+                                 size_t* result_rows, bool* cross_page);
     Status load_cross_page_nested_row(std::vector<level_t>& rep_levels, bool* cross_page);
 
 private:
     enum ColumnChunkReaderState { NOT_INIT, INITIALIZED, HEADER_PARSED, DATA_LOADED, PAGE_SKIPPED };
 
+    // for check dict page.
+    Status _parse_first_page_header();
     Status _decode_dict_page();
+
     void _reserve_decompress_buf(size_t size);
     int32_t _get_type_length();
+
     void _get_uncompressed_levels(const tparquet::DataPageHeaderV2& page_v2, Slice& page_data);
+    Status _skip_nested_rows_in_page(size_t num_rows);
 
     ColumnChunkReaderState _state = NOT_INIT;
     FieldSchema* _field_schema = nullptr;
