@@ -470,9 +470,10 @@ public class FillUpMissingSlots implements AnalysisRuleFactory {
             newProject = oldProject.withProjects(newProjectBuilder.build());
         }
 
-        Plan current = newProject;
+        // rebuild result from bottom-up
+        Plan result = newProject;
         if (oldHaving.isPresent()) {
-            current = oldHaving.get().withConjunctsAndChild(newHavingExpressions, current);
+            result = oldHaving.get().withConjunctsAndChild(newHavingExpressions, result);
         }
         if (oldSort.isPresent()) {
             List<OrderKey> oldOrderKeys = oldSort.get().getOrderKeys();
@@ -485,13 +486,13 @@ public class FillUpMissingSlots implements AnalysisRuleFactory {
                 }
                 newOrderKeys = newOrderKeysBuilder.build();
             }
-            current = oldSort.get().withOrderKeysAndChild(newOrderKeys, current);
+            result = oldSort.get().withOrderKeysAndChild(newOrderKeys, result);
         }
         if (!hasAggregateFunc.get()) {
             // handle for miss slots case, add a top project
-            current = new LogicalProject<>(ImmutableList.copyOf(oldProject.getOutput()), current);
+            result = new LogicalProject<>(ImmutableList.copyOf(oldProject.getOutput()), result);
         }
-        return current;
+        return result;
     }
 
     private void collectNotExistsSlotAndAggFunc(Expression expression, Set<Slot> oldProjectSlots,
