@@ -18,6 +18,7 @@
 #include "io/fs/packed_file_trailer.h"
 
 #include <gtest/gtest.h>
+#include <unistd.h>
 
 #include <filesystem>
 #include <fstream>
@@ -32,8 +33,13 @@ using doris::Status;
 
 namespace {
 std::string unique_temp_file() {
-    auto path = std::filesystem::temp_directory_path() / std::filesystem::unique_path();
-    return path.string();
+    auto dir = std::filesystem::temp_directory_path();
+    std::string pattern = (dir / "packed_file_XXXXXX").string();
+    int fd = mkstemp(pattern.data());
+    if (fd != -1) {
+        close(fd);
+    }
+    return pattern;
 }
 
 void write_file(const std::string& path, const std::string& data) {
