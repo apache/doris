@@ -284,3 +284,16 @@ hudiEmrCatalog = ""
 icebergS3TablesCatalog=""
 icebergS3TablesCatalogGlueRest=""
 
+// The path of the cert configuration file for the testing framework 
+// is consistent with the path of the cert file for the cluster
+enableTLS=false
+tlsVerifyMode="strict"
+keyStorePath="/your/keystore.p12"
+keyStorePassword="yourPwd"
+keyStoreType="PKCS12"
+trustStorePath="/your/truststore.p12"
+trustStorePassword="yourPwd"
+trustStoreType="PKCS12"
+trustCert="/your/certificate.crt"
+trustCACert="/your/ca.crt"
+trustCAKey="/your/certificate.key"

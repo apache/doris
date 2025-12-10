@@ -16,6 +16,7 @@
 // under the License.
 
 import groovy.json.JsonSlurper
+import org.apache.doris.regression.action.ProfileAction
 
 suite("test_bloom_filter_hit_with_renamed_column") {
     def tableName = "test_bloom_filter_hit_with_renamed_column"
@@ -80,32 +81,6 @@ suite("test_bloom_filter_hit_with_renamed_column") {
         }
     }
 
-    def httpGet = { url ->
-        def dst = 'http://' + context.config.feHttpAddress
-        def conn = new URL(dst + url).openConnection()
-        conn.setRequestMethod("GET")
-        def encoding = Base64.getEncoder().encodeToString((context.config.feHttpUser + ":" + 
-                (context.config.feHttpPassword == null ? "" : context.config.feHttpPassword)).getBytes("UTF-8"))
-        conn.setRequestProperty("Authorization", "Basic ${encoding}")
-        conn.setRequestProperty("Cache-Control", "no-cache")
-        conn.setRequestProperty("Pragma", "no-cache")
-        conn.setConnectTimeout(10000) // 10 seconds
-        conn.setReadTimeout(10000) // 10 seconds
-
-        int responseCode = conn.getResponseCode()
-        log.info("HTTP response status: " + responseCode)
-
-        if (responseCode == 200) {
-            InputStream inputStream = conn.getInputStream()
-            String response = inputStream.text
-            inputStream.close()
-            return response
-        } else {
-            log.error("HTTP request failed with response code: " + responseCode)
-            return null
-        }
-    }
-
     // rename column with bloom filter
     sql """ ALTER TABLE ${tableName} RENAME COLUMN C_COMMENT C_COMMENT_NEW; """
     wait_for_latest_op_on_table_finish(tableName, timeout)
@@ -116,34 +91,33 @@ suite("test_bloom_filter_hit_with_renamed_column") {
     //sql """ select C_COMMENT_NEW from ${tableName} where C_COMMENT_NEW='OK' """
 
     // get and check profile with retry logic
-    def getProfileIdWithRetry = { query, maxRetries, waitSeconds ->
-        def profileUrl = '/rest/v1/query_profile/'
+    def getProfileIdWithRetry = { query, maxRetries, waitSeconds, pattern ->
         def profiles = null
         def profileId = null
+        def profileData = null
         int attempt = 0
+        def profileAction = new ProfileAction(context)
 
         while (attempt < maxRetries) {
             sql "sync"
             sql """ ${query} """
-            profiles = httpGet(profileUrl)
-            log.info("profiles attempt ${attempt + 1}: {}", profiles)
-            if (profiles == null) {
+            profiles = profileAction.getProfileList()
+            if (profiles.size() == 0) {
                 log.warn("Failed to fetch profiles on attempt ${attempt + 1}")
-            } else {
-                def jsonProfiles = new JsonSlurper().parseText(profiles)
-                if (jsonProfiles.code == 0) {
-                    for (def profile in jsonProfiles["data"]["rows"]) {
-                        if (profile["Sql Statement"].contains(query)) {
-                            profileId = profile["Profile ID"]
-                            break
-                        }
-                    }
-                } else {
-                    log.warn("Profile response code is not 0 on attempt ${attempt + 1}")
+                continue
+            }
+            for (def profile in profiles) {
+                if (profile["Sql Statement"].contains(query)) {
+                    profileId = profile["Profile ID"]
+                    log.info("profileId:{}", profileId)
+                    profileData = profileAction.getProfile(profileId)
+                    log.info(profileData)
+                    break;
                 }
             }
 
             if (profileId != null) {
+                assertTrue(profileData.contains("${pattern}"))
                 break
             } else {
                 attempt++
@@ -153,17 +127,13 @@ suite("test_bloom_filter_hit_with_renamed_column") {
                 }
             }
         }
-
-        assertTrue(profileId != null, "Failed to retrieve profileId after ${maxRetries} attempts")
-        return profileId
+        assertTrue(attempt < maxRetries || profileId != null)
     }
 
+    sql "set profile_level=2;"
     def query = """select C_COMMENT_NEW from ${tableName} where C_COMMENT_NEW='OK'"""
-    def profileId = getProfileIdWithRetry(query, 3, 30)
-    log.info("profileId:{}", profileId)
-    def profileDetail = httpGet("/rest/v1/query_profile/" + profileId)
-    log.info("profileDetail:{}", profileDetail)
-    assertTrue(profileDetail.contains("BloomFilterFiltered:&nbsp;&nbsp;15.0K&nbsp;&nbsp;(15000)"))
+    def pattern = """BloomFilterFiltered: 15.0K (15000)"""
+    def profileId = getProfileIdWithRetry(query, 3, 30, pattern)
 
     //———————— clean table and disable profile ————————
     sql """ SET enable_profile = false """
