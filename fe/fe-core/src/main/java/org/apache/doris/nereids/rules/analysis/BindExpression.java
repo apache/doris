@@ -1340,10 +1340,9 @@ public class BindExpression implements AnalysisRuleFactory {
             }
         }
 
-        Supplier<Scope> aggOutputScopeWithoutAggFun =
-                buildAggOutputScopeWithoutAggFun(boundProjections, cascadesContext);
+        Supplier<Scope> aggOutputScope = buildAggOutputScope(boundProjections, cascadesContext);
         List<Expression> boundGroupBy = bindGroupBy(
-                agg, agg.getGroupByExpressions(), boundProjections, aggOutputScopeWithoutAggFun, cascadesContext);
+                agg, agg.getGroupByExpressions(), boundProjections, aggOutputScope, cascadesContext);
         boundGroupBy = bindGroupByUniqueId(boundGroupBy);
         boundProjections = bindExprsUniqueIdWithGroupBy(boundProjections, boundGroupBy);
         boundProjections = processNonStandardAggregate(boundProjections, boundGroupBy);
@@ -1487,9 +1486,7 @@ public class BindExpression implements AnalysisRuleFactory {
 
         SimpleExprAnalyzer repeatOutputAnalyzer = buildSimpleExprAnalyzer(repeat, cascadesContext, repeat.children());
         List<NamedExpression> boundRepeatOutput = repeatOutputAnalyzer.analyzeToList(repeat.getOutputExpressions());
-        Supplier<Scope> aggOutputScopeWithoutAggFun =
-                buildAggOutputScopeWithoutAggFun(boundRepeatOutput, cascadesContext);
-
+        Supplier<Scope> aggOutputScope = buildAggOutputScope(boundRepeatOutput, cascadesContext);
         Builder<List<Expression>> boundGroupingSetsBuilder =
                 ImmutableList.builderWithExpectedSize(repeat.getGroupingSets().size());
         Set<Expression> flatBoundGroupingSet = Sets.newHashSet();
@@ -1497,7 +1494,7 @@ public class BindExpression implements AnalysisRuleFactory {
         Map<Expression, Expression> ignoreUniqueIdGroupByExpressions = Maps.newHashMap();
         for (List<Expression> groupingSet : repeat.getGroupingSets()) {
             List<Expression> boundGroupingSet = bindGroupBy(
-                    repeat, groupingSet, boundRepeatOutput, aggOutputScopeWithoutAggFun, cascadesContext);
+                    repeat, groupingSet, boundRepeatOutput, aggOutputScope, cascadesContext);
             ImmutableList.Builder<Expression> groupByBuilder
                     = ImmutableList.builderWithExpectedSize(boundGroupingSet.size());
             for (Expression groupBy : boundGroupingSet) {
@@ -1582,7 +1579,7 @@ public class BindExpression implements AnalysisRuleFactory {
 
     private List<Expression> bindGroupBy(
             Aggregate<Plan> agg, List<Expression> groupBy, List<NamedExpression> boundAggOutput,
-            Supplier<Scope> aggOutputScopeWithoutAggFun, CascadesContext cascadesContext) {
+            Supplier<Scope> aggOutputScope, CascadesContext cascadesContext) {
         Scope childOutputScope = toScope(cascadesContext, agg.child().getOutput());
 
         SimpleExprAnalyzer analyzer = buildCustomSlotBinderAnalyzer(
@@ -1599,8 +1596,7 @@ public class BindExpression implements AnalysisRuleFactory {
                     // second, bind failed:
                     // if the slot not found, or more than one candidate slots found in agg.child.output,
                     // then try to bind by agg.output
-                    List<Expression> slotsInOutput = self.bindExactSlotsByThisScope(
-                            unboundSlot, aggOutputScopeWithoutAggFun.get());
+                    List<Expression> slotsInOutput = self.bindExactSlotsByThisScope(unboundSlot, aggOutputScope.get());
                     if (slotsInOutput.isEmpty()) {
                         // if slotsInChildren.size() > 1 && slotsInOutput.isEmpty(),
                         // we return slotsInChildren to throw an ambiguous slots exception
@@ -1609,7 +1605,7 @@ public class BindExpression implements AnalysisRuleFactory {
 
                     Builder<Expression> useOutputExpr = ImmutableList.builderWithExpectedSize(slotsInOutput.size());
                     for (Expression slotInOutput : slotsInOutput) {
-                        // mappingSlot is provided by aggOutputScopeWithoutAggFun
+                        // mappingSlot is provided by aggOutputScope
                         // and no non-MappingSlot slot exist in the Scope, so we
                         // can direct cast it safely
                         MappingSlot mappingSlot = (MappingSlot) slotInOutput;
@@ -1637,19 +1633,17 @@ public class BindExpression implements AnalysisRuleFactory {
         return boundGroupBy;
     }
 
-    private Supplier<Scope> buildAggOutputScopeWithoutAggFun(
+    private Supplier<Scope> buildAggOutputScope(
             List<? extends NamedExpression> boundAggOutput, CascadesContext cascadesContext) {
         return Suppliers.memoize(() -> {
-            Builder<Slot> nonAggFunOutput = ImmutableList.builderWithExpectedSize(boundAggOutput.size());
+            Builder<Slot> outputBuilder = ImmutableList.builderWithExpectedSize(boundAggOutput.size());
             for (NamedExpression output : boundAggOutput) {
-                if (!output.containsType(AggregateFunction.class)) {
-                    Slot outputSlot = output.toSlot();
-                    Slot mappingSlot = new MappingSlot(outputSlot,
-                            output instanceof Alias ? output.child(0) : output);
-                    nonAggFunOutput.add(mappingSlot);
-                }
+                Slot outputSlot = output.toSlot();
+                Slot mappingSlot = new MappingSlot(outputSlot,
+                        output instanceof Alias ? output.child(0) : output);
+                outputBuilder.add(mappingSlot);
             }
-            return toScope(cascadesContext, nonAggFunOutput.build());
+            return toScope(cascadesContext, outputBuilder.build());
         });
     }
 

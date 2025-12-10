@@ -53,7 +53,7 @@ suite("bind_priority") {
         sql """
             select sum(a) as v from bind_priority_tbl  group by v;
             """
-        exception "Unknown column 'v' in 'table list' in AGGREGATE clause"
+        exception "GROUP BY expression must not contain aggregate functions: sum(a)"
     }
 
     sql "drop table if exists bind_priority_tbl"

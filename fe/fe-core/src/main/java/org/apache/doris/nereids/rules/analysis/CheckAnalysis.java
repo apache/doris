@@ -22,6 +22,9 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.InSubquery;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
@@ -29,6 +32,7 @@ import org.apache.doris.nereids.trees.expressions.functions.generator.Unnest;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScalarFunction;
 import org.apache.doris.nereids.trees.expressions.typecoercion.TypeCheckResult;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
@@ -41,6 +45,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSetOperation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
+import org.apache.doris.nereids.trees.plans.logical.OutputPrunable;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.util.ExpressionUtils;
@@ -48,6 +53,7 @@ import org.apache.doris.nereids.util.ExpressionUtils;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Maps;
 
 import java.util.Collections;
 import java.util.List;
@@ -95,6 +101,19 @@ public class CheckAnalysis implements AnalysisRuleFactory {
             ))
             .build();
 
+    private static final Map<Class<? extends LogicalPlan>, Set<Class<? extends Expression>>>
+            UNEXPECTED_EXPRESSION_TYPE_MAP_AFTER_FILL_MISSING_SLOT = ImmutableMap.<Class<? extends LogicalPlan>,
+                Set<Class<? extends Expression>>>builder()
+            .put(LogicalSort.class, ImmutableSet.of(AggregateFunction.class, WindowExpression.class))
+            .put(LogicalOneRowRelation.class, ImmutableSet.of(WindowExpression.class))
+            .build();
+
+    private final boolean hadFillMissingSlots;
+
+    public CheckAnalysis(boolean hadFillMissingSlots) {
+        this.hadFillMissingSlots = hadFillMissingSlots;
+    }
+
     @Override
     public List<Rule> buildRules() {
         return ImmutableList.of(
@@ -111,6 +130,12 @@ public class CheckAnalysis implements AnalysisRuleFactory {
                     checkAggregate(agg);
                     return agg;
                 })
+            ),
+            RuleType.CHECK_OBJECT_TYPE_ANALYSIS.build(
+                logicalHaving().thenApply(ctx -> {
+                    checkHaving(ctx.root);
+                    return null;
+                })
             )
         );
     }
@@ -118,12 +143,20 @@ public class CheckAnalysis implements AnalysisRuleFactory {
     private void checkUnexpectedExpressions(Plan plan) {
         Set<Class<? extends Expression>> unexpectedExpressionTypes
                 = UNEXPECTED_EXPRESSION_TYPE_MAP.getOrDefault(plan.getClass(), Collections.emptySet());
+        if (hadFillMissingSlots) {
+            unexpectedExpressionTypes = ImmutableSet.<Class<? extends Expression>>builder()
+                    .addAll(unexpectedExpressionTypes)
+                    .addAll(UNEXPECTED_EXPRESSION_TYPE_MAP_AFTER_FILL_MISSING_SLOT
+                            .getOrDefault(plan.getClass(), Collections.emptySet()))
+                    .build();
+        }
         if (unexpectedExpressionTypes.isEmpty()) {
             return;
         }
+        Set<Class<? extends Expression>> unexpectedTypes = unexpectedExpressionTypes;
         for (Expression expr : plan.getExpressions()) {
             expr.foreachUp(e -> {
-                for (Class<? extends Expression> type : unexpectedExpressionTypes) {
+                for (Class<? extends Expression> type : unexpectedTypes) {
                     // PushDownUnnestInProject will push down Unnest in Project list in rewrite phase
                     // it relays on many rules like normalizeXXX to separate Unnest into LogicalProject first
                     // here, we allow Unnest in analysis phase and deal with it in rewrite phase
@@ -154,6 +187,43 @@ public class CheckAnalysis implements AnalysisRuleFactory {
             if (expr.getDataType().isObjectType()
                     || isLegacyVariant(expr.getDataType())
                     || expr.getDataType().isVarBinaryType()) {
+                throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
+            }
+            if (expr.containsType(WindowExpression.class)) {
+                throw new AnalysisException(
+                        "GROUP BY expression must not contain window functions: " + expr.toSql());
+            }
+        }
+    }
+
+    private void checkHaving(LogicalHaving<Plan> having) {
+        Plan child = having.child();
+        if (child instanceof OutputPrunable) {
+            OutputPrunable outputPrunable = (OutputPrunable) child;
+            if (outputPrunable instanceof Aggregate
+                    || outputPrunable instanceof LogicalProject
+                    || outputPrunable instanceof LogicalOneRowRelation) {
+                Map<Slot, WindowExpression> windowExpressionSlots = Maps.newHashMap();
+                for (NamedExpression expr : outputPrunable.getOutputs()) {
+                    if (expr.containsType(WindowExpression.class)) {
+                        WindowExpression windowExpr = (WindowExpression) ExpressionUtils.collect(
+                                ImmutableList.of(expr), WindowExpression.class::isInstance).iterator().next();
+                        windowExpressionSlots.put(expr.toSlot(), windowExpr);
+                    }
+                }
+                for (Slot inputSlot : having.getInputSlots()) {
+                    WindowExpression windowExpr = windowExpressionSlots.get(inputSlot);
+                    if (windowExpr != null) {
+                        throw new AnalysisException(
+                                "HAVING expression '" + inputSlot.getName()
+                                        + "' must not contain window functions: " + windowExpr.toSql());
+                    }
+                }
+            }
+        }
+        for (Expression predicate : having.getConjuncts()) {
+            if (predicate instanceof InSubquery
+                    && ((InSubquery) predicate).getSubqueryOutput().getDataType().isObjectType()) {
                 throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
             }
         }
