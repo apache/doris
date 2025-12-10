@@ -595,7 +595,7 @@ public class IcebergScanNode extends FileQueryScanNode {
             // no delete files, can push down count directly
             return Long.parseLong(summary.get(IcebergUtils.TOTAL_RECORDS));
         }
-        if (sessionVariable.ignore_iceberg_dangling_delete) {
+        if (sessionVariable.ignoreIcebergDanglingDelete) {
             // has position delete files, if we ignore dangling delete, can push down count
             return Long.parseLong(summary.get(IcebergUtils.TOTAL_RECORDS)) - deleteCount;
         } else {

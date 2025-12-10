@@ -3192,7 +3192,7 @@ public class SessionVariable implements Serializable, Writable {
                             + "the result may be inaccurate. "
                             + "When set to false, COUNT(*) will scan data files "
                             + "to exclude the impact of dangling delete files."})
-    public boolean ignore_iceberg_dangling_delete = false;
+    public boolean ignoreIcebergDanglingDelete = false;
 
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
