@@ -32,7 +32,7 @@ build_version_major="${DORIS_BUILD_VERSION_MAJOR-4}"
 build_version_minor="${DORIS_BUILD_VERSION_MINOR-0}"
 build_version_patch="${DORIS_BUILD_VERSION_PATCH-2}"
 build_version_hotfix="${DORIS_BUILD_VERSION_HOTFIX-0}"
-build_version_rc_version="${DORIS_BUILD_VERSION_RC_VERSION-"rc01"}"
+build_version_rc_version="${DORIS_BUILD_VERSION_RC_VERSION-"rc02"}"
 
 build_version="${build_version_prefix}-${build_version_major}.${build_version_minor}.${build_version_patch}"
 if [[ ${build_version_hotfix} -gt 0 ]]; then
