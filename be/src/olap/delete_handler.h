@@ -56,6 +56,7 @@ struct DeleteConditions {
 //    * In the first step, before calling delete_handler.init(), you should lock the tablet's header file.
 class DeleteHandler {
     ENABLE_FACTORY_CREATOR(DeleteHandler);
+
 public:
     struct ConditionParseResult {
         int32_t col_unique_id;
