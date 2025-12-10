@@ -56,7 +56,6 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
 /**
@@ -113,12 +112,7 @@ public abstract class FileScanNode extends ExternalScanNode {
         }
 
         output.append(prefix);
-        boolean isBatch;
-        try {
-            isBatch = isBatchMode();
-        } catch (UserException e) {
-            throw new RuntimeException(e);
-        }
+        boolean isBatch = isBatchMode();
         if (isBatch) {
             output.append("(approximate)");
         }

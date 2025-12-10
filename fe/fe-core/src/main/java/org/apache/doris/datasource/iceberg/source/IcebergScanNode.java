@@ -72,6 +72,7 @@ import org.apache.iceberg.expressions.Expression;
 import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.io.CloseableIterator;
 import org.apache.iceberg.types.Conversions;
+import org.apache.iceberg.util.ScanTaskUtil;
 import org.apache.iceberg.util.TableScanUtil;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -357,10 +358,26 @@ public class IcebergScanNode extends FileQueryScanNode {
     }
 
     private CloseableIterable<FileScanTask> planFileScanTask(TableScan scan) {
-        CloseableIterable<FileScanTask> iter = scan.planFiles();
-        targetSplitSize = scan.targetSplitSize();
-        return TableScanUtil.splitFiles(iter, sessionVariable.fileSplitSize > 0 ? sessionVariable.fileSplitSize :
-                targetSplitSize);
+        long fileSplitSize = determineFileSplitSize(scan.planFiles(), isBatchMode());
+        return TableScanUtil.splitFiles(scan.planFiles(), fileSplitSize);
+    }
+
+    private long determineFileSplitSize(CloseableIterable<FileScanTask> tasks,
+            boolean isBatchMode) {
+        long result = sessionVariable.getFileSplitSize();
+        long accumulatedTotalFileSize = 0;
+        if (sessionVariable.getFileSplitSize() <= 0 && !isBatchMode) {
+            result = sessionVariable.getMaxInitialSplitSize();
+            for (FileScanTask task : tasks) {
+                accumulatedTotalFileSize += ScanTaskUtil.contentSizeInBytes(task.file());
+                if (accumulatedTotalFileSize
+                        >= sessionVariable.getMaxSplitSize() * sessionVariable.getMaxInitialSplitNum()) {
+                    result = sessionVariable.getMaxSplitSize();
+                    break;
+                }
+            }
+        }
+        return result;
     }
 
     private Split createIcebergSplit(FileScanTask fileScanTask) {
@@ -449,18 +466,26 @@ public class IcebergScanNode extends FileQueryScanNode {
     }
 
     @Override
-    public boolean isBatchMode() throws UserException {
+    public boolean isBatchMode() {
         TPushAggOp aggOp = getPushDownAggNoGroupingOp();
         if (aggOp.equals(TPushAggOp.COUNT)) {
-            countFromSnapshot = getCountFromSnapshot();
+            try {
+                countFromSnapshot = getCountFromSnapshot();
+            } catch (UserException e) {
+                throw new RuntimeException(e);
+            }
             if (countFromSnapshot >= 0) {
                 tableLevelPushDownCount = true;
                 return false;
             }
         }
 
-        if (createTableScan().snapshot() == null) {
-            return false;
+        try {
+            if (createTableScan().snapshot() == null) {
+                return false;
+            }
+        } catch (UserException e) {
+            throw new RuntimeException(e);
         }
 
         if (!sessionVariable.getEnableExternalTableBatchMode()) {
