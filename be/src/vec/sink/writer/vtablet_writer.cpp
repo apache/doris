@@ -964,7 +964,16 @@ void VNodeChannel::try_send_pending_block(RuntimeState* state) {
                 PSlaveTabletNodes slave_tablet_nodes;
                 for (auto node_id : _slave_tablet_node.second) {
                     const auto* node = _parent->_nodes_info->find_node(node_id);
+                    DBUG_EXECUTE_IF("VNodeChannel.try_send_pending_block.slave_node_not_found", {
+                        LOG(WARNING) << "trigger "
+                                        "VNodeChannel.try_send_pending_block.slave_node_not_found "
+                                        "debug point will set node to nullptr";
+                        node = nullptr;
+                    });
                     if (node == nullptr) {
+                        LOG(WARNING) << "slave node not found, node_id=" << node_id;
+                        cancel(fmt::format("slave node not found, node_id={}", node_id));
+                        _send_block_callback->clear_in_flight();
                         return;
                     }
                     PNodeInfo* pnode = slave_tablet_nodes.add_slave_nodes();
@@ -1008,6 +1017,7 @@ void VNodeChannel::try_send_pending_block(RuntimeState* state) {
             if (!status.ok()) {
                 LOG(WARNING) << "failed to get ip from host " << _node_info.host << ": "
                              << status.to_string();
+                cancel(fmt::format("failed to get ip from host {}", _node_info.host));
                 _send_block_callback->clear_in_flight();
                 return;
             }
