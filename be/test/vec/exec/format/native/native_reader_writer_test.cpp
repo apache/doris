@@ -38,6 +38,7 @@
 #include "vec/data_types/data_type_struct.h"
 #include "vec/data_types/data_type_variant.h"
 #include "vec/data_types/serde/data_type_serde.h"
+#include "vec/exec/format/native/native_format.h"
 #include "vec/exec/format/native/native_reader.h"
 #include "vec/runtime/vnative_transformer.h"
 
@@ -307,7 +308,7 @@ TEST_F(NativeReaderWriterTest, round_trip_native_file) {
     TFileRangeDesc scan_range;
     scan_range.__set_path(file_path);
     scan_range.__set_file_type(TFileType::FILE_LOCAL);
-    NativeReader reader_impl(nullptr, scan_params, scan_range, 4064, nullptr, &state);
+    NativeReader reader_impl(nullptr, scan_params, scan_range, nullptr, &state);
 
     Block dst_block;
     size_t read_rows = 0;
@@ -380,7 +381,7 @@ TEST_F(NativeReaderWriterTest, round_trip_empty_and_single_row) {
         TFileRangeDesc scan_range;
         scan_range.__set_path(file_path);
         scan_range.__set_file_type(TFileType::FILE_LOCAL);
-        NativeReader reader_impl(nullptr, scan_params, scan_range, 4096, nullptr, &state);
+        NativeReader reader_impl(nullptr, scan_params, scan_range, nullptr, &state);
 
         Block dst_block;
         size_t read_rows = 0;
@@ -424,7 +425,7 @@ TEST_F(NativeReaderWriterTest, round_trip_empty_and_single_row) {
         TFileRangeDesc scan_range;
         scan_range.__set_path(file_path);
         scan_range.__set_file_type(TFileType::FILE_LOCAL);
-        NativeReader reader_impl(nullptr, scan_params, scan_range, 4096, nullptr, &state);
+        NativeReader reader_impl(nullptr, scan_params, scan_range, nullptr, &state);
 
         Block dst_block;
         size_t read_rows = 0;
@@ -507,7 +508,7 @@ TEST_F(NativeReaderWriterTest, round_trip_native_file_large_rows) {
     TFileRangeDesc scan_range;
     scan_range.__set_path(file_path);
     scan_range.__set_file_type(TFileType::FILE_LOCAL);
-    NativeReader reader_impl(nullptr, scan_params, scan_range, 8192, nullptr, &state);
+    NativeReader reader_impl(nullptr, scan_params, scan_range, nullptr, &state);
 
     // Read back in multiple blocks and merge into a single result block.
     Block merged_block;
@@ -554,6 +555,231 @@ TEST_F(NativeReaderWriterTest, round_trip_native_file_large_rows) {
             ASSERT_EQ(src_field, dst_field) << "mismatch at col=" << col << " row=" << row;
         }
     }
+    bool exists = false;
+    st = fs->exists(file_path, &exists);
+    if (st.ok() && exists) {
+        static_cast<void>(fs->delete_file(file_path));
+    }
+}
+
+// Verify that NativeReader forces all columns to nullable, even if the writer
+// serialized non-nullable columns.
+TEST_F(NativeReaderWriterTest, non_nullable_columns_forced_nullable) {
+    auto fs = io::global_local_filesystem();
+
+    UniqueId uid = UniqueId::gen_uid();
+    std::string uuid = uid.to_string();
+    std::string file_path = "./native_format_non_nullable_" + uuid + ".native";
+
+    io::FileWriterPtr file_writer;
+    Status st = fs->create_file(file_path, &file_writer);
+    ASSERT_TRUE(st.ok()) << st;
+
+    RuntimeState state;
+    VExprContextSPtrs exprs;
+    // Use default compression type.
+    VNativeTransformer transformer(&state, file_writer.get(), exprs, false);
+    st = transformer.open();
+    ASSERT_TRUE(st.ok()) << st;
+
+    // Build a block with non-nullable columns.
+    Block src_block;
+    DataTypePtr int_type =
+            DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_INT, false);
+    {
+        MutableColumnPtr col = int_type->create_column();
+        for (int i = 0; i < 8; ++i) {
+            auto field = Field::create_field<PrimitiveType::TYPE_INT>(i * 3);
+            col->insert(field);
+        }
+        src_block.insert(ColumnWithTypeAndName(std::move(col), int_type, "int_nn"));
+    }
+
+    DataTypePtr str_type =
+            DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_VARCHAR, false);
+    {
+        MutableColumnPtr col = str_type->create_column();
+        for (int i = 0; i < 8; ++i) {
+            std::string v = "v" + std::to_string(i);
+            auto field = Field::create_field<PrimitiveType::TYPE_VARCHAR>(v);
+            col->insert(field);
+        }
+        src_block.insert(ColumnWithTypeAndName(std::move(col), str_type, "str_nn"));
+    }
+
+    st = transformer.write(src_block);
+    ASSERT_TRUE(st.ok()) << st;
+    st = transformer.close();
+    ASSERT_TRUE(st.ok()) << st;
+
+    // Read back via NativeReader.
+    TFileScanRangeParams scan_params;
+    scan_params.__set_file_type(TFileType::FILE_LOCAL);
+    TFileRangeDesc scan_range;
+    scan_range.__set_path(file_path);
+    scan_range.__set_file_type(TFileType::FILE_LOCAL);
+    NativeReader reader_impl(nullptr, scan_params, scan_range, nullptr, &state);
+
+    Block dst_block;
+    size_t read_rows = 0;
+    bool eof = false;
+    st = reader_impl.get_next_block(&dst_block, &read_rows, &eof);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_EQ(src_block.rows(), read_rows);
+    ASSERT_FALSE(eof);
+
+    // All columns returned by NativeReader should be nullable.
+    for (size_t col = 0; col < dst_block.columns(); ++col) {
+        const auto& dst = dst_block.get_by_position(col);
+        ASSERT_TRUE(dst.type->is_nullable()) << "column " << col << " should be nullable";
+    }
+
+    // Values should be preserved.
+    for (size_t col = 0; col < src_block.columns(); ++col) {
+        const auto& src = src_block.get_by_position(col);
+        const auto& dst = dst_block.get_by_position(col);
+        ASSERT_EQ(src.column->size(), dst.column->size());
+        for (size_t row = 0; row < src_block.rows(); ++row) {
+            auto src_field = (*src.column)[row];
+            auto dst_field = (*dst.column)[row];
+            ASSERT_EQ(src_field, dst_field) << "mismatch at col=" << col << " row=" << row;
+        }
+    }
+
+    bool exists = false;
+    st = fs->exists(file_path, &exists);
+    if (st.ok() && exists) {
+        static_cast<void>(fs->delete_file(file_path));
+    }
+}
+
+// Verify that VNativeTransformer writes the native file header and that
+// NativeReader can transparently read files with this header.
+TEST_F(NativeReaderWriterTest, transformer_writes_header_and_reader_handles_it) {
+    auto fs = io::global_local_filesystem();
+
+    UniqueId uid = UniqueId::gen_uid();
+    std::string uuid = uid.to_string();
+    std::string file_path = "./native_format_with_header_" + uuid + ".native";
+
+    // Write a small block via VNativeTransformer.
+    io::FileWriterPtr file_writer;
+    Status st = fs->create_file(file_path, &file_writer);
+    ASSERT_TRUE(st.ok()) << st;
+
+    RuntimeState state;
+    VExprContextSPtrs exprs;
+    VNativeTransformer transformer(&state, file_writer.get(), exprs, false);
+    st = transformer.open();
+    ASSERT_TRUE(st.ok()) << st;
+
+    Block src_block = create_test_block(4);
+    st = transformer.write(src_block);
+    ASSERT_TRUE(st.ok()) << st;
+    st = transformer.close();
+    ASSERT_TRUE(st.ok()) << st;
+
+    // Read back raw bytes and verify the header.
+    {
+        io::FileReaderSPtr file_reader;
+        st = fs->open_file(file_path, &file_reader);
+        ASSERT_TRUE(st.ok()) << st;
+        size_t file_size = file_reader->size();
+        ASSERT_GE(file_size, sizeof(uint64_t) + 12);
+
+        char header[12];
+        Slice header_slice(header, sizeof(header));
+        size_t bytes_read = 0;
+        st = file_reader->read_at(0, header_slice, &bytes_read);
+        ASSERT_TRUE(st.ok()) << st;
+        ASSERT_EQ(sizeof(header), bytes_read);
+
+        ASSERT_EQ(0, memcmp(header, DORIS_NATIVE_MAGIC, sizeof(DORIS_NATIVE_MAGIC)));
+        uint32_t version = 0;
+        memcpy(&version, header + sizeof(DORIS_NATIVE_MAGIC), sizeof(uint32_t));
+        ASSERT_EQ(DORIS_NATIVE_FORMAT_VERSION, version);
+    }
+
+    // Now read via NativeReader; it should detect the header and skip it.
+    TFileScanRangeParams scan_params;
+    scan_params.__set_file_type(TFileType::FILE_LOCAL);
+    TFileRangeDesc scan_range;
+    scan_range.__set_path(file_path);
+    scan_range.__set_file_type(TFileType::FILE_LOCAL);
+    NativeReader reader_impl(nullptr, scan_params, scan_range, nullptr, &state);
+
+    Block dst_block;
+    size_t read_rows = 0;
+    bool eof = false;
+    st = reader_impl.get_next_block(&dst_block, &read_rows, &eof);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_EQ(src_block.rows(), read_rows);
+    ASSERT_FALSE(eof);
+
+    bool exists = false;
+    st = fs->exists(file_path, &exists);
+    if (st.ok() && exists) {
+        static_cast<void>(fs->delete_file(file_path));
+    }
+}
+
+// Verify get_columns and get_parsed_schema can probe schema without scanning
+// the whole file.
+TEST_F(NativeReaderWriterTest, get_columns_and_parsed_schema) {
+    auto fs = io::global_local_filesystem();
+
+    UniqueId uid = UniqueId::gen_uid();
+    std::string uuid = uid.to_string();
+    std::string file_path = "./native_format_schema_" + uuid + ".native";
+
+    io::FileWriterPtr file_writer;
+    Status st = fs->create_file(file_path, &file_writer);
+    ASSERT_TRUE(st.ok()) << st;
+
+    RuntimeState state;
+    VExprContextSPtrs exprs;
+    VNativeTransformer transformer(&state, file_writer.get(), exprs, false);
+    st = transformer.open();
+    ASSERT_TRUE(st.ok()) << st;
+
+    Block src_block = create_test_block(5);
+    st = transformer.write(src_block);
+    ASSERT_TRUE(st.ok()) << st;
+    st = transformer.close();
+    ASSERT_TRUE(st.ok()) << st;
+
+    TFileScanRangeParams scan_params;
+    scan_params.__set_file_type(TFileType::FILE_LOCAL);
+    TFileRangeDesc scan_range;
+    scan_range.__set_path(file_path);
+    scan_range.__set_file_type(TFileType::FILE_LOCAL);
+    NativeReader reader_impl(nullptr, scan_params, scan_range, nullptr, &state);
+
+    std::unordered_map<std::string, DataTypePtr> name_to_type;
+    std::unordered_set<std::string> missing_cols;
+    st = reader_impl.get_columns(&name_to_type, &missing_cols);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_TRUE(missing_cols.empty());
+
+    // All columns from src_block should appear in name_to_type.
+    for (size_t i = 0; i < src_block.columns(); ++i) {
+        const auto& col = src_block.get_by_position(i);
+        auto it = name_to_type.find(col.name);
+        ASSERT_TRUE(it != name_to_type.end()) << "missing column " << col.name;
+        ASSERT_TRUE(it->second->is_nullable()) << "schema type should be nullable for " << col.name;
+    }
+
+    std::vector<std::string> col_names;
+    std::vector<DataTypePtr> col_types;
+    st = reader_impl.get_parsed_schema(&col_names, &col_types);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_EQ(col_names.size(), col_types.size());
+    ASSERT_EQ(col_names.size(), src_block.columns());
+
+    for (size_t i = 0; i < col_names.size(); ++i) {
+        ASSERT_TRUE(col_types[i]->is_nullable());
+    }
+
     bool exists = false;
     st = fs->exists(file_path, &exists);
     if (st.ok() && exists) {

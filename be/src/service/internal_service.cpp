@@ -858,11 +858,8 @@ void PInternalService::fetch_table_schema(google::protobuf::RpcController* contr
             break;
         }
         case TFileFormatType::FORMAT_NATIVE: {
-            // Doris Native binary format reader for schema probing in S3/FILE TVF.
-            // Use a reasonable default batch size; it only affects internal buffering.
-            size_t batch_size = 4096;
-            reader = vectorized::NativeReader::create_unique(profile.get(), params, range,
-                                                             batch_size, &io_ctx, nullptr);
+            reader = vectorized::NativeReader::create_unique(profile.get(), params, range, &io_ctx,
+                                                             nullptr);
             break;
         }
         case TFileFormatType::FORMAT_JSON: {

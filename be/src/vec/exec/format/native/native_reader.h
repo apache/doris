@@ -50,21 +50,9 @@ public:
     ENABLE_FACTORY_CREATOR(NativeReader);
 
     NativeReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
-                 const TFileRangeDesc& range, size_t batch_size, io::IOContext* io_ctx,
-                 RuntimeState* state);
+                 const TFileRangeDesc& range, io::IOContext* io_ctx, RuntimeState* state);
 
     ~NativeReader() override;
-
-#ifdef BE_TEST
-    // for unit test: inject an existing FileReader and skip FileFactory path
-    void set_file_reader(io::FileReaderSPtr file_reader) {
-        _file_reader = std::move(file_reader);
-        _io_ctx = nullptr;
-        _file_size = _file_reader ? _file_reader->size() : 0;
-        _current_offset = 0;
-        _eof = (_file_size == 0);
-    }
-#endif
 
     // Initialize underlying file reader and any format specific state.
     Status init_reader();

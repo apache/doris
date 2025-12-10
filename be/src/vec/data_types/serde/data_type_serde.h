@@ -89,8 +89,6 @@ class IColumn;
 class Arena;
 class IDataType;
 struct CastParameters;
-class BufferWritable;
-class ReadBuffer;
 
 class DataTypeSerDe;
 using DataTypeSerDeSPtr = std::shared_ptr<DataTypeSerDe>;
@@ -459,30 +457,6 @@ public:
     virtual Status read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array,
                                           int64_t start, int64_t end,
                                           const cctz::time_zone& ctz) const = 0;
-
-    // Doris Native binary columnar format serializer and deserializer.
-    // These APIs are designed to be the low-level building blocks for
-    // NativeReader / VNativeTransformer.
-    //
-    // Contract:
-    //  - write_column_to_native writes [offset, offset + limit) rows of `column`
-    //    into `buf` in a compact binary form, including null map if necessary.
-    //  - read_column_from_native reads exactly `rows` values from `buf` and
-    //    appends them to `column`.
-    //
-    // Default implementation returns NotSupported to allow incremental adoption
-    // by each concrete SerDe.
-    virtual Status write_column_to_native(const IColumn& /*column*/, size_t /*offset*/,
-                                          size_t /*limit*/, BufferWritable& /*buf*/) const {
-        return Status::NotSupported("write_column_to_native is not implemented for type {}",
-                                    get_name());
-    }
-
-    virtual Status read_column_from_native(IColumn& /*column*/, ReadBuffer& /*buf*/,
-                                           size_t /*rows*/) const {
-        return Status::NotSupported("read_column_from_native is not implemented for type {}",
-                                    get_name());
-    }
 
     // ORC serializer
     virtual Status write_column_to_orc(const std::string& timezone, const IColumn& column,
