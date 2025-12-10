@@ -177,29 +177,19 @@ public class FillUpMissingSlots implements AnalysisRuleFactory {
         private final Map<Expression, Slot> substitution = Maps.newHashMap();
         private final List<NamedExpression> newOutputSlots = Lists.newArrayList();
         private final Map<Slot, Expression> outputSubstitutionMap;
-        private final boolean checkSlot;
         private final Optional<Scope> outerScope;
 
-        Resolver(Aggregate<?> aggregate, boolean checkSlot, Optional<Scope> outerScope) {
+        Resolver(Aggregate<?> aggregate, Optional<Scope> outerScope) {
             outputExpressions = aggregate.getOutputExpressions();
             groupByExpressions = aggregate.getGroupByExpressions();
             outputSubstitutionMap = outputExpressions.stream().filter(Alias.class::isInstance)
                     .collect(Collectors.toMap(NamedExpression::toSlot, alias -> alias.child(0),
                             (k1, k2) -> k1));
-            this.checkSlot = checkSlot;
             this.outerScope = outerScope;
         }
 
-        Resolver(Aggregate<?> aggregate, boolean checkSlot) {
-            this(aggregate, checkSlot, Optional.empty());
-        }
-
         Resolver(Aggregate<?> aggregate) {
-            this(aggregate, true, Optional.empty());
-        }
-
-        Resolver(Aggregate<?> aggregate, Optional<Scope> outerScope) {
-            this(aggregate, true, outerScope);
+            this(aggregate, Optional.empty());
         }
 
         public void resolve(Expression expression) {
@@ -235,8 +225,9 @@ public class FillUpMissingSlots implements AnalysisRuleFactory {
                             Alias alias = new Alias(new AnyValue(expression));
                             newOutputSlots.add(alias);
                             substitution.put(expression, alias.toSlot());
-                        } else if (checkSlot) {
-                            throw new AnalysisException(expression.toSql() + " should be grouped by.");
+                        } else {
+                            throw new AnalysisException("'" + expression.toSql()
+                                    + "' must appear in the GROUP BY clause or be used in an aggregate function.");
                         }
                     }
                 } else if (expression instanceof AggregateFunction) {
@@ -449,7 +440,7 @@ public class FillUpMissingSlots implements AnalysisRuleFactory {
                     ImmutableList.of(), ImmutableList.of(), oldProject.child());
             // avoid throw exception even if having have slot from its child.
             // because we will add a project between having and project.
-            Resolver resolver = new Resolver(agg, false, outerScope);
+            Resolver resolver = new Resolver(agg, outerScope);
             newSortExpressions = resolveAndRewriteExprsForEmptyGroupBy(oldSortExpressions, resolver);
             newHavingExpressions = ImmutableSet.copyOf(
                     resolveAndRewriteExprsForEmptyGroupBy(oldHavingExpressions, resolver));

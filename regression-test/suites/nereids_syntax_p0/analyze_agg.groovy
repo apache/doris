@@ -244,6 +244,30 @@ suite("analyze_agg") {
         exception "'a' must appear in the GROUP BY clause or be used in an aggregate function"
     }
 
+    test {
+        sql "select 1000 from t2 having count(c) > 10 order by sum(id), a"
+        exception "'a' must appear in the GROUP BY clause or be used in an aggregate function"
+    }
+
+    test {
+        sql "select 1000 from t2 having count(c) > 10 order by a"
+        exception "'a' must appear in the GROUP BY clause or be used in an aggregate function"
+    }
+
+    test {
+        sql "select 1000 from t2 having c > 10 order by sum(id)"
+        exception "'c' must appear in the GROUP BY clause or be used in an aggregate function"
+    }
+
+    test {
+        // when generate an aggregate, havig also need to check slots for group by
+        sql "select 1000 from t2 having id > 0 and count(*) > 0"
+        exception "'id' must appear in the GROUP BY clause or be used in an aggregate function"
+    }
+
+    // when not generate an aggregate, having can treat like a filter, then no check in group by list error
+    sql "select 1000 from t2 having id > 0"
+
     /*
     test {
         sql "select a from t2 having count(c) > 10 order by sum(id);
