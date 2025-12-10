@@ -20,24 +20,29 @@ package org.apache.doris.cdcclient.utils;
 import org.apache.doris.cdcclient.constants.LoadConstants;
 import org.apache.doris.cdcclient.model.JobConfig;
 
+import org.apache.commons.collections.MapUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.flink.cdc.connectors.mysql.debezium.DebeziumUtils;
 import org.apache.flink.cdc.connectors.mysql.source.config.MySqlSourceConfig;
 import org.apache.flink.cdc.connectors.mysql.source.config.MySqlSourceConfigFactory;
-import org.apache.flink.cdc.connectors.mysql.source.config.MySqlSourceOptions;
 import org.apache.flink.cdc.connectors.mysql.source.offset.BinlogOffset;
-import org.apache.flink.cdc.connectors.mysql.source.offset.BinlogOffsetBuilder;
 import org.apache.flink.cdc.connectors.mysql.source.offset.BinlogOffsetUtils;
 import org.apache.flink.cdc.connectors.mysql.table.StartupOptions;
 
 import java.sql.SQLException;
+import java.util.Arrays;
 import java.util.Map;
 import java.util.Properties;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.mysql.cj.conf.ConnectionUrl;
 import io.debezium.connector.mysql.MySqlConnection;
 
 public class ConfigUtil {
+    private static final ObjectMapper mapper = new ObjectMapper();
 
     public static String getServerId(long jobId) {
         return String.valueOf(Math.abs(String.valueOf(jobId).hashCode()));
@@ -59,78 +64,60 @@ public class ConfigUtil {
 
         configFactory.includeSchemaChanges(false);
 
-        String includingTables = cdcConfig.getOrDefault(LoadConstants.INCLUDE_TABLES, ".*");
-        String includingPattern = String.format("(%s)\\.(%s)", databaseName, includingTables);
+        String includingTables = cdcConfig.get(LoadConstants.INCLUDE_TABLES);
+        String[] includingTbls =
+                Arrays.stream(includingTables.split(","))
+                        .map(t -> databaseName + "." + t.trim())
+                        .toArray(String[]::new);
+        configFactory.tableList(includingTbls);
+
         String excludingTables = cdcConfig.get(LoadConstants.EXCLUDE_TABLES);
-        if (StringUtils.isEmpty(excludingTables)) {
-            configFactory.tableList(includingPattern);
-        } else {
-            String excludingPattern =
-                    String.format("?!(%s\\.(%s))$", databaseName, excludingTables);
-            String tableList = String.format("(%s)(%s)", excludingPattern, includingPattern);
-            configFactory.tableList(tableList);
+        if (StringUtils.isNotEmpty(excludingTables)) {
+            String excludingTbls =
+                    Arrays.stream(excludingTables.split(","))
+                            .map(t -> databaseName + "." + t.trim())
+                            .toString();
+            configFactory.excludeTableList(excludingTbls);
         }
 
         // setting startMode
-        String startupMode = cdcConfig.get(LoadConstants.STARTUP_MODE);
-        if ("initial".equalsIgnoreCase(startupMode)) {
+        String startupMode = cdcConfig.get(LoadConstants.OFFSET);
+        if (LoadConstants.OFFSET_INITIAL.equalsIgnoreCase(startupMode)) {
             // do not need set offset when initial
             // configFactory.startupOptions(StartupOptions.initial());
-        } else if ("earliest".equalsIgnoreCase(startupMode)) {
+        } else if (LoadConstants.OFFSET_EARLIEST.equalsIgnoreCase(startupMode)) {
             configFactory.startupOptions(StartupOptions.earliest());
             BinlogOffset binlogOffset =
                     initializeEffectiveOffset(
                             configFactory, StartupOptions.earliest().binlogOffset);
             configFactory.startupOptions(StartupOptions.specificOffset(binlogOffset));
-        } else if ("latest".equalsIgnoreCase(startupMode)) {
+        } else if (LoadConstants.OFFSET_LATEST.equalsIgnoreCase(startupMode)) {
             configFactory.startupOptions(StartupOptions.latest());
             BinlogOffset binlogOffset =
                     initializeEffectiveOffset(configFactory, StartupOptions.latest().binlogOffset);
             configFactory.startupOptions(StartupOptions.specificOffset(binlogOffset));
-        } else if ("specific-offset".equalsIgnoreCase(startupMode)) {
-            BinlogOffsetBuilder offsetBuilder = BinlogOffset.builder();
-            String file = cdcConfig.get(MySqlSourceOptions.SCAN_STARTUP_SPECIFIC_OFFSET_FILE.key());
-            Long pos =
-                    Long.valueOf(
-                            cdcConfig.get(
-                                    MySqlSourceOptions.SCAN_STARTUP_SPECIFIC_OFFSET_POS.key()));
-            if (file != null && pos != null) {
-                offsetBuilder.setBinlogFilePosition(file, pos);
+        } else if (isJson(startupMode)) {
+            // start from specific offset
+            Map<String, String> offsetMap = toStringMap(startupMode);
+            if (MapUtils.isEmpty(offsetMap)) {
+                throw new RuntimeException("Incorrect offset " + startupMode);
+            }
+            if (offsetMap.containsKey(BinlogOffset.BINLOG_FILENAME_OFFSET_KEY)
+                    && offsetMap.containsKey(BinlogOffset.BINLOG_POSITION_OFFSET_KEY)) {
+                BinlogOffset binlogOffset = new BinlogOffset(offsetMap);
+                configFactory.startupOptions(StartupOptions.specificOffset(binlogOffset));
             } else {
-                offsetBuilder.setBinlogFilePosition("", 0);
+                throw new RuntimeException("Incorrect offset " + startupMode);
             }
-
-            if (cdcConfig.containsKey(
-                    MySqlSourceOptions.SCAN_STARTUP_SPECIFIC_OFFSET_SKIP_EVENTS.key())) {
-                long skipEvents =
-                        Long.parseLong(
-                                cdcConfig.getOrDefault(
-                                        MySqlSourceOptions.SCAN_STARTUP_SPECIFIC_OFFSET_SKIP_EVENTS
-                                                .key(),
-                                        "0"));
-                offsetBuilder.setSkipEvents(skipEvents);
-            }
-            if (cdcConfig.containsKey(
-                    MySqlSourceOptions.SCAN_STARTUP_SPECIFIC_OFFSET_SKIP_ROWS.key())) {
-                long skipRows =
-                        Long.parseLong(
-                                cdcConfig.getOrDefault(
-                                        MySqlSourceOptions.SCAN_STARTUP_SPECIFIC_OFFSET_SKIP_ROWS
-                                                .key(),
-                                        "0"));
-                offsetBuilder.setSkipRows(skipRows);
-            }
-            configFactory.startupOptions(StartupOptions.specificOffset(offsetBuilder.build()));
-        } else if ("timestamp".equalsIgnoreCase(startupMode)) {
-            Long ts =
-                    Long.parseLong(
-                            cdcConfig.get(MySqlSourceOptions.SCAN_STARTUP_TIMESTAMP_MILLIS.key()));
+        } else if (is13Timestamp(startupMode)) {
+            // start from timestamp
+            Long ts = Long.parseLong(startupMode);
             BinlogOffset binlogOffset =
                     initializeEffectiveOffset(
                             configFactory, StartupOptions.timestamp(ts).binlogOffset);
             configFactory.startupOptions(StartupOptions.specificOffset(binlogOffset));
         } else {
-            throw new RuntimeException("Unknown startup_mode " + startupMode);
+            throw new RuntimeException("Unknown offset " + startupMode);
         }
 
         Properties jdbcProperteis = new Properties();
@@ -138,7 +125,6 @@ public class ConfigUtil {
         configFactory.jdbcProperties(jdbcProperteis);
 
         // configFactory.heartbeatInterval(Duration.ofMillis(1));
-
         if (cdcConfig.containsKey(LoadConstants.SPLIT_SIZE)) {
             configFactory.splitSize(Integer.parseInt(cdcConfig.get(LoadConstants.SPLIT_SIZE)));
         }
@@ -153,6 +139,34 @@ public class ConfigUtil {
             return BinlogOffsetUtils.initializeEffectiveOffset(binlogOffset, connection, config);
         } catch (SQLException e) {
             throw new RuntimeException(e);
+        }
+    }
+
+    private static boolean is13Timestamp(String s) {
+        return s != null && s.matches("\\d{13}");
+    }
+
+    private static boolean isJson(String str) {
+        if (str == null || str.trim().isEmpty()) {
+            return false;
+        }
+        try {
+            JsonNode node = mapper.readTree(str);
+            return node.isObject();
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private static Map<String, String> toStringMap(String json) {
+        if (!isJson(json)) {
+            return null;
+        }
+
+        try {
+            return mapper.readValue(json, new TypeReference<Map<String, String>>() {});
+        } catch (JsonProcessingException e) {
+            return null; // 或抛异常，按你需要调整
         }
     }
 }

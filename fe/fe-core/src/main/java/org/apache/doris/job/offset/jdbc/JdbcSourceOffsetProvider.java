@@ -49,7 +49,6 @@ import lombok.extern.log4j.Log4j2;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.collections4.MapUtils;
 
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -206,17 +205,22 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
                                 + result.getResponse());
             }
             String response = result.getResponse();
-            ResponseBody<Map<String, String>> responseObj = objectMapper.readValue(
-                    response,
-                    new TypeReference<ResponseBody<Map<String, String>>>() {
-                    }
-            );
-            if (endBinlogOffset != null
-                    && !endBinlogOffset.equals(responseObj.getData())) {
-                hasMoreData = true;
+            try {
+                ResponseBody<Map<String, String>> responseObj = objectMapper.readValue(
+                        response,
+                        new TypeReference<ResponseBody<Map<String, String>>>() {
+                        }
+                );
+                if (endBinlogOffset != null
+                        && !endBinlogOffset.equals(responseObj.getData())) {
+                    hasMoreData = true;
+                }
+                endBinlogOffset = responseObj.getData();
+            } catch (JsonProcessingException e) {
+                log.error("Failed to parse end offset response: {}", response, e);
+                throw new JobException("Failed to parse end offset response: " + response);
             }
-            endBinlogOffset = responseObj.getData();
-        } catch (ExecutionException | InterruptedException | IOException ex) {
+        } catch (ExecutionException | InterruptedException ex) {
             log.error("Get end offset error: ", ex);
             throw new JobException(ex);
         }
@@ -276,13 +280,18 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
                                 + result.getResponse());
             }
             String response = result.getResponse();
-            ResponseBody<Integer> responseObj = objectMapper.readValue(
-                    response,
-                    new TypeReference<ResponseBody<Integer>>() {
-                    }
-            );
-            return responseObj.getData() > 0;
-        } catch (ExecutionException | InterruptedException | IOException ex) {
+            try {
+                ResponseBody<Integer> responseObj = objectMapper.readValue(
+                        response,
+                        new TypeReference<ResponseBody<Integer>>() {
+                        }
+                );
+                return responseObj.getData() > 0;
+            } catch (JsonProcessingException e) {
+                log.error("Failed to parse compare offset response: {}", response, e);
+                throw new JobException("Failed to parse compare offset response: " + response);
+            }
+        } catch (ExecutionException | InterruptedException ex) {
             log.error("Compare offset error: ", ex);
             throw new JobException(ex);
         }
@@ -456,14 +465,19 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
                                 + result.getResponse());
             }
             String response = result.getResponse();
-            ResponseBody<List<SnapshotSplit>> responseObj = objectMapper.readValue(
-                    response,
-                    new TypeReference<ResponseBody<List<SnapshotSplit>>>() {
-                    }
-            );
-            List<SnapshotSplit> splits = responseObj.getData();
-            return splits;
-        } catch (ExecutionException | InterruptedException | IOException ex) {
+            try {
+                ResponseBody<List<SnapshotSplit>> responseObj = objectMapper.readValue(
+                        response,
+                        new TypeReference<ResponseBody<List<SnapshotSplit>>>() {
+                        }
+                );
+                List<SnapshotSplit> splits = responseObj.getData();
+                return splits;
+            } catch (JsonProcessingException e) {
+                log.error("Failed to parse split response: {}", response, e);
+                throw new JobException("Failed to parse split response: " + response);
+            }
+        } catch (ExecutionException | InterruptedException ex) {
             log.error("Get splits error: ", ex);
             throw new JobException(ex);
         }
@@ -492,10 +506,10 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
     }
 
     private boolean checkNeedSplitChunks(Map<String, String> sourceProperties) {
-        String startMode = sourceProperties.get(LoadConstants.STARTUP_MODE);
+        String startMode = sourceProperties.get(LoadConstants.OFFSET);
         if (startMode == null) {
             return false;
         }
-        return "snapshot".equalsIgnoreCase(startMode) || "initial".equalsIgnoreCase(startMode);
+        return LoadConstants.OFFSET_INITIAL.equalsIgnoreCase(startMode);
     }
 }

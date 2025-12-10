@@ -66,6 +66,8 @@ public interface SourceReader<Split, SplitState> {
      */
     String getSplitId(Object split);
 
+    boolean isBinlogSplit(Object split);
+
     /** Called when closing */
     void close(Long jobId);
 

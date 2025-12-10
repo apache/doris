@@ -234,6 +234,9 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         Preconditions.checkArgument(sourceProperties.get(LoadConstants.INCLUDE_TABLES) != null
                         || sourceProperties.get(LoadConstants.EXCLUDE_TABLES) != null,
                 "Either include_tables or exclude_tables must be specified");
+        if (!sourceProperties.containsKey(LoadConstants.OFFSET)) {
+            sourceProperties.put(LoadConstants.OFFSET, LoadConstants.OFFSET_LATEST);
+        }
     }
 
     private List<String> createTableIfNotExists() throws Exception {

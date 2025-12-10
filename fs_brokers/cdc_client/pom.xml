@@ -127,7 +127,7 @@ under the License.
         <dependency>
             <groupId>org.apache.flink</groupId>
             <artifactId>flink-connector-mysql-cdc</artifactId>
-            <version>3.2.1</version>
+            <version>3.5.0</version>
         </dependency>
         <dependency>
             <groupId>org.apache.flink</groupId>
@@ -258,9 +258,9 @@ under the License.
                 </executions>
                 <configuration>
                     <skip>true</skip>
-                    <suppressionsLocation>../../fe/check/suppressions.xml</suppressionsLocation>
+                    <suppressionsLocation>../../fe/check/checkstyle/suppressions.xml</suppressionsLocation>
                     <includeTestSourceDirectory>true</includeTestSourceDirectory>
-                    <configLocation>../../fe/check/checkstyle.xml</configLocation>
+                    <configLocation>../../fe/check/checkstyle/checkstyle.xml</configLocation>
                     <logViolationsToConsole>true</logViolationsToConsole>
                     <failOnViolation>true</failOnViolation>
                 </configuration>

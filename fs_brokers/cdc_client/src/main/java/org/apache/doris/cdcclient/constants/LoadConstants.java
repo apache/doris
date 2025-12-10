@@ -26,10 +26,12 @@ public class LoadConstants {
     public static final String DATABASE = "database";
     public static final String INCLUDE_TABLES = "include_tables";
     public static final String EXCLUDE_TABLES = "exclude_tables";
-    // initial,earliest-offset,latest-offset,specific-offset,timestamp,snapshot
-    public static final String STARTUP_MODE = "startup_mode";
+    // initial,earliest,latest,{binlog,postion},\d{13}
+    public static final String OFFSET = "offset";
+    public static final String OFFSET_INITIAL = "initial";
+    public static final String OFFSET_EARLIEST = "earliest";
+    public static final String OFFSET_LATEST = "latest";
     public static final String SPLIT_SIZE = "split_size";
     public static final String TABLE_PROPS_PREFIX = "table.create.properties.";
-
     public static final String DELETE_SIGN_KEY = "__DORIS_DELETE_SIGN__";
 }

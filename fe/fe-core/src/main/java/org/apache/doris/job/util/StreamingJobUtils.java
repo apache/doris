@@ -294,7 +294,7 @@ public class StreamingJobUtils {
                     PartitionTableInfo.EMPTY, // partitionTableInfo
                     distribution, // distribution
                     ImmutableList.of(), // rollups
-                    tableCreateProperties, // properties
+                    new HashMap<>(tableCreateProperties), // properties
                     ImmutableMap.of(), // extProperties
                     ImmutableList.of() // clusterKeyColumnNames
             );

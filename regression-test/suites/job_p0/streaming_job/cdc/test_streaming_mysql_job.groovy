@@ -23,11 +23,13 @@ import static java.util.concurrent.TimeUnit.SECONDS
 suite("test_streaming_mysql_job", "p0,external,mysql,external_docker,external_docker_mysql") {
     def jobName = "test_streaming_mysql_job_name"
     def currentDb = (sql "select database()")[0][0]
-    def tableName = "user_info"
+    def table1 = "user_info1"
+    def table2 = "user_info2"
     def mysqlDb = "test_cdc_db"
 
-    sql """DROP JOB IF EXISTS where jobname =  '${jobName}'"""
-    sql """drop table if exists ${currentDb}.${tableName} force"""
+    sql """DROP JOB IF EXISTS where jobname = '${jobName}'"""
+    sql """drop table if exists ${currentDb}.${table1} force"""
+    sql """drop table if exists ${currentDb}.${table2} force"""
 
     String enabled = context.config.otherConfigs.get("enableJdbcTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
@@ -40,18 +42,23 @@ suite("test_streaming_mysql_job", "p0,external,mysql,external_docker,external_do
         // create test
         connect("root", "123456", "jdbc:mysql://${externalEnvIp}:${mysql_port}") {
             sql """CREATE DATABASE IF NOT EXISTS ${mysqlDb}"""
-            sql """DROP TABLE IF EXISTS ${mysqlDb}.${tableName}"""
-            sql """
-                CREATE TABLE ${mysqlDb}.${tableName} (
+            sql """DROP TABLE IF EXISTS ${mysqlDb}.${table1}"""
+            sql """DROP TABLE IF EXISTS ${mysqlDb}.${table2}"""
+            sql """CREATE TABLE ${mysqlDb}.${table1} (
                   `name` varchar(200) NOT NULL,
                   `age` int DEFAULT NULL,
                   PRIMARY KEY (`name`)
-                ) ENGINE=InnoDB;
-            """
+                ) ENGINE=InnoDB"""
+            sql """INSERT INTO ${mysqlDb}.${table1} (name, age) VALUES ('A1', 1);"""
+            sql """INSERT INTO ${mysqlDb}.${table1} (name, age) VALUES ('B1', 2);"""
+            sql """CREATE TABLE ${mysqlDb}.${table2} (
+                  `name` varchar(200) NOT NULL,
+                  `age` int DEFAULT NULL,
+                  PRIMARY KEY (`name`)
+                ) ENGINE=InnoDB"""
             // mock snapshot data
-            sql """INSERT INTO ${mysqlDb}.${tableName} (name, age) VALUES ('A', 1);"""
-            sql """INSERT INTO ${mysqlDb}.${tableName} (name, age) VALUES ('B', 2);"""
-            sql """INSERT INTO ${mysqlDb}.${tableName} (name, age) VALUES ('C', 3);"""
+            sql """INSERT INTO ${mysqlDb}.${table2} (name, age) VALUES ('A2', 1);"""
+            sql """INSERT INTO ${mysqlDb}.${table2} (name, age) VALUES ('B2', 2);"""
         }
 
         sql """CREATE JOB ${jobName}
@@ -63,16 +70,18 @@ suite("test_streaming_mysql_job", "p0,external,mysql,external_docker,external_do
                     "user" = "root",
                     "password" = "123456",
                     "database" = "${mysqlDb}",
-                    "include_tables" = "${tableName}", 
-                    "startup_mode" = "initial"
+                    "include_tables" = "${table1},${table2}", 
+                    "offset" = "initial"
                 )
                 TO DATABASE ${currentDb} (
                   "table.create.properties.replication_num" = "1"
                 )
             """
         // check table created
-        def showTables = sql """ show tables from ${currentDb} like '${tableName}'; """
+        def showTables = sql """ show tables from ${currentDb} like '${table1}'; """
         assert showTables.size() == 1
+        def showTables2 = sql """ show tables from ${currentDb} like '${table2}'; """
+        assert showTables2.size() == 1
 
         // check job running
         try {
@@ -94,20 +103,27 @@ suite("test_streaming_mysql_job", "p0,external,mysql,external_docker,external_do
         }
 
         // check snapshot data
-        qt_select """ SELECT * FROM ${tableName} order by name asc """
+        qt_select """ SELECT * FROM ${table1} order by name asc """
+        qt_select """ SELECT * FROM ${table2} order by name asc """
 
         // mock mysql incremental into
 
         connect("root", "123456", "jdbc:mysql://${externalEnvIp}:${mysql_port}") {
-            sql """INSERT INTO ${mysqlDb}.${tableName} (name,age) VALUES ('Doris',18);"""
-            sql """UPDATE ${mysqlDb}.${tableName} SET age = 10 WHERE name = 'B';"""
-            sql """DELETE FROM ${mysqlDb}.${tableName} WHERE name = 'C';"""
+            sql """INSERT INTO ${mysqlDb}.${table1} (name,age) VALUES ('Doris',18);"""
+            sql """UPDATE ${mysqlDb}.${table1} SET age = 10 WHERE name = 'B1';"""
+            sql """DELETE FROM ${mysqlDb}.${table1} WHERE name = 'A1';"""
         }
 
         sleep(10000); // wait for cdc incremental data
 
         // check incremental data
-        qt_select """ SELECT * FROM ${tableName} order by name asc """
+        qt_select """ SELECT * FROM ${table1} order by name asc """
+
+        def jobInfo = sql """
+        select loadStatistic from jobs("type"="insert") where Name='${jobName}'
+        """
+        log.info("jobInfo: " + jobInfo)
+        assert jobInfo.get(0).get(0) == "{\"scannedRows\":7,\"loadBytes\":334,\"fileNumber\":0,\"fileSize\":0}"
 
         sql """
             DROP JOB IF EXISTS where jobname =  '${jobName}'

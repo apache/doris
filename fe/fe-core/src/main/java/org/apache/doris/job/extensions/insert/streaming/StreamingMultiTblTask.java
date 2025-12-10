@@ -49,7 +49,6 @@ import com.google.gson.Gson;
 import lombok.Getter;
 import lombok.extern.log4j.Log4j2;
 
-import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ExecutionException;
@@ -128,17 +127,22 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
                                 + result.getResponse());
             }
             String response = result.getResponse();
-            ResponseBody<String> responseObj = objectMapper.readValue(
-                    response,
-                    new TypeReference<ResponseBody<String>>() {
-                    }
-            );
-            if (responseObj.getCode() == RestApiStatusCode.OK.code) {
-                log.info("Send write records request successfully, response: {}", responseObj.getData());
-                return;
+            try {
+                ResponseBody<String> responseObj = objectMapper.readValue(
+                        response,
+                        new TypeReference<ResponseBody<String>>() {
+                        }
+                );
+                if (responseObj.getCode() == RestApiStatusCode.OK.code) {
+                    log.info("Send write records request successfully, response: {}", responseObj.getData());
+                    return;
+                }
+            } catch (JsonProcessingException e) {
+                log.error("Failed to parse write records response: {}", response, e);
+                throw new JobException("Failed to parse write records response: " + response);
             }
-            throw new JobException("Failed to send write records request , error message: " + responseObj);
-        } catch (ExecutionException | InterruptedException | IOException ex) {
+            throw new JobException("Failed to send write records request , error message: " + response);
+        } catch (ExecutionException | InterruptedException ex) {
             log.error("Send write request failed: ", ex);
             throw new JobException(ex);
         }

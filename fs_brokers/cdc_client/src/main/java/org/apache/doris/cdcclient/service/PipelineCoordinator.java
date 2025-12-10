@@ -121,8 +121,6 @@ public class PipelineCoordinator {
             batchStreamLoad.setCurrentTaskId(writeRecordReq.getTaskId());
             batchStreamLoad.setFrontendAddress(writeRecordReq.getFrontendAddress());
             batchStreamLoad.setToken(writeRecordReq.getToken());
-            boolean readBinlog = readResult.isReadBinlog();
-            boolean pureBinlogPhase = readResult.isPureBinlogPhase();
 
             boolean hasData = false;
             // Record start time for maxInterval check
@@ -151,9 +149,9 @@ public class PipelineCoordinator {
 
                         Map<String, String> lastMeta =
                                 RecordUtils.getBinlogPosition(element).getOffset();
-                        if (readBinlog && sourceReader.getSplitId(readResult.getSplit()) != null) {
+                        if (sourceReader.isBinlogSplit(readResult.getSplit())
+                                && sourceReader.getSplitId(readResult.getSplit()) != null) {
                             lastMeta.put(SPLIT_ID, sourceReader.getSplitId(readResult.getSplit()));
-                            // lastMeta.put(PURE_BINLOG_PHASE, String.valueOf(pureBinlogPhase));
                         }
                         metaResponse = lastMeta;
                     }
@@ -172,13 +170,7 @@ public class PipelineCoordinator {
             if (!hasData) {
                 // todo: need return the lastest heartbeat offset, means the maximum offset that the
                 // current job can recover.
-                if (readBinlog) {
-                    // BinlogSplit binlogSplit =
-                    //         OBJECT_MAPPER.convertValue(writeRecordReq.getMeta(),
-                    // BinlogSplit.class);
-                    // Map<String, String> metaResp = new
-                    // HashMap<>(binlogSplit.getStartingOffset());
-                    // metaResp.put(SPLIT_ID, BinlogSplit.BINLOG_SPLIT_ID);
+                if (sourceReader.isBinlogSplit(readResult.getSplit())) {
                     Map<String, String> offsetRes =
                             sourceReader.extractBinlogOffset(readResult.getSplit());
                     batchStreamLoad.commitOffset(offsetRes, scannedRows, scannedBytes);
@@ -191,7 +183,7 @@ public class PipelineCoordinator {
             // wait all stream load finish
             batchStreamLoad.forceFlush();
             // update offset meta
-            if (!readBinlog) {
+            if (!sourceReader.isBinlogSplit(readResult.getSplit())) {
                 Map<String, String> offsetRes =
                         sourceReader.extractSnapshotOffset(
                                 readResult.getSplitState(), readResult.getSplit());

@@ -26,6 +26,9 @@ import org.apache.doris.cdcclient.model.request.WriteRecordReq;
 import org.apache.doris.cdcclient.model.rest.ResponseEntityBuilder;
 import org.apache.doris.cdcclient.service.PipelineCoordinator;
 import org.apache.doris.cdcclient.source.reader.SourceReader;
+
+import java.util.List;
+
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -35,7 +38,6 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
-import java.util.List;
 
 @RestController
 public class ClientController {

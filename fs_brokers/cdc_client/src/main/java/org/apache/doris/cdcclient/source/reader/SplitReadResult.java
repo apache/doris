@@ -34,7 +34,4 @@ public class SplitReadResult<Split, SplitState> {
     private Iterator<SourceRecord> recordIterator;
     private SplitState splitState;
     private Split split;
-
-    private boolean readBinlog;
-    private boolean pureBinlogPhase;
 }
