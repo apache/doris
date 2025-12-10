@@ -39,7 +39,7 @@ public class StatisticsCacheTest {
     }
 
     @Test
-    public void testGetColumnStatistics_withPlanWithUnknownColumnStats() {
+    public void testGetColumnStatisticsWithPlanWithUnknownColumnStats() {
         Assumptions.assumeTrue(ConnectContext.get() != null, "ConnectContext not available");
 
         boolean prevFlag = ConnectContext.get().getState().isPlanWithUnKnownColumnStats();
@@ -47,7 +47,7 @@ public class StatisticsCacheTest {
         try {
             StatisticsCache cache = new StatisticsCache();
             ColumnStatistic stat = cache.getColumnStatistics(
-                    1L, 1L, 1L, -1L, "col", ConnectContext.get());
+                    1L, 1L, 1L, -1L, "col");
             Assertions.assertEquals(ColumnStatistic.UNKNOWN, stat,
                     "Expect UNKNOWN when plan has unknown column stats");
         } finally {
@@ -56,7 +56,7 @@ public class StatisticsCacheTest {
     }
 
     @Test
-    public void testGetHistogram_withPlanWithUnknownColumnStats() {
+    public void testGetHistogramWithPlanWithUnknownColumnStats() {
         Assumptions.assumeTrue(ConnectContext.get() != null, "ConnectContext not available");
 
         boolean prevFlag = ConnectContext.get().getState().isPlanWithUnKnownColumnStats();
@@ -72,7 +72,7 @@ public class StatisticsCacheTest {
     }
 
     @Test
-    public void testGetPartitionColumnStatistics_withPlanWithUnknownColumnStats() {
+    public void testGetPartitionColumnStatisticsWithPlanWithUnknownColumnStats() {
         Assumptions.assumeTrue(ConnectContext.get() != null, "ConnectContext not available");
 
         boolean prevFlag = ConnectContext.get().getState().isPlanWithUnKnownColumnStats();
@@ -80,7 +80,7 @@ public class StatisticsCacheTest {
         try {
             StatisticsCache cache = new StatisticsCache();
             PartitionColumnStatistic pstat = cache.getPartitionColumnStatistics(
-                    1L, 1L, 1L, -1L, "p", "col", ConnectContext.get());
+                    1L, 1L, 1L, -1L, "p", "col");
             Assertions.assertEquals(PartitionColumnStatistic.UNKNOWN, pstat,
                     "Expect UNKNOWN partition col stat when plan has unknown column stats");
         } finally {
