@@ -584,15 +584,24 @@ public class IcebergScanNode extends FileQueryScanNode {
             return 0;
         }
 
-        // `TOTAL_POSITION_DELETES` is need to 0,
-        // because prevent 'dangling delete' problem after `rewrite_data_files`
-        // ref: https://iceberg.apache.org/docs/nightly/spark-procedures/#rewrite_position_delete_files
         Map<String, String> summary = snapshot.summary();
-        if (!summary.get(IcebergUtils.TOTAL_EQUALITY_DELETES).equals("0")
-                || !summary.get(IcebergUtils.TOTAL_POSITION_DELETES).equals("0")) {
+        if (!summary.get(IcebergUtils.TOTAL_EQUALITY_DELETES).equals("0")) {
+            // has equality delete files, can not push down count
             return -1;
         }
-        return Long.parseLong(summary.get(IcebergUtils.TOTAL_RECORDS));
+
+        long deleteCount = Long.parseLong(summary.get(IcebergUtils.TOTAL_POSITION_DELETES));
+        if (deleteCount == 0) {
+            // no delete files, can push down count directly
+            return Long.parseLong(summary.get(IcebergUtils.TOTAL_RECORDS));
+        }
+        if (sessionVariable.ignore_iceberg_dangling_delete) {
+            // has position delete files, if we ignore dangling delete, can push down count
+            return Long.parseLong(summary.get(IcebergUtils.TOTAL_RECORDS)) - deleteCount;
+        } else {
+            // otherwise, can not push down count
+            return -1;
+        }
     }
 
     @Override

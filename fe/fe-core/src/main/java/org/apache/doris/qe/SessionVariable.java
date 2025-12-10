@@ -3181,6 +3181,19 @@ public class SessionVariable implements Serializable, Writable {
     )
     public boolean useV3StorageFormat = false;
 
+    public static final String IGNORE_ICEBERG_DANGLING_DELETE = "ignore_iceberg_dangling_delete";
+    @VariableMgr.VarAttr(name = IGNORE_ICEBERG_DANGLING_DELETE,
+            description = {"是否忽略 Iceberg 表中 dangling delete 文件对 COUNT(*) 统计信息的影响。"
+                    + "默认为 true，COUNT(*) 会直接从元信息中获取行数，性能更好，但是如果有 dangling delete，结果可能是不准确的。"
+                    + "设置为 false 时，COUNT(*) 会扫描数据文件以排除 dangling delete 文件的影响。",
+                    " Whether to ignore the impact of dangling delete files in Iceberg tables on COUNT(*) statistics. "
+                            + "The default is true, COUNT(*) will directly obtain the number of rows from metadata, "
+                            + "which has better performance, but if there are dangling deletes, "
+                            + "the result may be inaccurate. "
+                            + "When set to false, COUNT(*) will scan data files "
+                            + "to exclude the impact of dangling delete files."})
+    public boolean ignore_iceberg_dangling_delete = false;
+
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
     @SuppressWarnings("checkstyle:Indentation")
