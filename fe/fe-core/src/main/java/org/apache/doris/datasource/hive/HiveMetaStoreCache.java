@@ -52,6 +52,11 @@ import org.apache.doris.metric.GaugeMetric;
 import org.apache.doris.metric.Metric;
 import org.apache.doris.metric.MetricLabel;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.nereids.rules.expression.rules.MultiColumnBound;
+import org.apache.doris.nereids.rules.expression.rules.PartitionItemToRange;
+import org.apache.doris.nereids.rules.expression.rules.SortedPartitionRanges;
+import org.apache.doris.nereids.rules.expression.rules.SortedPartitionRanges.PartitionItemAndId;
+import org.apache.doris.nereids.rules.expression.rules.SortedPartitionRanges.PartitionItemAndRange;
 import org.apache.doris.planner.ListPartitionPrunerV2;
 
 import com.github.benmanes.caffeine.cache.CacheLoader;
@@ -64,6 +69,7 @@ import com.google.common.collect.HashBiMap;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Range;
 import com.google.common.collect.Streams;
 import lombok.Data;
 import org.apache.commons.lang3.math.NumberUtils;
@@ -421,20 +427,6 @@ public class HiveMetaStoreCache {
         return partitionValuesCache.get(key);
     }
 
-    /**
-     * Get the partition values load time for binary search filtering partitions.
-     * <p>
-     * The 10-second protection window in NereidsSortedPartitionsCacheManager is designed
-     * for OLAP tables with real-time writes, where partitions may change frequently.
-     * <p>
-     * For Hive external tables, partitions are relatively stable (changed by batch ETL jobs,
-     * not real-time writes), so we always return 0 to bypass the protection window and
-     * enable binary search optimization.
-     */
-    public long getPartitionValuesLoadTime(ExternalTable dorisTable) {
-        return 0;
-    }
-
     public List<FileCacheValue> getFilesByPartitions(List<HivePartition> partitions,
                                                      boolean withCache,
                                                      boolean concurrent,
@@ -671,6 +663,8 @@ public class HiveMetaStoreCache {
         Map<Long, List<String>> partitionValuesMapBefore = copy.getPartitionValuesMap();
         Map<Long, List<String>> partitionValuesMap = ListPartitionPrunerV2.getPartitionValuesMap(idToPartitionItem);
         partitionValuesMapBefore.putAll(partitionValuesMap);
+        // Rebuild sorted partition ranges after adding partitions
+        copy.rebuildSortedPartitionRanges();
         HivePartitionValues partitionValuesCur = partitionValuesCache.getIfPresent(key);
         if (partitionValuesCur == partitionValues) {
             partitionValuesCache.put(key, copy);
@@ -703,6 +697,8 @@ public class HiveMetaStoreCache {
                 invalidatePartitionCache(dorisTable, partitionName);
             }
         }
+        // Rebuild sorted partition ranges after dropping partitions
+        copy.rebuildSortedPartitionRanges();
         HivePartitionValues partitionValuesCur = partitionValuesCache.getIfPresent(key);
         if (partitionValuesCur == partitionValues) {
             partitionValuesCache.put(key, copy);
@@ -983,6 +979,10 @@ public class HiveMetaStoreCache {
         private Map<Long, PartitionItem> idToPartitionItem;
         private Map<Long, List<String>> partitionValuesMap;
 
+        // Sorted partition ranges for binary search filtering.
+        // Built at construction time, shares the same lifecycle with HivePartitionValues.
+        private SortedPartitionRanges<String> sortedPartitionRanges;
+
         public HivePartitionValues() {
         }
 
@@ -992,27 +992,73 @@ public class HiveMetaStoreCache {
             this.idToPartitionItem = idToPartitionItem;
             this.partitionNameToIdMap = partitionNameToIdMap;
             this.partitionValuesMap = partitionValuesMap;
+            this.sortedPartitionRanges = buildSortedPartitionRanges();
         }
 
+        /**
+         * Create a copy for incremental updates (add/drop partitions).
+         * The sortedPartitionRanges will be rebuilt after the caller modifies the partition data.
+         */
         public HivePartitionValues copy() {
             HivePartitionValues copy = new HivePartitionValues();
             copy.setPartitionNameToIdMap(partitionNameToIdMap == null ? null : HashBiMap.create(partitionNameToIdMap));
             copy.setIdToPartitionItem(idToPartitionItem == null ? null : Maps.newHashMap(idToPartitionItem));
             copy.setPartitionValuesMap(partitionValuesMap == null ? null : Maps.newHashMap(partitionValuesMap));
+            // sortedPartitionRanges is not copied here, caller should call rebuildSortedPartitionRanges()
+            // after modifying partition data
             return copy;
         }
 
         /**
-         * Compute a hash for partition meta version detection.
-         * Used by NereidsSortedPartitionsCacheManager to detect partition changes.
-         * The hash combines partition count (high 32 bits) and partition names hash (low 32 bits).
+         * Rebuild sorted partition ranges after incremental updates.
+         * Should be called after add/drop partitions.
          */
-        public long computePartitionNamesHash() {
+        public void rebuildSortedPartitionRanges() {
+            this.sortedPartitionRanges = buildSortedPartitionRanges();
+        }
+
+        /**
+         * Get sorted partition ranges for binary search filtering.
+         */
+        public Optional<SortedPartitionRanges<String>> getSortedPartitionRanges() {
+            return Optional.ofNullable(sortedPartitionRanges);
+        }
+
+        private SortedPartitionRanges<String> buildSortedPartitionRanges() {
             if (partitionNameToIdMap == null || partitionNameToIdMap.isEmpty()) {
-                return 0L;
+                return null;
             }
-            return ((long) partitionNameToIdMap.size() << 32)
-                    | (partitionNameToIdMap.keySet().hashCode() & 0xFFFFFFFFL);
+
+            BiMap<Long, String> idToName = partitionNameToIdMap.inverse();
+            List<PartitionItemAndRange<String>> sortedRanges = Lists.newArrayListWithCapacity(
+                    idToPartitionItem.size());
+            List<PartitionItemAndId<String>> defaultPartitions = Lists.newArrayList();
+
+            for (Map.Entry<Long, PartitionItem> entry : idToPartitionItem.entrySet()) {
+                PartitionItem partitionItem = entry.getValue();
+                String partitionName = idToName.get(entry.getKey());
+                if (!partitionItem.isDefaultPartition()) {
+                    List<Range<MultiColumnBound>> ranges = PartitionItemToRange.toRanges(partitionItem);
+                    for (Range<MultiColumnBound> range : ranges) {
+                        sortedRanges.add(new PartitionItemAndRange<>(partitionName, partitionItem, range));
+                    }
+                } else {
+                    defaultPartitions.add(new PartitionItemAndId<>(partitionName, partitionItem));
+                }
+            }
+
+            // Sort by range bounds
+            sortedRanges.sort((o1, o2) -> {
+                Range<MultiColumnBound> span1 = o1.range;
+                Range<MultiColumnBound> span2 = o2.range;
+                int result = span1.lowerEndpoint().compareTo(span2.lowerEndpoint());
+                if (result != 0) {
+                    return result;
+                }
+                return span1.upperEndpoint().compareTo(span2.upperEndpoint());
+            });
+
+            return new SortedPartitionRanges<>(sortedRanges, defaultPartitions);
         }
     }
 
