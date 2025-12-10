@@ -17,6 +17,8 @@
 
 #include "olap/predicate_creator.h"
 
+#include "runtime/define_primitive_type.h"
+
 namespace doris {
 
 std::shared_ptr<ColumnPredicate> create_bloom_filter_predicate(
