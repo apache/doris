@@ -435,6 +435,8 @@ public:
 
     Status next_batch_of_zone_map(size_t* n, vectorized::MutableColumnPtr& dst) override;
 
+    std::pair<bool, int> null_count(size_t nrows_to_read);
+
     Status read_by_rowids(const rowid_t* rowids, const size_t count,
                           vectorized::MutableColumnPtr& dst) override;
 

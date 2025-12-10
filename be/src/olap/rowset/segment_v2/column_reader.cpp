@@ -1635,22 +1635,27 @@ Status FileColumnIterator::_seek_to_pos_in_page(ParsedPage* page, ordinal_t offs
         return Status::OK();
     }
 
+    auto num_nulls = [this](ordinal_t start, ordinal_t end) {
+        auto null_count = 0;
+        for (auto i = start; i < end; i++) {
+            null_count += _page.null_maps[i];
+        }
+        return null_count;
+    };
     ordinal_t pos_in_data = offset_in_page;
-    if (_page.has_null) {
+    if (!_page.null_maps.empty()) {
         ordinal_t offset_in_data = 0;
         ordinal_t skips = offset_in_page;
+        auto skip_nulls = 0;
 
         if (offset_in_page > page->offset_in_page) {
+            skip_nulls = num_nulls(page->offset_in_page, offset_in_page);
             // forward, reuse null bitmap
             skips = offset_in_page - page->offset_in_page;
             offset_in_data = page->data_decoder->current_index();
         } else {
-            // rewind null bitmap, and
-            page->null_decoder = RleDecoder<bool>((const uint8_t*)page->null_bitmap.data,
-                                                  cast_set<int>(page->null_bitmap.size), 1);
+            skip_nulls = num_nulls(0, offset_in_page);
         }
-
-        auto skip_nulls = page->null_decoder.Skip(skips);
         pos_in_data = offset_in_data + skips - skip_nulls;
     }
 
@@ -1661,6 +1666,17 @@ Status FileColumnIterator::_seek_to_pos_in_page(ParsedPage* page, ordinal_t offs
 
 Status FileColumnIterator::next_batch_of_zone_map(size_t* n, vectorized::MutableColumnPtr& dst) {
     return _reader->next_batch_of_zone_map(n, dst);
+}
+
+std::pair<bool, int> FileColumnIterator::null_count(size_t nrows_to_read) {
+    bool is_null = _page.null_maps[_page.offset_in_page];
+    int i = 1;
+    for (; i < nrows_to_read; ++i) {
+        if (is_null != _page.null_maps[_page.offset_in_page + i]) {
+            break;
+        }
+    }
+    return std::make_pair(is_null, i);
 }
 
 Status FileColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr& dst,
@@ -1687,29 +1703,30 @@ Status FileColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr& d
         // number of rows to be read from this page
         size_t nrows_in_page = std::min(remaining, _page.remaining());
         size_t nrows_to_read = nrows_in_page;
-        if (_page.has_null) {
-            while (nrows_to_read > 0) {
-                bool is_null = false;
-                size_t this_run = _page.null_decoder.GetNextRun(&is_null, nrows_to_read);
-                // we use num_rows only for CHECK
-                size_t num_rows = this_run;
-                if (!is_null) {
-                    RETURN_IF_ERROR(_page.data_decoder->next_batch(&num_rows, dst));
-                    DCHECK_EQ(this_run, num_rows);
-                } else {
-                    *has_null = true;
-                    auto* null_col =
-                            vectorized::check_and_get_column<vectorized::ColumnNullable>(dst.get());
-                    if (null_col != nullptr) {
-                        null_col->insert_many_defaults(this_run);
-                    } else {
-                        return Status::InternalError("unexpected column type in column reader");
-                    }
-                }
+        if (!_page.null_maps.empty()) {
+            auto* null_col =
+                    vectorized::check_and_get_column<vectorized::ColumnNullable>(dst.get());
+            if (UNLIKELY(null_col == nullptr)) {
+                return Status::InternalError("unexpected column type in column reader");
+            }
+            auto& null_map = null_col->get_null_map_data();
+            auto nest_column = null_col->get_nested_column_ptr();
 
-                nrows_to_read -= this_run;
-                _page.offset_in_page += this_run;
-                _current_ordinal += this_run;
+            while (nrows_to_read > 0) {
+                bool is_null;
+                int i;
+                std::tie(is_null, i) = null_count(nrows_to_read);
+                if (is_null) {
+                    null_col->insert_many_defaults(i);
+                } else {
+                    null_map.resize_fill(null_map.size() + i, 0);
+                    size_t num_rows = i;
+                    RETURN_IF_ERROR(_page.data_decoder->next_batch(&num_rows, nest_column));
+                    DCHECK_EQ(i, num_rows);
+                }
+                nrows_to_read -= i;
+                _page.offset_in_page += i;
+                _current_ordinal += i;
             }
         } else {
             RETURN_IF_ERROR(_page.data_decoder->next_batch(&nrows_to_read, dst));
@@ -1742,7 +1759,7 @@ Status FileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t co
         // number of rows to be read from this page
         nrows_to_read = std::min(remaining, _page.remaining());
 
-        if (_page.has_null) {
+        if (!_page.null_maps.empty()) {
             size_t already_read = 0;
             while ((nrows_to_read - already_read) > 0) {
                 bool is_null = false;
@@ -1750,7 +1767,7 @@ Status FileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t co
                 if (UNLIKELY(this_run == 0)) {
                     break;
                 }
-                this_run = _page.null_decoder.GetNextRun(&is_null, this_run);
+                std::tie(is_null, this_run) = null_count(this_run);
                 size_t offset = total_read_count + already_read;
                 size_t this_read_count = 0;
                 rowid_t current_ordinal_in_page =
@@ -1764,14 +1781,15 @@ Status FileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t co
 
                 auto origin_index = _page.data_decoder->current_index();
                 if (this_read_count > 0) {
-                    if (is_null) {
-                        auto* null_col =
-                                vectorized::check_and_get_column<vectorized::ColumnNullable>(
-                                        dst.get());
-                        if (UNLIKELY(null_col == nullptr)) {
-                            return Status::InternalError("unexpected column type in column reader");
-                        }
+                    auto* null_col =
+                            vectorized::check_and_get_column<vectorized::ColumnNullable>(dst.get());
+                    if (UNLIKELY(null_col == nullptr)) {
+                        return Status::InternalError("unexpected column type in column reader");
+                    }
+                    auto& null_map = null_col->get_null_map_data();
+                    auto nest_column = null_col->get_nested_column_ptr();
 
+                    if (is_null) {
                         null_col->insert_many_defaults(this_read_count);
                     } else {
                         size_t read_count = this_read_count;
@@ -1781,7 +1799,9 @@ Status FileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t co
                         size_t page_start_off_in_decoder =
                                 _page.first_ordinal + _page.offset_in_page - origin_index;
                         RETURN_IF_ERROR(_page.data_decoder->read_by_rowids(
-                                &rowids[offset], page_start_off_in_decoder, &read_count, dst));
+                                &rowids[offset], page_start_off_in_decoder, &read_count,
+                                nest_column));
+                        null_map.resize_fill(null_map.size() + read_count, 0);
                         DCHECK_EQ(read_count, this_read_count);
                     }
                 }

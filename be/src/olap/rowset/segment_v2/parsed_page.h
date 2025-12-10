@@ -20,6 +20,7 @@
 #include <gen_cpp/segment_v2.pb.h>
 
 #include <memory>
+#include <vector>
 
 #include "common/status.h"
 #include "olap/rowset/segment_v2/binary_dict_page.h"
@@ -29,6 +30,7 @@
 #include "olap/rowset/segment_v2/page_decoder.h"
 #include "olap/rowset/segment_v2/page_handle.h"
 #include "util/rle_encoding.h"
+#include "util/slice.h"
 
 namespace doris {
 namespace segment_v2 {
@@ -46,12 +48,14 @@ struct ParsedPage {
         page->page_handle = std::move(handle);
 
         auto null_size = footer.nullmap_size();
-        page->has_null = null_size > 0;
-        page->null_bitmap = Slice(body.data + body.size - null_size, null_size);
+        auto null_bitmap = Slice(body.data + body.size - null_size, null_size);
 
-        if (page->has_null) {
-            page->null_decoder =
-                    RleDecoder<bool>((const uint8_t*)page->null_bitmap.data, null_size, 1);
+        if (null_size > 0) {
+            auto null_decoder = RleDecoder<bool>((const uint8_t*)null_bitmap.data, null_size, 1);
+            // Decode all null values into null_maps in advance
+            auto num_rows = footer.num_values();
+            page->null_maps.resize(num_rows);
+            null_decoder.get_values((bool*)page->null_maps.data(), num_rows);
         }
 
         Slice data_slice(body.data, body.size - null_size);
@@ -80,9 +84,7 @@ struct ParsedPage {
 
     PageHandle page_handle;
 
-    bool has_null;
-    Slice null_bitmap;
-    RleDecoder<bool> null_decoder;
+    std::vector<uint8_t> null_maps;
     std::unique_ptr<PageDecoder> data_decoder;
 
     // ordinal of the first value in this page
