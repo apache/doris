@@ -140,10 +140,34 @@ public:
     Status finish(OwnedSlice* slice) override {
         // No need to flush, just build the slice from the buffer
         RETURN_IF_CATCH_EXCEPTION({
-            // Create a new OwnedSlice and copy the data
-            OwnedSlice result(_bitmap_buf.size());
-            memcpy(result.data(), _bitmap_buf.data(), _bitmap_buf.size());
-            *slice = std::move(result);
+            // Check if we should compress the data
+            if (!_bitmap_buf.empty()) {
+                // Get LZ4 compression codec
+                BlockCompressionCodec* codec = nullptr;
+                RETURN_IF_ERROR(
+                        get_block_compression_codec(segment_v2::CompressionTypePB::LZ4, &codec));
+                if (codec != nullptr) {
+                    // Compress the data
+                    faststring compressed_buf;
+                    Slice raw_slice(_bitmap_buf.data(), _bitmap_buf.size());
+                    Status status = codec->compress(raw_slice, &compressed_buf);
+                    if (status.ok()) {
+                        // Use compressed data if compression is successful and reduces size
+                        // if (compressed_buf.size() < _bitmap_buf.size()) {
+                        // Directly build OwnedSlice from compressed_buf to avoid memory copy
+                        *slice = compressed_buf.build();
+                        return Status::OK();
+                        // }
+                    } else {
+                        return status;
+                    }
+                }
+            }
+            // // Fallback to uncompressed data if compression fails or doesn't reduce size
+            // // Create OwnedSlice directly from _bitmap_buf data
+            // OwnedSlice result(_bitmap_buf.size());
+            // memcpy(result.data(), _bitmap_buf.data(), _bitmap_buf.size());
+            // *slice = std::move(result);
         });
         return Status::OK();
     }
