@@ -207,7 +207,6 @@ TEST(FunctionMapConcatTest, TestWithNULL){
     const std::string func_name = "map_concat";
     // Test with null map (one map is null)
     {
-        // TODO cxr FIX Null
         InputTypeSet input_types = {
             PrimitiveType::TYPE_MAP, PrimitiveType::TYPE_INT, PrimitiveType::TYPE_STRING,
             PrimitiveType::TYPE_MAP, PrimitiveType::TYPE_INT, PrimitiveType::TYPE_STRING
@@ -312,6 +311,90 @@ TEST(FunctionMapConcatTest, TestComplexTypes) {
                     std::string("outer1"), TestArray({TestArray({std::string("inner1"), std::int32_t(1)})}),
                     std::string("outer2"), TestArray({TestArray({std::string("inner2"), std::int32_t(2)})}),
                     std::string("outer3"), TestArray({TestArray({std::string("inner3"), std::int32_t(3)})})
+                })
+            }
+        };
+        
+        check_function_all_arg_comb<DataTypeMap, true>(func_name, input_types, data_set);
+    }
+    
+    // Test with double as value
+    {
+        InputTypeSet input_types = {
+            PrimitiveType::TYPE_MAP, PrimitiveType::TYPE_STRING, PrimitiveType::TYPE_DOUBLE,
+            PrimitiveType::TYPE_MAP, PrimitiveType::TYPE_STRING, PrimitiveType::TYPE_DOUBLE
+        };
+        DataSet data_set = {
+            {
+                TestArray({
+                    TestArray({
+                        std::string("key1"), 1.5,
+                        std::string("key2"), 2.7
+                    }),
+                    TestArray({
+                        std::string("key3"), 3.9
+                    })
+                }),
+                TestArray({
+                    std::string("key1"), 1.5,
+                    std::string("key2"), 2.7,
+                    std::string("key3"), 3.9
+                })
+            }
+        };
+        
+        check_function_all_arg_comb<DataTypeMap, true>(func_name, input_types, data_set);
+    }
+    
+    // Test with float as value
+    {
+        InputTypeSet input_types = {
+            PrimitiveType::TYPE_MAP, PrimitiveType::TYPE_STRING, PrimitiveType::TYPE_FLOAT,
+            PrimitiveType::TYPE_MAP, PrimitiveType::TYPE_STRING, PrimitiveType::TYPE_FLOAT
+        };
+        DataSet data_set = {
+            {
+                TestArray({
+                    TestArray({
+                        std::string("key1"), 1.5f,
+                        std::string("key2"), 2.7f
+                    }),
+                    TestArray({
+                        std::string("key3"), 3.9f
+                    })
+                }),
+                TestArray({
+                    std::string("key1"), 1.5f,
+                    std::string("key2"), 2.7f,
+                    std::string("key3"), 3.9f
+                })
+            }
+        };
+        
+        check_function_all_arg_comb<DataTypeMap, true>(func_name, input_types, data_set);
+    }
+    
+    // Test with decimalv2 as value
+    {
+        InputTypeSet input_types = {
+            PrimitiveType::TYPE_MAP, PrimitiveType::TYPE_STRING, PrimitiveType::TYPE_DECIMALV2,
+            PrimitiveType::TYPE_MAP, PrimitiveType::TYPE_STRING, PrimitiveType::TYPE_DECIMALV2
+        };
+        DataSet data_set = {
+            {
+                TestArray({
+                    TestArray({
+                        std::string("key1"), ut_type::DECIMALV2(1.5),
+                        std::string("key2"), ut_type::DECIMALV2(2.7)
+                    }),
+                    TestArray({
+                        std::string("key3"), ut_type::DECIMALV2(3.9)
+                    })
+                }),
+                TestArray({
+                    std::string("key1"), ut_type::DECIMALV2(1.5),
+                    std::string("key2"), ut_type::DECIMALV2(2.7),
+                    std::string("key3"), ut_type::DECIMALV2(3.9)
                 })
             }
         };
