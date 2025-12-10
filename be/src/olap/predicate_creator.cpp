@@ -97,6 +97,9 @@ std::shared_ptr<ColumnPredicate> create_bloom_filter_predicate(
         return BloomFilterColumnPredicate<TYPE_IPV6>::create_shared(cid, filter_olap);
     }
     default:
+        throw Exception(ErrorCode::INVALID_ARGUMENT,
+                        fmt::format("Cannot use bloom filter for type: {}",
+                                    type_to_string(data_type->get_primitive_type())));
         return nullptr;
     }
 }
