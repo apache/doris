@@ -52,11 +52,7 @@ import org.apache.doris.metric.GaugeMetric;
 import org.apache.doris.metric.Metric;
 import org.apache.doris.metric.MetricLabel;
 import org.apache.doris.metric.MetricRepo;
-import org.apache.doris.nereids.rules.expression.rules.MultiColumnBound;
-import org.apache.doris.nereids.rules.expression.rules.PartitionItemToRange;
 import org.apache.doris.nereids.rules.expression.rules.SortedPartitionRanges;
-import org.apache.doris.nereids.rules.expression.rules.SortedPartitionRanges.PartitionItemAndId;
-import org.apache.doris.nereids.rules.expression.rules.SortedPartitionRanges.PartitionItemAndRange;
 import org.apache.doris.planner.ListPartitionPrunerV2;
 
 import com.github.benmanes.caffeine.cache.CacheLoader;
@@ -69,7 +65,6 @@ import com.google.common.collect.HashBiMap;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import com.google.common.collect.Range;
 import com.google.common.collect.Streams;
 import lombok.Data;
 import org.apache.commons.lang3.math.NumberUtils;
@@ -1029,36 +1024,15 @@ public class HiveMetaStoreCache {
                 return null;
             }
 
+            // Build name to partition item map for SortedPartitionRanges.buildFrom
             BiMap<Long, String> idToName = partitionNameToIdMap.inverse();
-            List<PartitionItemAndRange<String>> sortedRanges = Lists.newArrayListWithCapacity(
-                    idToPartitionItem.size());
-            List<PartitionItemAndId<String>> defaultPartitions = Lists.newArrayList();
-
+            Map<String, PartitionItem> nameToPartitionItem = Maps.newHashMapWithExpectedSize(idToPartitionItem.size());
             for (Map.Entry<Long, PartitionItem> entry : idToPartitionItem.entrySet()) {
-                PartitionItem partitionItem = entry.getValue();
                 String partitionName = idToName.get(entry.getKey());
-                if (!partitionItem.isDefaultPartition()) {
-                    List<Range<MultiColumnBound>> ranges = PartitionItemToRange.toRanges(partitionItem);
-                    for (Range<MultiColumnBound> range : ranges) {
-                        sortedRanges.add(new PartitionItemAndRange<>(partitionName, partitionItem, range));
-                    }
-                } else {
-                    defaultPartitions.add(new PartitionItemAndId<>(partitionName, partitionItem));
-                }
+                nameToPartitionItem.put(partitionName, entry.getValue());
             }
 
-            // Sort by range bounds
-            sortedRanges.sort((o1, o2) -> {
-                Range<MultiColumnBound> span1 = o1.range;
-                Range<MultiColumnBound> span2 = o2.range;
-                int result = span1.lowerEndpoint().compareTo(span2.lowerEndpoint());
-                if (result != 0) {
-                    return result;
-                }
-                return span1.upperEndpoint().compareTo(span2.upperEndpoint());
-            });
-
-            return new SortedPartitionRanges<>(sortedRanges, defaultPartitions);
+            return SortedPartitionRanges.build(nameToPartitionItem);
         }
     }
 
