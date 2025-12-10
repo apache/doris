@@ -1458,6 +1458,9 @@ DEFINE_mInt64(string_overflow_size, "4294967295"); // std::numic_limits<uint32_t
 DEFINE_Int64(num_buffered_reader_prefetch_thread_pool_min_thread, "16");
 // The max thread num for BufferedReaderPrefetchThreadPool
 DEFINE_Int64(num_buffered_reader_prefetch_thread_pool_max_thread, "64");
+
+DEFINE_mInt32(segment_prefetch_strategy, "1");
+DEFINE_mBool(enable_segment_prefetch_verbose_log, "false");
 // The thread num for SegmentPrefetchThreadPool
 DEFINE_Int64(segment_prefetch_thread_pool_thread_num, "20000");
 // Enable segment file cache block prefetch for query

@@ -422,18 +422,18 @@ void SegmentIterator::_init_segment_prefetchers() {
     bool is_query = (_opts.io_ctx.reader_type == ReaderType::READER_QUERY);
     bool enable_prefetch = is_query ? config::enable_query_segment_cache_prefetch
                                     : config::enable_compaction_segment_cache_prefetch;
-    LOG_INFO(
-            "[verbose] SegmentIterator lazy_init, is_query={}, enable_prefetch={}, "
-            "_row_bitmap.isEmpty()={}, row_bitmap.cardinality()={}, ,row_btmap.size()={} "
-            "tablet={}, rowset={}, segment={}, predicate_column_ids={}, "
-            "non_predicate_column_ids={}",
+    LOG_IF(INFO, config::enable_segment_prefetch_verbose_log) << fmt::format(
+            "[verbose] SegmentIterator _init_segment_prefetchers, is_query={}, enable_prefetch={}, "
+            "_row_bitmap.isEmpty()={}, row_bitmap.cardinality()={}, tablet={}, rowset={}, "
+            "segment={}, predicate_column_ids={}, non_predicate_column_ids={}",
             is_query, enable_prefetch, _row_bitmap.isEmpty(), _row_bitmap.cardinality(),
             _opts.tablet_id, _opts.rowset_id.to_string(), segment_id(),
             fmt::join(_predicate_column_ids, ","), fmt::join(_non_predicate_column_ids, ","));
     if (enable_prefetch && !_row_bitmap.isEmpty()) {
         int window_size = is_query ? config::query_segment_cache_prefetch_window_size
                                    : config::compaction_segment_cache_prefetch_window_size;
-        LOG_INFO("[verbose] SegmentIterator prefetch config: window_size={}", window_size);
+        LOG_IF(INFO, config::enable_segment_prefetch_verbose_log) << fmt::format(
+                "[verbose] SegmentIterator prefetch config: window_size={}", window_size);
         if (window_size > 0 &&
             !_column_iterators.empty()) { // ensure init_iterators has been called
             SegmentPrefetcherConfig prefetch_config(window_size,
@@ -449,14 +449,14 @@ void SegmentIterator::_init_segment_prefetchers() {
                         .row_bitmap = _row_bitmap,
                         .read_options = _opts,
                 };
-                LOG_INFO(
+                LOG_IF(INFO, config::enable_segment_prefetch_verbose_log) << fmt::format(
                         "[verbose] SegmentIterator init_segment_prefetchers, "
                         "tablet={}, rowset={}, segment={}, column_id={}, col_name={}, type={}",
                         _opts.tablet_id, _opts.rowset_id.to_string(), segment_id(), cid,
                         tablet_column->name(), tablet_column->type());
                 Status st = column_iter->init_prefetcher(params);
                 if (!st.ok()) {
-                    LOG_WARNING(
+                    LOG_IF(WARNING, config::enable_segment_prefetch_verbose_log) << fmt::format(
                             "[verbose] failed to init prefetcher for column_id={}, "
                             "tablet={}, rowset={}, segment={}, error={}",
                             cid, _opts.tablet_id, _opts.rowset_id.to_string(), segment_id(),
