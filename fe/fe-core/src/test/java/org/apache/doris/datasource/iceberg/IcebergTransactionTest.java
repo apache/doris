@@ -190,6 +190,10 @@ public class IcebergTransactionTest {
         try (MockedStatic<IcebergUtils> mockedStatic = Mockito.mockStatic(IcebergUtils.class)) {
             mockedStatic.when(() -> IcebergUtils.getIcebergTable(ArgumentMatchers.any(ExternalTable.class)))
                     .thenReturn(table);
+            // Allow parsePartitionValueFromString to call the real implementation
+            mockedStatic.when(() -> IcebergUtils.parsePartitionValueFromString(
+                    ArgumentMatchers.any(), ArgumentMatchers.any()))
+                    .thenCallRealMethod();
             IcebergTransaction txn = getTxn();
             txn.updateIcebergCommitData(ctdList);
             txn.beginInsert(icebergExternalTable, Optional.empty());
