@@ -863,7 +863,7 @@ public class IcebergUtils {
      */
     private static long parseTimestampToMicros(String valueStr, TimestampType timestampType) {
         // Use Doris's built-in DateLiteral.parseDateTime() which supports multiple formats
-        Result<TemporalAccessor, org.apache.doris.nereids.exceptions.AnalysisException> parseResult =
+        Result<TemporalAccessor, ? extends Exception> parseResult =
                 org.apache.doris.nereids.trees.expressions.literal.DateLiteral.parseDateTime(valueStr);
 
         if (parseResult.isError()) {
