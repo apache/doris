@@ -130,7 +130,8 @@ public class CheckAfterRewrite extends OneAnalysisRuleFactory {
                 throw new AnalysisException(
                         String.format("%s must appear in the GROUP BY clause or be used in an aggregate function",
                                 notFromChildren.stream()
-                                        .map(NamedExpression::getName).collect(Collectors.joining(", "))));
+                                        .map(slot -> "'" + slot.getName() + "'")
+                                        .collect(Collectors.joining(", "))));
             } else {
                 throw new AnalysisException(String.format(
                         "Input slot(s) not in child's output: %s in plan: %s\nchild output is: %s\nplan tree:\n%s",

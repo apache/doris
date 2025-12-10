@@ -78,6 +78,59 @@ PhysicalResultSink
 ------------------------filter(((cast(id as BIGINT) + random(1, 100)) > 0) and (t1.__DORIS_DELETE_SIGN__ = 0))
 --------------------------PhysicalOlapScan[t1]
 
+-- !having_with_window_3 --
+PhysicalResultSink
+--PhysicalProject
+----PhysicalQuickSort[MERGE_SORT]
+------PhysicalQuickSort[LOCAL_SORT]
+--------PhysicalProject
+----------PhysicalWindow
+------------PhysicalProject
+--------------filter((t1.__DORIS_DELETE_SIGN__ = 0))
+----------------PhysicalOlapScan[t1]
+
+-- !having_with_window_4 --
+PhysicalResultSink
+--PhysicalProject
+----PhysicalQuickSort[MERGE_SORT]
+------PhysicalQuickSort[LOCAL_SORT]
+--------PhysicalWindow
+----------hashAgg[GLOBAL]
+------------hashAgg[LOCAL]
+--------------PhysicalProject
+----------------filter((t1.__DORIS_DELETE_SIGN__ = 0))
+------------------PhysicalOlapScan[t1]
+
+-- !sort_project_1_shape --
+PhysicalResultSink
+--PhysicalProject
+----PhysicalQuickSort[MERGE_SORT]
+------PhysicalQuickSort[LOCAL_SORT]
+--------PhysicalProject
+----------hashAgg[GLOBAL]
+------------hashAgg[LOCAL]
+--------------PhysicalProject
+----------------filter((t2.__DORIS_DELETE_SIGN__ = 0))
+------------------PhysicalOlapScan[t2]
+
+-- !sort_project_1_result --
+1
+
+-- !sort_having_project_1_shape --
+PhysicalResultSink
+--PhysicalProject
+----PhysicalQuickSort[MERGE_SORT]
+------PhysicalQuickSort[LOCAL_SORT]
+--------PhysicalProject
+----------filter((count(c) > 10))
+------------hashAgg[GLOBAL]
+--------------hashAgg[LOCAL]
+----------------PhysicalProject
+------------------filter((t2.__DORIS_DELETE_SIGN__ = 0))
+--------------------PhysicalOlapScan[t2]
+
+-- !sort_having_project_1_result --
+
 -- !test_sum0 --
 0	0
 0	3

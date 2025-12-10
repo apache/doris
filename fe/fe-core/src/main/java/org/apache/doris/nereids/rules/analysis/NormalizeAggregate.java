@@ -300,7 +300,8 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
                     throw new AnalysisException(
                             String.format("%s must appear in the GROUP BY clause or be used in an aggregate function",
                             missingSlotsInAggregate.stream()
-                                    .map(NamedExpression::getName).collect(Collectors.joining(", "))));
+                                    .map(slot -> "'" + slot.getName() + "'")
+                                    .collect(Collectors.joining(", "))));
                 } else {
                     // for any slots missing in aggregate's output, we should add a any_value(slot) into
                     // aggregate's output list and slot itself into bottom project's output list

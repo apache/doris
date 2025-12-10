@@ -222,21 +222,42 @@ suite("analyze_agg") {
         order by id + random(1, 100), sum(id + random(1, 100)), sum(id + random(1, 100)) over ()
         '''
 
-    /* TODO: order by contains window expression throw exception, fix in PR #58036
     qt_having_with_window_3 '''explain shape plan
         select 12345
         from t1
-        having sum(id + random(1, 1)) > 1
-        order by sum(id + random(1, 1)) over ()
+        order by sum(id + random(1, 10)) over ()
         '''
 
     qt_having_with_window_4 '''explain shape plan
-        select distinct id + random(1, 1)
+        select distinct id + random(1, 10)
         from t1
-        having sum(id + random(1, 1)) > 1
-        order by sum(id + random(1, 1)) over ()
+        order by sum(id + random(1, 10)) over ()
         '''
-      */
+
+    test {
+        sql "select id + sum(c) from t2 group by a"
+        exception "'id' must appear in the GROUP BY clause or be used in an aggregate function"
+    }
+
+    test {
+        sql "select a from t2 order by sum(id)"
+        exception "'a' must appear in the GROUP BY clause or be used in an aggregate function"
+    }
+
+    /*
+    test {
+        sql "select a from t2 having count(c) > 10 order by sum(id);
+        exception "xxxx"
+    }
+    */
+
+    explainAndOrderResult 'sort_project_1', '''
+        select 1 from t2 order by sum(id);
+        '''
+
+    explainAndOrderResult 'sort_having_project_1', '''
+        select 1 from t2 having count(c) > 10 order by sum(id);
+        '''
 
     sql "drop table if exists tbl_analyze_agg_3"
     sql "create table tbl_analyze_agg_3 (a int, b int, c int) distributed by hash(a) properties('replication_num'='1');"
