@@ -1787,8 +1787,6 @@ void FileScanner::update_realtime_counters() {
 
     _last_bytes_read_from_local = _file_cache_statistics->bytes_read_from_local;
     _last_bytes_read_from_remote = _file_cache_statistics->bytes_read_from_remote;
-    // _file_cache_statistics->bytes_read_from_local = 0;
-    // _file_cache_statistics->bytes_read_from_remote = 0;
 }
 
 void FileScanner::_collect_profile_before_close() {
