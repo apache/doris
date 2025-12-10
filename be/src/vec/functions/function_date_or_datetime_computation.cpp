@@ -19,6 +19,7 @@
 
 #include "runtime/define_primitive_type.h"
 #include "vec/data_types/data_type_date_or_datetime_v2.h"
+#include "vec/functions/function_needs_to_handle_null.h"
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {
