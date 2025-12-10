@@ -59,7 +59,6 @@
 namespace doris::pipeline {
 
 #include "common/compile_check_begin.h"
-const static int32_t ADAPTIVE_PIPELINE_TASK_SERIAL_READ_ON_LIMIT_DEFAULT = 10000;
 
 #define RETURN_IF_PUSH_DOWN(stmt, status)    \
     if (pdt == PushDownType::UNACCEPTABLE) { \
