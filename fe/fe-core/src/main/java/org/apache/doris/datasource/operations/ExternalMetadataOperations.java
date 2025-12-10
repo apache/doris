@@ -21,6 +21,7 @@ import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HiveMetadataOps;
 import org.apache.doris.datasource.iceberg.IcebergMetadataOps;
+import org.apache.doris.datasource.paimon.PaimonMetadataOps;
 
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.iceberg.catalog.Catalog;
@@ -34,5 +35,10 @@ public class ExternalMetadataOperations {
 
     public static IcebergMetadataOps newIcebergMetadataOps(ExternalCatalog dorisCatalog, Catalog catalog) {
         return new IcebergMetadataOps(dorisCatalog, catalog);
+    }
+
+    public static PaimonMetadataOps newPaimonMetaOps(ExternalCatalog dorisCatalog,
+                                                     org.apache.paimon.catalog.Catalog catalog) {
+        return new PaimonMetadataOps(dorisCatalog, catalog);
     }
 }
