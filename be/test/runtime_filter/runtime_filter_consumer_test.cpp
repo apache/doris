@@ -31,7 +31,7 @@ public:
     void test_signal_aquire(TRuntimeFilterDesc desc) {
         std::shared_ptr<RuntimeFilterConsumer> consumer;
         FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
-                RuntimeFilterConsumer::create(_query_ctx.get(), &desc, 0, &consumer));
+                RuntimeFilterConsumer::create(_runtime_states[0].get(), &desc, 0, &consumer));
 
         std::shared_ptr<RuntimeFilterProducer> producer;
         FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
@@ -59,7 +59,7 @@ TEST_F(RuntimeFilterConsumerTest, basic) {
     std::shared_ptr<RuntimeFilterConsumer> consumer;
     auto desc = TRuntimeFilterDescBuilder().add_planId_to_target_expr(0).build();
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
-            RuntimeFilterConsumer::create(_query_ctx.get(), &desc, 0, &consumer));
+            RuntimeFilterConsumer::create(_runtime_states[1].get(), &desc, 0, &consumer));
 
     std::shared_ptr<RuntimeFilterConsumer> registed_consumer;
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(_runtime_states[1]->register_consumer_runtime_filter(
@@ -116,7 +116,7 @@ TEST_F(RuntimeFilterConsumerTest, timeout_aquire) {
     std::shared_ptr<RuntimeFilterConsumer> consumer;
     auto desc = TRuntimeFilterDescBuilder().add_planId_to_target_expr(0).build();
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
-            RuntimeFilterConsumer::create(_query_ctx.get(), &desc, 0, &consumer));
+            RuntimeFilterConsumer::create(_runtime_states[1].get(), &desc, 0, &consumer));
 
     std::shared_ptr<RuntimeFilterProducer> producer;
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
@@ -141,7 +141,7 @@ TEST_F(RuntimeFilterConsumerTest, wait_infinity) {
     const_cast<TQueryOptions&>(_query_ctx->_query_options)
             .__set_runtime_filter_wait_infinitely(true);
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
-            RuntimeFilterConsumer::create(_query_ctx.get(), &desc, 0, &consumer));
+            RuntimeFilterConsumer::create(_runtime_states[1].get(), &desc, 0, &consumer));
 
     std::shared_ptr<RuntimeFilterConsumer> registed_consumer;
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(_runtime_states[1]->register_consumer_runtime_filter(
@@ -152,7 +152,7 @@ TEST_F(RuntimeFilterConsumerTest, aquire_disabled) {
     std::shared_ptr<RuntimeFilterConsumer> consumer;
     auto desc = TRuntimeFilterDescBuilder().add_planId_to_target_expr(0).build();
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
-            RuntimeFilterConsumer::create(_query_ctx.get(), &desc, 0, &consumer));
+            RuntimeFilterConsumer::create(_runtime_states[1].get(), &desc, 0, &consumer));
 
     std::shared_ptr<RuntimeFilterProducer> producer;
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
@@ -174,7 +174,7 @@ TEST_F(RuntimeFilterConsumerTest, bitmap_filter) {
     std::shared_ptr<RuntimeFilterConsumer> consumer;
 
     {
-        auto st = RuntimeFilterConsumer::create(_query_ctx.get(), &desc, 0, &consumer);
+        auto st = RuntimeFilterConsumer::create(_runtime_states[1].get(), &desc, 0, &consumer);
         ASSERT_FALSE(st.ok());
     }
     desc.__set_src_expr(
@@ -195,13 +195,13 @@ TEST_F(RuntimeFilterConsumerTest, bitmap_filter) {
                     .build());
 
     {
-        auto st = RuntimeFilterConsumer::create(_query_ctx.get(), &desc, 0, &consumer);
+        auto st = RuntimeFilterConsumer::create(_runtime_states[1].get(), &desc, 0, &consumer);
         ASSERT_FALSE(st.ok());
     }
     {
         desc.__set_has_local_targets(false);
         desc.__set_has_remote_targets(true);
-        auto st = RuntimeFilterConsumer::create(_query_ctx.get(), &desc, 0, &consumer);
+        auto st = RuntimeFilterConsumer::create(_runtime_states[1].get(), &desc, 0, &consumer);
         ASSERT_FALSE(st.ok());
         desc.__set_has_local_targets(true);
         desc.__set_has_remote_targets(false);
@@ -209,7 +209,7 @@ TEST_F(RuntimeFilterConsumerTest, bitmap_filter) {
 
     desc.__set_bitmap_target_expr(TRuntimeFilterDescBuilder::get_default_expr());
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
-            RuntimeFilterConsumer::create(_query_ctx.get(), &desc, 0, &consumer));
+            RuntimeFilterConsumer::create(_runtime_states[1].get(), &desc, 0, &consumer));
 }
 
 TEST_F(RuntimeFilterConsumerTest, aquire_signal_at_same_time) {
@@ -217,7 +217,7 @@ TEST_F(RuntimeFilterConsumerTest, aquire_signal_at_same_time) {
         std::shared_ptr<RuntimeFilterConsumer> consumer;
         auto desc = TRuntimeFilterDescBuilder().add_planId_to_target_expr(0).build();
         FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
-                RuntimeFilterConsumer::create(_query_ctx.get(), &desc, 0, &consumer));
+                RuntimeFilterConsumer::create(_runtime_states[1].get(), &desc, 0, &consumer));
 
         std::shared_ptr<RuntimeFilterProducer> producer;
         FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
