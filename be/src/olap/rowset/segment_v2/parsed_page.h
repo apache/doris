@@ -29,6 +29,7 @@
 #include "olap/rowset/segment_v2/options.h"
 #include "olap/rowset/segment_v2/page_decoder.h"
 #include "olap/rowset/segment_v2/page_handle.h"
+#include "util/block_compression.h"
 #include "util/rle_encoding.h"
 #include "util/slice.h"
 
@@ -52,15 +53,24 @@ struct ParsedPage {
 
         if (null_size > 0) {
             if (footer.has_new_null_map() && footer.new_null_map()) {
-                page->null_maps = std::span<uint8_t>((uint8_t*)null_bitmap.data, null_size);
+                // Get LZ4 compression codec
+                BlockCompressionCodec* codec = nullptr;
+                RETURN_IF_ERROR(
+                        get_block_compression_codec(segment_v2::CompressionTypePB::LZ4, &codec));
+                if (codec != nullptr) {
+                    // Compress the data
+                    faststring compressed_buf;
+                    page->null_maps.resize(footer.num_values());
+                    auto tmp_slice = Slice(page->null_maps.data(), page->null_maps.size());
+                    RETURN_IF_ERROR(codec->decompress(null_bitmap, &tmp_slice));
+                }
             } else {
                 auto null_decoder =
                         RleDecoder<bool>((const uint8_t*)null_bitmap.data, null_size, 1);
                 // Decode all null values into null_maps in advance
                 auto num_rows = footer.num_values();
-                page->null_bitmap.resize(num_rows);
-                null_decoder.get_values((bool*)page->null_bitmap.data(), num_rows);
-                page->null_maps = std::span<uint8_t>(page->null_bitmap.data(), num_rows);
+                page->null_maps.resize(num_rows);
+                null_decoder.get_values((bool*)page->null_maps.data(), num_rows);
             }
         }
 
@@ -90,8 +100,7 @@ struct ParsedPage {
 
     PageHandle page_handle;
 
-    std::span<uint8_t> null_maps;
-    std::vector<uint8_t> null_bitmap;
+    std::vector<uint8_t> null_maps;
     std::unique_ptr<PageDecoder> data_decoder;
 
     // ordinal of the first value in this page
