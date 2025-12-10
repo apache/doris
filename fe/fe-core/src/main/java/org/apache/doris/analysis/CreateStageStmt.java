@@ -25,6 +25,7 @@ import org.apache.doris.cloud.proto.Cloud.RamUserPB;
 import org.apache.doris.cloud.proto.Cloud.StagePB;
 import org.apache.doris.cloud.proto.Cloud.StagePB.StageAccessType;
 import org.apache.doris.cloud.proto.Cloud.StagePB.StageType;
+import org.apache.doris.cloud.security.SecurityChecker;
 import org.apache.doris.cloud.storage.RemoteBase;
 import org.apache.doris.cloud.storage.RemoteBase.ObjectInfo;
 import org.apache.doris.common.AnalysisException;
@@ -135,6 +136,7 @@ public class CreateStageStmt extends DdlStmt implements NotFallbackInParser {
             String urlStr = "http://" + endpoint;
             // TODO: Server-Side Request Forgery Check is still need?
             URL url = new URL(urlStr);
+            SecurityChecker.getInstance().startSSRFChecking(urlStr);
             connection = (HttpURLConnection) url.openConnection();
             connection.setConnectTimeout(10000);
             connection.connect();
@@ -151,6 +153,7 @@ public class CreateStageStmt extends DdlStmt implements NotFallbackInParser {
                     LOG.warn("Failed to disconnect connection, endpoint={}", endpoint, e);
                 }
             }
+            SecurityChecker.getInstance().stopSSRFChecking();
         }
     }
 
