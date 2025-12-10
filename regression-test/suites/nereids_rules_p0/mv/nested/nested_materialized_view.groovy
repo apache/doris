@@ -1,3 +1,5 @@
+import java.util.logging.Logger
+
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -71,7 +73,7 @@ suite("nested_materialized_view") {
 
             // relate to ${DORIS_HOME}/regression-test/data/demo/streamload_input.csv.
             // also, you can stream load a http stream, e.g. http://xxx/some.csv
-            file """${getS3Url()}/regression/ssb/sf1/${tableName}.tbl.gz"""
+            file """${getS3Url()}/regression/ssb/sf0.1/${tableName}.tbl.gz"""
 
             time 10000 // limit inflight 10s
 
@@ -94,11 +96,586 @@ suite("nested_materialized_view") {
     }
     sql """ sync """
 
-    sql """alter table customer modify column c_custkey set stats ('row_count'='30000');"""
-    sql """alter table lineorder modify column lo_orderkey set stats ('row_count'='6001215');"""
-    sql """alter table part modify column p_partkey set stats ('row_count'='200000');"""
-    sql """alter table date modify column d_datekey set stats ('row_count'='2556');"""
-    sql """alter table supplier modify column s_suppkey set stats ('row_count'='2000');"""
+    sql '''
+alter table customer modify column c_address set stats (
+  'ndv'='3013',
+  'num_nulls'='0',
+  'min_value'='  dcVkxZ,s,9xW ab60a',
+  'max_value'='zzB4DRh4Eg3uFygL7UZZMiBa',
+  'row_count'='3000'
+);
+'''
+
+    sql '''
+alter table customer modify column c_custkey set stats (
+  'ndv'='3014',
+  'num_nulls'='0',
+  'min_value'='1',
+  'max_value'='3000',
+  'row_count'='3000'
+);
+'''
+
+    sql '''
+alter table customer modify column c_nation set stats (
+  'ndv'='25',
+  'num_nulls'='0',
+  'min_value'='ALGERIA',
+  'max_value'='VIETNAM',
+  'row_count'='3000'
+);
+'''
+
+    sql '''
+alter table customer modify column c_mktsegment set stats (
+  'ndv'='5',
+  'num_nulls'='0',
+  'min_value'='AUTOMOBILE',
+  'max_value'='MACHINERY',
+  'row_count'='3000'
+);
+'''
+
+    sql '''
+alter table customer modify column c_name set stats (
+  'ndv'='2997',
+  'num_nulls'='0',
+  'min_value'='Customer#000000001',
+  'max_value'='Customer#000003000',
+  'row_count'='3000'
+);
+'''
+
+    sql '''
+alter table customer modify column c_region set stats (
+  'ndv'='5',
+  'num_nulls'='0',
+  'min_value'='AFRICA',
+  'max_value'='MIDDLE EAST',
+  'row_count'='3000'
+);
+'''
+
+    sql '''
+alter table customer modify column c_city set stats (
+  'ndv'='250',
+  'num_nulls'='0',
+  'min_value'='ALGERIA  0',
+  'max_value'='VIETNAM  9',
+  'row_count'='3000'
+);
+'''
+
+    sql '''
+alter table customer modify column c_phone set stats (
+  'ndv'='3003',
+  'num_nulls'='0',
+  'min_value'='10-109-430-5638',
+  'max_value'='34-996-906-1652',
+  'row_count'='3000'
+);
+'''
+
+    sql '''
+alter table date modify column d_datekey set stats (
+  'ndv'='254',
+  'num_nulls'='0',
+  'min_value'='19920101',
+  'max_value'='19920911',
+  'row_count'='255'
+);
+'''
+
+    sql '''
+alter table date modify column d_daynuminyear set stats (
+  'ndv'='257',
+  'num_nulls'='0',
+  'min_value'='1',
+  'max_value'='255',
+  'row_count'='255'
+);
+'''
+
+    sql '''
+alter table date modify column d_lastdayinweekfl set stats (
+  'ndv'='2',
+  'num_nulls'='0',
+  'min_value'='0',
+  'max_value'='1',
+  'row_count'='255'
+);
+'''
+
+    sql '''
+alter table date modify column d_year set stats (
+  'ndv'='1',
+  'num_nulls'='0',
+  'min_value'='1992',
+  'max_value'='1992',
+  'row_count'='255'
+);
+'''
+
+    sql '''
+alter table date modify column d_yearmonth set stats (
+  'ndv'='9',
+  'num_nulls'='0',
+  'min_value'='Apr1992',
+  'max_value'='Sep1992',
+  'row_count'='255'
+);
+'''
+
+    sql '''
+alter table date modify column d_daynuminmonth set stats (
+  'ndv'='31',
+  'num_nulls'='0',
+  'min_value'='1',
+  'max_value'='31',
+  'row_count'='255'
+);
+'''
+
+    sql '''
+alter table date modify column d_daynuminweek set stats (
+  'ndv'='7',
+  'num_nulls'='0',
+  'min_value'='1',
+  'max_value'='7',
+  'row_count'='255'
+);
+'''
+
+    sql '''
+alter table date modify column d_holidayfl set stats (
+  'ndv'='2',
+  'num_nulls'='0',
+  'min_value'='0',
+  'max_value'='1',
+  'row_count'='255'
+);
+'''
+
+    sql '''
+alter table date modify column d_monthnuminyear set stats (
+  'ndv'='9',
+  'num_nulls'='0',
+  'min_value'='1',
+  'max_value'='9',
+  'row_count'='255'
+);
+'''
+
+    sql '''
+alter table date modify column d_weekdayfl set stats (
+  'ndv'='2',
+  'num_nulls'='0',
+  'min_value'='0',
+  'max_value'='1',
+  'row_count'='255'
+);
+'''
+
+    sql '''
+alter table date modify column d_yearmonthnum set stats (
+  'ndv'='9',
+  'num_nulls'='0',
+  'min_value'='199201',
+  'max_value'='199209',
+  'row_count'='255'
+);
+'''
+
+    sql '''
+alter table date modify column d_month set stats (
+  'ndv'='9',
+  'num_nulls'='0',
+  'min_value'='April',
+  'max_value'='September',
+  'row_count'='255'
+);
+'''
+
+    sql '''
+alter table date modify column d_weeknuminyear set stats (
+  'ndv'='37',
+  'num_nulls'='0',
+  'min_value'='1',
+  'max_value'='37',
+  'row_count'='255'
+);
+'''
+
+    sql '''
+alter table date modify column d_date set stats (
+  'ndv'='255',
+  'num_nulls'='0',
+  'min_value'='April 1, 1992',
+  'max_value'='September 9, 1992',
+  'row_count'='255'
+);
+'''
+
+    sql '''
+alter table date modify column d_dayofweek set stats (
+  'ndv'='7',
+  'num_nulls'='0',
+  'min_value'='Friday',
+  'max_value'='Wednesday',
+  'row_count'='255'
+);
+'''
+
+    sql '''
+alter table date modify column d_lastdayinmonthfl set stats (
+  'ndv'='2',
+  'num_nulls'='0',
+  'min_value'='0',
+  'max_value'='1',
+  'row_count'='255'
+);
+'''
+
+    sql '''
+alter table date modify column d_sellingseason set stats (
+  'ndv'='4',
+  'num_nulls'='0',
+  'min_value'='Fall',
+  'max_value'='Winter',
+  'row_count'='255'
+);
+'''
+
+    sql '''
+alter table lineorder modify column lo_custkey set stats (
+  'ndv'='2001',
+  'num_nulls'='0',
+  'min_value'='1',
+  'max_value'='2999',
+  'row_count'='600572'
+);
+'''
+
+    sql '''
+alter table lineorder modify column lo_extendedprice set stats (
+  'ndv'='128773',
+  'num_nulls'='0',
+  'min_value'='90100',
+  'max_value'='9594950',
+  'row_count'='600572'
+);
+'''
+
+    sql '''
+alter table lineorder modify column lo_revenue set stats (
+  'ndv'='453898',
+  'num_nulls'='0',
+  'min_value'='81720',
+  'max_value'='9569950',
+  'row_count'='600572'
+);
+'''
+
+    sql '''
+alter table lineorder modify column lo_suppkey set stats (
+  'ndv'='201',
+  'num_nulls'='0',
+  'min_value'='1',
+  'max_value'='200',
+  'row_count'='600572'
+);
+'''
+
+    sql '''
+alter table lineorder modify column lo_quantity set stats (
+  'ndv'='50',
+  'num_nulls'='0',
+  'min_value'='1',
+  'max_value'='50',
+  'row_count'='600572'
+);
+'''
+
+    sql '''
+alter table lineorder modify column lo_shipmode set stats (
+  'ndv'='7',
+  'num_nulls'='0',
+  'min_value'='AIR',
+  'max_value'='TRUCK',
+  'row_count'='600572'
+);
+'''
+
+    sql '''
+alter table lineorder modify column lo_discount set stats (
+  'ndv'='11',
+  'num_nulls'='0',
+  'min_value'='0',
+  'max_value'='10',
+  'row_count'='600572'
+);
+'''
+
+    sql '''
+alter table lineorder modify column lo_partkey set stats (
+  'ndv'='19968',
+  'num_nulls'='0',
+  'min_value'='1',
+  'max_value'='20000',
+  'row_count'='600572'
+);
+'''
+
+    sql '''
+alter table lineorder modify column lo_shippriority set stats (
+  'ndv'='1',
+  'num_nulls'='0',
+  'min_value'='0',
+  'max_value'='0',
+  'row_count'='600572'
+);
+'''
+
+    sql '''
+alter table lineorder modify column lo_orderdate set stats (
+  'ndv'='2408',
+  'num_nulls'='0',
+  'min_value'='19920101',
+  'max_value'='19980802',
+  'row_count'='600572'
+);
+'''
+
+    sql '''
+alter table lineorder modify column lo_tax set stats (
+  'ndv'='9',
+  'num_nulls'='0',
+  'min_value'='0',
+  'max_value'='8',
+  'row_count'='600572'
+);
+'''
+
+    sql '''
+alter table lineorder modify column lo_commitdate set stats (
+  'ndv'='2445',
+  'num_nulls'='0',
+  'min_value'='19920131',
+  'max_value'='19981031',
+  'row_count'='600572'
+);
+'''
+
+    sql '''
+alter table lineorder modify column lo_linenumber set stats (
+  'ndv'='7',
+  'num_nulls'='0',
+  'min_value'='1',
+  'max_value'='7',
+  'row_count'='600572'
+);
+'''
+
+    sql '''
+alter table lineorder modify column lo_orderkey set stats (
+  'ndv'='150431',
+  'num_nulls'='0',
+  'min_value'='1',
+  'max_value'='600000',
+  'row_count'='600572'
+);
+'''
+
+    sql '''
+alter table lineorder modify column lo_orderpriority set stats (
+  'ndv'='5',
+  'num_nulls'='0',
+  'min_value'='1-URGENT',
+  'max_value'='5-LOW',
+  'row_count'='600572'
+);
+'''
+
+    sql '''
+alter table lineorder modify column lo_ordtotalprice set stats (
+  'ndv'='150461',
+  'num_nulls'='0',
+  'min_value'='83340',
+  'max_value'='47912921',
+  'row_count'='600572'
+);
+'''
+
+    sql '''
+alter table lineorder modify column lo_supplycost set stats (
+  'ndv'='2136',
+  'num_nulls'='0',
+  'min_value'='54060',
+  'max_value'='115139',
+  'row_count'='600572'
+);
+'''
+
+    sql '''
+alter table part modify column p_category set stats (
+  'ndv'='25',
+  'num_nulls'='0',
+  'min_value'='MFGR#11',
+  'max_value'='MFGR#55',
+  'row_count'='20000'
+);
+'''
+
+    sql '''
+alter table part modify column p_name set stats (
+  'ndv'='7495',
+  'num_nulls'='0',
+  'min_value'='almond antique',
+  'max_value'='yellow white',
+  'row_count'='20000'
+);
+'''
+
+    sql '''
+alter table part modify column p_type set stats (
+  'ndv'='150',
+  'num_nulls'='0',
+  'min_value'='ECONOMY ANODIZED BRASS',
+  'max_value'='STANDARD POLISHED TIN',
+  'row_count'='20000'
+);
+'''
+
+    sql '''
+alter table part modify column p_mfgr set stats (
+  'ndv'='5',
+  'num_nulls'='0',
+  'min_value'='MFGR#1',
+  'max_value'='MFGR#5',
+  'row_count'='20000'
+);
+'''
+
+    sql '''
+alter table part modify column p_color set stats (
+  'ndv'='92',
+  'num_nulls'='0',
+  'min_value'='almond',
+  'max_value'='yellow',
+  'row_count'='20000'
+);
+'''
+
+    sql '''
+alter table part modify column p_partkey set stats (
+  'ndv'='19968',
+  'num_nulls'='0',
+  'min_value'='1',
+  'max_value'='20000',
+  'row_count'='20000'
+);
+'''
+
+    sql '''
+alter table part modify column p_size set stats (
+  'ndv'='50',
+  'num_nulls'='0',
+  'min_value'='1',
+  'max_value'='50',
+  'row_count'='20000'
+);
+'''
+
+    sql '''
+alter table part modify column p_container set stats (
+  'ndv'='40',
+  'num_nulls'='0',
+  'min_value'='JUMBO BAG',
+  'max_value'='WRAP PKG',
+  'row_count'='20000'
+);
+'''
+
+    sql '''
+alter table part modify column p_brand set stats (
+  'ndv'='1002',
+  'num_nulls'='0',
+  'min_value'='MFGR#111',
+  'max_value'='MFGR#559',
+  'row_count'='20000'
+);
+'''
+
+
+    sql '''
+alter table supplier modify column s_city set stats (
+  'ndv'='143',
+  'num_nulls'='0',
+  'min_value'='ALGERIA  2',
+  'max_value'='VIETNAM  8',
+  'row_count'='200'
+);
+'''
+
+    sql '''
+alter table supplier modify column s_region set stats (
+  'ndv'='5',
+  'num_nulls'='0',
+  'min_value'='AFRICA',
+  'max_value'='MIDDLE EAST',
+  'row_count'='200'
+);
+'''
+
+    sql '''
+alter table supplier modify column s_suppkey set stats (
+  'ndv'='201',
+  'num_nulls'='0',
+  'min_value'='1',
+  'max_value'='200',
+  'row_count'='200'
+);
+'''
+
+    sql '''
+alter table supplier modify column s_name set stats (
+  'ndv'='201',
+  'num_nulls'='0',
+  'min_value'='Supplier#000000001',
+  'max_value'='Supplier#000000200',
+  'row_count'='200'
+);
+'''
+
+    sql '''
+alter table supplier modify column s_phone set stats (
+  'ndv'='200',
+  'num_nulls'='0',
+  'min_value'='10-127-851-8031',
+  'max_value'='34-908-631-4424',
+  'row_count'='200'
+);
+'''
+
+    sql '''
+alter table supplier modify column s_address set stats (
+  'ndv'='197',
+  'num_nulls'='0',
+  'min_value'=' 0W7IPdkpWycU',
+  'max_value'='zaux5FT',
+  'row_count'='200'
+);
+'''
+
+    sql '''
+alter table supplier modify column s_nation set stats (
+  'ndv'='25',
+  'num_nulls'='0',
+  'min_value'='ALGERIA',
+  'max_value'='VIETNAM',
+  'row_count'='200'
+);
+'''
 
     String db = context.config.getDbNameByFile(context.file)
     sql "use ${db}"
@@ -261,6 +838,25 @@ suite("nested_materialized_view") {
 
 
     // complex nest mv rewrite
+    // chose 4 different dates to create 4 groups of nested materialized views
+    def fetchFourOrderDates = {
+        def dates = []
+        def result = sql """
+        SELECT DISTINCT lo_orderdate
+        FROM lineorder
+        INNER JOIN customer ON lo_custkey = c_custkey
+        INNER JOIN date ON lo_orderdate = d_datekey
+        LIMIT 4;
+        """
+        result.each { row ->
+            dates.add(row[0])
+        }
+        return dates;
+    }
+
+    def date = fetchFourOrderDates();
+    logger.info("Fetched order dates for nested mv test: " + date);
+
     create_async_mv(db, "mv1_a", """
     select
         lo_custkey,
@@ -272,7 +868,7 @@ suite("nested_materialized_view") {
         lineorder
             inner join date on lo_orderdate = d_datekey
     where
-            d_daynuminweek > 0 and lo_orderdate = 19930423
+            d_daynuminweek > 0 and lo_orderdate = ${date[0]}
     group by
         lo_custkey,
         lo_partkey,
@@ -291,7 +887,7 @@ suite("nested_materialized_view") {
             inner join customer on lo_custkey = c_custkey
             inner join date on lo_orderdate = d_datekey
     where
-            d_daynuminweek > 0 and lo_orderdate = 19930423
+            d_daynuminweek > 0 and lo_orderdate = ${date[0]}
     group by
         lo_custkey,
         lo_orderdate;""")
@@ -308,7 +904,7 @@ suite("nested_materialized_view") {
             inner join supplier on lo_suppkey = s_suppkey
             inner join date on lo_orderdate = d_datekey
     where
-            d_daynuminweek > 0 and lo_orderdate = 19930423
+            d_daynuminweek > 0 and lo_orderdate = ${date[0]}
     group by
         lo_partkey,
         lo_orderdate;""")
@@ -353,7 +949,7 @@ select
         lineorder
             inner join date on lo_orderdate = d_datekey
     where
-            d_daynuminweek > 0 and lo_orderdate = 19980421
+            d_daynuminweek > 0 and lo_orderdate = ${date[1]}
     group by
         lo_custkey,
         lo_partkey,
@@ -372,7 +968,7 @@ select
             inner join customer on lo_custkey = c_custkey
             inner join date on lo_orderdate = d_datekey
     where
-            d_daynuminweek > 0 and lo_orderdate = 19980421
+            d_daynuminweek > 0 and lo_orderdate = ${date[1]}
     group by
         lo_custkey,
         lo_orderdate;""")
@@ -389,7 +985,7 @@ select
             inner join supplier on lo_suppkey = s_suppkey
             inner join date on lo_orderdate = d_datekey
     where
-            d_daynuminweek > 0 and lo_orderdate = 19980421
+            d_daynuminweek > 0 and lo_orderdate = ${date[1]}
     group by
         lo_partkey,
         lo_orderdate;""")
@@ -434,7 +1030,7 @@ from
         lineorder
             inner join date on lo_orderdate = d_datekey
     where
-            d_daynuminweek > 0 and lo_orderdate = 19940413
+            d_daynuminweek > 0 and lo_orderdate = ${date[3]}
     group by
         lo_custkey,
         lo_partkey,
@@ -453,7 +1049,7 @@ from
             inner join customer on lo_custkey = c_custkey
             inner join date on lo_orderdate = d_datekey
     where
-            d_daynuminweek > 0 and lo_orderdate = 19940413
+            d_daynuminweek > 0 and lo_orderdate = ${date[3]}
     group by
         lo_custkey,
         lo_orderdate;""")
@@ -470,7 +1066,7 @@ from
             inner join supplier on lo_suppkey = s_suppkey
             inner join date on lo_orderdate = d_datekey
     where
-            d_daynuminweek > 0 and lo_orderdate = 19940413
+            d_daynuminweek > 0 and lo_orderdate = ${date[3]}
     group by
         lo_partkey,
         lo_orderdate;""")
@@ -515,7 +1111,7 @@ from
         lineorder
             inner join date on lo_orderdate = d_datekey
     where
-            d_daynuminweek > 0 and lo_orderdate = 19940218
+            d_daynuminweek > 0 and lo_orderdate = ${date[2]}
     group by
         lo_custkey,
         lo_partkey,
@@ -534,7 +1130,7 @@ from
             inner join customer on lo_custkey = c_custkey
             inner join date on lo_orderdate = d_datekey
     where
-            d_daynuminweek > 0 and lo_orderdate = 19940218
+            d_daynuminweek > 0 and lo_orderdate = ${date[2]}
     group by
         lo_custkey,
         lo_orderdate;""")
@@ -551,7 +1147,7 @@ from
             inner join supplier on lo_suppkey = s_suppkey
             inner join date on lo_orderdate = d_datekey
     where
-            d_daynuminweek > 0 and lo_orderdate = 19940218
+            d_daynuminweek > 0 and lo_orderdate = ${date[2]}
     group by
         lo_partkey,
         lo_orderdate;""")
@@ -610,7 +1206,7 @@ select * from (
           inner join date on lo_orderdate = d_datekey
         where
           d_daynuminweek > 0
-          and lo_orderdate = 19930423
+          and lo_orderdate = ${date[0]}
         group by
           lo_custkey,
           lo_partkey,
@@ -628,7 +1224,7 @@ select * from (
           inner join date on lo_orderdate = d_datekey
         where
           d_daynuminweek > 0
-          and lo_orderdate = 19930423
+          and lo_orderdate = ${date[0]}
         group by
           lo_custkey,
           lo_orderdate
@@ -645,7 +1241,7 @@ select * from (
           inner join date on lo_orderdate = d_datekey
         where
           d_daynuminweek > 0
-          and lo_orderdate = 19930423
+          and lo_orderdate = ${date[0]}
         group by
           lo_partkey,
           lo_orderdate
@@ -662,7 +1258,7 @@ select * from (
           inner join date on lo_orderdate = d_datekey
         where
           d_daynuminweek > 0
-          and lo_orderdate = 19930423
+          and lo_orderdate = ${date[0]}
         group by
           lo_partkey,
           lo_orderdate
@@ -696,7 +1292,7 @@ select * from (
           inner join date on lo_orderdate = d_datekey
         where
           d_daynuminweek > 0
-          and lo_orderdate = 19980421
+          and lo_orderdate = ${date[1]}
         group by
           lo_custkey,
           lo_partkey,
@@ -714,7 +1310,7 @@ select * from (
           inner join date on lo_orderdate = d_datekey
         where
           d_daynuminweek > 0
-          and lo_orderdate = 19980421
+          and lo_orderdate = ${date[1]}
         group by
           lo_custkey,
           lo_orderdate
@@ -731,7 +1327,7 @@ select * from (
           inner join date on lo_orderdate = d_datekey
         where
           d_daynuminweek > 0
-          and lo_orderdate = 19980421
+          and lo_orderdate = ${date[1]}
         group by
           lo_partkey,
           lo_orderdate
@@ -748,7 +1344,7 @@ select * from (
           inner join date on lo_orderdate = d_datekey
         where
           d_daynuminweek > 0
-          and lo_orderdate = 19980421
+          and lo_orderdate = ${date[1]}
         group by
           lo_partkey,
           lo_orderdate
@@ -782,7 +1378,7 @@ select * from (
           inner join date on lo_orderdate = d_datekey
         where
           d_daynuminweek > 0
-          and lo_orderdate = 19940413
+          and lo_orderdate = ${date[3]}
         group by
           lo_custkey,
           lo_partkey,
@@ -800,7 +1396,7 @@ select * from (
           inner join date on lo_orderdate = d_datekey
         where
           d_daynuminweek > 0
-          and lo_orderdate = 19940413
+          and lo_orderdate = ${date[3]}
         group by
           lo_custkey,
           lo_orderdate
@@ -817,7 +1413,7 @@ select * from (
           inner join date on lo_orderdate = d_datekey
         where
           d_daynuminweek > 0
-          and lo_orderdate = 19940413
+          and lo_orderdate = ${date[3]}
         group by
           lo_partkey,
           lo_orderdate
@@ -834,7 +1430,7 @@ select * from (
           inner join date on lo_orderdate = d_datekey
         where
           d_daynuminweek > 0
-          and lo_orderdate = 19940413
+          and lo_orderdate = ${date[3]}
         group by
           lo_partkey,
           lo_orderdate
@@ -868,7 +1464,7 @@ select * from (
           inner join date on lo_orderdate = d_datekey
         where
           d_daynuminweek > 0
-          and lo_orderdate = 19940218
+          and lo_orderdate = ${date[2]}
         group by
           lo_custkey,
           lo_partkey,
@@ -886,7 +1482,7 @@ select * from (
           inner join date on lo_orderdate = d_datekey
         where
           d_daynuminweek > 0
-          and lo_orderdate = 19940218
+          and lo_orderdate = ${date[2]}
         group by
           lo_custkey,
           lo_orderdate
@@ -903,7 +1499,7 @@ select * from (
           inner join date on lo_orderdate = d_datekey
         where
           d_daynuminweek > 0
-          and lo_orderdate = 19940218
+          and lo_orderdate = ${date[2]}
         group by
           lo_partkey,
           lo_orderdate
@@ -920,7 +1516,7 @@ select * from (
           inner join date on lo_orderdate = d_datekey
         where
           d_daynuminweek > 0
-          and lo_orderdate = 19940218
+          and lo_orderdate = ${date[2]}
         group by
           lo_partkey,
           lo_orderdate

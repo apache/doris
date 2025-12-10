@@ -37,7 +37,82 @@ suite("test_hudi_rewrite_mtmv", "p2,external,hudi,external_remote,external_remot
         );"""
 
     sql """analyze table ${catalogName}.`hudi_mtmv_regression_test`.hudi_table_1 with sync"""
-    sql """alter table ${catalogName}.`hudi_mtmv_regression_test`.hudi_table_1 modify column par set stats ('row_count'='10');"""
+    sql '''
+alter table test_hudi_rewrite_mtmv_catalog.hudi_mtmv_regression_test.hudi_table_1
+modify column age set stats (
+  'ndv'='10',
+  'num_nulls'='0',
+  'min_value'='1',
+  'max_value'='10',
+  'row_count'='10'
+);
+'''
+
+    sql '''
+alter table test_hudi_rewrite_mtmv_catalog.hudi_mtmv_regression_test.hudi_table_1
+modify column _hoodie_record_key set stats (
+  'ndv'='10',
+  'num_nulls'='0',
+  'min_value'='20250121171615893_0_0',
+  'max_value'='20250121171615893_7_1',
+  'row_count'='10'
+);
+'''
+
+    sql '''
+alter table test_hudi_rewrite_mtmv_catalog.hudi_mtmv_regression_test.hudi_table_1
+modify column id set stats (
+  'ndv'='10',
+  'num_nulls'='0',
+  'min_value'='1',
+  'max_value'='10',
+  'row_count'='10'
+);
+'''
+
+    sql '''
+alter table test_hudi_rewrite_mtmv_catalog.hudi_mtmv_regression_test.hudi_table_1
+modify column _hoodie_file_name set stats (
+  'ndv'='2',
+  'num_nulls'='0',
+  'min_value'='58eabd3f-1996-4cb6-83e4-56fd11cb4e7d-0_0-30-108_20250121171615893.parquet',
+  'max_value'='7f98e9ac-bd11-48fd-ac80-9ca6dc1ddb34-0_1-30-109_20250121171615893.parquet',
+  'row_count'='10'
+);
+'''
+
+    sql '''
+alter table test_hudi_rewrite_mtmv_catalog.hudi_mtmv_regression_test.hudi_table_1
+modify column _hoodie_partition_path set stats (
+  'ndv'='2',
+  'num_nulls'='0',
+  'min_value'='par=a',
+  'max_value'='par=b',
+  'row_count'='10'
+);
+'''
+
+    sql '''
+alter table test_hudi_rewrite_mtmv_catalog.hudi_mtmv_regression_test.hudi_table_1
+modify column _hoodie_commit_seqno set stats (
+  'ndv'='10',
+  'num_nulls'='0',
+  'min_value'='20250121171615893_0_0',
+  'max_value'='20250121171615893_1_4',
+  'row_count'='10'
+);
+'''
+
+    sql '''
+alter table test_hudi_rewrite_mtmv_catalog.hudi_mtmv_regression_test.hudi_table_1
+modify column _hoodie_commit_time set stats (
+  'ndv'='1',
+  'num_nulls'='0',
+  'min_value'='20250121171615893',
+  'max_value'='20250121171615893',
+  'row_count'='10'
+);
+'''
 
     sql """drop materialized view if exists ${mvName};"""
 
@@ -60,6 +135,7 @@ suite("test_hudi_rewrite_mtmv", "p2,external,hudi,external_remote,external_remot
             REFRESH MATERIALIZED VIEW ${mvName} partitions(p_a);
         """
     waitingMTMVTaskFinishedByMvName(mvName)
+    sql """analyze table ${mvName} with sync"""
     order_qt_refresh_one_partition "SELECT * FROM ${mvName} "
 
     sql """alter table ${mvName} modify column par set stats ('row_count'='1');"""
@@ -77,6 +153,7 @@ suite("test_hudi_rewrite_mtmv", "p2,external,hudi,external_remote,external_remot
             REFRESH MATERIALIZED VIEW ${mvName} auto
         """
     waitingMTMVTaskFinishedByMvName(mvName)
+    sql """analyze table ${mvName} with sync"""
     sql """alter table ${mvName} modify column par set stats ('row_count'='2');"""
     order_qt_refresh_auto "SELECT * FROM ${mvName} "
 
