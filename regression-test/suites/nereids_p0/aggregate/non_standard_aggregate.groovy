@@ -124,7 +124,10 @@ suite("non_standard_aggregate") {
     sql """SELECT c1, c2 + 1 FROM non_standard_aggregate GROUP BY c1 + 1 HAVING c2 + 2 < 5"""
 
     // having to filter window
-    sql """SELECT c1 + 1, LAG(c2, 0, NULL) OVER(PARTITION BY c1 ORDER BY c3) AS c3 FROM non_standard_aggregate GROUP BY c1 + 1 HAVING c3 < 10"""
+    test {
+        sql """SELECT c1 + 1, LAG(c2, 0, NULL) OVER(PARTITION BY c1 ORDER BY c3) AS c3 FROM non_standard_aggregate GROUP BY c1 + 1 HAVING c3 < 10"""
+        exception "HAVING expression 'c3' must not contain window functions: lag(c2, 0, NULL) OVER(PARTITION BY c1 ORDER BY c3 asc null first)"
+    }
 
     // order by with group by key
     sql """SELECT c1, c2, c3 FROM non_standard_aggregate GROUP BY c1 ORDER BY c1"""
